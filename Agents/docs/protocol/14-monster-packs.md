@@ -84,12 +84,33 @@ The Coast seed 1 (live): `scavenger_camp_2a` at (1241, 598) turned [0 −1; 1 0]
 its `cannibalfire` (1173, 679); 8 bonfire rooms (12/12 or 21/21 doodads). The doodad angles agree (room angle + π/2).
 Fire Fury stands at `mapboss`, about 30 cells from the campfire, with `1_1_2-bosspack` around her.
 
-## 4. Open
+## 4. Corpses and Raise Spectre
+
+A monster that dies leaves a corpse: its object stays in the area for `CorpseBook.LifetimeSeconds` (30 s) instead of the
+10 s the object used to get, and the Gateway keeps a `CorpseBook` entry for it — the object id, the MonsterVarieties
+row, level, rarity, label, where it fell and when it goes. The book is the corpse's identity; nothing else in the
+connection's monster state is reused, so a corpse never resumes acting.
+
+Raise Spectre (`CastGemSkill`, effect id `RaiseSpectre`) is the first corpse-targeting skill. Cast on a corpse it pays
+the skill's mana, removes the corpse's object (0x02bb) and creates a **friendly** monster of that variety and level in
+its place (team 0, `SpawnMonster` with `friendly: true`), remembering the id in `ClientState.SpectreIds`. One corpse
+feeds one minion, and the count is capped at `Spectres.Limit`: one, plus the passives' `number_of_spectres_allowed` —
+a cast over the cap leaves the corpse where it is and logs it. A live monster is not a corpse, so clicking one logs
+`no corpse there`.
+
+Live 2026-10-20 (offline so far): the corpse and limit paths are covered by `CorpseTests`; the client side — whether a
+click on a corpse object reaches C→S 0x24 with the corpse's id — is not yet confirmed. `/raise [id]` (no id: the
+nearest corpse) and `/spectres` make the whole loop testable in the client's chat either way.
+
+Not done: a raised spectre does not follow the player or fight yet (it stands where it was raised), nothing persists
+across a logout or an area change, and the character's death does not drop them.
+
+## 5. Open
 
 - Pack density and magic/rare chances are guesses (§1). Rarity gives no mods, no extra life, no rare names.
 - `Grounds` (Drowned on wet beach) is not checked; we have no ground-type grid.
 - Emerge packs (Gravel Eaters) are skipped until the Emerge action is known.
 - Fire Fury has no boss life bar and uses only her first granted effect; monsters give no experience or loot.
-- Kept monsters lose their corpses (a corpse is removed 10 s after death anyway) and a `/spawn_mob` name.
+- Kept monsters lose their corpses (a corpse is now a 30 s `CorpseBook` entry, §4) and a `/spawn_mob` name.
 - Each new (area, seed) needs a `-Walkmaps` visit for its room points; without the capture there is no unique boss
   (the log says so).

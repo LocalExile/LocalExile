@@ -504,7 +504,7 @@ static async Task OnClientMessages(string remote, NetworkStream stream, Connecti
 
 // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
 // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob and the area's packs (PopulateArea) use it.
-static async Task SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
+static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
     byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null)
 {
     uint id = conn.NextObjectId++;
@@ -542,6 +542,7 @@ static async Task SpawnMonster(string remote, NetworkStream stream, ConnectionCi
     // A kept monster that was hit: its life as a hit sets it (0x1b1).
     if (damagedLife < life)
         await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
+    return id;
 }
 
 // The area's monsters, once the player is in (Agents/docs/protocol/14-monster-packs.md): MonsterPacks scattered over the
@@ -1266,10 +1267,57 @@ static async Task CastGemSkill(string remote, NetworkStream stream, ConnectionCi
             await SendPlayerMana(remote, stream, ciphers, conn,
                 $"0x01b1 player mana {conn.PlayerMana} (-{cost} for {gem.Name})");
     }
-    if (gem.Name is not null && IsRighteousFire(gem.Effect))
+    if (gem.Name is not null && Skills.EffectId(gem.Effect) == "RaiseSpectre")
+        await RaiseSpectre(remote, stream, ciphers, conn, skillId, targetId);
+    else if (gem.Name is not null && IsRighteousFire(gem.Effect))
         await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect);
     else
         await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, targetId);
+}
+
+// Raise Spectre (issue #90): a corpse-targeting gem skill. The corpse's object is removed and a friendly monster of the
+// same variety and level takes its place; the character keeps the ids (ClientState.SpectreIds) so /spectres lists them
+// and the behaviour pass can drive them. One corpse, one minion, up to the limit Spectres.Limit gives.
+static async Task RaiseSpectre(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    ushort skillId, uint targetId)
+{
+    double now = conn.Clock.Elapsed.TotalSeconds;
+    CorpseBook.Corpse? corpse;
+    int have, limit = SpectreLimit(conn);
+    lock (conn.Monsters)
+    {
+        corpse = conn.Corpses.Take(targetId, now);
+        conn.SpectreIds.RemoveAll(id => !conn.Monsters.TryGetValue(id, out var s) || s.Dead);
+        have = conn.SpectreIds.Count;
+    }
+    if (corpse is null)
+    {
+        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} Raise Spectre on 0x{targetId:x}: no corpse there");
+        return;
+    }
+    if (have >= limit)
+    {
+        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} Raise Spectre: {have} of {limit} already raised, " +
+            $"0x{corpse.Id:x} left alone");
+        lock (conn.Monsters) conn.Corpses.Add(corpse);
+        return;
+    }
+    // The corpse is spent before the minion appears, so the client never shows both.
+    lock (conn.Monsters) conn.Monsters.Remove(corpse.Id);
+    await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(corpse.Id), $"0x02bb remove corpse 0x{corpse.Id:x} (raised)");
+    uint id = await SpawnMonster(remote, stream, ciphers, conn, corpse.Variety, corpse.Level, corpse.Rarity,
+        corpse.X, corpse.Y, corpse.Variety.Name, friendly: true);
+    lock (conn.Monsters) conn.SpectreIds.Add(id);
+    Console.WriteLine($"[gateway] {remote} raised spectre 0x{id:x} {corpse.Variety.Name}@{corpse.Level} " +
+        $"from corpse 0x{corpse.Id:x} ({have + 1}/{limit})");
+}
+
+// Raise Spectre's limit: one, plus the passive tree's number_of_spectres_allowed (Spectres.Limit).
+static int SpectreLimit(ClientState conn)
+{
+    var stats = CharacterPlayerStats(conn);
+    int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+    return Spectres.Limit(Get("number_of_spectres_allowed") + Get("base_number_of_spectres_allowed"));
 }
 
 // Aura skills toggle: the first cast reserves their mana and puts their buff on the player, the next cast turns them
@@ -2231,10 +2279,14 @@ static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionC
     (int X, int Y) at, player;
     bool alive;
     lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
-    _ = Task.Delay(10_000).ContinueWith(async _ =>
+    // A corpse (issue #90): the object stays for CorpseBook.LifetimeSeconds so a corpse-targeting skill can still use it,
+    // and the book remembers what died, where and when for Raise Spectre.
+    if (m.Variety is { } died)
+        lock (conn.Monsters) conn.Corpses.Add(new CorpseBook.Corpse(id, died, m.Level, m.Rarity, m.Label, at.X, at.Y, now));
+    _ = Task.Delay(TimeSpan.FromSeconds(CorpseBook.LifetimeSeconds)).ContinueWith(async _ =>
     {
         bool removed;
-        lock (conn.Monsters) removed = conn.Monsters.Remove(id);
+        lock (conn.Monsters) { removed = conn.Monsters.Remove(id); conn.Corpses.Remove(id); }
         if (removed && !conn.Closed)
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove dead monster 0x{id:x}");
     });
@@ -3109,6 +3161,29 @@ static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiph
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
             "0x01b3 player hide_mini_life_bar = 0");
+    })
+    .Add("raise", "/raise [object id] (dev: Raise Spectre on a corpse; no id raises the nearest)", async args =>
+    {
+        double at = conn.Clock.Elapsed.TotalSeconds;
+        var (px, py) = conn.Walk.Position(at);
+        CorpseBook.Corpse? corpse;
+        lock (conn.Monsters)
+            corpse = args.Length > 0 && uint.TryParse(args[0], out uint id)
+                ? conn.Corpses.Get(id, at)
+                : conn.Corpses.Nearest(px, py, at);
+        if (corpse is null) { await conn.Commands!.Reply("No corpse to raise."); return; }
+        await RaiseSpectre(remote, stream, ciphers, conn, 0, corpse.Id);
+    })
+    .Add("spectres", "/spectres (the spectres this character has raised)", async _ =>
+    {
+        List<string> lines = [];
+        lock (conn.Monsters)
+        {
+            conn.SpectreIds.RemoveAll(id => !conn.Monsters.TryGetValue(id, out var s) || s.Dead);
+            foreach (uint id in conn.SpectreIds)
+                if (conn.Monsters.TryGetValue(id, out var s)) lines.Add($"0x{id:x} {s.Label} life {s.Life}/{s.MaxLife}");
+        }
+        await conn.Commands!.Reply(lines.Count == 0 ? "No spectres." : $"{lines.Count}: {string.Join("; ", lines)}");
     })
     .Add("death_screen", "/death_screen [hex flags] (show the death screen; default: this league's; 2 hides it)", async args =>
     {
@@ -4835,6 +4910,10 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     // The character's class: its Characters.dat row (the Witch: 1).
     public int ClassRow { get; init; } = SkillCatalog.WitchRow;
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+    /// <summary>The area's corpses (issue #90): what Raise Spectre can use.</summary>
+    public readonly CorpseBook Corpses = new();
+    /// <summary>The spectres this character has raised (object ids), in the order they were raised.</summary>
+    public readonly List<uint> SpectreIds = [];
     // Server-side estimate of the client-predicted walk (reported in each 0x1ab), kept on walkable cells.
     public WalkEstimator Walk { get; private set; } = NewWalk(layout);
 
