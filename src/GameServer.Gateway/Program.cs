@@ -2282,7 +2282,11 @@ static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionC
     // A corpse (issue #90): the object stays for CorpseBook.LifetimeSeconds so a corpse-targeting skill can still use it,
     // and the book remembers what died, where and when for Raise Spectre.
     if (m.Variety is { } died)
+    {
         lock (conn.Monsters) conn.Corpses.Add(new CorpseBook.Corpse(id, died, m.Level, m.Rarity, m.Label, at.X, at.Y, now));
+        Console.WriteLine($"[gateway] {remote} corpse 0x{id:x} {m.Label} at ({at.X}, {at.Y}), raise it within " +
+            $"{CorpseBook.LifetimeSeconds:0} s");
+    }
     _ = Task.Delay(TimeSpan.FromSeconds(CorpseBook.LifetimeSeconds)).ContinueWith(async _ =>
     {
         bool removed;
