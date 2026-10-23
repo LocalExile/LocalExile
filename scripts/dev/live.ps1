@@ -9,7 +9,10 @@
 #               area the client generates into data/walkability/
 #   -Only Gateway[,Auth,Patch]   rebuild and restart only these servers; the others and the client keep running (implies
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
-param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
+#   -Site       first start the website in Site/ (Nuxt, dev mode) on http://127.0.0.1:3000 (needs Node.js); its
+#               dependencies are installed on the first run and whenever Site/package-lock.json changes. Logs:
+#               logs/site-install.log, logs/live-site.log. Ignored with -Only (the running site is left alone).
+param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$Site, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -32,6 +35,57 @@ if ($Walkmaps) {
     Need $python 'Python not found (needed for -Walkmaps)'
     & $python -c 'import frida' 2>$null
     Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+}
+
+# Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
+# redirecting form creates them with handle inheritance on, so they would hold this shell's stdout open, and whoever runs
+# this script through a pipe (an AI agent's shell tool, `| Select-Object`) would wait until they exit. Started this way
+# (ShellExecute) they inherit the environment (the Game_* settings) but no handles.
+function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err, [string]$dir = $repo) {
+    $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
+    Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $dir -WindowStyle Hidden
+}
+
+# The website (Site/) comes up before the servers and the client.
+if ($Site -and -not $Only) {
+    $siteDir = Join-Path $repo 'Site'
+    $sitePort = 3000
+    Need (Test-Path (Join-Path $siteDir 'package.json')) 'Site\package.json missing'
+    Need (Get-Command npm.cmd -ErrorAction SilentlyContinue) 'Node.js not found (npm, needed for -Site)'
+    # By name from PATH, like dotnet: a quoted full path ("C:\Program Files\...") would break the cmd /c line.
+    $npm = 'npm.cmd'
+
+    # npm writes node_modules/.package-lock.json on every install: missing or older than package-lock.json means the
+    # dependencies are not installed yet or are out of date.
+    $lock = Join-Path $siteDir 'package-lock.json'
+    $installed = Join-Path $siteDir 'node_modules\.package-lock.json'
+    if (-not (Test-Path $installed) -or ((Test-Path $lock) -and (Get-Item $lock).LastWriteTime -gt (Get-Item $installed).LastWriteTime)) {
+        Write-Output 'site installing components'
+        $install = Start-Process cmd.exe -ArgumentList "/c $npm install --no-audit --no-fund 1>`"$out\site-install.log`" 2>&1" `
+            -WorkingDirectory $siteDir -WindowStyle Hidden -Wait -PassThru
+        if ($install.ExitCode -ne 0) { throw "site install failed (logs\site-install.log)" }
+    }
+
+    # Stop only our own site (node processes running from Site/); anything else on the port is reported, not killed.
+    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like "*$siteDir\*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 500
+    foreach ($c in Get-NetTCPConnection -LocalPort $sitePort -State Listen -ErrorAction SilentlyContinue) {
+        $proc = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+        if ($proc) { throw "port $sitePort is used by $($proc.ProcessName) (pid $($proc.Id)); close it to start the site" }
+    }
+
+    Remove-Item (Join-Path $out 'live-site.log'), (Join-Path $out 'live-site.err') -ErrorAction SilentlyContinue
+    Start-Detached $npm @('run', 'dev') (Join-Path $out 'live-site.log') (Join-Path $out 'live-site.err') $siteDir
+    $deadline = (Get-Date).AddSeconds(90)
+    while (-not (Get-NetTCPConnection -LocalPort $sitePort -State Listen -ErrorAction SilentlyContinue)) {
+        if ((Get-Date) -gt $deadline) {
+            $tail = (Get-Content (Join-Path $out 'live-site.err'), (Join-Path $out 'live-site.log') -Tail 15 -ErrorAction SilentlyContinue) -join "`n"
+            throw "site did not start on port $sitePort (logs\live-site.log, logs\live-site.err):`n$tail"
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Output "site running on http://127.0.0.1:$sitePort"
 }
 
 # Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
@@ -68,15 +122,6 @@ if (-not $NoBuild) {
         dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
     }
-}
-
-# Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
-# redirecting form creates them with handle inheritance on, so they would hold this shell's stdout open, and whoever runs
-# this script through a pipe (an AI agent's shell tool, `| Select-Object`) would wait until they exit. Started this way
-# (ShellExecute) they inherit the environment (the Game_* settings) but no handles.
-function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err) {
-    $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-    Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden
 }
 
 $bin = 'bin\Debug\net10.0'

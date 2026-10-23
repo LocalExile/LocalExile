@@ -325,6 +325,12 @@ Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and 
   and Play again.
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
+- `-Site` first starts the website in `Site\` (Nuxt, dev mode) on http://127.0.0.1:3000, then the servers and the
+  client. On the first run, and whenever `Site\package-lock.json` changes, it installs the site's dependencies (prints
+  `site installing components`, log in `logs\site-install.log`); then it prints `site running on
+  http://127.0.0.1:3000`. The site's own output goes to `logs\live-site.log`. A site already started from `Site\` is
+  restarted; anything else on port 3000 stops the script with a message. With `-Only` the flag is ignored and the
+  running site keeps running.
 
 ## Troubleshooting
 
