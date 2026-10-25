@@ -40,6 +40,25 @@ public class AttackBaseCriticalStrikeTests
     static string OverrideStat => AttackBaseCriticalStrike.WeaponOverrideStat;
     static string UnarmedStat => AttackBaseCriticalStrike.UnarmedBaseStat;
 
+    [Theory]
+    [InlineData("global_cannot_crit")]
+    [InlineData("virtual_global_cannot_crit")]
+    [InlineData("cannot_critical_strike_with_attacks")]
+    public void Attack_crit_prohibitions_win_over_both_base_grants(string prohibition)
+    {
+        var raw = Raw((OverrideStat, 900), (UnarmedStat, 1000), (prohibition, 1));
+        Assert.Equal(0, AttackBaseCriticalStrike.Chance(true, 830, 100, raw));
+        Assert.Equal(0, AttackBaseCriticalStrike.Chance(false, 0, 100, raw));
+    }
+
+    [Theory]
+    [InlineData(500, 1, 505)]
+    [InlineData(850, 1, 859)]
+    [InlineData(900, -100, 0)]
+    [InlineData(900, 2000, 10000)]
+    public void Final_chance_rounds_permyriad_once_and_clamps(int baseChance, int increased, int expected)
+        => Assert.Equal(expected, AttackBaseCriticalStrike.Chance(true, 830, increased, Raw((OverrideStat, baseChance))));
+
     // --- The raw stats in the data (Agents/docs/protocol/11-skills.md §crit) ---
 
     [Fact]

@@ -206,14 +206,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   Two pure base stats replace that base before the increased chance, the way PoB's `WeaponBaseCritChance` replaces
   an attack pass's `source.CritChance` when that hand has a weapon:
   `override_weapon_base_critical_strike_chance` (Stats row 9892, permyriad) on the armed main hand — Slayer
-  Overwhelm (PassiveSkills row 17315) grants 800 = 8.00% and Blind Prophet's Sightless (row 24698) grants 900 =
+  Overwhelm (graph id 17315) grants 800 = 8.00% and Blind Prophet's Sightless (graph id 24698) grants 900 =
   9.00% — and `base_melee_critical_strike_chance_while_unarmed_%` (Stats row 3906, permyriad; Behemoth Final Blow,
-  row 10135, grants 1000 = 10.00%) on the unarmed melee attack.
+  graph id 10135, grants 1000 = 10.00%) on the unarmed melee attack.
   Each is a base, not a fixed final chance: generic increased crit still applies on top;
   the weapon override stays out of unarmed and spell rolls, and the unarmed base stays out of a weapon hand.
-  `/set_stat` on either stat rebuilds the pools at once, so the panel and the rolls agree; the Slayers' and Blind
-  Prophets' nodes reach the player once the ascendancy lifecycle delivers ascendancy passive stats to the tree.
-  Protects cannot-crit and the spell route: `SpellCriticalStrike` reads neither raw stat.
+  Only the active weapon set supplies the attack base and its weapon-specific increases.
+  `/set_stat` replaces the input and rebuilds the pools, so the panel and the rolls agree.
+  Twelve native checks verified 830 → 800 → 900, increased chance → 1800, cannot-crit → zero,
+  empty-set/unarmed behavior, weapon restoration and relog; spell chance stayed 500.
+  Ascendancy allocation remains in the separate lifecycle change.
+  Global, virtual-global and attack-specific cannot-crit flags suppress the attack chance.
+  `SpellCriticalStrike` reads neither base override.
   The final main-hand and spell crit chance/multiplier stats go to the client for the Offence panel;
   selected spell chance and server projectile/area rolls now share raw player and skill inputs once.
   Precision and Zealotry retain their existing bonuses without counting them twice.

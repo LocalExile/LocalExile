@@ -51,10 +51,8 @@ partial class Program
             uint stat = Stats.Key(args[0]) ?? throw new ArgumentException($"unknown stat {args[0]}");
             int value = int.Parse(args[1]);
             lock (conn.Monsters) conn.PlayerStats[stat] = value;
-            // The pools' attack base critical chance is one of the raw inputs (AttackBaseCriticalStrike), so the two
-            // pure base stats reach the panel and the rolls right away; the others keep their existing paths.
-            if (stat == Stats.Key(AttackBaseCriticalStrike.WeaponOverrideStat)
-                || stat == Stats.Key(AttackBaseCriticalStrike.UnarmedBaseStat))
+            // Refresh the final attack chance when a base, increase or cannot-crit input changes.
+            if (AttackBaseCriticalStrike.IsInput(Stats.Name(stat) ?? args[0]))
                 lock (conn.Monsters) conn.Pools = PoolsFor(conn, conn.Pools.Level);
             // The client's requirement checks (gear and gems) read virtual_strength/dexterity/intelligence_for_requirements,
             // not the attributes themselves (13-items.md §2d), so an attribute set here sets its requirement value too.

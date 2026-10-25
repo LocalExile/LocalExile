@@ -8,9 +8,9 @@
 /// <see href="https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/ModParser.lua#L5532">line 5532</see>
 /// parses "Base Critical Strike Chance for Attacks with Weapons is X%" as that override). The tree's only weapon grant
 /// is Stats row 9892 `override_weapon_base_critical_strike_chance` (client key 9893, permyriad): Slayer Overwhelm
-/// (PassiveSkills row 17315) grants 800 = 8.00% and the Trickster position's Blind Prophet node Sightless (row 24698)
+/// (graph id 17315) grants 800 = 8.00% and the Trickster position's Blind Prophet node Sightless (graph id 24698)
 /// grants 900 = 9.00%. It names the *weapon's* base, so an unarmed context keeps its own unrelated base: the Behemoth
-/// position's Final Blow (PassiveSkills row 10135) grants `base_melee_critical_strike_chance_while_unarmed_%`
+/// position's Final Blow (graph id 10135) grants `base_melee_critical_strike_chance_while_unarmed_%`
 /// (Stats row 3906, client key 3907, permyriad) 1000 = 10.00% where the WeaponTypes base is 0. Neither base is a spell
 /// value: <see cref="SpellCriticalStrike"/> stays on the spell route with its own extracted bases.
 /// </summary>
@@ -38,4 +38,16 @@ static class AttackBaseCriticalStrike
         }
         return Math.Max(0, raw(UnarmedBaseStat));
     }
+
+    public static int Chance(bool weaponInMainHand, int weaponBase, int increasedPct, Func<string, int> raw)
+    {
+        if (raw("global_cannot_crit") != 0 || raw("virtual_global_cannot_crit") != 0
+            || raw("cannot_critical_strike_with_attacks") != 0) return 0;
+        decimal chance = decimal.Round(OfMainHand(weaponInMainHand, weaponBase, raw) * (100m + increasedPct) / 100m,
+            0, MidpointRounding.AwayFromZero);
+        return (int)Math.Clamp(chance, 0m, 10_000m);
+    }
+
+    public static bool IsInput(string name) => name.Contains("critical_strike_chance", StringComparison.Ordinal)
+        || name is "global_cannot_crit" or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
 }

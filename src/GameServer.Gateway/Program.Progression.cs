@@ -111,6 +111,7 @@ partial class Program
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var sources = CharacterStatSources(conn, level: level);
         var weapons = WeaponProfileFor(conn);
+        var activeWeapon = WeaponProfileFor(conn, activeSet: true);
         var bonus = PassiveBonus(sources, weapons);
         int Get(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
         var gear = EquippedBaseDefences(conn, Get);
@@ -149,6 +150,10 @@ partial class Program
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         Dictionary<uint, int> devStats;
         lock (conn.Monsters) devStats = new(conn.PlayerStats);
+        var criticalSources = new Dictionary<uint, int>(sources);
+        foreach (var (key, value) in devStats) criticalSources[key] = value;
+        int RawCritical(string name) => Stats.Key(name) is uint key ? criticalSources.GetValueOrDefault(key) : 0;
+        int criticalIncrease = PassiveBonus(criticalSources, activeWeapon).CriticalStrikeChancePct + aura.CriticalStrikeChancePct;
         pools = pools with
         {
             AttackBlockLucky = pools.AttackBlockLucky || conn.ForceAttackBlockLucky,
@@ -159,12 +164,8 @@ partial class Program
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
-            AttackCriticalStrikeChance = (int)Math.Round(
-                DamageModel.CriticalStrikeChance(
-                    AttackBaseCriticalStrike.OfMainHand(!weapons.Unarmed, weapons.Critical,
-                        name => Stats.Key(name) is uint key
-                            ? sources.GetValueOrDefault(key) + devStats.GetValueOrDefault(key) : 0),
-                    pools.CriticalStrikeChancePct) * 100),
+            AttackCriticalStrikeChance = AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
+                activeWeapon.Critical, criticalIncrease, RawCritical),
             SpellCriticalStrikeChance = (int)Math.Round(
                 DamageModel.CriticalStrikeChance(DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
                     pools.SpellCriticalStrikeChancePct) * 100)

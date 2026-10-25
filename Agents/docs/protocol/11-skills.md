@@ -235,14 +235,24 @@ global increases, the way PoB's `WeaponBaseCritChance` override replaces an atta
 only when that hand's weapon type is not "None" (ModParser gets it from "Base Critical Strike Chance for Attacks
 with Weapons is X%").
 `override_weapon_base_critical_strike_chance` (Stats.dat row 9892, client key 9893, permyriad) is the armed main
-hand's base: Slayer Overwhelm (PassiveSkills row 17315) grants 800 = 8.00%, and the Blind Prophet position's
-Sightless (row 24698) grants 900 = 9.00%. `base_melee_critical_strike_chance_while_unarmed_%` (Stats.dat row 3906,
-client key 3907, permyriad; the Behemoth position's Final Blow, row 10135, grants 1000 = 10.00%) fills the unarmed
+hand's base: Slayer Overwhelm (graph id 17315) grants 800 = 8.00%, and the Blind Prophet position's
+Sightless (graph id 24698) grants 900 = 9.00%.
+`base_melee_critical_strike_chance_while_unarmed_%` (Stats.dat row 3906,
+client key 3907, permyriad; the Behemoth position's Final Blow, graph id 10135, grants 1000 = 10.00%) fills the unarmed
 melee attack that has no weapon base. Each is a base, not a fixed final chance: the generic
 `critical_strike_chance_+%` increases still apply on top. A weapon hand keeps the unarmed base out, an unarmed
-context keeps the weapon override out, and `SpellCriticalStrike`'s spell route reads neither, so cannot-crit and
-the spell panels are untouched. The pool builds the base once in `AttackBaseCriticalStrike`; `/set_stat` on either
-raw stat rebuilds the pools in place, and the panel's final `main_hand_critical_strike_chance` and the rolls share it.
+context keeps the weapon override out, and `SpellCriticalStrike`'s spell route reads neither.
+The active weapon set determines the attack base and weapon-specific increases; an inactive weapon grants neither.
+`global_cannot_crit`, `virtual_global_cannot_crit` and `cannot_critical_strike_with_attacks` suppress attack crits.
+The pool builds the base once in `AttackBaseCriticalStrike`.
+`/set_stat` replaces its source value and rebuilds the pools for critical-chance inputs and prohibitions.
+The panel's final `main_hand_critical_strike_chance` and the rolls share that result.
+Twelve real-client checks used a fresh synthetic character and read the client's received stat values.
+A Driftwood Wand's 830 became 800 and 900; 100% increased chance raised 900 to 1800, then cannot-crit set it to zero.
+Switching to an empty second set gave zero despite the inactive wand; the unarmed base gave 1000.
+Switching back restored 900, clearing the weapon override restored 830, and relog cleared the development overrides.
+The spell stat remained 500 throughout.
+These checks validate the generic stat consumers; ascendancy allocation remains in its separate lifecycle change.
 Spells use their own level's `GrantedEffectStatSetsPerLevel.SpellCritChance`:
 Fireball 500 (5.00%), Freezing Pulse and Ice Nova 750, Arc 600, Scorching Ray 0.
 `SkillCatalog.SpellCritChance` returns null for missing/invalid data, distinct from a known zero; both fail closed.
