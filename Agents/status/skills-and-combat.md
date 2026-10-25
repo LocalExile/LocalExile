@@ -21,6 +21,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Offence panel damage rows: the hit the server swings with becomes `main_hand_minimum/maximum_total_damage` and the
   per-type minimum/maximum rows, with `skill_uses_main_hand` so the client shows them;
   whole numbers, main hand only, and an empty packet sends none.
+  The rows and the server's hit share `AttackHit`, so the maximum-mana added lightning (Whisperer "we know all")
+  appears in the panel the same way (live check pending).
   Code: `PanelStats.HandDamage`, Gateway (`CharacterPlayerStats`).
   Docs: [11](../docs/protocol/11-skills.md) §14.
 - Accuracy: the player's final rating includes flat/increased passives, weapon-specific stats and the unconditional
@@ -308,7 +310,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Live checks covered absorption, regeneration, interrupted recharge and chaos bypass.
   Special ES keystones, leech/recoup and conditional substitutions remain unimplemented.
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
-  Not yet: penetration/exposure, added damage, increased/more support modifiers, ailment
+  Added damage starts with the maximum-mana granted lightning stat (the Whisperer "we know all" node's damage
+  component; automated packet/panel checks, live verification pending).
+  Not yet: penetration/exposure, the other added-damage stats and more support modifiers, ailment
   application/duration and monster resistance modifiers ([20](../docs/protocol/20-damage.md)).
   Monster base resistances now come from the target client's MonsterTypes/MonsterResistances tables.
 - Continuous life/mana recovery (2026-10-24): regeneration, flask recovery and self RF now share a 16 ms

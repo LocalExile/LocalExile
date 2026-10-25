@@ -33,7 +33,7 @@ values were not used on the wire).
 
 ```
 base skill/weapon damage by type
-  → added damage (not modelled yet)
+  → added damage (DamageStats.Added; the first added-damage stat is read, see §2)
   → gain X% as extra (does not consume the source)
   → conversion (source is consumed; converted damage can convert again)
   → increased / more multipliers per type
@@ -66,6 +66,26 @@ stats apply; `DamageStats` reads the Stats.dat names:
 `…_damage_%_to_convert_to_…` names use the global table. Conditional variants ("while affected by Anger", "against
 frozen enemies", ...) are not read yet. Skill conversion takes precedence when skill and global conversion together
 exceed 100%, matching PoB's `buildConversionTable`.
+
+## 2b. Added damage from stats (the first stat)
+
+Added damage is not fully modelled yet, but one stat is read.
+`DamageStats.Added` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
+11881, client key 11882) to an attack's added-lightning range.
+The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
+from the same final stat dictionary, so spending mana and reserved mana never change the damage, while a pool
+change (level, equipment, passives) does.
+Path of Building pinned 16de4b82 (ModParser.lua lines 5636–5639) maps the node's value to both LightningMin and
+LightningMax as BASE with PercentStat Mana and ModFlag Attack; the packet agrees.
+At 6% of a 1000 mana pool (Whisperer "we know all", PassiveSkills.dat graph id 22720) the attack gets 60-60
+added lightning, not 1-60.
+The pool bonus joins the added range before the increases, so the increased attack-damage stats and later
+conversion treat it like any other added lightning, and a fractional result is only rounded at the existing roll
+and panel stages (`AttackHit` is the shared attack packet constructor, so ordinary attacks and attack gem
+projectile/area hits agree).
+Spell hits and damage over time are untouched, and saved gem quality/experience is not read.
+The node's separate mana-cost drawback (`base_mana_cost_-%`) is a mana-cost change outside this damage
+consumption's scope.
 
 ## 3. Damage over time and ailments
 
@@ -126,8 +146,8 @@ also check pause, flasks and RF. The new visual behavior awaits that real-client
 ## 6. Not modelled yet
 
 - Energy shield, penetration, exposure, shock and other damage-taken modifiers; monster armour and resistances.
-- Added flat damage from supports/items, increased/more modifiers per type, damage effectiveness, and skill-specific
-  added-damage scaling.
+- Added flat damage besides the maximum-mana granted lightning stat (supports/items, the other added-damage
+  stats), increased/more modifiers on the base damage, and skill-specific added-damage scaling.
 - Ailment application, duration and effect; critical ailments; bleed movement bonus; poison stacking bookkeeping.
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, leech, life/mana gain on hit, and recoup.

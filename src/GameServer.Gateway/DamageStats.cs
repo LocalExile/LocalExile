@@ -9,6 +9,10 @@ using DamageType = GameServer.Core.World.DamageType;
 /// </summary>
 static class DamageStats
 {
+    /// <summary>"Attack skills have added lightning damage equal to % of maximum mana" (Stats.dat row 11881, client key
+    /// 11882): PassiveSkills.dat graph id 22720, Whisperer "we know all", grants row 11881 with the value 6.</summary>
+    public const string MaxManaAddedLightning = "attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana";
+
     public static DamagePacket Added(DamagePacket hit, Func<string, int> get, bool spell, double effectiveness = 1)
     {
         foreach (var type in Types)
@@ -17,6 +21,21 @@ static class DamageStats
             var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"));
             if (!spell)
             {
+                if (type == DamageType.Lightning)
+                {
+                    int manaPercent = get(MaxManaAddedLightning);
+                    if (manaPercent != 0 && get("maximum_mana") is > 0 and var maxMana)
+                    {
+                        // PoB ModParser 16de4b82 lines 5636–5639 maps the node's value to BOTH LightningMin and
+                        // LightningMax as BASE with PercentStat Mana (the maximum, not the current pool) and ModFlag
+                        // Attack. The pools' maximum_mana is already the full pool, so spending and reserving mana
+                        // never change the bonus. Applied before the increases, so increased/decreased attack damage
+                        // scales it like any other added lightning; later conversion treats it as lightning too.
+                        double added = maxMana * (manaPercent / 100.0);
+                        range = range.Add(new DamageRange(added, added));
+                    }
+                }
+
                 int increased = get("damage_+%") + get("melee_damage_+%") + get($"{slug}_damage_+%")
                     + (DamageTypes.IsElemental(type) ? get("elemental_damage_+%") : 0);
                 range = range.Scale(Math.Max(0, 1 + increased / 100.0));

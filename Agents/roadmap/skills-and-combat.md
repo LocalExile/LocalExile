@@ -59,7 +59,11 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   armour/evasion mitigate monster hits (Status: Armour and Evasion).
 - **Known:** both sides still have flat damage ranges ([11](../docs/protocol/11-skills.md) 5, 6);
   ordinary player ES absorption, regeneration and interrupted recharge are implemented and live-checked.
-  Special ES mechanics, penetration, exposure, ailment application, added damage and support modifiers remain open.
+  Added damage has its first stat: the attack's added lightning gets
+  `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` percent of the maximum mana pool
+  (Whisperer "we know all", [20](../docs/protocol/20-damage.md) §2b).
+  Special ES mechanics, penetration, exposure, ailment application, the other added-damage stats and support
+  modifiers remain open.
 - **Start:** special ES mechanics, penetration/exposure and the remaining conditional critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.
