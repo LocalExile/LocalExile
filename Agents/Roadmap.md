@@ -66,7 +66,9 @@ on monsters and stash-tab essence upgrading remain separate features.
 ### Area transitions without a walk-map run
 - **Known:** every area gets its area transitions and destinations, but a generated area only has them once
   `live.ps1 -Walkmaps` captured its layout for that seed ([08](docs/protocol/08-area-transitions.md) §7). 11 atlas
-  connections are unresolved, 41 are point-only, and four object types are sent as plain AreaTransition.
+  connections are unresolved, 40 are point-only, and four object types are sent as plain AreaTransition. The atlas
+  now pairs The Climb's prison exit to its entrance point instead of a monster point ([08](docs/protocol/08-area-transitions.md)
+  §6); the generated layout still needs a capture for placement.
 - **Start:** reproduce the client's level generator (the atlas already parses graphs, rooms and tiles), or ship
   captures for fixed seeds.
 - **Done when:** a new seed gets its area transitions without Frida.

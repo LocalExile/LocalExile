@@ -206,6 +206,41 @@ static partial class AtlasBuilder
         };
     }
 
+    /// <summary>The point an object belongs to: the nearest candidate for each tile orientation, or, when those
+    /// orientations disagree and at least one point is inside the transition tile, the nearest preferred point.
+    /// A single orientation's pick and the room-wide nearest fallback are never filtered, so an object far from every
+    /// exit is not guessed onto one.</summary>
+    internal static PointChoice ChoosePoint(IReadOnlyList<NamedPoint> named, IReadOnlyList<NamedPoint> inside,
+        IReadOnlyList<(int Code, float X, float Y)> positions, GraphNode node, RoomFile room)
+    {
+        bool insideTile = inside.Count > 0;
+        var pool = insideTile ? inside : named;
+        var picks = positions.Select(pos => pool.MinBy(p => Dist(p, pos.X, pos.Y))!).Distinct().ToList();
+        if (insideTile && picks.Count > 1)
+        {
+            var preferred = PreferredPoints(inside, node, room);
+            var preferredPicks = positions.Select(pos => preferred.MinBy(p => Dist(p, pos.X, pos.Y))!).Distinct().ToList();
+            if (preferredPicks.Count == 1) picks = preferredPicks;
+        }
+        return picks.Count == 1
+            ? new PointChoice(picks[0], insideTile ? "inside the transition tile" : "nearest point", null)
+            : new PointChoice(null, insideTile ? "inside the transition tile" : "nearest point",
+                $"the tile's orientations put it nearest to different points ({string.Join(", ", picks.Select(p => p.Name))})");
+    }
+
+    /// <summary>The candidate points an object may belong to: transition endpoints (what <see cref="RoleOf"/> knows)
+    /// plus any custom point this graph node can name by the same rules as <see cref="NodeNameFor"/> (exact, with
+    /// "disabled", or a generic point numbered by the node). When the candidates are only object points (a monster's,
+    /// an effect's), they are kept, so the object is not left without a candidate.</summary>
+    internal static IReadOnlyList<NamedPoint> PreferredPoints(IReadOnlyList<NamedPoint> candidates, GraphNode node,
+        RoomFile room)
+    {
+        var endpoints = candidates.Where(p => RoleOf(p.Name) != "other" || NodeNameFor(node, room, p).Name is not null).ToList();
+        return endpoints.Count > 0 ? endpoints : candidates;
+    }
+
+    internal readonly record struct PointChoice(NamedPoint? Point, string How, string? Unresolved);
+
     /// <summary>The graph node's name for a room point: the same name (or with "disabled"), or for a generic point
     /// ("entrance") the one numbered node name not used by another point, or (as many generic points as names) the name
     /// in the same position. Returns the name, a note for "matched", or a problem.</summary>
@@ -251,7 +286,7 @@ static partial class AtlasBuilder
         }
         else positions.Add((-1, obj.DoodadX, obj.DoodadY));
 
-        // The room's named point this object belongs to (any name but "default"): one inside the tile, else the nearest.
+        // The room's named point this object belongs to: one inside the tile, else the nearest.
         var named = room.Points.Where(p => !p.Name.Equals("default", StringComparison.OrdinalIgnoreCase)).ToList();
         NamedPoint? point = null;
         string? how = null, unresolved = null, role = null;
@@ -271,11 +306,10 @@ static partial class AtlasBuilder
         else
         {
             var inside = rect is { } r ? named.Where(p => p.X >= r.X0 && p.X < r.X1 && p.Y >= r.Y0 && p.Y < r.Y1).ToList() : [];
-            var pool = inside.Count > 0 ? inside : named;
-            how = inside.Count > 0 ? "inside the transition tile" : "nearest point";
-            var picks = positions.Select(pos => pool.MinBy(p => Dist(p, pos.X, pos.Y))!).Distinct().ToList();
-            if (picks.Count == 1) point = picks[0];
-            else unresolved = $"the tile's orientations put it nearest to different points ({string.Join(", ", picks.Select(p => p.Name))})";
+            var choice = ChoosePoint(named, inside, positions, node, room);
+            point = choice.Point;
+            how = choice.How;
+            unresolved = choice.Unresolved;
             if (point is not null && inside.Count == 0)
             {
                 float far = positions.Min(pos => Dist(point, pos.X, pos.Y));

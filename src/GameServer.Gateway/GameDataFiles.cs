@@ -13,7 +13,7 @@ static class GameDataFiles
         ("data/tables/CraftingItemClassCategories.json", "crafting bench item compatibility"),
         ("data/object-types.json", "monsters, NPCs, area transitions"),
         ("data/item-types.json", "items"),
-        ("data/area-transitions.json", "area transitions of fixed layouts"),
+        ("data/area-transitions.json", "area transition destinations and fixed-layout placements"),
         ("data/room-points.json", "unique bosses, The Twilight Strand's force wall"),
         ("data/hideouts.json", "hideouts"),
         ("data/animation-contacts.json", "class spell timing (the Witch's is used)"),

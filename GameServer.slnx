@@ -10,6 +10,7 @@
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Atlas.Tests/Atlas.Tests.csproj" />
     <Project Path="tests/GameServer.Data.Tests/GameServer.Data.Tests.csproj" />
     <Project Path="tests/GameServer.Core.Tests/GameServer.Core.Tests.csproj" />
     <Project Path="tests/GameServer.Gateway.Tests/GameServer.Gateway.Tests.csproj" />

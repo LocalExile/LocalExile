@@ -271,6 +271,27 @@ The 11 unresolved connections:
 Files: 12 .tdt that are not version 10 do not parse (wall chests, theatre walls, abyss holes, templar doors; none is a
 transition tile seen so far), and 2 referenced files are not in the index.
 
+### Pairing correction (2026-10-24)
+
+The Climb (`1_1_6`) has an exit object, `beach_prisonback_area_transition.ao`, whose two possible tile orientations
+were nearest to different points inside its tile: a monster spawn point and `entrance`. That left the object
+unresolved and the Lower Prison connection point-only. `AtlasBuilder.ChoosePoint` first computes each orientation's
+nearest point in the original pool. Only if those picks disagree and points lie **inside the transition tile** does
+it try `PreferredPoints` to resolve the ambiguity. That pool keeps entrance/teleport/sidearea/link roles and custom
+points matched by the graph node's existing exact, disabled or generic-numbered rules; if none qualifies, the
+original pool stays. Single-nearest picks and the room-wide nearest fallback are unchanged.
+
+Against the same client files, the atlas now resolves The Climb → Lower Prison in all six topologies. Connection
+coverage becomes 439 resolved, 230 disabled, 40 point-only, 11 unresolved. No previously resolved object changes
+destination or placement. Besides the six Climb objects and their removed point-only placeholders, four Haunted
+Mansion objects become unused after selecting a point that their node does not name; none gains an inter-area
+destination. Eight synthetic tests cover ambiguous and unambiguous picks, both fallback branches, roles and custom
+node names. The extraction manifest's `area-transitions` version is 2, so a normal `live.ps1`
+start regenerates the ignored atlas. This fixes destination pairing only; a generated area still needs its
+per-seed capture. Live seed-1 validation captured both areas and confirmed that clicking The Climb's prison exit
+(object `0x2001`, cell 1569,1108) sends the character to The Lower Prison (`0x93c4`). The door test used local dev
+travel to reach the area and disabled monster spawning; it was not a campaign playthrough.
+
 ### Not derived / next
 
 - Generated areas: only room-local positions, because the generator places rooms by seed. The walk-map recorder

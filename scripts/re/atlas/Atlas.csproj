@@ -5,5 +5,8 @@
     <ProjectReference Include="..\..\..\src\GameServer.Data\GameServer.Data.csproj" />
     <Compile Include="..\ggdump\NodeOodleDecoder.cs" Link="NodeOodleDecoder.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Atlas.Tests" />
+  </ItemGroup>
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
 </Project>
