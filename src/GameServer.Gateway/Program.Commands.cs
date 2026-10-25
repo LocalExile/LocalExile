@@ -472,12 +472,12 @@ partial class Program
             int maxResistance = MaxResistance(conn, type);
             bool immune = PlayerImmunities(conn).Contains(type);
             int dealt = immune ? 0 : type == DamageType.Physical
-                ? DamageModel.MitigatePhysical(amount, conn.Pools.Armour)
+                ? DamageModel.MitigatePhysical(amount, conn.Pools.Armour, AdditionalPhysicalReduction(conn))
                 : DamageModel.Mitigate(amount, resistance, maxResistance);
             string mitigation = immune
                 ? "immunity"
                 : type == DamageType.Physical
-                    ? $"{DamageModel.ArmourReduction(conn.Pools.Armour, amount)}% armour"
+                    ? $"{PlayerPhysicalReduction(conn, amount)}% physical reduction"
                     : $"{DamageModel.Capped(resistance, maxResistance)}% resistance";
             uint life;
             bool wasDead;
@@ -486,7 +486,8 @@ partial class Program
                 wasDead = conn.PlayerLife == 0;
                 if (!wasDead)
                 {
-                    conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - DamageEnergyShield(conn, dealt, type == DamageType.Chaos, conn.Clock.Elapsed.TotalSeconds));
+                    conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt,
+                        type == DamageType.Chaos ? dealt : 0, conn.Clock.Elapsed.TotalSeconds));
                     life = conn.PlayerLife;
                 }
                 else life = 0;
@@ -556,7 +557,7 @@ partial class Program
             int monsterAccuracy = Monsters.BaseAccuracy(level) ?? 0;
             int monsterDamage = Monsters.BaseDamage(level) ?? 0;
             int hitChance = DamageModel.AccuracyHitChance(conn.Pools.Evasion, monsterAccuracy);
-            int reduction = DamageModel.ArmourReduction(conn.Pools.Armour, monsterDamage);
+            int reduction = PlayerPhysicalReduction(conn, monsterDamage);
             await conn.Commands!.Reply($"Armour {conn.Pools.Armour} ({conn.Pools.ArmourPct}% increased): " +
                 $"{reduction}% physical reduction against a level {level} monster hit ({monsterDamage}), " +
                 $"evasion {conn.Pools.Evasion} ({conn.Pools.EvasionPct}% increased): {100 - hitChance}% chance to evade " +
@@ -590,12 +591,12 @@ partial class Program
             int resistance = Resistance(conn, type), maxResistance = MaxResistance(conn, type);
             bool immune = PlayerImmunities(conn).Contains(type);
             int dealt = immune ? 0 : type == DamageType.Physical
-                ? DamageModel.MitigatePhysical(amount, conn.Pools.Armour)
+                ? DamageModel.MitigatePhysical(amount, conn.Pools.Armour, AdditionalPhysicalReduction(conn))
                 : DamageModel.Mitigate(amount, resistance, maxResistance);
             string mitigation = immune
                 ? "immunity"
                 : type == DamageType.Physical
-                    ? $"{DamageModel.ArmourReduction(conn.Pools.Armour, amount)}% armour"
+                    ? $"{PlayerPhysicalReduction(conn, amount)}% physical reduction"
                     : $"{DamageModel.Capped(resistance, maxResistance)}% resistance";
             var (chance, effect, lucky, unlucky) = Suppression(conn);
             bool suppressed = DamageModel.Suppresses(chance, Random.Shared.Next(100), lucky, unlucky);
@@ -607,7 +608,8 @@ partial class Program
                 wasDead = conn.PlayerLife == 0;
                 if (!wasDead)
                 {
-                    conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - DamageEnergyShield(conn, dealt, type == DamageType.Chaos, conn.Clock.Elapsed.TotalSeconds));
+                    conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt,
+                        type == DamageType.Chaos ? dealt : 0, conn.Clock.Elapsed.TotalSeconds));
                     life = conn.PlayerLife;
                 }
                 else life = 0;
@@ -674,12 +676,12 @@ partial class Program
             bool blocked = DamageModel.Blocks(chance, Random.Shared.NextDouble() * 100, lucky, unlucky);
             bool immune = PlayerImmunities(conn).Contains(type);
             int dealt = immune || blocked ? 0 : type == DamageType.Physical
-                ? DamageModel.MitigatePhysical(amount, conn.Pools.Armour)
+                ? DamageModel.MitigatePhysical(amount, conn.Pools.Armour, AdditionalPhysicalReduction(conn))
                 : DamageModel.Mitigate(amount, resistance, maxResistance);
             string mitigation = immune
                 ? "immunity"
                 : type == DamageType.Physical
-                    ? $"{DamageModel.ArmourReduction(conn.Pools.Armour, amount)}% armour"
+                    ? $"{PlayerPhysicalReduction(conn, amount)}% physical reduction"
                     : $"{DamageModel.Capped(resistance, maxResistance)}% resistance";
             uint life, mana, manaBefore;
             bool wasDead;
@@ -692,7 +694,8 @@ partial class Program
                     int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
                     int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
                     conn.PlayerLife = (uint)Math.Min(UnreservedLife(conn),
-                        Math.Max(0, (long)conn.PlayerLife - DamageEnergyShield(conn, dealt, type == DamageType.Chaos, conn.Clock.Elapsed.TotalSeconds) + gainedLife));
+                        Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt,
+                            type == DamageType.Chaos ? dealt : 0, conn.Clock.Elapsed.TotalSeconds) + gainedLife));
                     conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
                     life = conn.PlayerLife;
                     mana = conn.PlayerMana;
@@ -742,7 +745,7 @@ partial class Program
         })
         .Add("heal", "/heal (full life; also revives: 0x1b1 from 0 runs the client's revive)", async _ =>
         {
-            lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (UnreservedLife(conn), (uint)UnreservedMana(conn)); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
+            lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (UnreservedLife(conn), (uint)UnreservedMana(conn)); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); conn.Ward.Restore(); }
             await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
                 $"0x01b1 player healed to {conn.PlayerMaxLife}");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");

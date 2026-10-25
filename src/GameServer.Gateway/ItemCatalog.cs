@@ -229,7 +229,7 @@ sealed class ItemCatalog
     /// <summary>A base's defence range from ArmourTypes.dat (the values the client interpolates with the item's base
     /// percentile). Body armour, helmets, gloves, boots and shields have them; most other bases are zero.</summary>
     public readonly record struct BaseDefences(int ArmourMin, int ArmourMax, int EvasionMin, int EvasionMax,
-        int EnergyShieldMin = 0, int EnergyShieldMax = 0);
+        int EnergyShieldMin = 0, int EnergyShieldMax = 0, int WardMin = 0, int WardMax = 0);
 
     private Lazy<Dictionary<int, BaseDefences>> _defences = null!;
 
@@ -249,7 +249,9 @@ sealed class ItemCatalog
                 r.GetProperty("ArmourMin").GetInt32(), r.GetProperty("ArmourMax").GetInt32(),
                 r.GetProperty("EvasionMin").GetInt32(), r.GetProperty("EvasionMax").GetInt32(),
                 r.TryGetProperty("EnergyShieldMin", out var esMin) ? esMin.GetInt32() : 0,
-                r.TryGetProperty("EnergyShieldMax", out var esMax) ? esMax.GetInt32() : 0);
+                r.TryGetProperty("EnergyShieldMax", out var esMax) ? esMax.GetInt32() : 0,
+                r.TryGetProperty("WardMin", out var wardMin) ? wardMin.GetInt32() : 0,
+                r.TryGetProperty("WardMax", out var wardMax) ? wardMax.GetInt32() : 0);
         }
         return result;
     }

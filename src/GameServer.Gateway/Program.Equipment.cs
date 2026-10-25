@@ -8,10 +8,11 @@ partial class Program
 
     // Item-local defences use the base minimum percentile, local flat/increased modifiers and multiplicative quality.
     // Global modifiers are applied once by CharacterStats. Inactive items give no defences or converted life.
-    static (int Armour, int Evasion, int EnergyShield, int Life) EquippedBaseDefences(ClientState conn, Func<string, int>? stat = null)
+    static (decimal Armour, decimal Evasion, int EnergyShield, int Life, decimal Ward) EquippedBaseDefences(ClientState conn, Func<string, int>? stat = null)
     {
         var items = ItemsOf(conn);
-        int armour = 0, evasion = 0, energyShield = 0, life = 0;
+        int energyShield = 0, life = 0;
+        decimal armour = 0, evasion = 0, ward = 0;
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
                 && Items.ByHash(equipped.Item.TypeHash) is { } type && Items.Defences(type) is { } d)
@@ -23,13 +24,19 @@ partial class Program
                 int scale = row == PlayerInventories.BodyArmour && stat is not null
                     && stat("body_armour_defences_doubled_while_no_gems_in_body_armour") != 0
                     && equipped.Item.Sockets.All(s => s.Gem is null) ? 2 : 1;
-                armour += scale * Rating(d.ArmourMin + Local("local_base_physical_damage_reduction_rating"),
+                int itemArmour = scale * Rating(d.ArmourMin + Local("local_base_physical_damage_reduction_rating"),
                     Local("local_physical_damage_reduction_rating_+%") + Local("local_armour_and_evasion_+%")
                     + Local("local_armour_and_energy_shield_+%") + Local("local_armour_and_evasion_and_energy_shield_+%"));
-                evasion += scale * Rating(d.EvasionMin + Local("local_base_evasion_rating")
+                int itemEvasion = scale * Rating(d.EvasionMin + Local("local_base_evasion_rating")
                     + Local("local_evasion_rating_and_energy_shield"), Local("local_evasion_rating_+%")
                     + Local("local_armour_and_evasion_+%") + Local("local_evasion_and_energy_shield_+%")
                     + Local("local_armour_and_evasion_and_energy_shield_+%"));
+                int asWard = row == PlayerInventories.BodyArmour && stat is not null
+                    ? Math.Clamp(stat("ward_instead_of_%_body_armour_and_evasion"), 0, 100) : 0;
+                decimal armourWard = itemArmour * asWard / 100m, evasionWard = itemEvasion * asWard / 100m;
+                armour += itemArmour - armourWard;
+                evasion += itemEvasion - evasionWard;
+                ward += armourWard + evasionWard + scale * Rating(d.WardMin + Local("local_ward"), Local("local_ward_+%"));
                 int flat = d.EnergyShieldMin + local.GetValueOrDefault("local_energy_shield")
                     + local.GetValueOrDefault("local_evasion_rating_and_energy_shield");
                 int increase = local.GetValueOrDefault("local_energy_shield_+%") + local.GetValueOrDefault("local_armour_and_energy_shield_+%")
@@ -42,7 +49,7 @@ partial class Program
                     else energyShield += itemShield;
                 }
             }
-        return (armour, evasion, energyShield, life);
+        return (armour, evasion, energyShield, life, ward);
     }
 
     // The equipped main/off hands in both weapon sets. Rows 2/3 are Weapon1 and rows 14/15 Weapon2.

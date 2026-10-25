@@ -1013,6 +1013,113 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.Equal(20, ProgramValue<DamageModel.ResistanceValue>("MonsterResistance", game.State, target, DamageType.Chaos).Value);
     }
 
+    [Fact]
+    public async Task Kalguuran_Armour_converts_only_body_defences_and_ward_absorbs_real_player_hits()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Antiquarian", refundPoints: 60, level: 20);
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Plate Vest")!));
+        var before = game.Reload().Pools;
+        Assert.True(before.Armour > 0); Assert.Equal(0u, before.Ward);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 24105);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var p = game.State.Pools;
+        Assert.True(p.Ward > 0); Assert.True(p.Armour < before.Armour);
+        await game.Command("/heal");
+        uint life = game.State.PlayerLife;
+        int mitigated = DamageModel.Mitigate(100, p.FireResistance, p.FireMaxResistance);
+        await game.Command("/hit fire 100");
+        Assert.Equal(life - (uint)Math.Max(0, mitigated - p.Ward), game.State.PlayerLife);
+        Assert.True(game.State.Ward.Broken);
+        life = game.State.PlayerLife;
+        await game.Command("/hit fire 100");
+        Assert.Equal(life - mitigated, game.State.PlayerLife);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0u, game.State.Pools.Ward); Assert.False(game.State.Ward.Broken);
+        Assert.Equal(before.Armour, game.State.Pools.Armour);
+    }
+
+    [Fact]
+    public async Task Starlight_Reflector_scales_real_ward_and_halves_its_restoration_delay()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Antiquarian", refundPoints: 60, level: 20);
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Plate Vest")!));
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] first = PathTo(definition, 24105), second = PathTo(definition, 18893);
+        Assert.Null((await game.Change(first, allocate: true)).Error);
+        uint ward = game.State.Pools.Ward;
+        Assert.True(ward > 0); Assert.Equal(2000, game.PlayerStat("ward_delay"));
+        Assert.Null((await game.Change(second.Except(first).ToArray(), allocate: true)).Error);
+        Assert.True(game.State.Pools.Ward > ward); Assert.Equal(1000, game.PlayerStat("ward_delay"));
+    }
+
+    [Fact]
+    public void A_mixed_hit_consumes_ward_in_damage_type_order_before_energy_shield()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter();
+        game.State.Pools = game.State.Pools with { Ward = 60, EnergyShield = 100 };
+        game.State.EnergyShield.SetMaximum(100, true);
+        int lifeDamage = ProgramValue<int>("DamagePlayerHit", game.State, 50, 50, 0d);
+        Assert.Equal(40, lifeDamage); // Ward takes 50 physical and 10 chaos; the remaining chaos bypasses ES.
+        Assert.Equal(100u, game.State.EnergyShield.Current);
+        Assert.True(game.State.Ward.Broken);
+    }
+
+    [Fact]
+    public async Task Runic_Tablet_grants_actual_adrenaline_and_preserves_remaining_duration_between_areas()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Antiquarian", refundPoints: 60, level: 20);
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Plate Vest")!));
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 34762), allocate: true)).Error);
+        Assert.True(game.State.Pools.Ward > 0);
+        var before = game.State.Pools;
+        Assert.Equal(0, game.PlayerStat("has_adrenaline"));
+        await game.Command("/heal");
+        await game.Command("/hit fire 100");
+        Assert.True(game.State.Ward.Broken);
+        Assert.Equal(1, game.PlayerStat("has_adrenaline"));
+        Assert.Equal(100, game.PlayerStat("damage_+%"));
+        Assert.Equal(25, game.PlayerStat("base_cast_speed_+%"));
+        Assert.Equal(10, game.PlayerStat("base_additional_physical_damage_reduction_%"));
+        Assert.Equal(before.MovementVelocityPct + 25, game.State.Pools.MovementVelocityPct);
+        Assert.True(game.State.Pools.AttackSpeedPct > before.AttackSpeedPct);
+        var effect = Assert.Single(TemporaryPassiveBuffs.For(game.Character).Active(DateTimeOffset.UtcNow));
+        Assert.Equal(503, effect.Buff.Template);
+        await game.RefreshTemporary();
+        Assert.Contains(503, game.State.PassiveBuffs.Keys);
+        Assert.Equal(game.State.Pools.MovementVelocityPct, game.Reload().Pools.MovementVelocityPct);
+        Assert.Equal(effect.ExpiresAt, Assert.Single(TemporaryPassiveBuffs.For(game.Character).Active(DateTimeOffset.UtcNow)).ExpiresAt);
+        TemporaryPassiveBuffs.For(game.Character).Clear();
+        await game.RefreshTemporary();
+        Assert.Equal(0, game.PlayerStat("has_adrenaline"));
+        Assert.Equal(before.MovementVelocityPct, game.State.Pools.MovementVelocityPct);
+        Assert.DoesNotContain(503, game.State.PassiveBuffs.Keys);
+    }
+
+    [Fact]
+    public async Task Death_Rush_grants_five_seconds_of_adrenaline_from_an_actual_projectile_kill()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 2, baseClass: 0, choice: "Scavenger", refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 58026), allocate: true)).Error);
+        var target = new SpawnedMonster("Death Rush target", new WalkEstimator(100, 100, 0), 0, 0, 1);
+        game.State.Monsters[0x4000] = target;
+        var started = DateTimeOffset.UtcNow;
+        await game.FireballImpact(0, _ => (1, false));
+        Assert.True(target.Dead);
+        var buff = Assert.Single(TemporaryPassiveBuffs.For(game.Character).Active(DateTimeOffset.UtcNow));
+        Assert.InRange((buff.ExpiresAt - started).TotalSeconds, 5, 6);
+        Assert.Equal(1, game.PlayerStat("has_adrenaline"));
+        Assert.Contains(503, game.State.PassiveBuffs.Keys);
+        TemporaryPassiveBuffs.For(game.Character).Clear();
+    }
+
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 
@@ -1203,6 +1310,13 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             });
             return (accepted, result.Bytes);
         }
+
+        public Task<(string? Error, byte[] Bytes)> RefreshTemporary() => Exchange(async (stream, cipher) =>
+        {
+            await (Task)typeof(Program).GetMethod("RefreshTemporaryPassives", BindingFlags.Static | BindingFlags.NonPublic)!
+                .Invoke(null, ["ascendancy-integration", stream, cipher, State])!;
+            return null;
+        });
 
         public Task<(string? Error, byte[] Bytes)> Command(string line) => Exchange(async (stream, cipher) =>
         {

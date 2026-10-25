@@ -31,10 +31,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** all 19 Phrecia alternatives have the shared choice, point and save lifecycle.
   Only an initial subset of their effects executes on the server.
   Passive-granted ordinary auras, owner buffs, equipment conditions, life costs/reserve and nearby effects now execute.
+  Ward absorption/restoration and timed Adrenaline also execute, including cross-area lifetime.
   The [current class table](../docs/game/ascendancies.md#what-this-does-not-complete) distinguishes those effects.
 - **Start:** complete the missing signature subsystems in the
   [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,
-  minion ownership/AI, Rage, Ward, totems, shrines and remaining passive-granted summons/triggers.
+  minion ownership/AI, Rage, totems, shrines and remaining passive-granted summons/triggers.
   Juggernaut, endurance charges and stun are claimed in [#152](https://github.com/Wrathen/LocalExile/issues/152).
   Linked supports are under development in [#207](https://github.com/Wrathen/LocalExile/pull/207).
   Coordinate those dependencies before starting overlapping work.

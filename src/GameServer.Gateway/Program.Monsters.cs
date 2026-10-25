@@ -257,7 +257,7 @@ partial class Program
                 int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
                 if (type == DamageType.Chaos) chaosDamage += value;
                 damage += type == DamageType.Physical
-                    ? DamageModel.MitigatePhysical(value, conn.Pools.Armour)
+                    ? DamageModel.MitigatePhysical(value, conn.Pools.Armour, AdditionalPhysicalReduction(conn))
                     : value;
             }
             blocked = DamageModel.Blocks(conn.Pools.BlockChance, Random.Shared.NextDouble() * 100,
@@ -267,12 +267,13 @@ partial class Program
             int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
             int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
             conn.PlayerLife = (uint)Math.Min(UnreservedLife(conn), Math.Max(0, (long)conn.PlayerLife
-                - DamageEnergyShield(conn, damage - chaosDamage, false, now) - DamageEnergyShield(conn, chaosDamage, true, now) + gainedLife));
+                - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now) + gainedLife));
             conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             life = conn.PlayerLife;
             mana = conn.PlayerMana;
         }
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        await SendWardState(remote, stream, ciphers, conn);
         // At 0 the Life tick stops refreshing the overhead life bar (see Attack): hide it.
         if (life == 0)
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),

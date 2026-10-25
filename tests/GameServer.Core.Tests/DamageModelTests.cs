@@ -128,6 +128,8 @@ public class DamageModelTests
         Assert.Equal(0, DamageModel.ArmourReduction(1000, 0));
         Assert.Equal(90, DamageModel.ArmourReduction(1_000_000, 1));
         Assert.Equal(830, DamageModel.MitigatePhysical(1000, 1000));
+        Assert.Equal(730, DamageModel.MitigatePhysical(1000, 1000, 10));
+        Assert.Equal(100, DamageModel.MitigatePhysical(1000, 1000, 100));
         Assert.Equal(0, DamageModel.MitigatePhysical(0, 1000));
     }
 

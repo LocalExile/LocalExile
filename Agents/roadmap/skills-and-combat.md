@@ -13,7 +13,7 @@ validate town/combat/character-switch round trips in the real client (protocol/1
 
 - **Ordinary aura activation:** nine previously rejected self auras now share reservation, presentation and the
   supported stat/damage paths.
-  Remaining work: Discipline's ES pool, Pride's enemy debuff, conditional consecrated ground, herald/minion/banner
+  Remaining work: Pride's enemy debuff, conditional consecrated ground, herald/minion/banner
   mechanics.
   See protocol/11-skills.md section 13.
 - **Aura caster art:** the distinct EPKFiles2 visuals are selected on activation and area restoration;

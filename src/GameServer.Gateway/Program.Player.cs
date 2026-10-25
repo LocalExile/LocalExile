@@ -111,6 +111,7 @@ partial class Program
 
     static async Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label)
     {
+        TemporaryPassiveBuffs.For(CharacterName(conn)).Clear();
         await EndAurasOnDeath(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, InstanceProtocol.DeathScreen(DeathScreenFlags(conn)), label);
     }
@@ -384,6 +385,7 @@ partial class Program
         {
             await Task.Delay(PlayerTickMs);
             if (conn.Closed) break;
+            await RefreshTemporaryPassives(remote, stream, ciphers, conn);
             double tickNow = conn.Clock.Elapsed.TotalSeconds;
             double seconds = tickNow - last;
             last = tickNow;
@@ -482,6 +484,7 @@ partial class Program
                 }
             }
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+            await SendWardState(remote, stream, ciphers, conn);
             if (dead)
             {
                 await EndFlaskEffects(remote, stream, ciphers, conn, [.. ended, .. conn.FlaskEffects.End(_ => true)], "death");
@@ -655,6 +658,7 @@ partial class Program
         {
             if (conn.PlayerLife > 0) return;
             conn.PlayerLife = UnreservedLife(conn);
+            conn.Ward.Restore();
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
             conn.AuraDeathHandled = false;
             conn.PlayerMana = (uint)UnreservedMana(conn);

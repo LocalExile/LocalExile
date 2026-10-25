@@ -154,11 +154,11 @@ public static class DamageModel
         return Math.Clamp((int)Math.Floor(reduction + 0.5), 0, DamageReductionCap);
     }
 
-    /// <summary>The physical hit left after armour, rounded to the nearest point.</summary>
-    public static int MitigatePhysical(int damage, int armour)
+    /// <summary>The physical hit left after armour and additional physical reduction, capped together at 90%.</summary>
+    public static int MitigatePhysical(int damage, int armour, int additionalReduction = 0)
     {
         if (damage <= 0) return 0;
-        int reduction = ArmourReduction(armour, damage);
+        int reduction = Math.Clamp(ArmourReduction(armour, damage) + additionalReduction, 0, DamageReductionCap);
         return (int)Math.Max(0, Math.Round(damage * (100.0 - reduction) / 100.0));
     }
 

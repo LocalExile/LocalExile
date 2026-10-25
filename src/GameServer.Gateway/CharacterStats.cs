@@ -40,13 +40,13 @@ static class CharacterStats
         int AccuracyPct = 0,
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
         int AuraEffectPct = 0, int AuraAreaPct = 0, bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
-        uint EnergyShield = 0);
+        uint EnergyShield = 0, uint Ward = 0);
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,
     /// mana, armour and evasion, increased energy shield and melee physical damage, the base resistances, attack speed's
     /// increased and more multipliers, critical strike chance and multiplier, and the Accuracy Mastery's conversions.</summary>
     public sealed record Bonus(int Strength = 0, int Dexterity = 0, int Intelligence = 0, int Life = 0, int LifePct = 0,
-        int Mana = 0, int ManaPct = 0, int Armour = 0, int ArmourPct = 0, int Evasion = 0, int EvasionPct = 0,
+        int Mana = 0, int ManaPct = 0, decimal Armour = 0, int ArmourPct = 0, decimal Evasion = 0, int EvasionPct = 0,
         int SharedDefencesPct = 0, bool IronReflexes = false,
         int EnergyShieldPct = 0, int MeleePhysicalDamagePct = 0,
         int FireResistance = 0, int ColdResistance = 0, int LightningResistance = 0, int ChaosResistance = 0,
@@ -70,7 +70,7 @@ static class CharacterStats
         bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
         bool NoIntelligence = false, bool NoIntelligenceMana = false, int LifePerLevel = 0, int ManaPerDexterity = 0,
         int ManaPerFourStrength = 0, int ManaConvertedToArmourPct = 0, int EnergyShield = 0,
-        int LifeAsEnergyShieldPct = 0, int ManaAsEnergyShieldPct = 0, bool NoEnergyShield = false)
+        int LifeAsEnergyShieldPct = 0, int ManaAsEnergyShieldPct = 0, bool NoEnergyShield = false, decimal Ward = 0, int WardPct = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -131,7 +131,7 @@ static class CharacterStats
             armour += Math.Max(0, (int)(2m * manaBase * manaConversion * (100m + b.ManaPct + armourPct)
                 * (100m + b.ArmourMorePct) / 1000000m));
         int evasionPct = dex / 5 + b.EvasionPct;
-        int evasionBase = BaseEvasion + b.Evasion;
+        decimal evasionBase = BaseEvasion + b.Evasion;
         int evasion = Math.Max(0, (int)(evasionBase * (100m + evasionPct) * (100m + b.EvasionMorePct) / 10000m));
         if (b.IronReflexes)
         {
@@ -164,6 +164,7 @@ static class CharacterStats
             EnergyShieldPct: intel / 5 + b.EnergyShieldPct,
             EnergyShield: b.NoEnergyShield ? 0 : EnergyShield.Max(b.EnergyShield
                 + (int)((long)life * b.LifeAsEnergyShieldPct / 100 + (long)mana * b.ManaAsEnergyShieldPct / 100), intel / 5 + b.EnergyShieldPct),
+            Ward: WardState.Max(b.Ward, b.WardPct),
             MeleePhysicalDamagePct: str / 5 + b.MeleePhysicalDamagePct,
             Strength: str, Dexterity: dex, Intelligence: intel,
             FireResistance: BaseResistance + b.FireResistance, ColdResistance: BaseResistance + b.ColdResistance,

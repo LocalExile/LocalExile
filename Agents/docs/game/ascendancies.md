@@ -65,6 +65,11 @@ be refunded while ordinary allocations still spend those points.
 - Nearby enemy passives use actual distance and hostility: Light of Divinity increases elemental damage taken,
   Fell Fen overrides nearby chaos resistance, and Born under Fire converts the enemy's outgoing physical damage.
   Presence visuals enter/leave on the client, and hit/DoT damage uses the applicable target modifiers.
+- Antiquarian converts body armour/evasion into Ward, with local defence fractions retained until final rounding.
+  Ward absorbs one hit before ES, breaks and restores; Starlight scales its value and restoration speed.
+  Runic Tablet grants the client's actual Adrenaline modifiers for 20 seconds when Ward breaks.
+  Scavenger's Death Rush grants five seconds on a kill. Active Adrenaline does not refresh; its original deadline
+  survives area transfers and expiry/death removes its stats and buff.
 - Spell-use, spell-damage, warcry and aura restrictions use the actual skill types. Gruthkul refuses spells before
   paying their costs; Rampager still permits utility spell casts while suppressing spell damage. Disabled auras
   suspend their runtime effect/reservation while retaining enabled intent, and restore after refunding the restriction.
@@ -75,7 +80,7 @@ be refunded while ordinary allocations still spend those points.
 not an implementation of its effect. Current numerical support is strongest for Aristocrat and Gambler; even those
 classes still have limitations. Support-gem execution and incoming ailments/stuns are absent, so Gem-lined Cap,
 conditional ailment immunities and Risk Aversion are not complete. The server also lacks the minion ownership/AI,
-Rage, Ward, warcry/totem, shrine/wisp and other subsystems required by most other signature notables.
+Rage, warcry/totem, shrine/wisp and other subsystems required by most other signature notables.
 
 The [all-19 dependency map](phrecia-ascendancies.md#dependencies-of-all-19-classes) names the remaining systems and
 implementation waves. Each class must gain an actual gameplay proof for its signature mechanics before it can be
@@ -97,7 +102,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
 | Behemoth | Strength-derived mana; Power of Purpose mana-to-armour | Rage, Fortification, Rampage and armour against chaos |
-| Antiquarian | Strength, zero Intelligence, percentage Dexterity/defences | Ward, Adrenaline and special shield/block rules |
+| Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
 | Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
 | Whisperer | Mana per Dexterity; no Intelligence mana bonus; free mana costs | Mana-derived damage, Rage, recoup and mana damage absorption |
 | Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
@@ -113,7 +118,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Servant of Arakaali | Free passive-granted level 15 Envy | Spiders, Webs, Penance Mark and minion effects |
 | Blind Prophet | Supported generic modifiers | Base-crit overrides, Blind, projectile returns/direction and Shade Form |
 | Surfcaster | Stormy Seas conversion; Ghost of the Deep's owner bonuses/buff | Chill/shock/freeze, fishing-rod and overcapped-resistance conditions |
-| Scavenger | Exclusive choices; Fulcrum conversion; Shavronne chaos absorption | Most chosen unique-item properties and their dependent subsystems |
+| Scavenger | Exclusive choices; Fulcrum conversion; Shavronne chaos absorption; Death Rush Adrenaline | Most chosen unique-item properties and their dependent subsystems |
 
 ## Evidence and reproducible checks
 
@@ -135,6 +140,19 @@ zero life reserved and 34 mana reserved.
 Native traces also confirm installation/removal of nearby enemy buffs for Paladin, Bog Shaman and Ancestral Commander.
 The nine scenarios and read-only native observations are in ignored `logs/phrecia-completion/`.
 These checks establish the named effects, not completion of their entire classes.
+
+### Ward and timed Adrenaline
+
+With the target client's 19-armour Plate Vest, Kalguuran Armour plus its 10% defence prerequisite gives 10 Ward:
+the converted 9.5 base Ward retains its fraction before the final increased-defence calculation.
+Starlight and its prerequisite give 20 Ward and a one-second restoration delay.
+Native checks observed 90 and 80 life lost from an otherwise unmitigated 100 fire hit, broken/restored Ward buffs,
+and the return to 100 life lost after refunding the Ward paths.
+Runic Tablet's native Adrenaline remained active after transferring to another town and expired at the original
+20-second deadline, rather than restarting its duration on entry.
+The trace is ignored `logs/phrecia-completion/ward-native.jsonl`.
+The earlier 9/19-Ward probe preceded the fractional-rounding correction and is not the accepted numerical result.
+Mixed physical/chaos absorption and Death Rush's five-second actual-projectile-kill trigger have production-path tests.
 
 ### Ordinary connectivity and Ascendant roots
 

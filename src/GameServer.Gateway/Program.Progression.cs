@@ -81,6 +81,7 @@ partial class Program
         var items = ItemsOf(conn);
         var passives = Passives.Stats((nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated), conn.MasteryEffects);
         passives = ItemModStats.Plus(passives, PassiveEffects.OwnerStats(PhreciaNodes(conn)));
+        passives = ItemModStats.Plus(passives, TemporaryPassiveStats(conn));
         int Get(string name) => Stats.Key(name) is uint k ? passives.GetValueOrDefault(k) : 0;
         var c = Skills.ClassFor(conn.ClassRow);
         var (ps, pd, pi) = CharacterStats.Attributes(Get);
@@ -114,7 +115,7 @@ partial class Program
         int Get(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
         var gear = EquippedBaseDefences(conn, Get);
         bonus = bonus with { Armour = bonus.Armour + gear.Armour, Evasion = bonus.Evasion + gear.Evasion,
-            EnergyShield = bonus.EnergyShield + gear.EnergyShield, Life = bonus.Life + gear.Life };
+            EnergyShield = bonus.EnergyShield + gear.EnergyShield, Life = bonus.Life + gear.Life, Ward = bonus.Ward + gear.Ward };
         var auraRestrictions = SkillRestrictions.From(name => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0);
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values.Where(a => AuraAllowed(auraRestrictions, a.Effect))];
@@ -370,7 +371,8 @@ partial class Program
             ManaConvertedToArmourPct: Get("keystone_mental_conditioning") != 0 ? 80 : 0,
             LifeAsEnergyShieldPct: Get("maximum_life_%_to_add_as_maximum_energy_shield"),
             ManaAsEnergyShieldPct: Get("mana_%_to_add_as_energy_shield"),
-            NoEnergyShield: Get("no_energy_shield") != 0);
+            NoEnergyShield: Get("no_energy_shield") != 0,
+            Ward: Get("base_ward"), WardPct: Get("ward_+%") + Get("global_defences_+%") + Get("combined_global_defences_+%"));
     }
 
     // The character's passive skill points (one per level after the first, plus the extra points from

@@ -919,6 +919,13 @@ partial class Program
         (int X, int Y) at, player;
         bool alive;
         lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
+        if (alive && m.Hostile)
+        {
+            var stats = CharacterPlayerStats(conn);
+            int seconds = Stats.Key("gain_adrenaline_for_X_seconds_on_kill") is uint key ? stats.GetValueOrDefault(key) : 0;
+            if (GrantAdrenaline(conn, seconds * 1000))
+                await RefreshTemporaryPassives(remote, stream, ciphers, conn);
+        }
         _ = Task.Delay(10_000).ContinueWith(async _ =>
         {
             bool removed;

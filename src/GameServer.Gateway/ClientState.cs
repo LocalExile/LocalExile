@@ -320,6 +320,7 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Running auras by skill id, with their buff instances and reservation. Guarded by the Monsters lock.
     public readonly Dictionary<ushort, AuraCatalog.Aura> Auras = [];
     public readonly Dictionary<int, ushort> PassiveBuffs = [];
+    public readonly HashSet<int> ActiveTemporaryBuffs = [];
     public readonly Dictionary<(uint Monster, int Template), ushort> PassivePresences = [];
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
@@ -328,8 +329,11 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public HashSet<ushort> ClientSkillIds = [];
     // The character's level and the pools that follow from it and the class (CharacterStats).
     public EnergyShield EnergyShield { get; } = new();
+    public WardState Ward { get; } = new();
+    public ushort? WardBuff;
+    public (uint Maximum, bool Broken)? SentWard;
     CharacterStats.Pools pools = new(1, 50, 40, 2, 0);
-    public CharacterStats.Pools Pools { get => pools; set { pools = value; EnergyShield.SetMaximum(value.EnergyShield); } }
+    public CharacterStats.Pools Pools { get => pools; set { pools = value; EnergyShield.SetMaximum(value.EnergyShield); Ward.SetMaximum(value.Ward); } }
     // The player stat keys the client holds (PlayerStatsWithCleared). Guarded by the Monsters lock.
     public HashSet<uint> SentStatKeys = [];
     // Dev-only forced lucky block, on top of the stats (Svalinn's "Chance to Block is Lucky").

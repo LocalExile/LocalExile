@@ -63,11 +63,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   `p^2` dev mode; the conditional chance passives count while their condition holds:
   `spell_suppression_chance_%_while_on_full_life`, `_while_moving` (the walk estimate) and `_if_enemy_hit_recently`
   (an attack or spell hit in the last 4 s); `/suppression`, `/suppression_luck`, `/spellhit`.
-  Not implemented: the full energy shield stats (no energy shield model), the other conditional effect stats, monster
+  Not implemented: conditional energy-shield suppression modifiers, the other conditional effect stats, monster
   spell hits.
   The character panel gets the chance again within 250 ms of a condition changing (the player tick).
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
+- Ward absorbs a single hit before energy shield, then restores in full after its delay.
+  Body armour/evasion conversion, global defence increases and restoration-speed modifiers use the actual equipment.
+  Antiquarian checks cover 10/20 Ward, broken/restored native buffs, paid refunds and damage absorption.
+  Runic Tablet grants 20 seconds of the native Adrenaline template's damage/speed/physical-reduction modifiers.
+  Its expiry stays unchanged across area transfers; active Adrenaline cannot refresh and clears on death.
+  Code: `WardState.cs`, `TemporaryPassiveBuffs.cs`, `Program.Ward.cs`, `Program.TemporaryPassives.cs`.
+  Docs: [Ward rules and evidence](../docs/protocol/20-damage.md#player-ward-and-timed-adrenaline).
 - Movement speed: the passive `base_movement_velocity_+%` is summed into `Pools`, sent as the client's
   `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100) cells/s);
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top;
@@ -141,10 +148,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   source and received buff instances now coexist, restore and end together.
   Icon restoration awaits client confirmation.
   See [11](../docs/protocol/11-skills.md) section 13.
-- Ordinary aura expansion (2026-10-25, awaiting client confirmation): Determination, Grace, Discipline, Anger, Hatred,
+- Ordinary aura expansion: Determination, Grace, Discipline, Anger, Hatred,
   Wrath, Zealotry, Malevolence and Envy now activate with reservation and paired visual/HUD buffs.
   Armour/evasion, added hit damage, gain-as-cold, spell damage/crit and RF's more DoT are connected.
-  Discipline's ES pool/recharge and conditional effects remain partial.
+  Discipline contributes its flat ES to the shared pool/recharge model; conditional effects remain partial.
+  Native Paladin Determination and Arakaali Envy checks cover paired buffs, relog and source-node refunds.
   Reservation overflow is refused.
   See [11](../docs/protocol/11-skills.md) section 13.
 - Saved aura toggles (2026-10-25, awaiting client confirmation): active effects persist per character and restore on
@@ -167,9 +175,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   …) do not render yet.
   The skill-bar active frame and rotating circle now receive the buff's skill id/action hash association (0x1c1 bit3),
   including area-entry restoration; automated checks pass, live icon verification pending.
-  Not modelled: combat auras (Anger/Hatred/Wrath/Zealotry/Pride), Heralds, banners, curse auras,
-  Determination/Grace/Discipline (the base armour/evasion model exists, but their buffs and energy shield are not
-  applied), Purity ailment immunity, Reservation masteries 1/2/6, supports, party/minion auras and life reservation
+  Not modelled: Pride's enemy debuff, Heralds, banners, curse auras,
+  Purity ailment immunity, Reservation masteries 1/2/6, supports and party/minion auras.
+  Life reservation and passive-granted auras use the same pool/effect lifecycle
   ([11](../docs/protocol/11-skills.md) 13).
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.

@@ -151,6 +151,9 @@ partial class Program
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = CharacterStatSources(conn, nodes);
+        if (Stats.Key("ward_broken") is uint brokenWard) extra[brokenWard] = conn.Ward.Broken ? 1 : 0;
+        if (Stats.Key("ward_delay") is uint wardDelay) extra[wardDelay] = (int)Math.Round(WardState.Delay(
+            name => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0) * 1000);
         if (conn.God)
         {
             foreach (var (stat, value) in GodStats)
@@ -198,6 +201,7 @@ partial class Program
             ("physical_damage_reduction_rating", pools.Armour), ("physical_damage_reduction_rating_+%", pools.ArmourPct),
             ("base_evasion_rating", CharacterStats.BaseEvasion), ("evasion_rating", pools.Evasion), ("evasion_rating_+%", pools.EvasionPct),
             ("maximum_energy_shield", (int)pools.EnergyShield), ("maximum_energy_shield_+%", pools.EnergyShieldPct), ("melee_physical_damage_+%", pools.MeleePhysicalDamagePct),
+            ("ward", (int)pools.Ward),
             ("movement_velocity_+%", pools.MovementVelocityPct),
             ("combined_base_block_%", pools.BlockChanceBase), ("attack_block_%", pools.BlockChance),
             // The character panel prints attack block as "capped% (uncapped%)"; the client does not derive the second value.
@@ -546,6 +550,7 @@ partial class Program
     {
         await RefreshPassiveBuffs(remote, stream, ciphers, conn);
         await RefreshPassivePresences(remote, stream, ciphers, conn);
+        await SendWardState(remote, stream, ciphers, conn);
         bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn);
         await RefreshRighteousFireStats(remote, stream, ciphers, conn);
         var skills = PlayerSkills(conn);

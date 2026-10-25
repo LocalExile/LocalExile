@@ -136,6 +136,35 @@ also check pause, flasks and RF. The new visual behavior awaits that real-client
 The next support-gem work (#64) can add its effects as packet operations: `Add` for added damage, `Scale` for
 increased/more, and `AddGain`/`Convert` for conversion, without touching the life-update code.
 
+## Player Ward and timed Adrenaline
+
+`WardState` absorbs one mitigated, unblocked hit before energy shield, then breaks even when it absorbed the whole hit.
+Damage over time bypasses Ward.
+While broken, later hits do not extend its restoration delay.
+The two-second baseline is from [GGG's 3.25 player-balance notes](https://www.pathofexile.com/forum/view-thread/3531661).
+Restoration-speed increases divide that delay; Starlight's 100% increase gives one second.
+Unbreakable Ward retains its value between hits.
+
+Equipped body armour/evasion conversion retains fractions until the final defence result, matching the
+[independent defence calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/dev/src/Modules/CalcDefence.lua).
+For this client's Plate Vest, `19 * 50% * 110%` gives 10 Ward after flooring, rather than 9 from premature rounding.
+For mixed hits, Ward is consumed in physical/lightning/cold/fire/chaos order.
+The surviving types retain their ES-bypass behavior; proportional redistribution would incorrectly absorb more chaos.
+
+The server publishes `ward`/`ward_broken` stats and the native non-recovery `ward_broken` buff, definition 1878.
+The normal elapsed-time recovery loop restores Ward and removes that buff.
+Native tests verified 10/20 Ward, timed recovery and refunding the source; the trace is in
+ignored `logs/phrecia-completion/ward-native.jsonl`.
+
+Runic Tablet uses BuffTemplates row 503, definition 1090, for the six native Adrenaline values.
+The resulting 100% increased damage, 25% attack/cast/movement increases and 10% additional physical reduction execute
+on the server as well as appearing in the buff UI.
+Additional physical reduction adds to armour's reduction, with the shared 90% cap.
+The character's transient buff store uses one absolute expiry across area connections and refuses active refreshes.
+Death clears it; expiry refreshes stats, speed, skills and native buff instances.
+The native area-transfer probe observed Runic Tablet's original 20-second expiry.
+Death Rush uses the same template for five seconds after a player kill; its actual projectile-kill path is tested.
+
 ## Player energy shield (2026-10-25)
 
 `EnergyShield.cs` owns the ordinary ES pool, fractional recovery, damage interruption, and recharge phase. Equipment

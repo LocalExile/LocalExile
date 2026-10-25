@@ -40,7 +40,8 @@ partial class Program
 
     static async Task RefreshPassiveBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var wanted = PassiveEffects.Buffs(PhreciaNodes(conn)).Where(b => b.AffectsOwner).ToDictionary(b => b.Template);
+        var wanted = PassiveEffects.Buffs(PhreciaNodes(conn)).Concat(TemporaryBuffs(conn))
+            .Where(b => b.AffectsOwner).DistinctBy(b => b.Template).ToDictionary(b => b.Template);
         var packets = new List<(byte[] Bytes, string Label)>();
         lock (conn.Monsters)
         {
