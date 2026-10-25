@@ -12,11 +12,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** gold respec at Bestel (C→S 0x36 / 0x37) and masteries (0x35) work.
 - **Known:** refunds with refund points (0x36 flag 0; 0x33's first u16) work;
   Orbs of Regret (right-click, 0x58) add them.
-- **Accuracy Mastery:** 3 of its 6 effects are modelled ([Status](../status/skills-and-combat.md),
-  [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, and +500 / -2
-  per level.
-  Not modelled: 40% increased Accuracy against Unique Enemies, 50% increased against Enemies in Close Range, and
-  Minions' Accuracy equals yours (needs target rarity/distance and minions).
+- **Accuracy Mastery:** 5 of its 6 effects are modelled ([Status](../status/skills-and-combat.md),
+  [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, +500 / -2 per
+  level, 40% more accuracy against Unique Enemies and 50% more against Enemies in Close Range (both at the attack's
+  accuracy roll; close range is the constant 20-unit radius).
+  Not modelled: Minions' Accuracy equals yours (needs minion accuracy).
 - **Known:** ordinary and Phrecia main choices, separate budgets, ascendancy connectivity and paid refunds work.
   [Ascendancy usage and limits](../docs/game/ascendancies.md).
 - **Known:** ordinary allocations, masteries and refunds are checked against the character's available starts.
@@ -32,10 +32,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Only an initial subset of their effects executes on the server.
   Passive-granted ordinary auras, owner buffs, equipment conditions, life costs/reserve and nearby effects now execute.
   Ward absorption/restoration and timed Adrenaline also execute, including cross-area lifetime.
+  Current Rage, mana-spending grants, supported hit grants and the attack multiplier now execute and are native-checked.
   The [current class table](../docs/game/ascendancies.md#what-this-does-not-complete) distinguishes those effects.
 - **Start:** complete the missing signature subsystems in the
   [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,
-  minion ownership/AI, Rage, totems, shrines and remaining passive-granted summons/triggers.
+  minion ownership/AI, remaining Rage bonuses/costs, totems, shrines and passive-granted summons/triggers.
   Juggernaut, endurance charges and stun are claimed in [#152](https://github.com/Wrathen/LocalExile/issues/152).
   Linked supports are under development in [#207](https://github.com/Wrathen/LocalExile/pull/207).
   Coordinate those dependencies before starting overlapping work.

@@ -547,9 +547,13 @@ partial class Program
             int evasiveEvasion = Monsters.BaseEvasiveEvasion(level) ?? 0;
             int chance = DamageModel.AccuracyHitChance(evasion, conn.Pools.Accuracy);
             int evasiveChance = DamageModel.AccuracyHitChance(evasiveEvasion, conn.Pools.Accuracy);
+            var withMastery = conn.Pools.AccuracyMoreVsUniquePct != 0 || conn.Pools.AccuracyMoreInCloseRangePct != 0
+                ? $" Targets gain {conn.Pools.AccuracyMoreVsUniquePct:0.#}% more accuracy against unique enemies and " +
+                  $"{conn.Pools.AccuracyMoreInCloseRangePct:0.#}% more within the 20-unit close range, applied per attack roll."
+                : "";
             await conn.Commands!.Reply($"Accuracy {conn.Pools.Accuracy} ({conn.Pools.AccuracyPct}% increased): " +
                 $"{chance}% chance to hit a level {level} monster (evasion {evasion}), " +
-                $"{evasiveChance}% against evasive monsters (evasion {evasiveEvasion}). Spells always hit.");
+                $"{evasiveChance}% against evasive monsters (evasion {evasiveEvasion}). Spells always hit." + withMastery);
         })
         .Add("defences", "/defences [monster level] (armour, evasion and avoidance; default: your level)", async args =>
         {

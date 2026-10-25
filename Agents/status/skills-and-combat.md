@@ -33,7 +33,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Accuracy Mastery effects; attacks roll PoB's hit chance against the monster's `DefaultMonsterStats.Evasion`, misses
   send no life update, spells always hit; the Offence panel gets `main_hand_accuracy_rating` /
   `off_hand_accuracy_rating` and the Chance to Hit rows at the character's level; `/accuracy [level]`.
-  Code: `CharacterStats.cs`, `DamageModel.cs`, `MonsterCatalog.cs`, Gateway.
+  The Mastery's two target-conditional effects are final multipliers applied to the roll's own target
+  (`TargetAccuracy`): 40% more accuracy against Unique enemies (`SpawnedMonster.Rarity`) and 50% more against enemies
+  in the constant 20-unit close range (2 metres; 10 units per metre), multiplying when both hold and never folded into
+  the panel's rating or `/accuracy`'s unconditional rating.
+  Gems' attack hits do not roll accuracy yet, so the conditions apply where a roll exists (the default attack).
+  Live re-check of the two conditions against the real client is pending.
+  Code: `CharacterStats.cs`, `TargetAccuracy.cs`, `DamageModel.cs`, `MonsterCatalog.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §4–5.
 - Armour and Evasion: flat armour/evasion from the passive tree (`base_physical_damage_reduction_rating`,
   `base_evasion_rating`) and the base body armour/helmet/gloves/boots (the `ArmourTypes.dat` minimum), with
@@ -197,7 +203,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The player's life, mana, accuracy, armour and evasion come from its class and level, with the attributes' bonuses
   (energy shield, evasion and melee physical damage increases);
-  accuracy also takes its flat/increased passives, weapon-specific stats and Accuracy Mastery, and the final value is
+  accuracy also takes its flat/increased passives, weapon-specific stats and Accuracy Mastery (rating for the panel,
+  the two target-conditional effects at the roll), and the final rating value is
   sent as `main_hand_accuracy_rating` / `off_hand_accuracy_rating` for the Offence panel;
   armour and evasion also take their flat/increased passives and the base equipped armour pieces (body, helmet,
   gloves, boots), while life and mana still ignore passives and items (attack speed is handled below)

@@ -11,6 +11,7 @@ using GameServer.Core.Protocol.Login;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 using Progression = GameServer.Core.World.Progression;
 using DamageModel = GameServer.Core.World.DamageModel;
+using TargetAccuracy = GameServer.Core.World.TargetAccuracy;
 using DamageType = GameServer.Core.World.DamageType;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
@@ -119,7 +120,15 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled by a later action");
                 return;
             }
-            accuracy = conn.Pools.Accuracy;
+            // The Accuracy Mastery's target conditions at the roll: the target's own rarity and its distance at the hit
+            // resolution time (TargetAccuracy). Spells do not roll, so spells never see these.
+            bool unique = m.Rarity == MonsterRarity.Unique;
+            bool closeRange = TargetAccuracy.InCloseRange(Dist(stop, m.Walk.Position(now)));
+            accuracy = TargetAccuracy.AgainstTarget(conn.Pools.Accuracy, conn.Pools.AccuracyMoreVsUniquePct,
+                conn.Pools.AccuracyMoreInCloseRangePct, unique, closeRange);
+            if (accuracy != conn.Pools.Accuracy)
+                Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} ({m.Label}, {m.Rarity}): accuracy {conn.Pools.Accuracy} -> {accuracy} " +
+                    $"for the target ({(unique ? "unique target, " : "")}{(closeRange ? "in close range (20 units) " : "")}accuracy mastery more)");
             evasion = Monsters.BaseEvasion(m.Level) ?? 0;
         }
         int hitChance = DamageModel.AccuracyHitChance(evasion, accuracy);

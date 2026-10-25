@@ -292,8 +292,9 @@ partial class Program
         int spellCriticalMultiplier = Get("base_critical_strike_multiplier_+")
             + Get("base_spell_critical_strike_multiplier_+") + Get("spell_critical_strike_multiplier_+");
         // Accuracy passives: generic flat and increased, the weapon-specific flat and increased stats, and the Accuracy
-        // Mastery's conversions. Conditional stats (nearby ally, marked enemy, low life, frenzy charges, unique/close
-        // enemies) are not modelled here. Unarmed attacks count as dual wielding, as they do for attack speed.
+        // Mastery's conversions, plus its two target-conditional "more" effects (below; TargetAccuracy applies them to
+        // the hit's own target at the roll). Other conditional accuracy stays unmodelled. Unarmed attacks count as dual
+        // wielding, as they do for attack speed.
         int accuracyFlat = Get("accuracy_rating") + weapons.LocalAccuracy
             + (weapons.Sword ? Get("sword_accuracy_rating") : 0)
             + (weapons.Axe ? Get("axe_accuracy_rating") : 0)
@@ -315,6 +316,11 @@ partial class Program
             + (weapons.Wand ? Get("wand_accuracy_rating_+%") : 0)
             + (weapons.Staff ? Get("staff_accuracy_rating_+%") : 0)
             + (weapons.Bow ? Get("bow_accuracy_rating_+%") : 0);
+        // The Accuracy Mastery's two target-conditional effects (11-skills.md panels): final "more" accuracy for a hit's
+        // own target, which TargetAccuracy applies at the roll. Kept out of the additive pools, so the panel and
+        // /accuracy keep showing only the unconditional rating and never claim a target condition statically.
+        int accuracyMoreVsUnique = Get("accuracy_rating_+%_final_vs_unique_enemies_from_mastery");
+        int accuracyMoreCloseRange = Get("accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery");
         int allMax = Get("additional_maximum_all_resistances_%"), allElemMax = Get("additional_maximum_all_elemental_resistances_%");
         // The cold-and-lightning pair-resistance stat (Sea Legs' +40%): one input stat that both elements' pools take.
         int pairRes = Get(ResistanceOvercap.ColdAndLightningResistance);
@@ -378,6 +384,8 @@ partial class Program
             CriticalStrikeChancePct: criticalChance, SpellCriticalStrikeChancePct: spellCriticalChance,
             CriticalStrikeMultiplier: criticalMultiplier, SpellCriticalStrikeMultiplier: spellCriticalMultiplier,
             Accuracy: accuracyFlat, AccuracyPct: accuracyPct,
+            AccuracyMoreVsUniquePct: accuracyMoreVsUnique,
+            AccuracyMoreInCloseRangePct: accuracyMoreCloseRange,
             AccuracyPerLevel: Get("accuracy_rating_per_level"),
             DexterityAccuracyTriple: Get("dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead") != 0,
             AccuracyEqualsIntelligence: Get("gain_accuracy_rating_equal_to_intelligence") != 0,

@@ -173,12 +173,23 @@ with level), the bases and attributes from Characters.dat:
 Accuracy's flat and increased passives are summed from `accuracy_rating` and `accuracy_rating_+%`, the weapon-specific
 stats according to the equipped weapon shape (`sword_accuracy_rating`, `wand_accuracy_rating_+%`, ...), and the Accuracy
 Mastery (`accuracy_rating_per_level`, `dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead`,
-`gain_accuracy_rating_equal_to_intelligence`). Conditional stats (nearby ally, marked enemy, low life, frenzy charges,
-unique/close enemies) are not modelled. The final values go to the client as `accuracy_rating` and, for the Offence
+`gain_accuracy_rating_equal_to_intelligence`). Its last two effects are target conditions applied at the roll, not in
+the pools: `accuracy_rating_+%_final_vs_unique_enemies_from_mastery` (row 15547, PassiveSkillMasteryEffects Accuracy1:
+40% more) multiplies the rating when the target's rarity is Unique, and
+`accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery` (row 18375, Accuracy5: 50% more) when the target is in
+close range (TargetAccuracy.AgainstTarget).
+"Close Range" is the ReminderText row `(Close Range is up to 2 metres)`, which at the 10 units per metre of PoB's
+ConfigOptions is the constant 20-unit radius; the server reads radius stat units as grid cells (SkillArea, Righteous
+Fire's 18 = 1.8 m), so a target whose centre is within 20 cells of the player is close, exactly 20 inclusive, and
+"Nearby" is not the same mechanic.
+The target's rarity (`SpawnedMonster.Rarity`) and its tracked position at the hit's resolution time decide both; the two
+"more" effects multiply (unique and close: × 2.1) and the product floors to a whole rating.
+Other conditional stats (nearby ally, marked enemy, low life, frenzy charges) are not modelled, and the panel is not
+told the conditions: it keeps the unconditional `accuracy_rating` and, for the Offence
 panel's Main Hand / Off Hand Accuracy rows, `main_hand_accuracy_rating` / `off_hand_accuracy_rating`. Its Chance to
 Hit rows are sent directly as `main_hand_chance_to_hit_%` / `off_hand_chance_to_hit_%` (and the evasive-monster
 variants), against a reference monster of the character's level; `character_sheet_reference_evasion` and
-`..._high_dex_evasion` carry that monster's evasion.
+`..._high_dex_evasion` carry that monster's evasion. `/accuracy` states the mastery's per-target values.
 
 Armour and evasion are summed from the passive tree and the **base types** of the equipped body armour, helmet, gloves
 and boots ([13](13-items.md) §1): `base_physical_damage_reduction_rating` / `base_evasion_rating` are flat, while
@@ -219,7 +230,10 @@ once. The Gateway now sends the 0x20 update instead (above), which also removes 
    the client stretches the clip to it, plus 150 ms for the client's walk into range lagging the server's estimate
    (`Game_HIT_OFFSET_MS`). It never lands later than the next held attack may start (a quarter early, less 50 ms:
    `AttackTiming.ContactDelay`), because that attack cancels a hit still waiting. The chance is PoB's `calcs.hitChance`: `accuracy / (accuracy + (evasion / 5)^0.9) × 125`,
-   rounded and clamped to 5..100, with the monster's `DefaultMonsterStats.Evasion` at its level. A miss is logged and
+   rounded and clamped to 5..100, with the monster's `DefaultMonsterStats.Evasion` at its level. The player's accuracy
+   for this roll is the pools' rating raised by the Accuracy Mastery's target conditions under
+   `TargetAccuracy.AgainstTarget` at the target's own rarity and position at that moment (§4); the gateway logs the
+   value whenever a condition changes it. A miss is logged and
    sends no life update; spells do not roll accuracy and always hit.
 4. Any later player action (0x25 move, another 0x24) cancels steps 2 and 3 (`ClientState.ActionCount`).
 5. Pacing: one swing per attack time. While the button is held the client sends one 0x24 per swing; a swing may
