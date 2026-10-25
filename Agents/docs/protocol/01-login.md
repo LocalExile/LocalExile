@@ -7,6 +7,8 @@ runs showed.
 
 ## 1. Pointing the client at us
 
+`live.ps1` explicitly selects `127.0.0.1:20493` in the cached GGPK gateway list before a full client launch, after stopping the previous client and before starting Patch. A matching patch root hash can skip downloading gateway_list.txt, so serving a local list over HTTP alone does not reset a previously selected remote endpoint. Server-only restarts leave the running client and its GGPK untouched.
+
 - `gateway_list.txt` (served by our patch web root, and also patched into the GGPK by `GameServer.Patch gateway --login
   127.0.0.1:20493`) gives the login host:port. The client reads `gateway_list.txt`, then `Bundles2/gateway_list.txt` if
   it exists (`0x140cfc2d0`), and the last one wins.

@@ -23,15 +23,15 @@ public static class InstanceNpcs
 
     public const ushort TalkTextId = 0x87;
 
-    /// <summary>
-    /// S→C 0x87 (instance group, class 0x1435dc220, read 0x1421a1c00, dispatcher case 0x1e): u32 BE (+0x10), u16 BE whose low
-    /// 15 bits are a value (+0x14) and bit 15 a flag (+0x16). The dispatcher sets the dialogue state (+0xd7b8 = 2) and calls
-    /// the listeners at instance +0x14f0; the in-game UI's (0x140dccbf0) closes the NPC dialogue windows, opens the inventory
-    /// (UI +0x628) and the quest reward window (UI +0x7a8, 0x140c2b690), which reads the value as a QuestRewardOffers row.
-    /// Live 2026-10-19 the value 9 (an NPCTextAudio row) crashed it (0x140c2bc20). Not used yet.
-    /// </summary>
-    public static byte[] TalkText(uint npcObjectId, ushort value, bool flag = false) =>
-        new LoginWriter().U16(TalkTextId).U32(npcObjectId).U16((ushort)((value & 0x7fff) | (flag ? 0x8000 : 0))).ToArray();
+    /// <summary>S?C 0x87: u32 reward inventory id (manager 1), u16 QuestRewardOffers row, with bit 15 an optional flag.
+    /// Send 0xc0 for that inventory before opening it. The first field is NOT the NPC object id: a missing inventory
+    /// crashes the reward window at 0x140c2bc20. Live verified 2026-10-25 with offers 0 and 8, inventory 0x600.
+    /// Selecting a reward uses C?S 0x88 (or Ctrl+click 0x8a), as with a shop.</summary>
+    public static byte[] OpenQuestReward(uint inventoryId, ushort offer, bool flag = false) =>
+        new LoginWriter().U16(TalkTextId).U32(inventoryId).U16((ushort)((offer & 0x7fff) | (flag ? 0x8000 : 0))).ToArray();
+
+    // Retain the old public entry point for callers; its historical name did not describe the message's purpose.
+    public static byte[] TalkText(uint inventoryId, ushort offer, bool flag = false) => OpenQuestReward(inventoryId, offer, flag);
 
     public const ushort BuyId = 0x88;
 

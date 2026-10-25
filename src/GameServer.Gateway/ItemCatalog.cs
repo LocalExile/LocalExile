@@ -30,6 +30,26 @@ sealed class ItemCatalog
         _weaponCrits = new(() => LoadWeaponCrits(folder));
         _defences = new(() => LoadDefences(folder));
         _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows));
+        _visualsById = new(() => LoadVisualsById(folder));
+    }
+
+    private readonly Lazy<Dictionary<string, ushort>> _visualsById;
+
+    /// <summary>An ItemVisualIdentity row's HASH16 by its Id (DefaultArrow, DefaultQuiver …): the hashes the client
+    /// looks an art up by. Null when the table is missing or has no such row.</summary>
+    public ushort? Visual(string id) => _visualsById.Value.TryGetValue(id, out ushort hash) && hash != 0 ? hash : null;
+
+    static Dictionary<string, ushort> LoadVisualsById(string folder)
+    {
+        var map = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        string path = Path.Combine(folder, "tables", "ItemVisualIdentity.json");
+        if (!File.Exists(path)) return map;
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        foreach (var r in doc.RootElement.EnumerateArray())
+            if (r.GetProperty("Id").GetString() is { Length: > 0 } id
+                && r.GetProperty("HASH16") is { ValueKind: JsonValueKind.Number } h)
+                map.TryAdd(id, (ushort)h.GetInt32());
+        return map;
     }
 
     public sealed record BaseType(int Row, string Id, string Name, uint Hash, byte Width, byte Height, ushort VisualIdentity,
@@ -76,7 +96,7 @@ sealed class ItemCatalog
     public BaseType? Find(string query)
     {
         var rows = _rows.Value.Rows;
-        if (int.TryParse(query, out int row)) return Row(row);
+        if (int.TryParse(query, out int row)) return Row(row) is { } numbered ? EmptyResonatorType(numbered) : null;
         foreach (Func<BaseType, bool> match in new Func<BaseType, bool>[]
         {
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
@@ -86,10 +106,24 @@ sealed class ItemCatalog
         })
         {
             var hits = rows.Where(match).ToList();
-            if (hits.Count > 0) return hits.FirstOrDefault(t => t.Supported) ?? hits[0];
+            if (hits.Count > 0) return EmptyResonatorType(hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
         }
         return null;
     }
+
+    // Empty legacy resonators have no Stack component. Filled ones retain their original type.
+    public BaseType EmptyResonatorType(BaseType type) =>
+        ResonatorSockets(type) > 0 && !type.Components.Contains("Stack")
+            ? _rows.Value.Rows.FirstOrDefault(t => t.Id == type.Id.Replace("/DelveSocketable", "/DelveStackableSocketable")) ?? type
+            : type;
+
+    public static int ResonatorSockets(BaseType type) =>
+        type.Id.StartsWith("Metadata/Items/Delve/Delve", StringComparison.Ordinal)
+        && type.Id.Contains("SocketableCurrency", StringComparison.Ordinal)
+        && type.Id[^1] is >= '1' and <= '4' ? type.Id[^1] - '0' : 0;
+
+    public static IReadOnlyList<ItemSocket> ResonatorSocketList(BaseType type) =>
+        Enumerable.Range(0, ResonatorSockets(type)).Select(_ => new ItemSocket(SocketColour.Delve)).ToArray();
 
     /// <summary>A gem's variant (SkillGems GemVariants → GemEffects; the SkillGem component's u32 +0x3c is its index): its
     /// name, the GrantedEffects rows it grants (a Vaal gem's Vaal skill, then its base skill; -1 for none), and whether
@@ -194,7 +228,8 @@ sealed class ItemCatalog
 
     /// <summary>A base's defence range from ArmourTypes.dat (the values the client interpolates with the item's base
     /// percentile). Body armour, helmets, gloves, boots and shields have them; most other bases are zero.</summary>
-    public readonly record struct BaseDefences(int ArmourMin, int ArmourMax, int EvasionMin, int EvasionMax);
+    public readonly record struct BaseDefences(int ArmourMin, int ArmourMax, int EvasionMin, int EvasionMax,
+        int EnergyShieldMin = 0, int EnergyShieldMax = 0);
 
     private Lazy<Dictionary<int, BaseDefences>> _defences = null!;
 
@@ -212,7 +247,9 @@ sealed class ItemCatalog
             if (r.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } key) continue;
             result[(int)Math.Max(0, key.GetInt32())] = new BaseDefences(
                 r.GetProperty("ArmourMin").GetInt32(), r.GetProperty("ArmourMax").GetInt32(),
-                r.GetProperty("EvasionMin").GetInt32(), r.GetProperty("EvasionMax").GetInt32());
+                r.GetProperty("EvasionMin").GetInt32(), r.GetProperty("EvasionMax").GetInt32(),
+                r.TryGetProperty("EnergyShieldMin", out var esMin) ? esMin.GetInt32() : 0,
+                r.TryGetProperty("EnergyShieldMax", out var esMax) ? esMax.GetInt32() : 0);
         }
         return result;
     }
@@ -335,6 +372,7 @@ sealed class ItemCatalog
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DefaultSockets(BaseType t)
     {
         if (!t.Components.Contains("Sockets")) return ([], null);
+        if (ResonatorSockets(t) > 0) return (ResonatorSocketList(t), null);
         var colour = _requirements.Value.TryGetValue(t.Id, out var r)
             ? r.Str >= r.Dex && r.Str >= r.Int && r.Str > 0 ? SocketColour.Red
               : r.Dex >= r.Int && r.Dex > 0 ? SocketColour.Green : r.Int > 0 ? SocketColour.Blue : SocketColour.White
@@ -363,7 +401,8 @@ sealed class ItemCatalog
     public static Item Create(BaseType t, IReadOnlyList<ItemSocket>? sockets = null, IReadOnlyList<byte>? links = null) =>
         new(t.Hash, t.Components, t.VisualIdentity)
         {
-            Charges = t.MaxCharges, Sockets = sockets ?? [], Links = links,
+            Charges = t.MaxCharges, Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t) : sockets ?? [],
+            Links = ResonatorSockets(t) > 0 ? null : links,
             Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, Random.Shared))] : [],
         };
 

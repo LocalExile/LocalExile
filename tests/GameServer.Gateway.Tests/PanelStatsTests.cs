@@ -214,8 +214,10 @@ public class PanelStatsTests
         // 60 flat per minute plus 2% of 1000 maximum life; the client divides by 60 for the per-second row.
         var panel = Recovery(("base_life_regeneration_rate_per_minute", 60), ("life_regeneration_rate_per_minute_%", 2));
         Assert.Equal(80, panel["total_life_recovery_per_minute_from_regeneration"]);
+        Assert.Equal(80, panel["life_recovery_per_minute"]);
         // Character.ot's 105% of maximum mana per minute with no other source.
         Assert.Equal(525, panel["total_mana_recovery_per_minute_from_regeneration"]);
+        Assert.Equal(525, panel["mana_recovery_per_minute"]);
     }
 
     [Fact]
@@ -225,19 +227,22 @@ public class PanelStatsTests
             ("mana_regeneration_rate_+%", 40));
         // (105 + 20)% of 500 + 1200 flat = 1825, raised by 40%.
         Assert.Equal(2555, panel["total_mana_recovery_per_minute_from_regeneration"]);
+        Assert.Equal(2555, panel["mana_recovery_per_minute"]);
     }
 
     [Fact]
     public void Without_a_life_regeneration_source_the_row_is_absent()
     {
         Assert.False(Recovery().ContainsKey("total_life_recovery_per_minute_from_regeneration"));
+        Assert.False(Recovery().ContainsKey("life_recovery_per_minute"));
     }
 
     [Fact]
     public void Regeneration_rows_exist_in_Stats_dat()
     {
         foreach (var name in new[] { "total_life_recovery_per_minute_from_regeneration",
-            "total_mana_recovery_per_minute_from_regeneration", "base_life_regeneration_rate_per_minute",
+            "total_mana_recovery_per_minute_from_regeneration", "life_recovery_per_minute", "mana_recovery_per_minute",
+            "base_life_regeneration_rate_per_minute",
             "life_regeneration_rate_per_minute_%", "base_mana_regeneration_rate_per_minute",
             "mana_regeneration_rate_per_minute_%", "mana_regeneration_rate_+%" })
             Assert.NotNull(Stats.Value.Key(name));

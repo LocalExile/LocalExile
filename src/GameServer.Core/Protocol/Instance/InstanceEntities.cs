@@ -594,37 +594,41 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
 }
 
 /// <summary>
-/// A projectile (experimental): a 0x2b9 object of a Projectiles.dat type (`Metadata/Projectiles/Fireball`, registered from
-/// the table like MonsterVarieties rows), whose .ot chain `Metadata/Projectiles/Projectile` deserializes Positioned,
-/// BaseEvents, Animated and Projectile; BaseEvents and Projectile (vtable 0x1435a0d10, a 0x20-byte component) read
-/// nothing. The Gateway moves it with S→C 0x1ba (the move does run: live 2026-10-18).
-/// <para><see cref="Direction"/>, when set, goes in Positioned's f1 0x04 block (4 × f32 → +0x2d8..+0x2e4, zero by default:
-/// the writer 0x141e2fdc0 sets the flag only when +0x2d8 or +0x2dc is non-zero). Not the flight direction: (dx, dy, 0, 0)
-/// put the fireball under the ground (live 2026-10-18); without the block its model points down.</para>
-/// <para><see cref="Height"/>, when set, is a terrain height (steps of 7.8125, up is positive, as 0x141d84b00 and S→C
-/// 0x1ba use them) sent as Positioned's fixed height (f0 0x04: i32 +0x290 = z / 7.8125, f32 +0x2b4 = world z, as the area
-/// transitions send it). World z points down, so z = −height × 7.8125 (the client's terrain z, 0x141e35800): sending
-/// +height put the fireball under raised ground (live 2026-10-18).</para>
+/// A skill's projectile (a Projectiles.dat type, e.g. `Metadata/Projectiles/BurningArrow`): the object the live server
+/// creates for a shot. Frida 2026-10-25 on a real Burning Arrow (player object dump of the client's CreateObject): the
+/// object has three components ? Positioned, Animated, BaseEvents ? and its whole blob is 28 bytes:
+/// <code>
+/// 02 00                     object flags 0x02, base data 0
+/// &lt;i32 x&gt;&lt;i32 y&gt;&lt;f32 rotation&gt;&lt;u16 0&gt;   Positioned
+/// 04 00                     f0 0x04: a fixed height follows; f1 0: no direction floats, no extra visibility bytes
+/// &lt;i32 -z/7.8125&gt;&lt;f32 z&gt;
+/// 40                        Animated: the projectile's own art (Projectiles.dat AOFiles), flags 0x40
+/// 00                        tasks
+/// </code>
+/// Both height fields are the same world z in two forms: the f32 is z itself and the i32 is -z / 7.8125. World z
+/// points <b>down</b>, and z is an absolute world coordinate (the live arrow's i32 -5 / f32 +39.0625 was z = +39.0625;
+/// its player stood at z = +78.125, so the arrow was 5 steps above the feet). On raised ground z is negative: the
+/// hideout's player at z = -78.37 gets the torso at z = -117.1875, i.e. i32 +15 / f32 -117.1875, and 0x1ba carries
+/// the same signed value (0xfffffff1). Sending the positive "height up" instead put the arrow at z = +117, under the
+/// platform. <see cref="AnimatedComponentIndex"/> is the index the impact's animation update (0x2ba) must use.
 /// </summary>
 public sealed record ProjectileObject(string TypePath, int GridX, int GridY, float Rotation = 0, ushort Team = 0,
-    (float X, float Y, float Z, float W)? Direction = null, int? Height = null)
+    int? Height = null)
 {
-    /// <summary>Animated in the object's component order (Positioned, BaseEvents, Animated, Projectile, Render).</summary>
-    public const byte AnimatedComponentIndex = 2;
+    /// <summary>Animated in the object's component order (Positioned, Animated, BaseEvents).</summary>
+    public const byte AnimatedComponentIndex = 1;
 
     public byte[] Blob()
     {
         var w = new BlobWriter();
-        w.U8(0).U8(0);                                                              // object flags, base data entry count
-        // Positioned: x, y, rotation, team, f0 (0x04 fixed height), f1 (0x02 visibility, 0x04 the four floats), then the
-        // f1 0x04 block, the f0 0x04 height (read in that order, before f0 0x40, f1 0x01 and f1 0x02), then visibility:
-        // shown (as monsters).
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(Height is null ? 0 : 0x04)).U8((byte)(Direction is null ? 0x02 : 0x06));
-        if (Direction is { } d) w.F32(d.X).F32(d.Y).F32(d.Z).F32(d.W);
-        if (Height is int h) w.I32(-h).F32(-h * 7.8125f);                         // z points down: up is negative
-        w.U8(0).U8(1);
-        w.U8(0);                                                                    // Animated: the type's own
-        w.U8(0);                                                                    // tasks
+        w.U8(0x02).U8(0);                                          // object flags 0x02, base data 0 (the live projectile's)
+        // Positioned: x, y, rotation, team, f0 0x04 (a fixed height follows), f1 0 (no extra visibility bytes) - exactly
+        // the live server's 28-byte projectile (Frida 2026-10-25). The two visibility bytes and f1 0x02 were wrong and
+        // made the arrow invisible (it never drew because the blob was 30 bytes and the components no longer lined up).
+        w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(Height is null ? 0 : 0x04)).U8(0);
+        if (Height is int h) w.I32(-h).F32(h * 7.8125f);           // h = z / 7.8125 (z points down): i32 -h, f32 z
+        w.U8(0x40);                                                // Animated: the projectile's own art (Projectiles.dat AOFiles)
+        w.U8(0);                                                   // tasks
         return w.ToArray();
     }
 }

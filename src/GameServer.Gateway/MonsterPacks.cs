@@ -111,7 +111,7 @@ static class AreaPopulation
     public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack);
 
     /// <summary>A named point of a room the client placed (found by <see cref="LoadPoints"/>).</summary>
-    public sealed record RoomPoint(string Name, int X, int Y);
+    public sealed record RoomPoint(string Name, int X, int Y, float Angle = 0);
 
     /// <summary>A server object of a room the client placed (an NPC, a quest blocker): its type and model, grid cell,
     /// angle (radians) and scale, through the room's placement.</summary>
@@ -311,6 +311,15 @@ static class AreaPopulation
         foreach (var path in candidates)
         {
             if (!rooms.Rooms.TryGetValue(path, out var room)) continue;
+            // Named tutorial spawn points have no ordinary room doodads to fit. Use their actual captured .arm
+            // placement. Existing monster-room fitting remains unchanged.
+            if (room.Points.Any(p=>p.Name==TutorialObjects.Chest) && TutorialObjects.RoomPlacements(areaId,seed,path) is { Count:>0 } captured)
+            {
+                foreach(var placement in captured)
+                    foreach(var point in room.Points)
+                        points.Add(placement.Place(point));
+                continue;
+            }
             // Only the client's own doodads are in the capture: a room's server objects (an NPC, a quest blocker) are not.
             var plain = room.Doodads.Where(d => d.Type is null).ToList();
             if (plain.Count == 0) continue;
@@ -372,7 +381,8 @@ static class AreaPopulation
             .ToDictionary(a => a.Name, a => a.Value.EnumerateArray().Select(r => r.GetString()!).ToList());
         var rooms = doc.RootElement.GetProperty("rooms").EnumerateObject().ToDictionary(r => r.Name, r => new RoomData(
             [.. r.Value.GetProperty("points").EnumerateArray().Select(p => new RoomPoint(p.GetProperty("name").GetString() ?? "",
-                (int)Math.Round(p.GetProperty("x").GetDouble()), (int)Math.Round(p.GetProperty("y").GetDouble())))],
+                (int)Math.Round(p.GetProperty("x").GetDouble()), (int)Math.Round(p.GetProperty("y").GetDouble()),
+                p.TryGetProperty("angle",out var angle)?angle.GetSingle():0))],
             [.. r.Value.GetProperty("doodads").EnumerateArray().Select(d => (d.GetProperty("model").GetString() ?? "",
                 (float)d.GetProperty("x").GetDouble(), (float)d.GetProperty("y").GetDouble(),
                 d.TryGetProperty("type", out var t) ? t.GetString() : null,

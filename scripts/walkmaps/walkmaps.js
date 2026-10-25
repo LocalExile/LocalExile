@@ -45,8 +45,27 @@ if (!exe) {
     });
     hookTileObjects(exe);
     hookDoodads(exe);
+    hookRooms(exe);
     send({ type: 'ready', module: exe.name });
   }
+}
+
+// Placed .arm rooms, including named server-only spawn points absent from .tmd objects. The existing room-doodad
+// loop visits every placed room even when it has no client doodads. Layout/addresses corroborated by PR #136's
+// DoodadStage and SpecialNodes, then verified against the native reader below and the captured Strand rooms.
+function hookRooms(exe) {
+  const hook=exe.base.add(ptr('0x142040770').sub(IMAGE_BASE));
+  const hex=Array.from(new Uint8Array(hook.readByteArray(16))).map(b=>b.toString(16).padStart(2,'0')).join('');
+  if(hex!=='488bc44c894820488950104889480855') {send({type:'refused',reason:'room placement hook differs from 3.29.3b'});return;}
+  Interceptor.attach(hook,{onEnter(args){
+    try {
+      const r=args[2], handle=r.readPointer(), data=handle.add(0x28).readPointer();
+      const path=handle.add(8).readPointer().readUtf16String();
+      const code=r.add(0x1b).readU8(), width=data.add(0x138).readU8()*23, height=data.add(0x139).readU8()*23;
+      if(!path || !/\.arm$/i.test(path) || code>7 || !width || !height) return;
+      send({type:'room',path,x:r.add(8).readS32()*23,y:r.add(0xc).readS32()*23,width,height,code});
+    }catch(e){send({type:'error',message:'room placement: '+String(e)});}
+  }});
 }
 
 // Area transitions and waypoints of the generated layout (Agents/docs/protocol/08-area-transitions.md §5).
@@ -75,7 +94,9 @@ function hookTileObjects(exe) {
         const type = path(rec.add(0x30).readPointer());
         // Quest exits extend AreaTransition under their own name: The Twilight Strand's way into Lioneye's Watch is
         // Metadata/QuestObjects/SouthBeachTownEntrance (12-quests.md).
-        if (!type || !/AreaTransition|Waypoint$|TownEntrance$/.test(type)) return;
+        // a1q4 placements are server objects too (12-quests.md). Keep them separate from navigable exits.
+        const questObject = type && /^(Metadata\/Chests\/(QuestChests\/RhoaChest[23]?|TutorialSupportGemChest)|Metadata\/QuestObjects\/WaterCave\/GlyphWall)$/.test(type);
+        if (!type || (!/AreaTransition|Waypoint$|TownEntrance$/.test(type) && !questObject)) return;
         const tile = ctx.add(8).readPointer();
         const code = Math.min(tile.add(0x36).readU8(), 8), heightOffset = tile.add(0x30).readS16();
         const origin = ctx.add(0x10).readPointer();
@@ -91,7 +112,7 @@ function hookTileObjects(exe) {
         while (rotation < 0) rotation += turn;
         while (rotation > turn) rotation -= turn;
         const z = rec.add(0x10).readFloat();
-        send({ type: 'object', objectType: type, model: path(rec.add(0x38).readPointer()), x: gx, y: gy, rotation,
+        send({ type: questObject ? 'quest-object' : 'object', objectType: type, model: path(rec.add(0x38).readPointer()), x: gx, y: gy, rotation,
                z: z === noHeight ? null : z - heightOffset * 7.8125, rawZ: z, heightOffset, code });
       } catch (e) {
         send({ type: 'error', message: 'tile object: ' + String(e) });

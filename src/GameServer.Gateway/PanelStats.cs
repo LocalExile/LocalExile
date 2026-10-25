@@ -275,14 +275,22 @@ static class PanelStats
     /// The Defence tab's regeneration rows (issue #75), as the per-minute totals the client divides by 60: life
     /// (<see cref="LifePerMinute"/>) and mana (<see cref="ManaPerMinute"/>). The same formulas feed the player tick, so
     /// the panel shows the regeneration the server actually applies. A character with no life regeneration gets no life
-    /// row; mana always has its base rate.
+    /// row; mana always has its base rate. The client also needs life_recovery_per_minute / mana_recovery_per_minute
+    /// for its own pool stepping: the Life constructor (0x141e678d0) binds these keys to the pools, and 0x141e6b320
+    /// applies the rate / 60 times the client tick duration. The display totals alone do not drive that stepping.
     /// </summary>
     public static List<(string Stat, int Value)> Recovery(Func<string, int> get, uint maxLife, uint maxMana)
     {
         var result = new List<(string, int)>();
         double life = LifePerMinute(get, maxLife);
-        if (life != 0) result.Add(("total_life_recovery_per_minute_from_regeneration", (int)Math.Round(life)));
-        result.Add(("total_mana_recovery_per_minute_from_regeneration", (int)Math.Round(ManaPerMinute(get, maxMana))));
+        if (life != 0)
+        {
+            result.Add(("total_life_recovery_per_minute_from_regeneration", (int)Math.Round(life)));
+            result.Add(("life_recovery_per_minute", (int)Math.Round(life)));
+        }
+        int mana = (int)Math.Round(ManaPerMinute(get, maxMana));
+        result.Add(("total_mana_recovery_per_minute_from_regeneration", mana));
+        result.Add(("mana_recovery_per_minute", mana));
         return result;
     }
 

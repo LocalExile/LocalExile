@@ -123,6 +123,9 @@ sealed class SkillCatalog(string folder = "data")
             Put("base_skill_is_instant", 1);
             Put("skill_is_instant", 1);
         }
+        // CharacterPanelStats gates spell rows on this final flag and hides the weapon rows while it is set.
+        // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
+        Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
         if (gepl >= 0 && t.Cooldowns[gepl] is { Ms: > 0, Uses: > 0 } cooldown)
         {
             Put("base_cooldown_count", cooldown.Uses);
@@ -206,6 +209,17 @@ sealed class SkillCatalog(string folder = "data")
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 0;
         int row = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level);
         return row >= 0 && row < t.Effectiveness.Count ? Math.Max(0, t.Effectiveness[row]) : 0;
+    }
+
+    /// <summary>The effect's primary stat set's base spell critical chance at this gem level, in permyriad.
+    /// Null means missing/invalid data, distinct from a known zero (a spell with no inherent critical chance).</summary>
+    public int? SpellCritChance(int effectRow, int level)
+    {
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || level < 1) return null;
+        int set = t.StatSets[effectRow];
+        if (set < 0) return null;
+        int row = PickLevel(t.StatSetsPerLevel, set, level);
+        return row >= 0 ? t.SpellCritChances[row] : null;
     }
 
     /// <summary>A gem's requirement for one attribute at a level (0x14246fc40): the level requirement of that level
@@ -312,9 +326,12 @@ sealed class SkillCatalog(string folder = "data")
     /// attack's, unlike a spell, which the client paces by its cast time.</summary>
     public bool IsAttack(int effectRow) => _attackEffects.Value.Contains(effectRow);
 
+    public bool IsSpell(int effectRow) => _spellEffects.Value.Contains(effectRow);
+
     private readonly Lazy<HashSet<int>> _instantEffects = new(() => EffectsOfType(folder, "Instant"));
     private readonly Lazy<HashSet<int>> _movementEffects = new(() => EffectsOfType(folder, "Movement"));
     private readonly Lazy<HashSet<int>> _attackEffects = new(() => EffectsOfType(folder, "Attack"));
+    private readonly Lazy<HashSet<int>> _spellEffects = new(() => EffectsOfType(folder, "Spell"));
 
     /// <summary>The GrantedEffects rows whose ActiveSkill has the ActiveSkillType of this Id.</summary>
     static HashSet<int> EffectsOfType(string folder, string typeId)
@@ -362,6 +379,10 @@ sealed class SkillCatalog(string folder = "data")
         string id = "Metadata/Projectiles/" + effect;
         return _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
     }
+
+    /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
+    public (string Id, int Speed)? Projectile(string id) =>
+        _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
 
     private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
     {
@@ -610,7 +631,7 @@ sealed class SkillCatalog(string folder = "data")
         List<(int StatSet, int CastTime)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
-        List<int> VaalSouls, Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness)
+        List<int> VaalSouls, Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances)
     {
         public static Tables? Load(string folder)
         {
@@ -670,18 +691,21 @@ sealed class SkillCatalog(string folder = "data")
             }
             var setLevels = new List<(int, int)>();
             var effectiveness = new List<int>();
+            var spellCritChances = new List<int?>();
             var levelStats = new List<(int, int)[]>();
             var levelReqs = new List<(int, int, int)>();
             foreach (var r in s.RootElement.EnumerateArray())
             {
                 setLevels.Add((Int(r, "StatSet"), Int(r, "GemLevel")));
                 effectiveness.Add(Int(r, "DamageEffectiveness"));
+                int crit = Int(r, "SpellCritChance");
+                spellCritChances.Add(crit >= 0 ? crit : null);
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
-                vaalSouls, quality, effectiveness);
+                vaalSouls, quality, effectiveness, spellCritChances);
         }
     }
 }

@@ -212,3 +212,19 @@ Gold stays with the personal stash.
   the special tabs other than currency and map.
 - Tab folders (0xd1 is logged), 0xe2, the unique, divination and other special tabs, the
   real guilds (shared guild stash, members, rights), stashes per league, and stashes in the other towns.
+
+### Delve inventory bounds and resonators
+
+The Delve tab must publish StashType row 12 dimensions **41 × 4**, not the default 12 × 12.
+DelveStashTabLayout addresses fossils at slots 0–24, resonators at 25–36, spare slots at 37/39.
+Sending slot indexes beyond the advertised width produces invalid item rectangles and corrupt-looking overlays.
+The existing slotted-tab limit is 5000, including fossils and empty stackable resonators.
+
+Legacy `DelveSocketableCurrency{Upgrade,Reroll}1..4` types lack Stack; empty instances are upgraded on load
+and developer item lookup to their `DelveStackableSocketableCurrency` counterparts. Embedded items are never
+removed or migrated. Empty old socket layouts are repaired to exactly 1/2/3/4 independent Delve sockets.
+Socket colour **6** is Delve (yellow/orange); 5 is Abyss. Verified against the client's socket name table at
+0x142fc1230, indexed by Sockets reader 0x1421e2e20 / debug writer 0x1421e3980. Create and DefaultSockets
+both use this resonator-specific layout, including the stackable item creation path.
+Regression coverage uses every stored item in DelveStashTabLayout, 5000-item stacks, merge and save/reload,
+and all eight resonator families/tiers. The user confirmed the correction in the real client.

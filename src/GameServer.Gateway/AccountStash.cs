@@ -54,6 +54,7 @@ sealed class AccountStash
     {
         [0] = ("NormalStash", 12, 12), [1] = ("PremiumStash", 12, 12), [3] = ("CurrencyStash", 142, 4), [4] = ("UniqueStash", 254, 4),
         [5] = ("MapStash", 12, 6), [7] = ("QuadStash", 24, 24), [8] = ("EssenceStash", 110, 4), [9] = ("FragmentStash", 255, 9),
+        [12] = ("DelveStash", 41, 4),
         [17] = ("FlaskStash", 250, 4), [18] = ("GemStash", 250, 2),
     };
 

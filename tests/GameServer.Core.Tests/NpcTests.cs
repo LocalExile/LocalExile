@@ -41,11 +41,11 @@ public class NpcTests
     }
 
     [Fact]
-    public void Talk_text_is_object_id_and_a_15_bit_value_with_a_flag()
+    public void Quest_reward_has_inventory_id_offer_and_flag()
     {
-        // S→C 0x87 (read 0x1421a1c00): u32 BE object id, u16 BE (bit 15 a flag, low 15 bits the value).
-        Assert.Equal("0087" + "00003001" + "0115", Convert.ToHexString(InstanceNpcs.TalkText(0x3001, 0x115)));
-        Assert.Equal("0087" + "00003001" + "8115", Convert.ToHexString(InstanceNpcs.TalkText(0x3001, 0x115, flag: true)));
+        // S→C 0x87 (read 0x1421a1c00): u32 BE reward inventory id, u16 BE (bit 15 a flag, low 15 bits the value).
+        Assert.Equal("0087" + "00000600" + "0008", Convert.ToHexString(InstanceNpcs.OpenQuestReward(0x600, 8)));
+        Assert.Equal("0087" + "00000600" + "8008", Convert.ToHexString(InstanceNpcs.OpenQuestReward(0x600, 8, flag: true)));
     }
 
     [Fact]

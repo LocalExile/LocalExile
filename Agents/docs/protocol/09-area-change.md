@@ -146,7 +146,7 @@ keeps the ids of the last list it sent (`ChooserList`).
 
 ## 5. Open
 
-- Named entrance points for the other one-way entries ([Roadmap](../../Roadmap.md) "One-way entries").
+- Named entrance points for the other one-way entries ([Roadmap](../../roadmap/world.md) "One-way entries").
 - The Coast's own exits (back to town, to The Mud Flats) and the exits of other areas.
 - 0x2cb's layout, 0x27's u32 +0x34 and u8 +0x88, 0xae's u8 fields.
 - After 0x153 the client's log says "Abnormal disconnect: An unexpected disconnection occurred." (nothing on screen).

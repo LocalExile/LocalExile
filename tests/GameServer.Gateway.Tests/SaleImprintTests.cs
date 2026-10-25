@@ -30,6 +30,22 @@ public class SaleImprintTests : IDisposable
     static PlayerInventories.Shape? Shapes(Item i) => i.TypeHash == OrbType ? new(1, 1, "StackableCurrency", 40) : new(1, 3, "Wand");
 
     [Fact]
+    public void Offered_currency_cannot_be_offered_twice_or_spent_and_cancel_restores_its_balance()
+    {
+        var items = Items();
+        var currency = items.Add(Main, 2, 1, Orbs(10));
+        Assert.NotNull(items.Offer(Main, currency.Id, 0, 0, Shapes));
+        Assert.Null(items.Offer(Main, currency.Id, 1, 0, Shapes));
+        Assert.Null(items.PickUp(Main, currency.Id));
+        Assert.Equal(0, items.Count(Main, OrbType));
+        var restored = Assert.Single(items.CancelOffers());
+        Assert.Equal(currency, restored.Item);
+        Assert.Equal(10, items.Count(Main, OrbType));
+        Assert.Empty(items.CancelOffers());
+        Assert.Equal(10, Reload().Count(Main, OrbType));
+    }
+
+    [Fact]
     public void An_offered_item_keeps_its_cell_and_nothing_can_take_it()
     {
         var items = Items();

@@ -145,13 +145,16 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
   S→C 0x84 with object 0 ends it. Cancel also sends C→S 0x85 for it, Accept sends nothing, so the Gateway sends 0x84
   object 0 after every 0xb9. Verified live 2026-10-19: drops, Ctrl + click (19 items into the first free cells),
   Accept (the NPC's offer lands in the inventory) and Cancel (the items come back), walking afterwards.
-- **Offered items keep their cells.** In 3.29 an offered item leaves a greyed imprint in its inventory cell with its size
-  and collision, so a cancel always puts it back where it was. The Gateway does the same (`PlayerInventories.Offer`,
-  [saves](../saves.md) "The sell window"): the item stays in its cell in the save, nothing may take the cell, and the
-  sale itself is only in memory. With a 0xbf taking the item out of the inventory the client drew no imprint (live
-  2026-10-20), so the Gateway now leaves the client's inventory alone while the item is offered, and takes the sold items
-  out on Accept; whether the client then draws the imprint is being tested. Not checked either: what it shows when
-  Accept is refused for room.
+- **Offered items keep their server/save cells but are hidden from the client's inventory.** On offer send manager-0
+  0xbf removing the original item (or cursor item), then manager-1 0xbf adding it to the player's offer. This provides
+  an unambiguous offer-only view without relying on an unreliable native grey imprint. The reserved server cell
+  prevents reuse/collisions and keeps the durable item safe across disconnects and crashes. Taking back or cancelling
+  sends manager-0 additions with the original ids/cells; confirming sends only reward inventory changes, since offered
+  items were already hidden. Closing dialogue or reopening/switching vendor windows cancels the previous sale first.
+  Acceptance persists item removal and payment together; a refused sale leaves the offer open. NPC reward previews
+  are generated UI items, not paid inventory, and are never granted on cancellation. Player-to-player trade is not
+  implemented by this NPC sale path. Coverage: SaleImprintTests (duplicates, currency exclusion, cancel, restart,
+  held-item recovery and atomic accepted sale). Live visibility verification pending.
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2b690`); a wrong row crashes the client.
 
 ## 6. Dev commands
@@ -161,7 +164,22 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
 
 ## Open
 
-- Selling: real sell prices; quest rewards (0x87); Respecialisation with refund points;
+- Selling: real sell prices; remaining quest reward offers/scripts; Respecialisation with refund points;
   real buy prices.
 - The NPC component's two bytes, and 0x84's other mode values.
 - The NPCs' facing (rotation 0 for now), and NPCs in the other towns and outside towns.
+
+## Quest dialogue and first rewards (2026-10-25)
+
+NPCTalk QuestFlag1/2 are required/excluded flags. QuestFlag4 applies when a talk is chosen; QuestFlag5 applies after
+Continue. QuestFlag3 controls read/highlight state, not eligibility. QuestFlags and QuestRewardOffers are zero-based:
+row 0 is valid, including `a1q1-KilledHillock`. `NEVER_SET` remains an eligibility sentinel but is never applied as an
+effect. Eligibility uses the same projected visited/access flags sent to the client, plus saved character flags.
+
+Implemented offers are limited to 0 and 8 and their class-filtered normal level-one gem choices. Offer 8's magic
+armour choices need item construction not implemented here. Nessa's Brutus conversation sets `NessaChatBrutus`,
+enabling her prison reward; claiming sets `a1q2-NessaRewardTaken`. Tarkleigh's Hillock reward sets
+`a1q1-QuestRewardTaken`. Inventory addition and the taken flag commit in one save transaction, with a durable duplicate
+check and rollback on failure/full inventory. The server removes all choices and ends dialogue after claiming.
+Live verified with OfflineWitch: Combustion Support from Nessa and Freezing Pulse from Tarkleigh, including the saved
+completion flags. Other quest scripts are not thereby implemented.

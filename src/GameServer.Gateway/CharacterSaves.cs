@@ -48,13 +48,21 @@ static class CharacterSaves
         List<string>? QuestFlags = null, ushort? ExtraPassivePoints = null,
         Dictionary<ushort, ushort>? MasteryEffects = null, uint? Gold = null, ushort? RefundPoints = null,
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
-        Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null)
+        Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null, OpeningTutorial? Tutorial = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
     }
 
     public static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
+
+    /// <summary>Deferred class gems and progress for new characters. Null preserves older pre-granted starter kits.</summary>
+    public sealed record OpeningTutorial(SavedItem SkillGem, SavedItem SupportGem,
+        bool Talked = false, bool ZombieKilled = false, bool ChestOpened = false, bool SkillClaimed = false, bool SupportClaimed = false,
+        string? Id = null);
+    public static void ChangeTutorial(string character, Func<OpeningTutorial, OpeningTutorial> change) =>
+        Update(character, s => s.Tutorial is { } tutorial ? s with { Tutorial = change(tutorial) } : s);
+    public static void SetTutorial(string character, OpeningTutorial tutorial) => Update(character, s => s with { Tutorial = tutorial });
 
     /// <summary>The character's save, or null when it has none, with the experience gained since it was last saved
     /// (<see cref="AddExperience"/>): every write that loads it saves that too. A save that can't be read throws
@@ -69,6 +77,8 @@ static class CharacterSaves
         Saves.Put(SaveDatabase.Table.Characters, character, JsonSerializer.Serialize(save, Opts));
 
     public static void SetSelectedHideout(string character, string area) => Update(character, s => s with { SelectedHideout = area });
+
+    public static void ClearActiveAuras(string character) => Update(character, save => save with { ActiveAuras = [] });
 
     /// <summary>Persist aura intent by stable GrantedEffects Id, never by a connection's skill or buff id.</summary>
     public static void SetAuraActive(string character, string effect, bool active) => Update(character, save =>
@@ -260,11 +270,14 @@ static class CharacterSaves
     {
         if (catalog.ByHash(s.Type) is not { } t)
             throw new UnknownSavedItemException($"item type 0x{s.Type:x8}" + (catalog.Error is { } e ? $" ({e})" : ""));
+        bool emptyResonator = ItemCatalog.ResonatorSockets(t) > 0 && (s.Sockets ?? []).All(k => k.Gem is null);
+        if (emptyResonator) t = catalog.EmptyResonatorType(t);
         return ItemCatalog.Create(t) with
         {
             ItemLevel = s.ItemLevel, Quality = s.Quality, Charges = s.Charges, StackSize = s.StackSize, GemExperience = s.GemExperience, GemVariant = s.GemVariant, GemFlags = s.GemFlags,
-            Sockets = [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
-            Links = s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
+            Sockets = emptyResonator ? ItemCatalog.ResonatorSocketList(t)
+                : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
+            Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
         } is var item && s.Mods is null ? item : item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
     }
 

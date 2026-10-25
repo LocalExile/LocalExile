@@ -5,9 +5,9 @@ namespace Atlas;
 
 /// <summary>
 /// data/room-points.json: per area, the rooms of its room sets and fill tiles that carry monster points ("mapboss", the area's
-/// unique boss; "%area%-…", a MonsterPacks row named after the area) or a "default" start point, with those points and
+/// unique boss; "%area%-â€¦", a MonsterPacks row named after the area) or a "default" start point, with those points and
 /// the room's doodads in room cells (server objects with their type, angle and scale: quest objects the Gateway creates). The Gateway finds where the client placed such a room by matching its doodads against the doodads the
-/// walk-map recorder captured (AreaPopulation.FitRooms). Agents/docs/protocol/14-monster-packs.md §3.
+/// walk-map recorder captured (AreaPopulation.FitRooms). Agents/docs/protocol/14-monster-packs.md Â§3.
 /// </summary>
 static class RoomPoints
 {
@@ -15,7 +15,8 @@ static class RoomPoints
         name.Equals("mapboss", StringComparison.OrdinalIgnoreCase) || name.StartsWith("%area%-", StringComparison.OrdinalIgnoreCase);
 
     // "default": where a player starts in the area (The Twilight Strand's washed-up beach, 12-quests.md).
-    static bool IsKeptPoint(string name) => IsMonsterPoint(name) || name.Equals("default", StringComparison.OrdinalIgnoreCase);
+    static bool IsKeptPoint(string name) => IsMonsterPoint(name) || name.Equals("default", StringComparison.OrdinalIgnoreCase)
+        || name == "Metadata/Chests/TutorialSupportGemChest";
 
     // Plain doodads are the client's own; anything else in a room (an NPC, a quest blocker) is an object the server creates.
     const string PlainDoodad = "Metadata/MiscellaneousObjects/Doodad";
@@ -41,7 +42,7 @@ static class RoomPoints
                     rooms.TryAdd(arm, new
                     {
                         tag = room.Tag,
-                        points = room.Points.Where(p => IsKeptPoint(p.Name)).Select(p => new { name = p.Name, x = p.X, y = p.Y }),
+                        points = room.Points.Where(p => IsKeptPoint(p.Name)).Select(p => new { name = p.Name, x = p.X, y = p.Y, angle = p.Angle }),
                         doodads = room.Doodads.Select(d => d.Type.Equals(PlainDoodad, StringComparison.OrdinalIgnoreCase)
                             ? (object)new { model = d.Model, x = d.X, y = d.Y }
                             : new { model = d.Model, x = d.X, y = d.Y, type = d.Type, angle = d.Angle, scale = d.Scale }),
@@ -52,10 +53,11 @@ static class RoomPoints
         }
         File.WriteAllText(output, JsonSerializer.Serialize(new
         {
-            note = "Rooms with monster points (mapboss, %area%-<pack>) or a default start point per area: points and doodads in room cells (server objects with their type, angle and scale). scripts/re/atlas room-points.",
+            note = "Rooms with monster points (mapboss, %area%-<pack>), default start or tutorial chest spawn points: points and doodads in room cells. scripts/re/atlas room-points.",
             areas = areaRooms,
             rooms,
         }, new JsonSerializerOptions { WriteIndented = false }));
-        Console.WriteLine($"{output}: {areaRooms.Count} areas, {rooms.Count} rooms with monster or start points");
+        Console.WriteLine($"{output}: {areaRooms.Count} areas, {rooms.Count} rooms with monster, start or tutorial points");
     }
+
 }

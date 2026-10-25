@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Login;
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>Socket colours as the Sockets component stores them (u8 per socket, bits 1..7).</summary>
-public enum SocketColour : byte { Red = 1, Green = 2, Blue = 3, White = 4 }
+public enum SocketColour : byte { Red = 1, Green = 2, Blue = 3, White = 4, Abyss = 5, Delve = 6 }
 
 /// <summary>A socket of an item, with the gem in it (if any).</summary>
 public sealed record ItemSocket(SocketColour Colour, Item? Gem = null);

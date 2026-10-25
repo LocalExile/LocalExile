@@ -144,4 +144,10 @@ static class Quests
     /// <summary>The QuestFlags rows of these flag Ids, ascending; unknown Ids are skipped.</summary>
     public static IReadOnlyList<int> Rows(IEnumerable<string> ids, IReadOnlyDictionary<string, int>? rows = null) =>
         [.. ids.Select(id => (rows ?? TableRows.Value).TryGetValue(id, out int r) ? r : -1).Where(r => r >= 0).Order()];
+
+    public static IReadOnlySet<string> Names(IEnumerable<int> rows)
+    {
+        var wanted = rows.ToHashSet();
+        return TableRows.Value.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
+    }
 }

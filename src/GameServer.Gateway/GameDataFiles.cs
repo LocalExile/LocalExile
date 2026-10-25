@@ -14,7 +14,7 @@ static class GameDataFiles
         ("data/object-types.json", "monsters, NPCs, area transitions"),
         ("data/item-types.json", "items"),
         ("data/area-transitions.json", "area transition destinations and fixed-layout placements"),
-        ("data/room-points.json", "unique bosses, The Twilight Strand's force wall"),
+        ("data/room-points.json", "unique bosses, The Twilight Strand's encounters and support-gem chest"),
         ("data/hideouts.json", "hideouts"),
         ("data/animation-contacts.json", "class spell timing (the Witch's is used)"),
         ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),

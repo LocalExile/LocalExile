@@ -57,6 +57,14 @@ static class ItemModStats
     /// Taking off a +30 strength ring that another +30 strength item needed leaves that item on if the rest still
     /// reaches its requirement; an item it switches off can switch off more.
     /// </summary>
+    public static (HashSet<uint> Inactive, IReadOnlyList<Item> Active) ResolveEquipment(
+        IReadOnlyList<Worn> worn, (int Str, int Dex, int Int) baseAttributes, int level, ModCatalog mods,
+        IReadOnlySet<uint>? previous = null)
+    {
+        var inactive = Inactive(worn, baseAttributes, level, item => Attributes(item, mods), previous);
+        return (inactive, worn.Where(w => !inactive.Contains(w.Id)).Select(w => w.Item).ToArray());
+    }
+
     public static HashSet<uint> Inactive(IReadOnlyList<Worn> worn, (int Str, int Dex, int Int) baseAttributes, int level,
         Func<Item, (int Str, int Dex, int Int)> attributesOf, IReadOnlySet<uint>? previous = null)
     {

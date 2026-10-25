@@ -311,11 +311,13 @@ public static class InstanceProtocol
 
     /// <summary>
     /// S→C 0x1ba (world group, class 0x1435dd7b8, read 0x141fe0ff0; Positioned handler 0x141e30c90): move an object to a
-    /// grid cell. Object header, i32 x, i32 y, u32 height (+0x28: 0x7fffffff = follow the terrain, else z = −height ×
-    /// 7.8125; 0 put a projectile under the ground), f32 duration (+0x2c, seconds: the handler passes distance / duration
-    /// as the speed to 0x141e34120; Positioned +0x23c = that speed, +0x240 = the time per cell step = duration / the path's
-    /// longest axis in cells. Live 2026-10-18: sending 95.7 meant "~1 s per cell" and the fireball crawled), u8 (+0x30). 0x1b7 (teleport) is the same header, x, y, u32 +0x28 (→ +0x290),
-    /// u32 +0x2c (→ +0x2b4).
+    /// grid cell. Object header, i32 x, i32 y, u32 height (+0x28: 0x7fffffff = follow the terrain; otherwise it is the
+    /// object's world z in 7.8125-unit steps, read as a signed i32 and <b>positive down</b>: z = height × 7.8125. A
+    /// positive height goes below sea level, a negative one above; 0 put a projectile under the ground), f32 duration
+    /// (+0x2c, seconds: the handler passes distance / duration as the speed to 0x141e34120; Positioned +0x23c = that
+    /// speed, +0x240 = the time per cell step = duration / the path's longest axis in cells. Live 2026-10-18: sending
+    /// 95.7 meant "~1 s per cell" and the fireball crawled), u8 (+0x30). 0x1b7 (teleport) is the same header, x, y, u32
+    /// +0x28 (→ +0x290), u32 +0x2c (→ +0x2b4).
     /// </summary>
     public static byte[] MoveTo(uint objectId, int x, int y, float speed, uint u28 = 0, byte u30 = 0) =>
         new LoginWriter().U16(MoveToId).U32(objectId).U32(0).U16(0)
@@ -351,8 +353,11 @@ public static class InstanceProtocol
     /// u8 flags, bit0 set by the "Resurrect in Town" button, clear for the checkpoint one.</summary>
     public static bool ReadResurrectInTown(ReadOnlySpan<byte> m) => (m[2] & 1) != 0;
 
-    public static byte[] Teleport(uint objectId, int x, int y) =>
-        new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y).U32(0).U32(0).ToArray();
+    /// <summary>Relocate and stop a glide. Unlike MoveTo, height is Positioned's signed fixed-height marker and
+    /// worldZ is its float z, copied directly by the client. Marker 0x7fffffff selects terrain and ignores worldZ.</summary>
+    public static byte[] Teleport(uint objectId, int x, int y, uint height = 0, float worldZ = 0) =>
+        new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
+            .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
 
     /// <summary>The network's signed compact int (writer 0x141fa3c50, reader 0x141fa3d60): 1 byte for -0x40..0x3f, then
     /// 2/3/4 bytes with prefixes 0x80/0xc0/0xe0 (6/5/4 value bits in the first byte), else 0xf0 + 4 bytes, big-endian.</summary>

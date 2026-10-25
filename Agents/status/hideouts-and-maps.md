@@ -1,0 +1,92 @@
+# Status: Hideouts, crafting stations and maps
+
+Part of [Status](../Status.md); what to build next in this area is in
+[roadmap/hideouts-and-maps.md](../roadmap/hideouts-and-maps.md).
+
+## Works (verified with the real client)
+
+- Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
+  replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
+  That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
+  there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
+  while the server runs, being tested 2026-10-23).
+  Code: Gateway (`UsePortalScroll`, `UseMapReturnPortal`).
+  Docs: [21](../docs/protocol/21-hideouts.md) §5.
+- Hideouts: every character has the hideout unlocked (quest flags HideoutUnlocked, CanEditHideout …;
+  league quest flags UnlockedHideouts, HaveHideout, UnlockedMapDevice in the Player component, sent as bit id − 1) and
+  owns the Lush Hideout; `/hideout` (C→S 0x16 command 45) and the World panel's Hideout button (C→S 0x17a) take the
+  player there (its own instance, seed 1) next to its waypoint;
+  its Waypoint (with HideoutDoodad data), Stash, Nessa and map device come from its decoration (`scripts/re/atlas
+  hideouts` → `data/hideouts.json`); the HUD shows the Edit button;
+  the map device can be clicked and opens its window (S→C 0x7b kind 5);
+  maps go into its slots, Activate (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
+  opens six portals (MultiplexPortal + S→C 0x008f) into one instance of the map's area, each used once (the one taken
+  stays gone); in the map, a portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
+  gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
+  Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
+  `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
+  Docs: [21](../docs/protocol/21-hideouts.md).
+
+## Partly working
+
+- Horticrafting Station: placed beside the ordinary bench in every selected hideout;
+  interaction approaches and opens the native Harvest recipe browser (0x7b kind 0x39).
+  Recipe execution/payment are not implemented.
+  Automated coverage; station and window confirmed working in the real client.
+  See protocol/21-hideouts.md.
+- Ordinary crafting bench (2026-10-25, automated coverage; live client verification pending): all 765 active recipes
+  and their 130 recipe flags are available.
+  Exact modifiers, class masks, socket/link recipes, flask enchantments, replacement/removal and rare-affix rerolls
+  are served.
+  Payment combines main inventory and personal stash, including multiple tabs/currencies, and commits with the item
+  atomically.
+  Tests cover each recipe/class and failed-payment/save cases.
+  See [21](../docs/protocol/21-hideouts.md), Ordinary bench recipes and payment.
+- Bench affordability correction: native bench counters exclude ordinary stash inventories.
+  A separate, nonspendable currency-count view now publishes current personal stash totals on opening and refreshes
+  after crafting, while actual main-inventory currency is counted once.
+  Payment still uses only real items; large totals retain their full value.
+  Automated checks pass; corrected live UI verification is pending.
+  See [21](../docs/protocol/21-hideouts.md), Bench affordability.
+- Helena placement and hideout picker entry point (2026-10-25, awaiting client confirmation): Helena stands
+  screen-right of Niko and Select Hideout opens the native window.
+  All exported personal templates are owned; selection, transfer and persistence are implemented.
+  See [21](../docs/protocol/21-hideouts.md).
+- Hideout picker crash fix (2026-10-25, awaiting client confirmation): initialize the campaign unlock bitset with S→C
+  0x1f6 on area entry, before Helena can open the picker.
+  Missing data caused the confirmed client access violation at 0x14216d8b7.
+  See [21](../docs/protocol/21-hideouts.md).
+- **Niko and Kirac in the hideout (verified live, 2026-10-21):** Niko to Nessa's right, Kirac to her left.
+  Kirac's hideout row has no dialogue of its own and uses the main Kirac's (`NpcCatalog.TalkSource`);
+  Purchase Items sells maps.
+  Niko's Delve options need quest flag ThisIsMyHideout (sent in hideouts and the Mine Encampment) and league quest
+  flag 68 DelveEncounterComplete (every character): NPCTalk columns 15-18 are league quest flag ids.
+  See [21](../docs/protocol/21-hideouts.md).
+- **Delve, first steps (verified live, 2026-10-21):** View Subterranean Chart opens the chart (S→C 0x7b kind 0x1c,
+  from the client's screen table); its data request C→S 0x23f is answered with S→C 0x240, and one entry draws the
+  first mine section (the other fields are being worked out with `/delve_chart`).
+  Visit Mine Encampment goes to Delve_Hub, which has its tile's waypoint (still drawn inactive: no 0x4c bit), Niko,
+  the stash and the guild stash.
+  The mine itself is not implemented.
+  See [21](../docs/protocol/21-hideouts.md).
+- **Hideout crafting bench placement (2026-10-25).** Personal hideout selection now handles the native 0x254 request,
+  saves the selected WorldAreas Id per character and transfers immediately.
+  Auth uses the saved choice on login; world-panel travel, `/hideout` and map return portals use the same home.
+  Functional furniture and all four NPCs are placed on the selected template's floor.
+  Selection decoding, persistence and placement have automated coverage;
+  the new transfer and reconnect path awaits user verification in the client.
+- The standard bench spawns to the left of the guild stash in hideouts, using the existing decoration's model and a
+  walkable placement (placement confirmed in the real client).
+  Clicking it now walks into interaction range and sends 0x7b kind 0x33, type 0 to open the ordinary crafting window.
+  Automated checks cover the wire format; a live window-opening check is pending.
+  Recipe unlocks and applying crafts are now implemented; see protocol/21-hideouts.md.
+
+## Not working yet
+
+- Hideouts: decorative trees/tents and editing are not implemented.
+  Personal template selection, saved home login and functional furniture placement are implemented
+  ([21](../docs/protocol/21-hideouts.md)).
+- Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);
+  the arena gates land next to their pair, not on the telepads; fragments add nothing;
+  the portals look like player portals; the open map is lost on a Gateway restart
+  ([21](../docs/protocol/21-hideouts.md) §5, "Open").

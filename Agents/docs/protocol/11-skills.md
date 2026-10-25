@@ -229,13 +229,50 @@ once. The Gateway now sends the 0x20 update instead (above), which also removes 
 critical strike chance / 100)`, capped at 100%, then multiplies the damage by the final multiplier (150% plus
 `base_critical_strike_multiplier_+`), as PoB's `CalcOffence` does. PoB's `unarmedWeaponData[class].CritChance = 0`
 and `base_critical_strike_multiplier = 150` are the defaults used here. The base is the equipped main hand's `WeaponTypes.dat` `Critical` permyriad
-(830 = 8.30%); unarmed is 0. Fireball uses its `GrantedEffectStatSetsPerLevel` `SpellCritChance` 500 (5.00%). The
-unconditional passive stats are summed into `CharacterStats.Pools`: generic `critical_strike_chance_+%` and
+(830 = 8.30%); unarmed is 0. Spells use their own level's `GrantedEffectStatSetsPerLevel.SpellCritChance`:
+Fireball 500 (5.00%), Freezing Pulse and Ice Nova 750, Arc 600, Scorching Ray 0.
+`SkillCatalog.SpellCritChance` returns null for missing/invalid data, distinct from a known zero; both fail closed.
+The unconditional passive stats are summed into `CharacterStats.Pools`: generic `critical_strike_chance_+%` and
 `base_critical_strike_multiplier_+` for both attacks and spells, the attack/melee/weapon-shape chance and multiplier
 stats for attacks, and `spell_critical_strike_chance_+%` / `base_spell_critical_strike_multiplier_+` for spells. The final
 `main_hand_critical_strike_chance` / `_multiplier` and `spell_critical_strike_chance` / `_multiplier` stats go to the
-client, so the Offence panel shows them. Timed, charge, enemy-state and similar conditional crit stats are not modelled;
-`/crit` prints both final values.
+client, so the Offence panel shows them.
+`SpellCriticalStrike` shares the raw player-plus-skill increased-chance calculation between `GemSkills` and projectile/
+area spell hits; the old final Fireball-based player display chance is not added as another input.
+Precision and Zealotry expose their existing crit bonuses through `AuraCatalog.RawStats` for that calculation.
+Pool construction still reads passives/items and adds `AuraCatalog.Bonus` once; it does not read `RawStats` back.
+The result rounds to integer permyriad, halves away from zero, then caps at 0–10000, matching
+[PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L3022-L3027).
+`global_cannot_crit` and `virtual_global_cannot_crit` disable the supported spell roll.
+Ordinary increased chance cannot make a known zero-base spell crit.
+The selected skill's spell rows also require `casting_spell = 1` (CharacterPanelStats `Spell_CritChance`);
+the main-hand rows exclude that flag.
+`EffectStats` supplies it only for an actual ActiveSkillType Spell without Attack, and sends zero otherwise.
+Warcries are not classified as spells merely because they are not attacks.
+Area and projectile hits use the same actual Attack/Spell types, with Attack taking precedence for a mixed type.
+Bow attack projectiles retain their weapon damage, damage effectiveness, attack critical chance and multiplier;
+the spell-specific calculation applies only to the spell route.
+`SkillHitPlan` rejects unsupported types and spells without extracted hit damage before building a weapon packet or
+rolling critical chance, so Scorching Ray, Righteous Fire and warcries cannot fall through to a wand hit.
+This adds no beam or damage-over-time implementation.
+The copied-save baseline recorded stored spell chance 500 for both Fireball and Freezing Pulse,
+and the selected Freezing Pulse panel still showed main-hand rows (main-hand crit 830).
+Native getters also read the stored 500; evidence is `logs/spell-crit-baseline.json` in the validation checkout.
+Copied-save native panel/getter checks now show Fireball 5%, Freezing Pulse and Ice Nova 7.5%, and Arc 6%.
+With 100% increased generic crit they show Fireball 10% and Freezing Pulse 15%; adding another 100% spell crit gives
+15% and 22.5%, respectively, so the inputs add once.
+`global_cannot_crit = 1` makes the native skill chance zero and hides its critical row.
+After clearing those modifiers and relogging, Freezing Pulse still shows 7.5%.
+Scorching Ray remains explicitly zero with 100000% increased generic crit; its actual cast caused no weapon hit or
+critical roll against a nearby 86-life Ash Harvester.
+On the same connection, Fireball with that increased chance dealt a logged 22-damage critical hit, leaving 64 life.
+The final Arc/Ice Nova and hitless-spell checks used the reviewed type-routing fix.
+Evidence: validation `logs/spell-crit-{after-default,after-generic100,after-combined100,after-disabled,after-relog,
+final-arc-ice,final-scorching-ray}.json`, `spell-critical-live-summary.json` and `live-gateway.log`.
+Native probes reported no errors.
+Catalog, raw-source, aura, flag, rounding, hit routing and roll-boundary checks are also automated.
+Timed, charge, enemy-state, lucky/more and added-base critical mechanics remain outside this slice.
+`/crit` prints the attack values and the legacy pooled 5%-base spell reference, not the selected gem's chance.
 
 **Impale.** A hit that rolls `impale_on_hit_%_chance` stores 10% of the swing's physical damage on the monster as a
 stack: five at most, each lasting five physical hits. The stored amount is taken from the packet's physical **maximum**,
@@ -502,38 +539,106 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
 
 - **Object.** A 0x2b9 of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
-  BaseEvents, Animated and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
-  (`ProjectileObject`), then 0x1a9 (wake zone). The real link between a skill and its projectile is unknown; the
-  Gateway matches the Id.
+  Animated, BaseEvents and Projectile, so the blob is Positioned, one Animated byte and the tasks byte
+  (`ProjectileObject`; the Animated component is index 1), then 0x1a9 (wake zone). The real link between a skill and
+  its projectile is unknown; the Gateway matches the Id.
 - **Flight.** S→C **0x1ba** to the target cell at the row's `ProjectileSpeed` (world units per second, 1040 → ~96
   cells per second at 250/23 world units per cell). The u32 at +0x28 is a **height**, not padding: the handler
   (`0x141e30c90`) passes it to `0x141e34400`, which keeps the terrain height for 0x7fffffff and otherwise sets
-  z = −height × 7.8125. With 0 the fireball sat under the ground and did not seem to move; with 0x7fffffff it flies
-  (slowed to 10 cells per second with `Game_PROJECTILE_SPEED` to watch it). Positioned's vtable +0xd8, which the move
-  calls when the flag byte has bit 0, is a `ret`; the interpolation is `0x141e4d180`.
+  z = height × 7.8125, the height read as a signed world z (positive down; a negative value is above sea level).
+  With 0 the fireball sat under the ground and did not seem to move; with 0x7fffffff it flies (slowed to 10 cells per
+  second with `Game_PROJECTILE_SPEED` to watch it). Positioned's vtable +0xd8, which the move calls when the flag
+  byte has bit 0, is a `ret`; the interpolation is `0x141e4d180`.
 - **Rotation.** Positioned rotation (+0x29c) = **atan2(dx, −dy)** in grid cells (the player's own moves traced with
   `trace-move.js`: facing (+15, −18) read 0.668).
-- **Hit (live 2026-10-18).** At launch the server walks the path cell by cell and stops it at the first living
-  monster within 4 cells (`Game_PROJECTILE_HIT_RADIUS`; the row's CollisionRadius is 2) of where the projectile will
-  be, using where that monster will be by then. Ground and monster casts alike: the projectile flies to the hit (else
-  to its range), the monster loses the skill's fire damage (0x1b1), a kill is removed 10 s later. A monster that walks
-  into the path after launch is not hit.
+- **Ordinary speed modifiers (2026-10-25; automated and live Fireball checks).** `ProjectileSpeed` scales the
+  table's world-units/second by `1 + (player final projectile_speed_+% + skill base_projectile_speed_+%)/100`,
+  then converts to cells/second with 250/23 world units per cell. `Stats.dat` marks `base_projectile_speed_+%`
+  (client key 178) as a scalable non-virtual input and `projectile_speed_+%` (1407) as virtual. The player's
+  `CharacterPlayerStats`/`PanelStats` total already includes its base input, so that input is not added again.
+  Skill inputs are read separately from `SkillCatalog.EffectStats` at release, including level/quality, rather
+  than overlaid on the player's raw values. For example, Freezing Pulse's quality row grants 2000 permille per
+  quality: +40% at quality 20 adds to a player's +30%, giving 1.7 times table speed.
+  The additive formula follows PoB's [ProjectileSpeed calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L1152)
+  and [modifier formula](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcTools.lua#L16),
+  restricted here to additive increases/reductions. One resolved speed drives collision prediction, 0x1ba's
+  duration and the server's flight delay. A finite positive `Game_PROJECTILE_SPEED` still overrides the result
+  in cells/second. Invalid overrides fall back to the modified table speed. Finite positive overrides, including
+  0.001 cells/second, are preserved when their flight duration is representable. Only a nonpositive speed or a
+  flight exceeding [.NET's maximum Task.Delay duration](https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.task.delay?view=net-10.0)
+  (4,294,967,294 ms) gets a distance-dependent lower speed bound, before collision prediction. The bound includes
+  endpoint rounding and is a numeric guard, not a measured official minimum speed.
+  More/less modifiers, conditional and per-charge speed, support-gem application and special projectile speed
+  rules remain unimplemented.
+  Live validation used a copied OfflineWitch database and three Fireball casts over the same 116-cell path.
+  At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads
+  carried durations 1.212375/0.606187/2.424749 seconds. Before the patch, both 0 and +100% used 95.7 cells per second.
+  These checks cover travel timing, not moving-target collision or pixel-level matching with the official game.
+- **Hit (reworked 2026-10-25).** `ProjectileFlight` advances from the
+  connection's elapsed game clock, polled about every 16 ms. For each interval it solves the earliest intersection
+  of the projectile segment and each living monster's observed movement segment in relative coordinates, with the
+  existing 4-cell radius (`Game_PROJECTILE_HIT_RADIUS`; the row's CollisionRadius is 2). It keeps previous samples
+  across movement orders, rather than choosing a future target at launch. A monster can walk out of a formerly
+  predicted hit, walk into the path later, or intercept before a farther monster. Removed/dead monsters are omitted;
+  new objects and replaced walk estimators are tested only at the current endpoint, without inventing past motion.
+  The first contact stops the flight; range expiry without a contact removes it without an explosion.
+  Live at 10 cells/s on The Twilight Strand: a monster ordered from (330, 220) to (330, 240) after release was
+  missed, and the projectile reached the wall at (369, 220).
+  Ordering the monster from (330, 240) into the ray after release produced a hit at (326, 220).
+  These checks used actual monster movement orders; nearer interceptors and dead targets also have automated coverage.
+- **Stopping at contact (static evidence and live verification, 2026-10-25).** The initial 0x1ba goes to the
+  range/static-wall endpoint. At a discovered contact, S→C **0x1b7** relocates it to the rounded contact cell with the appropriate height,
+  then the Animated swap below plays its impact. The 3.29.3b Positioned handler's switch (`0x141e30c90`) maps 0x1b7
+  to `0x141e30da7`: it stores the height at +0x290 and trailing u32 at +0x2b4, then calls `0x141e31200`. That routine's
+  tail (`0x141e3162f`) calls `0x141e35250`, which clears the movement durations at +0x240/+0x280 and movement flags.
+  Thus the explosion does not continue along the old glide. `InstanceProtocol.Teleport` now accepts an optional
+  fixed-height marker and float world z; existing calls retain their two zero fields.
+  Unlike 0x1ba, 0x1b7 copies the fixed pair directly. For signed world-z steps `s`, send
+  marker `-s` and float world z `s * 7.8125`, preserving the projectile creation pair and fixed flight height.
+  Terrain is not resampled at impact, so sloping ground does not make the explosion jump vertically.
+  The height getter (`0x141e35800`) compares +0x290 with 0x7fffffff first; that sentinel selects terrain sampling
+  and ignores +0x2b4. Current flights use a fixed height, including the bare offset without a height grid.
+  Every other marker immediately returns the float at +0x2b4; sending a non-sentinel marker with a zero float
+  would snap the effect to world z zero.
+  Live contact probes read zero native movement duration at both the monster and wall impacts.
+  Separate raw 0x1b7 probes preserved marker/float pairs (-8, -62.5), (8, 62.5) and the terrain sentinel,
+  with native movement duration zero in each case.
+  These raw probes establish copy/stop semantics, independently of the marker/world-z relation in the
+  creation blob. The moving-target and raw-stop live checks preceded the bow packet/height update; the merged
+  bow/collision path needs a fresh live integration check. Broader surface-height accuracy remains open (#182).
+  Impact damage is committed under the send gate and a short monster lock, rechecking connection/area/pause and
+  target life. Packet writes and hit notifications await outside the monster lock. A transfer invalidates flights
+  even after its pending ticket is consumed and removes outstanding projectile/impact objects before 0x2b2;
+  a failed transfer permits new flights without reviving old ones or leaving their visuals behind.
+  Cast release, flight and the explosion's 1.5-second lifetime use game time and wait through pause.
+  Terminal model swaps and removals recheck pause inside the send gate and retry after resume;
+  a transfer cancels the retry and takes ownership of visual cleanup.
+  Live pause held the projectile at (289, 220) for 1.2 seconds, with no removal until the game resumed.
+  Local validation captures: `logs/projectile-collision-live.json` and `logs/projectile-fixed-height-live.json`.
+  These remain estimates: monster positions are integer `WalkEstimator` samples, movement between samples is a
+  straight chord, the radius is shared across monsters, and the client has its own cell stepping/network delay.
+  Static wall checks use a captured two-dimensional grid, not object/doodad colliders or three-dimensional geometry.
+  Sharp turns between samples or long scheduling stalls can still differ from the client. This is not an official
+  collision/tick-rate implementation; explosion area damage, pierce/chains and object-owned colliders are unchanged.
 - **Walls (live 2026-10-18).** The client's walkability provider (walk-map hook `0x1410ddcfd`) returns a second grid
   of the same size at +0x20/+0x28: what stops projectiles. 0 blocks, 1..5 (a distance gradient like the walk map's) lets
   them through. On The Coast seed 1 every walkable cell is open in it, cliffs and rocks are 0 in both, and 1.44 M cells
   the walk map blocks (the sea) are open. `scripts/walkmaps` saves it as `<area>_seed<seed>.projectile.bin`
-  (`ProjectileGrid`); the path stops half a cell before the first blocking cell and explodes there. Live: the fireball
+  (`ProjectileGrid`). Static routes use a supercover grid trace with exact rational boundary comparisons,
+  including non-45-degree diagonal corner cells, clipped to
+  an open cell before the first blocker; the moving-target sweep uses that same endpoint. Earlier live checks: the fireball
   explodes on cliffs and flies over the sea. Doodads and objects with their own colliders (not in the grid) do not stop
   it yet. Grids exist for Lioneye's Watch and The Coast seed 1.
 - **Explosion (live 2026-10-18).** Projectiles.dat names the impact as an animation of the projectile's own .ao
   (Fireball: ImpactAnimationIds `fireball_explode` → `point_impact.pet`). No server message found yet plays an
-  animation by name, so on a hit the server swaps the projectile's animated object instead: S→C 0x2ba to component 2
-  (Animated, in the order Positioned, BaseEvents, Animated, Projectile, Render) with flags bit0 and the path
+  animation by name, so on a hit the server swaps the projectile's animated object instead: S→C 0x2ba to component 1
+  (Animated, in the order Positioned, Animated, BaseEvents) with flags bit0 and the path
   `Metadata/Effects/Spells/fireball/explode_new2.ao`, whose default animation `animate` plays the `splode` particles
   and the End sound (reader `0x141e57490`: bit0 path, bit1 a 0x2c-table index, bit2 `0x141e5adb0` attachments; no
-  bit3 there). The object is removed 1.5 s later. `Game_PROJECTILE_IMPACT_AO` overrides the path (`none` turns it
-  off). `Metadata/Effects/Effect` (Positioned, BaseEvents, Animated, LimitedLifespan) would be the cleaner carrier but
-  is not known to be in the client's type register; an unknown type throws in `0x142187480`.
+  bit3 there). Only Fireball gets this explosion; a bow arrow's impact is `none` (it sticks/disappears and its
+  burning is the monster's debuff). The object is removed 1.5 s later. `Game_PROJECTILE_IMPACT_AO` overrides the path
+  (`none` turns it off). `Metadata/Effects/Effect` (Positioned, BaseEvents, Animated, LimitedLifespan) would be the
+  cleaner carrier but is not known to be in the client's type register; an unknown type throws in `0x142187480`.
 - **Tilt.** `Metadata/Projectiles/Projectile.ot` gives the client's Render `tilt_to_target` and
   `maintain_tilt_after_movement` (type data +0x76, +0x77; parser `0x1415ef5e0`). Render (`0x1415f53c0`) pitches the
   model by −`0x141e35c00`(Positioned, maintain): atan(dz / distance) of the current move, or, when not moving and
@@ -544,14 +649,15 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   entries (tile data pointer, +0x36 rotation code, +0x30 i16 height offset), result = the tile's height at the
   tile-local cell (`0x141d7d100`) + terrain +0x104 × the tile's offset; `0x141e35800` interpolates four cells. With a
   height grid (`TerrainHeights`, data/walkability/<area>_seed<seed>.heights.bin, int16 per cell, −32768 = unknown) the
-  Gateway sends the projectile at terrain + `Game_PROJECTILE_HEIGHT` steps (default 8) in Positioned's f0 0x04 fixed
-  height and in 0x1ba. Only Lioneye's Watch has a grid (−48..72), where skills cannot be used.
-- **Capturing heights from the client failed** (2026-10-18, four client crashes or hangs, so the walk-map recorder does
-  not do it): dumping every cell from Frida's thread at the first lookup worked in town but crashed on The Coast (the
-  terrain was still being built); a native listener on `0x141d84b00` that called the hooked function crashed at login;
-  delayed dumps hit unreadable tiles (access violations; the lookup is called with several terrain pointers) and hung
-  the client. Next: compute the heights offline from the tile files the atlas already reads (the .tdt heights and each
-  placed tile's height offset).
+  Gateway sends the projectile at terrain + `Game_PROJECTILE_HEIGHT` steps (default 5, the torso) as the signed world
+  z: Positioned f0 0x04's i32 is -z / 7.8125 and its f32 is z; 0x1ba carries the same signed z.
+  Without a grid it uses the bare offset.
+  The grid covers natural terrain, not doodads/platforms; the protocol carries no player z, so platforms and doodads
+  need a server-side world/surface height model (issue #182).
+- **Capturing heights from the client** (2026-10-18): direct dumps from Frida's thread crashed or hung the client
+  (the terrain was still being built; the lookup runs with several terrain pointers). The read-only capture below
+  (`capture-terrain-tiles.js` + `heights.py`, no calls into the client) works; an offline `.tdt` calculation is still
+  possible from the same tile files.
 - **Heights in the .tdt (decoded offline, 2026-10-18).** The binary parser is `0x1429f31a0`. After the header (§6 of
   08-area-transitions.md) come a u16 flags word, a hull-plane count byte (0 here), then a u16 subtile count (w × h)
   and one record per subtile, row by row: u16 flags, u8, [3 bytes if the high flag byte has bit 1, version ≥ 13],
@@ -568,20 +674,23 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   `scripts/re/frida/capture-terrain-tiles.js` dumps them on entry (no calls into the client; the client stayed up);
   `scripts/walkmaps/heights.py` applies the client's lookup (code tables `0x142fa04b0`, `0x142fb7f98`). The town
   capture reproduces the known grid exactly; The Coast seed 1 is 1725 × 1725, −37..90.
-- **Sign.** World z points down: the client's terrain z is −height × 7.8125 (`0x141e35800`), and Positioned's fixed
-  height is i32 z / 7.8125 with f32 z, as the area transitions send it. S→C 0x1ba takes +height. Sending +height in the
-  fixed height put the fireball under raised ground; with −height it flies above the ground at every level (belly
-  height with the default 8 steps).
+- **Sign.** World z points down and the protocol's height is a signed world z in 7.8125-unit steps, not a positive
+  "up" value: 0x1ba's u32 is that signed value (a positive height is below sea level, a negative one above), and
+  Positioned's f0 0x04 block is i32 -z / 7.8125 with f32 z. Sending the positive "height up" put the arrow at
+  z = +117 (under the hideout platform); the same value negated (0xfffffff1) put it at z = -117, the torso. The live
+  arrow's i32 -5 / f32 +39.0625 is z = +39.0625, five steps above a player at z = +78.125.
 - **Flight (live 2026-10-18).** S→C 0x1ba's float is the move's **duration in seconds**, not a speed: the handler
   passes distance / it as the speed, and the step walker sets Positioned +0x23c = that speed and +0x240 = the time per
   cell step (duration / the path's longest axis), advancing +0x244 by the frame time (`0x141e32710`). Sending the
   speed (95.7) made each step take ~1 s, so the fireball crawled (~10 world units/s, sampled with Frida); sending
-  distance / speed it flies at ~1000 units/s. The fireball now starts `Game_PROJECTILE_AHEAD` cells (4) in front of the
-  caster and, cast at the ground, flies on to `Game_PROJECTILE_RANGE` cells (120, clamped to the area); cast at a
-  monster it stops there and hits. `/mob_move` and `Game_MOVE_MODE=move` still pass a speed in that field.
-- **Still wrong.** Without a height grid the fireball flies on the terrain. The
-  four floats of Positioned's f1 0x04 block (+0x2d8..+0x2e4, zero by default) are not the direction: (dx, dy, 0, 0) put
-  it under the ground (`Game_PROJECTILE_DIRECTION=1` sends them).
+  distance / speed it flies at ~1000 units/s. The fireball now starts `Game_PROJECTILE_AHEAD` cells (1.5) in front of
+  the caster and flies on to `Game_PROJECTILE_RANGE` cells (120, clamped to the area), stopped by the first
+  monster or wall contact described above. Default-attack arrows are visual only: their damage retains the attack
+  contact timing and does not use the flight callback. `/mob_move` and `Game_MOVE_MODE=move` still pass a speed in that field.
+- **Still wrong.** Without a surface-height model the projectile uses the captured terrain height; on a platform or
+  doodad (which the terrain grid does not include) it spawns below the player (issue #182). The direction floats of
+  Positioned's f1 0x04 block are not used; sending (dx, dy, 0, 0) put the fireball under the ground, so the Gateway no
+  longer sends them.
 
 ## 10a. Weapon restrictions: why a skill is greyed out
 
@@ -920,3 +1029,20 @@ on the Defence tab as Stun Recovery 30%, the four Avoidance rows at 20% and "Can
 - Projectiles: their height above the ground and model orientation (§10), collision, the explosion, the real
   skill → projectile link; damage for ground casts.
 - The meaning of 0x53's two trailing u16.
+
+## Standard maximum-charge rows
+
+`ChargePanelStats.Compute` derives the three standard maximum-charge display values from base three plus unconditional modifiers. The current values remain zero; conditional modifiers, replacement charges and gain/expiry mechanics are outside this change. Verified on the native Charges tab with all three baseline rows at `0 / 3`; eight focused modifier tests cover the formulas.
+### Aura lifecycle: town suppression and death
+
+ActiveAuras records per-character enabled intent by GrantedEffects Id. LoadProgress restores every remembered aura whose gem is available, using fresh connection skill/buff ids. Restoration is not a new cast and does not drop saved auras when their combined reservation exceeds a transient mana pool; displayed reservation is clamped to maximum mana. New manual activations still validate the full reservation.
+
+Campaign towns (WorldAreas.IsTown via WaypointCatalog) instantiate no aura runtime entries: no reservation, bonuses, source/recipient buffs, icons or floor effects. Saved intent stays untouched and restores automatically in hideouts, maps and campaign combat areas. Ground skill requests allow only Move in towns; gem/default attacks on objects and the shared gem cast entry point are refused there. NPC, stash and waypoint interactions remain available.
+
+Skill removal suspends runtime effects without deleting enabled intent. A skill-list refresh resumes remembered effects when their gems become available again. Manual toggles update intent normally. Actual death paths clear saved intent and runtime auras before the death screen; the player tick also handles death cleanup. Resurrection resets the per-death cleanup guard but does not reactivate cleared auras. Switching characters never changes another character's intent. AuraSaveTests cover independent characters, town round trips, all enabled effects despite transient reservation limits, fresh runtime ids and death reset. Live lifecycle verification pending.
+
+#### Aura restoration bootstrap correction
+
+A real town/hideout round trip restored only Vitality despite saved Precision and Clarity. The log marked the body armour inactive because Precision needed 22 dexterity while initial pools still contained the class base 14. CharacterStatSources was checking socketed gems against stale/uninitialized pools while constructing those very pools, then disabling the entire item's global modifiers and all its gems.
+
+Item activation now uses only the equipment's own requirements. Gem requirements remain enforced individually at socketing/casting against completed pools; an unavailable gem no longer suppresses its host armour, unrelated gems or their attributes. This removes the circular initialization gate on aura candidates. AuraEquipmentRestoreTests reproduces the fresh-connection equipment case and restores all 17 supported self auras, including 34 distinct source/recipient buff packets after town suppression. Restoration has no aura-count limit.

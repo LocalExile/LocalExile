@@ -3,7 +3,7 @@
 State of 2026-10-18, verified live in The Coast (seed 1): on entering, the Gateway fills the area with monster packs
 from the game tables: normal, magic and rare packs scattered over the walk map; cannibal packs at the bonfires; the
 unique boss **Fire Fury** and her guards at the cannibal camp, next to its campfire. Code: `src/GameServer.Gateway/MonsterPacks.cs`
-(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Program.cs`.
+(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Program.Monsters.cs`.
 
 ## 1. The data
 
