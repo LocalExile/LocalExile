@@ -96,6 +96,25 @@ public sealed class AttackBaseCriticalGatewayTests : IDisposable
         Assert.Equal(900, Pools(conn).AttackCriticalStrikeChance);
     }
 
+    [Fact]
+    public void Sea_Legs_increase_is_applied_once_with_the_active_weapon_base_and_spell_sources()
+    {
+        var conn = Character(true);
+        Set(conn, ResistanceOvercap.LightningCritFlag, 1);
+        Set(conn, "base_lightning_damage_resistance_%", 120);
+        conn.Pools = Pools(conn);
+        Assert.Equal(45, conn.Pools.LightningOvercapCritPct);
+        Assert.Equal(1204, conn.Pools.AttackCriticalStrikeChance); // 830 * 1.45, rounded once.
+        var shown = (Dictionary<uint, int>)Method("CharacterPlayerStats").Invoke(null, [conn])!;
+        Assert.Equal(45, shown[Program.Stats.Key("critical_strike_chance_+%")!.Value]);
+        Set(conn, AttackBaseCriticalStrike.WeaponOverrideStat, 900);
+        Assert.Equal(1305, Pools(conn).AttackCriticalStrikeChance);
+        PlayerInventories.For(_name, Program.Items).SwapWeaponSets();
+        Assert.Equal(0, Pools(conn).AttackCriticalStrikeChance);
+        Set(conn, AttackBaseCriticalStrike.UnarmedBaseStat, 1000);
+        Assert.Equal(1450, Pools(conn).AttackCriticalStrikeChance);
+    }
+
     public void Dispose()
     {
         PlayerInventories.Forget(_name);

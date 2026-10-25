@@ -49,6 +49,9 @@ be refunded while ordinary allocations still spend those points.
   target client's tables. Attack/spell block support both lucky and unlucky rolls.
 - Additional pool rules cover zero Intelligence, mana from Dexterity/Strength, loss of Intelligence's mana bonus,
   life per level and Power of Purpose's mana-to-armour conversion.
+- Sightless and Final Blow replace the armed/unarmed attack critical base before increased chance.
+  Sea Legs derives evasion and attack/spell critical increases from uncapped resistances after campaign penalties.
+  The combined calculation applies overcap once and ignores weapons in the inactive set.
 - Passive `GrantedEffectsPerLevel` references grant real skills without gems, with stable skill identities and exact
   native levels. Paladin's level 30 Determination/Grace or level 40 Discipline and Arakaali's level 15 Envy execute.
   Envy's no-reservation rule applies to its real reservation. Removing the source removes the active skill/effect;
@@ -101,7 +104,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
-| Behemoth | Strength-derived mana; Power of Purpose mana-to-armour | Rage, Fortification, Rampage and armour against chaos |
+| Behemoth | Strength-derived mana; Power of Purpose mana-to-armour; unarmed critical base | Rage, Fortification, Rampage and armour against chaos |
 | Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
 | Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
 | Whisperer | Mana per Dexterity; no Intelligence mana bonus; free mana costs | Mana-derived damage, Rage, recoup and mana damage absorption |
@@ -116,8 +119,8 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Puppeteer | Percentage Strength | Owned minions, inheritance, corpses and minion-death effects |
 | Polytheist | Gruthkul life/regeneration, Brine King maximum cold resistance, Lunaris spell area | Charges, Blind, curses, ailments and triggered effects |
 | Servant of Arakaali | Free passive-granted level 15 Envy | Spiders, Webs, Penance Mark and minion effects |
-| Blind Prophet | Supported generic modifiers | Base-crit overrides, Blind, projectile returns/direction and Shade Form |
-| Surfcaster | Stormy Seas conversion; Ghost of the Deep's owner bonuses/buff | Chill/shock/freeze, fishing-rod and overcapped-resistance conditions |
+| Blind Prophet | Armed critical base override and supported generic modifiers | Blind, projectile returns/direction and Shade Form |
+| Surfcaster | Stormy Seas conversion; Ghost of the Deep; Sea Legs overcap bonuses | Chill/shock/freeze and fishing-rod conditions |
 | Scavenger | Exclusive choices; Fulcrum conversion; Shavronne chaos absorption; Death Rush Adrenaline | Most chosen unique-item properties and their dependent subsystems |
 
 ## Evidence and reproducible checks

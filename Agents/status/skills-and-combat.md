@@ -245,6 +245,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   behaviour, spell/attack isolation and the Iron Reflexes conversion.
   Thirteen real-client stat checks verified evasion 15 → 22 and spell crit 500 → 725 at 120% resistances,
   raised maxima, replacement of global inputs, both Kitava penalties, flag removal and relog.
+  Combined Gateway checks retain the same increase after the active weapon's base override calculation:
+  830 base with 45% overcap gives 1204, a 900 override gives 1305, and the inactive weapon supplies no armed base.
   Ascendancy allocation remains part of the separate lifecycle change.
   See [11](../docs/protocol/11-skills.md) §4, §5 and §12.
 - **Projectiles.** Moving targets are checked throughout flight by sweeping observed relative movement.

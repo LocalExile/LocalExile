@@ -71,8 +71,8 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   Deliver their nodes through the separate ascendancy lifecycle; Slayer's per-nearby-enemy crit multiplier and
   Final Blow's remaining unarmed bonuses are separate work.
   The overcapped-resistance modifiers (Sea Legs' flags: cold overcap as increased evasion, lightning overcap as
-  increased critical chance) are implemented through the pools with automated checks; the real-client panel check
-  is pending.
+  increased critical chance) are implemented through the pools with native panel and relog checks.
+  Combined base-override/overcap regression checks include active-set isolation and spell-source deduplication.
   Added-base, lucky/more and conditional crit remain separate work.
   Add support effects through `DamagePacket.Add`, `Scale`, `Convert` and `AddGain`.
 - **Done when:** damage numbers match the character panel and the monsters' levels.
