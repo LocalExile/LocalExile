@@ -127,8 +127,9 @@ partial class Program
 
     // Base MonsterTypes/MonsterResistances data, not a fixed zero for every enemy. Spawned resistance modifiers,
     // exposure and curses remain separate mechanics; physical armour is not a resistance and is not handled here.
-    static DamageModel.ResistanceValue MonsterResistance(SpawnedMonster monster, DamageType type) =>
-        new(monster.Variety is { } variety ? Monsters.BaseResistance(variety, monster.Level, type) ?? 0 : 0);
+    static DamageModel.ResistanceValue MonsterResistance(ClientState conn, SpawnedMonster monster, DamageType type) =>
+        new(type == DamageType.Chaos && PassivePresences(conn, monster).Any(b => b.Id == "CustomAscendancyNoChaosResistance")
+            ? 0 : monster.Variety is { } variety ? Monsters.BaseResistance(variety, monster.Level, type) ?? 0 : 0);
 
     static double AddedEffectiveness(int effect, int level) => Skills.DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
 
@@ -256,6 +257,11 @@ partial class Program
         foreach (var (id, effect, name, level, quality, gem) in GemSkillEffects(conn))
         {
             var stats = Skills.EffectStatsFor(effect, level, quality, playerStats);
+            var cost = CostFor(conn, effect, level, quality);
+            if (Stats.Key("mana_cost") is uint manaCost) stats[manaCost] = (int)cost.Mana;
+            if (Stats.Key("life_cost") is uint lifeCost) stats[lifeCost] = (int)cost.Life;
+            if (Stats.Key("base_mana_cost") is uint baseManaCost) stats[baseManaCost] = (int)cost.Mana;
+            if (Stats.Key("base_life_cost") is uint baseLifeCost) stats[baseLifeCost] = (int)cost.Life;
             var own = Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
             if (Skills.IsSpell(effect) && !Skills.IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SpellCriticalStrike.Chance(Skills.SpellCritChance(effect, level), Stats, playerStats, own);
@@ -409,9 +415,11 @@ partial class Program
     // Why a gem skill may not be used: a skill-type restriction, or the character's level/attributes below its requirements.
     // The client reds the gem but still sends the use, so this is the backstop for a client whose item is not inactive yet.
     // Null when no gem granting the effect is below its requirement.
-    static string? GemDisabled(ClientState conn, int effect)
+    static string? GemDisabled(ClientState conn, int effect, ushort skillId = 0)
     {
         if (SkillRestrictionReason(conn, effect) is { } restriction) return restriction;
+        // Passive-granted skills have their own level and no socketed gem's requirements.
+        if (skillId != 0 && GemSkillEffects(conn).Any(g => g.Id == skillId && g.Gem == 0)) return null;
         foreach (var place in PlayerInventories.For(CharacterName(conn), Items).SocketedGemPlaces())
             if (Items.GemEffects(place.Gem).Contains(effect) && GemRequirementsUnmet(conn, place.Gem) is { } missing)
                 return missing;
@@ -451,8 +459,10 @@ partial class Program
         var modifiers = PassiveGemModifiers.From(stat => Stats.Key(stat) is uint key ? sources.GetValueOrDefault(key) : 0);
         var gems = PlayerInventories.For(name, Items).SocketedGemPlaces()
             .SelectMany(g => Items.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
+        var granted = PassiveEffects.Skills(PhreciaNodes(conn)).ToArray();
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
-            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect))], GemSkillIdPool.Value);
+            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect)),
+                .. granted.Select(g => new GemSkillIds.Gem(0, g.Node, g.Effect))], GemSkillIdPool.Value);
         // Gems in an inactive item grant nothing, but keep their id.
         for (int i = 0; i < gems.Count; i++)
             if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
@@ -460,6 +470,11 @@ partial class Program
                 var (level, quality) = modifiers.Apply(Items.GemLevel(gems[i].Gem), gems[i].Gem.Quality);
                 yield return (id, gems[i].Effect, Items.GemName(gems[i].Gem), level, quality, gems[i].Gem.TypeHash);
             }
+        // Inventory item ids start at one. Host zero is reserved for passive attachments, so adding/removing a
+        // passive cannot collide with a socket or renumber a gem that stayed equipped. Gem-level bonuses don't apply.
+        for (int i = 0; i < granted.Length; i++)
+            if (ids[gems.Count + i] is ushort id)
+                yield return (id, granted[i].Effect, granted[i].Name, granted[i].Level, 0, 0);
     }
 
     static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
@@ -511,8 +526,8 @@ partial class Program
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {before} → {level} (life {conn.Pools.Life}, mana {conn.Pools.Mana}, {Progression.PassivePoints(level)} passive point(s))");
         await SendCharacterStats(remote, stream, ciphers, conn, $"level {level}");
         int mana = UnreservedMana(conn);
-        lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (conn.PlayerMaxLife, (uint)mana); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMaxLife), $"0x01b1 player life {conn.PlayerMaxLife}");
+        lock (conn.Monsters) { (conn.PlayerLife, conn.PlayerMana) = (UnreservedLife(conn), (uint)mana); conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); }
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerMaxLife}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         await SendPassives(remote, stream, ciphers, conn);
     }
@@ -529,6 +544,8 @@ partial class Program
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
     static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        await RefreshPassiveBuffs(remote, stream, ciphers, conn);
+        await RefreshPassivePresences(remote, stream, ciphers, conn);
         bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn);
         await RefreshRighteousFireStats(remote, stream, ciphers, conn);
         var skills = PlayerSkills(conn);
@@ -566,6 +583,7 @@ partial class Program
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
         if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
             await SendSkillBar(remote, stream, ciphers, conn);
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), "life reservation after skills changed");
     }
 
     // Retained auras use the current effective gem properties. Preserve intent and buff identities; this is not a recast.
@@ -586,17 +604,25 @@ partial class Program
                     suspended.Add(aura); // Keep the saved intent, as when a town temporarily suppresses an aura.
                     continue;
                 }
-                if (!gems.TryGetValue(aura.SkillId, out var gem) || Skills.Reservation(gem.Effect, gem.Level) is not { } reservation) continue;
-                var refreshed = aura with { Level = gem.Level, Quality = gem.Quality, ManaFlat = reservation.Flat, ManaPercent = reservation.Percent };
+                if (!gems.TryGetValue(aura.SkillId, out var gem) || ReservationFor(conn, gem.Effect, gem.Level) is not { } reservation) continue;
+                var refreshed = aura with { Level = gem.Level, Quality = gem.Quality, ManaFlat = reservation.Flat,
+                    ManaPercent = reservation.Percent, ReserveLife = ReservesLife(conn) };
                 if (refreshed == aura) continue;
                 conn.Auras[aura.SkillId] = refreshed;
                 changes.Add((aura, refreshed));
             }
+            foreach (var aura in conn.Auras.Values.ToArray())
+                if (aura.ReserveLife && AuraCatalog.RequiredLife(conn.Pools, conn.Auras.Values) >= conn.Pools.Life)
+                {
+                    conn.Auras.Remove(aura.SkillId);
+                    suspended.Add(aura);
+                    changes.RemoveAll(c => c.After.SkillId == aura.SkillId);
+                }
             if (changes.Count > 0 || suspended.Count > 0)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
-                conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+                conn.PlayerLife = Math.Min(conn.PlayerLife, UnreservedLife(conn));
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
         }

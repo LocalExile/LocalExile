@@ -113,6 +113,7 @@ sealed class SkillCatalog(string folder = "data")
             Put("hundred_times_casts_per_second", (int)Math.Round(100_000.0 / e.CastTime));
         }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
+        if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
         // A skill with a cooldown (GEPL Cooldown, e.g. Haste's 1200 ms): the client keeps the cooldown only when the skill
         // has uses (virtual_total_cooldown_count, GEPL StoredUses) and a duration in its record (GrantedSkill.CooldownMs).
         // An instant skill (ActiveSkillType Instant: Haste, Righteous Fire) is one by its stat: the client reads
@@ -683,7 +684,7 @@ sealed class SkillCatalog(string folder = "data")
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
         List<(int StatSet, int CastTime)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
-        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
+        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
         List<int> VaalSouls, Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances)
     {
@@ -722,6 +723,7 @@ sealed class SkillCatalog(string folder = "data")
             }
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
+            var life = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
             var cooldowns = new List<(int, int)>();
             var vaalSouls = new List<int>();
@@ -731,6 +733,8 @@ sealed class SkillCatalog(string folder = "data")
                 int[] types = Ints(r, "CostTypes"), amounts = Ints(r, "CostAmounts");
                 int i = Array.IndexOf(types, 0);
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
+                i = Array.IndexOf(types, 1);
+                life.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
                 reservations.Add((Math.Max(0, Int(r, "ManaReservationFlat")), Math.Max(0, Int(r, "ManaReservationPercent")),
                     Math.Max(0, Int(r, "LifeReservationFlat")), Math.Max(0, Int(r, "LifeReservationPercent"))));
                 cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses"))));
@@ -758,7 +762,7 @@ sealed class SkillCatalog(string folder = "data")
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
-            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
+            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, quality, effectiveness, spellCritChances);
         }
     }

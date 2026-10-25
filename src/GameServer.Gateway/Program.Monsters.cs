@@ -131,6 +131,7 @@ partial class Program
             while (!conn.Closed)
             {
                 await Task.Delay(500);
+                await RefreshPassivePresences(remote, stream, ciphers, conn);
                 if (!conn.AiEnabled || conn.Paused) continue;
                 var orders = new List<(uint Id, (int X, int Y) From, (int X, int Y) To, string Why)>();
                 var swings = new List<(uint Id, SpawnedMonster M, (int X, int Y) From)>();
@@ -245,6 +246,7 @@ partial class Program
             // currently physical only (MonsterAttack), but the packet path keeps future monster skills correct.
             var rolls = GamblerFor(CharacterPlayerStats(conn));
             var rolled = rolls.RollIncomingHit(a.Damage, Random.Shared);
+            rolled = IncomingPassiveConversion(conn, m, rolled);
             var mitigated = rolls.MitigateIncomingHit(rolled, type =>
                 new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), Random.Shared);
             var immune = PlayerImmunities(conn);
@@ -264,7 +266,8 @@ partial class Program
             manaBefore = conn.PlayerMana;
             int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
             int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
-            conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - conn.EnergyShield.Damage(damage - chaosDamage, false, now) - conn.EnergyShield.Damage(chaosDamage, true, now) + gainedLife));
+            conn.PlayerLife = (uint)Math.Min(UnreservedLife(conn), Math.Max(0, (long)conn.PlayerLife
+                - DamageEnergyShield(conn, damage - chaosDamage, false, now) - DamageEnergyShield(conn, chaosDamage, true, now) + gainedLife));
             conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             life = conn.PlayerLife;
             mana = conn.PlayerMana;
@@ -278,7 +281,7 @@ partial class Program
             InstanceProtocol.ActionHit(id, 0xffff, PlayerId, flags: 0x4601, kind: 0x02, u34: 450,
                 angle: HitAngle(player.X - from.X, player.Y - from.Y)),
             $"0x01af monster 0x{id:x} hit on the player (sequence 0xffff)");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, (uint)ReservedLife(conn)),
             $"0x01b1 player hit by monster 0x{id:x} for {damage}" +
             $"{(rawDamage != damage ? $" ({rawDamage} physical before {DamageModel.ArmourReduction(conn.Pools.Armour, rawDamage)}% armour)" : "")}" +
             $"{(blocked ? " (blocked)" : "")}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");

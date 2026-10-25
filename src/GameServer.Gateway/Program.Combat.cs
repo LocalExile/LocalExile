@@ -149,7 +149,7 @@ partial class Program
         int impaleStacks = m.Impale.Stacks;
         double impaleStored = m.Impale.Bonus;
         // Reflected Impale damage is added after the player's damage multipliers; it is not tripled/crit a second time.
-        hit = rolls.MitigateOutgoingHit(hit, type => MonsterResistance(m, type), Random.Shared);
+        hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
         int damage = (int)Math.Round(hit.MinTotal);
         lock (conn.Monsters)
         {
@@ -198,7 +198,7 @@ partial class Program
         InstanceTransfer.UseSkillOnObject use, SpawnedMonster m)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
-        if (gem.Name is not null && GemDisabled(conn, gem.Effect) is { } disabled)
+        if (gem.Name is not null && GemDisabled(conn, gem.Effect, use.SkillId) is { } disabled)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: {disabled} (action not started)");
             return;
@@ -261,7 +261,7 @@ partial class Program
         // A gem whose requirements the character's level does not meet is disabled: its skill stays on the skill bar but
         // cannot be used (the client shows the gem red but still sends the use; the server withholds the action, see
         // OnClientMessages). Attributes are not checked yet: their formula is not fitted (19-gems.md "Open").
-        if (gem.Name is not null && GemDisabled(conn, gem.Effect) is { } disabled)
+        if (gem.Name is not null && GemDisabled(conn, gem.Effect, skillId) is { } disabled)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {disabled} (disabled)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (disabled skill, cost back)");
@@ -309,21 +309,24 @@ partial class Program
                 return false;
             }
         }
-        if (gem.Name is not null && Skills.Reservation(gem.Effect, gem.Level) is { } reservation)
+        if (gem.Name is not null && ReservationFor(conn, gem.Effect, gem.Level) is { } reservation)
         {
             await ToggleAura(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation, gem.Level, gem.Quality);
             return true;
         }
         if (gem.Name is not null)
         {
-            if (!PayMana(conn, gem.Effect, gem.Level, gem.Quality, out uint cost))
+            if (!PaySkillCost(conn, gem.Effect, gem.Level, gem.Quality, out var cost))
             {
-                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: not enough mana ({conn.PlayerMana} < {cost})");
+                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: cannot pay {cost.Mana} mana and {cost.Life} life");
                 return false;
             }
-            if (cost > 0)
+            if (cost.Mana > 0)
                 await SendPlayerMana(remote, stream, ciphers, conn,
-                    $"0x01b1 player mana {conn.PlayerMana} (-{cost} for {gem.Name}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                    $"0x01b1 player mana {conn.PlayerMana} (-{cost.Mana} for {gem.Name}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+            if (cost.Life > 0)
+                await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
+                    $"0x01b1 player life {conn.PlayerLife} (-{cost.Life} cost for {gem.Name})");
         }
         // The Portal skill: a town portal, as the Portal Scroll's, once its cast (2.5 s) is over.
         if (gem.Name is not null && Skills.EffectId(gem.Effect) == "Portal")
@@ -386,20 +389,21 @@ partial class Program
             else
             {
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++);
+                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++, ReserveLife: ReservesLife(conn));
                 conn.Auras[skillId] = aura;
                 int reserved = AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values);
-                if (reserved > conn.Pools.Mana)
+                int lifeReserved = AuraCatalog.RequiredLife(conn.Pools, conn.Auras.Values);
+                if (reserved > conn.Pools.Mana || lifeReserved >= conn.Pools.Life)
                 {
                     conn.Auras.Remove(skillId);
-                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: needs {reserved} mana reserved, " +
-                        $"maximum is {conn.Pools.Mana}");
+                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: cannot reserve {reserved} mana and {lifeReserved} life");
                     return;
                 }
                 started = aura;
                 conn.PlayerMana = (uint)Math.Min(conn.PlayerMana, (uint)(conn.Pools.Mana - reserved));
             }
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            conn.PlayerLife = Math.Min(conn.PlayerLife, UnreservedLife(conn));
             conn.ApplyMovementSpeed();
         }
 
@@ -419,6 +423,7 @@ partial class Program
         await SendCharacterStats(remote, stream, ciphers, conn, started is not null ? $"aura {name} on" : $"aura {ended!.Name} off");
         await SendPlayerMana(remote, stream, ciphers, conn,
             $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}, {ReservedLife(conn)} reserved");
     }
 
     static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
@@ -502,7 +507,7 @@ partial class Program
             hit = rolls.RollOutgoingHit(hit, Random.Shared);
             bool critical = rolls.IsCritical(chance, Random.Shared);
             if (critical) hit = hit.Critical(spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
-            hit = rolls.MitigateOutgoingHit(hit, type => MonsterResistance(m, type), Random.Shared);
+            hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
             int damage = (int)Math.Round(hit.MinTotal);
             return (damage, critical);
         }, epoch: epoch);
@@ -587,7 +592,7 @@ partial class Program
             hit = rolls.RollOutgoingHit(hit, Random.Shared);
             bool critical = rolls.IsCritical(criticalChance, Random.Shared);
             if (critical) hit = hit.Critical(spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
-            hit = rolls.MitigateOutgoingHit(hit, type => MonsterResistance(m, type), Random.Shared);
+            hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
             int damage = (int)Math.Round(hit.MinTotal);
             await HitMonster(remote, stream, ciphers, conn, id, m, damage, $"{gem.Name}{(critical ? " (critical)" : "")}", melee: !spell, sequence: sequence);
         }

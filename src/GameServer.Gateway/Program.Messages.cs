@@ -40,7 +40,7 @@ partial class Program
                 var gem = cast ? GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId) : default;
                 // A disabled gem's skill is not confirmed: the client animates the cast and sends the use anyway (it only reds
                 // the gem), so without the 0x1ab the action does not run. No projectile, mana or cooldown either.
-                if (cast && gem.Name is not null && GemDisabled(conn, gem.Effect) is { } disabled)
+                if (cast && gem.Name is not null && GemDisabled(conn, gem.Effect, use.SkillId) is { } disabled)
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: {disabled} (disabled, action not started)");
                     // The client paid the cast before the server heard of it: the pool again gives the cost back.

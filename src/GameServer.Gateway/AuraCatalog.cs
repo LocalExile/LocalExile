@@ -8,7 +8,7 @@ static class AuraCatalog
     /// <summary>One active reservation skill: the skill id, its GrantedEffects row and id, its buff instance, and its gem's
     /// level and quality.</summary>
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
-        int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null);
+        int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null, bool ReserveLife = false);
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
@@ -74,8 +74,17 @@ static class AuraCatalog
         => Math.Min((int)pools.Mana, RequiredMana(pools, auras));
 
     public static int RequiredMana(CharacterStats.Pools pools, IEnumerable<Aura> auras)
+        => Required(pools.Mana, pools.ManaReservationEfficiencyPct, auras.Where(a => !a.ReserveLife));
+
+    public static int RequiredLife(CharacterStats.Pools pools, IEnumerable<Aura> auras)
+        => Required(pools.Life, pools.LifeReservationEfficiencyPct, auras.Where(a => a.ReserveLife));
+
+    public static int ReservedLife(CharacterStats.Pools pools, IEnumerable<Aura> auras)
+        => Math.Min((int)pools.Life, RequiredLife(pools, auras));
+
+    static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras)
     {
-        double efficiency = Math.Max(-99, pools.ManaReservationEfficiencyPct) / 100.0 + 1;
+        double efficiency = Math.Max(-99, efficiencyPct) / 100.0 + 1;
         double flat = 0, percent = 0;
         foreach (var aura in auras)
         {
@@ -83,7 +92,7 @@ static class AuraCatalog
             // PoB rounds each skill's reserved percent to two decimals before summing it.
             percent += Math.Round(aura.ManaPercent / 100.0 / efficiency, 2, MidpointRounding.AwayFromZero);
         }
-        double reserved = flat + pools.Mana * percent / 100.0;
+        double reserved = flat + maximum * percent / 100.0;
         return (int)Math.Clamp(Math.Ceiling(reserved), 0, int.MaxValue);
     }
 
@@ -97,7 +106,7 @@ static class AuraCatalog
         int fire = 0, cold = 0, lightning = 0, chaos = 0;
         int fireMax = 0, coldMax = 0, lightningMax = 0, chaosMax = 0;
         int accuracy = 0, criticalChance = 0, attackSpeed = 0, movementSpeed = 0;
-        int armour = 0, evasion = 0, armourMore = 0, evasionMore = 0, spellCrit = 0;
+        int armour = 0, evasion = 0, energyShield = 0, armourMore = 0, evasionMore = 0, spellCrit = 0;
         foreach (var aura in auras)
         {
             switch (aura.EffectId)
@@ -109,6 +118,9 @@ static class AuraCatalog
                 case "Grace":
                     evasion += Value(skills, stats, aura, "base_evasion_rating", auraEffectPct);
                     evasionMore += Value(skills, stats, aura, "grace_aura_evasion_rating_+%_final", auraEffectPct);
+                    break;
+                case "Discipline":
+                    energyShield += Value(skills, stats, aura, "base_maximum_energy_shield", auraEffectPct);
                     break;
                 case "Zealotry":
                     spellCrit += Value(skills, stats, aura, "spell_critical_strike_chance_+%", auraEffectPct);
@@ -148,7 +160,7 @@ static class AuraCatalog
             LightningMaxResistance: lightningMax, ChaosMaxResistance: chaosMax,
             Accuracy: accuracy, CriticalStrikeChancePct: criticalChance, SpellCriticalStrikeChancePct: criticalChance + spellCrit,
             AttackSpeedPct: attackSpeed, MovementVelocityPct: movementSpeed, Armour: armour, Evasion: evasion,
-            ArmourMorePct: armourMore, EvasionMorePct: evasionMore);
+            ArmourMorePct: armourMore, EvasionMorePct: evasionMore, EnergyShield: energyShield);
     }
 
     /// <summary>The flat stat bonuses from the active auras (regeneration and Haste's cast speed), scaled by aura effect.</summary>

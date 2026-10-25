@@ -80,6 +80,7 @@ partial class Program
     {
         var items = ItemsOf(conn);
         var passives = Passives.Stats((nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated), conn.MasteryEffects);
+        passives = ItemModStats.Plus(passives, PassiveEffects.OwnerStats(PhreciaNodes(conn)));
         int Get(string name) => Stats.Key(name) is uint k ? passives.GetValueOrDefault(k) : 0;
         var c = Skills.ClassFor(conn.ClassRow);
         var (ps, pd, pi) = CharacterStats.Attributes(Get);
@@ -101,7 +102,7 @@ partial class Program
             Console.WriteLine($"[gateway] {CharacterName(conn)}: inactive items (requirements not met): " +
                 string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                     $"{w.Id} {Items.ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
-        return ItemModStats.Plus(passives, ItemModStats.Global(active, Items.Mods, Stats));
+        return EquipmentConditions(conn, ItemModStats.Plus(passives, ItemModStats.Global(active, Items.Mods, Stats)));
     }
 
     static CharacterStats.Pools PoolsFor(ClientState conn, int level)
@@ -110,9 +111,10 @@ partial class Program
         var sources = CharacterStatSources(conn, level: level);
         var weapons = WeaponProfileFor(conn);
         var bonus = PassiveBonus(sources, weapons);
-        var gear = EquippedBaseDefences(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
+        var gear = EquippedBaseDefences(conn, Get);
         bonus = bonus with { Armour = bonus.Armour + gear.Armour, Evasion = bonus.Evasion + gear.Evasion,
-            EnergyShield = bonus.EnergyShield + gear.EnergyShield };
+            EnergyShield = bonus.EnergyShield + gear.EnergyShield, Life = bonus.Life + gear.Life };
         var auraRestrictions = SkillRestrictions.From(name => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0);
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values.Where(a => AuraAllowed(auraRestrictions, a.Effect))];
@@ -130,6 +132,7 @@ partial class Program
             Accuracy = bonus.Accuracy + aura.Accuracy,
             Armour = bonus.Armour + aura.Armour,
             Evasion = bonus.Evasion + aura.Evasion,
+            EnergyShield = bonus.EnergyShield + aura.EnergyShield,
             ArmourMorePct = aura.ArmourMorePct,
             EvasionMorePct = aura.EvasionMorePct,
             CriticalStrikeChancePct = bonus.CriticalStrikeChancePct + aura.CriticalStrikeChancePct,
@@ -155,6 +158,8 @@ partial class Program
                     pools.SpellCriticalStrikeChancePct) * 100)
         };
         int shieldBlock = weapons.Shield ? ShieldBaseBlock(conn) : 0;
+        if (weapons.Shield && Get("block_chance_from_equipped_shield_is_%") is > 0 and var overrideBlock)
+            shieldBlock = overrideBlock;
         int rawAttack = pools.BlockChanceUncapped + shieldBlock;
         double blockFactor = (1 + bonus.BlockChanceInc / 100.0) * (1 + bonus.BlockChanceMore / 100.0);
         int totalAttack = (int)Math.Round(Math.Max(0, rawAttack) * blockFactor);
@@ -362,7 +367,10 @@ partial class Program
             NoIntelligenceMana: Get("gain_no_maximum_mana_from_intelligence") != 0,
             LifePerLevel: Get("life_per_level"), ManaPerDexterity: Get("X_mana_per_dexterity"),
             ManaPerFourStrength: Get("X_mana_per_4_strength"),
-            ManaConvertedToArmourPct: Get("keystone_mental_conditioning") != 0 ? 80 : 0);
+            ManaConvertedToArmourPct: Get("keystone_mental_conditioning") != 0 ? 80 : 0,
+            LifeAsEnergyShieldPct: Get("maximum_life_%_to_add_as_maximum_energy_shield"),
+            ManaAsEnergyShieldPct: Get("mana_%_to_add_as_energy_shield"),
+            NoEnergyShield: Get("no_energy_shield") != 0);
     }
 
     // The character's passive skill points (one per level after the first, plus the extra points from
@@ -549,7 +557,7 @@ partial class Program
                 conn.SavedPassiveProgress = new(conn.MainAscendancy, now, effectsNow, refundsNow);
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
-                conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+                conn.PlayerLife = Math.Min(conn.PlayerLife, UnreservedLife(conn));
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
             now = [.. conn.Passives];

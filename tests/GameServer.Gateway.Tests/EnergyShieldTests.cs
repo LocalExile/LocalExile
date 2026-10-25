@@ -1,6 +1,21 @@
 public class EnergyShieldTests
 {
     static int Get(string _) => 0;
+    [Fact] public void PhreciaBypassAndShavronneChaosAbsorptionKeepTheirOwnDamageTypes()
+    {
+        var es = new EnergyShield(); es.SetMaximum(100, true);
+        int Stats(string name) => name switch
+        {
+            "base_non_chaos_damage_bypass_energy_shield_%" => 30,
+            "chaos_damage_does_not_bypass_energy_shield" => 1,
+            _ => 0
+        };
+        Assert.Equal(15, es.Damage(50, false, 0, Stats)); Assert.Equal(65u, es.Current);
+        Assert.Equal(0, es.Damage(50, true, 1, Stats)); Assert.Equal(15u, es.Current);
+        Assert.Equal(35, es.Damage(50, true, 2, Stats)); Assert.Equal(0u, es.Current);
+        es.SetMaximum(100, true);
+        Assert.Equal(10, es.Damage(10, true, 3, Get)); Assert.Equal(100u, es.Current);
+    }
     [Fact] public void AbsorptionOverflowChaosAndZeroDamage()
     {
         var es = new EnergyShield(); es.SetMaximum(100, true);

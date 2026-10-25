@@ -224,6 +224,7 @@ sealed partial class Program
     internal static readonly OrdinaryPassiveRules OrdinaryPassives = new(DataFolder);
 
     internal static readonly AscendancyCatalog Ascendancies = new(DataFolder);
+    internal static readonly PassiveEffectCatalog PassiveEffects = new(DataFolder);
 
     internal static readonly AscendancyRules AscendancyRules = new(Ascendancies);
     // How close (cells) the player must be to a dying monster to gain its experience. Game_XP_RANGE overrides it.

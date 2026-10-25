@@ -24,12 +24,12 @@ partial class Program
             conn.God = on;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
-            conn.PlayerLife = on ? conn.PlayerMaxLife : Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+            conn.PlayerLife = on ? UnreservedLife(conn) : Math.Min(conn.PlayerLife, UnreservedLife(conn));
             conn.PlayerMana = on ? (uint)UnreservedMana(conn) : Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
         Console.WriteLine($"[gateway] {remote} god mode {(on ? "on" : "off")}: life {conn.Pools.Life}, mana {conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         await SendCharacterStats(remote, stream, ciphers, conn, on ? "god mode on" : "god mode off");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife), $"0x01b1 player life {conn.PlayerLife}");
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         // UI built on entering caches the attributes (see SendPlayer): send them once more.
         await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [.. BaseStats(conn)]), "0x01b3 player attributes");
@@ -64,18 +64,24 @@ partial class Program
             if (Skills.EffectId(gem.Effect) is { } effect && wanted.Contains(effect) && AuraCatalog.Supported(effect)
                 && SkillRestrictionReason(conn, gem.Effect) is null
                 && !conn.Auras.Values.Any(a => a.EffectId == effect)
-                && Skills.Reservation(gem.Effect, gem.Level) is { } reservation)
+                && ReservationFor(conn, gem.Effect, gem.Level) is { } reservation)
                 candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect),
-                    reservation.Flat, reservation.Percent, gem.Level, gem.Quality, SourceBuff: conn.NextBuff++));
+                    reservation.Flat, reservation.Percent, gem.Level, gem.Quality, SourceBuff: conn.NextBuff++, ReserveLife: ReservesLife(conn)));
         var restored = AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn));
-        foreach (var aura in restored) conn.Auras[aura.SkillId] = aura;
+        var accepted = new List<AuraCatalog.Aura>();
+        foreach (var aura in restored)
+            if (AuraCatalog.RequiredLife(conn.Pools, conn.Auras.Values.Append(aura)) < conn.Pools.Life)
+            {
+                conn.Auras[aura.SkillId] = aura;
+                accepted.Add(aura);
+            }
         if (restored.Count > 0)
         {
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
             Console.WriteLine($"[gateway] {CharacterName(conn)}: restored saved auras: {string.Join(", ", restored.Select(a => a.EffectId))}");
         }
-        return restored;
+        return accepted;
     }
 
     static bool InTown(ClientState conn) => WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true };
@@ -116,6 +122,15 @@ partial class Program
 
     static int UnreservedMana(ClientState conn) => Math.Max(0, (int)conn.Pools.Mana - ReservedMana(conn));
 
+    static int ReservedLife(ClientState conn)
+    {
+        lock (conn.Monsters) return AuraCatalog.ReservedLife(conn.Pools, conn.Auras.Values);
+    }
+
+    static uint UnreservedLife(ClientState conn) => (uint)Math.Max(0, (long)conn.Pools.Life - ReservedLife(conn));
+
+    static byte[] PlayerLifeUpdate(ClientState conn) => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, (uint)ReservedLife(conn));
+
     // 0x1b1 for the mana pool: every update carries the reserved amount, or the client would clear it.
     static async Task SendPlayerMana(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         string? log = null)
@@ -144,15 +159,23 @@ partial class Program
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(key, rate)]), null);
     }
 
-    // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts. False when the player lacks
-    // the mana.
-    static bool PayMana(ClientState conn, int effect, int level, int quality, out uint cost)
+    static SkillCost CostFor(ClientState conn, int effect, int level, int quality)
     {
-        cost = Stats.Key("mana_cost") is uint k ? (uint)Skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
+        var own = Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        var player = CharacterPlayerStats(conn);
+        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
+        return SkillCost.Calculate(Own("base_mana_cost"), Own("base_life_cost"), Get);
+    }
+
+    static bool PaySkillCost(ClientState conn, int effect, int level, int quality, out SkillCost cost)
+    {
+        cost = CostFor(conn, effect, level, quality);
         lock (conn.Monsters)
         {
-            if (conn.PlayerMana < cost) return false;
-            conn.PlayerMana -= cost;
+            uint mana = conn.PlayerMana, life = conn.PlayerLife;
+            if (!cost.Pay(ref mana, ref life)) return false;
+            (conn.PlayerMana, conn.PlayerLife) = (mana, life);
             return true;
         }
     }
@@ -450,9 +473,9 @@ partial class Program
                 {
                     burnCarry += burnPerSecond * seconds;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
-                    int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now);
+                    int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now, RecoveryStat);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
-                    conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, conn.PlayerMaxLife,
+                    conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, UnreservedLife(conn),
                         life + lifeRate * seconds - lifeBurn, ref lifeCarry, minimum: 1);
                     conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
                         mana + manaRate * seconds, ref manaCarry);
@@ -466,9 +489,9 @@ partial class Program
             }
             if (rf is not null && lifeAfter == 1 && conn.EnergyShield.Current == 0)
                 await EndRighteousFire(remote, stream, ciphers, conn, "one life and no energy shield");
-            if (lifeAfter != lifeBefore) await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter), null);
+            if (lifeAfter != lifeBefore) await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), null);
             if (manaAfter != manaBefore) await SendPlayerMana(remote, stream, ciphers, conn, null);
-            bool lifeFull = lifeAfter == conn.PlayerMaxLife, manaFull = manaAfter == manaCap;
+            bool lifeFull = lifeAfter == UnreservedLife(conn), manaFull = manaAfter == manaCap;
             ended.AddRange(conn.FlaskEffects.End(e => (e.LifePerSecond == 0 || lifeFull) && (e.ManaPerSecond == 0 || manaFull)));
             if (ended.Count > 0)
                 await EndFlaskEffects(remote, stream, ciphers, conn, ended, $"life {lifeAfter}/{conn.PlayerMaxLife}, mana {manaAfter}/{manaCap}");
@@ -515,10 +538,11 @@ partial class Program
                     continue;
                 }
                 if (!rf.Auras.ContainsKey(id)) { rf.Auras[id] = conn.NextBuff; entered.Add((id, conn.NextBuff++)); }
-                var resistance = MonsterResistance(m, DamageType.Fire);
+                var resistance = MonsterResistance(conn, m, DamageType.Fire);
                 var resistedDot = damageOverTime with
                 {
                     DamagePerSecond = DamageModel.Mitigate(damageOverTime.DamagePerSecond, resistance.Value, resistance.Maximum)
+                        * PassiveDamageTakenFactor(conn, m, DamageType.Fire)
                 };
                 var (damage, carry) = resistedDot.Tick(seconds, m.Burn);
                 m.Burn = carry;
@@ -630,7 +654,7 @@ partial class Program
         lock (conn.Monsters)
         {
             if (conn.PlayerLife > 0) return;
-            conn.PlayerLife = conn.PlayerMaxLife;
+            conn.PlayerLife = UnreservedLife(conn);
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
             conn.AuraDeathHandled = false;
             conn.PlayerMana = (uint)UnreservedMana(conn);
@@ -647,7 +671,7 @@ partial class Program
             return;
         }
         // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMaxLife),
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
             $"0x01b1 player revived with {conn.PlayerMaxLife} life");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
@@ -687,7 +711,7 @@ partial class Program
             Skills: [.. Skills.PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList])], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, Items)),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
-            Portrait: WornPortrait(conn));
+            Portrait: WornPortrait(conn), LifeReserved: (uint)ReservedLife(conn));
         conn.ClientSkillIds = [.. player.Skills!.Select(s => s.Id)];
         uint type = InstanceEntities.ObjectTypeHash(cls.ObjectType);
         var messages = new List<(string Name, byte[] Bytes)>
@@ -744,6 +768,7 @@ partial class Program
             messages.Add(("0x01b3 class attributes", InstanceEntities.StatsUpdate(PlayerId, [.. statList])));
         }
         foreach (var (label, bytes) in messages) await Send(remote, stream, ciphers, bytes, label);
+        await RefreshPassiveBuffs(remote, stream, ciphers, conn);
         // An area change creates a new player object, so the running auras' buffs must be put on it again.
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values];

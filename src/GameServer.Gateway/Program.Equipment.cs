@@ -6,29 +6,43 @@ partial class Program
 {
     static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, Items);
 
-    // The flat armour and evasion of the equipped body armour, helmet, gloves and boots. Only the base type's ArmourTypes
-    // row is used (its minimum roll, matching the item's default base percentile); local/global mods and quality are not
-    // modelled. Shields are excluded for now. Inactive items (requirements not met) give none.
-    static (int Armour, int Evasion, int EnergyShield) EquippedBaseDefences(ClientState conn)
+    // Item-local defences use the base minimum percentile, local flat/increased modifiers and multiplicative quality.
+    // Global modifiers are applied once by CharacterStats. Inactive items give no defences or converted life.
+    static (int Armour, int Evasion, int EnergyShield, int Life) EquippedBaseDefences(ClientState conn, Func<string, int>? stat = null)
     {
         var items = ItemsOf(conn);
-        int armour = 0, evasion = 0, energyShield = 0;
+        int armour = 0, evasion = 0, energyShield = 0, life = 0;
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
                 && Items.ByHash(equipped.Item.TypeHash) is { } type && Items.Defences(type) is { } d)
             {
-                armour += d.ArmourMin;
-                evasion += d.EvasionMin;
                 var local = ItemModStats.Local(equipped.Item, Items.Mods);
+                int Local(string name) => local.GetValueOrDefault(name);
+                int Rating(int flat, int increase) => Math.Max(0, (int)((long)flat * Math.Max(0, 100 + increase)
+                    * (100 + equipped.Item.Quality) / 10000));
+                int scale = row == PlayerInventories.BodyArmour && stat is not null
+                    && stat("body_armour_defences_doubled_while_no_gems_in_body_armour") != 0
+                    && equipped.Item.Sockets.All(s => s.Gem is null) ? 2 : 1;
+                armour += scale * Rating(d.ArmourMin + Local("local_base_physical_damage_reduction_rating"),
+                    Local("local_physical_damage_reduction_rating_+%") + Local("local_armour_and_evasion_+%")
+                    + Local("local_armour_and_energy_shield_+%") + Local("local_armour_and_evasion_and_energy_shield_+%"));
+                evasion += scale * Rating(d.EvasionMin + Local("local_base_evasion_rating")
+                    + Local("local_evasion_rating_and_energy_shield"), Local("local_evasion_rating_+%")
+                    + Local("local_armour_and_evasion_+%") + Local("local_evasion_and_energy_shield_+%")
+                    + Local("local_armour_and_evasion_and_energy_shield_+%"));
                 int flat = d.EnergyShieldMin + local.GetValueOrDefault("local_energy_shield")
                     + local.GetValueOrDefault("local_evasion_rating_and_energy_shield");
                 int increase = local.GetValueOrDefault("local_energy_shield_+%") + local.GetValueOrDefault("local_armour_and_energy_shield_+%")
                     + local.GetValueOrDefault("local_evasion_and_energy_shield_+%") + local.GetValueOrDefault("local_armour_and_evasion_and_energy_shield_+%");
                 // Armour quality is a separate multiplier since 3.25. Item's base percentile is currently zero (minimum).
                 if (local.GetValueOrDefault("local_no_energy_shield") == 0)
-                    energyShield += (int)(EnergyShield.Max(flat, increase) * (100L + equipped.Item.Quality) / 100);
+                {
+                    int itemShield = scale * Rating(flat, increase);
+                    if (stat is not null && stat("gain_maximum_life_instead_of_maximum_es_from_armour") != 0) life += itemShield;
+                    else energyShield += itemShield;
+                }
             }
-        return (armour, evasion, energyShield);
+        return (armour, evasion, energyShield, life);
     }
 
     // The equipped main/off hands in both weapon sets. Rows 2/3 are Weapon1 and rows 14/15 Weapon2.

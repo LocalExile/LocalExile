@@ -45,6 +45,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The merged client graph preserves the ordinary tree.
   Real-client checks cover Slayer and Aristocrat, native mouse allocation, five-point refunds and restart persistence.
   Initial server effects include Aristocrat's points/gem properties and Gambler's hit rules.
+  Native checks also cover Paladin/Arakaali granted auras, Ghost of the Deep, Harbinger ES and Architect life costs/reserve.
+  Nearby Paladin/Bog Shaman/Ancestral enemy effects have native buff and production damage-path checks.
+  Oath equipment conditions, corrupted equipment and Sanguine Power have real-data Gateway integration checks.
   The unique mechanics of most classes and native Labyrinth/Altar acquisition remain incomplete.
   Code: `AscendancyCatalog.cs`, `AscendancyProgress.cs`, `CharacterSaves.cs`, `Program.Progression.cs`.
   Docs: [usage, implemented effects and limits](../docs/game/ascendancies.md),

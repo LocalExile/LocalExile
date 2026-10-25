@@ -69,7 +69,8 @@ static class CharacterStats
         int StrengthPct = 0, int DexterityPct = 0, int IntelligencePct = 0,
         bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
         bool NoIntelligence = false, bool NoIntelligenceMana = false, int LifePerLevel = 0, int ManaPerDexterity = 0,
-        int ManaPerFourStrength = 0, int ManaConvertedToArmourPct = 0, int EnergyShield = 0)
+        int ManaPerFourStrength = 0, int ManaConvertedToArmourPct = 0, int EnergyShield = 0,
+        int LifeAsEnergyShieldPct = 0, int ManaAsEnergyShieldPct = 0, bool NoEnergyShield = false)
     {
         public static readonly Bonus None = new();
     }
@@ -160,7 +161,9 @@ static class CharacterStats
         attackSpeedPct = Math.Max(-99, attackSpeedPct);
         return new(level, life, mana, accuracy, ExperienceFor(level, folder),
             Armour: armour, ArmourPct: armourPct, Evasion: evasion, EvasionPct: evasionPct,
-            EnergyShieldPct: intel / 5 + b.EnergyShieldPct, EnergyShield: EnergyShield.Max(b.EnergyShield, intel / 5 + b.EnergyShieldPct),
+            EnergyShieldPct: intel / 5 + b.EnergyShieldPct,
+            EnergyShield: b.NoEnergyShield ? 0 : EnergyShield.Max(b.EnergyShield
+                + (int)((long)life * b.LifeAsEnergyShieldPct / 100 + (long)mana * b.ManaAsEnergyShieldPct / 100), intel / 5 + b.EnergyShieldPct),
             MeleePhysicalDamagePct: str / 5 + b.MeleePhysicalDamagePct,
             Strength: str, Dexterity: dex, Intelligence: intel,
             FireResistance: BaseResistance + b.FireResistance, ColdResistance: BaseResistance + b.ColdResistance,

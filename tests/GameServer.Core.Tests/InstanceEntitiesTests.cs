@@ -100,6 +100,19 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Player_blob_keeps_life_and_mana_reservations_in_their_own_pools()
+    {
+        byte[] b = new PlayerObject("Ab", ClassIndex: 1, GridX: 0x73, GridY: 0x45, Life: 50, Mana: 40,
+            ManaReserved: 17, LifeReserved: 23).Blob();
+        string hex = Convert.ToHexString(b);
+        int life = hex.IndexOf("32000000", StringComparison.Ordinal);
+        int mana = hex.IndexOf("28000000", StringComparison.Ordinal);
+        Assert.True(life >= 0 && mana > life);
+        Assert.Equal("17000000", hex.Substring(life + 8, 8));
+        Assert.Equal("11000000", hex.Substring(mana + 8, 8));
+    }
+
+    [Fact]
     public void Player_blob_with_stats_and_a_granted_skill()
     {
         // Live 2026-10-17: the default attack (PlayerMelee, GEPL 4474, GESSPL 4430) with the Witch's unarmed stats.

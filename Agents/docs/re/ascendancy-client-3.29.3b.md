@@ -190,6 +190,26 @@ The integrated required suites passed 416 Core, 34 Data and 1,597 Gateway tests,
 
 ## Repeating the live observation
 
+Passive-attachment validation in `logs/phrecia-completion/` adds nine isolated native scenarios: Paladin's granted
+Determination, Arakaali's free Envy, Surfcaster's owner buff, Harbinger's extra ES, Architect life cost/reservation,
+and three nearby enemy presences.
+The life-cost/reservation fixtures are new test characters with predefined socketed gems in the isolated database.
+All allocation, skill use, refunds and transfers then run through the real client's buffered sender and Gateway.
+
+A targeted Ghidra read of `0x141fdf870` confirms that only `IsRecovery` rows read uncounted stat values.
+For ordinary passive buffs the next field is the counted trailing list, even when the definition has stat keys.
+Sending Ghost of the Deep's four 23 values as uncounted values desynchronised the packet stream in the first probe.
+The corrected packet sends no recovery values; native `0x141e11720` installs/removes it normally, while the
+authoritative Stats component carries the bonuses.
+The corrected four-case run is `effects-native-v2.jsonl`; the five additional scenarios are `effects-native-v3.jsonl`.
+
+The targeted `0x141e69fb0` decompilation also confirms current/reserved fields at pool `+0x30/+0x10`.
+The read-only native probe observed Impure Blood's five-life payment with unchanged mana, and Hewn Flesh's 17 life
+reserved on a level-one Clarity gem with 100% increased life reservation efficiency.
+After refund, the same enabled aura had zero life reserved and 34 mana reserved.
+Native buff-vector observations confirm nearby presence installation/removal; Gateway integration tests separately
+exercise their distance/hostility conditions, damage conversion, resistance override and elemental damage taken.
+
 Start the single client through `scripts/dev/live.ps1`. Attach the read-only trace:
 
 ```powershell

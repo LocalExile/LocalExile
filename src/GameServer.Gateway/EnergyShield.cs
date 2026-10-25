@@ -22,6 +22,12 @@ sealed class EnergyShield
         Current -= absorbed;
         return amount - (int)absorbed;
     }
+    public int Damage(int amount, bool chaos, double now, Func<string, int> get)
+    {
+        if (chaos) return Damage(amount, get("chaos_damage_does_not_bypass_energy_shield") == 0, now);
+        int bypass = (int)((long)Math.Max(0, amount) * Math.Clamp(get("base_non_chaos_damage_bypass_energy_shield_%"), 0, 100) / 100);
+        return Damage(bypass, true, now) + Damage(amount - bypass, false, now);
+    }
     public void Empty() { Current = 0; fraction = 0; Recharging = false; }
     public static uint Max(int flat, int increased) =>
         (uint)Math.Clamp((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) / 100, 0, int.MaxValue);

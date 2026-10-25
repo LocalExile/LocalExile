@@ -723,6 +723,299 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.True(primary.Life < 1000);
     }
 
+    [Theory]
+    [InlineData(58846, "Determination", 30)]
+    [InlineData(28569, "Grace", 30)]
+    [InlineData(39868, "Discipline", 40)]
+    public async Task Paladin_choices_grant_real_skills_without_gems_and_remove_them_after_refund(int option, string effect, int level)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, (ushort)option);
+        Assert.Empty(game.GemEffects());
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var skill = Assert.Single(game.GemEffects());
+        Assert.Equal(effect, Program.Skills.EffectId(skill.Effect));
+        Assert.Equal((level, 0u), (skill.Level, skill.Gem));
+        Assert.True((await game.Cast(skill.Name)).Accepted);
+        var aura = Assert.Single(game.State.Auras.Values);
+        Assert.Equal(level, aura.Level);
+        if (effect == "Discipline") Assert.True(game.State.Pools.EnergyShield > 0);
+        if (effect == "Grace") Assert.True(game.State.Pools.Evasion > 15);
+        var restored = game.Reload();
+        Assert.Equal(effect, Assert.Single(restored.Auras.Values).EffectId);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Empty(game.GemEffects());
+        Assert.Empty(game.State.Auras);
+    }
+
+    [Fact]
+    public async Task Arakaali_Envy_is_granted_and_executes_without_gem_or_reservation()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 5, baseClass: 6, choice: "Servant of Arakaali", refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 16305);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var skill = Assert.Single(game.GemEffects());
+        Assert.Equal("Envy", Program.Skills.EffectId(skill.Effect));
+        Assert.Equal(15, skill.Level);
+        uint mana = game.State.PlayerMana;
+        Assert.True((await game.Cast(skill.Name)).Accepted);
+        var aura = Assert.Single(game.State.Auras.Values);
+        Assert.Equal((0, 0), (aura.ManaFlat, aura.ManaPercent));
+        Assert.Equal(mana, game.State.PlayerMana);
+        Assert.True(game.PlayerStat("attack_minimum_added_chaos_damage") > 0);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Empty(game.GemEffects());
+        Assert.Empty(game.State.Auras);
+    }
+
+    [Fact]
+    public async Task Ghost_of_the_Deep_applies_actual_template_stats_and_removes_its_native_buff_on_refund()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 5, baseClass: 6, choice: "Surfcaster", refundPoints: 60);
+        var before = game.State.Pools;
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 37553);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.True(game.State.Pools.AttackSpeedPct >= before.AttackSpeedPct + 23);
+        Assert.Equal(before.MovementVelocityPct + 23, game.State.Pools.MovementVelocityPct);
+        Assert.True(game.PlayerStat("damage_+%") >= 23);
+        var passiveBuff = Assert.Single(Program.PassiveEffects.Buffs(game.State.MainAscendancy.Allocated), b => b.AffectsOwner);
+        Assert.Empty(passiveBuff.Values); // This native non-recovery row has no uncounted value payload.
+        ushort buff = Assert.Single(game.State.PassiveBuffs.Values);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Empty(game.State.PassiveBuffs);
+        Assert.Equal(before.MovementVelocityPct, game.State.Pools.MovementVelocityPct);
+        Assert.True(game.LastBytes.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, buff)) >= 0);
+    }
+
+    [Fact]
+    public async Task Oath_of_the_Maji_checks_equipped_gems_and_doubles_actual_body_defences()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 3, baseClass: 2, choice: "Daughter of Oshabi", refundPoints: 60, level: 20);
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Plate Vest")!));
+        var before = game.Reload().Pools;
+        Assert.True(before.Armour > 0);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 3125);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Equal(80, game.State.Pools.FireResistance - before.FireResistance);
+        Assert.Equal(30, game.State.Pools.MovementVelocityPct - before.MovementVelocityPct);
+        Assert.True(game.State.Pools.Life > before.Life);
+        Assert.Equal(2 * before.Armour, game.State.Pools.Armour);
+        EquipBlueGems(game, "Fireball");
+        await game.SetLevel(game.State.Pools.Level);
+        Assert.Equal(before.FireResistance, game.State.Pools.FireResistance);
+        Assert.Equal(before.ColdResistance, game.State.Pools.ColdResistance);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(before.EnergyShield, game.State.Pools.EnergyShield);
+        Assert.Equal(before.Life, game.State.Pools.Life);
+    }
+
+    [Fact]
+    public async Task Glimpse_Chaos_counts_only_active_equipped_corrupted_items()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Architect of Chaos", refundPoints: 60, level: 20);
+        var robe = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with { Corrupted = true };
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, robe);
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(Program.Items.Find("Iron Hat")!) with { Corrupted = true });
+        game.Items.Add(PlayerInventories.MainInventory, 0, 0, robe);
+        game.Items.Add(PlayerInventories.Weapon2, 0, 0, robe);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 531);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Equal(24, game.PlayerStat("maximum_life_+%")); // 4% prerequisite, 10% for each of two active corrupted items.
+        Assert.Equal(-4, game.State.Pools.FireResistance);
+        Assert.Equal(-4, game.State.Pools.ColdResistance);
+        Assert.Equal(30 + game.State.Pools.Intelligence / 5, game.State.Pools.EnergyShieldPct);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0, game.PlayerStat("maximum_life_+%"));
+    }
+
+    [Fact]
+    public async Task Sanguine_Power_converts_equipment_energy_shield_to_life_and_prevents_energy_shield()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Bog Shaman", refundPoints: 60, level: 3);
+        var before = game.State.Pools;
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!));
+        Assert.True(game.Reload().Pools.EnergyShield > 0);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 24063);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Equal(0u, game.State.Pools.EnergyShield);
+        Assert.True(game.State.Pools.Life > before.Life);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.True(game.State.Pools.EnergyShield > 0);
+        Assert.Equal(before.Life, game.State.Pools.Life);
+    }
+
+    [Fact]
+    public async Task Harbinger_gains_energy_shield_from_final_maximum_life_and_mana()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", refundPoints: 60);
+        Assert.Equal(0u, game.State.Pools.EnergyShield);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 39702);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var p = game.State.Pools;
+        int extra = (int)(p.Life * 10L / 100 + p.Mana * 20L / 100);
+        Assert.Equal(EnergyShield.Max(extra, p.EnergyShieldPct), p.EnergyShield);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0u, game.State.Pools.EnergyShield);
+    }
+
+    [Fact]
+    public async Task Impure_Blood_pays_actual_cast_life_and_refuses_unaffordable_cost_before_spending()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Architect of Chaos", refundPoints: 60);
+        EquipBlueGems(game, "Fireball");
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 11219);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        uint mana = game.State.PlayerMana;
+        game.State.PlayerLife = 5;
+        Assert.False((await game.Cast("Fireball")).Accepted);
+        Assert.Equal((mana, 5u), (game.State.PlayerMana, game.State.PlayerLife));
+        game.State.PlayerLife = 6;
+        Assert.True((await game.Cast("Fireball")).Accepted);
+        Assert.Equal((mana, 1u), (game.State.PlayerMana, game.State.PlayerLife));
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        game.State.PlayerLife = game.State.PlayerMaxLife;
+        Assert.True((await game.Cast("Fireball")).Accepted);
+        Assert.Equal(mana - 5, game.State.PlayerMana);
+    }
+
+    [Fact]
+    public async Task Hewn_Flesh_reserves_life_using_life_efficiency_and_refreshes_the_same_aura_after_refund()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Architect of Chaos", refundPoints: 60, level: 20);
+        EquipBlueGems(game, "Clarity");
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 9529);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        uint mana = game.State.PlayerMana;
+        game.State.PlayerLife = game.State.PlayerMaxLife;
+        Assert.True((await game.Cast("Clarity")).Accepted);
+        var aura = Assert.Single(game.State.Auras.Values);
+        Assert.True(aura.ReserveLife);
+        Assert.Equal(0, AuraCatalog.ReservedMana(game.State.Pools, game.State.Auras.Values));
+        int reserved = AuraCatalog.ReservedLife(game.State.Pools, game.State.Auras.Values);
+        Assert.True(reserved > 0);
+        Assert.Equal((int)Math.Ceiling(aura.ManaFlat / 2.0), reserved);
+        Assert.Equal(game.State.Pools.Life - (uint)reserved, game.State.PlayerLife);
+        Assert.Equal(mana, game.State.PlayerMana);
+        game.State.PlayerLife = 1;
+        await game.Command("/heal");
+        Assert.Equal(game.State.Pools.Life - (uint)reserved, game.State.PlayerLife);
+        Assert.True(Assert.Single(game.Reload().Auras.Values).ReserveLife);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        var refreshed = Assert.Single(game.State.Auras.Values);
+        Assert.False(refreshed.ReserveLife);
+        Assert.Equal(aura.SkillId, refreshed.SkillId);
+        Assert.Equal(0, AuraCatalog.ReservedLife(game.State.Pools, game.State.Auras.Values));
+        Assert.True(AuraCatalog.ReservedMana(game.State.Pools, game.State.Auras.Values) > 0);
+    }
+
+    [Fact]
+    public async Task We_Know_All_removes_actual_mana_cost_and_Nightblood_adds_actual_life_cost()
+    {
+        if (!DataAvailable()) return;
+        using var whisperer = new GatewayCharacter(classRow: 3, baseClass: 2, choice: "Whisperer", refundPoints: 60);
+        EquipBlueGems(whisperer, "Burning Arrow");
+        whisperer.Items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
+        var definition = Program.Ascendancies.Find(whisperer.State.MainAscendancy.Selection!)!;
+        Assert.Null((await whisperer.Change(PathTo(definition, 22720), allocate: true)).Error);
+        whisperer.State.PlayerMana = 0;
+        uint life = whisperer.State.PlayerLife;
+        Assert.True((await whisperer.Cast("Burning Arrow")).Accepted);
+        Assert.Equal((0u, life), (whisperer.State.PlayerMana, whisperer.State.PlayerLife));
+
+        using var bog = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Bog Shaman", refundPoints: 60);
+        EquipBlueGems(bog, "Fireball");
+        definition = Program.Ascendancies.Find(bog.State.MainAscendancy.Selection!)!;
+        Assert.Null((await bog.Change(PathTo(definition, 1424), allocate: true)).Error);
+        (uint mana, life) = (bog.State.PlayerMana, bog.State.PlayerLife);
+        Assert.True((await bog.Cast("Fireball")).Accepted);
+        Assert.Equal((mana - 5, life - 1), (bog.State.PlayerMana, bog.State.PlayerLife));
+    }
+
+    [Fact]
+    public async Task Light_of_Divinity_changes_elemental_damage_to_nearby_living_hostile_enemies_only()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", refundPoints: 60);
+        var near = new SpawnedMonster("near", new WalkEstimator(52, 32, 0), 0, 0, 1000);
+        var far = new SpawnedMonster("far", new WalkEstimator(100, 32, 0), 0, 0, 1000);
+        var ally = new SpawnedMonster("ally", new WalkEstimator(52, 32, 0), 0, 0, 1000) { Hostile = false };
+        game.State.Monsters[0x4000] = near;
+        game.State.Monsters[0x4001] = far;
+        game.State.Monsters[0x4002] = ally;
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 13763);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Single(game.State.PassivePresences);
+        var hit = DamagePacket.Of(DamageType.Fire, 100, 100).Add(DamageType.Physical, new DamageRange(100, 100));
+        var boosted = ProgramValue<DamagePacket>("ApplyPassiveDamageTaken", game.State, near, hit);
+        Assert.Equal(125, boosted[DamageType.Fire].Min);
+        Assert.Equal(100, boosted[DamageType.Physical].Min);
+        Assert.Equal(200, ProgramValue<DamagePacket>("ApplyPassiveDamageTaken", game.State, far, hit).MinTotal);
+        Assert.Equal(200, ProgramValue<DamagePacket>("ApplyPassiveDamageTaken", game.State, ally, hit).MinTotal);
+        near.Dead = true;
+        Assert.Equal(200, ProgramValue<DamagePacket>("ApplyPassiveDamageTaken", game.State, near, hit).MinTotal);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Empty(game.State.PassivePresences);
+    }
+
+    [Fact]
+    public async Task Born_under_Fire_converts_nearby_enemy_damage_before_the_players_taken_as_modifier()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", refundPoints: 60);
+        var near = new SpawnedMonster("near", new WalkEstimator(52, 32, 0), 0, 0, 1000);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 32105), allocate: true)).Error);
+        var hit = DamagePacket.Of(DamageType.Physical, 100, 100);
+        var converted = ProgramValue<DamagePacket>("IncomingPassiveConversion", game.State, near, hit);
+        Assert.Equal(50, converted[DamageType.Physical].Min);
+        Assert.Equal(50, converted[DamageType.Fire].Min);
+        game.State.PlayerStats[Program.Stats.Key("physical_hit_and_dot_damage_%_taken_as_fire")!.Value] = 30;
+        converted = ProgramValue<DamagePacket>("IncomingPassiveConversion", game.State, near, hit);
+        Assert.Equal(35, converted[DamageType.Physical].Min);
+        Assert.Equal(65, converted[DamageType.Fire].Min);
+    }
+
+    [Fact]
+    public async Task Fell_Fen_overrides_nearby_chaos_resistance_and_restores_it_after_refund()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Bog Shaman", refundPoints: 60);
+        var variety = Program.Monsters.Find("0")!;
+        Assert.Equal(20, Program.Monsters.BaseResistance(variety, 1, DamageType.Chaos));
+        var target = new SpawnedMonster("near", new WalkEstimator(52, 32, 0), 0, 0, 1000) { Variety = variety };
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 47637);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Equal(0, ProgramValue<DamageModel.ResistanceValue>("MonsterResistance", game.State, target, DamageType.Chaos).Value);
+        target.Walk = new WalkEstimator(100, 32, 0);
+        Assert.Equal(20, ProgramValue<DamageModel.ResistanceValue>("MonsterResistance", game.State, target, DamageType.Chaos).Value);
+        target.Walk = new WalkEstimator(52, 32, 0);
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(20, ProgramValue<DamageModel.ResistanceValue>("MonsterResistance", game.State, target, DamageType.Chaos).Value);
+    }
+
+    static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
+        .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
+
     // These integration tests are in a nonparallel collection. Preserve developer projectile overrides while using a
     // short deterministic flight and the known collision geometry; the real damage/target paths still execute.
     sealed class ProjectileTestSettings : IDisposable
@@ -910,6 +1203,13 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             });
             return (accepted, result.Bytes);
         }
+
+        public Task<(string? Error, byte[] Bytes)> Command(string line) => Exchange(async (stream, cipher) =>
+        {
+            State.Commands = ProgramValue<ChatCommands>("Commands", "ascendancy-integration", stream, cipher, State);
+            Assert.True(await State.Commands.RunAsync(line));
+            return null;
+        });
 
         public Task<(string? Error, byte[] Bytes)> UseItem(uint itemId) => Exchange(async (stream, cipher) =>
         {

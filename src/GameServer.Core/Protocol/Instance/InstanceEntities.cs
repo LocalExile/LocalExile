@@ -795,7 +795,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0)
+    ushort Portrait = 0, uint LifeReserved = 0)
 {
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
@@ -842,7 +842,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // comp3 (0x141e114d0): u16 count of entries (u16, u8, 0x141e06bb0 record).
         w.U16(0);
         // Life (0x141e6c2f0): life, mana and energy shield pools (0x141e6be70), then a flags byte (0x141e6c270).
-        Pool(w, Life); Pool(w, Mana, ManaReserved); Pool(w, EnergyShield);
+        Pool(w, Life, LifeReserved); Pool(w, Mana, ManaReserved); Pool(w, EnergyShield);
         w.U8(0);
         // Animated (0x141e56a80): flags. Bit0 + !bit1: u32 char count + UTF-16LE animated-object path; the client loads it
         // when it differs from the current one or none is set (+0x260 null), creating the 0x308-byte AO instance.

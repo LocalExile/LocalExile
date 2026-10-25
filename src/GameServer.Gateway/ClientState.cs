@@ -319,6 +319,8 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly Dictionary<uint, int> PlayerStats = [];
     // Running auras by skill id, with their buff instances and reservation. Guarded by the Monsters lock.
     public readonly Dictionary<ushort, AuraCatalog.Aura> Auras = [];
+    public readonly Dictionary<int, ushort> PassiveBuffs = [];
+    public readonly Dictionary<(uint Monster, int Template), ushort> PassivePresences = [];
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
     // The skill ids the client has on this connection's player (SendPlayer, SendSkills): the 0x40 skill list only adds,

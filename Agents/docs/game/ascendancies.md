@@ -49,6 +49,22 @@ be refunded while ordinary allocations still spend those points.
   target client's tables. Attack/spell block support both lucky and unlucky rolls.
 - Additional pool rules cover zero Intelligence, mana from Dexterity/Strength, loss of Intelligence's mana bonus,
   life per level and Power of Purpose's mana-to-armour conversion.
+- Passive `GrantedEffectsPerLevel` references grant real skills without gems, with stable skill identities and exact
+  native levels. Paladin's level 30 Determination/Grace or level 40 Discipline and Arakaali's level 15 Envy execute.
+  Envy's no-reservation rule applies to its real reservation. Removing the source removes the active skill/effect;
+  remembered enabled intent is retained, as for unequipped aura gems.
+- Passive `BuffTemplates` attachments contribute owner stats and native buffs. Ghost of the Deep applies its actual
+  movement, attack, cast and damage increases. Non-recovery buffs have no uncounted stat-value wire payload.
+- Oath of the Maji checks socket contents, doubles the body armour's local defences and applies its conditional
+  resistance/life/movement bonuses. Glimpse Chaos counts active equipped corrupted items. Item-local defences include
+  local modifiers and quality. Sanguine Power substitutes equipped armour's energy shield with life and prevents ES.
+- Harbinger gains ES from maximum life/mana; its non-chaos bypass and Scavenger's Shavronne chaos absorption use the
+  actual damage path. Skill costs check and spend life/mana together; Impure Blood uses life, Nightblood adds a life
+  cost, and Whisperer's no-mana-cost modifier is enforced. Hewn Flesh uses life reservation efficiency and keeps life
+  reservation through pool updates, regeneration, healing and area restoration.
+- Nearby enemy passives use actual distance and hostility: Light of Divinity increases elemental damage taken,
+  Fell Fen overrides nearby chaos resistance, and Born under Fire converts the enemy's outgoing physical damage.
+  Presence visuals enter/leave on the client, and hit/DoT damage uses the applicable target modifiers.
 - Spell-use, spell-damage, warcry and aura restrictions use the actual skill types. Gruthkul refuses spells before
   paying their costs; Rampager still permits utility spell casts while suppressing spell damage. Disabled auras
   suspend their runtime effect/reservation while retaining enabled intent, and restore after refunding the restriction.
@@ -79,27 +95,46 @@ charges, and a skill's table entry does not grant or execute that skill.
 
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
-| Ancestral Commander | Supported life/armour modifiers | Ancestors, totems, echoes, warcries and incoming damage conversion |
+| Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
 | Behemoth | Strength-derived mana; Power of Purpose mana-to-armour | Rage, Fortification, Rampage and armour against chaos |
 | Antiquarian | Strength, zero Intelligence, percentage Dexterity/defences | Ward, Adrenaline and special shield/block rules |
 | Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
-| Whisperer | Mana per Dexterity; removal of Intelligence's mana bonus | Mana-derived damage, Rage, recoup and mana damage absorption |
-| Daughter of Oshabi | Supported generic small-node modifiers | Empty-socket conditions, Wisps, Shrines, Vines and Spellslinger |
-| Harbinger | Supported generic small-node modifiers | Granted Harbingers, ally AI, time effects and special energy-shield rules |
+| Whisperer | Mana per Dexterity; no Intelligence mana bonus; free mana costs | Mana-derived damage, Rage, recoup and mana damage absorption |
+| Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
+| Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |
 | Herald | Shared choice-node allocation and supported generic modifiers | Actual Herald effects/minions and Herald-specific gem/reservation rules |
-| Bog Shaman | Life per level, area and resistance modifiers | Costs/self-hits, self-poison, Pacify and energy-shield substitution |
+| Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |
 | Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Support-gem execution and conditional ailment immunity |
 | Gambler | Hit/critical/block luck, triple damage and hit resistance rules | Ailment/stun avoidance and further enemy resistance sources |
-| Paladin | Shared choice-node allocation and supported generic modifiers | Passive-granted auras, Ground, Links, Relics and party sharing |
-| Architect of Chaos | Supported generic modifiers | Corruption conditions, life reservation/cost, Dissolution and Vaal souls |
+| Paladin | Granted auras and Light of Divinity's nearby elemental damage taken | Ground, Links, Relics and party sharing |
+| Architect of Chaos | Equipped corruption conditions, life reservation and life cost | Dissolution, sacrifices and Vaal souls |
 | Puppeteer | Percentage Strength | Owned minions, inheritance, corpses and minion-death effects |
 | Polytheist | Gruthkul life/regeneration, Brine King maximum cold resistance, Lunaris spell area | Charges, Blind, curses, ailments and triggered effects |
-| Servant of Arakaali | Supported generic modifiers | Spiders, Webs, Penance Mark, free granted Envy and minion effects |
+| Servant of Arakaali | Free passive-granted level 15 Envy | Spiders, Webs, Penance Mark and minion effects |
 | Blind Prophet | Supported generic modifiers | Base-crit overrides, Blind, projectile returns/direction and Shade Form |
-| Surfcaster | Stormy Seas lightning-to-cold conversion | Chill/shock/freeze, fishing-rod and overcapped-resistance conditions |
-| Scavenger | Exclusive item choices; Fulcrum's conversion portion | Most chosen unique-item properties and their dependent subsystems |
+| Surfcaster | Stormy Seas conversion; Ghost of the Deep's owner bonuses/buff | Chill/shock/freeze, fishing-rod and overcapped-resistance conditions |
+| Scavenger | Exclusive choices; Fulcrum conversion; Shavronne chaos absorption | Most chosen unique-item properties and their dependent subsystems |
 
 ## Evidence and reproducible checks
+
+### Passive attachments, costs and nearby effects
+
+Gateway integration checks allocate/refund real graph paths and invoke the production skill, stat and damage methods.
+They cover all three Paladin aura choices, free Envy, Ghost of the Deep, Oath socket conditions, corrupted equipment,
+Sanguine Power, Harbinger's extra ES, atomic life/mana costs, life reservation and nearby enemy modifiers.
+The core wire test distinguishes life reservation from mana reservation in the initial Player object.
+
+Native checks use fresh accounts in an isolated ignored database, not the user's existing characters.
+The local client casts passive-granted Determination and Envy without gems, retains enabled intent after relog,
+and removes their native effects after paid node refunds.
+Surfcaster's passive buff and Harbinger's extra ES survive area entry; refunding their paths removes the buffs.
+Two fixture characters start with socketed Fireball/Clarity in that isolated database.
+With Impure Blood, native Fireball spends five life and no mana.
+With Hewn Flesh, native Clarity reserves 17 life and no mana; refunding the path leaves the same aura running with
+zero life reserved and 34 mana reserved.
+Native traces also confirm installation/removal of nearby enemy buffs for Paladin, Bog Shaman and Ancestral Commander.
+The nine scenarios and read-only native observations are in ignored `logs/phrecia-completion/`.
+These checks establish the named effects, not completion of their entire classes.
 
 ### Ordinary connectivity and Ascendant roots
 

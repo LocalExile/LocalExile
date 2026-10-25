@@ -118,7 +118,7 @@ partial class Program
                     Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {level} from the saved experience (the account had {resolved.Level})" +
                         (fixedLevel.Ok ? "" : $"; not saved to the account: {fixedLevel.Error}"));
                 }
-                conn.PlayerLife = conn.PlayerMaxLife;
+                conn.PlayerLife = UnreservedLife(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
                 conn.AuraDeathHandled = false;
                 conn.PlayerMana = (uint)UnreservedMana(conn);
