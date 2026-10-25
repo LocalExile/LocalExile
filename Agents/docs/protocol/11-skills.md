@@ -228,8 +228,22 @@ once. The Gateway now sends the 0x20 update instead (above), which also removes 
 **Critical strikes.** The server rolls a hit's critical chance after the damage roll: `base chance × (1 + increased
 critical strike chance / 100)`, capped at 100%, then multiplies the damage by the final multiplier (150% plus
 `base_critical_strike_multiplier_+`), as PoB's `CalcOffence` does. PoB's `unarmedWeaponData[class].CritChance = 0`
-and `base_critical_strike_multiplier = 150` are the defaults used here. The base is the equipped main hand's `WeaponTypes.dat` `Critical` permyriad
-(830 = 8.30%); unarmed is 0. Spells use their own level's `GrantedEffectStatSetsPerLevel.SpellCritChance`:
+and `base_critical_strike_multiplier = 150` are the defaults used here. The base is the equipped main hand's
+`WeaponTypes.dat` `Critical` permyriad (830 = 8.30%); unarmed is 0. Two pure base stats replace that base before the
+global increases, the way PoB's `WeaponBaseCritChance` override replaces an attack pass's
+[source.CritChance](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L2003-L2012)
+only when that hand's weapon type is not "None" (ModParser gets it from "Base Critical Strike Chance for Attacks
+with Weapons is X%").
+`override_weapon_base_critical_strike_chance` (Stats.dat row 9892, client key 9893, permyriad) is the armed main
+hand's base: Slayer Overwhelm (PassiveSkills row 17315) grants 800 = 8.00%, and the Blind Prophet position's
+Sightless (row 24698) grants 900 = 9.00%. `base_melee_critical_strike_chance_while_unarmed_%` (Stats.dat row 3906,
+client key 3907, permyriad; the Behemoth position's Final Blow, row 10135, grants 1000 = 10.00%) fills the unarmed
+melee attack that has no weapon base. Each is a base, not a fixed final chance: the generic
+`critical_strike_chance_+%` increases still apply on top. A weapon hand keeps the unarmed base out, an unarmed
+context keeps the weapon override out, and `SpellCriticalStrike`'s spell route reads neither, so cannot-crit and
+the spell panels are untouched. The pool builds the base once in `AttackBaseCriticalStrike`; `/set_stat` on either
+raw stat rebuilds the pools in place, and the panel's final `main_hand_critical_strike_chance` and the rolls share it.
+Spells use their own level's `GrantedEffectStatSetsPerLevel.SpellCritChance`:
 Fireball 500 (5.00%), Freezing Pulse and Ice Nova 750, Arc 600, Scorching Ray 0.
 `SkillCatalog.SpellCritChance` returns null for missing/invalid data, distinct from a known zero; both fail closed.
 The unconditional passive stats are summed into `CharacterStats.Pools`: generic `critical_strike_chance_+%` and

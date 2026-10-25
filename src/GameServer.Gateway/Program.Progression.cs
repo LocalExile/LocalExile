@@ -145,6 +145,10 @@ partial class Program
             bonus = bonus with { Strength = bonus.Strength + 1000, Dexterity = bonus.Dexterity + 1000, Intelligence = bonus.Intelligence + 1000,
                 Life = bonus.Life + 10_000, AttackSpeedPct = bonus.AttackSpeedPct + 1000 };
         var pools = CharacterStats.For(Skills.ClassFor(conn.ClassRow), level, bonus);
+        // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
+        // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
+        Dictionary<uint, int> devStats;
+        lock (conn.Monsters) devStats = new(conn.PlayerStats);
         pools = pools with
         {
             AttackBlockLucky = pools.AttackBlockLucky || conn.ForceAttackBlockLucky,
@@ -152,8 +156,15 @@ partial class Program
             SpellSuppressionLucky = pools.SpellSuppressionLucky || conn.ForceSpellSuppressionLucky,
             SpellSuppressionUnlucky = pools.SpellSuppressionUnlucky || conn.ForceSpellSuppressionUnlucky,
             // WeaponTypes.dat gives the main hand's base critical chance (permyriad, e.g. 830 = 8.30%); unarmed is 0.
+            // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
+            // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
+            // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
             AttackCriticalStrikeChance = (int)Math.Round(
-                DamageModel.CriticalStrikeChance(weapons.Critical, pools.CriticalStrikeChancePct) * 100),
+                DamageModel.CriticalStrikeChance(
+                    AttackBaseCriticalStrike.OfMainHand(!weapons.Unarmed, weapons.Critical,
+                        name => Stats.Key(name) is uint key
+                            ? sources.GetValueOrDefault(key) + devStats.GetValueOrDefault(key) : 0),
+                    pools.CriticalStrikeChancePct) * 100),
             SpellCriticalStrikeChance = (int)Math.Round(
                 DamageModel.CriticalStrikeChance(DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
                     pools.SpellCriticalStrikeChancePct) * 100)

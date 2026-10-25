@@ -63,6 +63,11 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.
   Native skill switching, combined bonuses, no-crit, relog and hitless-spell controls are verified.
+  The pure base overrides are in as a generic stat consumer (`override_weapon_base_critical_strike_chance` and the
+  unarmed base in `AttackBaseCriticalStrike`): Slayer Overwhelm, Blind Prophet's Sightless and Behemoth Final Blow
+  take effect for a player once the ascendancy lifecycle delivers ascendancy passive stats to the tree (Status and
+  protocol/11-skills.md §critical strikes); Slayer's per-nearby-enemy crit multiplier and Final Blow's remaining
+  unarmed bonuses wait for the same lifecycle.
   Added-base, lucky/more and conditional crit remain separate work.
   Add support effects through `DamagePacket.Add`, `Scale`, `Convert` and `AddGain`.
 - **Done when:** damage numbers match the character panel and the monsters' levels.
