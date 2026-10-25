@@ -12,11 +12,13 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** gold respec at Bestel (C→S 0x36 / 0x37) and masteries (0x35) work.
 - **Known:** refunds with refund points (0x36 flag 0; 0x33's first u16) work;
   Orbs of Regret (right-click, 0x58) add them.
-- **Accuracy Mastery:** 5 of its 6 effects are modelled ([Status](../status/skills-and-combat.md),
+- **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
+  for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),
   [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, +500 / -2 per
   level, 40% more accuracy against Unique Enemies and 50% more against Enemies in Close Range (both at the attack's
   accuracy roll; close range is the constant 20-unit radius).
-  Not modelled: Minions' Accuracy equals yours (needs minion accuracy).
+  Minions' Accuracy equals yours is not offered by that target group and remains unsupported with minion accuracy.
+  Gem attacks still need their own accuracy rolls before these target conditions can affect them.
 - **Known:** ordinary and Phrecia main choices, separate budgets, ascendancy connectivity and paid refunds work.
   [Ascendancy usage and limits](../docs/game/ascendancies.md).
 - **Known:** ordinary allocations, masteries and refunds are checked against the character's available starts.

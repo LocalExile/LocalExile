@@ -173,7 +173,7 @@ with level), the bases and attributes from Characters.dat:
 Accuracy's flat and increased passives are summed from `accuracy_rating` and `accuracy_rating_+%`, the weapon-specific
 stats according to the equipped weapon shape (`sword_accuracy_rating`, `wand_accuracy_rating_+%`, ...), and the Accuracy
 Mastery (`accuracy_rating_per_level`, `dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead`,
-`gain_accuracy_rating_equal_to_intelligence`). Its last two effects are target conditions applied at the roll, not in
+`gain_accuracy_rating_equal_to_intelligence`). Two other effects are target conditions applied at the roll, not in
 the pools: `accuracy_rating_+%_final_vs_unique_enemies_from_mastery` (row 15547, PassiveSkillMasteryEffects Accuracy1:
 40% more) multiplies the rating when the target's rarity is Unique, and
 `accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery` (row 18375, Accuracy5: 50% more) when the target is in
@@ -184,6 +184,12 @@ Fire's 18 = 1.8 m), so a target whose centre is within 20 cells of the player is
 "Nearby" is not the same mechanic.
 The target's rarity (`SpawnedMonster.Rarity`) and its tracked position at the hit's resolution time decide both; the two
 "more" effects multiply (unique and close: × 2.1) and the product floors to a whole rating.
+The default attack samples both actors' current tracked positions after its contact delay.
+Attack gems currently lack an accuracy roll, so these conditions apply only to the existing default-attack roll.
+Ten native checks allocated connected ordinary paths and selected both effects through real C→S 0x35 requests.
+The unconditional native panel stayed at 711; logged rolls used 995 against Unique and 1066 against a close normal.
+A close Unique used 1493, while a Unique outside close range used 995.
+Moving a target back into range restored the close multiplier, relog preserved both choices, and refund restored 30.
 Other conditional stats (nearby ally, marked enemy, low life, frenzy charges) are not modelled, and the panel is not
 told the conditions: it keeps the unconditional `accuracy_rating` and, for the Offence
 panel's Main Hand / Off Hand Accuracy rows, `main_hand_accuracy_rating` / `off_hand_accuracy_rating`. Its Chance to

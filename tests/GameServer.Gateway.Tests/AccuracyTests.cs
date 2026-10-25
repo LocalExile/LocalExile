@@ -60,6 +60,7 @@ public class AccuracyTests
     {
         var tree = new PassiveTree(Data());
         var catalog = new StatCatalog(Data());
+        Assert.Equal(5, tree.EffectsFor(42533).Count);
         // PassiveSkillMasteryEffects Accuracy1 (row 0: vs unique enemies) and Accuracy5 (row 4: close range), on the
         // accuracy mastery node group that graph node 42533 belongs to.
         var unique = tree.Stats([42533], new Dictionary<ushort, ushort> { [42533] = 0 });

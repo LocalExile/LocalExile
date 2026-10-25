@@ -38,7 +38,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   in the constant 20-unit close range (2 metres; 10 units per metre), multiplying when both hold and never folded into
   the panel's rating or `/accuracy`'s unconditional rating.
   Gems' attack hits do not roll accuracy yet, so the conditions apply where a roll exists (the default attack).
-  Live re-check of the two conditions against the real client is pending.
+  Ten native checks used connected ordinary paths and actual mastery selection requests.
+  The panel stayed at 711 while target rolls used 995 against Unique, 1066 in close range and 1493 when both held.
+  A far Unique kept only 995; target movement, relog and refund restored the expected conditions and baseline.
   Code: `CharacterStats.cs`, `TargetAccuracy.cs`, `DamageModel.cs`, `MonsterCatalog.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §4–5.
 - Armour and Evasion: flat armour/evasion from the passive tree (`base_physical_damage_reduction_rating`,

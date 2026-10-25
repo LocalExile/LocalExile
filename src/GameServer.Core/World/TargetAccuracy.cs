@@ -23,7 +23,7 @@ public static class TargetAccuracy
     public const int UniqueMorePct = 40;
 
     /// <summary>Whether a target this far from the player (grid cells, centre to centre) is in close range.</summary>
-    public static bool InCloseRange(double distanceCells) => distanceCells <= CloseRangeCells;
+    public static bool InCloseRange(double distanceCells) => distanceCells >= 0 && distanceCells <= CloseRangeCells;
 
     /// <summary>The final attack accuracy against this target: each conditional mastery effect the target satisfies
     /// multiplies the pools' accuracy once ("40% more" and "50% more" together are x 2.1), using exact integer math so
@@ -32,9 +32,9 @@ public static class TargetAccuracy
     public static int AgainstTarget(int accuracy, int moreVsUniquePct, int moreInCloseRangePct,
         bool targetIsUnique, bool targetInCloseRange)
     {
-        long percent = 100, scale = 1;
-        if (targetIsUnique && moreVsUniquePct != 0) { percent *= 100 + moreVsUniquePct; scale *= 100; }
-        if (targetInCloseRange && moreInCloseRangePct != 0) { percent *= 100 + moreInCloseRangePct; scale *= 100; }
-        return (int)(Math.Max(0, accuracy) * percent / (scale * 100));
+        decimal result = Math.Max(0, accuracy);
+        if (targetIsUnique) result *= Math.Max(0m, 100m + moreVsUniquePct) / 100m;
+        if (targetInCloseRange) result *= Math.Max(0m, 100m + moreInCloseRangePct) / 100m;
+        return (int)Math.Clamp(decimal.Floor(result), 0m, int.MaxValue);
     }
 }

@@ -18,6 +18,16 @@ using DamageRange = GameServer.Core.World.DamageRange;
 
 partial class Program
 {
+    // Sample both moving actors at the hit time, after the approach and contact delay.
+    internal static (int Accuracy, bool Unique, bool CloseRange) AttackAccuracyAt(
+        ClientState conn, SpawnedMonster target, double at)
+    {
+        bool unique = target.Rarity == MonsterRarity.Unique;
+        bool close = TargetAccuracy.InCloseRange(Dist(conn.Walk.Position(at), target.Walk.Position(at)));
+        return (TargetAccuracy.AgainstTarget(conn.Pools.Accuracy, conn.Pools.AccuracyMoreVsUniquePct,
+            conn.Pools.AccuracyMoreInCloseRangePct, unique, close), unique, close);
+    }
+
     // Whether an attack may start now: the shared attack timer (the default attack and the attack gem skills) is over, or
     // the use is no more than a quarter of an attack early (the client's jitter). Does not reserve the timer: an attack used
     // on a monster waits for the walk into reach, and CastGemSkill reserves it when the swing starts.
@@ -122,10 +132,9 @@ partial class Program
             }
             // The Accuracy Mastery's target conditions at the roll: the target's own rarity and its distance at the hit
             // resolution time (TargetAccuracy). Spells do not roll, so spells never see these.
-            bool unique = m.Rarity == MonsterRarity.Unique;
-            bool closeRange = TargetAccuracy.InCloseRange(Dist(stop, m.Walk.Position(now)));
-            accuracy = TargetAccuracy.AgainstTarget(conn.Pools.Accuracy, conn.Pools.AccuracyMoreVsUniquePct,
-                conn.Pools.AccuracyMoreInCloseRangePct, unique, closeRange);
+            var targetAccuracy = AttackAccuracyAt(conn, m, conn.Clock.Elapsed.TotalSeconds);
+            bool unique = targetAccuracy.Unique, closeRange = targetAccuracy.CloseRange;
+            accuracy = targetAccuracy.Accuracy;
             if (accuracy != conn.Pools.Accuracy)
                 Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} ({m.Label}, {m.Rarity}): accuracy {conn.Pools.Accuracy} -> {accuracy} " +
                     $"for the target ({(unique ? "unique target, " : "")}{(closeRange ? "in close range (20 units) " : "")}accuracy mastery more)");

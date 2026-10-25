@@ -4,6 +4,19 @@ namespace GameServer.Core.Tests;
 
 public class TargetAccuracyTests
 {
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.NegativeInfinity)]
+    public void Invalid_distances_are_not_close(double distance) => Assert.False(TargetAccuracy.InCloseRange(distance));
+
+    [Fact]
+    public void Extreme_or_negative_modifiers_do_not_wrap_the_accuracy_result()
+    {
+        Assert.Equal(0, TargetAccuracy.AgainstTarget(100, -101, 50, true, true));
+        Assert.Equal(int.MaxValue, TargetAccuracy.AgainstTarget(int.MaxValue, int.MaxValue, int.MaxValue, true, true));
+    }
+
     [Fact]
     public void Close_range_is_the_20_unit_radius_and_is_inclusive()
     {
