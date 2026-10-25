@@ -35,7 +35,7 @@ the player's clicks.
 A change that touches more than one save, or one save more than once, runs in one transaction, so all of it is saved or
 none of it is. An item is never lost between its two places, nor counted in both:
 
-| Change | In one transaction (`ItemMoves`, Program.cs) |
+| Change | In one transaction (`ItemMoves`, Program.Items.cs) |
 |---|---|
 | Stash → cursor (C→S 0x28), stash → inventory (0xe3, a stack onto the inventory's stacks) | out of the tab (or what doesn't fit stays), the last tab, onto the cursor / into the inventory |
 | Inventory → stash (0xe0 into the shown tab, 0xe1 into the item's affinity tab) | out of the inventory (or what doesn't fit stays), into the tab (a stack onto its stacks, a slotted tab into the item's slot), the last tab |

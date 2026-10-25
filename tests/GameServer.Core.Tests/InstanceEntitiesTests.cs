@@ -4,6 +4,40 @@ namespace GameServer.Core.Tests;
 
 public class InstanceEntitiesTests
 {
+    [Fact]
+    public void Projectile_impact_teleport_carries_height_and_preserves_the_legacy_default()
+    {
+        const string header = "01B700003001000000000000000000280000001E";
+        Assert.Equal(header + "7FFFFFFF00000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, 0x7fffffff)));
+        Assert.Equal(header + "0000000000000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30)));
+    }
+
+    [Theory]
+    [InlineData(-8, -62.5f, "FFFFFFF8C27A0000")]
+    [InlineData(8, 62.5f, "00000008427A0000")]
+    public void Fixed_height_teleports_send_the_signed_marker_and_the_world_z_float(int fixedHeight, float worldZ, string pair)
+    {
+        // The client copies these two fields to +0x290/+0x2b4. Non-sentinel height reads the float, not the marker.
+        Assert.Equal("01B700003001000000000000000000280000001E" + pair,
+            Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, unchecked((uint)fixedHeight), worldZ)));
+    }
+
+    [Theory]
+    [InlineData(-8)]
+    [InlineData(8)]
+    [InlineData(-15)]
+    public void Projectile_creation_and_impact_preserve_the_same_fixed_world_height(int worldZSteps)
+    {
+        // The blob uses little endian while 0x1b7 uses big endian. Both native handlers retain the marker
+        // and world-Z float directly; 0x1ba instead takes worldZSteps, without the marker's sign reversal.
+        byte[] blob = new ProjectileObject("Metadata/Projectiles/Fireball", 40, 30, Height: worldZSteps).Blob();
+        byte[] stop = InstanceProtocol.Teleport(0x3001, 40, 30, unchecked((uint)-worldZSteps), worldZSteps * 7.8125f);
+        Assert.Equal(System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.AsSpan(18, 4)),
+            System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(stop.AsSpan(20, 4)));
+        Assert.Equal(System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.AsSpan(22, 4)),
+            System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(stop.AsSpan(24, 4)));
+    }
+
     [Theory]
     // Reference values from an independent MurmurHash2 implementation (seed 0).
     [InlineData("Metadata/Characters/Int/Int", 0x9c41993eu)]

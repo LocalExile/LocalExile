@@ -6,7 +6,9 @@ Usage (started for you by `scripts/dev/live.ps1 -Walkmaps`):
 Needs: pip install frida  (Python 3.9+). Attaches to the running client, waits for it if it is not running yet,
 and writes data/walkability/<area>_seed<seed>.bin plus <area>_seed<seed>.json ({"w":..,"h":..}), and <area>_seed<seed>.projectile.bin (what stops projectiles), and the layout's area
 transitions and waypoints (grid position, rotation, height, model) to <area>_seed<seed>.transitions.json, and every placed
-doodad (model, grid cell, angle) to <area>_seed<seed>.doodads.json (for the rooms' monster points). The area and
+doodad (model, grid cell, angle) to <area>_seed<seed>.doodads.json (for the rooms' monster points).
+Rhoa Nests/Glyph Wall (research only) and tutorial tile objects are recorded in <area>_seed<seed>.objects.json.
+Placed .arm rooms are recorded in <area>_seed<seed>.rooms.json; the Strand support-gem chest uses its named room point. The area and
 seed come from data/walkability/current.json, which GameServer.Gateway writes on every connection. Existing walk maps are
 kept.
 Nothing is sent anywhere; the files stay on your machine (data/ is git-ignored).
@@ -93,8 +95,12 @@ def on_message(message, data, out):
         save_projectile(out, payload["w"], payload["h"], data)
     elif kind == "object":
         save_object(out, payload)
+    elif kind == "quest-object":
+        save_quest_object(out, payload)
     elif kind == "doodads":
         save_doodads(out, payload.get("doodads") or [])
+    elif kind == "room":
+        save_room(out, payload)
 
 
 USED = set()  # current.json nonces that already got their grid
@@ -157,7 +163,53 @@ def save_object(out, obj):
         f"z {obj.get('z')} (raw {obj.get('rawZ')}, height offset {obj.get('heightOffset')})")
 
 
+QUEST_OBJECTS = {}  # Only the latest fresh (area, seed, nonce), separate from navigable transitions.
+QUEST_TYPES = {"Metadata/Chests/QuestChests/RhoaChest" + suffix for suffix in ("", "2", "3")} | {
+    "Metadata/QuestObjects/WaterCave/GlyphWall", "Metadata/Chests/TutorialSupportGemChest"}
+
+
+def save_quest_object(out, obj):
+    """Optional a1q4 tile placements; never add a chest/wall to the area's transition list."""
+    if obj.get("objectType") not in QUEST_TYPES:
+        return
+    area = current_area(out)
+    if area is None or area.get("nonce") is None or time.time() - float(area.get("written", 0)) > FRESH_SECONDS:
+        return
+    key = (area["id"], area["seed"], area["nonce"])
+    if key not in QUEST_OBJECTS:
+        QUEST_OBJECTS.clear()
+        QUEST_OBJECTS[key] = []
+    found = QUEST_OBJECTS[key]
+    found.append({k: obj.get(k) for k in ("objectType", "model", "x", "y", "rotation", "z", "rawZ", "heightOffset", "code")})
+    stem = os.path.join(out, f"{area['id']}_seed{area['seed']}")
+    with open(stem + ".objects.json.tmp", "w", encoding="utf-8") as f:
+        json.dump({"area": area["id"], "seed": area["seed"], "objects": found}, f, indent=1)
+    os.replace(stem + ".objects.json.tmp", stem + ".objects.json")
+    log(f"{os.path.basename(stem)}: quest object {obj['objectType'].rsplit('/', 1)[-1]} at ({obj.get('x')}, {obj.get('y')})")
+
+
 DOODADS = {}  # current.json nonce -> [model, x, y, angle] of every doodad placed in that area load
+ROOMS = {}
+
+
+def save_room(out, obj):
+    area = current_area(out)
+    if area is None or time.time()-float(area.get("written",0))>FRESH_SECONDS:
+        return
+    if not str(obj.get("path", "")).lower().endswith(".arm") or not 0<=obj.get("code",-1)<=7:
+        return
+    key=(area["id"],area["seed"],area.get("nonce"))
+    if key not in ROOMS:
+        ROOMS.clear()
+        ROOMS[key]=[]
+    found=ROOMS[key]
+    value={k:obj[k] for k in ("path","x","y","width","height","code")}
+    if value not in found:
+        found.append(value)
+    stem=os.path.join(out,f"{area['id']}_seed{area['seed']}")
+    with open(stem+".rooms.json.tmp","w",encoding="utf-8") as f:
+        json.dump({"area":area["id"],"seed":area["seed"],"rooms":found},f)
+    os.replace(stem+".rooms.json.tmp",stem+".rooms.json")
 
 
 def save_doodads(out, batch):

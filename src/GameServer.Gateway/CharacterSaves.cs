@@ -49,13 +49,21 @@ static class CharacterSaves
         Dictionary<ushort, ushort>? MasteryEffects = null, uint? Gold = null, ushort? RefundPoints = null,
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null,
-        AscendancyProgress? MainAscendancy = null)
+        OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
     }
 
     public static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
+
+    /// <summary>Deferred class gems and progress for new characters. Null preserves older pre-granted starter kits.</summary>
+    public sealed record OpeningTutorial(SavedItem SkillGem, SavedItem SupportGem,
+        bool Talked = false, bool ZombieKilled = false, bool ChestOpened = false, bool SkillClaimed = false, bool SupportClaimed = false,
+        string? Id = null);
+    public static void ChangeTutorial(string character, Func<OpeningTutorial, OpeningTutorial> change) =>
+        Update(character, s => s.Tutorial is { } tutorial ? s with { Tutorial = change(tutorial) } : s);
+    public static void SetTutorial(string character, OpeningTutorial tutorial) => Update(character, s => s with { Tutorial = tutorial });
 
     /// <summary>The character's save, or null when it has none, with the experience gained since it was last saved
     /// (<see cref="AddExperience"/>): every write that loads it saves that too. A save that can't be read throws

@@ -5,6 +5,17 @@
 /// </summary>
 static class GameDataFiles
 {
+    /// <summary>The extracted data's absolute directory, including when a host starts below the repository root.
+    /// Resolve before constructing a lazy catalog so later working-directory changes cannot change its source.</summary>
+    public static string ResolveFolder()
+    {
+        foreach (string start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+            for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
+                if (File.Exists(Path.Combine(directory.FullName, "data", "tables", "Stats.json")))
+                    return Path.Combine(directory.FullName, "data");
+        return Path.GetFullPath("data");
+    }
+
     public static readonly (string File, string Feature)[] All =
     [
         ("data/tables/WorldAreas.json", "the game tables (stats, areas, waypoints, items, monsters, NPCs)"),
@@ -14,7 +25,7 @@ static class GameDataFiles
         ("data/object-types.json", "monsters, NPCs, area transitions"),
         ("data/item-types.json", "items"),
         ("data/area-transitions.json", "area transitions of fixed layouts"),
-        ("data/room-points.json", "unique bosses, The Twilight Strand's force wall"),
+        ("data/room-points.json", "unique bosses, The Twilight Strand's encounters and support-gem chest"),
         ("data/hideouts.json", "hideouts"),
         ("data/animation-contacts.json", "class spell timing (the Witch's is used)"),
         ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),

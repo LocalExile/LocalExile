@@ -74,7 +74,7 @@ compact uint n, n × (compact uint stat key, compact int value)
 - The Stats component has no 0x2ba (component update) handler: its vtable slot +0xa0 is a no-op. So 0x1b3 is the way to
   change stats.
 
-## 4. Commands (Gateway, `Program.cs` `Commands`)
+## 4. Commands (Gateway, `Program.Commands.cs` `Commands`)
 
 | Command | Effect |
 |---|---|

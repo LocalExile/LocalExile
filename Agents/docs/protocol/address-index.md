@@ -308,6 +308,7 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x141e34400` / `0x141e4d180` | Fn | Positioned straight move to a cell / Bresenham segment setup (step time) |
 | `0x141e32710` / `0x141e4d390` | Fn | Positioned per-frame move tick (step checks, accumulator) / one Bresenham step |
 | `0x141e350e0` | Fn | Positioned stop: takes effect at the next tick (`+0x1e6` bit 7), keeps the accumulator |
+| `0x141e31200` / `0x141e35250` | Fn | 0x1b7 relocation / immediate glide cancellation: clears movement durations +0x240/+0x280; projectile impact endpoint (static 3.29.3b evidence) |
 | `0x141e4ee90` | Fn | pathfinder: the coarse waypoint a cell heads for (within √143 and in sight) |
 | `0x141e7c0b0` | Fn | Pathfinding speed: base `+0x548` × (1 + stat 0xf5 / 100) × (1 + stat 0xce6 / 100), capped by stat 0x44f |
 | `0x141e9ca20` | Fn | Actor setup: run-speed roll `+0x1a8` = 1 + v / 100, v by TinyMT32 in the actor data's [`+0xa0`, `+0xa4`] |

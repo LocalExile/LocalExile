@@ -32,25 +32,19 @@ public class SkillMessagesTests
     public void Projectile_blob_is_positioned_animated_and_tasks()
     {
         byte[] b = new ProjectileObject("Metadata/Projectiles/Fireball", 0x51e, 0x44d, Rotation: 0).Blob();
-        Assert.Equal("0000" + "1E050000" + "4D040000" + "00000000" + "0000" + "00" + "02" + "00" + "01" + "00" + "00",
+        Assert.Equal("02" + "00" + "1E050000" + "4D040000" + "00000000" + "0000" + "00" + "00" + "40" + "00",
             Convert.ToHexString(b));
     }
 
     [Fact]
-    public void Projectile_direction_block_sets_flag_0x04_before_visibility()
+    public void Projectile_fixed_height_writes_i32_minus_z_and_f32_z()
     {
-        byte[] b = new ProjectileObject("Metadata/Projectiles/Fireball", 1, 2, Direction: (1f, 0f, 0f, 0f)).Blob();
-        Assert.Equal("0000" + "01000000" + "02000000" + "00000000" + "0000" + "00" + "06" +
-            "0000803F" + "00000000" + "00000000" + "00000000" + "00" + "01" + "00" + "00", Convert.ToHexString(b));
-    }
-
-    [Fact]
-    public void Projectile_fixed_height_is_negative_z()
-    {
-        // Height 8 (up) is z = −8 × 7.8125 = −62.5: i32 −8, f32 −62.5.
+        // Height is z / 7.8125 (world z points down): Height 8 is f32 z = +62.5, i32 -z/7.8125 = -8.
+        // The live arrow's i32 -5 / f32 +39.0625 is the same form: z = +39.0625, five steps above the player at
+        // z = +78.125.
         byte[] b = new ProjectileObject("Metadata/Projectiles/Fireball", 1, 2, Height: 8).Blob();
-        Assert.Equal("0000" + "01000000" + "02000000" + "00000000" + "0000" + "04" + "02" +
-            "F8FFFFFF" + "00007AC2" + "00" + "01" + "00" + "00", Convert.ToHexString(b));
+        Assert.Equal("02" + "00" + "01000000" + "02000000" + "00000000" + "0000" + "04" + "00" +
+            "F8FFFFFF" + "00007A42" + "40" + "00", Convert.ToHexString(b));
     }
 
     [Fact]
@@ -58,7 +52,7 @@ public class SkillMessagesTests
     {
         string hex = Convert.ToHexString(InstanceEntities.AnimatedModel(0x3001, ProjectileObject.AnimatedComponentIndex, "ab"));
         Assert.StartsWith("02BA" + "00003001", hex);
-        Assert.EndsWith("02" + "01" + "02000000" + "61006200", hex);
+        Assert.EndsWith(ProjectileObject.AnimatedComponentIndex.ToString("x2") + "01" + "02000000" + "61006200", hex);
     }
 
     [Fact]

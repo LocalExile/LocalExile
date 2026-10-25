@@ -93,11 +93,15 @@ public sealed class PlayerWalk
     /// <summary>
     /// Walks toward a target only until it is within <paramref name="reach"/> cells (a melee attack or a click on an
     /// object: the client walks into range first, the pathfinder's max range). Returns where the walker is now, where it
-    /// stops and when; when it is already in reach it stays.
+    /// stops and when; when it is already in reach it stays. <paramref name="tolerance"/> is the target object's size
+    /// (ObjectSize − 1), subtracted from the distance before the range test, as the client's MoveTo sends it (a monster:
+    /// its ObjectSize − 1; −1 for none). Without it the stop lands up to that many cells closer to the target than the
+    /// client's.
     /// </summary>
-    public ((int X, int Y) Here, (int X, int Y) Stop, double At) Approach(int targetX, int targetY, double reach, double now)
+    public ((int X, int Y) Here, (int X, int Y) Stop, double At) Approach(int targetX, int targetY, double reach, double now,
+        int tolerance = -1)
     {
-        var here = Walk((targetX, targetY), (int)reach, -1, now);
+        var here = Walk((targetX, targetY), (int)reach, tolerance, now);
         return (here, Destination, ArrivesAt);
     }
 

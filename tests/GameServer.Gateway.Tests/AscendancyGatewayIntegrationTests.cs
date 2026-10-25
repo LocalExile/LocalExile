@@ -24,7 +24,8 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
 
     public AscendancyGatewayIntegrationTests()
     {
-        // Program's catalogs intentionally use repository-relative paths. xUnit starts in the test binary folder.
+        // Legacy area/data helpers still use repository-relative paths; Program catalogs pin absolute paths separately.
+        // xUnit starts in the test binary folder.
         // This collection runs outside every parallel collection, so moving CWD cannot affect another running test.
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
             if (File.Exists(Path.Combine(directory.FullName, "data", AscendancyCatalog.GraphFile)))
@@ -434,6 +435,8 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.Equal((20, 20), game.GemEffects().Where(g => g.Name == "Righteous Fire").Select(g => (g.Level, g.Quality)).Single());
         Assert.Equal(4200, running.DamagePctPerMinute);
         Assert.Equal(5400, running.BurnPctPerMinute);
+        Assert.Equal(4200, running.EnergyShieldDamagePctPerMinute);
+        Assert.Equal(4200, running.EnergyShieldBurnPctPerMinute);
         Assert.Equal((ushort)7, running.Buff);
         Assert.Equal((ushort)8, running.SelfAura);
         Assert.Equal((ushort)9, running.Auras[0x4000]);
@@ -701,11 +704,13 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             TestSaves.Ensure();
             _classRow = classRow;
             _god = god;
+            Assert.NotNull(Program.Stats.Key("active_skill_base_area_of_effect_radius"));
             var definition = Program.Ascendancies.Find(baseClass, AscendancyFamily.Phrecia, choice)!;
             Assert.NotNull(definition);
             CharacterSaves.Write(Character, new([], Experience: CharacterStats.ExperienceFor(level), RefundPoints: refundPoints,
                 MainAscendancy: new(definition.Identity, nodes ?? [], awards ?? AscendancyRules.AwardKeys)));
             State = Reload();
+            Assert.Equal(level, State.Pools.Level);
         }
 
         public ClientState Reload()
@@ -744,7 +749,8 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             Exchange(async (stream, cipher) =>
             {
                 await (Task)FlyProjectileMethod.Invoke(null, ["ascendancy-integration", stream, cipher, State,
-                    ("Metadata/Projectiles/Fireball", 100_000), (80, 100), (100, 100), damage, false, "none", radius])!;
+                    ("Metadata/Projectiles/Fireball", 100_000f), (80, 100), (100, 100), damage,
+                    State.ProjectileEpoch, false, "none", radius])!;
                 return null;
             });
 

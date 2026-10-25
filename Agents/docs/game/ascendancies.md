@@ -49,6 +49,9 @@ be refunded while ordinary allocations still spend those points.
   target client's tables. Attack/spell block support both lucky and unlucky rolls.
 - Additional pool rules cover zero Intelligence, mana from Dexterity/Strength, loss of Intelligence's mana bonus,
   life per level and Power of Purpose's mana-to-armour conversion.
+- Spell-use, spell-damage, warcry and aura restrictions use the actual skill types. Gruthkul refuses spells before
+  paying their costs; Rampager still permits utility spell casts while suppressing spell damage. Disabled auras
+  suspend their runtime effect/reservation while retaining enabled intent, and restore after refunding the restriction.
 
 ## What this does not complete
 
@@ -77,7 +80,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
 | Whisperer | Mana per Dexterity; removal of Intelligence's mana bonus | Mana-derived damage, Rage, recoup and mana damage absorption |
 | Daughter of Oshabi | Supported generic small-node modifiers | Empty-socket conditions, Wisps, Shrines, Vines and Spellslinger |
-| Harbinger | Supported generic small-node modifiers | Granted Harbingers, ally AI, time effects and energy shield |
+| Harbinger | Supported generic small-node modifiers | Granted Harbingers, ally AI, time effects and special energy-shield rules |
 | Herald | Shared choice-node allocation and supported generic modifiers | Actual Herald effects/minions and Herald-specific gem/reservation rules |
 | Bog Shaman | Life per level, area and resistance modifiers | Costs/self-hits, self-poison, Pacify and energy-shield substitution |
 | Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Support-gem execution and conditional ailment immunity |
@@ -147,6 +150,12 @@ dotnet test tests/GameServer.Data.Tests
 dotnet test tests/GameServer.Gateway.Tests
 ```
 
+Against the implementation integrated with upstream `793d153`, the required suites passed: Core 416, Data 34,
+Gateway 1,597; zero failures or skips. The Gateway suite includes 24 actual mutation/network integration scenarios.
+The full suite also checks catalog initialization from the test host's subdirectory; catalogs and the default
+experience table resolve absolute data paths rather than caching empty tables from an earlier working directory.
+The ClientOnly startup mock checks graph validation before gateway writes or client launch.
+
 For a running Gateway whose DLL is locked, use a separate `--artifacts-path Tools/ascendancy-checks`; it builds fresh
 dependencies without stopping the client. Live traces use
 `scripts/re/frida/run.py <pid> --log logs/ascendancies-native.jsonl scripts/re/frida/trace-ascendancies.js`.
@@ -172,3 +181,8 @@ With Predictive networking enabled, a right-click Fireball cast on Aristocrat sp
 and removed the actual projectile. The published skill had effective level 2, quality 20, base fire damage 10–16
 and radius 13. This is a live cast check; controlled hit-radius comparisons and active aura/Righteous Fire refresh
 are covered by the automated Gateway checks rather than claimed as manual client observations.
+
+The post-upstream integration run repeated both saved characters on the rebuilt server and client: Aristocrat
+loaded the Phrecia graph with its six nodes and eight ordinary-point grants, cast Fireball for five mana and emitted
+the new upstream projectile messages; Slayer then loaded `Default` with node 50845. The final native trace is
+`logs/phrecia-main/native-final.jsonl`. All server error logs were empty.

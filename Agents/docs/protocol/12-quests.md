@@ -246,3 +246,39 @@ door, hidden by the tile).
 - The QuestItems row layout (which row is which glyph; `TriggeredQuestFlag`).
 - Transitionable on inherited types (`WaterCaveAreaTransition`): how its state gets set.
 - How the server chooses which nests hold which glyph (RhoaChest / 2 / 3).
+
+## Opening encounter (2026-10-25)
+
+New characters retain the class weapon as a pending ground item and both class gems as `OpeningTutorial` rewards in
+their save. Flasks are available immediately. The old implementation equipped the weapon and granted both gems in the
+main inventory, and never spawned the exile, scene zombie, or chest. Existing characters have no `Tutorial` record and
+keep their equipment, gems, and quest progress unchanged.
+
+The fitted `washed_up3.arm` supplies WoundedExile and BiteZombieSpawner positions. Talking without an equipped weapon
+plays the weapon prompt; with a weapon it uses the actual NPCTalk script's 8.2/22.8-second scene timing. Transitionable
+states are 1 (waiting) and 2 (bitten); state 0 is invalid. The scene rig's bite clip is index 1, sent with 0x1b2 (speed 0
+while waiting, 1 when biting). Afterwards the scene is removed and MonsterVarieties **ZombieBite**, row 1159, spawns:
+`Metadata/Monsters/Zombies/ZombieBite` uses base object `Metadata/Monsters/Zombies/Drowned/BiteZombie`. These names are
+different; looking up the base object as a monster variety silently found nothing. Killing it drops Characters.dat's
+StartSkillGem; it is not pre-granted. A disconnect after the conversation resumes with the combat zombie.
+
+The support chest is a **named point**, not a tile object: `tutorial_01.arm` has
+`41 64 5.84685 "Metadata/Chests/TutorialSupportGemChest"`. Room-points manifest version 3 retains this point and its
+angle. The room has no ordinary room doodads, so it cannot use the usual doodad fit. The recorder captures actual
+.arm placements at `0x142040770` (placed room in argument 3: resource handle +0, tile origin +8/+0xc, code +0x1b;
+resource data +0x138/+0x139 = untouched room dimensions). `<area>_seed<seed>.rooms.json` stores these placements with
+area/seed identity. Seed 1's tutorial room is at (759,483), 138×207 cells, code 0: its chest is therefore **(800,547)**.
+Its model comes from Chests.dat AOFiles (`Metadata/Chests/Chests/TutorialChest.ao`). Without the relevant capture the
+server waits briefly and logs the missing placement. Use `live.ps1 -Walkmaps` and re-enter the area to record it.
+The hook's offsets were located using PR #136's DoodadStage/SpecialNodes notes and verified against native code and the
+captured washed-up room's existing NPC positions.
+
+Chest's reader `0x141e138b0` consumes three bytes; bit 0 of the first is opened. Its update slot is empty, so opening
+replaces the closed object with an opened one, then drops StartSupportGem. The player must reach interaction range;
+a failed path cannot open it remotely. Gem claims and their saved flags commit atomically and cannot be repeated
+after reconnect. Ground rollback preserves the item id used by the pending reward.
+
+Live verified on a separate level-one Witch: ground weapon pickup/equip, exile conversation and bite transition,
+Hungry Corpse spawn/death, Fireball drop/pickup, Large Chest at the captured location, Arcane Surge Support drop/pickup,
+and saved claim flags. Dev `/god` was enabled for combat/navigation verification. The full tutorial popup/acknowledgement
+workflow and force walls 1/2 are not implemented; `CompletedAllTutorials` remains the existing account-style projection.

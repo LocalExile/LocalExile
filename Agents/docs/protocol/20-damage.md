@@ -135,3 +135,34 @@ also check pause, flasks and RF. The new visual behavior awaits that real-client
 
 The next support-gem work (#64) can add its effects as packet operations: `Add` for added damage, `Scale` for
 increased/more, and `AddGain`/`Convert` for conversion, without touching the life-update code.
+
+## Player energy shield (2026-10-25)
+
+`EnergyShield.cs` owns the ordinary ES pool, fractional recovery, damage interruption, and recharge phase. Equipment
+reads ArmourTypes ES bounds (the same minimum-base percentile currently serialized on items), local flat/increased ES,
+quality, intelligence, passive ES and global defence increases. Offhand shields count. Non-chaos damage after mitigation
+spends ES before life; chaos bypasses it. A positive damaging hit interrupts recharge; a zero/blocked hit does not.
+Death empties ES; existing heal/resurrection/entry refills include it. Righteous Fire uses its life and ES burn inputs
+and absorbs its non-chaos self-damage through ES before life. Special keystones and conditional mastery effects are
+not included (CI, Eldritch Battery, Zealot's Oath, Wicked Ward, leech and related substitutions).
+
+Character.ot supplies 2000% of maximum per minute: base recharge is one third per second, after a two-second delay.
+Faster start divides the delay by `1 + energy_shield_delay_-%/100`; recharge/regen recovery increases scale their rates.
+Elapsed game time integrates only the part of a tick after the delay boundary, retaining fractions. Base constants
+also match [Path of Building's data](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/dev/src/Modules/Data.lua)
+and [defence calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/dev/src/Modules/CalcDefence.lua).
+
+Pool 2 of 0x1b1 synchronizes current ES. Updating the virtual `energy_shield_recharge_active` stat through 0x1b3 did
+**not** start the client's recharge predictor in the live probe: it predicted only baseline regeneration and jumped
+on the next pool correction. During the server recharge phase, publish regeneration plus recharge through the verified
+native `energy_shield_recovery_per_minute` input (key 0x590), retaining the separate recharge-rate panel stat. The virtual
+recharge-active stat stays zero to avoid double prediction. This is a compatibility bridge; the native server event
+that starts the client's distinct recharge phase has not been identified.
+
+Live OfflineWitch had 185 ES: `/hit physical 100` left life at 3250 and ES at 85, then recovered to 185. Chaos reduced
+life while leaving ES intact. With the prediction bridge, client values advance between pool packets during recharge.
+Measurements used the local client Life component, not orb pixels or an official server trace. ES uses upstream RunResourceRecovery with its 16 ms target and elapsed time/fractional carries; foreground verification saw at most 2-point positive ES updates
+instead of the previous 22-point steps. OfflineWitch's selected Energy Shield mastery grants 2% ES regeneration per
+second (3.7 at 185 ES); that regeneration correctly continues while recharge is interrupted. A temporary zero-regen
+control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and
+measurement limits. Recovery-cadence PR #159 is merged; this change extends its existing recovery loop.

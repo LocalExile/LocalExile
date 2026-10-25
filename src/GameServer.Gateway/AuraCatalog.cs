@@ -177,6 +177,10 @@ static class AuraCatalog
                     break;
                 case "Zealotry":
                     Add("spell_damage_aura_spell_damage_+%_final");
+                    Add("spell_critical_strike_chance_+%");
+                    break;
+                case "Precision":
+                    Add("critical_strike_chance_+%", "skill_buff_grants_critical_strike_chance_+%");
                     break;
                 case "Malevolence":
                     Add("delirium_aura_damage_over_time_+%_final");

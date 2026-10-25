@@ -62,6 +62,17 @@ sealed class InstanceState
     {
         lock (_startWeapons) return _startWeapons.TryGetValue(character, out var placed) && placed.Id == id;
     }
+
+    public uint? PlaceTutorialItem(string key, WorldItemObject item)
+    {
+        lock (_startWeapons)
+        {
+            if (_startWeapons.TryGetValue(key, out var placed) && Ground.Get(placed.Id) is not null) return null;
+            uint id = Ground.Add(item);
+            _startWeapons[key] = (id, item.Item);
+            return id;
+        }
+    }
 }
 
 /// <summary>An instance's items on the ground. Their object ids come from their own range, so they stay the same for every
@@ -71,6 +82,11 @@ sealed class InstanceGround
     public const uint FirstItemId = 0x100000;
     readonly Dictionary<uint, WorldItemObject> _items = [];
     uint _nextId = FirstItemId;
+
+    public void Restore(uint id, WorldItemObject item)
+    {
+        lock (_items) _items[id] = item;
+    }
 
     public uint Add(WorldItemObject item)
     {

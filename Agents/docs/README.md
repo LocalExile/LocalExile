@@ -59,3 +59,7 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 - `re/007`–`010`: the notes these documents were consolidated from (login TCP, handshake, message tables, live instance
   notes). `re/009` still has the most complete login message tables.
 - `re/003`–`004`: early notes with known errors (for example "login is HTTPS"). Verify before use.
+
+[Recovery timing](re/recovery-timing.md): read-only client pool tracing, native prediction inputs and ES verification limits.
+
+[Native client control](dev/client-control.md): CLI and persistent JSON RPC for local launch, login, character selection, commands and state reads through the 3.29.3b client.

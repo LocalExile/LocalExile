@@ -314,14 +314,22 @@ public sealed class AscendancySaveTests
     public void Compare_and_swap_merges_unrelated_changes_and_accepts_legacy_null_defaults()
     {
         string character = Character();
-        CharacterSaves.Write(character, new([], Experience: 17));
+        var tutorial = new CharacterSaves.OpeningTutorial(new(0x1234), new(0x5678));
+        CharacterSaves.Write(character, new([], Experience: 17, Tutorial: tutorial));
         var expected = new CharacterSaves.PassiveProgressSnapshot(new(), [], new Dictionary<ushort, ushort>(), 0);
         CharacterSaves.AddWaypoints(character, ["1_1_town"]);
+        CharacterSaves.ChangeTutorial(character, state => state with { Talked = true });
         CharacterSaves.SetMainAscendancy(character, new(Awards: ["normal"]), expected: expected);
         var save = CharacterSaves.Load(character)!;
         Assert.Equal(17u, save.Experience);
         Assert.Equal(new[] { "1_1_town" }, save.Waypoints);
+        Assert.Equal(tutorial with { Talked = true }, save.Tutorial);
         Assert.Equal(2, save.MainAscendancy!.EarnedPoints);
+        CharacterSaves.SetTutorial(character, tutorial with { Talked = true, SkillClaimed = true });
+        CharacterSaves.ChangeMainAscendancy(character, progress => progress with { Awards = ["normal", "cruel"] });
+        save = CharacterSaves.Load(character)!;
+        Assert.Equal(tutorial with { Talked = true, SkillClaimed = true }, save.Tutorial);
+        Assert.Equal(4, save.MainAscendancy!.EarnedPoints);
     }
 
     [Theory]

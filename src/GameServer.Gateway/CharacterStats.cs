@@ -39,7 +39,8 @@ static class CharacterStats
         int SpellCriticalStrikeChance = DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
         int AccuracyPct = 0,
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
-        int AuraEffectPct = 0, int AuraAreaPct = 0, bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false);
+        int AuraEffectPct = 0, int AuraAreaPct = 0, bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
+        uint EnergyShield = 0);
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,
     /// mana, armour and evasion, increased energy shield and melee physical damage, the base resistances, attack speed's
@@ -68,7 +69,7 @@ static class CharacterStats
         int StrengthPct = 0, int DexterityPct = 0, int IntelligencePct = 0,
         bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
         bool NoIntelligence = false, bool NoIntelligenceMana = false, int LifePerLevel = 0, int ManaPerDexterity = 0,
-        int ManaPerFourStrength = 0, int ManaConvertedToArmourPct = 0)
+        int ManaPerFourStrength = 0, int ManaConvertedToArmourPct = 0, int EnergyShield = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -159,7 +160,8 @@ static class CharacterStats
         attackSpeedPct = Math.Max(-99, attackSpeedPct);
         return new(level, life, mana, accuracy, ExperienceFor(level, folder),
             Armour: armour, ArmourPct: armourPct, Evasion: evasion, EvasionPct: evasionPct,
-            EnergyShieldPct: intel / 5 + b.EnergyShieldPct, MeleePhysicalDamagePct: str / 5 + b.MeleePhysicalDamagePct,
+            EnergyShieldPct: intel / 5 + b.EnergyShieldPct, EnergyShield: EnergyShield.Max(b.EnergyShield, intel / 5 + b.EnergyShieldPct),
+            MeleePhysicalDamagePct: str / 5 + b.MeleePhysicalDamagePct,
             Strength: str, Dexterity: dex, Intelligence: intel,
             FireResistance: BaseResistance + b.FireResistance, ColdResistance: BaseResistance + b.ColdResistance,
             LightningResistance: BaseResistance + b.LightningResistance, ChaosResistance: BaseResistance + b.ChaosResistance,
@@ -190,7 +192,7 @@ static class CharacterStats
             AttackBlockUnlucky: b.AttackBlockUnlucky, SpellBlockUnlucky: b.SpellBlockUnlucky);
     }
 
-    private static readonly Lazy<uint[]> Experience = new(() => LoadExperience("data"));
+    private static readonly Lazy<uint[]> Experience = new(() => LoadExperience(GameDataFiles.ResolveFolder()));
 
     /// <summary>Every level's starting experience (index = level − 1), ExperienceLevels.dat.</summary>
     public static IReadOnlyList<uint> LevelStarts => Experience.Value;

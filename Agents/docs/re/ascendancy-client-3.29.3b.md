@@ -181,6 +181,13 @@ six nodes `[24607,27473,30851,46836,48846,54114]` and eight ordinary-point grant
 The client displayed eight ordinary points, two free ascendancy points and zero refund points after the paid refund.
 This checks both saved families after restarting the client and all three servers, rather than only changing areas.
 
+After integrating upstream `793d153`, another full `live.ps1 -Walkmaps` run regenerated room-points v3, verified
+the same merged PSG hash and launched a single client, PID 30416. The final trace
+`logs/phrecia-main/native-final.jsonl` recorded Aristocrat's six nodes/eight ordinary grants in the Phrecia graph,
+then Slayer's node 50845 in `Default`, both in Standard. Aristocrat's actual Fireball cast spent five mana and
+created/moved/removed projectile 3035 through the new upstream projectile layout. Server error logs were empty.
+The integrated required suites passed 416 Core, 34 Data and 1,597 Gateway tests, with no failures/skips.
+
 ## Repeating the live observation
 
 Start the single client through `scripts/dev/live.ps1`. Attach the read-only trace:

@@ -24,6 +24,12 @@ sealed class NpcCatalog
         /// <summary>A SelectHideout row's script opens the guild's list: <c>SendOpenScreen( HideoutSelectionWindow, 1 )</c>
         /// (the character's list has no argument or 0).</summary>
         public bool OpensGuildHideouts => System.Text.RegularExpressions.Regex.IsMatch(Script, @"HideoutSelectionWindow\s*,\s*1\s*\)");
+        public IReadOnlyList<string> RequiredFlags { get; init; } = [];
+        public IReadOnlyList<string> ExcludedFlags { get; init; } = [];
+        public string? StartFlag { get; init; }
+        public string? FinishFlag { get; init; }
+        public int? RewardOffer { get; init; }
+        public bool Available(IReadOnlySet<string> flags) => RequiredFlags.All(flags.Contains) && !ExcludedFlags.Any(flags.Contains);
     }
 
     /// <summary>An NPC standing in a town: its NPCs.dat Id, cell and facing (radians).</summary>
@@ -69,6 +75,9 @@ sealed class NpcCatalog
 
     /// <summary>The NPCTalk row an NPC's option index (C→S 0x82) stands for.</summary>
     public Talk? TalkOf(Npc npc, int index) => _talk.GetValueOrDefault((TalkSource(npc).Row, index));
+
+    public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags) =>
+        _talk.Values.Any(t => t.Npc == TalkSource(npc).Row && t.RewardOffer == offer && t.Available(flags));
 
     /// <summary>The NPC whose NPCTalk rows (and shop) this one uses: itself, or for a copy without rows of its own (the
     /// hideout Kirac, NPCs.dat row 412) the first row of the same name that has them (Kirac, 410).</summary>
@@ -151,15 +160,29 @@ sealed class NpcCatalog
         List<string> names;
         using (var doc = JsonDocument.Parse(File.ReadAllBytes(categories)))
             names = [.. doc.RootElement.EnumerateArray().Select(c => c.GetProperty("Id").GetString() ?? "")];
+        string flagsFile = Path.Combine(folder, "tables", "QuestFlags.json");
+        List<string> flags = [];
+        if (File.Exists(flagsFile))
+            using (var doc = JsonDocument.Parse(File.ReadAllBytes(flagsFile)))
+                flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
+        string? Flag(int row) => row >= 0 && row < flags.Count && flags[row] != "NEVER_SET" ? flags[row] : null;
         var talk = new List<Talk>();
         using (var doc = JsonDocument.Parse(File.ReadAllBytes(table)))
             foreach (var r in doc.RootElement.EnumerateArray())
             {
                 int Int(string name) => r.GetProperty(name).ValueKind == JsonValueKind.Number ? r.GetProperty(name).GetInt32() : -1;
                 int category = Int("Category");
+                int OptionalInt(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
+                string[] FlagList(string name) => r.TryGetProperty(name, out var v)
+                    ? [.. v.EnumerateArray().Select(e => e.GetInt32()).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])] : [];
                 talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.GetProperty("DialogueOption").GetString() ?? "",
                     category >= 0 && category < names.Count ? names[category] : "", r.GetProperty("Script").GetString() ?? "",
-                    [.. r.GetProperty("NPCTextAudioKeys").EnumerateArray().Select(e => e.GetInt32())]));
+                    [.. r.GetProperty("NPCTextAudioKeys").EnumerateArray().Select(e => e.GetInt32())])
+                {
+                    RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"),
+                    StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
+                    RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null
+                });
             }
         return talk;
     }

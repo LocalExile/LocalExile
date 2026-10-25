@@ -2,7 +2,7 @@
 
 Code: `src/GameServer.Core/Protocol/Instance/InstanceItems.cs` (`Item`, `VisibleItem`, `WorldItemObject`,
 `InstanceItems`), `InstanceInventories.AddInventory` (`InstanceEntities.cs`); in the Gateway `ItemCatalog.cs`,
-`PlayerInventories.cs` and the item handlers in `Program.cs`. Tests: `InstanceItemsTests`. Live trace:
+`PlayerInventories.cs` and the item handlers in `Program.Items.cs`. Tests: `InstanceItemsTests`. Live trace:
 `scripts/re/frida/common.js` + `scripts/re/frida/trace-items.js`. Verified with the real client on 2026-10-18.
 
 ## 1. Item types
@@ -296,6 +296,14 @@ requests. `FinalPlayerStats` supplies 9 for an active, usable bow in row 2 (a va
 weapons send nothing, and taking the bow off sends 0 through the cleared-stat list (`PlayerStatsWithCleared`).
 Weapon swaps physically exchange rows 2/3 with 14/15. Other weapon-stat enum values remain to be mapped.
 Automated coverage passes; in-client confirmation pending.
+
+### Bow model records
+
+A bow is not held in the main hand. The live server (Frida 2026-10-25) sends the bow's art in model slot 1 (left
+hand; type `0x68`, stance `0xff`), an arrow in slot 0 (right hand; type 14 `Bows`, stance 5 `Bow`, art
+`DefaultArrow` `0xB2F6`), and the quiver on the back in slot 7 (type `0x68`, stance `0xff`, art `DefaultQuiver`
+`0x328B`). `BowSetup` reproduces these entries; `ItemCatalog.Visual` maps the ItemVisualIdentity ids to their
+HASH16. Without them the bow appeared in the wrong hand and the arrow/quiver were missing or misplaced.
 
 ## 4a. Stacks
 
