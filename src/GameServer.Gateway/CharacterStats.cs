@@ -39,7 +39,7 @@ static class CharacterStats
         int SpellCriticalStrikeChance = DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
         int AccuracyPct = 0,
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
-        int AuraEffectPct = 0, int AuraAreaPct = 0);
+        int AuraEffectPct = 0, int AuraAreaPct = 0, bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false);
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,
     /// mana, armour and evasion, increased energy shield and melee physical damage, the base resistances, attack speed's
@@ -64,7 +64,11 @@ static class CharacterStats
         int Accuracy = 0, int AccuracyPct = 0, int AccuracyPerLevel = 0,
         bool DexterityAccuracyTriple = false, bool AccuracyEqualsIntelligence = false,
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
-        int AuraEffectPct = 0, int AuraAreaPct = 0, int ArmourMorePct = 0, int EvasionMorePct = 0)
+        int AuraEffectPct = 0, int AuraAreaPct = 0, int ArmourMorePct = 0, int EvasionMorePct = 0,
+        int StrengthPct = 0, int DexterityPct = 0, int IntelligencePct = 0,
+        bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
+        bool NoIntelligence = false, bool NoIntelligenceMana = false, int LifePerLevel = 0, int ManaPerDexterity = 0,
+        int ManaPerFourStrength = 0, int ManaConvertedToArmourPct = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -101,9 +105,14 @@ static class CharacterStats
     {
         var b = bonus ?? Bonus.None;
         level = Math.Clamp(level, 1, Progression.MaxLevel);
-        int str = c.Strength + b.Strength, dex = c.Dexterity + b.Dexterity, intel = c.Intelligence + b.Intelligence;
-        uint life = (uint)Math.Max(1, (c.BaseMaxLife + 12 * level + str / 2 + b.Life) * (100 + b.LifePct) / 100);
-        uint mana = (uint)Math.Max(0, (c.BaseMaxMana + 6 * level + intel / 2 + b.Mana) * (100 + b.ManaPct) / 100);
+        var (str, dex, intel) = new PassiveAttributeModifiers.Increases(b.StrengthPct, b.DexterityPct, b.IntelligencePct)
+            .Apply((c.Strength + b.Strength, c.Dexterity + b.Dexterity, c.Intelligence + b.Intelligence));
+        if (b.NoIntelligence) intel = 0;
+        uint life = (uint)Math.Max(1, (c.BaseMaxLife + (12 + b.LifePerLevel) * level + str / 2 + b.Life) * (100 + b.LifePct) / 100);
+        int manaBase = Math.Max(0, c.BaseMaxMana + 6 * level + (b.NoIntelligenceMana ? 0 : intel / 2)
+            + dex * b.ManaPerDexterity + str / 4 * b.ManaPerFourStrength + b.Mana);
+        int manaConversion = Math.Clamp(b.ManaConvertedToArmourPct, 0, 100);
+        uint mana = (uint)Math.Max(0, manaBase * (100m + b.ManaPct) * (100 - manaConversion) / 10000m);
         // PoB CalcOffence: accuracy = floor(base * (1 + increased / 100)) with no more multiplier modelled. The
         // Accuracy Mastery can replace the 2 per level and 2 per dexterity, and add Accuracy equal to Intelligence.
         int accuracyPerLevel = 2 + b.AccuracyPerLevel;
@@ -115,6 +124,10 @@ static class CharacterStats
         // character's 15 base and gains 1% per 5 dexterity; armour has no base outside items and passives.
         int armourPct = b.ArmourPct;
         int armour = Math.Max(0, (int)(b.Armour * (100m + armourPct) * (100m + b.ArmourMorePct) / 10000m));
+        // Power of Purpose: converted mana inherits increases to mana and armour additively, not as two multipliers.
+        if (manaConversion > 0)
+            armour += Math.Max(0, (int)(2m * manaBase * manaConversion * (100m + b.ManaPct + armourPct)
+                * (100m + b.ArmourMorePct) / 1000000m));
         int evasionPct = dex / 5 + b.EvasionPct;
         int evasionBase = BaseEvasion + b.Evasion;
         int evasion = Math.Max(0, (int)(evasionBase * (100m + evasionPct) * (100m + b.EvasionMorePct) / 10000m));
@@ -173,7 +186,8 @@ static class CharacterStats
             AccuracyPct: b.AccuracyPct,
             ManaReservationEfficiencyPct: b.ManaReservationEfficiencyPct,
             LifeReservationEfficiencyPct: b.LifeReservationEfficiencyPct,
-            AuraEffectPct: b.AuraEffectPct, AuraAreaPct: b.AuraAreaPct);
+            AuraEffectPct: b.AuraEffectPct, AuraAreaPct: b.AuraAreaPct,
+            AttackBlockUnlucky: b.AttackBlockUnlucky, SpellBlockUnlucky: b.SpellBlockUnlucky);
     }
 
     private static readonly Lazy<uint[]> Experience = new(() => LoadExperience("data"));

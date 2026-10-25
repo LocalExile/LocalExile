@@ -41,7 +41,9 @@ public sealed class GameFileSystem : IDisposable
         }
         catch
         {
+            var stream = ggpk.UnsafeGetStream();
             ggpk.Dispose();
+            stream.Dispose(); // LibGGPK3's Dispose returns early for a read-only stream.
             throw;
         }
     }
@@ -123,5 +125,10 @@ public sealed class GameFileSystem : IDisposable
         return ReadGgpkFile(ggpk, path);
     }
 
-    public void Dispose() => _ggpk.Dispose();
+    public void Dispose()
+    {
+        var stream = _ggpk.UnsafeGetStream();
+        try { _ggpk.Dispose(); }
+        finally { stream.Dispose(); }
+    }
 }

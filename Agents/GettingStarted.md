@@ -39,6 +39,11 @@ Use the standalone layout.
 **Getting 3.29.3b:** this repository cannot provide the client. The official launcher always updates to the newest
 version, so you need a copy that is still at 3.29.3b. Never let a newer launcher touch your copy.
 
+On 2026-10-25 the official protocol-7 patch endpoint still advertised `https://patch.poecdn.com/3.29.3.3/`, and a full
+client was downloaded directly from that pinned CDN without launching the game. Its original EXE contains `3.29.3b`;
+all 55,972 files passed SHA-256 verification. See [the acquisition record](docs/game/phrecia-ascendancies.md#verified-3293b-client-data).
+Check the advertised version and original EXE before using that route; availability of an old CDN version is not guaranteed.
+
 ### Third-party tools (only to extend the server)
 
 Playing needs nothing beyond the table above (step 7 extracts the game data with Node and Python). To work out more of the protocol, as
@@ -194,6 +199,7 @@ A second run prints `game data up to date`.
 | `data\area-transitions.json` | the area transitions of fixed layouts |
 | `data\room-points.json` | unique bosses |
 | `data\hideouts.json` | hideouts |
+| `data\passive-skill-graphs.json`, `data\phrecia-passive-skillgraph.psg` | ordinary/Phrecia ascendancy membership, connections and a client graph preserving the ordinary tree |
 | `data\animation-contacts.json` | each class's spell timing (the Witch's is used) |
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version

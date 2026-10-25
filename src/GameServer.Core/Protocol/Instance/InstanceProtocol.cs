@@ -81,7 +81,8 @@ public static class InstanceProtocol
         InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
         InstanceItems.UnsocketGemId => 17, BindSkillId => 5, ExitToCharacterSelectId => 2,
         InstanceItems.LevelUpGemId => 14, InstanceItems.LockGemId => InstanceItems.LockGemLength,
-        InstanceEntities.AllocatePassiveId => 7, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
+        InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength,
+        InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
         InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength,
         SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
@@ -425,20 +426,36 @@ public static class InstanceProtocol
 /// S→C 0x1d (class 0x1435da180, write 0x1421415c0; dispatcher case 6): the instance's area. The client logs
 /// "Client-Safe Instance ID = {InstanceId}" and "Generating level {Level} area "{id}" with seed {Seed}", then queues area
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
-/// the area's own level. Encodes only the form with the optional parts off: flag bits 0x21.3/.6/.7 and 0x22.0/.1/.2 clear,
-/// all vectors empty. Defaults for the unnamed bytes are the constructor's (0x14219d940).
+/// the area's own level. LeagueStats uses flag 0x21.6 and the first compact pair list (+0x100), copied to the world's
+/// stats at +0x120 by 0x142183130. Other optional parts remain off. Defaults are the constructor's (0x14219d940).
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
-    byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c)
+    byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
+    IReadOnlyDictionary<uint, int>? LeagueStats = null)
 {
-    public byte[] Encode() => new LoginWriter()
-        .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
-        .U8(B1e).U8(B20).U8(B1f).U8(B24).Bytes([0, 0, 0]).U8(Level).U8(B1d).U8(B28)
-        .U16(0)  // vec16<u32> +0x68
-        .U16(0)  // vec16<u8>  +0x80
-        .U8(0)   // vec8<u8>   +0x50
-        .U16(0)  // vec16<u16> +0xe0
-        .ToArray();
+    public byte[] Encode()
+    {
+        bool hasStats = LeagueStats is { Count: > 0 };
+        var writer = new LoginWriter()
+            .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
+            .U8(B1e).U8(B20).U8(B1f).U8(B24).Bytes([(byte)(hasStats ? 0x40 : 0), 0, 0]).U8(Level).U8(B1d).U8(B28)
+            .U16(0)  // vec16<u32> +0x68
+            .U16(0)  // vec16<u8>  +0x80
+            .U8(0)   // vec8<u8>   +0x50
+            .U16(0); // vec16<u16> +0xe0
+        if (hasStats)
+        {
+            InstanceProtocol.CompactUInt(writer, (uint)LeagueStats!.Count);
+            foreach (var (key, value) in LeagueStats.OrderBy(p => p.Key))
+            {
+                InstanceProtocol.CompactUInt(writer, key);
+                InstanceProtocol.CompactInt(writer, value);
+            }
+            InstanceProtocol.CompactUInt(writer, 0); // second compact pair list (+0x120)
+            writer.U8(0); // third list (+0x138), u8 count, no entries
+        }
+        return writer.ToArray();
+    }
 }
 
 /// <summary>

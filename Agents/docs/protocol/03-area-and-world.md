@@ -110,8 +110,9 @@ Sets many instance flags from the 24 bits, copies the vectors, then calls **`0x1
 
 1. world vtable +0x1c8 → **world activation** (section 4)
 2. `0x1400f24b0(world)` = the first local entity; `0x14013f1e0` = its "Player" component → instance `+0xc810`
-3. class/ascendancy from the player's byte `+0x158`: `bVar2 & 0x1f` = Characters.dat row, `(bVar2>>5&1)<<2 | bVar2>>6`
-   = ascendancy, 7 = none
+3. class/ascendancy from the player's byte `+0x158`: `bVar2 & 0x1f` = Characters.dat **IntegerId**, `(bVar2>>5&1)<<2 | bVar2>>6`
+   = Ascendancy.ClassNo, **0 = none**. The comparison with 7 is against the entire class byte, not an ascendancy
+   sentinel; see [the native evidence](../re/ascendancy-client-3.29.3b.md).
 4. binds the player to the instance, sets **state 3**, notifies listeners (`+0x978`), which builds the in-game UI (the
    UI needs inventories and passive slots: [05](05-inventories-and-ui.md))
 

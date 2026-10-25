@@ -136,6 +136,12 @@ Delve slot bounds, empty resonator socket layouts and stackable migration are im
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
 
 ### Character progression: the rest of the Passive Skill Tree
+- **Complete ordinary/Phrecia ascendancy mechanics and acquisition:** the shared 21+19 choice/points/save lifecycle
+  and native per-character graph selector are implemented ([Status](Status.md), [usage/limitations](docs/game/ascendancies.md)).
+  Preserve the ordinary topology in the generated Phrecia client graph. Next: implement Labyrinth/Altar selection and
+  awards, support-gem execution, incoming ailments/stuns and the remaining signature subsystems in
+  [the all-19 dependency waves](docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes). Each class needs actual
+  gameplay evidence for its signature mechanics; a selectable tree or displayed stat is insufficient.
 - **Known:** experience, levels, S→C 0x33 and C→S 0x34 (allocate) work ([15](docs/protocol/15-progression.md)).
 - **Known:** gold respec at Bestel (C→S 0x36 / 0x37) and masteries (0x35) work.
 - **Known:** refunds with refund points (0x36 flag 0; 0x33's first u16) work; Orbs of Regret (right-click, 0x58) add them.

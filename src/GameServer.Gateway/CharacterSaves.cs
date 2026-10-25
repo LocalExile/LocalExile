@@ -48,7 +48,8 @@ static class CharacterSaves
         List<string>? QuestFlags = null, ushort? ExtraPassivePoints = null,
         Dictionary<ushort, ushort>? MasteryEffects = null, uint? Gold = null, ushort? RefundPoints = null,
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
-        Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null)
+        Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null,
+        AscendancyProgress? MainAscendancy = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -214,6 +215,75 @@ static class CharacterSaves
     /// the refund points when given, in one write.</summary>
     public static void SetPassives(string character, IEnumerable<ushort> nodes, IReadOnlyDictionary<ushort, ushort> effects, ushort? refundPoints = null) =>
         Update(character, s => s with { Passives = [.. nodes], MasteryEffects = new(effects), RefundPoints = refundPoints ?? s.RefundPoints });
+
+    /// <summary>
+    /// Main ascendancy identity, its own nodes/point awards and any associated ordinary-node/refund changes commit in
+    /// one transaction. Callers validate first and publish runtime state only after the outermost transaction commits.
+    /// Unrelated saved fields (including fields from newer builds) are retained.
+    /// </summary>
+    public static void SetMainAscendancy(string character, AscendancyProgress progress, IEnumerable<ushort>? passives = null,
+        IReadOnlyDictionary<ushort, ushort>? effects = null, ushort? refundPoints = null, PassiveProgressSnapshot? expected = null) => Update(character, s =>
+    {
+        if (expected is not null && !expected.Matches(s)) throw new PassiveProgressConflictException();
+        return s with
+        {
+            MainAscendancy = progress with { Nodes = progress.Allocated.ToArray(), Awards = progress.EarnedAwards.ToArray() },
+            Passives = passives is null ? s.Passives : [.. passives],
+            MasteryEffects = effects is null ? s.MasteryEffects : new(effects),
+            RefundPoints = refundPoints ?? s.RefundPoints,
+        };
+    });
+
+    /// <summary>
+    /// The passive state a connection based its mutation on. Captured copies are compared inside the write transaction,
+    /// so an old area cannot replace a newer area's choices, allocations or refund payment. Unrelated fields are merged.
+    /// </summary>
+    public sealed class PassiveProgressSnapshot
+    {
+        readonly string _ascendancy;
+        readonly ushort[] _passives;
+        readonly Dictionary<ushort, ushort> _masteries;
+        readonly ushort _refundPoints;
+
+        public PassiveProgressSnapshot(AscendancyProgress? ascendancy, IEnumerable<ushort>? passives,
+            IReadOnlyDictionary<ushort, ushort>? masteries, ushort refundPoints)
+        {
+            _ascendancy = AscendancyJson(ascendancy);
+            _passives = passives?.ToArray() ?? [];
+            _masteries = masteries is null ? [] : new(masteries);
+            _refundPoints = refundPoints;
+        }
+
+        public static PassiveProgressSnapshot From(Save? save) =>
+            new(save?.MainAscendancy, save?.Passives, save?.MasteryEffects, save?.RefundPoints ?? 0);
+
+        internal bool Matches(Save save) => _refundPoints == (save.RefundPoints ?? 0) &&
+            _passives.SequenceEqual(save.Passives ?? []) &&
+            _masteries.Count == (save.MasteryEffects?.Count ?? 0) &&
+            _masteries.All(kv => save.MasteryEffects is not null && save.MasteryEffects.TryGetValue(kv.Key, out ushort value) && value == kv.Value) &&
+            _ascendancy == AscendancyJson(save.MainAscendancy);
+
+        static string AscendancyJson(AscendancyProgress? progress)
+        {
+            progress ??= new();
+            return JsonSerializer.Serialize(progress with { Nodes = progress.Allocated.ToArray(), Awards = progress.EarnedAwards.ToArray() }, Opts);
+        }
+    }
+
+    /// <summary>
+    /// Changes a selection/point award from the latest durable state, not an old area's connection copy. In particular,
+    /// simultaneous completion/retry of two Labyrinth tiers cannot overwrite one another's awards. The returned state
+    /// may be published after the outermost transaction commits; a failed write returns nothing.
+    /// </summary>
+    public static AscendancyProgress ChangeMainAscendancy(string character, Func<AscendancyProgress, AscendancyProgress> change) =>
+        Saves.Atomically(() =>
+        {
+            var save = Load(character) ?? new Save([]);
+            var progress = change(save.MainAscendancy ?? new());
+            progress = progress with { Nodes = progress.Allocated.ToArray(), Awards = progress.EarnedAwards.ToArray() };
+            Write(character, save with { MainAscendancy = progress });
+            return progress;
+        });
 
     /// <summary>Records the extra passive skill points from /add_passive_points.</summary>
     public static void SetExtraPassivePoints(string character, ushort points) =>

@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Data\GameServer.Data.csproj" />
+    <ProjectReference Include="..\..\scripts\re\passive-graphs\passive-graphs.csproj" />
   </ItemGroup>
 
 </Project>

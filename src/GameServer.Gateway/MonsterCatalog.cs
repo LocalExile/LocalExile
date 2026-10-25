@@ -23,9 +23,14 @@ sealed class MonsterCatalog(string folder = "data")
 
     private readonly Lazy<(List<Variety> Rows, string? Error)> _rows = new(() => Load(folder));
     private readonly Lazy<LifeTables?> _life = new(() => LifeTables.Load(folder));
+    private readonly MonsterResistanceCatalog _resistance = new(folder);
     private readonly Lazy<Dictionary<string, HitAnimation[]>> _takeHit = new(() => LoadTakeHit(folder));
 
     public string? Error => _rows.Value.Error;
+
+    /// <summary>The variety's elemental/chaos base resistance at this level, before spawned monster modifiers.</summary>
+    public int? BaseResistance(Variety variety, int level, GameServer.Core.World.DamageType type) =>
+        _resistance.BaseResistance(variety.MonsterType, level, type);
 
     /// <summary>
     /// The variety's TakeHit clips: their indexes in its rig's animation list and their lengths

@@ -1,5 +1,20 @@
 # Status
 
+Main ascendancy lifecycle (2026-10-25): `/ascendancy` offers 21 ordinary and 19 Phrecia specialisations while retaining
+the ordinary league/stash. Selection, separate point awards/budgets, connected class-owned allocations, exclusive
+choices, paid refunds and safe reload are implemented. Saves commit before publication and reject stale passive
+snapshots. Graph data comes from both exact 3.29.3b PSG files through the extraction manifest. Native Ghidra/Frida
+evidence confirms the class codec and per-character world stat 21146: Standard loaded the Phrecia graph, accepted
+node 54114 and retained its one ordinary-point grant and one ascendancy-point cost after a Gateway restart.
+Further live checks confirmed normal Slayer and Phrecia Aristocrat on two Duelists in the same Standard league,
+native mouse allocation for both trees, Aristocrat's five-point paid refund and a real effective-level/quality Fireball cast.
+Initial real numerical support includes Aristocrat's active-gem level/quality, requirements/attributes, Gambler's
+hit rolls/resistance/block rules and several other classes' pool rules. Integration tests execute the real Gateway
+save/network path, including failure, stale connections and actual refund currency. **Most signature subsystems,
+support-gem execution and native Labyrinth/Altar acquisition remain incomplete; these are not 19 complete classes.**
+See [usage and limitations](docs/game/ascendancies.md), [native evidence](docs/re/ascendancy-client-3.29.3b.md), and
+[the all-19 dependency map](docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes).
+
 Delve stash correction: publishes the native 41 × 4 inventory bounds; all fossil/resonator slots retain the 5000 limit. Empty legacy resonators migrate to stackable types with 1–4 independent yellow/orange Delve sockets. Automated layout/merge/reload coverage; confirmed working by the user in the real client. See protocol/18-stash.md.
 
 NPC sale visibility: offered items are hidden from the main inventory and shown only in Your Offer. Their original cells/items remain reserved in the durable save; take-back/cancel restores the view, disconnect/crash preserves items, and acceptance exchanges items/payment in one save. Player-to-player trade remains unimplemented. Live visibility verification pending; see protocol/17-npcs.md.

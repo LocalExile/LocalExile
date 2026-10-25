@@ -176,10 +176,6 @@ static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
             await stream.WriteAsync(InstanceProtocol.StartEncryption());
             Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
-            // Text is the character's league: the map overlay shows it under the area name ("{0} League", 0x1406b2030).
-            var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: 0, Text: resolved.League ?? "");
-            await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}");
-
             // Anything after the opening was already encrypted by the client.
             var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
             left = conn;
@@ -199,6 +195,11 @@ static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
             if (startItems.CancelOffers().Count is > 0 and var cancelled)
                 Console.WriteLine($"[gateway] {remote} {cancelled} item(s) offered in an unfinished sale are back in their cells");
             int level = LoadProgress(conn, resolved.Level);
+            // The client's graph/art switch is a received league stat; it is a per-character presentation choice.
+            // The account, stash and actual league remain the ordinary league for both families.
+            var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: 0, Text: resolved.League ?? "",
+                LeagueStats: conn.MainAscendancy.Selection?.Family == AscendancyFamily.Phrecia ? new Dictionary<uint, int> { [21146] = 1 } : null);
+            await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}");
             if (level != resolved.Level)
             {
                 // The saved experience is the character's level: Auth's (the ticket's) was not updated at the last level-up.
@@ -334,7 +335,7 @@ static async Task OnClientMessages(string remote, NetworkStream stream, Connecti
             // A gem skill cast at the ground (Fireball) stops the player where it stands; anything else (Move) walks there.
             if (InTown(conn) && Skills.ActionName(use.SkillId) != "Move") continue;
             bool cast = Skills.IsGemSkill(use.SkillId);
-            var gem = cast ? GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == use.SkillId) : default;
+            var gem = cast ? GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId) : default;
             // A disabled gem's skill is not confirmed: the client animates the cast and sends the use anyway (it only reds
             // the gem), so without the 0x1ab the action does not run. No projectile, mana or cooldown either.
             if (cast && gem.Name is not null && GemDisabled(conn, gem.Effect) is { } disabled)
@@ -445,9 +446,19 @@ static async Task OnClientMessages(string remote, NetworkStream stream, Connecti
         {
             var (u2, node, u6) = InstanceEntities.ReadAllocatePassive(bytes);
             Console.WriteLine($"[gateway] {remote} <= 0x0034 allocate passive {node} ({Passives.Find(node)?.Name ?? "unknown"}), " +
-                $"mastery effect {u2}, u8 {u6}");
-            await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree",
-                u2 == 0 ? null : u2);
+                $"node high16 {u2}, expansion {u6}");
+            if (u2 == 0 && u6 == 0)
+                await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree");
+            else
+            {
+                Console.WriteLine($"[gateway] {remote} allocation refused: expanded/32-bit passive ids are not supported");
+                await SendPassives(remote, stream, ciphers, conn);
+            }
+        }
+        else if (id == InstanceEntities.MasteryEffectId)
+        {
+            var (node, effect) = InstanceEntities.ReadMasteryEffect(bytes);
+            await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree mastery", effect);
         }
         else if (id == InstanceEntities.RefundPassiveId)
         {
@@ -597,7 +608,7 @@ static async Task OnClientMessages(string remote, NetworkStream stream, Connecti
             var (cx, cy) = InstanceProtocol.ReadChannelUpdate(bytes);
             double t = conn.ClockAt(readAt);
             conn.Walk.Teleport(cx, cy, t);
-            var channelled = GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == conn.ChannelSkill);
+            var channelled = GemSkillEffects(conn).FirstOrDefault(g => g.Id == conn.ChannelSkill);
             if (conn.ChannelSkill != 0 && channelled.Name is not null && t >= conn.NextChannelHitAt)
             {
                 double every;
@@ -772,13 +783,6 @@ static async Task OnClientMessages(string remote, NetworkStream stream, Connecti
             var (a, b, cells) = conn.DelveChartProbe;
             await Send(remote, stream, ciphers, InstanceDelve.Chart(a, b, cells),
                 $"0x0240 Delve chart: {a}, {b}, {cells.Count} cell(s) {string.Join(" ", cells)}");
-        }
-        // C→S 0x35: the mastery effect chosen in the passive tree (node, effect HASH16). It allocates the mastery node
-        // and records the effect; the client waits for the 0x33 tree and the updated stats.
-        if (uid == InstanceEntities.MasteryEffectId && unknown.Length >= 6)
-        {
-            var (node, effect) = InstanceEntities.ReadMasteryEffect(unknown);
-            await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree mastery", effect);
         }
         // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
         else if (uid == InstanceTransfer.LeaveAreaAckId && conn.PendingTransfer is { } t) await Transfer(remote, stream, ciphers, conn, t);
@@ -1662,6 +1666,10 @@ static async Task Attack(string remote, NetworkStream stream, ConnectionCiphers 
     var player = CharacterPlayerStats(conn);
     var hit = AttackHit(weapon, player)
         .Convert(ConversionFor(conn, attackEffect, 1, attack: true));
+    var rolls = GamblerFor(player);
+    hit = rolls.RollOutgoingHit(hit, Random.Shared);
+    bool critical = rolls.IsCritical(conn.Pools.AttackCriticalStrikeChance, Random.Shared);
+    if (critical) hit = hit.Critical(conn.Pools.CriticalStrikeMultiplier);
     // Impale: the stacks already on the target add their stored damage to this hit, this hit uses one of their five
     // hits, and the hit's own physical damage may store a new stack for the hits after it.
     double physical = hit[DamageType.Physical].Max;
@@ -1673,10 +1681,9 @@ static async Task Attack(string remote, NetworkStream stream, ConnectionCiphers 
     // Read before the hit is applied: a killing blow clears the target's impales.
     int impaleStacks = m.Impale.Stacks;
     double impaleStored = m.Impale.Bonus;
-    int damage = hit.RollTotal(Random.Shared);
-    bool critical = conn.Pools.AttackCriticalStrikeChance > 0
-        && Random.Shared.Next(10_000) < conn.Pools.AttackCriticalStrikeChance;
-    if (critical) damage = DamageModel.CriticalDamage(damage, conn.Pools.CriticalStrikeMultiplier);
+    // Reflected Impale damage is added after the player's damage multipliers; it is not tripled/crit a second time.
+    hit = rolls.MitigateOutgoingHit(hit, type => MonsterResistance(m, type), Random.Shared);
+    int damage = (int)Math.Round(hit.MinTotal);
     lock (conn.Monsters)
     {
         if (m.Life == 0) return;
@@ -1723,7 +1730,12 @@ static async Task Attack(string remote, NetworkStream stream, ConnectionCiphers 
 static async Task CastOn(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
     InstanceTransfer.UseSkillOnObject use, SpawnedMonster m)
 {
-    var gem = GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == use.SkillId);
+    var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
+    if (gem.Name is not null && GemDisabled(conn, gem.Effect) is { } disabled)
+    {
+        Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: {disabled} (action not started)");
+        return;
+    }
     // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
     // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
     if (gem.Name is not null && Skills.IsAttack(gem.Effect) && !Skills.IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
@@ -1778,7 +1790,7 @@ static async Task<bool> CastGemSkill(string remote, NetworkStream stream, Connec
     ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0)
 {
     if (InTown(conn) || conn.PlayerLife == 0) return false;
-    var gem = GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == skillId);
+    var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
     // A gem whose requirements the character's level does not meet is disabled: its skill stays on the skill bar but
     // cannot be used (the client shows the gem red but still sends the use; the server withholds the action, see
     // OnClientMessages). Attributes are not checked yet: their formula is not fitted (19-gems.md "Open").
@@ -1850,7 +1862,7 @@ static async Task<bool> CastGemSkill(string remote, NetworkStream stream, Connec
     if (gem.Name is not null && Skills.EffectId(gem.Effect) == "Portal")
     {
         if (!PortalAllowed(conn)) { Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} Portal: not here"); return false; }
-        int castMs = Skills.CastTimeMs(gem.Effect);
+        int castMs = CastMs(conn, gem.Effect, gem.Level, gem.Quality);
         int action = conn.ActionCount;
         _ = Task.Delay(castMs).ContinueWith(async _ =>
         {
@@ -1881,6 +1893,11 @@ static async Task UseInstantSkill(string remote, NetworkStream stream, Connectio
 static async Task ToggleAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
     ushort skillId, int effect, string name, (int Flat, int Percent) reservation, int level, int quality)
 {
+    if (SkillRestrictionReason(conn, effect) is { } restricted)
+    {
+        Console.WriteLine($"[gateway] {remote} aura {name}: {restricted}");
+        return;
+    }
     string? effectId = Skills.EffectId(effect);
     if (effectId is null || !AuraCatalog.Supported(effectId))
     {
@@ -1948,7 +1965,7 @@ static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
 static async Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
     ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0)
 {
-    var gem = GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == skillId);
+    var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
     if (gem.Name is null) { Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4}: no gem skill"); return; }
     if (Skills.ProjectileFor(gem.Effect) is not { } projectile)
     {
@@ -1959,25 +1976,33 @@ static async Task LaunchProjectile(string remote, NetworkStream stream, Connecti
     int action = conn.ActionCount;
     // Released at the cast animation's contact keyframe, which the client plays stretched to the cast time.
     double release = Animations.SpellRelease(Skills.ClassFor(conn.ClassRow).AnimatedObject);
-    await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, CastMs(conn, gem.Effect) * release)));
+    await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, CastMs(conn, gem.Effect, gem.Level, gem.Quality) * release)));
     if (conn.ActionCount != action || conn.Closed) { Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} cancelled before release"); return; }
     // A worn skill effect (its skill_art_variation) flies its own projectile and explodes in its own art (SkillArt).
     int variation = SkillArtVariation(conn, gem.Gem);
     projectile = (Art.Projectile(projectile.Id, variation), projectile.Speed);
     string impact = Art.AnimatedInPlaceOf(DefaultProjectileImpactAo, variation);
-    await FlyProjectile(remote, stream, ciphers, conn, projectile, from, to, impact: impact, damageTo: m =>
+    // Normal Fireball damages an area at impact. Its effective gem quality (including Centerpiece) changes the
+    // actual targets, not just the skill record's radius. Other projectile effects retain their current hit path.
+    int impactRadius = Skills.EffectId(gem.Effect) == "Fireball"
+        ? SkillRadius(conn, spell: true, gem.Effect, gem.Level, gem.Quality) : 0;
+    await FlyProjectile(remote, stream, ciphers, conn, projectile, from, to, impact: impact, impactRadius: impactRadius, damageTo: m =>
     {
         // The player's stats (passives, items, auras) under the skill's own, as GemSkills sends them. Keep the hit's
         // types separate so conversion and per-type mitigation apply.
-        var stats = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        foreach (var (k, v) in Skills.EffectStats(gem.Effect, gem.Level, gem.Quality)) stats[k] = v;
+        var stats = Skills.EffectStatsFor(gem.Effect, gem.Level, gem.Quality,
+            FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
+        if (!SkillRestrictions.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0)
+            .DealsDamage(Skills.IsSpell(gem.Effect))) return (0, false);
         var hit = SpellDamage.Packet(Skills.HitDamage(gem.Effect, gem.Level, gem.Quality),
                 name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0, AddedEffectiveness(gem.Effect, gem.Level))
-            .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: false));
-        int damage = hit.RollTotal(Random.Shared);
-        bool critical = conn.Pools.SpellCriticalStrikeChance > 0
-            && Random.Shared.Next(10_000) < conn.Pools.SpellCriticalStrikeChance;
-        if (critical) damage = DamageModel.CriticalDamage(damage, conn.Pools.SpellCriticalStrikeMultiplier);
+            .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: false, quality: gem.Quality));
+        var rolls = GamblerFor(stats);
+        hit = rolls.RollOutgoingHit(hit, Random.Shared);
+        bool critical = rolls.IsCritical(conn.Pools.SpellCriticalStrikeChance, Random.Shared);
+        if (critical) hit = hit.Critical(conn.Pools.SpellCriticalStrikeMultiplier);
+        hit = rolls.MitigateOutgoingHit(hit, type => MonsterResistance(m, type), Random.Shared);
+        int damage = (int)Math.Round(hit.MinTotal);
         return (damage, critical);
     });
 }
@@ -1985,12 +2010,12 @@ static async Task LaunchProjectile(string remote, NetworkStream stream, Connecti
 // The radius in cells of a gem skill's hit around its aimed point (AreaSkillHit): its own
 // active_skill_base_area_of_effect_radius, else Cyclone's 16 or the generic 12, grown by the player's area stats
 // (SkillArea). The radius stat is in cells (Righteous Fire's 18 is its 1.8 m, verified against the real game 2026-10-23).
-static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
+static int SkillRadius(ClientState conn, bool spell, int effect, int level, int quality)
 {
-    var areaStats = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-    foreach (var (k, v) in skillStats) areaStats[k] = v;
+    var areaStats = Skills.EffectStatsFor(effect, level, quality,
+        FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
     int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
-    return SkillArea.Radius(SkillArea.BaseRadius(Skills.EffectId(effect), Get), Get, spell);
+    return SkillArea.Radius(SkillArea.BaseRadius(Skills.EffectId(effect), Get), Get, spell, combined: true);
 }
 
 // Whether a living monster stands within a gem attack's hit radius of a ground point. The client sends a point with a
@@ -1998,8 +2023,7 @@ static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillSta
 static bool MonsterAtAim(ClientState conn, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
     int x, int y, double at)
 {
-    var stats = Skills.EffectStats(gem.Effect, gem.Level, gem.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-    int radius = SkillRadius(conn, stats, spell: false, gem.Effect);
+    int radius = SkillRadius(conn, spell: false, gem.Effect, gem.Level, gem.Quality);
     lock (conn.Monsters)
         return conn.Monsters.Any(m => !m.Value.Dead && m.Value.Life > 0
             && Dist(m.Value.Walk.Position(at), (x, y)) <= radius);
@@ -2026,9 +2050,9 @@ static async Task AreaSkillHit(string remote, NetworkStream stream, ConnectionCi
     var weapon = WeaponFor(conn);
     double delay;
     // An attack lands at its contact keyframe; the player swings where it stands, so without the walk-in offset.
-    lock (conn.Monsters) delay = spell ? CastMs(conn, gem.Effect) / 1000.0
+    lock (conn.Monsters) delay = spell ? CastMs(conn, gem.Effect, gem.Level, gem.Quality) / 1000.0
         : AttackContactDelay(conn, weapon.AttackSeconds(CharacterPlayerStats(conn)), approach: false);
-    int radius = SkillRadius(conn, skillStats, spell, gem.Effect);
+    int radius = SkillRadius(conn, spell, gem.Effect, gem.Level, gem.Quality);
     // A melee skill aimed far away still lands in front of the player.
     var centre = !spell && Dist(from, to) > radius + weapon.Range ? from : to;
     int action = conn.ActionCount;
@@ -2043,30 +2067,35 @@ static async Task AreaSkillHit(string remote, NetworkStream stream, ConnectionCi
     lock (conn.Monsters)
         targets = [.. conn.Monsters.Where(e => !e.Value.Dead && e.Value.Life > 0 && Dist(e.Value.Walk.Position(now), centre) <= radius)
             .Select(e => (e.Key, e.Value))];
-    var player = CharacterPlayerStats(conn);
-    var stats = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-    foreach (var (k, v) in skillStats) stats[k] = v;
+    var stats = Skills.EffectStatsFor(gem.Effect, gem.Level, gem.Quality,
+        FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
+    if (!SkillRestrictions.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0)
+        .DealsDamage(Skills.IsSpell(gem.Effect))) return;
     foreach (var (id, m) in targets)
     {
         DamagePacket hit = spell
             ? SpellDamage.Packet(spellBase, name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0, AddedEffectiveness(gem.Effect, gem.Level))
-                .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: false))
-            : SpellDamage.WithEffectiveness(AttackHit(weapon, player), effectiveness)
-                .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: true));
-        int damage = hit.RollTotal(Random.Shared);
+                .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: false, quality: gem.Quality))
+            : SpellDamage.WithEffectiveness(AttackHit(weapon, stats), effectiveness)
+                .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: true, quality: gem.Quality));
+        var rolls = GamblerFor(stats);
+        hit = rolls.RollOutgoingHit(hit, Random.Shared);
         int chance = spell ? conn.Pools.SpellCriticalStrikeChance : conn.Pools.AttackCriticalStrikeChance;
-        bool critical = chance > 0 && Random.Shared.Next(10_000) < chance;
-        if (critical) damage = DamageModel.CriticalDamage(damage, spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
+        bool critical = rolls.IsCritical(chance, Random.Shared);
+        if (critical) hit = hit.Critical(spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
+        hit = rolls.MitigateOutgoingHit(hit, type => MonsterResistance(m, type), Random.Shared);
+        int damage = (int)Math.Round(hit.MinTotal);
         await HitMonster(remote, stream, ciphers, conn, id, m, damage, $"{gem.Name}{(critical ? " (critical)" : "")}", melee: !spell, sequence: sequence);
     }
     Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
 }
 
 // A projectile's flight (LaunchProjectile): created just ahead of from, aimed at to, it flies on
-// to its range and stops at the first wall or monster on its path; a monster hit takes damage(monster).
+// to its range and stops at the first wall or monster on its path. With an impact radius it damages every hostile
+// monster in that explosion once, including the collision target; otherwise it retains the single-target hit.
 static async Task FlyProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
     (string Id, int Speed) projectile, (int X, int Y) from, (int X, int Y) to, Func<SpawnedMonster, (int Damage, bool Critical)> damageTo,
-    bool log = true, string? impact = null)
+    bool log = true, string? impact = null, int impactRadius = 0)
 {
     uint id = conn.NextObjectId++;
     double dx = to.X - from.X, dy = to.Y - from.Y, aim = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
@@ -2104,7 +2133,7 @@ static async Task FlyProjectile(string remote, NetworkStream stream, ConnectionC
             }
             foreach (var (mid, mon) in conn.Monsters)
             {
-                if (mon.Dead || mon.Life == 0) continue;
+                if (mon.Dead || mon.Life == 0 || (impactRadius > 0 && !mon.Hostile)) continue;
                 var (mx, my) = mon.Walk.Position(at);
                 if ((mx - px) * (mx - px) + (my - py) * (my - py) <= hitRadius * hitRadius) { hitId = mid; length = s; break; }
             }
@@ -2134,13 +2163,22 @@ static async Task FlyProjectile(string remote, NetworkStream stream, ConnectionC
         (hitId != 0 ? $", will hit monster 0x{hitId:x}" : hitWall ? ", will hit a wall" : ""));
     await Task.Delay(TimeSpan.FromSeconds(cells / cellsPerSecond));
     if (conn.Closed) return;
-    SpawnedMonster? m = null;
-    if (hitId != 0) lock (conn.Monsters) m = conn.Monsters.GetValueOrDefault(hitId);
-    if (m is not null && m.Life > 0)
+    IReadOnlyList<(uint Id, SpawnedMonster Monster)> targets;
+    lock (conn.Monsters)
     {
-        var (damage, critical) = damageTo(m);
-        await HitMonster(remote, stream, ciphers, conn, hitId, m, damage, $"{projectile.Id}{(critical ? " (critical)" : "")}", log);
+        if (impactRadius > 0 && (hitId != 0 || hitWall))
+            targets = ProjectileImpactTargets.Explosion(conn.Monsters, to, impactRadius, conn.Clock.Elapsed.TotalSeconds);
+        else
+            targets = hitId != 0 && conn.Monsters.GetValueOrDefault(hitId) is { Life: > 0 } direct
+                ? [(hitId, direct)] : [];
     }
+    foreach (var (monsterId, monster) in targets)
+    {
+        var (damage, critical) = damageTo(monster);
+        await HitMonster(remote, stream, ciphers, conn, monsterId, monster, damage, $"{projectile.Id}{(critical ? " (critical)" : "")}", log);
+    }
+    if (log && impactRadius > 0 && (hitId != 0 || hitWall))
+        Console.WriteLine($"[gateway] {remote} Fireball impact at ({to.X}, {to.Y}), radius {impactRadius}: {targets.Count} hostile target(s)");
     // The impact: on a monster or a wall the projectile's model becomes the explosion (Game_PROJECTILE_IMPACT_AO overrides
     // it; "none" turns it off), which plays its default animation; the object goes 1.5 s later. At the end of its range it
     // just goes.
@@ -2274,7 +2312,7 @@ static async Task ShowBossLifeBar(string remote, NetworkStream stream, Connectio
 static IReadOnlyList<GrantedSkill> PlayerSkills(ClientState conn)
 {
     var player = FinalPlayerStats(conn).ToList();
-    return [.. Skills.PlayerDefaults(player), .. GemSkills(conn.Character, player)];
+    return [.. Skills.PlayerDefaults(player), .. GemSkills(conn, player)];
 }
 
 // The player's stats as the server sets them: what /set_stat set, then the attack's final values computed from them
@@ -2319,9 +2357,10 @@ static IEnumerable<(uint, int)> FinalPlayerStats(ClientState conn)
 static List<(uint, int)> WeaponStats(ClientState conn, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
 {
     var conversion = DamageStats.Conversion(stats, Stats, attack: true);
-    var list = weapon.Stats(stats, AttackHit(weapon, stats).Convert(conversion)).ToList();
+    double damageFactor = GamblerFor(stats).DamageFactor;
+    var list = weapon.Stats(stats, AttackHit(weapon, stats).Convert(conversion).Scale(damageFactor)).ToList();
     if (OffhandWeaponFor(conn) is { } off)
-        list.AddRange(off.OffStats(stats, AttackHit(off, stats).Convert(conversion), WeaponProfileFor(conn).LocalAttackSpeedPct));
+        list.AddRange(off.OffStats(stats, AttackHit(off, stats).Convert(conversion).Scale(damageFactor), WeaponProfileFor(conn).LocalAttackSpeedPct));
     return list;
 }
 
@@ -2352,7 +2391,7 @@ static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
     // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
     // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
     if (Stats.Key("skill_uses_main_hand") is uint usesMainHand && !devSet.Contains(usesMainHand)) stats[usesMainHand] = 1;
-    var attack = AttackHit(WeaponFor(conn), stats);
+    var attack = AttackHit(WeaponFor(conn), stats).Scale(GamblerFor(stats).DamageFactor);
     foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
         if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
     // The conditions as they are now; the player tick sends the chance again when they change.
@@ -2366,13 +2405,21 @@ static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
 static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats) =>
     DamageStats.Added(weapon.HitDamage(stats), name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell: false);
 
+static GamblerModifiers GamblerFor(IReadOnlyDictionary<uint, int> stats) =>
+    GamblerModifiers.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+
+// Base MonsterTypes/MonsterResistances data, not a fixed zero for every enemy. Spawned resistance modifiers,
+// exposure and curses remain separate mechanics; physical armour is not a resistance and is not handled here.
+static DamageModel.ResistanceValue MonsterResistance(SpawnedMonster monster, DamageType type) =>
+    new(monster.Variety is { } variety ? Monsters.BaseResistance(variety, monster.Level, type) ?? 0 : 0);
+
 static double AddedEffectiveness(int effect, int level) => Skills.DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
 
-static GameServer.Core.World.DamageConversion ConversionFor(ClientState conn, int effectRow, int level, bool attack)
+static GameServer.Core.World.DamageConversion ConversionFor(ClientState conn, int effectRow, int level, bool attack, int quality = 0)
 {
     var stats = CharacterPlayerStats(conn);
     if (effectRow >= 0)
-        foreach (var (key, value) in Skills.EffectStats(effectRow, level)) stats.TryAdd(key, value);
+        stats = Skills.EffectStatsFor(effectRow, level, quality, stats, characterStatsWin: true);
     return DamageStats.Conversion(stats, Stats, attack);
 }
 
@@ -2393,10 +2440,15 @@ static IEnumerable<(uint, int)> BaseStats(ClientState conn)
         // the final value the client shows: 100% of maximum life per second, per minute
         if (Stats.Key("life_regeneration_rate_per_minute") is uint lr) extra[lr] = (int)Math.Min(int.MaxValue, (long)conn.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
     }
+    var auraRestrictions = SkillRestrictions.From(name => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0);
     List<AuraCatalog.Aura> auras;
-    lock (conn.Monsters) auras = [.. conn.Auras.Values];
+    lock (conn.Monsters) auras = [.. conn.Auras.Values.Where(a => AuraAllowed(auraRestrictions, a.Effect))];
     foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, Skills, Stats))
         extra[k] = extra.GetValueOrDefault(k) + v;
+    int Get(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
+    int attributeDamage = PassiveAttributeModifiers.DamageIncrease(Get, conn.Pools.Strength, conn.Pools.Dexterity, conn.Pools.Intelligence);
+    if (attributeDamage != 0 && Stats.Key("damage_+%") is uint damageKey)
+        extra[damageKey] = extra.GetValueOrDefault(damageKey) + attributeDamage;
     foreach (var (k, v) in extra) if (seen.Add(k)) yield return (k, v);
 }
 
@@ -2479,27 +2531,20 @@ static IEnumerable<(uint, int)> ClassAttributes(int classRow, CharacterStats.Poo
 // The skills of the gems socketed in the equipped items: each gem's GrantedEffects row at the gem's level with its own stats
 // (SkillCatalog.EffectStats: damage, cast time, mana cost) after the player's, with ids after the default attack's that
 // no basic action uses (SkillCatalog.SkillIds).
-static IEnumerable<GrantedSkill> GemSkills(string? character, IEnumerable<(uint, int)>? player = null)
+static IEnumerable<GrantedSkill> GemSkills(ClientState conn, IEnumerable<(uint, int)>? player = null)
 {
-    var playerStats = player?.ToList() ?? [];
-    var skillCosmetics = CharacterSaves.SkillCosmetics(string.IsNullOrEmpty(character) ? "Exile" : character);
-    foreach (var (id, effect, name, level, quality, gem) in GemSkillEffects(character))
+    var playerStats = new Dictionary<uint, int>();
+    foreach (var (key, value) in player ?? []) playerStats[key] = value;
+    var skillCosmetics = CharacterSaves.SkillCosmetics(CharacterName(conn));
+    foreach (var (id, effect, name, level, quality, gem) in GemSkillEffects(conn))
     {
-        var stats = new Dictionary<uint, int>();
-        foreach (var (k, v) in playerStats) stats[k] = v;
+        var stats = Skills.EffectStatsFor(effect, level, quality, playerStats);
         var own = Skills.EffectStats(effect, level, quality);
-        foreach (var (k, v) in own) stats[k] = v;
         // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
         foreach (var (key, worn) in skillCosmetics)
             if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Find(worn.Record) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                 foreach (var (k, v) in fx.Stats) stats[k] = v;
-        // Increased cast speed shortens the cast the client plays (the final values: 11-skills.md §4).
-        if (CastSpeedPct(stats) is int castSpeed and not 0 && Skills.CastMs(effect) is int castMs and > 0)
-        {
-            int ms = (int)Math.Round(castMs / (1 + castSpeed / 100.0));
-            if (Stats.Key("virtual_base_spell_cast_time_ms") is uint vk) stats[vk] = ms;
-            if (Stats.Key("hundred_times_casts_per_second") is uint hk) stats[hk] = (int)Math.Round(100_000.0 / Math.Max(1, ms));
-        }
+        // EffectStatsFor publishes the same quality-aware cast duration used by the server's release delay.
         // A spell's tooltip DPS is its own hit (SpellDamage) × casts per second, not the default attack's values that
         // came with the player's stats.
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -2507,9 +2552,9 @@ static IEnumerable<GrantedSkill> GemSkills(string? character, IEnumerable<(uint,
         if (SkillArea.IsCyclone(Skills.EffectId(effect)))
         {
             int baseRadius = SkillArea.BaseRadius(Skills.EffectId(effect), Get);
-            int increased = SkillArea.Increased(Get, spell: false);
-            int radiusPercent = SkillArea.RadiusPercent(Get, spell: false);
-            int radius = SkillArea.Radius(baseRadius, Get, spell: false);
+            int increased = SkillArea.Increased(Get, spell: false, combined: true);
+            int radiusPercent = SkillArea.RadiusPercent(Get, spell: false, combined: true);
+            int radius = SkillArea.Radius(baseRadius, Get, spell: false, combined: true);
             if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseKey) stats[baseKey] = baseRadius;
             if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey)
                 stats[radiusKey] = radius;
@@ -2521,7 +2566,8 @@ static IEnumerable<GrantedSkill> GemSkills(string? character, IEnumerable<(uint,
         }
         if (SpellDamage.Hit(Get, AddedEffectiveness(effect, level)) is { Max: > 0 } hit && Get("hundred_times_casts_per_second") is int cps and > 0)
         {
-            var (perUse, perSecond) = SpellDamage.Display(hit, cps / 100.0);
+            double damageFactor = SkillRestrictions.From(Get).DealsDamage(Skills.IsSpell(effect)) ? GamblerFor(stats).DamageFactor : 0;
+            var (perUse, perSecond) = SpellDamage.Display((hit.Min * damageFactor, hit.Max * damageFactor), cps / 100.0);
             stats[StatKeys.DisplayHundredTimesDamagePerSkillUse] = perUse;
             stats[StatKeys.HundredTimesDamagePerSecond] = perSecond;
         }
@@ -2548,7 +2594,7 @@ static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCi
     FillSkillBar(conn);
     if (CharacterSaves.Load(CharacterName(conn))?.SkillBar is not { Count: > 0 } bar) return;
     var ids = new ushort[InstanceProtocol.SkillBarSlots];
-    var byEffect = GemSkillEffects(conn.Character).Select(g => (g.Id, Effect: Skills.EffectId(g.Effect)))
+    var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: Skills.EffectId(g.Effect)))
         .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
         .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
     foreach (var (slot, entry) in bar)
@@ -2570,7 +2616,7 @@ static bool FillSkillBar(ClientState conn)
     string character = CharacterName(conn);
     var bar = CharacterSaves.Load(character)?.SkillBar ?? [];
     string attack = SkillEffectId(conn, SkillCatalog.FirstSkillId)!;
-    var gems = GemSkillEffects(conn.Character).Select(g => Skills.EffectId(g.Effect)).OfType<string>().ToList();
+    var gems = GemSkillEffects(conn).Select(g => Skills.EffectId(g.Effect)).OfType<string>().ToList();
     var added = SkillBarLayout.Fill(bar, attack, gems, entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
     foreach (var (slot, entry) in added) CharacterSaves.SetSkillBar(character, (byte)slot, entry);
     if (added.Count > 0)
@@ -2581,7 +2627,7 @@ static bool FillSkillBar(ClientState conn)
 // The GrantedEffects Id behind a skill id of the player (the default attack or a gem skill), or null.
 static string? SkillEffectId(ClientState conn, ushort skillId) =>
     skillId == SkillCatalog.FirstSkillId ? Environment.GetEnvironmentVariable("Game_PLAYER_ATTACK") ?? "PlayerMelee"
-    : GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == skillId) is { Name: not null } g ? Skills.EffectId(g.Effect) : null;
+    : GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId) is { Name: not null } g ? Skills.EffectId(g.Effect) : null;
 
 // Why the held item may not go into an equipment row: the character is below its level requirement
 // (ItemModStats.LevelRequirement). The client also checks it (0x1421eca50) against the level we send in the item data,
@@ -2610,6 +2656,11 @@ static string? GemRequirementsUnmet(ClientState conn, Item? gem)
     // (a corrupted level 21 gem keeps level 20's requirement; 0x14246fc40). The client checks them against
     // virtual_*_for_requirements, which are the attributes unless something overrides them (/set_stat).
     var (str, dex, intel) = GemAttributeRequirements(gem, type, effect);
+    var sources = CharacterStatSources(conn);
+    int Get(string stat) => Stats.Key(stat) is uint key ? sources.GetValueOrDefault(key) : 0;
+    str = PassiveAttributeModifiers.Requirement(str, Get);
+    dex = PassiveAttributeModifiers.Requirement(dex, Get);
+    intel = PassiveAttributeModifiers.Requirement(intel, Get);
     foreach (var (need, attr, has) in new[] { (str, "strength", RequirementAttribute(conn, "strength", conn.Pools.Strength)),
         (dex, "dexterity", RequirementAttribute(conn, "dexterity", conn.Pools.Dexterity)),
         (intel, "intelligence", RequirementAttribute(conn, "intelligence", conn.Pools.Intelligence)) })
@@ -2636,16 +2687,31 @@ static int RequirementAttribute(ClientState conn, string attribute, int value)
         return Stats.Key($"virtual_{attribute}_for_requirements") is uint key && conn.PlayerStats.TryGetValue(key, out int set) ? set : value;
 }
 
-// Why a gem skill may not be used: the character's level or an attribute is below the gem's requirement of its own level.
+// Why a gem skill may not be used: a skill-type restriction, or the character's level/attributes below its requirements.
 // The client reds the gem but still sends the use, so this is the backstop for a client whose item is not inactive yet.
 // Null when no gem granting the effect is below its requirement.
 static string? GemDisabled(ClientState conn, int effect)
 {
+    if (SkillRestrictionReason(conn, effect) is { } restriction) return restriction;
     foreach (var place in PlayerInventories.For(CharacterName(conn), Items).SocketedGemPlaces())
         if (Items.GemEffects(place.Gem).Contains(effect) && GemRequirementsUnmet(conn, place.Gem) is { } missing)
             return missing;
     return null;
 }
+
+static SkillRestrictions RestrictionsFor(ClientState conn)
+{
+    var sources = CharacterStatSources(conn);
+    lock (conn.Monsters)
+        foreach (var (key, value) in conn.PlayerStats) sources[key] = value;
+    return SkillRestrictions.From(name => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0);
+}
+
+static string? SkillRestrictionReason(ClientState conn, int effect) =>
+    RestrictionsFor(conn).CannotUse(Skills.IsSpell(effect), Skills.IsAura(effect), Skills.IsWarcry(effect));
+
+static bool AuraAllowed(SkillRestrictions restrictions, int effect) =>
+    restrictions.CannotUse(Skills.IsSpell(effect), Skills.IsAura(effect), Skills.IsWarcry(effect)) is null;
 
 // A worn item whose requirements are not met (CharacterStatSources): its mods and gems do nothing.
 static bool IsInactive(ClientState conn, uint itemId) => InactiveItems.GetValueOrDefault(CharacterName(conn))?.Contains(itemId) == true;
@@ -2658,10 +2724,12 @@ static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Chara
 // its base skill (ItemCatalog.GemEffects). Each skill keeps its id while its gem stays socketed (GemSkillIds): the client
 // binds skill bar keys by skill id. A gem whose requirements the character does not meet makes its item inactive
 // (CharacterStatSources), so it grants nothing here; a use that still arrives is refused (GemDisabled).
-static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(string? character)
+static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(ClientState conn)
 {
-    string name = string.IsNullOrEmpty(character) ? "Exile" : character;
+    string name = CharacterName(conn);
+    var sources = CharacterStatSources(conn);
     var inactive = InactiveItems.GetValueOrDefault(name);
+    var modifiers = PassiveGemModifiers.From(stat => Stats.Key(stat) is uint key ? sources.GetValueOrDefault(key) : 0);
     var gems = PlayerInventories.For(name, Items).SocketedGemPlaces()
         .SelectMany(g => Items.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
     var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
@@ -2669,7 +2737,10 @@ static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, 
     // Gems in an inactive item grant nothing, but keep their id.
     for (int i = 0; i < gems.Count; i++)
         if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
-            yield return (id, gems[i].Effect, Items.GemName(gems[i].Gem), Items.GemLevel(gems[i].Gem), gems[i].Gem.Quality, gems[i].Gem.TypeHash);
+        {
+            var (level, quality) = modifiers.Apply(Items.GemLevel(gems[i].Gem), gems[i].Gem.Quality);
+            yield return (id, gems[i].Effect, Items.GemName(gems[i].Gem), level, quality, gems[i].Gem.TypeHash);
+        }
 }
 
 static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
@@ -2690,20 +2761,34 @@ static async Task SetLevel(string remote, NetworkStream stream, ConnectionCipher
 // taken back, last allocated first.
 static async Task ApplyLevel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int level)
 {
-    int before = conn.Pools.Level;
-    List<ushort>? trimmed = null;
+    int before;
+    List<ushort> next;
     Dictionary<ushort, ushort> effects;
+    AscendancyProgress ascendancy;
+    CharacterSaves.PassiveProgressSnapshot? expected;
+    bool changed;
     lock (conn.Monsters)
     {
-        int had = conn.Passives.Count;
-        TrimPassives(conn, level);
-        if (conn.Passives.Count != had) trimmed = [.. conn.Passives];
-        effects = conn.MasteryEffects.Where(kv => conn.Passives.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        before = conn.Pools.Level;
+        next = [.. conn.Passives];
+        int points = Progression.PassivePoints(level) + conn.ExtraPassivePoints + AscendancyOrdinaryPoints(conn);
+        while (next.Count > 0 && next.Count > points + Passives.PointsGranted(next)) next.RemoveAt(next.Count - 1);
+        changed = next.Count != conn.Passives.Count;
+        effects = conn.MasteryEffects.Where(kv => next.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        ascendancy = conn.MainAscendancy;
+        expected = conn.SavedPassiveProgress;
+    }
+    // Only a lower level (/set_level) drops passives; otherwise the saved ones stay as they are.
+    if (changed)
+        CharacterSaves.SetMainAscendancy(CharacterName(conn), ascendancy, next, effects, expected: expected);
+    lock (conn.Monsters)
+    {
+        conn.Passives = next;
+        conn.MasteryEffects = effects;
+        if (changed) conn.SavedPassiveProgress = new(ascendancy, next, effects, conn.RefundPoints);
         conn.Pools = PoolsFor(conn, level);
         conn.ApplyMovementSpeed();
     }
-    // Only a lower level (/set_level) drops passives; otherwise the saved ones stay as they are.
-    if (trimmed is not null) CharacterSaves.SetPassives(CharacterName(conn), trimmed, effects);
     Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {before} → {level} (life {conn.Pools.Life}, mana {conn.Pools.Mana}, {Progression.PassivePoints(level)} passive point(s))");
     await SendCharacterStats(remote, stream, ciphers, conn, $"level {level}");
     int mana = UnreservedMana(conn);
@@ -2724,6 +2809,8 @@ static async Task SendCharacterStats(string remote, NetworkStream stream, Connec
 // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
 static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
 {
+    bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn);
+    await RefreshRighteousFireStats(remote, stream, ciphers, conn);
     var skills = PlayerSkills(conn);
     var gone = conn.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
     var added = skills.Select(s => s.Id).Where(id => !conn.ClientSkillIds.Contains(id)).ToList();
@@ -2744,6 +2831,11 @@ static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiph
         await SendCharacterStats(remote, stream, ciphers, conn, "remembered auras resumed");
         await SendPlayerMana(remote, stream, ciphers, conn, "remembered aura reservation");
     }
+    if (refreshedAuras)
+    {
+        await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)), "aura stats refreshed after gem modifiers");
+        await SendPlayerMana(remote, stream, ciphers, conn, "aura reservation refreshed after gem modifiers");
+    }
 
     // The update can take a bound skill off the skill bar (live 2026-10-21: Haste's slot emptied when its aura went on,
     // and came back with the area change's 0x53), and a gem socketed again does not get its slot back by itself, so the
@@ -2754,6 +2846,51 @@ static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiph
     var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
     if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
         await SendSkillBar(remote, stream, ciphers, conn);
+}
+
+// Retained auras use the current effective gem properties. Preserve intent and buff identities; this is not a recast.
+static async Task<bool> RefreshActiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+{
+    if (conn.Auras.Count == 0) return false;
+    var gems = GemSkillEffects(conn).ToDictionary(g => g.Id);
+    var changes = new List<(AuraCatalog.Aura Before, AuraCatalog.Aura After)>();
+    var suspended = new List<AuraCatalog.Aura>();
+    var restrictions = RestrictionsFor(conn);
+    lock (conn.Monsters)
+    {
+        foreach (var aura in conn.Auras.Values.ToArray())
+        {
+            if (!AuraAllowed(restrictions, aura.Effect))
+            {
+                conn.Auras.Remove(aura.SkillId);
+                suspended.Add(aura); // Keep the saved intent, as when a town temporarily suppresses an aura.
+                continue;
+            }
+            if (!gems.TryGetValue(aura.SkillId, out var gem) || Skills.Reservation(gem.Effect, gem.Level) is not { } reservation) continue;
+            var refreshed = aura with { Level = gem.Level, Quality = gem.Quality, ManaFlat = reservation.Flat, ManaPercent = reservation.Percent };
+            if (refreshed == aura) continue;
+            conn.Auras[aura.SkillId] = refreshed;
+            changes.Add((aura, refreshed));
+        }
+        if (changes.Count > 0 || suspended.Count > 0)
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            conn.ApplyMovementSpeed();
+            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+            conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+        }
+    }
+    foreach (var aura in suspended)
+        foreach (var packet in AuraCatalog.EndPackets(aura, PlayerId))
+            await Send(remote, stream, ciphers, packet, $"aura {aura.EffectId} suspended by a skill restriction");
+    foreach (var (before, after) in changes)
+    {
+        foreach (var packet in AuraCatalog.EndPackets(before, PlayerId))
+            await Send(remote, stream, ciphers, packet, $"aura {before.EffectId} refresh old effective gem properties");
+        foreach (var packet in AuraBuffs(after))
+            await Send(remote, stream, ciphers, packet, $"aura {after.EffectId} refreshed level {after.Level}, quality {after.Quality}");
+    }
+    return changes.Count > 0 || suspended.Count > 0;
 }
 
 // Skills the player no longer has (their gems left the equipment): their auras and Righteous Fire end with them, and the
@@ -2808,7 +2945,14 @@ static int LoadProgress(ClientState conn, int level)
     }
     lock (conn.Monsters)
     {
-        conn.Passives = [.. (save?.Passives ?? []).Where(n => Passives.Find(n) is { IsAscendancy: false })];
+        var ordinary = save?.Passives ?? [];
+        if (ordinary.Any(n => Passives.Find(n) is not { IsAscendancy: false }))
+            throw new UnknownSavedItemException("unknown or ascendancy nodes in the ordinary passive allocation; the save was retained");
+        conn.MainAscendancy = save?.MainAscendancy ?? new();
+        AscendancyRules.Validate((byte)Skills.ClassFor(conn.ClassRow).IntegerId, conn.MainAscendancy);
+        if (Ascendancies.GraphLoaded)
+            Ascendancies.ValidateOrdinaryNodes(conn.MainAscendancy.Selection?.Family ?? AscendancyFamily.Normal, ordinary);
+        conn.Passives = [.. ordinary];
         conn.Waypoints.UnionWith(save?.Waypoints ?? []);
         conn.Visited.UnionWith(save?.Visited ?? []);
         conn.QuestFlags = [.. save?.QuestFlags ?? [], .. Quests.EveryCharacter];
@@ -2819,6 +2963,11 @@ static int LoadProgress(ClientState conn, int level)
         conn.MasteryEffects = (save?.MasteryEffects ?? []).Where(kv => conn.Passives.Contains(kv.Key)
             && Passives.FindEffect(kv.Value) is { } effect && Passives.IsEffectFor(kv.Key, effect))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
+        conn.SavedPassiveProgress = new(conn.MainAscendancy, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
+        // Persist the pre-existing ordinary level/mastery normalization once. The compare protects a newer connection.
+        if (!conn.SavedPassiveProgress.Matches(save ?? new CharacterSaves.Save([])))
+            CharacterSaves.SetMainAscendancy(CharacterName(conn), conn.MainAscendancy, conn.Passives, conn.MasteryEffects,
+                expected: CharacterSaves.PassiveProgressSnapshot.From(save));
         conn.Pools = PoolsFor(conn, level);
         RestoreRememberedAuras(conn, save?.ActiveAuras ?? []);
         conn.ApplyMovementSpeed();
@@ -2833,7 +2982,7 @@ static int LoadProgress(ClientState conn, int level)
 static Dictionary<uint, int> CharacterStatSources(ClientState conn, IEnumerable<ushort>? nodes = null, int? level = null)
 {
     var items = ItemsOf(conn);
-    var passives = Passives.Stats(nodes ?? conn.Passives, conn.MasteryEffects);
+    var passives = Passives.Stats((nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated), conn.MasteryEffects);
     int Get(string name) => Stats.Key(name) is uint k ? passives.GetValueOrDefault(k) : 0;
     var c = Skills.ClassFor(conn.ClassRow);
     var (ps, pd, pi) = CharacterStats.Attributes(Get);
@@ -2846,7 +2995,7 @@ static Dictionary<uint, int> CharacterStatSources(ClientState conn, IEnumerable<
             : new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0)).ToList();
     var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
     var (inactive, active) = ItemModStats.ResolveEquipment(worn,
-        (c.Strength + ps + god, c.Dexterity + pd + god, c.Intelligence + pi + god), level ?? conn.Pools.Level, Items.Mods, before);
+        (c.Strength + ps + god, c.Dexterity + pd + god, c.Intelligence + pi + god), level ?? conn.Pools.Level, Items.Mods, before, passiveStat: Get);
     // Item activation depends on the item, not on socketed gems. Checking gems here used the previous
     // connection's/initial pools and disabled the entire item's stats and unrelated gems before pools existed.
     // Individual gem requirements are checked against the completed pools when socketing or casting.
@@ -2866,8 +3015,9 @@ static CharacterStats.Pools PoolsFor(ClientState conn, int level)
     var bonus = PassiveBonus(sources, weapons);
     var gear = EquippedBaseDefences(conn);
     bonus = bonus with { Armour = bonus.Armour + gear.Armour, Evasion = bonus.Evasion + gear.Evasion };
+    var auraRestrictions = SkillRestrictions.From(name => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0);
     List<AuraCatalog.Aura> auras;
-    lock (conn.Monsters) auras = [.. conn.Auras.Values];
+    lock (conn.Monsters) auras = [.. conn.Auras.Values.Where(a => AuraAllowed(auraRestrictions, a.Effect))];
     var aura = AuraCatalog.Bonus(auras, bonus.AuraEffectPct, Skills, Stats);
     bonus = bonus with
     {
@@ -3062,8 +3212,12 @@ static CharacterStats.Bonus PassiveBonus(Dictionary<uint, int> stats, WeaponProf
     int armourPct = Get("physical_damage_reduction_rating_+%") + defencesPct;
     int evasionPct = Get("evasion_rating_+%") + defencesPct;
     var (strength, dexterity, intelligence) = CharacterStats.Attributes(Get);
+    var attributeIncreases = PassiveAttributeModifiers.Percentages(Get);
+    int attackBlockLuck = Get("base_block_luck") + Get("attack_block_luck") + Get("base_attack_block_luck");
+    int spellBlockLuck = Get("base_block_luck") + Get("spell_block_luck") + Get("base_spell_block_luck");
     return new CharacterStats.Bonus(
         Strength: strength, Dexterity: dexterity, Intelligence: intelligence,
+        StrengthPct: attributeIncreases.Strength, DexterityPct: attributeIncreases.Dexterity, IntelligencePct: attributeIncreases.Intelligence,
         Life: Get("base_maximum_life"), LifePct: Get("maximum_life_+%"), Mana: Get("base_maximum_mana"), ManaPct: Get("maximum_mana_+%"),
         Armour: Get("base_physical_damage_reduction_rating"), ArmourPct: armourPct,
         Evasion: Get("base_evasion_rating"), EvasionPct: evasionPct,
@@ -3093,8 +3247,8 @@ static CharacterStats.Bonus PassiveBonus(Dictionary<uint, int> stats, WeaponProf
         SpellBlockPer5AttackBlock: Get("spell_block_%_per_5_attack_block"),
         LifeGainedOnBlock: Get("life_gained_on_block"), ManaGainedOnBlock: Get("mana_gained_on_block"),
         VersatileCombatant: Get("keystone_versatile_combatant") != 0,
-        AttackBlockLucky: Get("base_block_luck") != 0 || Get("attack_block_luck") != 0 || Get("base_attack_block_luck") != 0,
-        SpellBlockLucky: Get("base_block_luck") != 0 || Get("spell_block_luck") != 0 || Get("base_spell_block_luck") != 0,
+        AttackBlockLucky: attackBlockLuck > 0, SpellBlockLucky: spellBlockLuck > 0,
+        AttackBlockUnlucky: attackBlockLuck < 0, SpellBlockUnlucky: spellBlockLuck < 0,
         AttackSpeedPct: attackSpeed, AttackSpeedMorePct: attackSpeedMore,
         CriticalStrikeChancePct: criticalChance, SpellCriticalStrikeChancePct: spellCriticalChance,
         CriticalStrikeMultiplier: criticalMultiplier, SpellCriticalStrikeMultiplier: spellCriticalMultiplier,
@@ -3103,7 +3257,12 @@ static CharacterStats.Bonus PassiveBonus(Dictionary<uint, int> stats, WeaponProf
         DexterityAccuracyTriple: Get("dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead") != 0,
         AccuracyEqualsIntelligence: Get("gain_accuracy_rating_equal_to_intelligence") != 0,
         ManaReservationEfficiencyPct: manaReservation, LifeReservationEfficiencyPct: lifeReservation,
-        AuraEffectPct: auraEffect, AuraAreaPct: auraArea);
+        AuraEffectPct: auraEffect, AuraAreaPct: auraArea,
+        NoIntelligence: Get("intelligence_is_0") != 0,
+        NoIntelligenceMana: Get("gain_no_maximum_mana_from_intelligence") != 0,
+        LifePerLevel: Get("life_per_level"), ManaPerDexterity: Get("X_mana_per_dexterity"),
+        ManaPerFourStrength: Get("X_mana_per_4_strength"),
+        ManaConvertedToArmourPct: Get("keystone_mental_conditioning") != 0 ? 80 : 0);
 }
 
 // The character's passive skill points (one per level after the first, plus the extra points from
@@ -3120,7 +3279,7 @@ static (ushort Points, ushort RefundPoints, List<ushort> Nodes, Dictionary<ushor
 // Drops the last allocated passives beyond the level's points (call under the Monsters lock).
 static void TrimPassives(ClientState conn, int level)
 {
-    int points = Progression.PassivePoints(level) + conn.ExtraPassivePoints;
+    int points = Progression.PassivePoints(level) + conn.ExtraPassivePoints + AscendancyOrdinaryPoints(conn);
     while (conn.Passives.Count > 0 && conn.Passives.Count > points + Passives.PointsGranted(conn.Passives))
         conn.Passives.RemoveAt(conn.Passives.Count - 1);
 }
@@ -3136,11 +3295,22 @@ static async Task SendPassives(string remote, NetworkStream stream, ConnectionCi
 static (byte[] Bytes, string Label) PassivesMessage(ClientState conn)
 {
     var (points, refundPoints, nodes, masteries) = PassiveState(conn);
-    int unspent = points + Passives.PointsGranted(nodes) - nodes.Count;
-    return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, (byte)Skills.ClassFor(conn.ClassRow).IntegerId, nodes,
-            questPoints: conn.ExtraPassivePoints, refundPoints: refundPoints, masteryEffects: masteries),
+    int unspent = points + Passives.PointsGranted(nodes) + AscendancyOrdinaryPoints(conn) - nodes.Count;
+    return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated],
+            questPoints: conn.ExtraPassivePoints, refundPoints: refundPoints, ascendancyPoints: (ushort)conn.MainAscendancy.EarnedPoints, masteryEffects: masteries),
         $"0x0033 passive skill tree: level {conn.Pools.Level}, {points} skill point(s) ({conn.ExtraPassivePoints} extra), " +
-        $"{refundPoints} refund point(s), {nodes.Count} allocated, {unspent} unspent");
+        $"{refundPoints} refund point(s), {nodes.Count} allocated, {unspent} unspent; " +
+        $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes");
+}
+
+static int AscendancyOrdinaryPoints(ClientState conn) =>
+    AscendancyRules.OrdinaryPointsGranted((byte)Skills.ClassFor(conn.ClassRow).IntegerId, conn.MainAscendancy);
+
+static byte PackedClass(ClientState conn)
+{
+    byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
+    byte number = AscendancyRules.Validate(baseClass, conn.MainAscendancy)?.ClassNo ?? 0;
+    return CharacterClassByte.Encode(baseClass, number);
 }
 
 // Allocates (or, with allocate false, refunds) passive nodes: checked against the tree's nodes and the character's
@@ -3159,14 +3329,26 @@ static async Task<string?> ChangePassives(string remote, NetworkStream stream, C
     uint gold = 0;
     ushort refundsNow = 0;
     int refundsSpent = 0;
+    AscendancyProgress ascendancyNow;
+    CharacterSaves.PassiveProgressSnapshot? expectedProgress;
     lock (conn.Monsters)
     {
         var next = new List<ushort>(conn.Passives);
         var effects = new Dictionary<ushort, ushort>(conn.MasteryEffects);
+        byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
+        var ascendancy = conn.MainAscendancy;
+        expectedProgress = conn.SavedPassiveProgress;
+        var ascendancyNodes = new List<ushort>();
         foreach (var n in nodes)
         {
             if (Passives.Find(n) is not { } node) { error = $"unknown passive {n}"; break; }
-            if (node.IsAscendancy) { error = $"{node.Name} ({n}) is an ascendancy passive"; break; }
+            if (node.IsAscendancy)
+            {
+                if (goldRespec) { error = "Ascendancy passives require refund points, not gold"; break; }
+                if (masteryEffect is not null) { error = "An ascendancy passive is not an ordinary mastery"; break; }
+                ascendancyNodes.Add(n);
+                continue;
+            }
             if (masteryEffect is { } raw)
             {
                 if (!allocate) { error = "a mastery effect cannot be refunded on its own"; break; }
@@ -3185,12 +3367,34 @@ static async Task<string?> ChangePassives(string remote, NetworkStream stream, C
                 if (refundPoints) refundsSpent++;
             }
         }
-        if (error is null && next.Count > Progression.PassivePoints(conn.Pools.Level) + conn.ExtraPassivePoints + Passives.PointsGranted(next))
+        int ordinaryBudget = Progression.PassivePoints(conn.Pools.Level) + conn.ExtraPassivePoints + Passives.PointsGranted(next);
+        if (error is null && Ascendancies.GraphLoaded)
+        {
+            try { Ascendancies.ValidateOrdinaryNodes(ascendancy.Selection?.Family ?? AscendancyFamily.Normal, next); }
+            catch (AscendancyRuleException e) { error = e.Message; }
+        }
+        if (error is null && ascendancyNodes.Count > 0)
+        {
+            try
+            {
+                if (allocate)
+                    ascendancy = AscendancyRules.Allocate(baseClass, ascendancy, ascendancyNodes);
+                else
+                {
+                    var result = AscendancyRules.Refund(baseClass, ascendancy, ascendancyNodes, next.Count, ordinaryBudget);
+                    ascendancy = result.Progress;
+                    if (refundPoints) refundsSpent += result.Cost;
+                }
+            }
+            catch (AscendancyRuleException e) { error = e.Message; }
+        }
+        if (error is null && next.Count > ordinaryBudget + AscendancyRules.OrdinaryPointsGranted(baseClass, ascendancy))
             error = $"not enough passive skill points ({Progression.PassivePoints(conn.Pools.Level) + conn.ExtraPassivePoints} at level {conn.Pools.Level}, {next.Count} wanted)";
         if (error is null && refundPoints && refundsSpent > conn.RefundPoints)
             error = $"not enough refund points ({refundsSpent} needed, {conn.RefundPoints} held)";
         if (goldRespec) cost = Passives.GoldRespecCost(nodes, conn.Pools.Level);
         now = next;
+        ascendancyNow = ascendancy;
         effectsNow = effects;
         refundsNow = (ushort)(conn.RefundPoints - (refundPoints && error is null ? refundsSpent : 0));
     }
@@ -3204,7 +3408,8 @@ static async Task<string?> ChangePassives(string remote, NetworkStream stream, C
                 if (PersonalStashOf(conn).TrySpendGold(cost) is not uint left) return $"not enough gold ({cost} needed, {PersonalStashOf(conn).Gold} held)";
                 gold = left;
             }
-            CharacterSaves.SetPassives(CharacterName(conn), now, effectsNow, refundPoints ? refundsNow : null);
+            CharacterSaves.SetMainAscendancy(CharacterName(conn), ascendancyNow, now, effectsNow, refundPoints ? refundsNow : null,
+                expected: expectedProgress);
             return null;
         });
     lock (conn.Monsters)
@@ -3212,8 +3417,10 @@ static async Task<string?> ChangePassives(string remote, NetworkStream stream, C
         if (error is null)
         {
             conn.Passives = now;
+            conn.MainAscendancy = ascendancyNow;
             conn.MasteryEffects = effectsNow;
             conn.RefundPoints = refundsNow;
+            conn.SavedPassiveProgress = new(conn.MainAscendancy, now, effectsNow, refundsNow);
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
             conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
@@ -3234,6 +3441,7 @@ static async Task<string?> ChangePassives(string remote, NetworkStream stream, C
         {
             await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (respec, {cost} paid)");
         }
+        await SendSkills(remote, stream, ciphers, conn);
         await SendCharacterStats(remote, stream, ciphers, conn, "passives");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
     }
@@ -3414,8 +3622,9 @@ static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(ClientState conn, 
 {
     var wanted = saved.ToHashSet(StringComparer.Ordinal);
     var candidates = new List<AuraCatalog.Aura>();
-    foreach (var gem in GemSkillEffects(conn.Character))
+    foreach (var gem in GemSkillEffects(conn))
         if (Skills.EffectId(gem.Effect) is { } effect && wanted.Contains(effect) && AuraCatalog.Supported(effect)
+            && SkillRestrictionReason(conn, gem.Effect) is null
             && !conn.Auras.Values.Any(a => a.EffectId == effect)
             && Skills.Reservation(gem.Effect, gem.Level) is { } reservation)
             candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect),
@@ -3488,12 +3697,9 @@ static bool PayMana(ClientState conn, int effect, int level, int quality, out ui
     }
 }
 
-// A cast's time in ms: the effect's CastTime scaled by the player's increased cast speed.
-static int CastMs(ClientState conn, int effect) => (int)Math.Round(Skills.CastMs(effect) / (1 + CastSpeedPct(CharacterPlayerStats(conn)) / 100.0));
-
-// cast_speed_+% is the total (PanelStats: base_cast_speed_+% and attack_and_cast_speed_+% are already in it).
-static int CastSpeedPct(IReadOnlyDictionary<uint, int> stats) =>
-    Stats.Key("cast_speed_+%") is uint k ? stats.GetValueOrDefault(k) : 0;
+// A cast's time in ms: the same level, effective quality and character modifiers as the client skill record.
+static int CastMs(ClientState conn, int effect, int level, int quality) =>
+    Skills.CastTimeMs(effect, level, quality, CharacterPlayerStats(conn));
 
 // Righteous Fire (GrantedEffects RighteousFire): casting it puts the righteous_fire buff (BuffDefinitions row 12: the
 // flames around the player, BuffVisuals 15) on the player with S→C 0x1c1. While it lasts the player burns for 90% of
@@ -3518,12 +3724,68 @@ static int SkillArtVariation(ClientState conn, uint gem) =>
 // the straight glide cut the path's corners.
 static async Task FollowRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
 {
-    if (conn.RighteousFire is not { Ring: uint ring } rf) return;
-    double now = conn.Clock.Elapsed.TotalSeconds;
-    var to = conn.Walk.Position(now + RingFollowMs / 1000.0);
-    if (rf.RingAt == to) return;
-    rf.RingAt = to;
-    await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(ring, to.X, to.Y, RingFollowMs / 1000f, u28: TerrainHeight), null);
+    if (conn.RighteousFire is not { Ring: not null } rf) return;
+    await rf.RingGate.WaitAsync();
+    try
+    {
+        if (!ReferenceEquals(conn.RighteousFire, rf) || !rf.RingCreated || rf.Ring is not uint ring) return;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var to = conn.Walk.Position(now + RingFollowMs / 1000.0);
+        if (rf.RingAt == to) return;
+        rf.RingAt = to;
+        await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(ring, to.X, to.Y, RingFollowMs / 1000f, u28: TerrainHeight), null);
+    }
+    finally { rf.RingGate.Release(); }
+}
+
+// A passive or item change can alter the running gem's effective level/quality. Refresh its values in place:
+// its buff, skill, monster auras and follow-loop identity remain the same, and no cast cost is paid again.
+static async Task RefreshRighteousFireStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+{
+    if (conn.RighteousFire is not { } rf) return;
+    var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == rf.Skill);
+    if (gem.Name is null) return; // EndSkillEffects handles a gem that left the equipment.
+    if (SkillRestrictionReason(conn, gem.Effect) is { } restriction)
+    {
+        await EndRighteousFire(remote, stream, ciphers, conn, restriction);
+        return;
+    }
+    var stats = Skills.EffectStatsFor(gem.Effect, gem.Level, gem.Quality,
+        FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
+    int Get(string name, int fallback = 0) => Stats.Key(name) is uint key && stats.TryGetValue(key, out int value) ? value : fallback;
+    int radius = SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18), name => Get(name), spell: true, combined: true);
+    await rf.RingGate.WaitAsync();
+    try
+    {
+        uint? oldRing = null, replacement = null;
+        (int X, int Y) at = default;
+        lock (conn.Monsters)
+        {
+            if (!ReferenceEquals(conn.RighteousFire, rf)) return;
+            bool resized = rf.Refresh(Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),
+                Get("base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute", 5400), radius);
+            if (resized && rf.RingCreated && rf.Ring is uint ring && rf.RingArt is not null)
+            {
+                oldRing = ring;
+                replacement = conn.NextObjectId++;
+                rf.Ring = replacement;
+                at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                rf.RingAt = at;
+            }
+        }
+        if (oldRing is uint old && replacement is uint next && rf.RingArt is { } art)
+        {
+            // Positioned scale is part of object creation. Replace only this visual object, keeping the actual RF.
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(old), "RF radius changed: replace its visual ring");
+            if (!ReferenceEquals(conn.RighteousFire, rf)) return;
+            float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(art) ?? 400));
+            var ringObject = new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale };
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob()),
+                $"RF ring refreshed: radius {radius}, effective gem level {gem.Level}, quality {gem.Quality}");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(next), null);
+        }
+    }
+    finally { rf.RingGate.Release(); }
 }
 
 // The ring's follow loop, while its fire burns.
@@ -3531,10 +3793,10 @@ static async Task RunRingFollow(string remote, NetworkStream stream, ConnectionC
 {
     try
     {
-        while (!conn.Closed && conn.RighteousFire == rf)
+        while (!conn.Closed && ReferenceEquals(conn.RighteousFire, rf))
         {
             await Task.Delay(RingFollowMs);
-            if (!conn.Paused && conn.RighteousFire == rf) await FollowRighteousFire(remote, stream, ciphers, conn);
+            if (!conn.Paused && ReferenceEquals(conn.RighteousFire, rf)) await FollowRighteousFire(remote, stream, ciphers, conn);
         }
     }
     catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -3553,10 +3815,10 @@ static async Task ActivateRighteousFire(string remote, NetworkStream stream, Con
     ushort? buffVisual = Art.BuffVisual("righteous_fire_buff_visual", variation), auraVisual = Art.BuffVisual("righteous_fire_aura_visual", variation);
     string? ringAo = Art.Animated("righteous_fire_ring", variation) ?? (variation == 0 ? RighteousFireRingAo : null);
     // The radius takes the player's area of effect stats (passives, items, gem quality) under the skill's own (SkillArea).
-    var stats = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-    foreach (var (k, v) in Skills.EffectStats(effect, level, quality)) stats[k] = v;
+    var stats = Skills.EffectStatsFor(effect, level, quality,
+        FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
     int Get(string name, int fallback) => Stats.Key(name) is uint k && stats.TryGetValue(k, out int v) ? v : fallback;
-    int radius = SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18), name => Get(name, 0), spell: true);
+    int radius = SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18), name => Get(name, 0), spell: true, combined: true);
     (int X, int Y) at;
     lock (conn.Monsters)
     {
@@ -3568,7 +3830,7 @@ static async Task ActivateRighteousFire(string remote, NetworkStream stream, Con
         conn.RighteousFire = new RighteousFireState(buff, aura, ringAo is null ? null : ring, skillId,
             DamagePctPerMinute: Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),
             BurnPctPerMinute: Get("base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute", 5400),
-            Radius: radius) { AuraVisual = auraVisual };
+            Radius: radius) { AuraVisual = auraVisual, RingArt = ringAo };
     }
     await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, RighteousFireBuffRow, PlayerId, skillId, visual: buffVisual),
         $"0x01c1 player buff {buff}: righteous_fire (BuffDefinitions row {RighteousFireBuffRow}) from skill 0x{skillId:x4}, " +
@@ -3584,14 +3846,21 @@ static async Task ActivateRighteousFire(string remote, NetworkStream stream, Con
     if (ringAo is null) return;
     // Scale: the art is drawn for a radius of MiscAnimated __col4 world units (RighteousFireRing 400, about 37 cells of
     // 250/23 units, where the skill's base radius is 18), so it is scaled to the radius the fire burns in.
-    float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ringAo) ?? 400));
-    var ringObject = new EffectObject(at.X, at.Y, ringAo) { Flags0 = EffectObject.FixedRotation, Scale = scale };
-    await Send(remote, stream, ciphers, InstanceEntities.CreateObject(ring, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob()),
-        $"0x02b9 create effect 0x{ring:x} {ringAo} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}");
-    await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(ring), null);
     if (conn.RighteousFire is { } burning)
     {
-        burning.RingAt = at;
+        await burning.RingGate.WaitAsync();
+        try
+        {
+            if (!ReferenceEquals(conn.RighteousFire, burning) || burning.Ring is not uint currentRing) return;
+            float scale = (float)(burning.Radius * (250.0 / 23) / (Art.ArtRadius(ringAo) ?? 400));
+            var ringObject = new EffectObject(at.X, at.Y, ringAo) { Flags0 = EffectObject.FixedRotation, Scale = scale };
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(currentRing, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob()),
+                $"0x02b9 create effect 0x{currentRing:x} {ringAo} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {burning.Radius}");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(currentRing), null);
+            burning.RingAt = at;
+            burning.RingCreated = true;
+        }
+        finally { burning.RingGate.Release(); }
         _ = RunRingFollow(remote, stream, ciphers, conn, burning);
     }
 }
@@ -3609,8 +3878,13 @@ static async Task EndRighteousFire(string remote, NetworkStream stream, Connecti
     if (rf is null) return;
     await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, rf.Buff), $"0x01c2 player buff {rf.Buff}: righteous_fire ends ({why})");
     await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, rf.SelfAura), null);
-    if (rf.Ring is uint ring)
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(ring), $"0x02bb remove effect 0x{ring:x} (Righteous Fire's ring)");
+    await rf.RingGate.WaitAsync();
+    try
+    {
+        if (rf.Ring is uint ring && rf.RingCreated)
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(ring), $"0x02bb remove effect 0x{ring:x} (Righteous Fire's ring)");
+    }
+    finally { rf.RingGate.Release(); }
     foreach (var (monster, buff) in auras)
         await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(monster, buff), null);
 }
@@ -3744,6 +4018,12 @@ static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiph
     var playerStats = CharacterPlayerStats(conn);
     if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
         perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
+    int Get(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
+    if (!SkillRestrictions.From(Get).DealsDamage(spell: true)) perSecond = 0;
+    // These modifiers affect damage, including RF's burning. Hit-only luck, triple damage and inverted resistance
+    // never apply to a damage-over-time tick or to RF's self burn.
+    perSecond *= Math.Max(0, 1 + (Get("damage_+%") + Get("fire_damage_+%") + Get("elemental_damage_+%")
+        + Get("burn_damage_+%") + Get("damage_over_time_+%")) / 100.0) * GamblerFor(playerStats).DamageFactor;
     var damageOverTime = new DamageOverTime(DamageType.Fire, perSecond, seconds);
     var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
     var stages = new List<(uint Id, SpawnedMonster M)>();
@@ -3761,7 +4041,12 @@ static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiph
                 continue;
             }
             if (!rf.Auras.ContainsKey(id)) { rf.Auras[id] = conn.NextBuff; entered.Add((id, conn.NextBuff++)); }
-            var (damage, carry) = damageOverTime.Tick(seconds, m.Burn);
+            var resistance = MonsterResistance(m, DamageType.Fire);
+            var resistedDot = damageOverTime with
+            {
+                DamagePerSecond = DamageModel.Mitigate(damageOverTime.DamagePerSecond, resistance.Value, resistance.Maximum)
+            };
+            var (damage, carry) = resistedDot.Tick(seconds, m.Burn);
             m.Burn = carry;
             if (damage == 0) continue;
             (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);
@@ -4241,9 +4526,71 @@ static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiph
     .Add("passives", "/passives (passive skill points and the allocated passives)", async _ =>
     {
         var (points, refundPoints, nodes, _) = PassiveState(conn);
-        int unspent = points + Passives.PointsGranted(nodes) - nodes.Count;
+        int unspent = points + Passives.PointsGranted(nodes) + AscendancyOrdinaryPoints(conn) - nodes.Count;
         await conn.Commands!.Reply($"Level {conn.Pools.Level}, {conn.Experience} experience: {points} passive skill point(s), {unspent} unspent, {refundPoints} refund point(s).\n" +
             string.Join("\n", nodes.Select(n => $"{n} {Passives.Find(n)?.Name}").DefaultIfEmpty("No passives allocated.")));
+    })
+    .Add("ascendancy", "/ascendancy [normal|phrecia] [name] (list or choose your main ascendancy; keeps the ordinary alternatives)", async args =>
+    {
+        byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
+        var choices = Ascendancies.Choices(baseClass).ToArray();
+        if (choices.Length == 0) throw new ArgumentException("ascendancy data is missing; run scripts/dev/extract-data.ps1");
+        if (args.Length == 0)
+        {
+            var current = AscendancyRules.Validate(baseClass, conn.MainAscendancy);
+            int spent = AscendancyRules.SpentPoints(baseClass, conn.MainAscendancy);
+            await conn.Commands!.Reply($"Main ascendancy - {current?.Name ?? "none"}. Ascendancy points {spent}/{conn.MainAscendancy.EarnedPoints}.\n" +
+                string.Join("\n", choices.Select(c => $"/ascendancy {c.Identity.Family.ToString().ToLowerInvariant()} {c.Name}")));
+            return;
+        }
+        bool hasFamily = Enum.TryParse<AscendancyFamily>(args[0], true, out var family) && Enum.IsDefined(family);
+        string name = string.Join(' ', hasFamily ? args[1..] : args);
+        var matching = choices.Where(c => (!hasFamily || c.Identity.Family == family) &&
+            (c.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || c.Identity.Id.Equals(name, StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (matching.Length != 1) throw new ArgumentException("choose one name from /ascendancy, including its normal/phrecia family when needed");
+        var chosen = matching[0];
+        if (conn.MainAscendancy.Selection == chosen.Identity)
+        {
+            await conn.Commands!.Reply($"{chosen.Name} is already your main ascendancy.");
+            return;
+        }
+        var next = Saves.Atomically(() =>
+        {
+            Ascendancies.ValidateOrdinaryNodes(chosen.Identity.Family, CharacterSaves.Load(CharacterName(conn))?.Passives ?? []);
+            return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest => AscendancyRules.Select(baseClass, latest, chosen.Identity));
+        });
+        lock (conn.Monsters)
+        {
+            conn.MainAscendancy = next;
+            conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
+        }
+        await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
+        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name}");
+    })
+    .Add("ascendancy_points", "/ascendancy_points <normal|cruel|merciless|eternal|all> (dev: grant each Labyrinth's two ascendancy points once)", async args =>
+    {
+        if (args.Length != 1) throw new ArgumentException("a Labyrinth tier or all");
+        string tier = args[0].ToLowerInvariant();
+        byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
+        var next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+        {
+            foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
+                latest = AscendancyRules.Award(baseClass, latest, award);
+            return latest;
+        });
+        lock (conn.Monsters)
+        {
+            conn.MainAscendancy = next;
+            conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
+        }
+        await SendPassives(remote, stream, ciphers, conn);
+        await conn.Commands!.Reply($"Ascendancy points earned - {next.EarnedPoints}; each tier can be earned once.");
+    })
+    .Add("reset_ascendancy", "/reset_ascendancy (refund all ascendancy nodes; five refund points per node/effect, choice shells are free)", async _ =>
+    {
+        if (conn.MainAscendancy.Allocated.Count == 0) { await conn.Commands!.Reply("No ascendancy passives allocated."); return; }
+        var error = await ChangePassives(remote, stream, ciphers, conn, conn.MainAscendancy.Allocated.ToArray(), false, "/reset_ascendancy", refundPoints: true);
+        await conn.Commands!.Reply(error ?? "Ascendancy passives refunded; you can choose another main ascendancy.");
     })
     .Add("gold", "/gold <amount> (dev: add gold, or take it with a negative amount; the account's, saved)", async args =>
     {
@@ -4268,21 +4615,26 @@ static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiph
     .Add("add_refund_points", "/add_refund_points <n> (dev: add n refund points, saved)", async args =>
     {
         if (args.Length == 0 || !int.TryParse(args[0], out int add) || add <= 0) throw new ArgumentException("a positive number");
-        ushort total;
+        ushort total = Saves.Atomically(() =>
+        {
+            ushort next = (ushort)Math.Min(ushort.MaxValue, (CharacterSaves.Load(CharacterName(conn))?.RefundPoints ?? 0) + add);
+            CharacterSaves.SetRefundPoints(CharacterName(conn), next);
+            return next;
+        });
         lock (conn.Monsters)
         {
-            conn.RefundPoints = (ushort)Math.Min(ushort.MaxValue, conn.RefundPoints + add);
-            total = conn.RefundPoints;
+            conn.RefundPoints = total;
+            conn.SavedPassiveProgress = new(conn.MainAscendancy, conn.Passives, conn.MasteryEffects, total);
         }
-        CharacterSaves.SetRefundPoints(CharacterName(conn), total);
         await SendPassives(remote, stream, ciphers, conn);
         await conn.Commands!.Reply($"{add} refund point(s) added; {total} total.");
     })
-    .Add("add_passive", "/add_passive <PassiveSkillGraphId> (dev: allocate one passive node)", async args =>
+    .Add("add_passive", "/add_passive <PassiveSkillGraphId> [...] (dev: allocate a connected set of passive nodes)", async args =>
     {
-        if (args.Length == 0 || !ushort.TryParse(args[0], out ushort node)) throw new ArgumentException("a PassiveSkillGraphId");
-        string? error = await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "/add_passive");
-        await conn.Commands!.Reply(error ?? $"Passive {node} allocated.");
+        if (args.Length == 0 || args.Any(a => !ushort.TryParse(a, out _))) throw new ArgumentException("PassiveSkillGraphId numbers");
+        ushort[] nodes = [.. args.Select(ushort.Parse)];
+        string? error = await ChangePassives(remote, stream, ciphers, conn, nodes, allocate: true, "/add_passive");
+        await conn.Commands!.Reply(error ?? $"Passives {string.Join(", ", nodes)} allocated.");
     })
     .Add("reset_passives", "/reset_passives (refunds every passive, saved)", async _ =>
     {
@@ -4479,9 +4831,10 @@ static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiph
     .Add("block", "/block (attack and spell block chance and caps)", async _ =>
     {
         var p = conn.Pools;
-        await conn.Commands!.Reply($"Block {p.BlockChance}% (max {p.BlockChanceMax}%, effective {DamageModel.EffectiveBlockChance(p.BlockChance, p.AttackBlockLucky):0.#}%), " +
-            $"spell block {p.SpellBlockChance}% (max {p.SpellBlockChanceMax}%, effective {DamageModel.EffectiveBlockChance(p.SpellBlockChance, p.SpellBlockLucky):0.#}%)" +
-            $"{(p.AttackBlockLucky ? "; attack lucky" : "")}{(p.SpellBlockLucky ? "; spell lucky" : "")}.");
+        string attackLuck = p.AttackBlockLucky == p.AttackBlockUnlucky ? "normal" : p.AttackBlockLucky ? "lucky" : "unlucky";
+        string spellLuck = p.SpellBlockLucky == p.SpellBlockUnlucky ? "normal" : p.SpellBlockLucky ? "lucky" : "unlucky";
+        await conn.Commands!.Reply($"Block {p.BlockChance}% (max {p.BlockChanceMax}%, effective {DamageModel.EffectiveBlockChance(p.BlockChance, p.AttackBlockLucky, p.AttackBlockUnlucky):0.#}%, {attackLuck}), " +
+            $"spell block {p.SpellBlockChance}% (max {p.SpellBlockChanceMax}%, effective {DamageModel.EffectiveBlockChance(p.SpellBlockChance, p.SpellBlockLucky, p.SpellBlockUnlucky):0.#}%, {spellLuck}).");
     })
     .Add("block_luck", "/block_luck <attack|spell|both|off> (dev: force lucky block)", async args =>
     {
@@ -4507,7 +4860,8 @@ static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiph
         int resistance = Resistance(conn, type), maxResistance = MaxResistance(conn, type);
         int chance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
         bool lucky = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
-        bool blocked = DamageModel.Blocks(chance, Random.Shared.NextDouble() * 100, lucky);
+        bool unlucky = spell ? conn.Pools.SpellBlockUnlucky : conn.Pools.AttackBlockUnlucky;
+        bool blocked = DamageModel.Blocks(chance, Random.Shared.NextDouble() * 100, lucky, unlucky);
         bool immune = PlayerImmunities(conn).Contains(type);
         int dealt = immune || blocked ? 0 : type == DamageType.Physical
             ? DamageModel.MitigatePhysical(amount, conn.Pools.Armour)
@@ -4550,7 +4904,8 @@ static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiph
                 $"0x01b1 player mana {mana} ({(blocked ? $"+{conn.Pools.ManaGainedOnBlock} on block" : "no block gain")})");
         if (life == 0)
             await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev block hit)");
-        await conn.Commands!.Reply($"{(spell ? "Spell" : "Attack")} hit: {amount} → {dealt}; {(blocked ? "blocked" : "not blocked")} ({chance}% chance); life {life}/{conn.PlayerMaxLife}.");
+        await conn.Commands!.Reply($"{(spell ? "Spell" : "Attack")} hit: {amount} → {dealt}; {(blocked ? "blocked" : "not blocked")} " +
+            $"({chance}% chance, effective {DamageModel.EffectiveBlockChance(chance, lucky, unlucky):0.#}%); life {life}/{conn.PlayerMaxLife}.");
     })
     .Add("god", "/god (toggles: 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, 200% increased area of effect, +10 000 life, +1000 attributes)", async _ =>
     {
@@ -5032,7 +5387,7 @@ static async Task PickSkillCosmetic(string remote, NetworkStream stream, Connect
 // change of art or ring size shows at once. False when none burns.
 static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why, uint? gem = null)
 {
-    if (conn.RighteousFire is not { } rf || GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == rf.Skill) is not { Name: not null } skill
+    if (conn.RighteousFire is not { } rf || GemSkillEffects(conn).FirstOrDefault(g => g.Id == rf.Skill) is not { Name: not null } skill
         || (gem is uint type && skill.Gem != type)) return false;
     await EndRighteousFire(remote, stream, ciphers, conn, why);
     await ActivateRighteousFire(remote, stream, ciphers, conn, skill.Id, skill.Effect, skill.Level, skill.Quality, skill.Gem);
@@ -5192,9 +5547,10 @@ static async Task MonsterSwing(string remote, NetworkStream stream, ConnectionCi
         }
         // Roll each damage type separately, apply its resistance, then armour to the physical part. The attack is
         // currently physical only (MonsterAttack), but the packet path keeps future monster skills correct.
-        var rolled = a.Damage.Roll(Random.Shared);
-        var mitigated = DamageModel.Mitigate(rolled, type =>
-            new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)));
+        var rolls = GamblerFor(CharacterPlayerStats(conn));
+        var rolled = rolls.RollIncomingHit(a.Damage, Random.Shared);
+        var mitigated = rolls.MitigateIncomingHit(rolled, type =>
+            new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), Random.Shared);
         var immune = PlayerImmunities(conn);
         rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
         damage = 0;
@@ -5205,7 +5561,8 @@ static async Task MonsterSwing(string remote, NetworkStream stream, ConnectionCi
                 ? DamageModel.MitigatePhysical(value, conn.Pools.Armour)
                 : value;
         }
-        blocked = DamageModel.Blocks(conn.Pools.BlockChance, Random.Shared.NextDouble() * 100, conn.Pools.AttackBlockLucky);
+        blocked = DamageModel.Blocks(conn.Pools.BlockChance, Random.Shared.NextDouble() * 100,
+            conn.Pools.AttackBlockLucky, conn.Pools.AttackBlockUnlucky);
         if (blocked) damage = 0;
         manaBefore = conn.PlayerMana;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
@@ -6035,24 +6392,27 @@ static async Task UseItem(string remote, NetworkStream stream, ConnectionCiphers
         Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: {type.Name} is not handled: {hex}");
         return;
     }
-    ushort refunds;
-    lock (conn.Monsters)
+    // Read the current balance inside the same transaction as consumption. An older area must not restore
+    // refund points another connection has already spent.
+    var result = Saves.Atomically(() =>
     {
-        if (conn.RefundPoints == ushort.MaxValue)
-        {
-            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: refund points are already at the maximum");
-            return;
-        }
+        ushort held = CharacterSaves.Load(CharacterName(conn))?.RefundPoints ?? 0;
+        if (held == ushort.MaxValue) return (Points: held, Taken: (PlayerInventories.Consumption?)null);
         // An Orb of Regret gives one refund point; a Book of Regrets two (ClientStrings ItemFunction2RespecPoints).
-        refunds = (ushort)Math.Min(ushort.MaxValue, conn.RefundPoints + (type.Name == RegretBook ? 2 : 1));
-    }
-    // The orb and the point are saved together.
-    if (ItemMoves.UseForRefundPoint(items, CharacterName(conn), r, use.ItemId, refunds) is not { } taken)
+        ushort points = (ushort)Math.Min(ushort.MaxValue, held + (type.Name == RegretBook ? 2 : 1));
+        return (Points: points, Taken: ItemMoves.UseForRefundPoint(items, CharacterName(conn), r, use.ItemId, points));
+    });
+    if (result.Taken is not { } taken)
     {
-        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: item {use.ItemId} disappeared: {hex}");
+        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: refund cap reached or item {use.ItemId} disappeared: {hex}");
         return;
     }
-    lock (conn.Monsters) conn.RefundPoints = refunds;
+    ushort refunds = result.Points;
+    lock (conn.Monsters)
+    {
+        conn.RefundPoints = refunds;
+        conn.SavedPassiveProgress = new(conn.MainAscendancy, conn.Passives, conn.MasteryEffects, refunds);
+    }
     uint inventoryId = PlayerInventories.InventoryId(r);
     // Every change removes the id first: the client keeps an item by id, so a stack that only shrinks needs the remove
     // and the add of the same id with its new Stack component (as SendMerged does).
@@ -7068,11 +7428,11 @@ static async Task SendPlayer(string remote, NetworkStream stream, ConnectionCiph
     // The new player object starts with exactly these (PlayerStatsWithCleared clears from here).
     lock (conn.Monsters) conn.SentStatKeys = [.. statList.Select(s => s.Item1), .. weaponStats.Select(s => s.Item1)];
     int reservedMana = ReservedMana(conn);
-    var player = new PlayerObject(string.IsNullOrEmpty(name) ? "Exile" : name, ClassIndex: (byte)cls.IntegerId, GridX: layout.SpawnX, GridY: layout.SpawnY, Life: pools.Life,
+    var player = new PlayerObject(string.IsNullOrEmpty(name) ? "Exile" : name, ClassIndex: PackedClass(conn), GridX: layout.SpawnX, GridY: layout.SpawnY, Life: pools.Life,
         Mana: (uint)Math.Min(conn.PlayerMana, (uint)Math.Max(0, (int)pools.Mana - reservedMana)), ManaReserved: (uint)reservedMana,
         Experience: conn.Experience,
         AnimatedObject: Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject,
-        Skills: [.. Skills.PlayerDefaults(weaponStats), .. GemSkills(name, [.. weaponStats, .. statList])], Stats: [.. weaponStats, .. statList],
+        Skills: [.. Skills.PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList])], Stats: [.. weaponStats, .. statList],
         Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, Items)),
         QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
         Portrait: WornPortrait(conn));
@@ -7252,6 +7612,8 @@ sealed partial class Program
     internal static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
     // The passive tree's nodes (PassiveSkills.dat by PassiveSkillGraphId).
     internal static readonly PassiveTree Passives = new();
+    internal static readonly AscendancyCatalog Ascendancies = new();
+    internal static readonly AscendancyRules AscendancyRules = new(Ascendancies);
     // How close (cells) the player must be to a dying monster to gain its experience. Game_XP_RANGE overrides it.
     internal const int GodRegenPerSecond = 10_000;
     // /god regenerates 100% of maximum life per second (more than Righteous Fire's 90% burn).
@@ -7672,6 +8034,21 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
 // enemies and to the player), its radius in cells, and the aura buff instance on each monster inside it.
 sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushort Skill, int DamagePctPerMinute, int BurnPctPerMinute, int Radius)
 {
+    public uint? Ring { get; set; } = Ring;
+    public int DamagePctPerMinute { get; private set; } = DamagePctPerMinute;
+    public int BurnPctPerMinute { get; private set; } = BurnPctPerMinute;
+    public int Radius { get; private set; } = Radius;
+    public string? RingArt { get; init; }
+    public bool RingCreated;
+    public readonly SemaphoreSlim RingGate = new(1, 1);
+    public bool Refresh(int damagePctPerMinute, int burnPctPerMinute, int radius)
+    {
+        bool resized = Radius != radius;
+        DamagePctPerMinute = damagePctPerMinute;
+        BurnPctPerMinute = burnPctPerMinute;
+        Radius = radius;
+        return resized;
+    }
     public readonly Dictionary<uint, ushort> Auras = [];
     /// <summary>The worn skill effect's righteous_fire_aura visual (BuffVisuals row; null: the row's own), on the enemies too.</summary>
     public ushort? AuraVisual { get; init; }
@@ -7842,6 +8219,8 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     // (PassiveSkillGraphId), both kept in its save (CharacterSaves). Changed under the Monsters lock.
     public uint Experience;
     public List<ushort> Passives = [];
+    public AscendancyProgress MainAscendancy = new();
+    public CharacterSaves.PassiveProgressSnapshot? SavedPassiveProgress;
     // Selected mastery effects: mastery node (PassiveSkillGraphId) -> effect HASH16. Saved with the character.
     public Dictionary<ushort, ushort> MasteryEffects = [];
     // Extra passive points from /add_passive_points (the 0x33 extra_skill_points field), saved with the character.

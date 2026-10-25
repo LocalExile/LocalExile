@@ -34,17 +34,34 @@ if ($Walkmaps) {
     Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
 }
 
-# Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
+$servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
+if ($Only) { $NoClient = $true }
+
+# Recovery must precede extraction: an interrupted index write may make ordinary GGPK parsing impossible.
+# Server-only runs are read-only and refuse a pending journal. Full runs stop the client first and recover raw bytes.
+$ggpkJournal = Join-Path $repo 'Client\LocalExileBackups\phrecia-passive-graph-v1\ggpk-write-journal.bin'
+if ($NoClient) {
+    if ((Test-Path $ggpkJournal) -or (Test-Path "$ggpkJournal.prepare")) {
+        throw 'interrupted GGPK writes are pending; run live.ps1 without -NoClient/-Only to close the client and recover them'
+    }
+} else {
+    Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force
+    if (-not $NoBuild) {
+        dotnet build (Join-Path $repo 'scripts/re/passive-graphs') -v q -nologo | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'build failed: GGPK recovery tool' }
+    }
+    & dotnet run --no-build --project (Join-Path $repo 'scripts/re/passive-graphs') -- --recover (Join-Path $repo 'Client/Content.ggpk')
+    if ($LASTEXITCODE -ne 0) { throw 'raw GGPK recovery failed; retain the journal and inspect the message above' }
+}
+
+# Game data from the GGPK (data/tables, object-types.json, ...): only after raw journal recovery.
 if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
 
 # Without this the Gateway stops after creating the player and the client never enters the area.
 if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
 
-$servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
-if ($Only) { $NoClient = $true }
 $ports = @{ Auth = @(20493); Patch = @(12995, 8080); Gateway = @(6112) }
 
-if (-not $NoClient) { Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force }
 if (-not $Only) {
     Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like '*walkmaps.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -68,7 +85,17 @@ if (-not $NoBuild) {
         dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
     }
+    dotnet build (Join-Path $repo 'scripts/re/passive-graphs') -v q -nologo | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'build failed: scripts/re/passive-graphs' }
 }
+
+# Keep the current ordinary passive/Bloodline graph when the client displays Phrecia. This only writes when the
+# expected merged PSG is not installed. Server-only restarts check the actual shared GGPK read-only and require a
+# full live.ps1 restart if a patch is needed; never serve a newly generated graph to an older running client.
+# Original virtual file/index backups support `--restore` (see the ascendancy protocol notes).
+$passiveGraphAction = if ($NoClient) { '--check' } else { '--apply' }
+& dotnet run --no-build --project (Join-Path $repo 'scripts/re/passive-graphs') -- $passiveGraphAction (Join-Path $repo 'Client/Content.ggpk') (Join-Path $repo 'data/passive-skill-graphs.json')
+if ($LASTEXITCODE -ne 0) { throw 'client passive graph setup failed; run scripts/dev/live.ps1 without -NoClient/-Only to install it and restart the client' }
 
 # Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
 # redirecting form creates them with handle inheritance on, so they would hold this shell's stdout open, and whoever runs

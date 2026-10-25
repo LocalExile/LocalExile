@@ -94,10 +94,12 @@ public static class InstanceEntities
         new LoginWriter().U16(RemoveBuffId).U32(objectId).U32(0).U16(0).U16(buffInstance).ToArray();
 
     public const ushort CharacterPassivesId = 0x33, AllocatePassiveId = 0x34, MasteryEffectId = 0x35, PanelToggleId = 0x123;
+    public const int MasteryEffectLength = 6;
 
     /// <summary>
-    /// C→S 0x34 (7 bytes, live 2026-10-18): the Passive Skill Tree asks for a node. u16 (0 so far), u16 the node's
-    /// PassiveSkillGraphId (big-endian: 0xdfb0 = 57264 Spell Damage and Mana, next to the Witch's start), u8 (0 so far).
+    /// C→S 0x34 (7 bytes, live 2026-10-18): the Passive Skill Tree asks for a node. u32 node ID (big-endian;
+    /// 0x0000dfb0 = 57264 Spell Damage and Mana, next to the Witch's start), u8 expansion flag. U2 is the high half
+    /// of the node ID, not a mastery effect; nonzero U2/expansion must be refused while cluster jewels are unsupported.
     /// The client waits for the tree back (S→C 0x33); without it the node is not allocated. C→S 0x123 (u8 1 / 0) is sent
     /// when the panel opens and closes.
     /// </summary>

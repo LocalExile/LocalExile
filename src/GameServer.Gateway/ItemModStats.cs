@@ -59,33 +59,56 @@ static class ItemModStats
     /// </summary>
     public static (HashSet<uint> Inactive, IReadOnlyList<Item> Active) ResolveEquipment(
         IReadOnlyList<Worn> worn, (int Str, int Dex, int Int) baseAttributes, int level, ModCatalog mods,
-        IReadOnlySet<uint>? previous = null)
+        IReadOnlySet<uint>? previous = null, Func<string, int>? passiveStat = null)
     {
-        var inactive = Inactive(worn, baseAttributes, level, item => Attributes(item, mods), previous);
+        var global = worn.ToDictionary(w => w.Id, w => Sum([w.Item], mods));
+        var local = worn.ToDictionary(w => w.Id, w => Sum([w.Item], mods, local: true));
+        int Get(IReadOnlyList<Worn> active, string name) => (passiveStat?.Invoke(name) ?? 0)
+            + active.Sum(w => global[w.Id].GetValueOrDefault(name));
+        var inactive = Inactive(worn, baseAttributes, level, item => Attributes(item, mods), previous,
+            (flat, active) => PassiveAttributeModifiers.Percentages(name => Get(active, name)).Apply(flat),
+            (w, active) =>
+            {
+                var own = local[w.Id];
+                int Requirement(int value)
+                {
+                    if (own.GetValueOrDefault("local_no_attribute_requirements") != 0) return 0;
+                    // Local and global reductions are separate stages, as in the item's native requirement cache.
+                    int adjusted = PassiveAttributeModifiers.Requirement(value, own.GetValueOrDefault("local_attribute_requirements_+%"));
+                    return PassiveAttributeModifiers.Requirement(adjusted, name => Get(active, name));
+                }
+                return (Requirement(w.Strength), Requirement(w.Dexterity), Requirement(w.Intelligence));
+            });
         return (inactive, worn.Where(w => !inactive.Contains(w.Id)).Select(w => w.Item).ToArray());
     }
 
     public static HashSet<uint> Inactive(IReadOnlyList<Worn> worn, (int Str, int Dex, int Int) baseAttributes, int level,
-        Func<Item, (int Str, int Dex, int Int)> attributesOf, IReadOnlySet<uint>? previous = null)
+        Func<Item, (int Str, int Dex, int Int)> attributesOf, IReadOnlySet<uint>? previous = null,
+        Func<(int Str, int Dex, int Int), IReadOnlyList<Worn>, (int Str, int Dex, int Int)>? finalAttributes = null,
+        Func<Worn, IReadOnlyList<Worn>, (int Str, int Dex, int Int)>? attributeRequirements = null)
     {
         var own = worn.ToDictionary(w => w.Id, w => attributesOf(w.Item));
         var inactive = worn.Where(w => previous?.Contains(w.Id) == true).Select(w => w.Id).ToHashSet();
-        (int, int, int) Totals() => (baseAttributes.Str + worn.Where(w => !inactive.Contains(w.Id)).Sum(w => own[w.Id].Str),
-            baseAttributes.Dex + worn.Where(w => !inactive.Contains(w.Id)).Sum(w => own[w.Id].Dex),
-            baseAttributes.Int + worn.Where(w => !inactive.Contains(w.Id)).Sum(w => own[w.Id].Int));
-        bool Meets(Worn w, (int Str, int Dex, int Int) t) => level >= w.Level && t.Str >= w.Strength && t.Dex >= w.Dexterity && t.Int >= w.Intelligence;
+        bool Meets(Worn w)
+        {
+            var active = worn.Where(i => !inactive.Contains(i.Id)).ToArray();
+            var flat = (baseAttributes.Str + active.Sum(i => own[i.Id].Str),
+                baseAttributes.Dex + active.Sum(i => own[i.Id].Dex), baseAttributes.Int + active.Sum(i => own[i.Id].Int));
+            var (str, dex, intel) = finalAttributes?.Invoke(flat, active) ?? flat;
+            var (needStr, needDex, needInt) = attributeRequirements?.Invoke(w, active) ?? (w.Strength, w.Dexterity, w.Intelligence);
+            return level >= w.Level && str >= needStr && dex >= needDex && intel >= needInt;
+        }
         // 1. Back on: met by the others (an inactive item is not in the totals).
         for (bool changed = true; changed;)
         {
             changed = false;
-            if (worn.FirstOrDefault(w => inactive.Contains(w.Id) && Meets(w, Totals())) is { } back) { inactive.Remove(back.Id); changed = true; }
+            if (worn.FirstOrDefault(w => inactive.Contains(w.Id) && Meets(w)) is { } back) { inactive.Remove(back.Id); changed = true; }
         }
         // 2. Off, one at a time, in equipment order, recounting after each.
         for (bool changed = true; changed;)
         {
             changed = false;
-            var totals = Totals();
-            if (worn.FirstOrDefault(w => !inactive.Contains(w.Id) && !Meets(w, totals)) is { } off) { inactive.Add(off.Id); changed = true; }
+            if (worn.FirstOrDefault(w => !inactive.Contains(w.Id) && !Meets(w)) is { } off) { inactive.Add(off.Id); changed = true; }
         }
         return inactive;
     }

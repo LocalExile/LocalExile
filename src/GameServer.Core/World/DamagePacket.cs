@@ -52,13 +52,13 @@ public readonly record struct DamageRange(double Min, double Max)
     public DamageRange Round() => new(Math.Round(Min), Math.Round(Max));
 
     /// <summary>Roll one whole-number hit from this range. Each damage type rolls separately, as in the game.</summary>
-    public int Roll(Random random)
+    public int Roll(Random random, int extraRolls = 0)
     {
         if (Max <= 0) return 0;
         int min = (int)Math.Floor(Math.Max(0, Min) + 1e-9);
         int max = (int)Math.Floor(Math.Max(0, Max) + 1e-9);
         if (max < min) max = min;
-        return random.Next(min, max + 1);
+        return RandomRolls.Next(random, min, max + 1, extraRolls);
     }
 
     public override string ToString() =>
@@ -147,17 +147,17 @@ public sealed class DamagePacket
     public DamagePacket Round() =>
         Select((_, range) => range.Round());
 
-    public DamagePacket Roll(Random random) =>
+    public DamagePacket Roll(Random random, int extraRolls = 0) =>
         Select((_, range) =>
         {
-            int roll = range.Roll(random);
+            int roll = range.Roll(random, extraRolls);
             return new DamageRange(roll, roll);
         });
 
-    public int RollTotal(Random random)
+    public int RollTotal(Random random, int extraRolls = 0)
     {
         int total = 0;
-        foreach (var (_, range) in Components) total += range.Roll(random);
+        foreach (var (_, range) in Components) total += range.Roll(random, extraRolls);
         return total;
     }
 

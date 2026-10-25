@@ -128,11 +128,61 @@ sealed class SkillCatalog(string folder = "data")
             Put("base_cooldown_count", cooldown.Uses);
             Put("virtual_total_cooldown_count", cooldown.Uses);
         }
-        if (quality > 0 && t.Quality.TryGetValue(effectRow, out var perQuality))
-            foreach (var (s, permille) in perQuality) stats[(uint)s + 1] = stats.GetValueOrDefault((uint)s + 1) + permille * quality / 1000;
+        foreach (var (key, value) in QualityStats(effectRow, quality)) stats[key] = stats.GetValueOrDefault(key) + value;
         return [.. stats.Select(kv => (kv.Key, kv.Value))];
 
         void Put(string name, int value) { if (_stats.Key(name) is uint k) stats[k] = value; }
+    }
+
+    /// <summary>Only this gem's quality contribution, before merging with character modifiers. Keeping it separate
+    /// prevents a quality-only stat from replacing a character's existing increased damage, cast speed or area.</summary>
+    public IReadOnlyList<(uint, int)> QualityStats(int effectRow, int quality)
+    {
+        if (quality <= 0 || _tables.Value is not { } t || !t.Quality.TryGetValue(effectRow, out var values)) return [];
+        return [.. values.Select(v => ((uint)v.Item1 + 1,
+            (int)Math.Clamp((long)v.Item2 * quality / 1000, int.MinValue, int.MaxValue)))];
+    }
+
+    /// <summary>The same final skill stats for simulation and the client. Level-based intrinsic stats keep their
+    /// existing precedence; quality adds to that result. The character's cast_speed_+% already includes its base and
+    /// combined speed inputs, so only the skill's extra quality inputs are added to this final value. The native
+    /// skill_area_of_effect_+% likewise contains the base area input, including quality, exactly once.</summary>
+    public Dictionary<uint, int> EffectStatsFor(int effectRow, int level, int quality,
+        IReadOnlyDictionary<uint, int> character, bool characterStatsWin = false)
+    {
+        var result = new Dictionary<uint, int>(character);
+        foreach (var (key, value) in EffectStats(effectRow, level))
+            if (characterStatsWin) result.TryAdd(key, value); else result[key] = value;
+        int Get(string name) => _stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
+        int Projected(string name, params string[] inputs) => _stats.Key(name) is uint key && result.TryGetValue(key, out int value)
+            ? value : inputs.Sum(Get);
+        int castSpeed = Projected("cast_speed_+%", "base_cast_speed_+%", "attack_and_cast_speed_+%");
+        int area = Projected("skill_area_of_effect_+%", "base_skill_area_of_effect_+%");
+        var qualityStats = QualityStats(effectRow, quality);
+        foreach (var (key, value) in qualityStats) result[key] = result.GetValueOrDefault(key) + value;
+        int Quality(string name) => _stats.Key(name) is uint key ? qualityStats.Where(s => s.Item1 == key).Sum(s => s.Item2) : 0;
+        if (_stats.Key("cast_speed_+%") is uint castSpeedKey)
+            result[castSpeedKey] = castSpeed + Quality("base_cast_speed_+%") + Quality("attack_and_cast_speed_+%") + Quality("cast_speed_+%");
+        if (_stats.Key("skill_area_of_effect_+%") is uint areaKey)
+            result[areaKey] = area + Quality("base_skill_area_of_effect_+%") + Quality("skill_area_of_effect_+%");
+        if (!SkillRestrictions.From(Get).DealsDamage(IsSpell(effectRow)) && _stats.Key("base_deal_no_damage") is uint noDamage)
+            result[noDamage] = 1;
+        if (CastMs(effectRow) is int baseMs and > 0)
+        {
+            int ms = IsInstant(effectRow) ? 0 : Math.Max(1, (int)Math.Round(baseMs / (1 + Math.Max(-99, Get("cast_speed_+%")) / 100.0)));
+            if (_stats.Key("virtual_base_spell_cast_time_ms") is uint time) result[time] = ms;
+            if (_stats.Key("hundred_times_casts_per_second") is uint rate) result[rate] = ms == 0 ? 0 : (int)Math.Round(100_000.0 / ms);
+        }
+        return result;
+    }
+
+    /// <summary>The actual cast delay, from exactly the skill stats published to the client.</summary>
+    public int CastTimeMs(int effectRow, int level, int quality, IReadOnlyDictionary<uint, int> character)
+    {
+        if (IsInstant(effectRow)) return 0;
+        var stats = EffectStatsFor(effectRow, level, quality, character);
+        return _stats.Key("virtual_base_spell_cast_time_ms") is uint key && stats.TryGetValue(key, out int value)
+            ? value : CastMs(effectRow);
     }
 
     /// <summary>
@@ -312,9 +362,16 @@ sealed class SkillCatalog(string folder = "data")
     /// attack's, unlike a spell, which the client paces by its cast time.</summary>
     public bool IsAttack(int effectRow) => _attackEffects.Value.Contains(effectRow);
 
+    public bool IsSpell(int effectRow) => _spellEffects.Value.Contains(effectRow);
+    public bool IsAura(int effectRow) => _auraEffects.Value.Contains(effectRow);
+    public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
+
     private readonly Lazy<HashSet<int>> _instantEffects = new(() => EffectsOfType(folder, "Instant"));
     private readonly Lazy<HashSet<int>> _movementEffects = new(() => EffectsOfType(folder, "Movement"));
     private readonly Lazy<HashSet<int>> _attackEffects = new(() => EffectsOfType(folder, "Attack"));
+    private readonly Lazy<HashSet<int>> _spellEffects = new(() => EffectsOfType(folder, "Spell"));
+    private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
+    private readonly Lazy<HashSet<int>> _warcryEffects = new(() => EffectsOfType(folder, "Warcry"));
 
     /// <summary>The GrantedEffects rows whose ActiveSkill has the ActiveSkillType of this Id.</summary>
     static HashSet<int> EffectsOfType(string folder, string typeId)
