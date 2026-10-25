@@ -68,6 +68,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   The character panel gets the chance again within 250 ms of a condition changing (the player tick).
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
+- Current Rage accumulates from paid mana costs and supported hit sources, with a shared hit-gain cooldown.
+  It has an actual maximum, loss delay/rate and attack damage multiplier; pause suspends timers and death clears it.
+  State and the spending remainder survive area connections, while refunded sources stop generating Rage.
+  Native Whisperer allocation/casts produced 30 Rage, its native counted buff and a fixed attack's 100 → 130 damage.
+  Area transfer, expiry, relog and paid refund were checked; spells retain their own damage.
+  Other generation families, per-Rage stat bonuses, Rage costs and Soul Gain Prevention remain unfinished.
+  Code: `RageState.cs`, `Program.Rage.cs` and the cost/hit hooks.
+  Docs: [current Rage](../docs/protocol/20-damage.md#current-rage-and-attack-damage).
 - Ward absorbs a single hit before energy shield, then restores in full after its delay.
   Body armour/evasion conversion, global defence increases and restoration-speed modifiers use the actual equipment.
   Antiquarian checks cover 10/20 Ward, broken/restored native buffs, paid refunds and damage absorption.

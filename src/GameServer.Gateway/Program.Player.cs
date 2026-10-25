@@ -112,6 +112,7 @@ partial class Program
     static async Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label)
     {
         TemporaryPassiveBuffs.For(CharacterName(conn)).Clear();
+        RageOf(conn).Clear();
         await EndAurasOnDeath(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, InstanceProtocol.DeathScreen(DeathScreenFlags(conn)), label);
     }
@@ -177,6 +178,7 @@ partial class Program
             uint mana = conn.PlayerMana, life = conn.PlayerLife;
             if (!cost.Pay(ref mana, ref life)) return false;
             (conn.PlayerMana, conn.PlayerLife) = (mana, life);
+            RageOf(conn).SpendMana(cost.Mana, DateTimeOffset.UtcNow, RageInputs(conn, CharacterStatSources(conn)));
             return true;
         }
     }
@@ -386,6 +388,7 @@ partial class Program
             await Task.Delay(PlayerTickMs);
             if (conn.Closed) break;
             await RefreshTemporaryPassives(remote, stream, ciphers, conn);
+            await RefreshRage(remote, stream, ciphers, conn);
             double tickNow = conn.Clock.Elapsed.TotalSeconds;
             double seconds = tickNow - last;
             last = tickNow;

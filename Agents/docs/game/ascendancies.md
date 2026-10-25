@@ -52,6 +52,9 @@ be refunded while ordinary allocations still spend those points.
 - Sightless and Final Blow replace the armed/unarmed attack critical base before increased chance.
   Sea Legs derives evasion and attack/spell critical increases from uncapped resistances after campaign penalties.
   The combined calculation applies overcap once and ignores weapons in the inactive set.
+- Whisperer's mana-spending node grants current Rage from paid costs; Rage changes real attack damage and expires.
+  Behemoth's maximum and maximum-on-hit-gain chance share that resource, rather than only displaying a maximum.
+  The state survives area transfers and clears on death; paid refunds remove its generation source.
 - Passive `GrantedEffectsPerLevel` references grant real skills without gems, with stable skill identities and exact
   native levels. Paladin's level 30 Determination/Grace or level 40 Discipline and Arakaali's level 15 Envy execute.
   Envy's no-reservation rule applies to its real reservation. Removing the source removes the active skill/effect;
@@ -83,7 +86,8 @@ be refunded while ordinary allocations still spend those points.
 not an implementation of its effect. Current numerical support is strongest for Aristocrat and Gambler; even those
 classes still have limitations. Support-gem execution and incoming ailments/stuns are absent, so Gem-lined Cap,
 conditional ailment immunities and Risk Aversion are not complete. The server also lacks the minion ownership/AI,
-Rage, warcry/totem, shrine/wisp and other subsystems required by most other signature notables.
+warcry/totem, shrine/wisp and other subsystems required by most other signature notables.
+Rage has a functioning resource/damage path, but its Vaal costs and other conditional mechanics remain unfinished.
 
 The [all-19 dependency map](phrecia-ascendancies.md#dependencies-of-all-19-classes) names the remaining systems and
 implementation waves. Each class must gain an actual gameplay proof for its signature mechanics before it can be
@@ -104,10 +108,10 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
-| Behemoth | Strength-derived mana; Power of Purpose mana-to-armour; unarmed critical base | Rage, Fortification, Rampage and armour against chaos |
+| Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance | Fortification, Rampage, Vaal Rage costs and armour against chaos |
 | Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
 | Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
-| Whisperer | Mana per Dexterity; no Intelligence mana bonus; free mana costs | Mana-derived damage, Rage, recoup and mana damage absorption |
+| Whisperer | Mana per Dexterity; no Intelligence mana bonus; free costs; Rage from mana spending | Mana-derived damage, recoup and mana damage absorption |
 | Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
 | Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |
 | Herald | Shared choice-node allocation and supported generic modifiers | Actual Herald effects/minions and Herald-specific gem/reservation rules |

@@ -136,6 +136,36 @@ also check pause, flasks and RF. The new visual behavior awaits that real-client
 The next support-gem work (#64) can add its effects as packet operations: `Add` for added damage, `Scale` for
 increased/more, and `AddGain`/`Convert` for conversion, without touching the life-update code.
 
+## Current Rage and attack damage
+
+`RageState` keeps a character's transient current Rage and mana-spending remainder across area connections.
+The target `Character.ot` supplies a base maximum of 30 and a two-second loss delay.
+The [GGG Rage rework](https://www.pathofexile.com/forum/view-thread/3531661#rage) establishes ten Rage lost per second,
+one percent more attack damage per Rage, and a shared half-second cooldown for gaining Rage from hits.
+It grants no inherent attack or movement speed.
+`maximum_rage`, increased effect, loss delay/rate and the no-inherent-loss flag modify that state.
+Pause suspends its timers; death clears both Rage and partial mana spending.
+This state is not permanent character-save data.
+
+Whisperer's `gain_x_rage_per_200_mana_spent` accumulates actual, successfully paid mana costs.
+It retains the remainder, crosses multiple thresholds in one payment, and ignores failed payments and life costs.
+Removing that source discards its partial accumulator.
+Generic, attack, melee and critical hit grants share the hit cooldown, including the incoming-hit grant.
+Behemoth's maximum bonus and maximum-Rage-on-hit-gain chance use the same state.
+Other generation sources, Rage costs, per-Rage speed/armour bonuses and Soul Gain Prevention are still separate work.
+
+The final Rage multiplier scales the complete attack packet before conversion, critical rolls and mitigation.
+Spells and existing reflected Impale stacks do not receive it.
+The client receives `current_rage` (7594), `virtual_maximum_rage` (12139), effective Rage and its final attack modifier.
+BuffDefinitions 1060 (`rage`) reads those count stats and requires no recovery-value payload or extra u16.
+Native verification allocated Whisperer's connected `540 → 863` path and spent 600 mana through Fireball.
+It produced 30 current Rage and the actual native Rage buff; a fixed attack reduced native monster life by 130,
+compared with 100 before Rage.
+That numerical control temporarily disabled inherent loss and waited for the cost-producing projectile to finish.
+The subsequent checks restored loss, retained current Rage through an area transfer, respected expiry on relog,
+and removed mana-based generation through a paid refund.
+Ignored evidence: `logs/phrecia-completion/rage-native.jsonl` and `rage-results.json`.
+
 ## Player Ward and timed Adrenaline
 
 `WardState` absorbs one mitigated, unblocked hit before energy shield, then breaks even when it absorbed the whole hit.

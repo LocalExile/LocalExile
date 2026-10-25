@@ -160,6 +160,7 @@ partial class Program
                 return;
             }
             (m.Life, stageStarts) = TakeDamageLocked(m, damage);
+            GainRageOnHit(conn, player, attack: true, WeaponProfileFor(conn, activeSet: true).Melee, critical);
             life = m.Life;
             conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
             if (life == 0) { m.Aggro = false; m.Dead = true; m.Impale.Clear(); }
@@ -509,6 +510,7 @@ partial class Program
             if (critical) hit = hit.Critical(spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
             hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
             int damage = (int)Math.Round(hit.MinTotal);
+            GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical);
             return (damage, critical);
         }, epoch: epoch);
     }
@@ -594,7 +596,8 @@ partial class Program
             if (critical) hit = hit.Critical(spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
             hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
             int damage = (int)Math.Round(hit.MinTotal);
-            await HitMonster(remote, stream, ciphers, conn, id, m, damage, $"{gem.Name}{(critical ? " (critical)" : "")}", melee: !spell, sequence: sequence);
+            await HitMonster(remote, stream, ciphers, conn, id, m, damage, $"{gem.Name}{(critical ? " (critical)" : "")}", melee: !spell, sequence: sequence,
+                onApplied: () => GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical));
         }
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
     }
@@ -794,10 +797,14 @@ partial class Program
 
     // A hit on a living monster: life is mutated once under Monsters, then notifications await outside the lock.
     static async Task HitMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
-        int damage, string by, bool log = true, bool melee = false, ushort sequence = 0)
+        int damage, string by, bool log = true, bool melee = false, ushort sequence = 0, Action? onApplied = null)
     {
         MonsterHit? hit;
-        lock (conn.Monsters) hit = ApplyMonsterHitLocked(conn, m, damage);
+        lock (conn.Monsters)
+        {
+            hit = ApplyMonsterHitLocked(conn, m, damage);
+            if (hit is not null) onApplied?.Invoke();
+        }
         if (hit is { } applied) await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, applied, damage, by, log, melee, sequence);
     }
 

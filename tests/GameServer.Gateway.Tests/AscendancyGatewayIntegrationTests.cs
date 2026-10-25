@@ -1120,6 +1120,50 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         TemporaryPassiveBuffs.For(game.Character).Clear();
     }
 
+    [Fact]
+    public async Task Whisperer_mana_spending_grants_current_rage_and_changes_attack_damage_but_not_spells()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 3, baseClass: 2, choice: "Whisperer", refundPoints: 60, level: 30);
+        EquipBlueGems(game, "Fireball");
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        var path = PathTo(definition, 863);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Equal(0, game.PlayerStat("current_rage"));
+        Assert.Equal(30, game.PlayerStat("virtual_maximum_rage"));
+        var gem = game.GemEffects().Single(g => g.Name == "Fireball");
+        var weapon = new SkillCatalog.Unarmed(1000, 100, 100, 8);
+        Dictionary<uint, int> Sources(ClientState state) => ProgramValue<Dictionary<uint, int>>("CharacterPlayerStats", state);
+        var beforeStats = Sources(game.State);
+        var before = ProgramValue<DamagePacket>("AttackHit", weapon, beforeStats);
+        var pay = typeof(Program).GetMethod("PaySkillCost", BindingFlags.Static | BindingFlags.NonPublic)!;
+        bool Pay()
+        {
+            object?[] args = [game.State, gem.Effect, gem.Level, gem.Quality, null];
+            return (bool)pay.Invoke(null, args)!;
+        }
+        game.State.PlayerMana = 0;
+        Assert.False(Pay()); Assert.Equal(0, game.PlayerStat("current_rage"));
+        for (int i = 0; i < 40; i++)
+        {
+            game.State.PlayerMana = 5;
+            Assert.True(Pay()); Assert.Equal(0u, game.State.PlayerMana);
+        }
+        Assert.Equal(10, game.PlayerStat("current_rage"));
+        Assert.Equal(10, game.PlayerStat("attack_damage_+%_final_from_rage"));
+        var afterStats = Sources(game.State);
+        var after = ProgramValue<DamagePacket>("AttackHit", weapon, afterStats);
+        Assert.Equal(before.MinTotal * 1.1, after.MinTotal, 6);
+        int Get(IReadOnlyDictionary<uint, int> stats, string name) => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var spellBase = Program.Skills.HitDamage(gem.Effect, gem.Level, gem.Quality);
+        Assert.Equal(SpellDamage.Packet(spellBase, n => Get(beforeStats, n)).MinTotal,
+            SpellDamage.Packet(spellBase, n => Get(afterStats, n)).MinTotal);
+        Assert.Equal(10, Get(Sources(game.Reload()), "current_rage"));
+        Assert.Null((await game.Change([863], allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0, game.PlayerStat("gain_x_rage_per_200_mana_spent"));
+        RageState.For(game.Character).Clear();
+    }
+
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 

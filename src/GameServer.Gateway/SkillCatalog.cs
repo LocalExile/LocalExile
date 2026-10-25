@@ -376,6 +376,7 @@ sealed class SkillCatalog(string folder = "data")
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
     /// attack's, unlike a spell, which the client paces by its cast time.</summary>
     public bool IsAttack(int effectRow) => _attackEffects.Value.Contains(effectRow);
+    public bool IsMelee(int effectRow) => _meleeEffects.Value.Contains(effectRow);
 
     public bool IsSpell(int effectRow) => _spellEffects.Value.Contains(effectRow);
     public bool IsAura(int effectRow) => _auraEffects.Value.Contains(effectRow);
@@ -384,6 +385,7 @@ sealed class SkillCatalog(string folder = "data")
     private readonly Lazy<HashSet<int>> _instantEffects = new(() => EffectsOfType(folder, "Instant"));
     private readonly Lazy<HashSet<int>> _movementEffects = new(() => EffectsOfType(folder, "Movement"));
     private readonly Lazy<HashSet<int>> _attackEffects = new(() => EffectsOfType(folder, "Attack"));
+    private readonly Lazy<HashSet<int>> _meleeEffects = new(() => EffectsOfType(folder, "Melee"));
     private readonly Lazy<HashSet<int>> _spellEffects = new(() => EffectsOfType(folder, "Spell"));
     private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
     private readonly Lazy<HashSet<int>> _warcryEffects = new(() => EffectsOfType(folder, "Warcry"));

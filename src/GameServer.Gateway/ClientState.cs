@@ -321,6 +321,8 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly Dictionary<ushort, AuraCatalog.Aura> Auras = [];
     public readonly Dictionary<int, ushort> PassiveBuffs = [];
     public readonly HashSet<int> ActiveTemporaryBuffs = [];
+    public RageState.Value? SentRage;
+    public ushort? RageBuff;
     public readonly Dictionary<(uint Monster, int Template), ushort> PassivePresences = [];
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];

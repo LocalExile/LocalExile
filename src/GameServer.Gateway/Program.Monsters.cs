@@ -263,6 +263,7 @@ partial class Program
             blocked = DamageModel.Blocks(conn.Pools.BlockChance, Random.Shared.NextDouble() * 100,
                 conn.Pools.AttackBlockLucky, conn.Pools.AttackBlockUnlucky);
             if (blocked) { damage = 0; chaosDamage = 0; }
+            RageOf(conn).EnemyHit(DateTimeOffset.UtcNow, RageInputs(conn, CharacterStatSources(conn)), Random.Shared.Next(100));
             manaBefore = conn.PlayerMana;
             int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
             int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
