@@ -30,7 +30,7 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   `SkillCatalog.Unarmed.Stats`.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
-  The overcapped resistances' derived evasion and critical increases now follow that rule (pending the live check).
+  The overcapped resistances' derived evasion and critical increases now follow that rule and are native-verified.
 
 ### Auras: reservation and effects
 

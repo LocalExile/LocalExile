@@ -839,11 +839,21 @@ for every item: every skill with a weapon restriction was greyed out (Ground Sla
   alike. The flags are ordinary stats (keys 5320/5321), so any source sets them: the Surfcaster's Sea Legs notable
   (PassiveSkills graph 61696, with its +40% `cold_and_lightning_damage_resistance_%`, which the passive/item aggregator
   adds to both elements' raw resistance), an item mod, or `/set_stat`. An explicit dev value replaces its own input —
-  the per-type and pair resistance stats and `base_maximum_*_damage_resistance_%` — rather than adding to the
-  aggregate, and `/set_stat` rebuilds the pools at once. `PoolsFor` derives the increases once per pool build (with the
+  the per-type, pair and all-element resistance stats, and per-type or global maximum resistance — rather than
+  adding to the aggregate, and `/set_stat` rebuilds the pools at once.
+  The shared inputs are `base_resist_all_elements_%`, `additional_maximum_all_resistances_%` and
+  `additional_maximum_all_elemental_resistances_%`.
+  `PoolsFor` derives the increases once per pool build (with the
   Kitava penalty inside the raw resistance; a penalty change rebuilds the pools again) and stores them in `Pools`, so
   the evade rolls, the panel and the spell consumers read the same numbers; the uncapped values stay in `Pools`
-  untouched. Live check pending.
+  untouched.
+  Thirteen native stat checks on a fresh Witch verified 120% cold/lightning resistance with each flag:
+  evasion 15 → 22 (45% additional increased evasion), spell crit 500 → 725 (45% increased chance).
+  Raising maxima to 90 reduced these to 19 and 650; a global +5 maximum gave 21 and 700.
+  Adding then clearing 40% all-element resistance gave 28/925 then 22/725.
+  Act 5 and Act 10 penalties reduced these to 17/575 then 15/500; clearing the penalties restored 22/725.
+  Zero flags and relog removed the development bonuses.
+  These validate the generic consumers; allocating Sea Legs belongs to the separate ascendancy lifecycle change.
 - **Spell Suppression** (`CharacterStats`, `DamageModel`): the passives' `base_spell_suppression_chance_%` is summed into
   `Pools` (capped at 100%, PoB `SuppressionChanceCap`); a successful roll makes a spell hit take 40% less damage
   (`SuppressionEffect` in PoB `src/Modules/Data.lua`). The passives' unconditional

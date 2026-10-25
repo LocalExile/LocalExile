@@ -142,6 +142,36 @@ public class ResistanceOvercapTests
     }
 
     [Fact]
+    public void Global_resistance_replacement_updates_both_overcaps_including_zero()
+    {
+        var stats = Catalog();
+        var sources = Sources(stats, ("base_resist_all_elements_%", 40),
+            (ResistanceOvercap.ColdEvasionFlag, 1), (ResistanceOvercap.LightningCritFlag, 1));
+        var applied = ResistanceOvercap.Applied(OvercappedBonus, sources,
+            Sources(stats, ("base_resist_all_elements_%", 0)), penalty: 0, stats);
+        Assert.Equal(80, applied.ColdResistance);
+        Assert.Equal(80, applied.LightningResistance);
+        Assert.Equal(5, applied.ColdOvercapEvasionPct);
+        Assert.Equal(5, applied.LightningOvercapCritPct);
+    }
+
+    [Theory]
+    [InlineData("additional_maximum_all_resistances_%")]
+    [InlineData("additional_maximum_all_elemental_resistances_%")]
+    public void Global_maximum_replacement_updates_both_overcaps(string name)
+    {
+        var stats = Catalog();
+        var sources = Sources(stats, (name, 10), (ResistanceOvercap.ColdEvasionFlag, 1),
+            (ResistanceOvercap.LightningCritFlag, 1));
+        var bonus = OvercappedBonus with { ColdMaxResistance = 10, LightningMaxResistance = 10 };
+        var applied = ResistanceOvercap.Applied(bonus, sources, Sources(stats, (name, 0)), penalty: 0, stats);
+        Assert.Equal(0, applied.ColdMaxResistance);
+        Assert.Equal(0, applied.LightningMaxResistance);
+        Assert.Equal(45, applied.ColdOvercapEvasionPct);
+        Assert.Equal(45, applied.LightningOvercapCritPct);
+    }
+
+    [Fact]
     public void Sea_Legs_grants_both_flags_and_the_pair_resistance()
     {
         var tree = new PassiveTree(Data());

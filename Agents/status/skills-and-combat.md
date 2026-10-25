@@ -235,14 +235,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   attacks and spells alike.
   The flags are ordinary stats, so any source sets them: the Surfcaster's Sea Legs notable (graph 61696, with its
   +40% cold-and-lightning pair resistance the aggregator now sums into both elements), an item mod, or `/set_stat`.
-  An explicit `/set_stat` value replaces its own input (the per-type and pair resistance stats and the per-type
-  maximum) instead of adding to the aggregate, and rebuilds the pools at once; a Kitava penalty change rebuilds them
+  An explicit `/set_stat` value replaces its own input (per-type, pair and all-element resistance, and per-type or
+  global maximum resistance) instead of adding to the aggregate, and rebuilds the pools; a Kitava change rebuilds them
   again.
   `PoolsFor` derives the increases once per pool build and stores them in the pools, so the monster-attack evade
   rolls, the panel rows and the spell crit consumers read the same numbers; the uncapped resistance values stay
   untouched, and Iron Reflexes' converted evasion keeps the overcapped increase once.
   Automated checks cover below/equal/above cap, the 90 maximum, both penalties, flag removal and override, additive
-  behaviour, spell/attack isolation and the Iron Reflexes conversion; the real-client panel check is pending.
+  behaviour, spell/attack isolation and the Iron Reflexes conversion.
+  Thirteen real-client stat checks verified evasion 15 → 22 and spell crit 500 → 725 at 120% resistances,
+  raised maxima, replacement of global inputs, both Kitava penalties, flag removal and relog.
+  Ascendancy allocation remains part of the separate lifecycle change.
   See [11](../docs/protocol/11-skills.md) §4, §5 and §12.
 - **Projectiles.** Moving targets are checked throughout flight by sweeping observed relative movement.
   A monster can change course away from a hit, enter the path later, or intercept before a farther target.
