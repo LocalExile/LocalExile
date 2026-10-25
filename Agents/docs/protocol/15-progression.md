@@ -51,7 +51,9 @@ yet confirmed on screen).
   Spell Damage and Mana, next to the Witch's start. The client waits for the tree back; without 0x33 the click is
   undone. The Gateway
   checks the node exists in the active graph and fits its ordinary or ascendancy budget. Ascendancy allocations
-  additionally require the selected class/family, graph connectivity and exclusive-choice rules. It saves the change
+  additionally require the selected class/family and exclusive-choice rules.
+  Both ordinary and ascendancy allocations require graph connectivity.
+  It saves the change
   and answers with 0x33; a refused click gets the old tree back. Unsupported expansion/32-bit IDs are refused intact.
 - **C→S 0x123** (3 bytes, u8 1 / 0): a panel opened or closed (sent when the tree opens and closes).
 - **C->S 0x35** (6 bytes): u16 node (big-endian, PassiveSkillGraphId), u16 effect (big-endian,
@@ -95,6 +97,32 @@ yet confirmed on screen).
   0xbf and the tree's 0x33 are sent back. `/add_refund_points <n>` remains a dev shortcut. Expansion nodes are still
   refused.
 - `/passives` lists the ordinary passive and refund points; `/reset_passives` refunds ordinary nodes (free).
+
+### Ordinary-tree connectivity
+
+`OrdinaryPassiveRules` checks the complete candidate against the selected normal or merged Phrecia graph before
+`ChangePassives` saves or charges anything.
+The character's implicit root comes from `PassiveSkills.Characters`, translated through `Characters.IntegerId`.
+Other class starts are not paid allocations or traversal bridges.
+An allocated Ascendant Path node can supply another implicit root through `display_can_take_character_start_point`.
+Its value is the target's `IntegerId` directly, not its table row or `IntegerId + 1`.
+For example, Path of the Marauder `24755` grants class `1`; its root is resolved from the extracted tables.
+
+Traversal follows undirected graph links through allocated ordinary nodes.
+Masteries may be reached from an allocated notable but cannot connect other branches.
+Proxy passives and expansion nodes are refused until actual cluster-jewel topology is implemented.
+Ordinary large jewel sockets remain allocatable.
+Allocation batches may arrive in any order; only their final connected set matters.
+The same check covers mastery selection, regret/gold refunds, development commands and family changes.
+It runs after the proposed ascendancy change, so refunding a Path grant cannot orphan ordinary nodes.
+
+On loading, validation precedes normalization and legacy gold migration.
+An invalid saved tree is refused with its original save retained.
+If a valid tree exceeds a lower level's budget, trimming removes the latest safely removable leaf rather than
+blindly deleting the last listed node.
+Mastery effects belonging to removed nodes are removed with them.
+Identity, ordinary/ascendancy allocations and refund payment still share the existing save transaction and stale-save
+comparison.
 
 ### Main ascendancies
 

@@ -491,7 +491,7 @@ partial class Program
             before = conn.Pools.Level;
             next = [.. conn.Passives];
             int points = Progression.PassivePoints(level) + conn.ExtraPassivePoints + AscendancyOrdinaryPoints(conn);
-            while (next.Count > 0 && next.Count > points + Passives.PointsGranted(next)) next.RemoveAt(next.Count - 1);
+            TrimOrdinaryPassives(conn, next, points);
             changed = next.Count != conn.Passives.Count;
             effects = conn.MasteryEffects.Where(kv => next.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
             ascendancy = conn.MainAscendancy;

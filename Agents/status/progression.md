@@ -20,6 +20,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/passives`, `/add_refund_points`, `/reset_passives`.
   Code: `PassiveTree.cs`, `CharacterSaves.cs`, Gateway (`ChangePassives`, `UseItem`).
   Docs: [15](../docs/protocol/15-progression.md) §2.
+- Ordinary-tree connectivity is checked on allocation, mastery selection, refunds, family changes and loading.
+  Each branch needs the character's start or an allocated Ascendant Path grant.
+  Masteries cannot connect separate branches; unsupported proxy/expansion nodes are refused.
+  Refused changes spend no gold or refund points, and invalid saves are retained.
+  Lowering a level removes safely refundable leaves, including after reverse-order allocation batches.
+  Client checks cover normal Elementalist, Phrecia Herald and Ascendant, including relog and full restart.
+  Code: `OrdinaryPassiveRules.cs`, Gateway (`ChangePassives`, `LoadProgress`, `ApplyLevel`).
+  Docs: [15](../docs/protocol/15-progression.md#ordinary-tree-connectivity),
+  [reproducible checks](../docs/game/ascendancies.md#ordinary-connectivity-and-ascendant-roots).
 - Passive masteries: S→C 0x33 carries selected effects (`node | effect << 16`) and C→S 0x35 selects the effect HASH16;
   a mastery node can be allocated normally and its effect selected/changed without spending another point.
   Block Mastery's four effects are implemented: max attack block +2, max spell block +2, 20 life + 20 mana on block,

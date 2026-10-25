@@ -92,6 +92,147 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false, "Slayer")]
+    [InlineData(true, "Aristocrat")]
+    public async Task Disconnected_ordinary_allocations_and_mastery_selections_restore_the_canonical_tree(
+        bool phrecia, string choice)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(level: 20,
+            family: phrecia ? AscendancyFamily.Phrecia : AscendancyFamily.Normal, choice: choice);
+        string before = game.SavedJson;
+        var snapshot = game.State.SavedPassiveProgress;
+        var pools = game.State.Pools;
+        ushort mastery = Program.Passives.EffectsFor(42533)[0].Hash; // Accuracy Mastery, far from the Duelist start.
+        foreach (var request in new (ushort Node, ushort? Effect)[] { (24377, null), (42533, mastery) })
+        {
+            var refused = await game.Change([request.Node], allocate: true, masteryEffect: request.Effect);
+            Assert.NotNull(refused.Error);
+            Assert.Equal(before, game.SavedJson);
+            Assert.Same(snapshot, game.State.SavedPassiveProgress);
+            Assert.Equal(pools, game.State.Pools);
+            Assert.Empty(game.State.Passives);
+            Assert.Empty(game.State.MasteryEffects);
+            Assert.Empty(PassivePacket(refused.Bytes, 0).Nodes);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Refunding_an_ordinary_bridge_is_refused_before_payment_but_a_leaf_can_be_refunded(bool goldRespec)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(level: 10);
+        Assert.Null((await game.Change([39725, 24377, 35568], allocate: true)).Error);
+        game.Stash.AddGold(1_000_000);
+        uint gold = game.Stash.Gold;
+        string before = game.SavedJson;
+        var snapshot = game.State.SavedPassiveProgress;
+        var refused = await game.Change([39725], allocate: false, refundPoints: !goldRespec, goldRespec: goldRespec);
+        Assert.NotNull(refused.Error);
+        Assert.Equal(before, game.SavedJson);
+        Assert.Same(snapshot, game.State.SavedPassiveProgress);
+        Assert.Equal(gold, game.Stash.Gold);
+        Assert.Equal((ushort)20, game.State.RefundPoints);
+        Assert.Equal(new ushort[] { 24377, 35568, 39725 }, PassivePacket(refused.Bytes, 3).Nodes);
+
+        long leafCost = Program.Passives.GoldRespecCost([35568], 10);
+        Assert.True(leafCost > 0);
+        var refunded = await game.Change([35568], allocate: false, refundPoints: !goldRespec, goldRespec: goldRespec);
+        Assert.Null(refunded.Error);
+        Assert.Equal(new ushort[] { 39725, 24377 }, game.State.Passives);
+        Assert.Equal(new ushort[] { 39725, 24377 }, game.Reload().Passives);
+        Assert.Equal(goldRespec ? (ushort)20 : (ushort)19, game.State.RefundPoints);
+        Assert.Equal(goldRespec ? gold - (uint)leafCost : gold, game.Stash.Gold);
+    }
+
+    [Fact]
+    public async Task A_complete_gold_respec_keeps_ascendancy_nodes_and_charges_only_ordinary_nodes()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(nodes: [54114], level: 10);
+        ushort[] ordinary = [39725, 24377, 35568];
+        Assert.Null((await game.Change(ordinary, allocate: true)).Error);
+        game.Stash.AddGold(1_000_000);
+        uint before = game.Stash.Gold;
+        long cost = Program.Passives.GoldRespecCost(ordinary, 10);
+        Assert.True(cost > 0);
+        var refunded = await game.Change(ordinary, allocate: false, goldRespec: true);
+        Assert.Null(refunded.Error);
+        Assert.Empty(game.State.Passives);
+        Assert.Equal(new ushort[] { 54114 }, game.State.MainAscendancy.Allocated);
+        Assert.Equal((ushort)20, game.State.RefundPoints);
+        Assert.Equal(before - (uint)cost, game.Stash.Gold);
+        Assert.Equal(new ushort[] { 54114 }, PassivePacket(refunded.Bytes, 1).Nodes);
+        Assert.Empty(game.Reload().Passives);
+    }
+
+    [Fact]
+    public void Loading_a_disconnected_ordinary_tree_refuses_it_without_rewriting_the_saved_json()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(level: 20);
+        var originalRuntime = game.State.SavedPassiveProgress;
+        var saved = CharacterSaves.Load(game.Character)!;
+        uint gold = game.Stash.Gold;
+        CharacterSaves.Write(game.Character, saved with { Passives = [24377], Gold = 123 });
+        string before = game.SavedJson;
+        Assert.Throws<AscendancyRuleException>(() => game.Reload());
+        Assert.Equal(before, game.SavedJson);
+        Assert.Equal(gold, game.Stash.Gold); // Validation also precedes migration of legacy character gold.
+        Assert.Same(originalRuntime, game.State.SavedPassiveProgress);
+        Assert.Empty(game.State.Passives);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Level_trimming_preserves_connectivity_when_a_valid_batch_was_allocated_in_reverse_order(bool reload)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(level: 10);
+        // A complete candidate is connected regardless of the order the client/dev command sends its nodes.
+        Assert.Null((await game.Change([35568, 24377, 39725], allocate: true)).Error);
+        ClientState after;
+        if (reload)
+        {
+            CharacterSaves.SetExperience(game.Character, CharacterStats.ExperienceFor(3));
+            after = game.Reload();
+        }
+        else
+        {
+            await game.SetLevel(3);
+            after = game.State;
+        }
+        Assert.Equal(3, after.Pools.Level);
+        Assert.Equal(new ushort[] { 24377, 39725 }, after.Passives.Order());
+        Assert.Equal(new ushort[] { 24377, 39725 }, CharacterSaves.Load(game.Character)!.Passives!.Order());
+        Assert.Equal(new ushort[] { 24377, 39725 }, game.Reload().Passives.Order());
+    }
+
+    [Fact]
+    public async Task An_Ascendant_extra_start_cannot_be_refunded_while_it_anchors_ordinary_allocations()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 2, baseClass: 0, choice: "Ascendant",
+            family: AscendancyFamily.Normal, level: 20);
+        ushort[] path = [193, 33875, 61437, 30690, 24755]; // Path of the Marauder.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Null((await game.Change([31628], allocate: true)).Error); // Adjacent to the Marauder's implicit start.
+        string before = game.SavedJson;
+        var refused = await game.Change([24755], allocate: false, refundPoints: true);
+        Assert.NotNull(refused.Error);
+        Assert.Equal(before, game.SavedJson);
+        Assert.Equal((ushort)20, game.State.RefundPoints);
+        Assert.Equal(new ushort[] { 31628 }, game.Reload().Passives);
+        Assert.Null((await game.Change([31628], allocate: false, refundPoints: true)).Error);
+        Assert.Null((await game.Change([24755], allocate: false, refundPoints: true)).Error);
+        Assert.Equal((ushort)14, game.State.RefundPoints); // One ordinary point plus five for the ascendancy node.
+        Assert.DoesNotContain((ushort)24755, game.Reload().MainAscendancy.Allocated);
+    }
+
     [Fact]
     public async Task Inherited_Fortune_cannot_be_refunded_while_its_granted_points_are_spent_and_payment_commits_with_nodes()
     {
@@ -687,6 +828,7 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         static readonly MethodInfo ManaRegenMethod = GatewayMethod("ManaRegenPerSecond");
         static readonly MethodInfo FlyProjectileMethod = GatewayMethod("FlyProjectile");
         static readonly MethodInfo CastMethod = GatewayMethod("CastGemSkill");
+        static readonly MethodInfo SetLevelMethod = GatewayMethod("SetLevel");
         readonly int _classRow;
         readonly bool _god;
         public string Character { get; } = $"AscInt{Guid.NewGuid():N}"[..22];
@@ -694,18 +836,20 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         public byte[] LastBytes { get; private set; } = [];
         public string SavedJson => Saves.Get(GameServer.Storage.SaveDatabase.Table.Characters, Character)!;
         public PlayerInventories Items => PlayerInventories.For(Character, Program.Items);
+        public AccountStash Stash => AccountStash.For(AccountStash.Key(State.Account ?? Character, State.League), Program.Items);
 
         static MethodInfo GatewayMethod(string name) => typeof(Program).GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Single(m => m.Name == name || m.Name.Contains($"g__{name}|", StringComparison.Ordinal));
 
         public GatewayCharacter(IReadOnlyList<string>? awards = null, IReadOnlyList<ushort>? nodes = null,
-            int classRow = 4, byte baseClass = 4, string choice = "Aristocrat", ushort refundPoints = 20, int level = 1, bool god = false)
+            int classRow = 4, byte baseClass = 4, string choice = "Aristocrat", ushort refundPoints = 20, int level = 1,
+            bool god = false, AscendancyFamily family = AscendancyFamily.Phrecia)
         {
             TestSaves.Ensure();
             _classRow = classRow;
             _god = god;
             Assert.NotNull(Program.Stats.Key("active_skill_base_area_of_effect_radius"));
-            var definition = Program.Ascendancies.Find(baseClass, AscendancyFamily.Phrecia, choice)!;
+            var definition = Program.Ascendancies.Find(baseClass, family, choice)!;
             Assert.NotNull(definition);
             CharacterSaves.Write(Character, new([], Experience: CharacterStats.ExperienceFor(level), RefundPoints: refundPoints,
                 MainAscendancy: new(definition.Identity, nodes ?? [], awards ?? AscendancyRules.AwardKeys)));
@@ -775,9 +919,15 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         });
 
         public Task<(string? Error, byte[] Bytes)> Change(ushort[] nodes, bool allocate, bool refundPoints = false,
-            ClientState? state = null, bool goldRespec = false) => Exchange((stream, cipher) =>
+            ClientState? state = null, bool goldRespec = false, ushort? masteryEffect = null) => Exchange((stream, cipher) =>
             (Task<string?>)ChangeMethod.Invoke(null,
-                ["ascendancy-integration", stream, cipher, state ?? State, nodes, allocate, "integration test", null, goldRespec, refundPoints])!);
+                ["ascendancy-integration", stream, cipher, state ?? State, nodes, allocate, "integration test", masteryEffect, goldRespec, refundPoints])!);
+
+        public Task<(string? Error, byte[] Bytes)> SetLevel(int level) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)SetLevelMethod.Invoke(null, ["ascendancy-integration", stream, cipher, State, level])!;
+            return null;
+        });
 
         async Task<(string? Error, byte[] Bytes)> Exchange(Func<NetworkStream, ConnectionCiphers, Task<string?>> work)
         {
@@ -809,6 +959,10 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             return (error, LastBytes);
         }
 
-        public void Dispose() => PlayerInventories.Forget(Character);
+        public void Dispose()
+        {
+            PlayerInventories.Forget(Character);
+            AccountStash.Forget(AccountStash.Key(State.Account ?? Character, State.League));
+        }
     }
 }

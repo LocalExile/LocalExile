@@ -65,7 +65,12 @@ The [all-19 dependency map](phrecia-ascendancies.md#dependencies-of-all-19-class
 implementation waves. Each class must gain an actual gameplay proof for its signature mechanics before it can be
 described as fully functional. Monster modifier resistance, exposure and curses still require additional sources.
 
-Ordinary tree connectivity and expansion/cluster jewel nodes remain separate unfinished work. Secondary ascendancy
+Ordinary tree connectivity is enforced on allocation, mastery selection, refunds, family changes and restoration.
+Ascendant's Path nodes supply their additional class starts; refunding one requires first removing ordinary branches
+which depend on it.
+Masteries cannot serve as bridges, and unsupported proxy/expansion nodes are refused.
+Expansion/cluster jewel topology remains separate unfinished work.
+Secondary ascendancy
 systems are not modelled as another main choice. Do not infer their support from the spare protocol byte.
 
 All rows below have the shared choice, point, ownership and save lifecycle. The effect column describes executed
@@ -95,6 +100,29 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Scavenger | Exclusive item choices; Fulcrum's conversion portion | Most chosen unique-item properties and their dependent subsystems |
 
 ## Evidence and reproducible checks
+
+### Ordinary connectivity and Ascendant roots
+
+The Gateway validates complete ordinary candidates against the selected graph before saving or paying a refund.
+See [the rules and load behavior](../protocol/15-progression.md#ordinary-tree-connectivity).
+Automated checks include disconnected allocations/masteries, bridge and leaf refunds with gold or regrets,
+whole-tree gold refunds, retained invalid saves, reverse-order allocation batches followed by level trimming,
+and Ascendant additional-root removal.
+Real-data checks cover first allocations for all seven classes in both graph families, mastery shortcuts and
+proxy/expansion placeholders beyond ordinary large jewel sockets.
+
+Client 3.29.3b checks use an isolated save database and the native buffered sender through the repository control
+bridge.
+Normal Elementalist and Phrecia Herald each reject isolated `21678`, accept the Witch path
+`57226 -> 21678 -> 32210`, refuse a `57226` refund without spending currency, and refund leaf `32210` for one regret.
+The client receives the canonical `0x33` tree after every request.
+Normal Ascendant allocates Path of the Marauder `24755`, then ordinary node `31628` from the additional start.
+Refunding the Path is refused until `31628` is refunded; the two accepted refunds cost one and five points respectively.
+These checks exercise real client/server packets and native tree state, rather than mouse clicks on the passive UI.
+All three characters retain their canonical allocations and refund totals after relog and a full client/Gateway restart.
+The isolated native trace and results are in ignored `logs/ordinary-connectivity/`.
+The verification harness selects password-digest mode for its fresh account and adds the tree request layouts to a
+temporary control-bridge copy; it authenticates normally and leaves the tracked bridge unchanged.
 
 ### Local client data override
 
@@ -150,8 +178,9 @@ dotnet test tests/GameServer.Data.Tests
 dotnet test tests/GameServer.Gateway.Tests
 ```
 
-Against the implementation integrated with upstream `793d153`, the required suites passed: Core 416, Data 34,
-Gateway 1,597; zero failures or skips. The Gateway suite includes 24 actual mutation/network integration scenarios.
+Against the implementation integrated with upstream `793d153`, including ordinary connectivity, the required suites
+passed: Core 416, Data 34, Gateway 1,626; zero failures or skips.
+The Gateway suite includes 33 actual mutation/network integration scenarios and 20 ordinary-connectivity checks.
 The full suite also checks catalog initialization from the test host's subdirectory; catalogs and the default
 experience table resolve absolute data paths rather than caching empty tables from an earlier working directory.
 The ClientOnly startup mock checks graph validation before gateway writes or client launch.

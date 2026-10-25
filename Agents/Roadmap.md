@@ -23,7 +23,9 @@ its items, and items are in rough priority order within each group.
 
 ## How to pick up an item
 
-1. Open a GitHub issue named after the item (or comment on an existing one) so two people don't do the same work.
+1. Search open pull requests and issues first, including claim comments, to check whether the item is already taken.
+   Continue existing work with its owner or choose another item instead of opening a duplicate pull request.
+   Open a GitHub issue named after the available item (or comment on an existing one) before starting it.
 2. Read the docs the item links to. Most items start with reverse engineering: find how the client reads a message,
    then send it from the server. [docs/re/tooling.md](docs/re/tooling.md) has the workflow and recipes.
 3. Verify with the real client through `.\scripts\dev\live.ps1`, and check the logs in `logs\`. Add tests for any

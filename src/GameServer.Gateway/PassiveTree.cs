@@ -3,8 +3,8 @@ using System.Text.Json;
 /// <summary>
 /// The passive skill tree's nodes: PassiveSkills.dat rows by PassiveSkillGraphId (the id the client allocates and S→C
 /// 0x3d lists), with their stats (Stats.dat rows + 1 = the client's stat keys) and the skill points they grant. Game data:
-/// data/tables/PassiveSkills.json, loaded on first use. The tree's connections (PassiveSkillGraph.psg) are not loaded: the
-/// client only asks for connected nodes, and drops unconnected ones from a 0x3d list itself (0x141eed000).
+/// data/tables/PassiveSkills.json, loaded on first use. OrdinaryPassiveRules validates ordinary connectivity against
+/// the selected generated PSG topology; AscendancyRules validates the separate ascendancy allocation.
 /// Masteries: PassiveSkillMasteryGroups.dat groups a mastery node's options and PassiveSkillMasteryEffects.dat holds the
 /// effects' stats. The client's 0x3d list carries the selected effects as node | effect &lt;&lt; 16; the effect is the
 /// effect row's HASH16 (the value in the client's passive tree data), not its data-table row index.

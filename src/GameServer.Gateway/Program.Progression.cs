@@ -28,6 +28,12 @@ partial class Program
         // Without the tree the saved passives can't be checked; dropping them would lose them at the next save.
         if (save?.Passives is { Count: > 0 } && !Passives.Loaded)
             throw new UnknownSavedItemException("allocated passives, but the passive tree (data/tables/PassiveSkills.json) is not loaded");
+        var ordinary = save?.Passives ?? [];
+        var ascendancy = save?.MainAscendancy ?? new();
+        if (ordinary.Any(n => Passives.Find(n) is not { IsAscendancy: false }))
+            throw new UnknownSavedItemException("unknown or ascendancy nodes in the ordinary passive allocation; the save was retained");
+        AscendancyRules.Validate((byte)Skills.ClassFor(conn.ClassRow).IntegerId, ascendancy);
+        ValidateOrdinaryPassives(conn, ordinary, ascendancy);
         // Gold is the account's (AccountStash.Gold): gold an older save kept with the character moves into the account, in one
         // transaction with the save letting go of it.
         if (save?.Gold is > 0 and uint oldGold)
@@ -42,13 +48,7 @@ partial class Program
         }
         lock (conn.Monsters)
         {
-            var ordinary = save?.Passives ?? [];
-            if (ordinary.Any(n => Passives.Find(n) is not { IsAscendancy: false }))
-                throw new UnknownSavedItemException("unknown or ascendancy nodes in the ordinary passive allocation; the save was retained");
-            conn.MainAscendancy = save?.MainAscendancy ?? new();
-            AscendancyRules.Validate((byte)Skills.ClassFor(conn.ClassRow).IntegerId, conn.MainAscendancy);
-            if (Ascendancies.GraphLoaded)
-                Ascendancies.ValidateOrdinaryNodes(conn.MainAscendancy.Selection?.Family ?? AscendancyFamily.Normal, ordinary);
+            conn.MainAscendancy = ascendancy;
             conn.Passives = [.. ordinary];
             conn.Waypoints.UnionWith(save?.Waypoints ?? []);
             conn.Visited.UnionWith(save?.Visited ?? []);
@@ -380,8 +380,34 @@ partial class Program
     static void TrimPassives(ClientState conn, int level)
     {
         int points = Progression.PassivePoints(level) + conn.ExtraPassivePoints + AscendancyOrdinaryPoints(conn);
-        while (conn.Passives.Count > 0 && conn.Passives.Count > points + Passives.PointsGranted(conn.Passives))
-            conn.Passives.RemoveAt(conn.Passives.Count - 1);
+        TrimOrdinaryPassives(conn, conn.Passives, points);
+    }
+
+    static void ValidateOrdinaryPassives(ClientState conn, IEnumerable<ushort> nodes, AscendancyProgress ascendancy) =>
+        OrdinaryPassives.Validate((byte)Skills.ClassFor(conn.ClassRow).IntegerId,
+            ascendancy.Selection?.Family ?? AscendancyFamily.Normal, nodes, ascendancy.Allocated);
+
+    // A batch may list its leaf before its prerequisite. Removing the last allocation alone could orphan that leaf.
+    // Keep the historical last-first preference, but only remove a node whose remaining tree is still connected.
+    static void TrimOrdinaryPassives(ClientState conn, List<ushort> nodes, int points)
+    {
+        ValidateOrdinaryPassives(conn, nodes, conn.MainAscendancy);
+        while (nodes.Count > points + Passives.PointsGranted(nodes))
+        {
+            int removable = -1;
+            for (int i = nodes.Count - 1; i >= 0; i--)
+            {
+                try
+                {
+                    ValidateOrdinaryPassives(conn, nodes.Where((_, index) => index != i), conn.MainAscendancy);
+                    removable = i;
+                    break;
+                }
+                catch (AscendancyRuleException) { }
+            }
+            if (removable < 0) throw new AscendancyRuleException("Ordinary passives cannot be reduced to the level's point budget");
+            nodes.RemoveAt(removable);
+        }
     }
 
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the
@@ -414,7 +440,7 @@ partial class Program
     }
 
     // Allocates (or, with allocate false, refunds) passive nodes: checked against the tree's nodes and the character's
-    // points, then saved, applied to the stats and sent back (0x3d). The client asks only for nodes connected to its tree.
+    // points and complete ordinary/ascendancy connectivity, then saved, applied to the stats and sent back (0x33).
     // A gold respec (goldRespec) refunds only allocated nodes and charges their cost (PassiveTree.GoldRespecCost); a
     // refund-point refund (refundPoints) spends one saved point per node. /reset_passives sets neither.
     static async Task<string?> ChangePassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -468,11 +494,6 @@ partial class Program
                 }
             }
             int ordinaryBudget = Progression.PassivePoints(conn.Pools.Level) + conn.ExtraPassivePoints + Passives.PointsGranted(next);
-            if (error is null && Ascendancies.GraphLoaded)
-            {
-                try { Ascendancies.ValidateOrdinaryNodes(ascendancy.Selection?.Family ?? AscendancyFamily.Normal, next); }
-                catch (AscendancyRuleException e) { error = e.Message; }
-            }
             if (error is null && ascendancyNodes.Count > 0)
             {
                 try
@@ -486,6 +507,11 @@ partial class Program
                         if (refundPoints) refundsSpent += result.Cost;
                     }
                 }
+                catch (AscendancyRuleException e) { error = e.Message; }
+            }
+            if (error is null)
+            {
+                try { ValidateOrdinaryPassives(conn, next, ascendancy); }
                 catch (AscendancyRuleException e) { error = e.Message; }
             }
             if (error is null && next.Count > ordinaryBudget + AscendancyRules.OrdinaryPointsGranted(baseClass, ascendancy))

@@ -249,8 +249,9 @@ Every reply should contain `"ok":true`; the last one lists your character.
   byte-order mark PowerShell adds.
 - The game's login screen may show a previously used account name in the Email field (the client remembers it per
   Windows user). Replace it with yours.
-- Only the Witch is supported for now. Other classes can be created, but in game you appear as a Witch (with your
-  character's name).
+- Characters use their selected base class's model and base stats.
+  Witch, Duelist and Scion have live-client coverage; individual skills and class mechanics remain partial.
+  See [Status](Status.md) and the [ascendancy guide](docs/game/ascendancies.md).
 - Then close both: an empty line quits the dev client, and Ctrl+C stops the host. You can keep `GameServer.Host`
   running while you play: it and the login server share the accounts in `data/saves.db`, and neither caches them.
 

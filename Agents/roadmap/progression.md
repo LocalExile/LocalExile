@@ -19,7 +19,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Minions' Accuracy equals yours (needs target rarity/distance and minions).
 - **Known:** ordinary and Phrecia main choices, separate budgets, ascendancy connectivity and paid refunds work.
   [Ascendancy usage and limits](../docs/game/ascendancies.md).
-- **Start:** quest refund/passive awards, native Labyrinth/Altar acquisition and ordinary-tree connectivity.
+- **Known:** ordinary allocations, masteries and refunds are checked against the character's available starts.
+  Level trimming preserves connected branches; unsupported expansion/proxy nodes are refused.
+- **Start:** quest refund/passive awards and native Labyrinth/Altar acquisition.
+  Ascendancy-system work is claimed in [#151](https://github.com/Wrathen/LocalExile/issues/151).
+  Check that issue and open pull requests before taking its native chooser work.
 - **Done when:** normal progression grants the points and opens the native ascendancy chooser without dev commands.
 
 ### Main ascendancy mechanics
@@ -30,4 +34,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Start:** complete the missing signature subsystems in the
   [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,
   minion ownership/AI, Rage, Ward, totems, shrines and passive-granted skills.
+  Juggernaut, endurance charges and stun are claimed in [#152](https://github.com/Wrathen/LocalExile/issues/152).
+  Linked supports are under development in [#207](https://github.com/Wrathen/LocalExile/pull/207).
+  Coordinate those dependencies before starting overlapping work.
 - **Done when:** each class's defining effect has a reproducible gameplay check and survives refunds and reloads.

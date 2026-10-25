@@ -359,8 +359,13 @@ partial class Program
             }
             var next = Saves.Atomically(() =>
             {
-                Ascendancies.ValidateOrdinaryNodes(chosen.Identity.Family, CharacterSaves.Load(CharacterName(conn))?.Passives ?? []);
-                return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest => AscendancyRules.Select(baseClass, latest, chosen.Identity));
+                var saved = CharacterSaves.Load(CharacterName(conn));
+                return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+                {
+                    var candidate = AscendancyRules.Select(baseClass, latest, chosen.Identity);
+                    ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
+                    return candidate;
+                });
             });
             lock (conn.Monsters)
             {
