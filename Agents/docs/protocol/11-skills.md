@@ -184,7 +184,9 @@ Armour and evasion are summed from the passive tree and the **base types** of th
 and boots ([13](13-items.md) §1): `base_physical_damage_reduction_rating` / `base_evasion_rating` are flat, while
 `physical_damage_reduction_rating_+%`, `evasion_rating_+%`, `evasion_and_physical_damage_reduction_rating_+%`
 (Cloth and Chain and similar nodes), `global_defences_+%` and the combined armour/evasion increase are additive
-increased modifiers. **Iron Reflexes** (`keystone_iron_reflexes`) converts all evasion rating, including the base 15 and
+increased modifiers. The overcapped cold resistance's increase is one of them (§12); it applies before the conversion,
+so Iron Reflexes' converted evasion keeps it, and the monster attacks roll against the boosted rating. **Iron Reflexes**
+(`keystone_iron_reflexes`) converts all evasion rating, including the base 15 and
 passive/item flat evasion, to armour and removes dexterity's 1% per 5 evasion; the converted part keeps the armour,
 evasion and shared defence increases once each. Item mods, quality, local defence rolls, shields and auras are not counted
 yet; the base value is the armour row's minimum, which is the client's default when the item's Armour component is zero.
@@ -263,6 +265,9 @@ stats for attacks, and `spell_critical_strike_chance_+%` / `base_spell_critical_
 client, so the Offence panel shows them.
 `SpellCriticalStrike` shares the raw player-plus-skill increased-chance calculation between `GemSkills` and projectile/
 area spell hits; the old final Fireball-based player display chance is not added as another input.
+The overcapped lightning resistance's increase reaches that calculation through `CharacterPlayerStats`, which adds the
+pools' stored derived value to the raw `critical_strike_chance_+%` once (§12); the attack and panel chances fold the
+same value in `PoolsFor` instead.
 Precision and Zealotry expose their existing crit bonuses through `AuraCatalog.RawStats` for that calculation.
 Pool construction still reads passives/items and adds `AuraCatalog.Bonus` once; it does not read `RawStats` back.
 The result rounds to integer permyriad, halves away from zero, then caps at 0–10000, matching
@@ -825,6 +830,20 @@ for every item: every skill with a weapon restriction was greyed out (Ground Sla
   the same rule. Armour reduction and player evasion as avoidance against monster attacks now exist (see §4);
   penetration and max-resistance modifiers are still not modelled, and monster evasion is used for the player's
   accuracy check (§5).
+- **Overcapped-resistance modifiers** (`ResistanceOvercap`, `DamageModel.Overcap`): while one of the flag stats is
+  set, the uncapped resistance above its maximum is a generic increased modifier — PoB `16de4b8`,
+  CalcDefence.lua's `ResistOverCap = max(0, total - max)` with the maximum capped at 90, applied as
+  `Evasion` (INC) for `EvasionRatingIncreasedByOvercappedColdRes` and, in CalcOffence.lua lines 745-748, as `CritChance`
+  (INC) for `CritChanceIncreasedByOvercappedLightningRes`: +1% increased evasion per 1% of cold overcap and +1%
+  increased critical chance per 1% of lightning overcap, additive with the other increases, for attacks and spells
+  alike. The flags are ordinary stats (keys 5320/5321), so any source sets them: the Surfcaster's Sea Legs notable
+  (PassiveSkills graph 61696, with its +40% `cold_and_lightning_damage_resistance_%`, which the passive/item aggregator
+  adds to both elements' raw resistance), an item mod, or `/set_stat`. An explicit dev value replaces its own input —
+  the per-type and pair resistance stats and `base_maximum_*_damage_resistance_%` — rather than adding to the
+  aggregate, and `/set_stat` rebuilds the pools at once. `PoolsFor` derives the increases once per pool build (with the
+  Kitava penalty inside the raw resistance; a penalty change rebuilds the pools again) and stores them in `Pools`, so
+  the evade rolls, the panel and the spell consumers read the same numbers; the uncapped values stay in `Pools`
+  untouched. Live check pending.
 - **Spell Suppression** (`CharacterStats`, `DamageModel`): the passives' `base_spell_suppression_chance_%` is summed into
   `Pools` (capped at 100%, PoB `SuppressionChanceCap`); a successful roll makes a spell hit take 40% less damage
   (`SuppressionEffect` in PoB `src/Modules/Data.lua`). The passives' unconditional

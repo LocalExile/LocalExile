@@ -17,6 +17,24 @@ public class DamageModelTests
     }
 
     [Fact]
+    public void Resistance_overcap_is_the_uncapped_value_above_its_maximum()
+    {
+        // PoB CalcDefence.lua: ResistOverCap = max(0, total - max).
+        Assert.Equal(0, DamageModel.Overcap(50, 75));
+        Assert.Equal(0, DamageModel.Overcap(75, 75));
+        Assert.Equal(45, DamageModel.Overcap(120, 75));
+    }
+
+    [Fact]
+    public void Resistance_overcap_caps_the_maximum_at_90_and_never_goes_negative()
+    {
+        Assert.Equal(80, DamageModel.Overcap(170, 100));
+        Assert.Equal(0, DamageModel.Overcap(90, 90));
+        // Below the maximum nothing is overcapped, even after a campaign penalty drives the value negative.
+        Assert.Equal(0, DamageModel.Overcap(-60, 75));
+    }
+
+    [Fact]
     public void A_hit_is_reduced_by_the_capped_resistance()
     {
         Assert.Equal(100, DamageModel.Mitigate(100, 0));

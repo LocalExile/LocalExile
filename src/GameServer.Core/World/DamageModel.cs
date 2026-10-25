@@ -77,6 +77,13 @@ public static class DamageModel
     public static int Capped(int resistance, int maxResistance = DefaultMaxResistance) =>
         Math.Clamp(resistance, ResistFloor, Math.Min(maxResistance, MaxResistCap));
 
+    /// <summary>Path of Building's <c>ResistOverCap</c> (CalcDefence.lua):
+    /// <c>output[type.."ResistOverCap"] = m_max(0, total - max)</c>, where <c>total</c> is the uncapped resistance
+    /// and <c>max</c> the per-type maximum capped at <see cref="MaxResistCap"/>. The overcapped part is what the
+    /// "increased by overcapped resistance" modifiers read (CalcDefence's Evasion / CalcOffence's CritChance).</summary>
+    public static int Overcap(int resistance, int maxResistance) =>
+        Math.Max(0, resistance - Math.Min(maxResistance, MaxResistCap));
+
     /// <summary>The damage left after a resistance, rounded to the nearest point.</summary>
     public static int Mitigate(int damage, int resistance, int maxResistance = DefaultMaxResistance)
     {

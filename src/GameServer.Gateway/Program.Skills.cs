@@ -79,11 +79,17 @@ partial class Program
     }
 
     // What /set_stat set, then the class's attributes and pools and the passives' stats for the stats it did not set.
-    static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
+    internal static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
     {
         Dictionary<uint, int> stats;
         lock (conn.Monsters) stats = new(conn.PlayerStats);
         foreach (var (k, v) in BaseStats(conn)) stats.TryAdd(k, v);
+        // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
+        // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances
+        // already fold the same value into the pools. Additive with whatever won above, as a derived stat source.
+        if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0
+            && Stats.Key("critical_strike_chance_+%") is uint critInc)
+            stats[critInc] = stats.GetValueOrDefault(critInc) + overCrit;
         // The passives' conditional attack speed is already one final value in Pools; /set_stat's raw attack-speed stats
         // stay additive. main_hand_attack_speed_+% is the total the client swings with, so Unarmed reads only it.
         int devAttackSpeed = 0;

@@ -572,6 +572,12 @@ partial class Program
         foreach (var (id, m) in stages) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
     }
 
+    // The quest flags the permanent Kitava resistance penalty mirrors (ResistancePenalty): the Act 5 pair and the
+    // Act 10 pair. A change to any of them rebuilds the pools (SetQuestFlags), because the overcapped-resistance
+    // modifiers (ResistanceOvercap) read the penalty.
+    internal static readonly string[] ResistancePenaltyAct5 = ["a5q6-CompletedBoss", "SinOnKitavaDefeat"],
+        ResistancePenaltyAct10 = ["a10q3-SeenBoss", "a10q3-UsedRewardBook"];
+
     // The permanent resistance penalty from Kitava: -30% after the Act 5 encounter and another -30% after the final
     // Act 10 Kitava. It is a quest penalty, not a buff/aura: the client keeps it through its quest flags, and the server
     // mirrors it from the same flags. (In the 3.29.3b tables the flags are a5q6-CompletedBoss and a10q3-SeenBoss /
@@ -581,11 +587,15 @@ partial class Program
         bool act5, act10;
         lock (conn.Monsters)
         {
-            act5 = conn.QuestFlags.Contains("a5q6-CompletedBoss") || conn.QuestFlags.Contains("SinOnKitavaDefeat");
-            act10 = conn.QuestFlags.Contains("a10q3-SeenBoss") || conn.QuestFlags.Contains("a10q3-UsedRewardBook");
+            act5 = ResistancePenaltyAct5.Any(conn.QuestFlags.Contains);
+            act10 = ResistancePenaltyAct10.Any(conn.QuestFlags.Contains);
         }
         return (act5 ? -30 : 0) + (act10 ? -30 : 0);
     }
+
+    // Whether a quest-flag change moves the Kitava resistance penalty.
+    static bool ChangesResistancePenalty(IEnumerable<string> changed) =>
+        changed.Any(ResistancePenaltyAct5.Concat(ResistancePenaltyAct10).Contains);
 
     // The player's final resistance for one damage type: the passive/gear modifier plus the Kitava quest penalty.
     static int Resistance(ClientState conn, DamageType type)
