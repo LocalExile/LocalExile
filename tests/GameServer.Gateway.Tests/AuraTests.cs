@@ -175,7 +175,7 @@ public class AuraTests
         var auras = new[] { Aura(skills, "Anger", 149, 0, 5000), Aura(skills, "Hatred", 150, 0, 5000) };
         var raw = AuraCatalog.RawStats(auras, 0, skills, stats).ToDictionary(x => x.Key, x => x.Value);
         int Get(string name) => stats.Key(name) is uint key ? raw.GetValueOrDefault(key) : 0;
-        var hit = DamageStats.Added(GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Physical, 100, 100), Get, false)
+        var hit = DamageStats.Added(GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Physical, 100, 100), Get, false, melee: false)
             .Convert(DamageStats.Conversion(raw, stats, true));
         Assert.Equal(16, hit[GameServer.Core.World.DamageType.Fire].Min);
         Assert.Equal(23, hit[GameServer.Core.World.DamageType.Fire].Max);

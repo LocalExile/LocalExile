@@ -72,9 +72,9 @@ partial class Program
     {
         var conversion = DamageStats.Conversion(stats, Stats, attack: true);
         double damageFactor = GamblerFor(stats).DamageFactor;
-        var list = weapon.Stats(stats, AttackHit(weapon, stats).Convert(conversion).Scale(damageFactor)).ToList();
+        var list = weapon.Stats(stats, AttackHit(weapon, stats, MeleeAttack(conn)).Convert(conversion).Scale(damageFactor)).ToList();
         if (OffhandWeaponFor(conn) is { } off)
-            list.AddRange(off.OffStats(stats, AttackHit(off, stats).Convert(conversion).Scale(damageFactor), WeaponProfileFor(conn).LocalAttackSpeedPct));
+            list.AddRange(off.OffStats(stats, AttackHit(off, stats, MeleeAttack(conn)).Convert(conversion).Scale(damageFactor), WeaponProfileFor(conn).LocalAttackSpeedPct));
         return list;
     }
 
@@ -114,7 +114,7 @@ partial class Program
         // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
         // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
         if (Stats.Key("skill_uses_main_hand") is uint usesMainHand && !devSet.Contains(usesMainHand)) stats[usesMainHand] = 1;
-        var attack = AttackHit(WeaponFor(conn), stats).Scale(GamblerFor(stats).DamageFactor);
+        var attack = AttackHit(WeaponFor(conn), stats, MeleeAttack(conn)).Scale(GamblerFor(stats).DamageFactor);
         foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
             if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
         // The conditions as they are now; the player tick sends the chance again when they change.
@@ -123,10 +123,17 @@ partial class Program
         return stats;
     }
 
+    // The melee context of an attack's added-damage stats — see DamageStats.Added. An attack gem classifies
+    // its own ActiveSkillType Melee; the default attack and the panel swing the active weapon set's weapon where an
+    // inactive weapon is not there at all (WeaponProfileFor) and unarmed swings are melee.
+    internal static bool MeleeAttack(ClientState conn, int gemEffect = -1) =>
+        gemEffect >= 0 && Skills.IsAttack(gemEffect) ? Skills.IsMelee(gemEffect)
+            : WeaponProfileFor(conn, activeSet: true).Melee;
+
     // Conversion for one hit: the player's stats plus the skill's own stats (base/skill conversion). Player stats win on
     // a key collision; the normal case is that the skill adds stats the player does not have.
-    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats) =>
-        DamageStats.Added(weapon.HitDamage(stats), name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell: false)
+    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
+        DamageStats.Added(weapon.HitDamage(stats), name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell: false, melee)
             .Scale(Math.Max(0, 1 + (Stats.Key("attack_damage_+%_final_from_rage") is uint rage ? stats.GetValueOrDefault(rage) : 0) / 100.0));
 
     static GamblerModifiers GamblerFor(IReadOnlyDictionary<uint, int> stats) =>

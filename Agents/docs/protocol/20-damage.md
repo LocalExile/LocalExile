@@ -83,12 +83,19 @@ The pool bonus joins the added range before the increases, so the increased atta
 conversion treat it like any other added lightning, and a fractional result is only rounded at the existing roll
 and panel stages (`AttackHit` is the shared attack packet constructor, so ordinary attacks and attack gem
 projectile/area hits agree).
+`attack_damage_+%` scales the added range for every attack.
+`melee_damage_+%` applies only in explicit melee context: the default attack uses its active weapon profile,
+and attack gems use `ActiveSkillType Melee` through `SkillCatalog.IsMelee`.
+An inactive weapon set cannot change that context.
 Spell hits and damage over time are untouched, and saved gem quality/experience is not read.
 The node's separate mana-cost drawback (`base_mana_cost_-%`) is a mana-cost change outside this damage
 consumption's scope.
-Seven real-client stat checks used a fresh synthetic Witch and development overrides for these inputs.
+Fourteen real-client stat checks used a fresh synthetic Witch and development overrides for these inputs.
 With the 6% grant, 56 maximum mana showed 3–3 added lightning and 1000 showed 60–60.
 Adding 50% increased lightning showed 90–90; 997 maximum mana showed 59–59 after the panel's existing floor.
+With 1000 mana, 50% increased attack damage showed 90–90; another 50% melee increase raised unarmed damage to 120–120.
+A wand stayed at 90–90 even with a club in the inactive set; switching to the club gave 120–120 and back gave 90–90.
+Clearing the attack increase left the ranged wand at 60–60 despite the melee input.
 Clearing the grant removed the lightning rows' damage, and relog restored the baseline maximum mana and damage.
 These checks validate the generic damage consumer; ascendancy allocation remains in its separate lifecycle change.
 

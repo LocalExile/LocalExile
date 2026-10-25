@@ -1135,7 +1135,7 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         var weapon = new SkillCatalog.Unarmed(1000, 100, 100, 8);
         Dictionary<uint, int> Sources(ClientState state) => ProgramValue<Dictionary<uint, int>>("CharacterPlayerStats", state);
         var beforeStats = Sources(game.State);
-        var before = ProgramValue<DamagePacket>("AttackHit", weapon, beforeStats);
+        var before = ProgramValue<DamagePacket>("AttackHit", weapon, beforeStats, true);
         var pay = typeof(Program).GetMethod("PaySkillCost", BindingFlags.Static | BindingFlags.NonPublic)!;
         bool Pay()
         {
@@ -1152,7 +1152,7 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.Equal(10, game.PlayerStat("current_rage"));
         Assert.Equal(10, game.PlayerStat("attack_damage_+%_final_from_rage"));
         var afterStats = Sources(game.State);
-        var after = ProgramValue<DamagePacket>("AttackHit", weapon, afterStats);
+        var after = ProgramValue<DamagePacket>("AttackHit", weapon, afterStats, true);
         Assert.Equal(before.MinTotal * 1.1, after.MinTotal, 6);
         int Get(IReadOnlyDictionary<uint, int> stats, string name) => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         var spellBase = Program.Skills.HitDamage(gem.Effect, gem.Level, gem.Quality);

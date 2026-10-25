@@ -34,7 +34,7 @@ static class SpellDamage
     /// mitigation.</summary>
     public static GameServer.Core.World.DamagePacket Packet(GameServer.Core.World.DamagePacket hit, Func<string, int> get, double addedEffectiveness = 1)
     {
-        hit = DamageStats.Added(hit, get, spell: true, effectiveness: addedEffectiveness);
+        hit = DamageStats.Added(hit, get, spell: true, melee: false, effectiveness: addedEffectiveness);
         int common = get("damage_+%") + get("spell_damage_+%") + (get("base_is_projectile") != 0 ? get("projectile_damage_+%") : 0);
         return hit.Select((type, range) =>
         {

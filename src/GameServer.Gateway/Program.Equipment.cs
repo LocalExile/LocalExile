@@ -103,7 +103,7 @@ partial class Program
 
     // activeSet: only the hands' rows (the active weapon set), for what the player swings now (the attack animation);
     // otherwise both sets, as the passive conditions read them.
-    static WeaponProfile WeaponProfileFor(ClientState conn, bool activeSet = false)
+    internal static WeaponProfile WeaponProfileFor(ClientState conn, bool activeSet = false)
     {
         var items = ItemsOf(conn);
         // An inactive weapon (requirements not met) is not there at all: the class is unarmed, as the default attack's

@@ -23,8 +23,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   whole numbers, main hand only, and an empty packet sends none.
   The rows and the server's hit share `AttackHit`, so the maximum-mana added lightning (Whisperer "we know all")
   appears in the panel the same way.
-  Seven real-client stat checks verified 56 mana → 3–3 lightning, 1000 → 60–60, 50% increased lightning → 90–90,
+  Fourteen real-client stat checks verified 56 mana → 3–3 lightning, 1000 → 60–60, 50% increased lightning → 90–90,
   997 → 59–59 at the panel's floor, removal and relog.
+  Generic attack increases apply; melee increases follow the actual attack type and active weapon set.
+  Native switching between wand and club verified ranged exclusion and melee inclusion of that increase.
   Code: `PanelStats.HandDamage`, Gateway (`CharacterPlayerStats`).
   Docs: [11](../docs/protocol/11-skills.md) §14.
 - Accuracy: the player's final rating includes flat/increased passives, weapon-specific stats and the unconditional

@@ -36,7 +36,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000));
 
-        var packet = DamageStats.Added(DamagePacket.Of(DamageType.Physical, 10, 20), get, spell: false);
+        var packet = DamageStats.Added(DamagePacket.Of(DamageType.Physical, 10, 20), get, spell: false, melee: false);
 
         Assert.Equal(10, packet[DamageType.Physical].Min);
         Assert.Equal(20, packet[DamageType.Physical].Max);
@@ -53,11 +53,12 @@ public class ManaAddedLightningTests
     {
         var catalog = new StatCatalog(Data());
         var stats = With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000);
-        // increased damage and increased melee: both attack-increase stats must scale the bonus
+        // increased damage and increased melee: both attack-increase stats must scale the bonus (melee here)
         stats[catalog.Key("damage_+%")!.Value] = 30;
         stats[catalog.Key("melee_damage_+%")!.Value] = 20;
 
-        var packet = DamageStats.Added(DamagePacket.Of(DamageType.Physical, 100, 100), Reader(catalog, stats), spell: false);
+        var packet = DamageStats.Added(DamagePacket.Of(DamageType.Physical, 100, 100), Reader(catalog, stats),
+            spell: false, melee: true);
 
         // The added-lightning bonus scales like any added range here; the weapon base's increases are
         // applied in HitDamage instead (Added only adds to the packet).
@@ -73,7 +74,7 @@ public class ManaAddedLightningTests
         var stats = With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000);
         stats[catalog.Key("lightning_damage_+%")!.Value] = 50;
 
-        var packet = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false);
+        var packet = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false, melee: false);
 
         Assert.Equal(90, packet[DamageType.Lightning].Min);
         Assert.Equal(90, packet[DamageType.Lightning].Max);
@@ -86,7 +87,7 @@ public class ManaAddedLightningTests
         var stats = With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000);
         stats[catalog.Key("lightning_damage_%_to_convert_to_cold")!.Value] = 50;
 
-        var packet = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false)
+        var packet = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false, melee: false)
             .Convert(DamageStats.Conversion(stats, catalog, attack: true));
 
         Assert.Equal(30, packet[DamageType.Lightning].Min);
@@ -100,8 +101,8 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000));
 
-        var attack = DamageStats.Added(DamagePacket.Empty, get, spell: false);
-        var spell = DamageStats.Added(DamagePacket.Empty, get, spell: true);
+        var attack = DamageStats.Added(DamagePacket.Empty, get, spell: false, melee: false);
+        var spell = DamageStats.Added(DamagePacket.Empty, get, spell: true, melee: false);
 
         Assert.Equal(60, attack[DamageType.Lightning].Min);
         Assert.Equal(0, spell[DamageType.Lightning].Min);
@@ -114,7 +115,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 0), 1000));
 
-        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false);
+        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false, melee: false);
 
         Assert.True(packet[DamageType.Lightning].IsZero);
     }
@@ -125,7 +126,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, -6), 1000));
 
-        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false);
+        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false, melee: false);
 
         // A negative range clamps to zero where the packet is assembled, as any added-damage range does.
         Assert.True(packet[DamageType.Lightning].IsZero);
@@ -139,7 +140,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 6), maxMana));
 
-        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false);
+        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false, melee: false);
 
         Assert.True(packet[DamageType.Lightning].IsZero);
     }
@@ -149,14 +150,14 @@ public class ManaAddedLightningTests
     {
         var catalog = new StatCatalog(Data());
         var stats = With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000);
-        var before = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false);
+        var before = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false, melee: false);
 
         // Spending mana is not in this dictionary at all: the packet is built from the character's resolved stats,
         // where "maximum_mana" is the full pool (ClassAttributes) and the current mana lives outside it on the
         // connection, so a spend or a reserved aura cannot appear here. Changing the pool — a level, an equipment,
         // a passive change — is what actually changes the bonus.
         stats[catalog.Key("maximum_mana")!.Value] = 2000;
-        var after = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false);
+        var after = DamageStats.Added(DamagePacket.Empty, Reader(catalog, stats), spell: false, melee: false);
 
         Assert.Equal(60, before[DamageType.Lightning].Min);
         Assert.Equal(120, after[DamageType.Lightning].Min);
@@ -168,7 +169,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000));
 
-        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false, effectiveness: 1.5);
+        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false, melee: false, effectiveness: 1.5);
 
         Assert.Equal(90, packet[DamageType.Lightning].Min);
         Assert.Equal(90, packet[DamageType.Lightning].Max);
@@ -180,7 +181,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 6), 997));
 
-        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false);
+        var packet = DamageStats.Added(DamagePacket.Empty, get, spell: false, melee: false);
         Assert.Equal(997.0 * 0.06, packet[DamageType.Lightning].Min);
         Assert.Equal(997.0 * 0.06, packet[DamageType.Lightning].Max);
 
@@ -195,7 +196,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000));
 
-        var packet = DamageStats.Added(DamagePacket.Of(DamageType.Physical, 10, 20), get, spell: false);
+        var packet = DamageStats.Added(DamagePacket.Of(DamageType.Physical, 10, 20), get, spell: false, melee: false);
         var rows = PanelStats.HandDamage(packet, "main_hand");
 
         Assert.Contains(("main_hand_minimum_lightning_damage", 60), rows);
@@ -215,7 +216,7 @@ public class ManaAddedLightningTests
             [Program.Stats.Key(DamageStats.MaxManaAddedLightning)!.Value] = 6,
         };
 
-        var hit = Program.AttackHit(new SkillCatalog.Unarmed(833, 2, 5, 8), stats);
+        var hit = Program.AttackHit(new SkillCatalog.Unarmed(833, 2, 5, 8), stats, melee: false);
 
         Assert.Equal(5, hit[DamageType.Physical].Max);
         Assert.Equal(60, hit[DamageType.Lightning].Min);

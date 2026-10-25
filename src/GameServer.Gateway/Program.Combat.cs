@@ -131,7 +131,7 @@ partial class Program
         }
         int attackEffect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } attackId ? Skills.EffectRow(attackId) : -1;
         var player = CharacterPlayerStats(conn);
-        var hit = AttackHit(weapon, player)
+        var hit = AttackHit(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee)
             .Convert(ConversionFor(conn, attackEffect, 1, attack: true));
         var rolls = GamblerFor(player);
         hit = rolls.RollOutgoingHit(hit, Random.Shared);
@@ -497,8 +497,9 @@ partial class Program
             bool spell = projectileHitPlan.Kind == SkillHitKind.Spell;
             if (!SkillRestrictions.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0)
                 .DealsDamage(spell)) return (0, false);
+            bool melee = MeleeAttack(conn, gem.Effect);
             var hit = projectileHitPlan.BuildHit(
-                () => SpellDamage.WithEffectiveness(AttackHit(WeaponFor(conn), stats),
+                () => SpellDamage.WithEffectiveness(AttackHit(WeaponFor(conn), stats, melee),
                         Skills.DamageEffectiveness(gem.Effect, gem.Level))
                     .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: true, quality: gem.Quality)),
                 spellBase => SpellDamage.Packet(spellBase, name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0,
@@ -585,7 +586,7 @@ partial class Program
         foreach (var (id, m) in targets)
         {
             DamagePacket hit = hitPlan.BuildHit(
-                () => SpellDamage.WithEffectiveness(AttackHit(weapon, stats), effectiveness)
+                () => SpellDamage.WithEffectiveness(AttackHit(weapon, stats, MeleeAttack(conn, gem.Effect)), effectiveness)
                     .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: true, quality: gem.Quality)),
                 spellBase => SpellDamage.Packet(spellBase, name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0,
                         AddedEffectiveness(gem.Effect, gem.Level))

@@ -376,6 +376,8 @@ sealed class SkillCatalog(string folder = "data")
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
     /// attack's, unlike a spell, which the client paces by its cast time.</summary>
     public bool IsAttack(int effectRow) => _attackEffects.Value.Contains(effectRow);
+    /// <summary>Whether a GrantedEffects row's skill classifies Melee (the ActiveSkillType). Decides whether an attack
+    /// gem's hit takes melee_damage_+% (the default attack does by its weapon profile instead).</summary>
     public bool IsMelee(int effectRow) => _meleeEffects.Value.Contains(effectRow);
 
     public bool IsSpell(int effectRow) => _spellEffects.Value.Contains(effectRow);
