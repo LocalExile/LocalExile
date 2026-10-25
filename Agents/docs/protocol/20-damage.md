@@ -86,6 +86,11 @@ projectile/area hits agree).
 Spell hits and damage over time are untouched, and saved gem quality/experience is not read.
 The node's separate mana-cost drawback (`base_mana_cost_-%`) is a mana-cost change outside this damage
 consumption's scope.
+Seven real-client stat checks used a fresh synthetic Witch and development overrides for these inputs.
+With the 6% grant, 56 maximum mana showed 3–3 added lightning and 1000 showed 60–60.
+Adding 50% increased lightning showed 90–90; 997 maximum mana showed 59–59 after the panel's existing floor.
+Clearing the grant removed the lightning rows' damage, and relog restored the baseline maximum mana and damage.
+These checks validate the generic damage consumer; ascendancy allocation remains in its separate lifecycle change.
 
 ## 3. Damage over time and ailments
 
