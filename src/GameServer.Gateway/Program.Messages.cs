@@ -90,12 +90,13 @@ partial class Program
                     var here = conn.Walk.Position(at);
                     if (!MonsterAtAim(conn, gem, use.X, use.Y, at) || Dist(here, (use.X, use.Y)) > WeaponFor(conn).Range)
                     {
-                        Interlocked.Increment(ref conn.ActionCount);
-                        conn.Walk.Order(use.X, use.Y, at);
-                        conn.ChannelSkill = 0;
+                        if (!TryBeginCooldownUse(conn, gem.Effect, CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                            () => { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(use.X, use.Y, at); conn.ChannelSkill = 0; },
+                            out var approachTicket, reserve: false, skillId: use.SkillId)) continue;
                         await Send(remote, stream, ciphers,
                             InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
-                            $"0x01ab {gem.Name}: attack-move to ({use.X}, {use.Y}) from ({here.X}, {here.Y}) (t={at:0.000})");
+                            $"0x01ab {gem.Name}: attack-move to ({use.X}, {use.Y}) from ({here.X}, {here.Y}) (t={at:0.000})",
+                            still: () => approachTicket?.Current(conn) ?? true);
                         continue;
                     }
                 }
@@ -107,20 +108,33 @@ partial class Program
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
                 }
-                Interlocked.Increment(ref conn.ActionCount);   // a new action replaces the current one: a pending hit no longer lands
-                var (px, py) = cast ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
-                if (cast) conn.Walk.Order(px, py, at);
-                // A movement skill (Leap Slam …) takes the player to the aimed point: the server keeps the position the
-                // client will have, or a later resync would pull the player back to where the skill started.
-                if (gem.Name is not null && Skills.IsMovement(gem.Effect)
-                    && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
-                    conn.Walk.Teleport(use.X, use.Y, at);
+                (int px, int py) = (0, 0);
+                CooldownUseTicket? cooldownUse = null;
+                void StartAction()
+                {
+                    Interlocked.Increment(ref conn.ActionCount);
+                    (px, py) = cast ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
+                    if (cast) conn.Walk.Order(px, py, at);
+                    // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway.
+                    if (gem.Name is not null && Skills.IsMovement(gem.Effect)
+                        && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
+                        conn.Walk.Teleport(use.X, use.Y, at);
+                }
+                if (cast && gem.Name is not null)
+                {
+                    if (!TryBeginCooldownUse(conn, gem.Effect, CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
+                        false, StartAction, out cooldownUse, skillId: use.SkillId)) continue;
+                }
+                else StartAction();
                 await Send(remote, stream, ciphers,
                     InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
-                    $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})");
+                    $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
+                    still: () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? true);
+                if (cooldownUse?.Current(conn) == false) continue;
                 conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
                 conn.ChannelSkillSequence = use.Slot;
-                if (cast) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, (px, py), (use.X, use.Y), sequence: use.Slot);
+                if (cast) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, (px, py), (use.X, use.Y), sequence: use.Slot,
+                    actionToken: cooldownUse?.ActionToken, cooldownUse: cooldownUse);
                 else await FollowRighteousFire(remote, stream, ciphers, conn);
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
                 if (mode == "teleport")

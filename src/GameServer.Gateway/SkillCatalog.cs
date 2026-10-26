@@ -364,6 +364,12 @@ sealed class SkillCatalog(string folder = "data")
     public int CooldownMs(int effectRow, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int gepl and >= 0 ? t.Cooldowns[gepl].Ms : 0;
 
+    public int CooldownUses(int effectRow, int level) =>
+        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Uses : 0;
+
+    public bool CooldownPausesWhileActive(int effectRow) =>
+        _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
+
     /// <summary>Whether a GrantedEffects row's skill is instant: its ActiveSkills row has the ActiveSkillType Instant (Haste,
     /// Righteous Fire). An instant skill is used while moving, without an action of its own.</summary>
     public bool IsInstant(int effectRow) => _instantEffects.Value.Contains(effectRow);
@@ -690,7 +696,7 @@ sealed class SkillCatalog(string folder = "data")
     // Quality: per GrantedEffects row its (quality stat, permille).
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
-        List<(int StatSet, int CastTime)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
+        List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
         List<int> VaalSouls, Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances)
@@ -710,7 +716,7 @@ sealed class SkillCatalog(string folder = "data")
             static (int, int)[] Pairs(int[] keys, int[] values) => [.. keys.Zip(values).Where(kv => kv.First >= 0)];
             var effects = new Dictionary<string, (int, int)>();
             var statSets = new List<int>();
-            var effectInfo = new List<(int, int)>();
+            var effectInfo = new List<(int, int, bool)>();
             int row = 0;
             foreach (var r in g.RootElement.EnumerateArray())
             {
@@ -718,7 +724,8 @@ sealed class SkillCatalog(string folder = "data")
                 int statSet = Int(r, "StatSet1");
                 if (id is not null) effects.TryAdd(id, (row, statSet));
                 statSets.Add(statSet);
-                effectInfo.Add((statSet, Math.Max(0, Int(r, "CastTime"))));
+                effectInfo.Add((statSet, Math.Max(0, Int(r, "CastTime")),
+                    r.TryGetProperty("CooldownNotRecoverDuringActive", out var pauses) && pauses.ValueKind == JsonValueKind.True));
                 row++;
             }
             var baseStats = new List<(int[], (int, int)[])>();

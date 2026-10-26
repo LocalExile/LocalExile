@@ -239,6 +239,25 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.U8(0).U8(0).ToArray());
     }
 
+    /// <summary>Actor 0x40's cooldown trailer (0x142197d24..0x142197fd8), without replacing any skill.
+    /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
+    /// A zero remaining budget clears the entry vector. Native skill base duration and cooldown group stay intact.</summary>
+    public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns)
+    {
+        var w = new BlobWriter().U8(0x40).U8(0).U8(0).U8(0).U32((uint)cooldowns.Count);
+        foreach (var c in cooldowns)
+        {
+            if (!float.IsFinite(c.RemainingBaseSeconds) || c.RemainingBaseSeconds < 0
+                || !float.IsFinite(c.TotalBaseSeconds) || c.TotalBaseSeconds <= 0
+                || !float.IsFinite(c.RecoveryRate) || c.RecoveryRate < 0)
+                throw new ArgumentOutOfRangeException(nameof(cooldowns));
+            w.U16(c.SkillId).U32(c.RemainingBaseSeconds > 0 ? 1u : 0u);
+            if (c.RemainingBaseSeconds > 0)
+                w.F32(c.RemainingBaseSeconds).F32(c.TotalBaseSeconds).F32(c.RecoveryRate).U32(0xffffffff);
+        }
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
     /// <summary>
     /// The player's experience (0x2ba to the Player component, reader <c>0x141e7ee30</c>): u16 flags, bit0 = u32 experience,
     /// which goes through the same setter as creation (<c>0x141e7f6b0</c>): the level is derived again from it and, when
@@ -752,6 +771,10 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     /// (and crashed, live 2026-10-23).</summary>
     public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init; } = [];
 }
+
+/// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
+public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
+    float TotalBaseSeconds, float RecoveryRate);
 
 /// <summary>ObjectMagicProperties rarity (flags bits 0-2 → +0x7c).</summary>
 public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }

@@ -276,14 +276,20 @@ partial class Program
     // `still`, when given, is checked inside the connection's send gate and drops the packet when false: a packet decided
     // before another task's packets were sent can check that it still applies (SendFlinch).
     // Projectile impacts commit their short locked damage mutation inside this gate before relocation.
-    static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
-        Func<bool>? still = null)
+    // atGate builds clock-sensitive authoritative state only after earlier packets finish, or returns null to send nothing.
+    internal static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
+        Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
         var gate = SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
         try
         {
             if (still is not null && !still()) return;
+            if (atGate is not null)
+            {
+                if (atGate() is not { } current) return;
+                bytes = current;
+            }
             if (log is not null) Console.WriteLine($"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}");
             string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;

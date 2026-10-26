@@ -873,6 +873,39 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Harbinger_recovery_changes_actual_Dash_budget_and_native_rate_without_dividing_native_base()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", refundPoints: 60, level: 20);
+        EquipBlueGems(game, "Dash");
+        var gem = Assert.Single(game.GemEffects());
+        SingleUseCooldown Plan() => ProgramValue<SingleUseCooldown?>("CooldownFor", game.State,
+            gem.Effect, gem.Level, gem.Quality)!.Value;
+        Assert.Equal(0, Plan().RecoveryPercent);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 3702);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var plan = Plan();
+        Assert.Equal(55, plan.RecoveryPercent);
+        Assert.Equal(2500, plan.BaseMilliseconds);
+        var player = ProgramValue<Dictionary<uint, int>>("CharacterPlayerStats", game.State);
+        var native = ProgramValue<IEnumerable<GrantedSkill>>("GemSkills", game.State,
+            player.Select(s => (s.Key, s.Value)).ToArray()).Single(s => s.Id == gem.Id);
+        Assert.Equal(2500u, native.CooldownMs);
+        Assert.Contains((Program.Stats.Key("virtual_cooldown_speed_+%")!.Value, 55), native.Stats!);
+        Assert.True(Program.TryBeginCooldownUse(game.State, gem.Effect, plan, false, () => { }, out var ticket));
+        var state = game.State.SingleUseCooldowns[gem.Effect];
+        Assert.Equal(2.5 / 1.55, state.RemainingSeconds, 6);
+        Assert.False(Program.TryBeginCooldownUse(game.State, gem.Effect, plan, false, () => { }, out _));
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0, Plan().RecoveryPercent);
+        Assert.Equal(1, state.Rate);
+        Assert.False(state.Ready); // Refund preserves an already spent use instead of resetting its budget.
+        Assert.Equal(2500, state.TotalBaseMilliseconds);
+        Assert.True(ticket!.Current(game.State));
+    }
+
+    [Fact]
     public async Task Impure_Blood_pays_actual_cast_life_and_refuses_unaffordable_cost_before_spending()
     {
         if (!DataAvailable()) return;
@@ -1449,7 +1482,7 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             {
                 await (Task)FlyProjectileMethod.Invoke(null, ["ascendancy-integration", stream, cipher, State,
                     ("Metadata/Projectiles/Fireball", 100_000f), (80, 100), (100, 100), damage,
-                    State.ProjectileEpoch, false, "none", radius])!;
+                    State.ProjectileEpoch, false, "none", radius, null])!;
                 return null;
             });
 
@@ -1459,8 +1492,11 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             var result = await Exchange(async (stream, cipher) =>
             {
                 var gem = GemEffects().Single(g => g.Name == name);
+                var plan = ProgramValue<SingleUseCooldown?>("CooldownFor", State, gem.Effect, gem.Level, gem.Quality);
+                if (!Program.TryBeginCooldownUse(State, gem.Effect, plan, false, () => { }, out var ticket, skillId: gem.Id))
+                    return null;
                 accepted = await (Task<bool>)CastMethod.Invoke(null,
-                    ["ascendancy-integration", stream, cipher, State, gem.Id, (32, 32), (48, 32), 0u, (ushort)0])!;
+                    ["ascendancy-integration", stream, cipher, State, gem.Id, (32, 32), (48, 32), 0u, (ushort)0, null, ticket])!;
                 return null;
             });
             return (accepted, result.Bytes);

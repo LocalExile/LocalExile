@@ -60,7 +60,7 @@ byte f0:
 ```
 u8 n,  n × skill record (0x142196ce0, through 0x1421981d0: insert sorted by id, replacing an equal id, then slot 7)
 u8 m,  m × (u32 ActiveSkills row (0x101-byte rows), u32, u32) → manager +0x188, the Vaal souls (not used)
-u32 k, k × (u16 skill id, u32 c, c × (u32, u32, u32, u32))     (not used)
+u32 k, k × (u16 skill id, u32 c, c × (f32 remaining base s, f32 total base s, f32 rate, u32 flags))
 ```
 
 Skill record (`0x142196ce0`):
@@ -505,8 +505,80 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `u32, u32, u32, u8` → +0xc0, +0xc4, +0xc8, +0xcc in `0x141ee73d0`), not from the data; or the stats
   `skill_cooldown_time_override_ms` / `skill_cooldown_is_4_seconds`. With 0 there the client kept no cooldown and the
   bar showed none (Frida: no records, +0xc8 = 0; live 2026-10-21); `GrantedSkill.CooldownMs` now carries GEPL Cooldown.
-  +0xd0 (the cooldown group) comes from the GEPL row's CooldownGroup (+0x30). The server also enforces it: `CastGemSkill` refuses a skill until its
-  GEPL Cooldown is over (`ClientState.SkillReadyAt`; Haste and the Purities 1200 ms, Righteous Fire 300 ms).
+  +0xd0 (the cooldown group) comes from the GEPL row's CooldownGroup (+0x30).
+  For ordinary one-use spells/attacks, the native base remains GEPL Cooldown; the final recovery percentage is
+  player-computed `virtual_cooldown_speed_+%` (3398) + the skill's own base (3397) and virtual (3398) inputs once.
+  Dash quality 20 adds 10%; the player's base input is already included in its computed virtual value.
+  `SingleUseCooldown` shares this resolution between granted skill stats and server readiness.
+  The server retains remaining **base milliseconds**, subtracting elapsed game-clock time times the recovery rate;
+  stat/skill refresh settles the old rate before installing the new one, and pause advances no game time.
+  Its ordinary preflight atomically checks readiness, reserves one use, and changes action/movement under `Monsters`
+  before an action echo or effect can run.
+  The Phrecia adapter checks current skill restrictions before reserving and retains effective gem levels,
+  atomic life/mana costs, Rage and the existing outgoing damage consumers.
+  A real-node Gateway regression gives Harbinger 3702's Dash rate 1.55 with native base 2500 ms;
+  paid refund changes the active rate to 1 without resetting its spent budget.
+  This adapter's real-client verification is still pending.
+  A queued continuation keeps the original action/area ticket; cancellation consumes the accepted use without a refund.
+  An attack approach only checks readiness, then reserves at arrival under its original action token.
+  Instant 0x191 skills preserve the current action.
+  A projectile's creation gate ends action cancellation; released flights continue with their existing area lifetime.
+  Multi-use, extra-use, duplicate same-effect gem, flat/override and pause-while-active mechanics retain legacy
+  `SkillReadyAt` raw deadlines.
+  Shared cooldown groups, bypass, conditional/enemy recovery, typed/more recovery and official tick equivalence are
+  outside this generic one-use implementation.
+  A zero recovery rate stalls a spent use.
+  Extreme input sums are bounded to avoid signed native `percent + 100` overflow.
+
+  Native evidence: Actor +0x598 owns the manager; its +0x170/+0x178 range holds 0x48-byte records.
+  A record's +0x10/+0x18 vector holds 0x10-byte entries: remaining base seconds, total base seconds, recovery rate,
+  flags; record +0x30 is uses, +0x34 base ms, +0x3c skill id, +0x40 group.
+  Constructor `0x141eebed0` reads skill +0xc8 unless an override applies.
+  `0x141eebfe0` takes the cooldown object at record +0x10 in RCX, recovery percent in EDX and group propagation in R8B;
+  it stores base ms / 1000 and `(100 + percent) / 100` separately.
+  Tick `0x141eebdb0..0x141eebdc8` subtracts elapsed time times rate.
+  `0x141eeb7aa..0x141eeb7e7` can refresh active rates, but ordinary skill replacement does not call it for a positive
+  rate change: `0x141eead13..0x141eead4a` only checks base/count changes or an existing zero rate.
+  Likewise, SkillStats' `0x14219465b..0x1421946d7` checks modifier/count/override changes, not recovery percentage.
+  Therefore updated 3398 alone leaves an active native entry at its old positive rate.
+  The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
+  `0x142197d24..0x142197e7b` reads its entries; `0x142197f90..0x142197fd8` replaces the matching cooldown's vector.
+  `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.
+  An empty vector clears a use that expired while the update waited; native base duration and group are untouched.
+  Only eligible spent uses whose original action/instant acknowledgement reached its gate can request this refresh.
+  The packet's factory samples game time and resolves the current skill id/effect map under `Monsters` at the actual
+  send gate, after the skill-stat update; dead/old-area states and recycled skill ids cannot refresh the wrong entry.
+  Unsynchronized progress stays dirty through rate round trips such as 1 -> 2 -> 1,
+  including changes before acknowledgement.
+  Rejected/unacknowledged uses send nothing.
+  Instant acknowledgements request one progress snapshot even at an unchanged rate: native use consumption starts at
+  0x1ce, so its fresh full budget must align with the original server reservation after time spent queued.
+  Ordinary casts keep their native predicted initial timing and refresh only changed progress.
+  A refresh replaces one entry, including zero-rate transitions, rather than appending or restarting it.
+  Initial ordinary prediction/network alignment and official tick boundaries are not claimed exact.
+  Pre-fix real-client Dash at +100% held base 2.5 s/rate 2 and completed natively within 1.4 s, but a raw 0x25 retry
+  was echoed/moved before the server rejected it for 1132 ms remaining (`logs/cooldown-before-dash-plus100.json`).
+  Automated checks cover 0/+100/-50%, source aggregation, quality, changing rates, pause,
+  and atomic stale-use rejection.
+  Real-client Dash checks pass for initial +100% (retry at 1.4 s), -50% (3 s refused, 5.2 s accepted), and an early
+  0.3 s raw request with no echo, movement or mana charge.
+  Pause held native remaining base time exactly through 1.2 s of wall time and refused the paused retry.
+  Artifacts: `logs/cooldown-after-dash-{plus100,minus50,early,pause}.json` in the validation checkout.
+  The initial rate-change check exposed the native positive-rate cache above: the server changed rate at 0.5 s,
+  while the client retained rate 1 (`logs/cooldown-after-dash-rate-change.json`).
+  A manual wire experiment replaced Frostblink's active entry with remaining 2.5/total 3/rate 2, retaining exactly one
+  entry and native base 3000; this verified the reader, not the production refresh path
+  (`logs/cooldown-manual-actor40-progress.json` in the validation checkout).
+  The production Dash rate-change check now passes: an actual Q use retained native base 2500/total 2.5 seconds,
+  and +100% recovery at 0.5 seconds changed the one existing entry from rate 1 to rate 2 without resetting progress.
+  A raw retry at 1.3 seconds was refused without an echo or mana cost; at 1.7 seconds the native entry was empty and
+  the next use succeeded. Exactly two accepted uses produced two action echoes and two mana costs.
+  Artifact: `logs/cooldown-after-dash-rate-change-fixed.json` in the validation checkout.
+  Layout, active/expired/zero/pause, rate-roundtrip and queued encrypted-send checks also pass.
+  Frostblink's C→S 0x190 location-instant handling belongs to a separate contribution; it is not implemented here.
+  [PoB](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/dev/src/Modules/CalcOffence.lua)
+  also divides base duration by recovery, then rounds ordinary one-use durations to its server tick.
+  This server keeps its existing continuous game clock and does not claim that tick boundary behavior.
 - **Mana.** The server keeps the player's mana (`PlayerMana`): a cast pays the skill's `mana_cost` first (refused
   without enough), and `RunPlayerTick` regenerates 1.75% of maximum mana per second (Character.ot
   `mana_regeneration_rate_per_minute_%` 105) plus `base_mana_regeneration_rate_per_minute`, raised by

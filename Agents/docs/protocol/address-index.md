@@ -328,6 +328,14 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 |---|---|---|
 | `0x1435db980` | VT | ActiveSkillManager (Actor +0x598; skills at +0x158, sorted by instance +0x40) |
 | `0x141eea6a0` | Fn | ActiveSkillManager::SkillInstanceAdded (manager slot 7) |
+| `0x141eea440` | Fn | find/create skill cooldown record (requires virtual cooldown count) |
+| `0x141eebed0` | Fn | cooldown object constructor: base duration from skill +0xc8 or override |
+| `0x141eebfe0` | Fn | cooldown consume: base-time entry and separate recovery rate |
+| `0x141eebdb0..0x141eebdc8` | Fn | cooldown tick subtracts elapsed time times recovery rate |
+| `0x141eeb7aa..0x141eeb7e7` | Fn | refresh an active cooldown entry's recovery rate |
+| `0x141eead13..0x141eead4a` | Fn | skill replacement refreshes cooldown only for base/count changes or zero rate |
+| `0x142197d24..0x142197e7b` | Fn | Actor 0x40 cooldown trailer reads base-time progress/total, rate and flags |
+| `0x142197f90..0x142197fd8` | Fn | Actor 0x40 replaces the matching existing cooldown entry vector |
 | `0x141ee97f0` | Fn | create the action for a skill id |
 | `0x142192860` | Fn | ClientActor ctor: basic actions from the type's u16 list (`type+0xf8`) |
 | `0x142198d40` | Fn | AddSkill(manager, ActionTypes HASH16): basic action |

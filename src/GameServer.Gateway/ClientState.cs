@@ -326,6 +326,8 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly Dictionary<(uint Monster, int Template), ushort> PassivePresences = [];
     // When each skill with a cooldown (GrantedEffects row) may be used again, in Clock seconds. Guarded by the Monsters lock.
     public readonly Dictionary<int, double> SkillReadyAt = [];
+    // Eligible ordinary one-use cooldowns retain remaining base-time units through recovery-rate changes.
+    public readonly Dictionary<int, SingleUseCooldownState> SingleUseCooldowns = [];
     // The skill ids the client has on this connection's player (SendPlayer, SendSkills): the 0x40 skill list only adds,
     // so the ones that leave are removed by id.
     public HashSet<ushort> ClientSkillIds = [];
