@@ -100,8 +100,8 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   Verify corrected native base/added damage before accepting that arithmetic; fuller DPS weighting remains open.
   Special ES mechanics, exposure, ailment application, conditional added-damage stats and support
   modifiers remain open.
-  Standard current-charge hooks/effects now have production integration coverage; finish combined native checks,
-  then Enduring Cry's distinct timing/cooldown/buff execution, charge sharing and remaining gain/consumption rules.
+  Standard current-charge hooks/effects have production and combined native coverage.
+  Continue with Enduring Cry's distinct timing/cooldown/buff execution, charge sharing and remaining gain/consumption.
   Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
   Its hovered stationary-monster 0x191 path now uses the native size-aware object aim and object-bound confirmation.
   Automated acceptance/queued rejection checks and manual native endpoint experiments pass.

@@ -131,7 +131,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Behemoth | Mana; unarmed crit; Rage; chaos armour; armour-scaled attacks | Fortification, Rampage, Vaal costs |
 | Antiquarian | Ward/Adrenaline; Strength duration; attacks cannot be evaded | Far Shot, stun and ranged/shield rules |
 | Wildspeaker | Suppression; Dexterity; owned wolves; minion damage transfer; Tailwind effect | Aspects and sharing |
-| Whisperer | Mana, lightning, free costs, Rage; spell-to-attack | Recoup, absorption, blind, forks |
+| Whisperer | Mana, lightning, free costs, Rage; spell-to-attack; minimum Frenzy/Power charges | Recoup, absorption, blind, forks |
 | Daughter of Oshabi | Oath; evasion-scaled attacks | Tracking, Wisps, Shrines, Vines, Spellslinger |
 | Harbinger | Extra ES/bypass, three actual companions, Arcane effects, Time action speed and Focus damage reduction | Ally-wide buffs and remaining time effects |
 | Herald | Shared choice-node allocation, Apocalypse's Herald-gem levels and supported generic modifiers | Actual Herald effects/minions and Herald-specific reservation rules |
@@ -141,7 +141,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Paladin | Granted auras, Deep Connections's Link-gem levels and Light of Divinity's nearby elemental damage taken | Ground, Links, Relics and party sharing |
 | Architect of Chaos | Equipped corruption conditions, Chaos Reigns's Vaal-gem levels, life reservation and life cost | Dissolution, sacrifices and Vaal souls |
 | Puppeteer | Percentage Strength and Flesh Puppets's Raise Zombie gem levels | Owned minions, inheritance, corpses and minion-death effects |
-| Polytheist | Gruthkul life/regeneration, Brine King maximum cold resistance, Lunaris spell area | Charges, Blind, curses, ailments and triggered effects |
+| Polytheist | Gruthkul life/regeneration, Brine King maximum cold resistance, Lunaris spell area, minimum three charges | Blind, curses, ailments and triggered effects |
 | Servant of Arakaali | Free passive-granted level 15 Envy | Spiders, Webs, Penance Mark and minion effects |
 | Blind Prophet | Armed critical base override and supported generic modifiers | Blind, projectile returns/direction and Shade Form |
 | Surfcaster | Stormy Seas conversion; Ghost of the Deep; Sea Legs overcap bonuses | Chill/shock/freeze and fishing-rod conditions |
@@ -184,6 +184,28 @@ zero life reserved and 34 mana reserved.
 Native traces also confirm installation/removal of nearby enemy buffs for Paladin, Bog Shaman and Ancestral Commander.
 The nine scenarios and read-only native observations are in ignored `logs/phrecia-completion/`.
 These checks establish the named effects, not completion of their entire classes.
+
+### Pinned upstream integration
+
+The merge of pinned main `bd28c4d` retains the Phrecia lifecycle, graph ownership, atomic saves and guarded charges.
+Linked supports use the existing raw skill/quality, normalized base/added damage, critical and timing consumers.
+Monster mod resistances compose with variety resistances, penetration and passive damage-taken rules.
+Owned wolves and Harbingers retain their lifetime/ownership guards; target leech prohibitions apply to wolves.
+Iron Flasks use the shared Ward state, and instant recovery respects reserved life.
+Isolated full suites pass Core 515, Data 34 and Gateway 2,635 using ordinary copied public extracted data.
+No client was launched or attached for this merge; the native observations below target their stated source commits.
+Enduring Cry's metadata is reusable, while its actual warcry timing, cooldown and buff execution remain open.
+
+### Standard charges
+
+Whisperer's there is more 2266 grants minimum four Frenzy/Power; Devout of Ralakesh 1830 grants minimum three of all
+types to Polytheist.
+Their real-node native checks cover allocation, clearing removable charges, travel, reconnect and paid refund.
+The native Buff component installs all three charge definitions and removes their instances on refund.
+Further native controls verify accepted player hit/kill gains, Power plus Sea Legs, Endurance damage reduction,
+original deadlines through loading, pause, death and normal reconnect.
+These 23 checks are recorded under ignored `logs/phrecia-completion/resume-native/`, source `a959224`.
+Charge sharing, consumption/replacement and Enduring Cry execution remain separate unfinished mechanics.
 
 ### Ward and timed Adrenaline
 
