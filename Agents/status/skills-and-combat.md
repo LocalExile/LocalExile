@@ -299,8 +299,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `ProjectileSpeed.cs`, `ProjectileFlight.cs`, `Program.Combat.cs` (`LaunchProjectile`, `FlyProjectile`), `ClientState.cs`,
   `InstanceProtocol.Teleport`.
   Docs: [11](../docs/protocol/11-skills.md) §10 and [22](../docs/protocol/22-pause.md).
-- **Combat.** The player's default attack kills monsters with server-side damage (no monster armour or resistances
-  yet; the player's hit lands at the attack animation's contact keyframe, a monster's still at half its attack time).
+- **Combat.** The player's default attack kills monsters with server-side damage and table-backed monster resistances.
+  Monster armour remains unimplemented.
+  The player's hit lands at the attack animation's contact keyframe, a monster's still at half its attack time.
   Monsters use their first granted effect and swing back; their attacks roll player evasion and then go through armour
   and block.
   The player's life comes from the class/level/passive pools.
@@ -323,9 +324,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Live checks covered absorption, regeneration, interrupted recharge and chaos bypass.
   Special ES keystones, leech/recoup and conditional substitutions remain unimplemented.
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
-  Added damage starts with the maximum-mana granted lightning stat (the Whisperer "we know all" node's damage
-  component; automated packet/panel checks, live verification pending).
-  Not yet: penetration/exposure, the other added-damage stats and more support modifiers, ailment
+  Flat additions and maximum-mana attack lightning execute with explicit attack/melee scaling context.
+  The allocated Whisperer path produced native 53/75-damage hits at 745 mana, free casts and restored costs after refund.
+  General/attack penetration and critical elemental ignore compose with existing Gambler and nearby effects.
+  Seven native damage checks and combined automated cases verify their ordering and source removal.
+  Not yet: exposure, conditional added damage and more support modifiers, ailment
   application/duration and monster resistance modifiers ([20](../docs/protocol/20-damage.md)).
   Monster base resistances now come from the target client's MonsterTypes/MonsterResistances tables.
 - Continuous life/mana recovery (2026-10-24): regeneration, flask recovery and self RF now share a 16 ms

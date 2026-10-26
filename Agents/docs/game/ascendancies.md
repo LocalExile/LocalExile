@@ -55,6 +55,8 @@ be refunded while ordinary allocations still spend those points.
 - Whisperer's mana-spending node grants current Rage from paid costs; Rage changes real attack damage and expires.
   Behemoth's maximum and maximum-on-hit-gain chance share that resource, rather than only displaying a maximum.
   The state survives area transfers and clears on death; paid refunds remove its generation source.
+- Whisperer's maximum-mana node adds real attack lightning, including attack/melee scaling and its free-cast rule.
+  General penetration and critical elemental ignore compose with existing target resistances and nearby effects.
 - Passive `GrantedEffectsPerLevel` references grant real skills without gems, with stable skill identities and exact
   native levels. Paladin's level 30 Determination/Grace or level 40 Discipline and Arakaali's level 15 Envy execute.
   Envy's no-reservation rule applies to its real reservation. Removing the source removes the active skill/effect;
@@ -111,7 +113,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance | Fortification, Rampage, Vaal Rage costs and armour against chaos |
 | Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
 | Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
-| Whisperer | Mana per Dexterity; no Intelligence mana bonus; free costs; Rage from mana spending | Mana-derived damage, recoup and mana damage absorption |
+| Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage | Recoup, mana damage absorption, blind and projectile forks |
 | Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
 | Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |
 | Herald | Shared choice-node allocation and supported generic modifiers | Actual Herald effects/minions and Herald-specific gem/reservation rules |

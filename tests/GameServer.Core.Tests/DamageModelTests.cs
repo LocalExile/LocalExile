@@ -45,6 +45,75 @@ public class DamageModelTests
     }
 
     [Fact]
+    public void Penetration_is_subtracted_from_the_capped_resistance()
+    {
+        // Path of Building's CalcOffence (16de4b8): the raw resistance is capped first (150 caps at the default 75),
+        // then the hit branch subtracts the 30 penetration from the capped value: an effective 45.
+        var mitigated = DamageModel.Mitigate(DamagePacket.Of(DamageType.Fire, 100, 100),
+            _ => new DamageModel.ResistanceValue(150, Penetration: 30));
+        Assert.Equal(55.0, mitigated[DamageType.Fire].Min);
+        Assert.Equal(55.0, mitigated[DamageType.Fire].Max);
+    }
+
+    [Fact]
+    public void Penetration_takes_the_effective_resistance_below_the_floor_without_a_second_clamp()
+    {
+        // The raw resistance floors at -200 first; the 30 penetration then takes the effective value to -230, so the
+        // hit deals more than its raw damage. A second clamp would have restored -200 and 300.
+        var mitigated = DamageModel.Mitigate(DamagePacket.Of(DamageType.Cold, 100, 100),
+            _ => new DamageModel.ResistanceValue(-300, Penetration: 30));
+        Assert.Equal(330.0, mitigated[DamageType.Cold].Min);
+    }
+
+    [Fact]
+    public void Penetration_on_one_type_leaves_the_packet_and_the_other_types_untouched()
+    {
+        // Physical has no penetration; a fully penetrated fire type (75 on 75) passes whole, a half-penetrated one
+        // (50 on 75) keeps a quarter, and the input packet keeps its own values (the mitigation returns a new packet).
+        var packet = DamagePacket.Of(DamageType.Fire, 100, 100).Add(DamageType.Physical, new DamageRange(50, 50));
+        var full = DamageModel.Mitigate(packet, type => type == DamageType.Fire
+            ? new DamageModel.ResistanceValue(75, Penetration: 75)
+            : new DamageModel.ResistanceValue(0));
+        Assert.Equal(100.0, full[DamageType.Fire].Min);
+        Assert.Equal(50.0, full[DamageType.Physical].Min);
+        var half = DamageModel.Mitigate(packet, type => type == DamageType.Fire
+            ? new DamageModel.ResistanceValue(75, Penetration: 50)
+            : new DamageModel.ResistanceValue(0));
+        Assert.Equal(75.0, half[DamageType.Fire].Min);   // an effective 25% resistance keeps three quarters
+        Assert.Equal(100.0, packet[DamageType.Fire].Min);
+        Assert.Equal(50.0, packet[DamageType.Physical].Min);
+    }
+
+    [Fact]
+    public void Negative_resistance_rises_by_the_penetration()
+    {
+        // -60 raw is inside the floor; the 30 penetration takes the effective value to -90.
+        Assert.Equal(190.0, DamageModel.Mitigate(DamagePacket.Of(DamageType.Lightning, 100, 100),
+            _ => new DamageModel.ResistanceValue(-60, Penetration: 30))[DamageType.Lightning].Min);
+    }
+
+    [Fact]
+    public void Mitigated_components_stay_fractional_until_the_total()
+    {
+        // A rolled 3 fire + 3 cold at 50% each is 1.5 + 1.5 in the packet and sums to 3, not a per-type 2 + 2 = 4.
+        var packet = DamagePacket.Of(DamageType.Fire, 3, 3).Add(DamageType.Cold, new DamageRange(3, 3));
+        var mitigated = DamageModel.Mitigate(packet, _ => new DamageModel.ResistanceValue(50));
+        Assert.Equal(1.5, mitigated[DamageType.Fire].Min);
+        Assert.Equal(1.5, mitigated[DamageType.Cold].Min);
+        Assert.Equal(3.0, mitigated.MinTotal);
+    }
+
+    [Fact]
+    public void A_fractional_component_mitigates_fractionally_and_never_below_zero()
+    {
+        // The fractional bounds survive the pass: 1.5 at 50% is 0.75, not a rounded 1.
+        var packet = DamagePacket.Of(DamageType.Fire, 1.5, 1.5);
+        Assert.Equal(0.75, DamageModel.Mitigate(packet, _ => new DamageModel.ResistanceValue(50))[DamageType.Fire].Min);
+        // An effective resistance over 100% (here 90 raw capped at 90 with a negative penetration) bottoms at zero.
+        Assert.Equal(0.0, DamageModel.Mitigate(packet, _ => new DamageModel.ResistanceValue(90, Penetration: -50))[DamageType.Fire].Min);
+    }
+
+    [Fact]
     public void Damage_over_time_keeps_its_fraction()
     {
         Assert.Equal(50.0, DamageModel.Mitigate(100.0, 50), 3);

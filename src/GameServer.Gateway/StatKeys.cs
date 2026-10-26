@@ -49,4 +49,6 @@ static class StatKeys
     // "Increased damage" stats that apply to an unarmed melee attack's physical damage (damage × (1 + sum / 100)):
     // damage_+%, physical_damage_+%, melee_damage_+%, melee_physical_damage_+% (strength's 1% per 5).
     public const uint DamagePct = 0x19, PhysicalDamagePct = 0x1b, MeleeDamagePct = 0x558, MeleePhysicalDamagePct = 0x1ed;
+    /// <summary>attack_damage_+% (Stats.dat row 2654): increased damage for both melee and ranged attacks.</summary>
+    public const uint AttackDamagePct = 0xa5f;
 }

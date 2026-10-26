@@ -39,7 +39,8 @@ readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int CriticalEx
             var r = resistance(type);
             int effective = DamageModel.Capped(r.Value, r.Maximum);
             if (invert && DamageTypes.IsElemental(type)) effective = -effective;
-            return range.Scale(Math.Max(0, 1 - effective / 100.0));
+            effective -= r.Penetration;
+            return new(DamageModel.MitigateBy(range.Min, effective), DamageModel.MitigateBy(range.Max, effective));
         });
     }
 

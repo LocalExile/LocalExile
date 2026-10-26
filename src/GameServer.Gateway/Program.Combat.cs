@@ -149,6 +149,7 @@ partial class Program
         }
         int attackEffect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } attackId ? Skills.EffectRow(attackId) : -1;
         var player = CharacterPlayerStats(conn);
+        var attackOwn = attackEffect >= 0 ? Skills.EffectStats(attackEffect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2) : null;
         var hit = AttackHit(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee)
             .Convert(ConversionFor(conn, attackEffect, 1, attack: true));
         var rolls = GamblerFor(player);
@@ -167,7 +168,8 @@ partial class Program
         int impaleStacks = m.Impale.Stacks;
         double impaleStored = m.Impale.Bonus;
         // Reflected Impale damage is added after the player's damage multipliers; it is not tripled/crit a second time.
-        hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
+        hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit,
+            HitResistancesFor(conn, m, player, attackOwn, critical, attack: true), Random.Shared));
         int damage = (int)Math.Round(hit.MinTotal);
         lock (conn.Monsters)
         {
@@ -527,7 +529,8 @@ partial class Program
             hit = rolls.RollOutgoingHit(hit, Random.Shared);
             bool critical = rolls.IsCritical(chance, Random.Shared);
             if (critical) hit = hit.Critical(spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
-            hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
+            hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit,
+                HitResistancesFor(conn, m, player, own, critical, attack: !spell), Random.Shared));
             int damage = (int)Math.Round(hit.MinTotal);
             GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical);
             return (damage, critical);
@@ -613,7 +616,8 @@ partial class Program
             hit = rolls.RollOutgoingHit(hit, Random.Shared);
             bool critical = rolls.IsCritical(criticalChance, Random.Shared);
             if (critical) hit = hit.Critical(spell ? conn.Pools.SpellCriticalStrikeMultiplier : conn.Pools.CriticalStrikeMultiplier);
-            hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit, type => MonsterResistance(conn, m, type), Random.Shared));
+            hit = ApplyPassiveDamageTaken(conn, m, rolls.MitigateOutgoingHit(hit,
+                HitResistancesFor(conn, m, player, skillStats, critical, attack: !spell), Random.Shared));
             int damage = (int)Math.Round(hit.MinTotal);
             await HitMonster(remote, stream, ciphers, conn, id, m, damage, $"{gem.Name}{(critical ? " (critical)" : "")}", melee: !spell, sequence: sequence,
                 onApplied: () => GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical));

@@ -133,7 +133,7 @@ partial class Program
     // Conversion for one hit: the player's stats plus the skill's own stats (base/skill conversion). Player stats win on
     // a key collision; the normal case is that the skill adds stats the player does not have.
     internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
-        DamageStats.Added(weapon.HitDamage(stats), name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell: false, melee)
+        DamageStats.Added(weapon.HitDamage(stats, melee), name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell: false, melee)
             .Scale(Math.Max(0, 1 + (Stats.Key("attack_damage_+%_final_from_rage") is uint rage ? stats.GetValueOrDefault(rage) : 0) / 100.0));
 
     static GamblerModifiers GamblerFor(IReadOnlyDictionary<uint, int> stats) =>
@@ -144,6 +144,22 @@ partial class Program
     static DamageModel.ResistanceValue MonsterResistance(ClientState conn, SpawnedMonster monster, DamageType type) =>
         new(type == DamageType.Chaos && PassivePresences(conn, monster).Any(b => b.Id == "CustomAscendancyNoChaosResistance")
             ? 0 : monster.Variety is { } variety ? Monsters.BaseResistance(variety, monster.Level, type) ?? 0 : 0);
+
+    // Resolve raw player/skill penetration before their other skill-stat overlays. Ignore is a property of this
+    // already-decided strike; the Gambler mitigation pass retains its one inversion roll and subtracts pen last.
+    internal static Func<DamageType, DamageModel.ResistanceValue> HitResistancesFor(ClientState conn,
+        SpawnedMonster monster, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
+        bool critical, bool attack)
+    {
+        var penetration = Penetration.Of(player, Stats, attack, skill);
+        var joined = new Dictionary<uint, int>(player);
+        if (skill is not null)
+            foreach (var (key, value) in skill) joined[key] = joined.GetValueOrDefault(key) + value;
+        var mods = GameServer.Core.World.HitResistances.Mods.From(joined, Stats.Key);
+        var strike = new GameServer.Core.World.HitResistances.Strike(critical, attack);
+        return type => GameServer.Core.World.HitResistances.Effective(type,
+            MonsterResistance(conn, monster, type) with { Penetration = penetration.Of(type) }, strike, mods);
+    }
 
     static double AddedEffectiveness(int effect, int level) => Skills.DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
 

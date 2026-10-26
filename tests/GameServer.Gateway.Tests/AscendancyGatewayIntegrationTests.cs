@@ -1164,6 +1164,77 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         RageState.For(game.Character).Clear();
     }
 
+    [Fact]
+    public async Task Penetration_and_critical_ignore_compose_with_inversion_and_nearby_elemental_damage_taken()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 13763), allocate: true)).Error);
+        var variety = Program.Monsters.Find("Metadata/Monsters/ZombieBoss/MapZombieBossHillock")!;
+        var target = new SpawnedMonster("combined resistance", new WalkEstimator(32, 32, 0), 0, 0, 1000)
+            { Variety = variety, Level = 68, Hostile = true };
+        var player = new Dictionary<uint, int> { [Program.Stats.Key("base_reduce_enemy_fire_resistance_%")!.Value] = 20 };
+        var own = new Dictionary<uint, int>(player);
+        var inverse = new GamblerModifiers(InvertElementalResistanceChance: 100);
+        var fire = DamagePacket.Of(DamageType.Fire, 100, 100);
+        double Damage(bool critical)
+        {
+            var resistance = Program.HitResistancesFor(game.State, target, player, own, critical, attack: true);
+            var hit = inverse.MitigateOutgoingHit(fire, resistance, new Random(1));
+            return ProgramValue<DamagePacket>("ApplyPassiveDamageTaken", game.State, target, hit).MinTotal;
+        }
+        Assert.Equal(225, Damage(false), 6); // (40 inverted - 20 player - 20 skill) => -80; then +25% taken.
+        player[Program.Stats.Key("critical_strikes_ignore_elemental_resistances")!.Value] = 1;
+        Assert.Equal(125, Damage(true), 6); // Ignore resolves to zero, including inversion and penetration.
+        player[Program.Stats.Key("cannot_penetrate_or_ignore_elemental_resistances")!.Value] = 1;
+        Assert.Equal(175, Damage(true), 6); // Pen/ignore blocked; the separate inversion rule still applies.
+    }
+
+    [Fact]
+    public async Task Fell_Fen_overrides_base_chaos_resistance_before_attack_penetration_and_respects_distance()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Bog Shaman", refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 47637), allocate: true)).Error);
+        var variety = Program.Monsters.Find("Metadata/Monsters/ZombieBoss/MapZombieBossHillock")!;
+        var target = new SpawnedMonster("combined chaos", new WalkEstimator(32, 32, 0), 0, 0, 1000)
+            { Variety = variety, Level = 68, Hostile = true };
+        var player = new Dictionary<uint, int> { [Program.Stats.Key("base_attack_damage_penetrates_chaos_resist_%")!.Value] = 30 };
+        double Damage() => new GamblerModifiers().MitigateOutgoingHit(DamagePacket.Of(DamageType.Chaos, 100, 100),
+            Program.HitResistancesFor(game.State, target, player, null, critical: true, attack: true), new Random(1)).MinTotal;
+        Assert.Equal(130, Damage(), 6); // 0 nearby chaos resistance, then 30 attack penetration.
+        target.Walk = new WalkEstimator(120, 120, 0);
+        Assert.Equal(105, Damage(), 6); // Native base 25, then 30 attack penetration.
+    }
+
+    [Fact]
+    public void Maximum_mana_added_lightning_keeps_attack_context_and_applies_Rage_once()
+    {
+        if (!DataAvailable()) return;
+        var stats = new Dictionary<uint, int>();
+        foreach (var (name, value) in new[] { ("maximum_mana", 1000), (DamageStats.MaxManaAddedLightning, 6),
+            ("attack_damage_+%", 50), ("melee_damage_+%", 50), ("attack_damage_+%_final_from_rage", 30) })
+            stats[Program.Stats.Key(name)!.Value] = value;
+        var weapon = new SkillCatalog.Unarmed(1000, 0, 0, 8);
+        Assert.Equal(156, Program.AttackHit(weapon, stats, melee: true)[DamageType.Lightning].Min, 6);
+        Assert.Equal(117, Program.AttackHit(weapon, stats, melee: false)[DamageType.Lightning].Min, 6);
+    }
+
+    [Fact]
+    public void Base_weapon_damage_uses_the_same_attack_and_melee_context_before_Rage()
+    {
+        var stats = new Dictionary<uint, int> { [StatKeys.AttackDamagePct] = 50, [StatKeys.MeleeDamagePct] = 50,
+            [StatKeys.MeleePhysicalDamagePct] = 50, [StatKeys.DamagePct] = 10, [StatKeys.PhysicalDamagePct] = 10 };
+        var weapon = new SkillCatalog.Unarmed(1000, 100, 100, 8);
+        Assert.Equal(270, Program.AttackHit(weapon, stats, melee: true).MinTotal, 6);
+        Assert.Equal(170, Program.AttackHit(weapon, stats, melee: false).MinTotal, 6);
+        stats[Program.Stats.Key("attack_damage_+%_final_from_rage")!.Value] = 30;
+        Assert.Equal(351, Program.AttackHit(weapon, stats, melee: true).MinTotal, 6);
+        Assert.Equal(221, Program.AttackHit(weapon, stats, melee: false).MinTotal, 6);
+    }
+
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 

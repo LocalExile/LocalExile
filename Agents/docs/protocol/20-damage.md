@@ -37,9 +37,9 @@ base skill/weapon damage by type
   → gain X% as extra (does not consume the source)
   → conversion (source is consumed; converted damage can convert again)
   → increased / more multipliers per type
-  → critical strike
-  → per-type resistance / mitigation
-  → roll a whole number per type and send the life change
+  → roll a whole number per type, then resolve the hit's critical strike
+  → per-type resistance, critical-ignore and penetration rules
+  → nearby damage-taken modifiers, then round the total and send the life change
 ```
 
 `DamagePacket` is immutable and holds one `DamageRange` per type. `DamageConversion` holds global conversion,
@@ -67,9 +67,9 @@ stats apply; `DamageStats` reads the Stats.dat names:
 frozen enemies", ...) are not read yet. Skill conversion takes precedence when skill and global conversion together
 exceed 100%, matching PoB's `buildConversionTable`.
 
-## 2b. Added damage from stats (the first stat)
+## 2b. Added damage and attack context
 
-Added damage is not fully modelled yet, but one stat is read.
+Flat attack/spell additions and maximum-mana attack lightning are read; conditional additions remain incomplete.
 `DamageStats.Added` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
@@ -88,8 +88,7 @@ projectile/area hits agree).
 and attack gems use `ActiveSkillType Melee` through `SkillCatalog.IsMelee`.
 An inactive weapon set cannot change that context.
 Spell hits and damage over time are untouched, and saved gem quality/experience is not read.
-The node's separate mana-cost drawback (`base_mana_cost_-%`) is a mana-cost change outside this damage
-consumption's scope.
+The node's separate signed `base_mana_cost_-% = -100` removes its base mana cost through `SkillCost`.
 Fourteen real-client stat checks used a fresh synthetic Witch and development overrides for these inputs.
 With the 6% grant, 56 maximum mana showed 3–3 added lightning and 1000 showed 60–60.
 Adding 50% increased lightning showed 90–90; 997 maximum mana showed 59–59 after the panel's existing floor.
@@ -97,7 +96,41 @@ With 1000 mana, 50% increased attack damage showed 90–90; another 50% melee in
 A wand stayed at 90–90 even with a club in the inactive set; switching to the club gave 120–120 and back gave 90–90.
 Clearing the attack increase left the ranged wand at 60–60 despite the melee input.
 Clearing the grant removed the lightning rows' damage, and relog restored the baseline maximum mana and damage.
-These checks validate the generic damage consumer; ascendancy allocation remains in its separate lifecycle change.
+The integrated lifecycle also allocated the real `17123 → 4174 → 1116 → 22720` Whisperer path.
+With 745 maximum mana and its actual 20% increased attack damage, six percent gives 53.64 lightning before the
+whole-number roll: a native monster lost 53 life from the hit.
+An additional 50% melee increase made the same target lose 75 life.
+Native Fireball spent no mana while the node was allocated, and its five-mana cost returned after a paid refund.
+Evidence stays in ignored `logs/phrecia-completion/whisperer-node-native.jsonl`.
+The weapon's physical base also uses the explicit attack/melee context, including increased attack damage;
+melee damage and Strength's melee-physical bonus do not apply to a ranged weapon base.
+
+## 2c. Outgoing resistance, penetration and critical ignore
+
+`HitResistancesFor` combines player and skill penetration before other skill-stat overlays.
+The general and attack-only consumers are in `Penetration`; the strike-specific rules are in `HitResistances`.
+They use the existing target-table resistance and nearby overrides through `MonsterResistance(conn, monster, type)`.
+The already-decided critical flag can resolve elemental resistance to zero, including negative resistance,
+and removes penetration for that ignored type.
+Non-critical elemental penetration adds to the general source.
+The cannot-penetrate-or-ignore flag suppresses both elemental rules; chaos remains a separate type.
+Damage over time keeps its own path and receives neither hit penetration nor a critical-strike rule.
+
+The Gambler pass still rolls inversion once per hit and caps the target's actual resistance before negating it.
+Penetration is subtracted afterward without a second cap; nearby damage-taken modifiers remain the last multiplier.
+The hit packet is not rolled again during mitigation, and fractional mitigated components survive until total rounding.
+Core and Gateway checks include same-key player/skill additions, negative and overcapped targets, attack/spell
+isolation, suppressors, inversion, Fell Fen's distance-dependent chaos override and Light of Divinity.
+These consumers integrate [PR 225](https://github.com/Wrathen/LocalExile/pull/225) and
+[PR 226](https://github.com/Wrathen/LocalExile/pull/226), retaining their pinned raw-stat definitions and primary-source notes.
+
+Seven integrated native damage checks used a fixed 100-fire attack against a target with 40% fire resistance.
+Observed life losses were 60 at baseline, 75 with allocated Light of Divinity, 100 with 20 penetration,
+188 with a critical strike and elemental ignore, 112 when the suppressor disabled penetration/ignore,
+and 112 for the non-critical general-plus-conditional penetration control.
+Refunding the actual Phrecia source removed only its nearby multiplier: the ignored critical hit then dealt 150.
+Every observation came from the client's actual monster Life component, with server logs alongside it.
+Evidence: ignored `logs/phrecia-completion/combined-resistance-native.jsonl`.
 
 ## 3. Damage over time and ailments
 
