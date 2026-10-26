@@ -400,6 +400,28 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: needs {souls} Vaal souls, has 0");
             return false;
         }
+        if (gem.Name is not null && Skills.IsWarcry(gem.Effect))
+        {
+            // No legacy/raw cooldown fallback, second payment, projectile or generic area-damage path.
+            if (cooldownUse is null || !EnduringCryUses.TryGetValue(cooldownUse, out var cry)
+                || !cooldownUse.TryExecute(conn, gem.Effect)) return false;
+            // Once this accepted use executes, cannot-cancel-before-contact ignores later ordinary action tokens.
+            var completion = ExecuteEnduringCry(remote, stream, ciphers, conn, cooldownUse);
+            if (cry.Cost.Mana > 0)
+                await SendGenerated(remote, stream, ciphers, () =>
+                {
+                    lock (conn.Monsters) return conn.ProjectileActive(cooldownUse.ProjectileEpoch) && !conn.Paused
+                        ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool) : null;
+                }, "Enduring Cry paid mana");
+            if (cry.Cost.Life > 0)
+                await SendGenerated(remote, stream, ciphers, () =>
+                {
+                    lock (conn.Monsters) return conn.ProjectileActive(cooldownUse.ProjectileEpoch) && !conn.Paused
+                        ? PlayerLifeUpdate(conn) : null;
+                }, "Enduring Cry paid life");
+            await completion;
+            return true;
+        }
         // Eligible uses arrive with their one original preflight reservation. Never reserve again after an await.
         if (cooldownUse is not null)
         {
@@ -514,6 +536,11 @@ partial class Program
         ushort skillId, uint targetId, (int X, int Y) at)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is not null && Skills.EffectId(gem.Effect) == EnduringCry.Effect)
+        {
+            await UseInstantEnduringCry(remote, stream, ciphers, conn, skillId);
+            return;
+        }
         if (gem.Name is not null && InstantLocationSkill.Supported(Skills, gem.Effect))
         {
             await UseInstantSkillAtLocation(remote, stream, ciphers, conn, skillId,
@@ -539,6 +566,11 @@ partial class Program
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is not null && Skills.EffectId(gem.Effect) == EnduringCry.Effect)
+        {
+            await UseInstantEnduringCry(remote, stream, ciphers, conn, skillId);
+            return;
+        }
         if (gem.Name is null || !InstantLocationSkill.Supported(Skills, gem.Effect)) return;
         var own = Skills.EffectStats(gem.Effect, gem.Level, gem.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         int epoch;

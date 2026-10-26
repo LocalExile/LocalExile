@@ -101,10 +101,13 @@ partial class Program
 
     // What /set_stat set, then the class's attributes and pools and the passives' stats for the stats it did not set.
     internal static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
+        => CharacterPlayerStatsCore(conn, includeEnduringCry: true);
+
+    static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, bool includeEnduringCry)
     {
         Dictionary<uint, int> stats;
         lock (conn.Monsters) stats = new(conn.PlayerStats);
-        foreach (var (k, v) in BaseStats(conn)) stats.TryAdd(k, v);
+        foreach (var (k, v) in BaseStatsCore(conn, includeEnduringCry)) stats.TryAdd(k, v);
         UtilityFlasks.AddRawStats(stats, conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         // A developer value replaces its complete input, including temporary flask/ground contributions.
         lock (conn.Monsters)
@@ -223,12 +226,15 @@ partial class Program
     // allocated passives, summed (increased life and the attributes are already in the pools; the rest, such as increased
     // spell damage, the client only shows).
     static IEnumerable<(uint, int)> BaseStats(ClientState conn)
+        => BaseStatsCore(conn, includeEnduringCry: true);
+
+    static IEnumerable<(uint, int)> BaseStatsCore(ClientState conn, bool includeEnduringCry)
     {
         var seen = new HashSet<uint>();
         foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools)) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
-        var extra = CharacterStatSources(conn, nodes);
+        var extra = CharacterStatSourcesCore(conn, nodes, null, includeEnduringCry);
         RageStats(conn, extra);
         SummonStats(conn, extra);
         CompanionCounts(conn, extra);
@@ -362,7 +368,9 @@ partial class Program
             if (Stats.Key("base_mana_cost") is uint baseManaCost) stats[baseManaCost] = (int)cost.Mana;
             if (Stats.Key("base_life_cost") is uint baseLifeCost) stats[baseLifeCost] = (int)cost.Life;
             var own = supported.Stats;
-            if (singleSources.Contains(effect) && SingleUseCooldown.ForSkill(Skills, Stats, effect, level, playerStats, own) is { } cooldown
+            var cooldownPlan = Skills.IsWarcry(effect) ? CooldownFor(conn, effect, level, quality)
+                : singleSources.Contains(effect) ? SingleUseCooldown.ForSkill(Skills, Stats, effect, level, playerStats, own) : null;
+            if (cooldownPlan is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
             // The gem's own record swings with its own context's attack multiplier (MeleeAttack classifies the gem
@@ -544,6 +552,16 @@ partial class Program
                 : SupportedSkill(conn, skillId).Stats.GetValueOrDefault(triggered) != 0))
             return "This skill can only be triggered.";
         if (SkillRestrictionReason(conn, effect) is { } restriction) return restriction;
+        if (Skills.IsWarcry(effect))
+        {
+            if (Skills.EffectId(effect) != EnduringCry.Effect || skillId == 0
+                || !EnduringCrySingletonGroup(conn, skillId)
+                || EnduringCryProfile(conn, skillId)?.CanResolveOwnerEffect != true)
+                return "Unsupported manual warcry configuration";
+            var warcry = SupportedSkill(conn, skillId);
+            if (SingleUseCooldown.ForSkill(Skills, Stats, effect, warcry.Level,
+                CharacterPlayerStats(conn), warcry.Stats) is null) return "Unsupported warcry cooldown";
+        }
         var grants = GemSkillEffects(conn).Where(g => g.Effect == effect && (skillId == 0 || g.Id == skillId)).ToArray();
         // Passive-granted skills have their own level and no socketed gem's requirements, but still need valid timing.
         if (skillId == 0 || !grants.Any(g => g.Gem == 0))

@@ -97,6 +97,9 @@ be refunded while ordinary allocations still spend those points.
 - Spell-use, spell-damage, warcry and aura restrictions use the actual skill types. Gruthkul refuses spells before
   paying their costs; Rampager still permits utility spell casts while suppressing spell damage. Disabled auras
   suspend their runtime effect/reservation while retaining enabled intent, and restore after refunding the restriction.
+- Normal manual Enduring Cry has a bounded paid owner-charge and timed regeneration path with automated coverage.
+  Call of the Ancestors supplies its separate speed/recovery inputs, and Ancestral Endurance raises the charge cap.
+  The native action/elapsed-buff pass remains pending; taunt, ally sharing and Deathrattle remain unsupported.
 
 ## What this does not complete
 
@@ -127,7 +130,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
-| Ancestral Commander | Life/armour; doubled body armour; Born under Fire; action/movement floors | Ancestors, totems, echoes and warcries |
+| Ancestral Commander | Life/armour, floors; owner Enduring Cry | Ancestors, totems, echoes, taunt, Deathrattle |
 | Behemoth | Mana; unarmed crit; Rage; chaos armour; armour-scaled attacks | Fortification, Rampage, Vaal costs |
 | Antiquarian | Ward/Adrenaline; Strength duration; attacks cannot be evaded | Far Shot, stun and ranged/shield rules |
 | Wildspeaker | Suppression; Dexterity; owned wolves; minion damage transfer; Tailwind effect | Aspects and sharing |
@@ -199,7 +202,7 @@ Three further checks combine Sea Legs, three Power charges and linked Faster Cas
 The selected Fireball retains base 750 ms, cast speed 20%, rate 160 and critical chance 2,485 permyriad.
 Ignored source/DLL metadata and results are under `logs/phrecia-completion/merge-native/`.
 These checks do not measure the precise early-attack boundary with a native stopwatch.
-Enduring Cry's metadata is reusable, while its actual warcry timing, cooldown and buff execution remain open.
+Normal manual Enduring Cry now has bounded source execution with automated checks; native validation is pending.
 
 ### Standard charges
 
@@ -210,7 +213,28 @@ The native Buff component installs all three charge definitions and removes thei
 Further native controls verify accepted player hit/kill gains, Power plus Sea Legs, Endurance damage reduction,
 original deadlines through loading, pause, death and normal reconnect.
 These 23 checks are recorded under ignored `logs/phrecia-completion/resume-native/`, source `a959224`.
-Charge sharing, consumption/replacement and Enduring Cry execution remain separate unfinished mechanics.
+Charge sharing and consumption/replacement remain unfinished; these native checks do not cover Enduring Cry.
+
+### Manual Enduring Cry
+
+Normal GE268 accepts one paid manual owner use with known one-use, group 1, bypass 4 cooldown metadata.
+The actual player skill must be its group's only native ID across defaults, socketed items and passive grants.
+Separate item-mod skill granting remains unimplemented.
+Duplicate gems and unsupported cooldown/timing/cost variants reject before echo, cost or spending.
+At completion, current live hostile non-owned monsters within the 60-cell base area supply rarity power 1/2/10/20.
+Each whole five power grants one charge through the shared charge foundation and its current limits.
+Ancestral Endurance 23061 adds two maximum Endurance Charges without granting them on allocation.
+Buff 1541 also grants owner regeneration and `affected_by_a_warcry` for 2.5 s at level 1 or 3.4 s at level 20.
+Regeneration is 120% life/minute per five power, counting at most 25 power; charge duration remains separate.
+Call of the Ancestors 48740 adds 200% warcry speed and -30% cooldown recovery.
+Quality 20 adds 40% recovery once; use speed and global action speed do not change buff or charge duration.
+The owner buff pauses and ends on death, source removal, transfer invalidation or disconnect, with no carry/relog.
+Accepted paid execution ignores later ordinary action tokens; its exact native contact boundary remains unverified.
+Guarded sends sample current life and remaining buff duration at the cipher gate.
+Automated tests and offline timing evidence support this slice; the parent still owns its real-client trace.
+That pass must check native raw base/rate, Call allocation/refund, quality, cooldown admission and elapsed recovery.
+Ally charge/buff sharing, taunt AI, Deathrattle corpses/chests and other warcries remain unsupported.
+See [skills, bounded manual Enduring Cry](../protocol/11-skills.md#bounded-manual-enduring-cry).
 
 ### Ward and timed Adrenaline
 

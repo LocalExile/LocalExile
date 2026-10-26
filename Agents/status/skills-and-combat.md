@@ -234,6 +234,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Wire, active/expired/zero-rate and queued encrypted-send checks also pass.
   Multi-use, duplicate same-effect gems, shared groups, extra uses, bypass, typed/conditional/more recovery and official
   tick equivalence remain outside this slice.
+  Bounded manual Enduring Cry separately supports one singleton-group use and warcry-specific recovery.
+  Its new cooldown/timing path has automated coverage and awaits the parent native pass described below.
   Skill records carry the GEPL Cooldown and the stats the cooldown count, and the server refuses a skill until its
   cooldown is over.
   Ground-target C→S 0x190 now frames its 12 bytes and routes ordinary Frostblink through mana/cooldown acceptance.
@@ -519,7 +521,23 @@ Part of [Status](../Status.md); what to build next in this area is in
   Complete damage/critical/mitigation paths, exact-ticket travel and queued-expiry publication have regression checks.
   Twenty-three real-client checks cover both Phrecia paths, native buffs, accepted hit/kill gains, combined critical
   and incoming damage, original transfer deadline, pause, death and reconnect.
-  Enduring Cry, sharing, consumption and replacement rules remain open.
+  Normal manual Enduring Cry GE268 now has bounded paid owner execution with automated coverage.
+  It requires one actual player-native ID in its non-36 group, one stored use and bypass 4.
+  Duplicate gems and group peers across default, socketed-item and passive player skills are refused.
+  Separate item-mod skill granting remains unimplemented.
+  Unsupported cooldown/timing/cost variants reject before echo, cost or cooldown spending.
+  Completion reads current live hostile non-owned monsters in the 60-cell base area, using rarity power 1/2/10/20.
+  Each whole five power grants one charge through the existing limits, including Ancestral Endurance's +2 maximum.
+  Visible buff 1541 supplies owner regeneration and `affected_by_a_warcry` for 2.5/3.4 s at gem levels 1/20.
+  Regeneration is 120% life/minute per five power, counted to 25; the ordinary 10 s charge duration is independent.
+  Call of the Ancestors' +200% speed/-30% recovery and quality 20's +40% recovery apply once.
+  Native base 800 ms remains raw; warcry speed and global action speed stay separate.
+  Level 20 plus +200% warcry/+22% action gives raw nonspell rate 423 and a 194 ms server wait.
+  The pausable buff ends on death, source removal, transfer invalidation or disconnect, without carry/relog.
+  Once paid execution starts, later ordinary action tokens do not cancel it; native contact timing remains unverified.
+  Buff/stat/life sends use lifecycle guards and current values at the cipher gate.
+  This new path has no real-client verification; the parent still owns the native action/elapsed-regeneration trace.
+  Ally charge/buff sharing, taunt AI, Deathrattle corpses/chests, other warcries and charge consumption remain open.
   See [skills](../docs/protocol/11-skills.md).
   Upstream native checks verified counted/timed charge icons, refresh/expiry, death and sample damage/speed effects.
   Those captures establish the original protocol; the guarded root verification above targets source `a959224`.

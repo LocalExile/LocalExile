@@ -9,6 +9,7 @@ partial class Program
         var matches = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
         if (Skills.CooldownMs(effect, level) <= 0 || matches.Length != 1) return null;
         var gem = SupportedSkill(conn, matches[0].Id);
+        if (Skills.IsWarcry(effect) && !EnduringCrySingletonGroup(conn, matches[0].Id)) return null;
         return SingleUseCooldown.ForSkill(Skills, Stats, effect, gem.Level, CharacterPlayerStats(conn), gem.Stats);
     }
 
@@ -38,19 +39,48 @@ partial class Program
         {
             ticket = null;
             SingleUseCooldownState? state = null;
+            SkillCost paidCost = default;
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
                 || requestedAt is double asked && conn.HitRecovery.BlocksInput(asked, conn.Clock.Elapsed.TotalSeconds)
                 || actionToken is int original && conn.ActionCount != original) return false;
+            var warcry = Skills.IsWarcry(effect) ? EnduringCryProfile(conn, skillId) : null;
+            if (Skills.IsWarcry(effect) && (plan is null || warcry?.CanResolveOwnerEffect != true || !reserve
+                || !EnduringCrySingletonGroup(conn, skillId)
+                || CooldownFor(conn, effect, warcry.Level, warcry.Quality) != plan)) return false;
+            if (warcry is not null && warcry.Timing.Instant != instant) return false;
+            var source = warcry is null ? null : EnduringCrySource(conn, skillId);
+            if (warcry is not null && source is null) return false;
             if (plan is { } cooldown)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 state = CooldownStateLocked(conn, effect, cooldown, now);
+                if (!state.Ready) return false;
+                // A manual warcry is paid as part of acceptance, before its native echo or spent budget.
+                if (warcry is not null)
+                {
+                    paidCost = CostFor(conn, effect, warcry.Level, warcry.Quality, skillId);
+                    uint mana = conn.PlayerMana, life = conn.PlayerLife;
+                    if (source?.Invoke() != true || !paidCost.Pay(ref mana, ref life)) return false;
+                }
                 if (reserve ? !state.TryUse(now, cooldown) : !state.Ready) return false;
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
+            }
+            if (warcry is not null)
+            {
+                conn.PlayerMana -= paidCost.Mana;
+                conn.PlayerLife -= paidCost.Life;
+                RageOf(conn).SpendMana(paidCost.Mana, DateTimeOffset.UtcNow, RageInputs(conn, CharacterStatSources(conn)));
             }
             sideEffects();
             if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
                 state, state!.UseVersion);
+            if (warcry is not null)
+            {
+                var runtime = EnduringCries.GetValue(conn, _ => new());
+                SettleEnduringCryLocked(conn, runtime, conn.Clock.Elapsed.TotalSeconds);
+                EnduringCryUses.Add(ticket!, new(skillId, warcry, paidCost, source!, conn.Clock.Elapsed.TotalSeconds,
+                    runtime.Generation));
+            }
             return true;
         }
     }
@@ -63,6 +93,7 @@ partial class Program
         {
             if (g.Count() != 1) return null;
             var gem = SupportedSkill(conn, g.First().Id);
+            if (Skills.IsWarcry(g.Key) && !EnduringCrySingletonGroup(conn, g.First().Id)) return null;
             return SingleUseCooldown.ForSkill(Skills, Stats, g.Key, gem.Level, player, gem.Stats);
         });
         lock (conn.Monsters)
@@ -73,7 +104,7 @@ partial class Program
                 if (!plans.TryGetValue(effect, out var plan)) continue; // Removal does not reset a spent use.
                 state.Refresh(now, plan?.RecoveryRate ?? state.Rate);
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
-                if (plan is null) conn.SingleUseCooldowns.Remove(effect); // Unsupported mechanics retain the legacy path.
+                if (plan is null && !Skills.IsWarcry(effect)) conn.SingleUseCooldowns.Remove(effect);
             }
         }
     }

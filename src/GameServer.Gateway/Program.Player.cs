@@ -112,6 +112,7 @@ partial class Program
     static async Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label)
     {
         ChargesDied(conn);
+        EnduringCryDied(conn);
         TemporaryPassiveBuffs.For(CharacterName(conn)).Clear();
         RageOf(conn).Clear();
         conn.Summons?.Clear(conn.SummonLease);
@@ -205,6 +206,12 @@ partial class Program
     static int? CastMs(ClientState conn, int effect, int level, int quality, ushort skillId = 0)
     {
         if (skillId == 0) return Skills.CastTimeMs(effect, level, quality, CharacterPlayerStats(conn));
+        if (Skills.IsWarcry(effect))
+        {
+            var cry = SupportedSkill(conn, skillId);
+            return WarcryTiming.ForSkill(Skills, Stats, effect, cry.Level, cry.Quality,
+                CharacterPlayerStats(conn), cry.Stats)?.DurationMilliseconds;
+        }
         var stats = SupportedStatsFor(conn, skillId, CharacterPlayerStats(conn));
         int speed = Stats.Key("cast_speed_+%") is uint key ? stats.GetValueOrDefault(key) : 0;
         return SpellCastTiming.ForSkill(Skills, effect, speed, ActionSpeed.Multiplier(stats, Stats.Key))?.DurationMilliseconds;
@@ -407,6 +414,7 @@ partial class Program
             if (conn.Closed) break;
             await RefreshTemporaryPassives(remote, stream, ciphers, conn);
             await RefreshRage(remote, stream, ciphers, conn);
+            await RefreshEnduringCry(remote, stream, ciphers, conn);
             double tickNow = conn.Clock.Elapsed.TotalSeconds;
             double seconds = tickNow - last;
             last = tickNow;
@@ -477,9 +485,14 @@ partial class Program
             // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
             if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
             {
-                lifeRate = LifeRegenPerSecond(conn);
                 manaRate = ManaRegenPerSecond(conn);
-                recoveryStats = CharacterPlayerStats(conn);
+                lock (conn.Monsters)
+                {
+                    // Build a baseline without the timed source. A second expiry sample cannot leave its old
+                    // contribution cached for another 250 ms; the exact interval is integrated below.
+                    recoveryStats = CharacterPlayerStatsCore(conn, includeEnduringCry: false);
+                    lifeRate = PanelStats.LifePerMinute(RecoveryStat, conn.Pools.Life) / 60;
+                }
                 burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
                     Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire))
                     * (1 - ChargeEffects.Reduction(RecoveryStat).Elemental / 100.0)
@@ -511,7 +524,8 @@ partial class Program
                     int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now, RecoveryStat);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, UnreservedLife(conn),
-                        life + lifeRate * seconds - lifeBurn, ref lifeCarry, minimum: 1);
+                        life + lifeRate * seconds + EnduringCryRecovery(conn, recoveryFrom, now) - lifeBurn,
+                        ref lifeCarry, minimum: 1);
                     conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
                         mana + manaRate * seconds, ref manaCarry);
                 }

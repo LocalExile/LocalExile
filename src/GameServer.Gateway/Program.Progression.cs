@@ -77,6 +77,10 @@ partial class Program
     // by client stat key. Worn items whose requirements the class, the passives and the other active items do not meet are
     // inactive (ItemModStats.Inactive): remembered per character for the weapon profile and the gem skills.
     static Dictionary<uint, int> CharacterStatSources(ClientState conn, IEnumerable<ushort>? nodes = null, int? level = null)
+        => CharacterStatSourcesCore(conn, nodes, level, includeEnduringCry: true);
+
+    static Dictionary<uint, int> CharacterStatSourcesCore(ClientState conn, IEnumerable<ushort>? nodes, int? level,
+        bool includeEnduringCry)
     {
         var items = ItemsOf(conn);
         ushort[] allocated;
@@ -90,6 +94,7 @@ partial class Program
         passives = ItemModStats.Plus(passives, PassiveEffects.OwnerStats(PhreciaNodes(conn)));
         passives = ItemModStats.Plus(passives, TemporaryPassiveStats(conn));
         passives = ItemModStats.Plus(passives, CompanionStats(conn));
+        if (includeEnduringCry) passives = ItemModStats.Plus(passives, EnduringCryStats(conn));
         int Get(string name) => Stats.Key(name) is uint k ? passives.GetValueOrDefault(k) : 0;
         var c = Skills.ClassFor(conn.ClassRow);
         var (ps, pd, pi) = CharacterStats.Attributes(Get);

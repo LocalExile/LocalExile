@@ -826,6 +826,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   outside this generic one-use implementation.
   A zero recovery rate stalls a spent use.
   Extreme input sums are bounded to avoid signed native `percent + 100` overflow.
+  Manual Enduring Cry has a separate bounded admission rule and typed recovery; see section 15 below.
+  It does not relax the ordinary cooldown exclusions or implement general shared-group propagation.
 
   Native evidence: Actor +0x598 owns the manager; its +0x170/+0x178 range holds 0x48-byte records.
   A record's +0x10/+0x18 vector holds 0x10-byte entries: remaining base seconds, total base seconds, recovery rate,
@@ -1632,8 +1634,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   killing hit a Power Charge; Flicker Strike's and Power Siphon's own on-hit chances also count.
   Accepted events capture player/skill/active-weapon inputs at the committed contact, rather than at later polling.
   Expiry precedes gains, actual zero-life results queue kills once, and owned-minion kills grant no player charges.
-  Enduring Cry's monster-power metadata is reusable, but warcry timing, cooldown and buff execution remain open.
-  In particular, the upstream helper alone does not make Enduring Cry playable.
+  Normal manual Enduring Cry now has a bounded paid owner-effect path described below.
+  Its integrated native action and regeneration checks remain pending.
 - **Effects** (`ChargeEffects`). Every character has Character.ot's per-charge stats (`Inherent`): 4% increased attack
   and cast speed and 4% more damage per Frenzy Charge, 4% physical and 4% elemental damage reduction per Endurance
   Charge, 50% increased critical strike chance per Power Charge (Path of Building's CalcSetup uses the same constants).
@@ -1666,7 +1668,7 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
 - **Not modelled.** The other charge types (Spirit, Siphoning, Blitz, Challenger, Brutal, Affliction, Absorption, Blood,
   Brine and the rest) and the stats that turn standard charges into them; skills and effects that consume or remove
   charges (Discharge, Flicker Strike's cooldown bypass, Immortal Call, "lose all … when", expiry triggers); gains that
-  need stun, freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, warcries, allies, flask use
+  need stun, freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use
   or special support execution (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
   soon after the hit"; Blood Rage's active self-buff; conditional maxima and minima (while affected by an aura, on
   low life, devotion, "count as having maximum", a maximum equal to another type's); per-charge stats whose target the
@@ -1729,7 +1731,70 @@ A two-second pause preserves a controlled one-second charge; resume consumes onl
 Actual death clears all three types, and normal reconnect does not restore transient charges.
 Evidence: ignored `logs/phrecia-completion/resume-native/rootcharges-results.json`, `rootcharge-buffs-results.json`
 and `charge-native-buffs.jsonl`.
-Enduring Cry execution, charge sharing, charge consumption/replacement and unsupported event conditions remain open.
+Those native charge checks do not verify the new Enduring Cry execution path.
+Charge sharing, charge consumption/replacement and unsupported event conditions remain open.
+
+### Bounded manual Enduring Cry
+
+`EnduringCry`, `WarcryTiming` and `Program.EnduringCry` execute normal GE268 for the owner through paid skill use.
+This is automated source coverage with offline native evidence, not a real-client verification claim.
+It reuses the merged charge session and guarded publication rather than the earlier standalone completion helper.
+Level 1 uses 800 ms raw time, 13 mana, 0% own warcry speed and a 2500 ms buff.
+Level 20 uses 800 ms, 19 mana, 38% own speed and a 3400 ms buff.
+Both use an 8000 ms base cooldown, one stored use, group 1 and bypass 4.
+`SkillCatalog.CooldownInfo` retains milliseconds, uses, group, bypass and pause-while-active metadata.
+Missing or invalid metadata remains explicit rather than being replaced by an assumed group or bypass.
+
+Admission requires one actual player-native skill ID in the effective non-36 cooldown group.
+Duplicate same-effect gems and other group members are refused across defaults, socketed items and passive grants.
+Separate item-mod skill granting is not implemented; future native grants must join the same identity list.
+Companion and minion skill IDs belong to their own actors and do not become player cooldown peers.
+Group 36 is the native independent group; this implementation never forces group 36 to evade propagation.
+Nonzero group overrides, ignore-cooldown, shared-warcry, flat cooldown, four-second and extra-use inputs are refused.
+Unsupported timing, alternate warcry costs, autocasting and recipient/power variants are also refused.
+These preflight rejections precede action echo, cost and cooldown spending and cannot fall into the raw 8 s fallback.
+Other warcries, multiple stored uses and shared-group propagation are outside this route.
+Supported recovery adds generic, own quality, warcry and Enduring Cry-specific increases once.
+Call of the Ancestors 48740 contributes +200% warcry speed and -30% recovery.
+Quality 20 adds +40% cooldown recovery, giving Call's 8 / 1.1 seconds rather than changing the 8000 ms base.
+Paid refund settles the existing base-time budget before changing its recovery rate.
+
+Completion samples current player/enemy positions and live hostile, non-owned monsters under the combat lock.
+Base radius is 60 cells; generic and warcry area apply once, while spell-only area does not apply.
+Normal, magic, rare and unique monsters supply power 1, 2, 10 and 20 respectively.
+The charge grant is floor(power / 5), then the shared charge rules apply current minima, maxima and duration.
+Ancestral Endurance 23061 raises the maximum by two; it does not itself grant charges.
+The owner buff is visible BuffDefinitions 1541 `enduring_cry`, with `affected_by_a_warcry` and regeneration stats.
+Its contribution is 120% maximum life per minute per whole five power, counting at most 25 power.
+Thus a rare supplies two charges and 4% life/second; a unique supplies four before caps and 8% life/second.
+The 2500/3400 ms skill buff lifetime is independent of the charges' ordinary 10-second lifetime.
+Applicable duration and buff-effect inputs scale the owner buff separately.
+
+The accepted execution retains its original paid cost, cooldown witness, source identity and area epoch.
+Before paid execution begins, stale action tickets still abort under the common acceptance rules.
+After it begins, later ordinary action tokens do not cancel the warcry's accepted effect.
+This implements its cannot-cancel policy without claiming the exact native contact boundary.
+The pausable game clock drives both completion and buff expiry.
+Death, source-socket removal, transfer invalidation and disconnect abort pending effects and end the owner buff.
+The owner buff is not carried across areas or restored on reconnect; already granted charges keep their own policy.
+Buff IDs, remaining duration and stat/life publication are resolved under the cipher gate with lifecycle guards.
+Life packets use current life at the actual send boundary.
+
+Offline 3.29.3b evidence identifies warcry action `0x141abcaa0` reading raw GE CastTime at row +0x5f.
+It applies skill/player `warcry_speed_+%` 3543 once before common animation `0x141e99bd0` applies action speed 3302.
+Native base keys 681/9401 remain 800; generic cast speed does not pre-divide the warcry base.
+Final instant key 8292 is intrinsic 8291 OR (warcry 3454 AND warcries-instant 3777).
+A passive instant input does not fabricate intrinsic instant 8291.
+Raw nonspell-rate callback `0x14278ab90` rounds 100000 / rawBase * (1 + warcrySpeed / 100) half away from zero.
+It excludes action speed and integer-ms quantization; server completion rounds only its final wait.
+Level 20 plus +200% warcry speed and +22% action speed gives raw rate 423 and a 194 ms server wait.
+The action-adjusted inverse of that wait is not published to key 2990.
+Conditional/retaliation speed, base overrides and steel-reload timing remain outside bounded admission.
+
+The parent native pass must trace action hash 0xc320, raw GE+0x5f, keys 3543/3302/8292/9401/2990 and action +0x350.
+It must compare level 1/20, Call allocation/refund, quality 20, action speed and generic-cast-speed controls.
+Selected clip/contact timing, instant dispatch, singleton/group-peer refusal and elapsed regeneration need that pass.
+Ally charge/buff sharing, taunt AI, Deathrattle corpses/chests and other warcries remain unsupported.
 
 ## Open
 

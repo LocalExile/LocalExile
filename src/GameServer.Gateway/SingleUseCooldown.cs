@@ -12,19 +12,40 @@ readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPerce
         "active_skill_cooldown_speed_+%_final_from_skill_specific_stat",
     ];
 
+    // Native non-36 groups can propagate the origin's cooldown to peers. The runtime separately enforces that
+    // bounded Enduring Cry has only one actual player skill in its group; this adapter never invents group 36.
+    static readonly string[] UnsupportedWarcry = [
+        "skill_cooldown_group_override", "skill_ignores_cooldown", "virtual_skill_ignores_cooldown",
+        "warcry_skills_share_cooldowns", "warcry_cooldown_modifier_ms", "warcry_skills_cooldown_is_4_seconds",
+        "non_instant_warcries_have_no_cooldown",
+    ];
+
     public static SingleUseCooldown? ForSkill(SkillCatalog skills, StatCatalog catalog, int effect, int level,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
     {
         int ms = skills.CooldownMs(effect, level);
+        bool enduringCry = skills.EffectId(effect) == EnduringCry.Effect && skills.IsWarcry(effect);
+        if (skills.IsWarcry(effect) && !enduringCry) return null;
         if (ms <= 0 || skills.CooldownUses(effect, level) != 1
-            || skills.CooldownPausesWhileActive(effect) || !skills.IsSpell(effect) && !skills.IsAttack(effect)) return null;
+            || skills.CooldownPausesWhileActive(effect)
+            || !enduringCry && !skills.IsSpell(effect) && !skills.IsAttack(effect)) return null;
         int Get(IReadOnlyDictionary<uint, int> values, string name) => catalog.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
+        if (enduringCry && (skills.CooldownInfo(effect, level) is not
+            { Milliseconds: > 0, StoredUses: 1, Group: not null, BypassType: 4, PausesWhileActive: false }
+            || UnsupportedWarcry.Any(name => Get(player, name) != 0 || Get(own, name) != 0))) return null;
         if (Unsupported.Any(name => Get(player, name) != 0 || Get(own, name) != 0)
             || Get(player, "virtual_total_cooldown_count") > 1 || Get(player, "base_cooldown_count") > 1
             || Get(own, "virtual_total_cooldown_count") > 1 || Get(own, "base_cooldown_count") > 1) return null;
         // The player's virtual total already includes its base input. Skill inputs are separate, including quality.
         long recovery = (long)Get(player, "virtual_cooldown_speed_+%")
             + Get(own, "base_cooldown_speed_+%") + Get(own, "virtual_cooldown_speed_+%");
+        if (enduringCry)
+        {
+            if (catalog.Key("virtual_cooldown_speed_+%") is uint total && !player.ContainsKey(total))
+                recovery += Get(player, "base_cooldown_speed_+%");
+            recovery += (long)Get(player, "warcry_cooldown_speed_+%") + Get(own, "warcry_cooldown_speed_+%")
+                + Get(player, "enduring_cry_cooldown_speed_+%") + Get(own, "enduring_cry_cooldown_speed_+%");
+        }
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
         return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100));
     }

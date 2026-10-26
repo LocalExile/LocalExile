@@ -43,6 +43,9 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   displayed rate once. Automated checks and real-client -80%/+100%/zero clip durations pass.
   Projectile release/contact alignment was not separately measured.
   Further special native timing mechanics remain open.
+  Bounded manual Enduring Cry now has distinct raw-base/rate projection and paid owner execution with automated tests.
+  Verify its real action/clip/contact timing, instant dispatch and elapsed regeneration in the parent native pass.
+  Include level 1/20, Call allocation/refund, quality 20, action speed and generic-cast-speed controls.
   Attack gems now share level-aware inherent speed with server pacing/contact and native total-duration/APS stats.
   Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s; automated checks also pass.
 - **Spell hit panel (#188):** selected-spell ranges now share combat's converted packet and hitless spells clear
@@ -101,7 +104,10 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   Special ES mechanics, exposure, ailment application, conditional added-damage stats and support
   modifiers remain open.
   Standard current-charge hooks/effects have production and combined native coverage.
-  Continue with Enduring Cry's distinct timing/cooldown/buff execution, charge sharing and remaining gain/consumption.
+  Bounded manual Enduring Cry now executes owner charges and timed regeneration with automated coverage.
+  Verify singleton/group-peer admission and native cooldown/buff behavior before broadening that slice.
+  Ally charge/buff sharing, taunt AI, Deathrattle corpses/chests and other warcries remain unfinished.
+  Continue charge sharing and remaining gain/consumption without bypassing the shared charge foundation.
   Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
   Its hovered stationary-monster 0x191 path now uses the native size-aware object aim and object-bound confirmation.
   Automated acceptance/queued rejection checks and manual native endpoint experiments pass.

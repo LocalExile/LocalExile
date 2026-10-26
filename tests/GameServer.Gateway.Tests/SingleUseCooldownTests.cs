@@ -66,7 +66,7 @@ public class SingleUseCooldownTests
     [Theory]
     [InlineData("Fireball")]
     [InlineData("FlameDash")]
-    [InlineData("EnduringCry")]
+    [InlineData("RallyingCry")]
     [InlineData("NoSuchEffect")]
     public void No_cooldown_multi_use_and_unclassified_actions_keep_the_legacy_path(string id) => Assert.Null(Plan(id));
 

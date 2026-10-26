@@ -2,6 +2,10 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
+/// <summary>Selected GEPL cooldown metadata. Missing or invalid fields remain null rather than a fabricated default.</summary>
+sealed record SkillCooldownInfo(int? Milliseconds, int? StoredUses, int? Group, int? BypassType,
+    bool? PausesWhileActive);
+
 /// <summary>
 /// Skills the server grants: a GrantedEffects Id at a level becomes the GrantedEffectsPerLevel row and the
 /// GrantedEffectStatSetsPerLevel row (of the effect's StatSet1 at that gem level) the Actor skill list refers to
@@ -127,10 +131,10 @@ sealed class SkillCatalog(string folder = "data")
         // CharacterPanelStats gates spell rows on this final flag and hides the weapon rows while it is set.
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
         Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
-        if (gepl >= 0 && t.Cooldowns[gepl] is { Ms: > 0, Uses: > 0 } cooldown)
+        if (gepl >= 0 && t.Cooldowns[gepl] is { Milliseconds: > 0, StoredUses: > 0 } cooldown)
         {
-            Put("base_cooldown_count", cooldown.Uses);
-            Put("virtual_total_cooldown_count", cooldown.Uses);
+            Put("base_cooldown_count", cooldown.StoredUses.Value);
+            Put("virtual_total_cooldown_count", cooldown.StoredUses.Value);
         }
         foreach (var (key, value) in QualityStats(effectRow, quality)) stats[key] = stats.GetValueOrDefault(key) + value;
         return [.. stats.Select(kv => (kv.Key, kv.Value))];
@@ -156,7 +160,8 @@ sealed class SkillCatalog(string folder = "data")
         IReadOnlyList<(uint, int)>? additionalStats = null)
     {
         var result = new Dictionary<uint, int>(character);
-        foreach (var (key, value) in EffectStats(effectRow, level))
+        var intrinsic = EffectStats(effectRow, level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        foreach (var (key, value) in intrinsic)
             if (characterStatsWin) result.TryAdd(key, value); else result[key] = value;
         int Get(string name) => _stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
         int Projected(string name, params string[] inputs) => _stats.Key(name) is uint key && result.TryGetValue(key, out int value)
@@ -172,7 +177,18 @@ sealed class SkillCatalog(string folder = "data")
             result[areaKey] = area + Quality("base_skill_area_of_effect_+%") + Quality("skill_area_of_effect_+%");
         if (!SkillRestrictions.From(Get).DealsDamage(IsSpell(effectRow)) && _stats.Key("base_deal_no_damage") is uint noDamage)
             result[noDamage] = 1;
-        if (SpellCastTiming.ForSkill(this, effectRow, Get("cast_speed_+%"), ActionSpeed.Multiplier(result, _stats.Key)) is { } timing)
+        if (IsWarcry(effectRow))
+        {
+            // Unlike most intrinsic level stats, warcry speed joins the character's input instead of replacing it.
+            // The explicit character-wins mode retains its existing final-input precedence.
+            if (!characterStatsWin && _stats.Key("warcry_speed_+%") is uint speedKey)
+                result[speedKey] = (int)Math.Clamp((long)character.GetValueOrDefault(speedKey)
+                    + intrinsic.GetValueOrDefault(speedKey) + Quality("warcry_speed_+%"), int.MinValue, int.MaxValue);
+            bool instant = Get("base_skill_is_instant") != 0 || Get("warcries_are_instant") != 0;
+            WarcryTiming.Calculate(CastMs(effectRow), Get("warcry_speed_+%"),
+                ActionSpeed.Multiplier(result, _stats.Key), instant).ApplyTo(result, _stats);
+        }
+        else if (SpellCastTiming.ForSkill(this, effectRow, Get("cast_speed_+%"), ActionSpeed.Multiplier(result, _stats.Key)) is { } timing)
             timing.ApplyTo(result, _stats);
         else if (CastMs(effectRow) is int baseMs and > 0)
         {
@@ -189,6 +205,8 @@ sealed class SkillCatalog(string folder = "data")
         if (IsInstant(effectRow)) return 0;
         var stats = EffectStatsFor(effectRow, level, quality, character);
         int Get(string name) => _stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (IsWarcry(effectRow))
+            return WarcryTiming.ForSkill(this, _stats, effectRow, level, quality, character)?.DurationMilliseconds;
         if (IsSpell(effectRow) && !IsAttack(effectRow))
             return SpellCastTiming.ForSkill(this, effectRow, Get("cast_speed_+%"), ActionSpeed.Multiplier(stats, _stats.Key))?.DurationMilliseconds;
         return _stats.Key("virtual_base_spell_cast_time_ms") is uint key && stats.TryGetValue(key, out int value)
@@ -382,13 +400,21 @@ sealed class SkillCatalog(string folder = "data")
     /// <summary>A GrantedEffects row's cooldown at a level in ms (GEPL Cooldown: Haste 1200, Righteous Fire 300), 0 when
     /// it has none.</summary>
     public int CooldownMs(int effectRow, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int gepl and >= 0 ? t.Cooldowns[gepl].Ms : 0;
+        CooldownInfo(effectRow, level)?.Milliseconds ?? 0;
 
     public int CooldownUses(int effectRow, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Uses : 0;
+        CooldownInfo(effectRow, level)?.StoredUses ?? 0;
+
+    public int EffectAtLevelRow(uint row) =>
+        _tables.Value is { } t && row < t.PerLevel.Count ? t.PerLevel[(int)row].Effect : -1;
+
+    public SkillCooldownInfo? CooldownInfo(int effectRow, int level) =>
+        _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count
+            && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
+            ? t.Cooldowns[row] with { PausesWhileActive = t.Effects[effectRow].CooldownPauses } : null;
 
     public bool CooldownPausesWhileActive(int effectRow) =>
-        _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
+        _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses == true;
 
     /// <summary>Whether a GrantedEffects row's skill is instant: its ActiveSkills row has the ActiveSkillType Instant (Haste,
     /// Righteous Fire). An instant skill is used while moving, without an action of its own.</summary>
@@ -516,7 +542,7 @@ sealed class SkillCatalog(string folder = "data")
         if (!t.EffectRows.TryGetValue(effect, out var ge)) return null;
         int gepl = t.PerLevel.FindIndex(r => r.Effect == ge.Row && r.Level == level);
         int gesspl = t.StatSetsPerLevel.FindIndex(r => r.StatSet == ge.StatSet && r.Level == level);
-        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms), t, ge.Row, level);
+        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)(t.Cooldowns[gepl].Milliseconds ?? 0)), t, ge.Row, level);
     }
 
     /// <summary>
@@ -529,7 +555,7 @@ sealed class SkillCatalog(string folder = "data")
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || t.StatSets[effectRow] < 0) return null;
         int statSet = t.StatSets[effectRow];
         int gepl = PickLevel(t.PerLevel, effectRow, level), gesspl = PickLevel(t.StatSetsPerLevel, statSet, level);
-        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms), t, effectRow, level);
+        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)(t.Cooldowns[gepl].Milliseconds ?? 0)), t, effectRow, level);
     }
 
     /// <summary>The player's default skills: the default attack, with the class's unarmed weapon stats.</summary>
@@ -728,9 +754,9 @@ sealed class SkillCatalog(string folder = "data")
     // Quality: per GrantedEffects row its (quality stat, permille).
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
-        List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
+        List<(int StatSet, int CastTime, bool? CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
-        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
+        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<SkillCooldownInfo> Cooldowns,
         List<int> VaalSouls, Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances,
         List<int> AttackSpeedMultipliers, List<int> BaseMultipliers)
     {
@@ -744,12 +770,14 @@ sealed class SkillCatalog(string folder = "data")
             using var p = JsonDocument.Parse(File.ReadAllBytes(gepl));
             using var s = JsonDocument.Parse(File.ReadAllBytes(gesspl));
             static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
+            static int? Nonnegative(JsonElement r, string name) => r.TryGetProperty(name, out var v)
+                && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int n) && n >= 0 ? n : null;
             static int[] Ints(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
                 ? [.. v.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Number ? (int)Math.Round(x.GetDouble()) : -1)] : [];
             static (int, int)[] Pairs(int[] keys, int[] values) => [.. keys.Zip(values).Where(kv => kv.First >= 0)];
             var effects = new Dictionary<string, (int, int)>();
             var statSets = new List<int>();
-            var effectInfo = new List<(int, int, bool)>();
+            var effectInfo = new List<(int, int, bool?)>();
             int row = 0;
             foreach (var r in g.RootElement.EnumerateArray())
             {
@@ -758,7 +786,8 @@ sealed class SkillCatalog(string folder = "data")
                 if (id is not null) effects.TryAdd(id, (row, statSet));
                 statSets.Add(statSet);
                 effectInfo.Add((statSet, Math.Max(0, Int(r, "CastTime")),
-                    r.TryGetProperty("CooldownNotRecoverDuringActive", out var pauses) && pauses.ValueKind == JsonValueKind.True));
+                    r.TryGetProperty("CooldownNotRecoverDuringActive", out var pauses)
+                        && pauses.ValueKind is JsonValueKind.True or JsonValueKind.False ? pauses.GetBoolean() : null));
                 row++;
             }
             var baseStats = new List<(int[], (int, int)[])>();
@@ -772,7 +801,7 @@ sealed class SkillCatalog(string folder = "data")
             var mana = new List<int>();
             var life = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
-            var cooldowns = new List<(int, int)>();
+            var cooldowns = new List<SkillCooldownInfo>();
             var vaalSouls = new List<int>();
             var attackSpeedMultipliers = new List<int>();
             foreach (var r in p.RootElement.EnumerateArray())
@@ -785,7 +814,8 @@ sealed class SkillCatalog(string folder = "data")
                 life.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
                 reservations.Add((Math.Max(0, Int(r, "ManaReservationFlat")), Math.Max(0, Int(r, "ManaReservationPercent")),
                     Math.Max(0, Int(r, "LifeReservationFlat")), Math.Max(0, Int(r, "LifeReservationPercent"))));
-                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses"))));
+                cooldowns.Add(new(Nonnegative(r, "Cooldown"), Nonnegative(r, "StoredUses"),
+                    Nonnegative(r, "CooldownGroup"), Nonnegative(r, "CooldownBypassType"), null));
                 vaalSouls.Add(Math.Max(0, Int(r, "VaalSouls")));
                 attackSpeedMultipliers.Add(r.TryGetProperty("AttackSpeedMultiplier", out var speed)
                     && speed.ValueKind == JsonValueKind.Number && speed.TryGetInt32(out int multiplier) ? multiplier : 0);

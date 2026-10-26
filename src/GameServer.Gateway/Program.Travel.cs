@@ -64,8 +64,11 @@ partial class Program
                 InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
                 $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
                 still: () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? true);
-            await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence,
+            var cast = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence,
                 actionToken: cooldownUse?.ActionToken, cooldownUse: cooldownUse);
+            // Warcry completion uses pausable game time; leave the input reader free to accept pause/resume.
+            if (gem.Name is not null && Skills.IsWarcry(gem.Effect)) _ = cast;
+            else await cast;
             return;
         }
         if (conn.Instance.Ground.Get(use.TargetId) is { } ground)
