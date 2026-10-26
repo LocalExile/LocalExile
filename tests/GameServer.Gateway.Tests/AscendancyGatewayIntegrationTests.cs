@@ -18,25 +18,8 @@ namespace GameServer.Gateway.Tests;
 public sealed class AscendancyGatewayIntegrationCollection;
 
 [Collection("Ascendancy Gateway integration")]
-public sealed class AscendancyGatewayIntegrationTests : IDisposable
+public sealed class AscendancyGatewayIntegrationTests
 {
-    readonly string _previousDirectory = Directory.GetCurrentDirectory();
-
-    public AscendancyGatewayIntegrationTests()
-    {
-        // Legacy area/data helpers still use repository-relative paths; Program catalogs pin absolute paths separately.
-        // xUnit starts in the test binary folder.
-        // This collection runs outside every parallel collection, so moving CWD cannot affect another running test.
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
-            if (File.Exists(Path.Combine(directory.FullName, "data", AscendancyCatalog.GraphFile)))
-            {
-                Directory.SetCurrentDirectory(directory.FullName);
-                break;
-            }
-    }
-
-    public void Dispose() => Directory.SetCurrentDirectory(_previousDirectory);
-
     [Fact]
     public async Task Ascendancy_allocation_grants_ordinary_points_and_both_pools_survive_a_new_connection()
     {

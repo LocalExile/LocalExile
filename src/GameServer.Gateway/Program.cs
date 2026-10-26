@@ -108,10 +108,6 @@ static async Task SaveUnsavedProgress(CancellationToken stop)
 
 sealed partial class Program
 {
-    // Catalogs retain an absolute source directory: a lazy table must not depend on the working directory when it is
-    // first read. Resolve on construction instead of sharing a field whose initializer order spans partial files.
-    static string DataFolder => GameDataFiles.ResolveFolder();
-
     internal const uint PlayerId = 0x1000;
     // The server's tick: 30 per second. Nothing the server times (an attack) is shorter than one tick.
     internal const int TickRate = 30;
@@ -168,26 +164,26 @@ sealed partial class Program
     internal const uint QuestRoomObjectFirstId = 0x2e00;
 
     // WorldAreas' own mods (AreaModCatalog); loaded with the first Portal Scroll.
-    internal static readonly Lazy<AreaModCatalog> AreaMods = new(() => AreaModCatalog.Load(DataFolder));
+    internal static readonly Lazy<AreaModCatalog> AreaMods = new(() => AreaModCatalog.Load());
     // NPCs.dat with the NPC types' components; loaded with the first town.
-    internal static readonly Lazy<NpcCatalog> Npcs = new(() => NpcCatalog.Load(DataFolder));
+    internal static readonly Lazy<NpcCatalog> Npcs = new(() => NpcCatalog.Load());
     // Shared by every connection; loaded on the first /spawn_mob.
-    internal static readonly MonsterCatalog Monsters = new(DataFolder);
-    internal static readonly HarbingerCompanionCatalog Harbingers = new(DataFolder);
+    internal static readonly MonsterCatalog Monsters = new();
+    internal static readonly HarbingerCompanionCatalog Harbingers = new();
     // MonsterPacks per area (MonsterPacks.cs); loaded with the first area that has monsters.
-    internal static readonly PackCatalog Packs = new(DataFolder);
+    internal static readonly PackCatalog Packs = new();
     // The skills granted to players (the default attack); loaded with the first player.
-    internal static readonly SkillCatalog Skills = new(DataFolder);
+    internal static readonly SkillCatalog Skills = new();
     // Stat names ↔ client keys (Stats.dat row + 1).
-    internal static readonly StatCatalog Stats = new(DataFolder);
+    internal static readonly StatCatalog Stats = new();
     // The shop's portal effects the server can apply itself (/cosmetic): the visual of the player's own portals.
-    internal static readonly CosmeticCatalog Cosmetics = new(DataFolder);
+    internal static readonly CosmeticCatalog Cosmetics = new();
     // Every MtxTypes row as an owned microtransaction (23-microtransactions.md); loaded with the first 0x1f2.
-    internal static readonly MtxCatalog Mtx = new(DataFolder);
+    internal static readonly MtxCatalog Mtx = new();
     // What worn cosmetics do on the model and in the stats (ItemisedVisualEffect); loaded with the first equipment sent.
-    internal static readonly CosmeticEffects MtxEffects = new(DataFolder);
+    internal static readonly CosmeticEffects MtxEffects = new();
     // What a worn skill effect's skill_art_variation draws (MiscAnimated and BuffVisuals art variations).
-    internal static readonly SkillArt Art = new(DataFolder);
+    internal static readonly SkillArt Art = new();
     // The Cosmetics tab's Portrait slot (MicrotransactionSlot 16).
     internal const byte PortraitSlot = 16;
     // Per character: the ids of worn items whose requirements are not met (CharacterStatSources).
@@ -196,13 +192,13 @@ sealed partial class Program
     internal static readonly uint[] SuppressionChanceKeys = [.. new[] { "spell_suppression_chance_%",
         "base_spell_suppression_chance_%", "combined_spell_suppression_chance_%" }.Select(n => Stats.Key(n)).OfType<uint>()];
     // Item types (BaseItemTypes + data/item-types.json); loaded with the first player.
-    internal static readonly ItemCatalog Items = new(DataFolder);
+    internal static readonly ItemCatalog Items = new();
     // Per character: the skill ids of the socketed gems (GemSkillIds), and the ids gem skills may use (after the default
     // attack, the ids below FirstSkillId + 64 that no basic action uses: SkillCatalog.IsGemSkill; 55 in 3.29.3b).
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> GemSkillIdsOf = new(StringComparer.OrdinalIgnoreCase);
     internal static readonly Lazy<ushort[]> GemSkillIdPool = new(() => [.. Skills.SkillIds().Skip(1).Where(Skills.IsGemSkill)]);
     // Maps.dat: which area each map opens (MapDevice.cs); loaded with the first Activate.
-    internal static readonly Lazy<MapDevice> MapDevices = new(() => MapDevice.Load(DataFolder, row => Items.Row(row)?.Hash));
+    internal static readonly Lazy<MapDevice> MapDevices = new(() => MapDevice.Load("data", row => Items.Row(row)?.Hash));
     // The map device's portals are MultiplexPortals of the player type (1): the map device type (3) is only drawn after an
     // open transition, which hung or crashed the client (21-hideouts.md §5). Game_MAP_PORTAL_TYPE overrides it.
     internal static readonly byte MapPortalType = byte.TryParse(Environment.GetEnvironmentVariable("Game_MAP_PORTAL_TYPE"), out byte t) ? t : MapPortalObject.PlayerPortal;
@@ -213,19 +209,19 @@ sealed partial class Program
     static int EnvMs(string name, int fallback) => int.TryParse(Environment.GetEnvironmentVariable(name), out int ms) && ms >= 0 ? ms : fallback;
     // What dying monsters drop (ItemDrops.cs).
     // Magic and rare items (ItemRolls.cs).
-    internal static readonly ItemRolls Rolls = new(Items, DataFolder);
-    internal static readonly EssenceCrafting Essences = new(Items, Rolls, DataFolder);
-    internal static readonly BenchCrafting Bench = new(Items, Rolls, DataFolder);
+    internal static readonly ItemRolls Rolls = new(Items);
+    internal static readonly EssenceCrafting Essences = new(Items, Rolls);
+    internal static readonly BenchCrafting Bench = new(Items, Rolls);
     internal static readonly ItemDrops Drops = new(Items, Rolls);
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.
     internal static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
     // The passive tree's nodes (PassiveSkills.dat by PassiveSkillGraphId).
-    internal static readonly PassiveTree Passives = new(DataFolder);
-    internal static readonly OrdinaryPassiveRules OrdinaryPassives = new(DataFolder);
+    internal static readonly PassiveTree Passives = new();
+    internal static readonly OrdinaryPassiveRules OrdinaryPassives = new();
 
-    internal static readonly AscendancyCatalog Ascendancies = new(DataFolder);
-    internal static readonly PassiveEffectCatalog PassiveEffects = new(DataFolder);
+    internal static readonly AscendancyCatalog Ascendancies = new();
+    internal static readonly PassiveEffectCatalog PassiveEffects = new();
 
     internal static readonly AscendancyRules AscendancyRules = new(Ascendancies);
     // How close (cells) the player must be to a dying monster to gain its experience. Game_XP_RANGE overrides it.
@@ -235,7 +231,7 @@ sealed partial class Program
     // S→C 0x1b1's pool byte for mana (0 life, 1 mana, 2 energy shield).
     internal const byte ManaPool = 1;
     // When a spell's projectile leaves (the class's spell animation's contact keyframe).
-    internal static readonly AnimationContacts Animations = new(DataFolder);
+    internal static readonly AnimationContacts Animations = new();
     // BuffDefinitions rows: righteous_fire (on the caster) and righteous_fire_aura (on the enemies it burns).
     internal const ushort RighteousFireBuffRow = 12, RighteousFireAuraBuffRow = 13;
     // The flask buffs' BuffDefinitions rows (flask_effect_life "Healing", flask_effect_mana "Regenerating Mana": invisible,

@@ -9,18 +9,11 @@ public sealed class AttackBaseCriticalGatewayCollection;
 [Collection("Attack base critical Gateway")]
 public sealed class AttackBaseCriticalGatewayTests : IDisposable
 {
-    readonly string _cwd = Directory.GetCurrentDirectory();
     readonly string _name = "CritBase" + Guid.NewGuid().ToString("N");
     static MethodInfo Method(string name) => typeof(Program).GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
 
     public AttackBaseCriticalGatewayTests()
     {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (Directory.Exists(Path.Combine(dir.FullName, "data", "tables")))
-            {
-                Directory.SetCurrentDirectory(dir.FullName);
-                break;
-            }
         TestSaves.Ensure();
     }
 
@@ -118,6 +111,5 @@ public sealed class AttackBaseCriticalGatewayTests : IDisposable
     public void Dispose()
     {
         PlayerInventories.Forget(_name);
-        Directory.SetCurrentDirectory(_cwd);
     }
 }

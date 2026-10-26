@@ -16,6 +16,11 @@ All agent and contributor documentation is in [Agents/](Agents/). Read these fir
 - **Start the client only through `scripts/dev/live.ps1`, and only one at a time.** Any other launch contacts the
   official patch servers and can update the client, which breaks the setup.
 - **Run commands from the repository root.**
+- **Keep production game-data paths relative to the repository root (`data/`).** Do not add parent-directory
+  searching, an absolute `DataFolder`, or catalog-path changes to accommodate tests or one machine.
+  Gateway tests use the shared `tests/GameServer.Gateway.Tests/TestEnvironment.cs` module initializer.
+  Do not change the process working directory in individual tests; fix the shared test setup if it fails.
+- **Write all commit messages and pull request titles and descriptions in English.**
 - **Never commit game files or third-party programs:** `Client/`, `data/` (except `data/schema/`), Ghidra, the JDK,
   `Tools/ghidra-projects`, `Tools/re/out` (decompiled client code). `.gitignore` keeps them out; do not force-add.
 - **Never commit secrets:** generated keys (`data/login-keys.json`, `data/instance-secret.bin`), accounts, or

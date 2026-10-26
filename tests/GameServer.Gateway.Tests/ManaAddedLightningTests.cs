@@ -208,8 +208,8 @@ public class ManaAddedLightningTests
     [Fact]
     public void The_shared_attack_packet_constructor_applies_the_stat()
     {
-        // Program.Stats is resolved to an absolute data folder (GameDataFiles.ResolveFolder), like the server's own
-        // use; this runs the same AttackHit path the panel and every attack caller share.
+        // TestEnvironment selects the repository root before Program's production catalogs initialize.
+        // This runs the same AttackHit path the panel and every attack caller share.
         var stats = new Dictionary<uint, int>
         {
             [Program.Stats.Key("maximum_mana")!.Value] = 1000,
@@ -221,15 +221,6 @@ public class ManaAddedLightningTests
         Assert.Equal(5, hit[DamageType.Physical].Max);
         Assert.Equal(60, hit[DamageType.Lightning].Min);
         Assert.Equal(60, hit[DamageType.Lightning].Max);
-    }
-
-    [Fact]
-    public void The_game_data_folder_resolves_above_the_current_directory()
-    {
-        string folder = GameDataFiles.ResolveFolder();
-
-        Assert.True(Path.IsPathRooted(folder));
-        Assert.True(File.Exists(Path.Combine(folder, "tables", "Stats.json")));
     }
 
     [Fact]

@@ -5,17 +5,6 @@
 /// </summary>
 static class GameDataFiles
 {
-    /// <summary>The extracted data's absolute directory, including when a host starts below the repository root.
-    /// Resolve before constructing a lazy catalog so later working-directory changes cannot change its source.</summary>
-    public static string ResolveFolder()
-    {
-        foreach (string start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
-            for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
-                if (File.Exists(Path.Combine(directory.FullName, "data", "tables", "Stats.json")))
-                    return Path.Combine(directory.FullName, "data");
-        return Path.GetFullPath("data");
-    }
-
     public static readonly (string File, string Feature)[] All =
     [
         ("data/tables/WorldAreas.json", "the game tables (stats, areas, waypoints, items, monsters, NPCs)"),

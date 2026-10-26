@@ -210,7 +210,7 @@ static class CharacterStats
             ColdOvercapEvasionPct: b.ColdOvercapEvasionPct, LightningOvercapCritPct: b.LightningOvercapCritPct);
     }
 
-    private static readonly Lazy<uint[]> Experience = new(() => LoadExperience(GameDataFiles.ResolveFolder()));
+    private static readonly Lazy<uint[]> Experience = new(() => LoadExperience("data"));
 
     /// <summary>Every level's starting experience (index = level − 1), ExperienceLevels.dat.</summary>
     public static IReadOnlyList<uint> LevelStarts => Experience.Value;
