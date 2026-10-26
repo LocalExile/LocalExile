@@ -67,7 +67,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Attack gems scale weapon base and added damage by separate normalized GESSPL factors, with the attack's crit.
   Both raw fields are signed deltas from 10000; a bow arrow has no Fireball impact.
   Automated controls cover positive/negative deltas, unequal factors, missing identity and true zero.
-  The corrected scalar still needs integrated native damage verification.
+  Integrated native selected Burning Arrow reads damage per use 25.20, APS 10.78/14.35 and DPS 271.66/361.62.
+  These are received action stats; automated tests also check the shared combat packet.
   Projectiles spawn at the captured terrain height + `Game_PROJECTILE_HEIGHT` (5 steps = torso) on natural ground;
   without a capture they use the bare offset.
   Code: `SkillCatalog.cs`, Gateway (`CastOn`, `LaunchProjectile`, `AreaSkillHit`), `ProjectileObject`.

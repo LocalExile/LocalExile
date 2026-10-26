@@ -75,7 +75,7 @@ be refunded while ordinary allocations still spend those points.
   movement, attack, cast and damage increases. Non-recovery buffs have no uncounted stat-value wire payload.
   Tailwind's owner buff publishes `has_tailwind` separately from its signed speed value, so a timing consumer can
   scale its effect without scaling another source such as a Harbinger buff.
-  Native allocation/refund checks cover the marker; generic action-speed timing remains a separate integration.
+  Native allocation/refund checks cover the marker; the generic consumer applies its own Tailwind effect separately.
 - Oath of the Maji checks socket contents, doubles the body armour's local defences and applies its conditional
   resistance/life/movement bonuses. Glimpse Chaos counts active equipped corrupted items. Item-local defences include
   local modifiers and quality. Sanguine Power substitutes equipped armour's energy shield with life and prevents ES.
@@ -153,7 +153,10 @@ Gateway integration checks allocate/refund real graph paths and invoke the produ
 Whaletooth Bangle 27339 adds one increased skill-duration point per complete ten final Strength, once per stat rebuild.
 Allocation, paid refund, reload and final-attribute inputs have Gateway coverage.
 Five native stat checks give 455/459 Strength -> 45 duration, 460 -> 46, and paid refund -> 0.
-Elapsed summon-lifetime composition is a separate integration check.
+An integrated native composition check uses Pack Mentality and a developer-supplied duration-per-Strength source.
+At 455 Strength it publishes 45 increased duration; the wolf survives 31 seconds and expires after 43.84 seconds,
+against the expected `30 × 1.45 = 43.5` seconds with one-second observation tolerance.
+This does not combine two incompatible main ascendancies; the actual Bangle path's final-stat checks are separate.
 The pure duration helper is available to summon-lifetime consumers without assigning owner duration to minion buffs.
 They cover all three Paladin aura choices, free Envy, Ghost of the Deep, Oath socket conditions, corrupted equipment,
 Sanguine Power, Harbinger's extra ES, atomic life/mana costs, life reservation and nearby enemy modifiers.

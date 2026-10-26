@@ -309,7 +309,9 @@ In the controlled +1000% attack-speed fixture, APS changed from 10.78 to 14.35 a
 and final action 22%; the selected DPS tracked each emitted APS.
 That earlier build used the incorrect 1.8 damage scalar and recorded 16.20 damage per use.
 It verifies timing and panel agreement only; it does not validate the corrected 2.8 scalar.
-The corrected 5–13 fixture produces 25.20 damage per use in automated checks; native damage verification is pending.
+The corrected 5–13 fixture produces 25.20 damage per use in automated and native selected-skill checks.
+The integrated native Burning Arrow action reads APS 10.78 and DPS 271.66, then APS 14.35 and DPS 361.62 with action22.
+Its damage per use remains 25.20 in both cases; this measures the native action's received stats, not enemy life.
 Ignored evidence: `logs/three-pr/native-phrecia-followups/{affloors,afpanel,aftailwind}-results.json`.
 
 **Critical strikes.** The server rolls a hit's critical chance after the damage roll: `base chance × (1 + increased
@@ -412,7 +414,12 @@ Native probes reported no errors.
 Catalog, raw-source, aura, flag, rounding, hit routing and roll-boundary checks are also automated.
 Five standalone PR #220 follow-up checks verified base attack 900 and pooled spell 500,
 generic +100% giving 1800/1000, spell +50% giving 1800/1250, and extreme signed inputs giving 10000/10000 or 0/0.
-Those checks preceded the integrated long-sum and overcap composition; its native recheck remains pending.
+Twenty integrated native checks cover the same signed boundaries, selected Fireball and the actual Sea Legs path.
+Generic MaxValue plus spell MinValue and 45 lightning overcap gives Fireball 720, without clipped-input cancellation.
+With ordinary zero increases, Sea Legs gives armed900 -> 1305 and Fireball500 -> 725, each once.
+Cannot-crit sets both the player reference and selected Fireball to zero; clearing it restores the values.
+Paid Sea Legs refund restores 900/500.
+Ignored evidence is `logs/phrecia-completion/resume-native/rootcrit-results.json` at source `a76167a`.
 Timed, charge, enemy-state, more and added-base critical mechanics remain outside this slice.
 `/crit` prints the attack values and the legacy pooled 5%-base spell reference, not the selected gem's chance.
 

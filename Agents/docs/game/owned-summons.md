@@ -85,6 +85,13 @@ The last observed setter event alone retained the old 60–120 value and was not
 An additional native pass used the normal pause packet for a four-second pause and a controlled three-second summon
 duration: the wolf remained while paused, expired after its remaining active lifetime and cleared native damage.
 Logout/relog also restored zero summons and zero added damage.
+An integrated duration check supplies the raw per-ten-Strength modifier through a developer command while the
+actual Pack Mentality path grants the wolf.
+Final Strength 455 derives 45 increased skill duration; the native wolf remains at 31 seconds and expires at 43.84,
+within the one-second observation tolerance around `30 × 1.45 = 43.5` seconds.
+Source refund leaves the native count at zero.
+Antiquarian's Whaletooth Bangle path has its separate real-node stat checks; two main ascendancies are not combined.
+Evidence: ignored `logs/phrecia-completion/resume-native/wolfduration-results.json`, source `a76167a`.
 
 This implements the wolf slice, not every minion family or every Wildspeaker node.
 Spiders, Zombies, Guardians, animated weapons, Herald minions and Relics still need their own source,
