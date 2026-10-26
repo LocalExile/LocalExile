@@ -68,6 +68,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 4. Server design
 
+- **Incoming stream framing:** C→S `0x020a`, `0x0059` and `0x0099` have primary-writer-backed lengths and split tests.
+  Other unknown ids still stop framing the read; safely continuing requires their actual message layouts.
+  The intermittent transfer wide-string failure needs a reproducing trace before assigning its cause
+  ([02](../docs/protocol/02-instance-connection.md#fixed-incoming-messages-without-implemented-semantics), issue #247).
 - **Lockstep network mode:** the server would decide every position and the client play it back by server frames,
   which makes client and server identical by construction.
   Found so far: the frame protocol (S→C 0x2b6 / 0x2b5, already sent), the client's lockstep messages (0x018e, 0x018f,

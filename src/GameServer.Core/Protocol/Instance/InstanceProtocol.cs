@@ -71,10 +71,13 @@ public static class InstanceProtocol
     public const ushort UseSkillAtLocationId = 0x25, ActionStartedId = 0x1ab;
 
     /// <summary>Encrypted C→S messages whose length is known (live captures 2026-10-16): 0x1b tick, 0x7d area generated,
-    /// 0x25 use skill at location (16), 0x015a and 0x01ef (id only), 0x0099 (20 bytes both times seen, meaning unknown).</summary>
+    /// 0x25 use skill at location (16), 0x015a and 0x01ef (id only). Primary writers establish 0x0099, 0x020a and 0x0059.</summary>
     public static int? KnownClientLength(ushort id) => id switch
     {
-        TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 20,
+        TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2,
+        0x0099 => 4, // 0x141f95200: u16 opcode + two bytes; earlier 20-byte captures included following messages.
+        // Primary client writers: 0x140e29080 (u16 + u8), 0x141f935a0 (u16 + 4/2/2/4/1/1 bytes).
+        0x020a => 3, 0x0059 => 16,
         InstanceTransfer.UseSkillOnObjectId => 12, InstanceTransfer.ChooseInstanceId => 3, ResurrectId => 3, InstanceItems.DropItemId => 2,
         InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
         InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,

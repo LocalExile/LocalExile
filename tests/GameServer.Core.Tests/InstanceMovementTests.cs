@@ -92,8 +92,8 @@ public class InstanceMovementTests
     [Fact]
     public void Splitter_frames_known_messages_and_keeps_partials()
     {
-        // 0x0099 then a tick, as one live chunk; then a tick cut in two.
-        byte[] chunk = Convert.FromHexString("0099000001340334000100013400010101000129" + "001B0005768AF5" + "001B00");
+        // Writer-proven 4-byte 0x0099, a complete tick, then a tick cut in two.
+        byte[] chunk = Convert.FromHexString("00990100" + "001B0005768AF5" + "001B00");
         var msgs = InstanceProtocol.SplitClientMessages(chunk, out byte[] partial, out byte[] unknown);
         Assert.Equal(new ushort[] { 0x0099, 0x001b }, msgs.Select(m => m.Id));
         Assert.Equal("001B00", Convert.ToHexString(partial));
