@@ -21,8 +21,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 - **Known:** Pack Mentality's wolves have actual ownership, friendly monster objects, combat AI and owner buffs.
   They use the minion life/damage columns and are excluded from ordinary instance monster snapshots.
+  The three Visiting Harbingers now have separate native summon/buff cycles and owner-effect consumers.
   [Verified data and limits](../docs/game/owned-summons.md).
 - **Start:** reuse the roster for the other Phrecia summon families, adding each source's exact behaviour and stats.
+  Complete Harbinger warp/ally application and shared action-speed/immunity consumers.
   This work is claimed in [#231](https://github.com/Wrathen/LocalExile/issues/231).
 - **Done when:** the granted summon families and their modifiers execute with source removal and native checks.
 

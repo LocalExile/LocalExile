@@ -43,9 +43,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Owned combat summons: Pack Mentality creates actual level-70 Spectral Wolf Companions after critical hits.
   Wolves attack hostiles; hostiles can target them, and each living wolf grants 6–12 attack physical damage.
   Their separate roster preserves remaining life/deadline across areas and clears on expiry, source refund or logout.
+  Visiting Harbingers have their own summon/cast/buff cycles, native objects and source-refund removal.
+  Arcane's effects and Focus's damage reduction execute; ally application and remaining timing effects are incomplete.
   Other summon families and their individual effects remain unfinished.
   Code: `SummonRoster.cs`, `SpectralWolf.cs`, `MinionLeech.cs`, `Program.Summons.cs`.
   Docs: [owned summons](../docs/game/owned-summons.md).
+  Docs: [Visiting Harbingers](../docs/game/harbinger-companions.md).
 
 ## Not working yet
 

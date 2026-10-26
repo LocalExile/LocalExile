@@ -22,6 +22,7 @@ static class GameDataFiles
         ("data/tables/Essences.json", "essence crafting and class-specific guaranteed modifiers"),
         ("data/tables/CraftingBenchOptions.json", "crafting bench recipes, unlocks and costs"),
         ("data/tables/CraftingItemClassCategories.json", "crafting bench item compatibility"),
+        ("data/tables/AddBuffToTargetVarieties.json", "Harbinger recipient buff-stat bindings"),
         ("data/object-types.json", "monsters, NPCs, area transitions"),
         ("data/item-types.json", "items"),
         ("data/area-transitions.json", "area transitions of fixed layouts"),

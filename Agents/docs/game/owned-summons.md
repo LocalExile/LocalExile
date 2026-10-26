@@ -87,9 +87,10 @@ duration: the wolf remained while paused, expired after its remaining active lif
 Logout/relog also restored zero summons and zero added damage.
 
 This implements the wolf slice, not every minion family or every Wildspeaker node.
-Spiders, Zombies, Guardians, animated weapons, Herald minions, Harbingers and Relics still need their own source,
+Spiders, Zombies, Guardians, animated weapons, Herald minions and Relics still need their own source,
 skill, stat, targeting and death rules.
 General minion equipment/charge inheritance, auras, ailments and the accuracy-equals-owner mastery are separate work.
 No cosmetic `PetAi` owner field is reused as a guessed combat-minion wire owner.
+The three Visiting Harbingers have a separate [companion and buff lifecycle](harbinger-companions.md).
 
 Code: `SummonRoster.cs`, `SpectralWolf.cs`, `MinionLeech.cs`, `Program.Summons.cs` and the shared monster hit paths.

@@ -21,7 +21,7 @@ partial class Program
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob and the area's packs (PopulateArea) use it.
     static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
-        SummonRoster.Member? summon = null)
+        SummonRoster.Member? summon = null, HarbingerCompanionCatalog.Companion? companion = null, Func<bool>? accept = null)
     {
         uint id;
         lock (conn.Monsters) id = conn.NextObjectId++;
@@ -47,6 +47,7 @@ partial class Program
             life = profile.Life;
             attack = profile.Attack;
         }
+        if (companion is not null) life = 1; // HarbingerMinionBuffStartsOnCooldown.ot: set_maximum_life=1.
         var skill = variety.GrantedEffects is [int effect, ..]
             ? Skills.FindByRow(attack.SkillId, effect, level, attack.SkillStats()) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights).
@@ -71,25 +72,58 @@ partial class Program
                 ? CharacterPlayerStats(conn).GetValueOrDefault(movementKey) : 0;
             stats.Add((StatKeys.MovementVelocityPct, movement));
         }
+        IReadOnlyList<GrantedSkill>? objectSkills = skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
+        if (companion is not null)
+        {
+            stats = [.. companion.MinionStats.Select(kv => (kv.Key, kv.Value)), (StatKeys.MaximumLife, 1)];
+            foreach (string flag in new[] { "base_cannot_be_damaged", "base_cannot_be_stunned", "untargetable_by_monster_ai" })
+                if (Stats.Key(flag) is uint key) stats.Add((key, 1));
+            var effects = new[] { companion.WarpEffect }.Concat(companion.Buffs.Select(b => b.Effect)).ToArray();
+            var ids = Skills.SkillIds().Take(effects.Length).ToArray();
+            objectSkills = effects.Select((effect, index) => Skills.FindByRow(ids[index], effect, 1,
+                    [.. Skills.EffectStats(effect, 1), (StatKeys.SkillIsNonPathing, 1)]))
+                .OfType<GrantedSkill>().ToArray();
+        }
         var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, variety.StateMachine, variety.TransitionStates, team,
-            skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill], stats);
+            objectSkills, stats);
+        SpawnedMonster State() => new($"{variety.Name}@{level}", conn.NewWalk(x, y, variety.MovementSpeed),
+            variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
+        {
+            Attack = skill is null || companion is not null ? null : attack, Hostile = !friendly, Variety = variety, Level = level,
+            Rarity = rarity, Summon = summon, Companion = companion,
+            Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
+            HitAnimations = Monsters.TakeHit(variety.Id),
+        };
+        uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
+        if (companion is not null)
+        {
+            // A source can disappear while this task waits behind another sender. Register the actor and accept all
+            // three creation messages together, only after checking the current lease/source/area inside that gate.
+            bool sent = await SendGenerated(remote, stream, ciphers, () =>
+            {
+                lock (conn.Monsters)
+                {
+                    if (accept is not null && !accept()) return null;
+                    var packets = new List<byte>();
+                    if (conn.MonsterTypes.Add((variety.Row, level)))
+                        packets.AddRange(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
+                    packets.AddRange(InstanceEntities.CreateObject(id, type, monster.Blob()));
+                    packets.AddRange(InstanceProtocol.EnterWakeZone(id));
+                    conn.Monsters[id] = State();
+                    return packets.ToArray();
+                }
+            }, !log ? null : $"Harbinger create 0x{id:x} {variety.Id}@{level}");
+            return sent ? id : 0;
+        }
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
         if (conn.MonsterTypes.Add((variety.Row, level)))
             await Send(remote, stream, ciphers, InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]),
                 $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})");
-        uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The world is active by now, so 0x2b9 is created at once; 0x1a9 makes it drawn and updated.
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type, monster.Blob()), !log ? null :
             $"0x02b9 create {rarity}{(friendly ? " friendly" : "")} monster 0x{id:x} {variety}{(name is null ? "" : $" \"{name}\"")} type=0x{type:x8} at ({x}, {y}), life {life}, components {string.Join(", ", variety.ComponentsOrBase)}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
-        lock (conn.Monsters)
-            conn.Monsters[id] = new SpawnedMonster($"{variety.Name}@{level}", conn.NewWalk(x, y, variety.MovementSpeed),
-                variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
-            {
-                Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Summon = summon,
-                Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
-                HitAnimations = Monsters.TakeHit(variety.Id),
-            };
+        lock (conn.Monsters) conn.Monsters[id] = State();
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
         if (damagedLife < life)
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
@@ -149,6 +183,7 @@ partial class Program
                 await Task.Delay(500);
                 await RefreshPassivePresences(remote, stream, ciphers, conn);
                 await RefreshSummons(remote, stream, ciphers, conn);
+                await RefreshCompanions(remote, stream, ciphers, conn);
                 if (!conn.AiEnabled || conn.Paused) continue;
                 await RunSummonAi(remote, stream, ciphers, conn);
                 var orders = new List<(uint Id, (int X, int Y) From, (int X, int Y) To, string Why)>();
@@ -161,7 +196,7 @@ partial class Program
                 {
                     foreach (var (id, m) in conn.Monsters)
                     {
-                        if (m.Dead || m.Summon is not null) continue;
+                        if (m.Dead || m.Owned) continue;
                         var (mx, my) = m.Walk.Position(now);
                         var targetAt = (X: px, Y: py);
                         var ownedTarget = m.Hostile ? conn.Monsters.Where(kv => kv.Value is { Summon: not null, Dead: false, Life: > 0 })

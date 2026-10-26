@@ -39,7 +39,7 @@ static class PanelStats
     public static readonly Sum[] Sums =
     [
         // Offence
-        new("cast_speed_+%", ["base_cast_speed_+%", "attack_and_cast_speed_+%"]),
+        new("cast_speed_+%", ["base_cast_speed_+%", "attack_and_cast_speed_+%", "arcane_surge_cast_speed_+%"]),
         new("global_chance_to_knockback_%", ["base_global_chance_to_knockback_%"]),
         new("virtual_knockback_distance_+%", ["knockback_distance_+%"]),
         new("stun_duration_+%", ["base_stun_duration_+%"]),

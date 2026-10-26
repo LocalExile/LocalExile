@@ -62,6 +62,11 @@ be refunded while ordinary allocations still spend those points.
   limit, owner damage buffs and combat AI.
   Area travel preserves them; source refunds, expiry, logout and owner death remove them.
   [Owned summon data, calculation and checks](owned-summons.md).
+- Harbinger's three Visiting summons create actual immortal companions and native, timed buffs.
+  Arcane cast speed, mana regeneration and lightning penetration affect their existing consumers.
+  Focus requires channelling before casting its buff and applies final damage reduction before Ward.
+  Source refund removes the summon and effects; travel retains their cycles.
+  [Current data, verification and remaining Harbinger limits](harbinger-companions.md).
 - Passive `GrantedEffectsPerLevel` references grant real skills without gems, with stable skill identities and exact
   native levels. Paladin's level 30 Determination/Grace or level 40 Discipline and Arakaali's level 15 Envy execute.
   Envy's no-reservation rule applies to its real reservation. Removing the source removes the active skill/effect;
@@ -126,7 +131,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Wildspeaker | Suppression, Dexterity and Pack Mentality's owned wolves | Aspects, Tailwind, charge sharing and rare-mod theft |
 | Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage | Recoup, mana damage absorption, blind and projectile forks |
 | Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
-| Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |
+| Harbinger | Extra ES/bypass, three actual companions, Arcane effects and Focus damage reduction | Ally-wide buffs, action-speed timing and remaining time effects |
 | Herald | Shared choice-node allocation and supported generic modifiers | Actual Herald effects/minions and Herald-specific gem/reservation rules |
 | Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |
 | Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Support-gem execution and conditional ailment immunity |

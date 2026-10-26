@@ -1427,6 +1427,202 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.False(wolf.Dead); // contact rejected by roster, rather than the ordinary death check
     }
 
+    [Theory]
+    [InlineData(20105)]
+    [InlineData(18859)]
+    [InlineData(60867)]
+    public async Task Harbinger_summon_cast_creates_one_owned_immortal_companion_and_refund_removes_it(int node)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, (ushort)node), true)).Error);
+        var source = Program.Harbingers.ForNode((ushort)node)!;
+        var skill = game.GemEffects().Single(g => g.Effect == source.SummonEffect);
+        Assert.True((await game.Cast(skill.Name)).Accepted);
+        var id = Assert.Single(game.State.CompanionObjects).Value;
+        var companion = game.State.Monsters[id];
+        Assert.True(companion.Owned); Assert.False(companion.Hostile);
+        Assert.Equal(1u, companion.Life); Assert.Equal(1u, companion.MaxLife);
+        Assert.Null(companion.Attack);
+        Assert.Equal(source.Monster.Id, companion.Variety!.Id);
+        Assert.Empty(SavedMonster.Save([companion], 0));
+        Assert.Null(ProgramValue<MonsterHit?>("ApplyMonsterHitLocked", game.State, companion, 1000000, true));
+        Assert.Equal(1u, companion.Life);
+        Assert.Null((await game.Change([(ushort)node], false, refundPoints: true)).Error);
+        Assert.Empty(game.State.CompanionObjects); Assert.DoesNotContain(id, game.State.Monsters.Keys);
+    }
+
+    [Fact]
+    public async Task Harbinger_Arcane_maps_cast_speed_and_mana_recovery_to_owner_then_refund_clears_them()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 20105), true)).Error);
+        var source = Program.Harbingers.ForNode(20105)!;
+        Assert.True((await game.Cast(game.GemEffects().Single(g => g.Effect == source.SummonEffect).Name)).Accepted);
+        int before = game.PlayerStat("cast_speed_+%");
+        double manaBefore = game.ManaRegenPerSecond();
+        var roster = game.State.Companions!;
+        var now = DateTimeOffset.UtcNow;
+        roster.Step(game.State.SummonLease, now.AddSeconds(4.1), true, false);
+        roster.Step(game.State.SummonLease, now.AddSeconds(5), true, false);
+        Assert.Equal(20, game.PlayerStat("arcane_surge_cast_speed_+%"));
+        Assert.Equal(before + 20, game.PlayerStat("cast_speed_+%"));
+        Assert.True(game.ManaRegenPerSecond() > manaBefore);
+        Assert.Null((await game.Change([20105], false, refundPoints: true)).Error);
+        Assert.Equal(0, game.PlayerStat("arcane_surge_cast_speed_+%"));
+        Assert.Equal(before, game.PlayerStat("cast_speed_+%"));
+    }
+
+    [Fact]
+    public async Task Harbinger_Focus_waits_for_channel_and_applies_final_less_damage_before_Ward()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 18859), true)).Error);
+        var source = Program.Harbingers.ForNode(18859)!;
+        Assert.True((await game.Cast(game.GemEffects().Single(g => g.Effect == source.SummonEffect).Name)).Accepted);
+        var roster = game.State.Companions!;
+        var now = DateTimeOffset.UtcNow;
+        Assert.Empty(Assert.Single(roster.Step(game.State.SummonLease, now.AddSeconds(5), true, false)).Change.Started);
+        Assert.Equal(0, game.PlayerStat("harbinger_channel_buff_damage_taken_+%_final"));
+        roster.Step(game.State.SummonLease, now.AddSeconds(5), true, true);
+        roster.Step(game.State.SummonLease, now.AddSeconds(6), true, true);
+        Assert.Equal(-20, game.PlayerStat("harbinger_channel_buff_damage_taken_+%_final"));
+        Assert.Equal(1, game.PlayerStat("immune_to_status_ailments"));
+        Assert.Equal(1, game.PlayerStat("base_cannot_be_stunned"));
+        Assert.Equal(1, game.PlayerStat("unaffected_by_curses"));
+        Assert.Equal(80, ProgramValue<int>("DamagePlayerHit", game.State, 50, 50, 0d));
+        game.State.Pools = game.State.Pools with { Ward = 10 };
+        Assert.Equal(70, ProgramValue<int>("DamagePlayerHit", game.State, 50, 50, 1d));
+        Assert.Null((await game.Change([18859], false, refundPoints: true)).Error);
+        Assert.Equal(0, game.PlayerStat("harbinger_channel_buff_damage_taken_+%_final"));
+    }
+
+    [Fact]
+    public async Task Harbinger_phase_completed_by_skills_only_stays_dirty_until_native_owner_stats_are_published()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 20105), true)).Error);
+        var source = Program.Harbingers.ForNode(20105)!;
+        Assert.True((await game.Cast(game.GemEffects().Single(g => g.Effect == source.SummonEffect).Name)).Accepted);
+        var now = DateTimeOffset.UtcNow;
+        game.State.Companions!.Step(game.State.SummonLease, now.AddMilliseconds(4100), true, false);
+        game.State.Companions.Time(game.State.SummonLease, now.AddMilliseconds(5000));
+        await game.SkillsOnly();
+        Assert.True(game.State.CompanionRevision > game.State.PublishedCompanionRevision);
+        Assert.NotEmpty(game.State.CompanionBuffs);
+        var publication = await game.RefreshCompanions();
+        Assert.Equal((ushort)0x1b3, BinaryPrimitives.ReadUInt16BigEndian(publication.Bytes));
+        Assert.Equal(game.State.CompanionRevision, game.State.PublishedCompanionRevision);
+        Assert.Equal(20, game.PlayerStat("arcane_surge_cast_speed_+%"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Queued_Harbinger_follow_during_pause_or_death_does_not_commit_an_unsent_walk(bool killed)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 20105), true)).Error);
+        var source = Program.Harbingers.ForNode(20105)!;
+        Assert.True((await game.Cast(game.GemEffects().Single(g => g.Effect == source.SummonEffect).Name)).Accepted);
+        var actor = game.State.Monsters[Assert.Single(game.State.CompanionObjects).Value];
+        game.State.Walk.Teleport(80, 32, game.State.Clock.Elapsed.TotalSeconds);
+        await game.QueuedCompanionRefresh(() =>
+        {
+            if (killed) game.State.PlayerLife = 0;
+            else game.State.Clock.Stop();
+        });
+        Assert.Null(actor.LastTarget);
+        Assert.Equal((32, 32), actor.Walk.Position(game.State.Clock.Elapsed.TotalSeconds));
+        if (killed) return;
+        game.State.Clock.Start();
+        var resumed = await game.RefreshCompanions();
+        Assert.Equal((80, 32), actor.LastTarget);
+        Assert.Equal((ushort)0x1ab, BinaryPrimitives.ReadUInt16BigEndian(resumed.Bytes));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_queued_Harbinger_buff_cannot_publish_after_resummon_or_owner_death(bool killed)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 20105), true)).Error);
+        var source = Program.Harbingers.ForNode(20105)!;
+        Assert.True((await game.Cast(game.GemEffects().Single(g => g.Effect == source.SummonEffect).Name)).Accepted);
+        var now = DateTimeOffset.UtcNow;
+        var roster = game.State.Companions!;
+        roster.Step(game.State.SummonLease, now.AddMilliseconds(4100), true, false);
+        roster.Step(game.State.SummonLease, now.AddMilliseconds(5000), true, false);
+        var active = Assert.Single(roster.Buffs(game.State.SummonLease, now.AddMilliseconds(5000)));
+        var result = await game.QueuedCompanionBuff(active, () =>
+        {
+            if (killed) game.State.PlayerLife = 0;
+            else roster.Activate(game.State.SummonLease, source, 100, now.AddMilliseconds(5000));
+        });
+        Assert.Empty(result.Bytes);
+        if (!killed) Assert.False(roster.Contains(game.State.SummonLease, active.Owner.Id));
+    }
+
+    [Fact]
+    public async Task A_replacement_Harbinger_waits_for_its_native_object_before_starting_a_cast()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 20105), true)).Error);
+        var source = Program.Harbingers.ForNode(20105)!;
+        Assert.True((await game.Cast(game.GemEffects().Single(g => g.Effect == source.SummonEffect).Name)).Accepted);
+        var roster = game.State.Companions!;
+        var now = DateTimeOffset.UtcNow;
+        await game.QueuedCompanionRefresh(() =>
+        {
+            Assert.True(roster.Activate(game.State.SummonLease, source, 100, now));
+            roster.Time(game.State.SummonLease, now.AddSeconds(5));
+        });
+        var replacement = Assert.Single(roster.Read(game.State.SummonLease, [20105], now.AddSeconds(5)));
+        Assert.Null(replacement.Cycles.CurrentCast);
+        Assert.Empty(roster.Buffs(game.State.SummonLease, now.AddSeconds(5)));
+        var spawned = await game.RefreshCompanions();
+        Assert.Contains(replacement.Id, game.State.CompanionObjects.Keys);
+        Assert.NotNull(replacement.Cycles.CurrentCast);
+        Assert.NotEmpty(spawned.Bytes);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task A_queued_Harbinger_spawn_rechecks_its_member_area_and_life_before_creating_any_native_object(int invalidation)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 20105), true)).Error);
+        var roster = game.State.Companions!;
+        Assert.True(roster.Activate(game.State.SummonLease, Program.Harbingers.ForNode(20105)!, 100, DateTimeOffset.UtcNow));
+        var result = await game.QueuedCompanionRefresh(() =>
+        {
+            if (invalidation == 1) game.State.ProjectileEpoch++;
+            else if (invalidation == 2) game.State.PlayerLife = 0;
+            else roster.Clear(game.State.SummonLease);
+        });
+        Assert.Empty(result.Bytes);
+        Assert.Empty(game.State.CompanionObjects);
+        Assert.DoesNotContain(game.State.Monsters.Values, m => m.Companion is not null);
+    }
+
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 
@@ -1631,6 +1827,45 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
                 .Invoke(null, ["ascendancy-integration", stream, cipher, State, critical])!;
             return null;
         });
+
+        public Task<(string? Error, byte[] Bytes)> SkillsOnly() => Exchange(async (stream, cipher) =>
+        {
+            await ProgramValue<Task>("SendSkills", "ascendancy-integration", stream, cipher, State);
+            return null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> RefreshCompanions() => Exchange(async (stream, cipher) =>
+        {
+            await ProgramValue<Task>("RefreshCompanions", "ascendancy-integration", stream, cipher, State, true);
+            return null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> QueuedCompanionRefresh(Action mutation) => Exchange(async (stream, cipher) =>
+        {
+            var gate = Program.SendGates.GetValue(cipher, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync();
+            Task pending = ProgramValue<Task>("RefreshCompanions", "ascendancy-integration", stream, cipher, State, true);
+            Assert.False(pending.IsCompleted);
+            mutation();
+            gate.Release();
+            await pending;
+            return null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> QueuedCompanionBuff(HarbingerRoster.Active buff, Action mutation) =>
+            Exchange(async (stream, cipher) =>
+            {
+                var gate = Program.SendGates.GetValue(cipher, _ => new SemaphoreSlim(1, 1));
+                await gate.WaitAsync();
+                uint id = State.CompanionObjects[buff.Owner.Id];
+                var pending = ProgramValue<Task<bool>>("SendCompanionBuff", "ascendancy-integration", stream, cipher,
+                    State, buff, id, State.AllocateBuff(), State.ProjectileEpoch);
+                Assert.False(pending.IsCompleted);
+                mutation();
+                gate.Release();
+                Assert.False(await pending);
+                return null;
+            });
 
         public Task<(string? Error, byte[] Bytes)> CreatureAttack(uint id, SpawnedMonster attacker, uint targetId, SpawnedMonster target) =>
             Exchange(async (stream, cipher) =>

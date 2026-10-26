@@ -114,7 +114,9 @@ partial class Program
         TemporaryPassiveBuffs.For(CharacterName(conn)).Clear();
         RageOf(conn).Clear();
         conn.Summons?.Clear(conn.SummonLease);
+        conn.Companions?.Clear(conn.SummonLease);
         await RefreshSummons(remote, stream, ciphers, conn);
+        await RefreshCompanions(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, InstanceProtocol.DeathScreen(DeathScreenFlags(conn)), label);
     }
@@ -455,7 +457,8 @@ partial class Program
                 manaRate = ManaRegenPerSecond(conn);
                 recoveryStats = CharacterPlayerStats(conn);
                 burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
-                    Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire));
+                    Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire))
+                    * Math.Max(0, 1 + RecoveryStat("harbinger_channel_buff_damage_taken_+%_final") / 100.0);
                 (ratesAt, cachedRf) = (now, rf);
             }
             double recoveryFrom = last;

@@ -183,6 +183,7 @@ partial class Program
         var extra = CharacterStatSources(conn, nodes);
         RageStats(conn, extra);
         SummonStats(conn, extra);
+        CompanionCounts(conn, extra);
         if (Stats.Key("ward_broken") is uint brokenWard) extra[brokenWard] = conn.Ward.Broken ? 1 : 0;
         if (Stats.Key("ward_delay") is uint wardDelay) extra[wardDelay] = (int)Math.Round(WardState.Delay(
             name => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0) * 1000);
@@ -586,6 +587,7 @@ partial class Program
     {
         await RefreshPassiveBuffs(remote, stream, ciphers, conn);
         await RefreshSummons(remote, stream, ciphers, conn, sendOwnerStats: false);
+        await RefreshCompanions(remote, stream, ciphers, conn, sendOwnerStats: false);
         await RefreshPassivePresences(remote, stream, ciphers, conn);
         await SendWardState(remote, stream, ciphers, conn);
         bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn);

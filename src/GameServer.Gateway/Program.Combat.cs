@@ -364,7 +364,9 @@ partial class Program
             });
             return true;
         }
-        if (gem.Name is not null && IsRighteousFire(gem.Effect))
+        if (gem.Name is not null && CompanionForEffect(conn, gem.Effect) is { } companion)
+            await ActivateCompanion(remote, stream, ciphers, conn, companion, CastMs(conn, gem.Effect, gem.Level, gem.Quality));
+        else if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
             await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, targetId, sequence: sequence);
@@ -557,7 +559,7 @@ partial class Program
     {
         int radius = SkillRadius(conn, spell: false, gem.Effect, gem.Level, gem.Quality);
         lock (conn.Monsters)
-            return conn.Monsters.Any(m => !m.Value.Dead && m.Value.Life > 0
+            return conn.Monsters.Any(m => !m.Value.Dead && m.Value.Life > 0 && !m.Value.Owned
                 && Dist(m.Value.Walk.Position(at), (x, y)) <= radius);
     }
 
@@ -598,7 +600,7 @@ partial class Program
         double now = conn.Clock.Elapsed.TotalSeconds;
         List<(uint Id, SpawnedMonster M)> targets;
         lock (conn.Monsters)
-            targets = [.. conn.Monsters.Where(e => !e.Value.Dead && e.Value.Life > 0 && e.Value.Summon is null
+            targets = [.. conn.Monsters.Where(e => !e.Value.Dead && e.Value.Life > 0 && !e.Value.Owned
                 && Dist(e.Value.Walk.Position(now), centre) <= radius)
                 .Select(e => (e.Key, e.Value))];
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
@@ -707,7 +709,7 @@ partial class Program
         // All observations below are taken with the monster lock held, including the initial observation when the
         // glide reaches the send gate. The game clock, not time spent waiting for the gate, starts the flight.
         List<ProjectileFlight.Target> Targets(double at) => [.. conn.Monsters
-            .Where(m => !m.Value.Dead && m.Value.Life > 0 && m.Value.Summon is null && (impactRadius <= 0 || m.Value.Hostile))
+            .Where(m => !m.Value.Dead && m.Value.Life > 0 && !m.Value.Owned && (impactRadius <= 0 || m.Value.Hostile))
             .Select(m => new ProjectileFlight.Target(m.Key, m.Value.Walk.Position(at), m.Value.Walk))];
         ProjectileFlight? flight = null;
         try
@@ -844,7 +846,7 @@ partial class Program
     // The short state mutation is shared with projectile impact; no awaits under Monsters.
     static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage, bool playerHit = true)
     {
-        if (m.Dead || m.Life == 0) return null;
+        if (m.Dead || m.Life == 0 || m.Companion is not null) return null;
         (m.Life, bool starts) = TakeDamageLocked(m, damage);
         if (playerHit) conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; }

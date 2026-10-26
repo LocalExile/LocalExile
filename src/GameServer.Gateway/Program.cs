@@ -173,6 +173,7 @@ sealed partial class Program
     internal static readonly Lazy<NpcCatalog> Npcs = new(() => NpcCatalog.Load(DataFolder));
     // Shared by every connection; loaded on the first /spawn_mob.
     internal static readonly MonsterCatalog Monsters = new(DataFolder);
+    internal static readonly HarbingerCompanionCatalog Harbingers = new(DataFolder);
     // MonsterPacks per area (MonsterPacks.cs); loaded with the first area that has monsters.
     internal static readonly PackCatalog Packs = new(DataFolder);
     // The skills granted to players (the default attack); loaded with the first player.

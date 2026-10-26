@@ -383,6 +383,7 @@ sealed class SkillCatalog(string folder = "data")
     public bool IsSpell(int effectRow) => _spellEffects.Value.Contains(effectRow);
     public bool IsAura(int effectRow) => _auraEffects.Value.Contains(effectRow);
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
+    public bool IsChannel(int effectRow) => _channelEffects.Value.Contains(effectRow);
 
     private readonly Lazy<HashSet<int>> _instantEffects = new(() => EffectsOfType(folder, "Instant"));
     private readonly Lazy<HashSet<int>> _movementEffects = new(() => EffectsOfType(folder, "Movement"));
@@ -391,6 +392,7 @@ sealed class SkillCatalog(string folder = "data")
     private readonly Lazy<HashSet<int>> _spellEffects = new(() => EffectsOfType(folder, "Spell"));
     private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
     private readonly Lazy<HashSet<int>> _warcryEffects = new(() => EffectsOfType(folder, "Warcry"));
+    private readonly Lazy<HashSet<int>> _channelEffects = new(() => EffectsOfType(folder, "Channel"));
 
     /// <summary>The GrantedEffects rows whose ActiveSkill has the ActiveSkillType of this Id.</summary>
     static HashSet<int> EffectsOfType(string folder, string typeId)

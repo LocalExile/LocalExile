@@ -79,6 +79,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public MonsterAttack? Attack { get; set; }
     // Server ownership, independent of cosmetic PetAi. Never kept in the area's ordinary monster snapshot.
     public SummonRoster.Member? Summon { get; init; }
+    public HarbingerCompanionCatalog.Companion? Companion { get; init; }
+    public bool Owned => Summon is not null || Companion is not null;
     public bool Hostile { get; init; } = true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
@@ -157,6 +159,10 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly SemaphoreSlim SummonGate = new(1, 1);
     public readonly Dictionary<long, (uint Object, ushort Buff)> SummonObjects = [];
     public int SentWolves = -1;
+    public HarbingerRoster? Companions;
+    public readonly Dictionary<long, uint> CompanionObjects = [];
+    public readonly Dictionary<int, (ushort Instance, long Member, double Ends)> CompanionBuffs = [];
+    public long CompanionRevision, PublishedCompanionRevision;
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;

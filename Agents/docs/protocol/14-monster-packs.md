@@ -92,6 +92,10 @@ The owner receives one native Spectral Pack buff per living wolf.
 Its server ownership/AI, `DiesAfterTime` handling and independent level-70 calculation are documented in
 [owned summons](../game/owned-summons.md).
 Owned creatures are never stored as ordinary monsters belonging to the area instance.
+Visiting Harbingers use current varieties 5892, 5893 and 5894, friendly team 0 and maximum life 1.
+Their actual warp/buff skills are registered on the Actor; native buffs target the owner and name the companion as source.
+The create/type/wake sequence validates the current member and area inside the cipher send gate before registration.
+Their raw bindings, cycles and remaining AI limits are in [Visiting Harbingers](../game/harbinger-companions.md).
 
 ## 4. Open
 

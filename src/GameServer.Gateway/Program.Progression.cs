@@ -82,6 +82,7 @@ partial class Program
         var passives = Passives.Stats((nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated), conn.MasteryEffects);
         passives = ItemModStats.Plus(passives, PassiveEffects.OwnerStats(PhreciaNodes(conn)));
         passives = ItemModStats.Plus(passives, TemporaryPassiveStats(conn));
+        passives = ItemModStats.Plus(passives, CompanionStats(conn));
         int Get(string name) => Stats.Key(name) is uint k ? passives.GetValueOrDefault(k) : 0;
         var c = Skills.ClassFor(conn.ClassRow);
         var (ps, pd, pi) = CharacterStats.Attributes(Get);

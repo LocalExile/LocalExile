@@ -158,6 +158,7 @@ partial class Program
         {
             left.Summons?.Pause(left.SummonLease, DateTimeOffset.UtcNow, false);
             left.Summons?.Release(left.SummonLease, left.LeavingArea);
+            left.Companions?.Release(left.SummonLease, left.LeavingArea, DateTimeOffset.UtcNow);
             // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
@@ -267,6 +268,7 @@ partial class Program
         lock (conn.Monsters)
         {
             conn.Summons?.Pause(conn.SummonLease, DateTimeOffset.UtcNow, pause);
+            conn.Companions?.Pause(conn.SummonLease, DateTimeOffset.UtcNow, pause);
             if (pause) conn.Clock.Stop(); else conn.Clock.Start();
         }
         await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
@@ -282,20 +284,29 @@ partial class Program
     // `still`, when given, is checked inside the connection's send gate and drops the packet when false: a packet decided
     // before another task's packets were sent can check that it still applies (SendFlinch).
     // Projectile impacts commit their short locked damage mutation inside this gate before relocation.
-    static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
+    static Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
+        Func<bool>? still = null) => SendGenerated(remote, stream, ciphers, () => bytes, log, still);
+
+    // Build a state-dependent packet only after taking the cipher send gate. Returning null suppresses it without
+    // consuming cipher bytes. Creature actions use this to commit their walk/cast and packet at the same point.
+    static async Task<bool> SendGenerated(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        Func<byte[]?> build, string? log,
         Func<bool>? still = null)
     {
         var gate = SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
         try
         {
-            if (still is not null && !still()) return;
+            if (still is not null && !still()) return false;
+            byte[]? bytes = build();
+            if (bytes is null) return false;
             if (log is not null) Console.WriteLine($"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}");
             string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
             ciphers.Send.Process(bytes);
             await stream.WriteAsync(bytes);
             if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
+            return true;
         }
         finally { gate.Release(); }
     }

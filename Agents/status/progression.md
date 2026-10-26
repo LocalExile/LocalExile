@@ -50,6 +50,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Oath equipment conditions, corrupted equipment and Sanguine Power have real-data Gateway integration checks.
   Antiquarian Ward conversion/restoration and timed Adrenaline have native hit/refund/area-transfer checks.
   Wildspeaker Pack Mentality has real owned wolves, combat AI, per-wolf damage, a limit and source-refund removal.
+  Harbinger's three Visiting companions cast native buffs; Arcane effects and Focus damage reduction execute.
+  Ally application, generic action speed and incoming immunity consumers remain incomplete.
   Other minion families and most remaining Wildspeaker effects are unfinished.
   Toughened Skin's body-only armour doubling is native-checked with quality, socketed gems, paid refund and relog.
   The unique mechanics of most classes and native Labyrinth/Altar acquisition remain incomplete.

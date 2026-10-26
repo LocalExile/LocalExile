@@ -9,6 +9,9 @@ partial class Program
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        double taken = Math.Max(0, 1 + Get("harbinger_channel_buff_damage_taken_+%_final") / 100.0);
+        nonChaos = (int)Math.Round(nonChaos * taken);
+        chaos = (int)Math.Round(chaos * taken);
         int total = nonChaos + chaos;
         conn.Ward.Advance(now);
         bool brokenBefore = conn.Ward.Broken;
