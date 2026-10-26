@@ -112,7 +112,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
 | Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance; chaos armour | Fortification, Rampage, Vaal Rage costs and remaining conditional bonuses |
-| Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
+| Antiquarian | Attributes/defences, Ward, Adrenaline and Strength-derived skill duration | Far Shot, special stun and ranged/shield rules |
 | Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
 | Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage | Recoup, mana damage absorption, blind and projectile forks |
 | Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
@@ -135,6 +135,9 @@ charges, and a skill's table entry does not grant or execute that skill.
 ### Passive attachments, costs and nearby effects
 
 Gateway integration checks allocate/refund real graph paths and invoke the production skill, stat and damage methods.
+Whaletooth Bangle 27339 adds one increased skill-duration point per complete ten final Strength, once per stat rebuild.
+Its allocation, paid refund, reload and final-attribute inputs have Gateway coverage; native duration checks are pending.
+The pure duration helper is available to summon-lifetime consumers without assigning owner duration to minion buffs.
 They cover all three Paladin aura choices, free Envy, Ghost of the Deep, Oath socket conditions, corrupted equipment,
 Sanguine Power, Harbinger's extra ES, atomic life/mana costs, life reservation and nearby enemy modifiers.
 The core wire test distinguishes life reservation from mana reservation in the initial Player object.

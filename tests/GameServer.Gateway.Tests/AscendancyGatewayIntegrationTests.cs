@@ -1311,6 +1311,30 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 
+    [Fact]
+    public async Task Whaletooth_Bangle_derives_duration_once_from_final_Strength_and_paid_refund_removes_it()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Antiquarian", refundPoints: 60, level: 20);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 27339);
+        Assert.Equal(0, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Equal(1, game.PlayerStat(SkillDurationModifiers.PerTenStrength));
+        Assert.Equal(game.State.Pools.Strength / 10, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Equal(game.State.Pools.Strength / 10, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        var reloaded = game.Reload();
+        var stats = ProgramValue<Dictionary<uint, int>>("CharacterPlayerStats", reloaded);
+        Assert.Equal(game.State.Pools.Strength / 10, stats[Program.Stats.Key(SkillDurationModifiers.IncreasedDuration)!.Value]);
+        await game.Command("/set_stat strength 455");
+        Assert.Equal(45, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        await game.Command("/set_stat skill_effect_duration_+% 20");
+        Assert.Equal(20, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+    }
+
     // These integration tests are in a nonparallel collection. Preserve developer projectile overrides while using a
     // short deterministic flight and the known collision geometry; the real damage/target paths still execute.
     sealed class ProjectileTestSettings : IDisposable
