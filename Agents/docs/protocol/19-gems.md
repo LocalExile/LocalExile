@@ -127,6 +127,11 @@ The server writes the component as `i32 experience, u32 variant, u8 flags, u16 0
   itself (`MinionGlobalSkillLevelStat`: Raise Zombie's row). `SkillGemFamilies` classifies gems by these rows — never
   by display names — and PassiveGemModifiers composes the family bonus with the global active-gem one (§3).
   Gateway checks cover all four families through active/inactive weapon swaps and a new connection with saved nodes.
+  Twelve native checks read each granted skill's level through ActiveSkillInstance +0x48 and its GEPL row +0x10.
+  Real Herald and Vaal paths produce 1 -> 4 -> 1 on allocation and paid refund; both Vaal skills change together.
+  The Link and Raise Zombie paths produce 1 -> 6 -> 1.
+  Ignored evidence: `logs/three-pr/native-phrecia-followups/gems-results.json`.
+  These checks establish native skill levels, without claiming the separate Herald, Link or zombie engines.
 
 ## 3. Skills from gems today
 

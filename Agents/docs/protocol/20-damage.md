@@ -134,7 +134,12 @@ Flat attack damage, maximum-mana lightning, explicit melee context and the final
 The per-hand physical panel rows use the same complete hit packet when supplied.
 Production-path tests cover the real node grants, final Dexterity, 449/450/899/900 defence boundaries,
 signed reductions, fractional transfers, source removal, spell/DoT exclusion and combined attack modifiers.
-Real-client verification of this derived-damage continuation remains pending with the integration owner.
+Sixteen native checks allocate the four real paths, strike a controlled monster and pay to refund each source.
+With physical damage disabled and a fixed 100 added chaos hit, Whisperer 50932 produces 101 after final flooring,
+Wildspeaker 24394 produces 140 with the fixture's final Dexterity, Behemoth 2103 produces 104 from 900 armour,
+and Daughter 6281 produces 106 from 900 evasion.
+The native enemy's Life falls from 5146 to 5045, 5006, 5042 and 5040 respectively; each refund restores 100 damage.
+Ignored evidence: `logs/three-pr/native-phrecia-followups/damage-results.json`.
 
 ## 2c. Outgoing resistance, penetration and critical ignore
 

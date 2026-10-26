@@ -36,7 +36,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Ward absorption/restoration and timed Adrenaline also execute, including cross-area lifetime.
   Current Rage, mana-spending grants, supported hit grants and the attack multiplier now execute and are native-checked.
   Incorruptible's full chaos-armour flag also executes through the common incoming-hit stage and survives paid refunds.
-  Whaletooth Bangle's final-Strength duration adapter has Gateway coverage; verify its native duration consumers.
+  Whaletooth Bangle's final duration stat is native-checked; verify elapsed lifetimes when integrating summon consumers.
   The [current class table](../docs/game/ascendancies.md#what-this-does-not-complete) distinguishes those effects.
 - **Start:** complete the missing signature subsystems in the
   [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,

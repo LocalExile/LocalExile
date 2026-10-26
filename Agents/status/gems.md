@@ -5,7 +5,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-Nothing yet.
+- **Phrecia family gem levels.** Actual Herald/Vaal paths raise native skill records from 1 to 4;
+  Link and Raise Zombie paths raise them from 1 to 6, with paid refunds restoring 1.
+  Both skills of the Vaal gem change together.
+  Global bonuses compose once; requirements, stored experience and quality remain intrinsic.
+  Metadata and Gateway tests also cover transfigured variants, active weapon sets and reconnects.
+  This verifies the level modifier, while the separate Herald, Link, zombie and Vaal-soul engines remain partial.
 
 ## Partly working
 
@@ -23,8 +28,7 @@ Nothing yet.
   Transfigured and Trarthan gems grant their own skill, Vaal gems their Vaal skill and their base skill (refused
   without Vaal souls, which are not gathered yet); the variant is sent in the SkillGem data and saved;
   `/gem <name> [level] [quality]` (`ItemCatalog.cs`, `SkillCatalog.cs`; [19](../docs/protocol/19-gems.md) §1, §3).
-  Not yet: supports, corruption, and a real-client check of the family stats (the boosted levels are covered by
-  Gateway integration tests only).
+  Not yet: full support execution, corruption and the separate family skill engines.
 - **Gem requirements (tested, checked with the real client).** A gem's level requirement is the character level of its
   level (GrantedEffectStatSetsPerLevel `PlayerLevelReq`; Haste 24 at gem level 1 . 70 at 20, the client's tooltips),
   and its attribute requirements follow the client's own formula (`0x14246fc40`: `trunc((3 * level_req + 11) *

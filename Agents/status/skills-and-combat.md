@@ -153,7 +153,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Initial support includes active-gem level/quality, attributes/requirements, ordinary-point grants,
   lucky/unlucky hit and block rolls, triple damage and hit resistance rules.
   The Phrecia family gem-level stats raise their families' gems too (Herald, Vaal, Link, Raise Zombie), classified
-  from the client's own gem metadata by `SkillGemFamilies.cs`; not checked with the real client yet.
+  from the client's own gem metadata by `SkillGemFamilies.cs`; twelve native level/refund checks pass.
   Gem changes refresh retained auras and Righteous Fire, including its life and energy-shield coefficients.
   Spell-use, spell-damage and aura restrictions have separate rules; aura suspension preserves enabled intent.
   Real-client checks cover an Aristocrat Fireball cast and native point grants/refunds.
@@ -161,7 +161,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Typed derived damage supports Whisperer's 150% spell-to-attack and Wildspeaker's 150% minion-to-owner transfer.
   Wildspeaker counts supported minion damage per five final Dexterity; generic damage reaches owner spells and RF.
   Steel Willed and Forest Tracking scale attack increases from complete groups of 450 final armour/evasion.
-  Fractional transfers join base and added damage before conversion and Rage; real-client verification is pending.
+  Fractional transfers join base and added damage before conversion and Rage.
+  Sixteen native checks cover real-node allocation, fixed hits reaching enemy Life and paid refunds for all four sources.
   Most Phrecia signature mechanics remain absent; selecting a class does not implement its entire tree.
   Code: `PassiveGemModifiers.cs`, `SkillGemFamilies.cs`, `GamblerModifiers.cs`, `SkillRestrictions.cs`, Gateway skill/combat partials.
   Docs: [implemented effects by class](../docs/game/ascendancies.md#what-this-does-not-complete).

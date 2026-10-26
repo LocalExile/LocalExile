@@ -518,7 +518,10 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   atomic life/mana costs, Rage and the existing outgoing damage consumers.
   A real-node Gateway regression gives Harbinger 3702's Dash rate 1.55 with native base 2500 ms;
   paid refund changes the active rate to 1 without resetting its spent budget.
-  This adapter's real-client verification is still pending.
+  Actual native Q input with Harbinger 3702 keeps Dash's base 2500 ms and rate 1.55.
+  The raw early retry has no action echo; a repeat at 1.8 seconds succeeds.
+  Paid refund changes the active native entry to rate 1, retaining total 2.5 and remaining 1.9809 base seconds.
+  Four accepted checks are in ignored `logs/three-pr/native-phrecia-followups/cooldown-ui-results.json`.
   A queued continuation keeps the original action/area ticket; cancellation consumes the accepted use without a refund.
   An attack approach only checks readiness, then reserves at arrival under its original action token.
   Instant 0x191 skills preserve the current action.

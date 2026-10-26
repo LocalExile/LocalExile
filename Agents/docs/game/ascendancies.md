@@ -111,11 +111,11 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
-| Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance; chaos armour; final-armour attack increase (native pending) | Double-armour hit chance, Fortification, Rampage, Vaal Rage costs and remaining conditional bonuses |
-| Antiquarian | Attributes/defences, Ward, Adrenaline and Strength-derived skill duration | Far Shot, special stun and ranged/shield rules |
-| Wildspeaker | Suppression and Dexterity; 150% minion increases/reductions to owner damage, including per-Dexterity damage (native pending) | Wolves, Aspects, Tailwind and minion/charge sharing |
-| Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage; 150% spell increases/reductions to attacks (native pending) | Recoup, mana damage absorption, blind and projectile forks |
-| Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences; final-evasion attack increase (native pending) | Forest Tracking's tracker, Wisps, Shrines, Vines and Spellslinger |
+| Behemoth | Strength/mana; unarmed crit; Rage; chaos armour; armour-scaled attacks | Fortification, Rampage, Vaal costs |
+| Antiquarian | Ward/Adrenaline; Strength duration | Far Shot, stun and ranged/shield rules |
+| Wildspeaker | Suppression; Dexterity; minion damage transfer | Wolves, Aspects, Tailwind and sharing |
+| Whisperer | Mana, lightning, free costs, Rage; spell-to-attack | Recoup, absorption, blind, forks |
+| Daughter of Oshabi | Oath; evasion-scaled attacks | Tracking, Wisps, Shrines, Vines, Spellslinger |
 | Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |
 | Herald | Shared choice-node allocation, Apocalypse's Herald-gem levels and supported generic modifiers | Actual Herald effects/minions and Herald-specific reservation rules |
 | Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |
@@ -136,14 +136,17 @@ charges, and a skill's table entry does not grant or execute that skill.
 
 Gateway integration checks allocate/refund real graph paths and invoke the production skill, stat and damage methods.
 Whaletooth Bangle 27339 adds one increased skill-duration point per complete ten final Strength, once per stat rebuild.
-Its allocation, paid refund, reload and final-attribute inputs have Gateway coverage; native duration checks are pending.
+Allocation, paid refund, reload and final-attribute inputs have Gateway coverage.
+Five native stat checks give 455/459 Strength -> 45 duration, 460 -> 46, and paid refund -> 0.
+Elapsed summon-lifetime composition is a separate integration check.
 The pure duration helper is available to summon-lifetime consumers without assigning owner duration to minion buffs.
 They cover all three Paladin aura choices, free Envy, Ghost of the Deep, Oath socket conditions, corrupted equipment,
 Sanguine Power, Harbinger's extra ES, atomic life/mana costs, life reservation and nearby enemy modifiers.
 They also cover the four family gem-level nodes (Apocalypse, Chaos Reigns, Deep Connections, Flesh Puppets): a
 socketed gem's effective level rises with the node and falls back to its intrinsic level on refund, while the stored
 experience, quality and requirements stay intrinsic.
-The family gem levels are not checked with the real client yet.
+Twelve native skill-record checks cover all four families and paid refunds, including both skills of a Vaal gem.
+Ignored evidence for these continuations is under `logs/three-pr/native-phrecia-followups/`.
 The core wire test distinguishes life reservation from mana reservation in the initial Player object.
 
 Native checks use fresh accounts in an isolated ignored database, not the user's existing characters.
