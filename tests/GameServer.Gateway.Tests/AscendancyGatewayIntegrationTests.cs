@@ -420,6 +420,134 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task The_Heralds_Apocalypse_node_boosts_its_herald_gems_and_a_refund_restores_them()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Herald", refundPoints: 60, level: 90);
+        var (type, variant) = Program.Items.FindGem("Herald of Ash")!.Value;
+        var gem = ItemCatalog.Create(type) with
+        {
+            GemExperience = Program.Items.Gem(type)!.ExperienceFor(20), Quality = 20, GemVariant = variant.Index,
+        };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        int effect = Program.Skills.EffectRow("HeraldOfAsh");
+        var before = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((20, 20), (before.Level, before.Quality));
+
+        ushort[] path = [5273, 20602, 48062, 2204, 2380, 49731, 18026, 40058]; // the Herald tree's path to Apocalypse.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var boosted = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((23, 20), (boosted.Level, boosted.Quality)); // Apocalypse: +3 to level of Herald skill gems.
+        var intrinsic = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((20, (byte)20), (Program.Items.GemLevel(intrinsic), intrinsic.Quality));
+        Assert.Equal(Program.Items.Gem(type)!.ExperienceFor(20), intrinsic.GemExperience);
+        Assert.Equal(70, Program.Skills.PlayerLevelReq(effect, 20)); // the requirements stay the intrinsic level's.
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        var restored = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((20, 20), (restored.Level, restored.Quality));
+        var savedGem = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((20, (byte)20), (Program.Items.GemLevel(savedGem), savedGem.Quality));
+    }
+
+    [Fact]
+    public async Task The_Paladins_Deep_Connections_node_boosts_its_link_gems()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 4, baseClass: 4, choice: "Paladin", refundPoints: 60, level: 90);
+        var (type, variant) = Program.Items.FindGem("Soul Link")!.Value;
+        var gem = ItemCatalog.Create(type) with { GemVariant = variant.Index };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        int effect = Program.Skills.EffectRow("SoulLink");
+        Assert.Equal(1, game.GemEffects().Single(g => g.Effect == effect).Level);
+
+        ushort[] path = [2134, 40171, 49271, 34448]; // the Paladin tree's path to Deep Connections.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var boosted = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((6, 0), (boosted.Level, boosted.Quality)); // Deep Connections: +5 to level of Link skill gems.
+        Assert.Equal(1, Program.Items.GemLevel(gem));
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(1, game.GemEffects().Single(g => g.Effect == effect).Level);
+    }
+
+    [Fact]
+    public async Task The_Architects_Chaos_Reigns_node_boosts_both_skills_of_a_Vaal_gem_and_not_a_plain_gems()
+    {        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Architect of Chaos", refundPoints: 60, level: 90);
+        var (vaalType, vaalVariant) = Program.Items.FindGem("Vaal Fireball")!.Value;
+        var (fireType, fireVariant) = Program.Items.FindGem("Fireball")!.Value;
+        var vaal = ItemCatalog.Create(vaalType) with { GemVariant = vaalVariant.Index };
+        var plain = ItemCatalog.Create(fireType) with { GemVariant = fireVariant.Index };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, vaal), new ItemSocket(SocketColour.Blue, plain)], Links = [0],
+        });
+        int vaalEffect = Program.Skills.EffectRow("VaalFireball"), fireEffect = Program.Skills.EffectRow("Fireball");
+        // The Vaal gem grants two skills at level 1 (its Vaal skill and its base skill); the plain gem its own Fireball.
+        Assert.Equal(2, game.GemEffects().Count(g => g.Gem == vaalType.Hash));
+        Assert.Single(game.GemEffects(), g => g.Gem == fireType.Hash);
+        Assert.All(game.GemEffects(), g => Assert.Equal(1, g.Level));
+
+        ushort[] path = [12195, 50314, 44996, 45399]; // the Architect of Chaos tree's path to Chaos Reigns.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var skills = game.GemEffects().ToList();
+        // The Vaal gem's bonus raises both skills its one gem grants (+3 to level of Vaal skill gems) …
+        Assert.All(skills.Where(g => g.Gem == vaalType.Hash), g => Assert.Equal((4, 0), (g.Level, g.Quality)));
+        // … and the plain Fireball is not a Vaal gem: it stays at its intrinsic level.
+        var plainFireball = skills.Single(g => g.Effect == fireEffect && g.Gem == fireType.Hash);
+        Assert.Equal((1, 0), (plainFireball.Level, plainFireball.Quality));
+        Assert.Equal(new DamageRange(18, 28), Program.Skills.HitDamage(vaalEffect, 4)[DamageType.Fire]);
+        Assert.Equal(new DamageRange(9, 14), Program.Skills.HitDamage(plainFireball.Effect, 1)[DamageType.Fire]);
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.All(game.GemEffects(), g => Assert.Equal(1, g.Level));
+    }
+
+    [Fact]
+    public async Task The_Puppeteers_Flesh_Puppets_node_boosts_the_raise_zombie_levels()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Puppeteer", refundPoints: 60, level: 90);
+        var (type, variant) = Program.Items.FindGem("Raise Zombie")!.Value;
+        var gem = ItemCatalog.Create(type) with
+        {
+            GemExperience = Program.Items.Gem(type)!.ExperienceFor(20), Quality = 15, GemVariant = variant.Index,
+        };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        int effect = Program.Skills.EffectRow("RaiseZombie");
+        Assert.Equal(20, game.GemEffects().Single(g => g.Effect == effect).Level);
+
+        ushort[] path = [44410, 27380, 64248, 18817]; // the Puppeteer tree's path to Flesh Puppets.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var boosted = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((25, 15), (boosted.Level, boosted.Quality)); // Flesh Puppets: +5 to level of Raise Zombie gems.
+        // The stored experience and quality are the intrinsic ones; the level still comes from them.
+        var intrinsic = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((Program.Items.Gem(type)!.ExperienceFor(20), (byte)15), (intrinsic.GemExperience, intrinsic.Quality));
+        Assert.Equal(20, Program.Items.GemLevel(intrinsic));
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        var restored = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((20, 15), (restored.Level, restored.Quality));
+        var savedGem = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((Program.Items.Gem(type)!.ExperienceFor(20), (byte)15), (savedGem.GemExperience, savedGem.Quality));
+    }
+
+    [Fact]
     public async Task Already_running_Clarity_and_Precision_refresh_when_ascendancy_gem_modifiers_change()
     {
         if (!DataAvailable()) return;

@@ -390,6 +390,14 @@ sealed class SkillCatalog(string folder = "data")
     public bool IsAura(int effectRow) => _auraEffects.Value.Contains(effectRow);
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
+    /// <summary>Whether the stat raises this socketed gem's level for its family (SkillGemFamilies): the gem's
+    /// SkillGems row — the base item type's row, ItemCatalog's GemType key — in the stat's family. Unknown stats and
+    /// gems are in none. PassiveGemModifiers composes the family's bonus with the global gem bonus.</summary>
+    public bool FamilyStatRaises(string stat, int gemRow) =>
+        _stats.Key(stat) is uint key && _families.Value.Raises((int)key - 1, gemRow);
+
+    private readonly Lazy<SkillGemFamilies> _families = new(() => new(folder));
+
     private readonly Lazy<HashSet<int>> _instantEffects = new(() => EffectsOfType(folder, "Instant"));
     private readonly Lazy<HashSet<int>> _movementEffects = new(() => EffectsOfType(folder, "Movement"));
     private readonly Lazy<HashSet<int>> _attackEffects = new(() => EffectsOfType(folder, "Attack"));

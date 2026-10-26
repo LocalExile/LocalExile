@@ -117,13 +117,13 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage | Recoup, mana damage absorption, blind and projectile forks |
 | Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
 | Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |
-| Herald | Shared choice-node allocation and supported generic modifiers | Actual Herald effects/minions and Herald-specific gem/reservation rules |
+| Herald | Shared choice-node allocation, Apocalypse's Herald-gem levels and supported generic modifiers | Actual Herald effects/minions and Herald-specific reservation rules |
 | Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |
 | Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Support-gem execution and conditional ailment immunity |
 | Gambler | Hit/critical/block luck, triple damage and hit resistance rules | Ailment/stun avoidance and further enemy resistance sources |
-| Paladin | Granted auras and Light of Divinity's nearby elemental damage taken | Ground, Links, Relics and party sharing |
-| Architect of Chaos | Equipped corruption conditions, life reservation and life cost | Dissolution, sacrifices and Vaal souls |
-| Puppeteer | Percentage Strength | Owned minions, inheritance, corpses and minion-death effects |
+| Paladin | Granted auras, Deep Connections's Link-gem levels and Light of Divinity's nearby elemental damage taken | Ground, Links, Relics and party sharing |
+| Architect of Chaos | Equipped corruption conditions, Chaos Reigns's Vaal-gem levels, life reservation and life cost | Dissolution, sacrifices and Vaal souls |
+| Puppeteer | Percentage Strength and Flesh Puppets's Raise Zombie gem levels | Owned minions, inheritance, corpses and minion-death effects |
 | Polytheist | Gruthkul life/regeneration, Brine King maximum cold resistance, Lunaris spell area | Charges, Blind, curses, ailments and triggered effects |
 | Servant of Arakaali | Free passive-granted level 15 Envy | Spiders, Webs, Penance Mark and minion effects |
 | Blind Prophet | Armed critical base override and supported generic modifiers | Blind, projectile returns/direction and Shade Form |
@@ -140,6 +140,10 @@ Its allocation, paid refund, reload and final-attribute inputs have Gateway cove
 The pure duration helper is available to summon-lifetime consumers without assigning owner duration to minion buffs.
 They cover all three Paladin aura choices, free Envy, Ghost of the Deep, Oath socket conditions, corrupted equipment,
 Sanguine Power, Harbinger's extra ES, atomic life/mana costs, life reservation and nearby enemy modifiers.
+They also cover the four family gem-level nodes (Apocalypse, Chaos Reigns, Deep Connections, Flesh Puppets): a
+socketed gem's effective level rises with the node and falls back to its intrinsic level on refund, while the stored
+experience, quality and requirements stay intrinsic.
+The family gem levels are not checked with the real client yet.
 The core wire test distinguishes life reservation from mana reservation in the initial Player object.
 
 Native checks use fresh accounts in an isolated ignored database, not the user's existing characters.

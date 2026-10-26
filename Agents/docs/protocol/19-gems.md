@@ -121,6 +121,11 @@ The server writes the component as `i32 experience, u32 variant, u8 flags, u16 0
 - **Supports:** GrantedEffects holds what a support applies to (`AllowedActiveSkillTypes`, `ExcludedActiveSkillTypes`,
   `AddedActiveSkillTypes`, `SupportsGemsOnly`) and its skill-bar letter (`SupportGemLetter`); a skill's types come from
   its ActiveSkills row.
+- **Gem families:** a GemTags row carries the gem-level stats of its tag in its Stat1–Stat4 columns: the
+  `local_socketed_*` per-item ones, and the passive tree's global family stats (`herald_skill_gem_level_+` on the
+  Herald tag, `vaal_skill_gem_level_+` on Vaal, `link_skill_gem_level_+` on Link). A SkillGems row can carry a stat
+  itself (`MinionGlobalSkillLevelStat`: Raise Zombie's row). `SkillGemFamilies` classifies gems by these rows — never
+  by display names — and PassiveGemModifiers composes the family bonus with the global active-gem one (§3).
 
 ## 3. Skills from gems today
 
@@ -128,6 +133,10 @@ The server writes the component as `i32 experience, u32 variant, u8 flags, u16 0
   - **Level** from the experience as the client derives it (§1; `ItemCatalog.GemType.Level`), capped by the experience
     type (§2), with its experience stalled by the character's level requirement (§2 "Requirements"). Experience -1 is
     the cap + 1.
+    The passive tree's family gem-level stats raise the effective level further (Apocalypse's +3 to Herald gems, Chaos
+    Reigns's +3 to Vaal gems, Deep Connections's +5 to Link gems, Flesh Puppets's +5 to Raise Zombie gems), composed
+    once with the global active-gem bonus; a Vaal gem's two skills share the boost, and supports get none.
+    The gem's requirements, stored experience and quality stay the intrinsic level's.
   - **Skill:** the variant's GemEffects `GrantedEffect`; a transfigured or Trarthan gem is its own skill (Ice Nova of
     Frostbolts grants IceNovaAltX). A Vaal gem grants two skills, its Vaal skill and its base skill (`GrantedEffect2`),
     each with its own skill id. A support gem grants none.

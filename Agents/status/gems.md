@@ -15,10 +15,16 @@ Nothing yet.
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
-  transfigured and Trarthan gems grant their own skill, Vaal gems their Vaal skill and their base skill (refused
+  the passive tree's family gem-level stats raise their families' effective levels with it: Apocalypse +3 to Herald
+  gems, Chaos Reigns +3 to Vaal gems, Deep Connections +5 to Link gems, Flesh Puppets +5 to Raise Zombie gems.
+  Membership is the client's own metadata (a GemTags row carrying the stat, and Raise Zombie's SkillGems
+  MinionGlobalSkillLevelStat), never display names; a Vaal gem's two skills share the boosted level, and the family
+  bonuses compose once with the global active-gem ones and never reach supports.
+  Transfigured and Trarthan gems grant their own skill, Vaal gems their Vaal skill and their base skill (refused
   without Vaal souls, which are not gathered yet); the variant is sent in the SkillGem data and saved;
   `/gem <name> [level] [quality]` (`ItemCatalog.cs`, `SkillCatalog.cs`; [19](../docs/protocol/19-gems.md) §1, §3).
-  Not yet: supports, corruption.
+  Not yet: supports, corruption, and a real-client check of the family stats (the boosted levels are covered by
+  Gateway integration tests only).
 - **Gem requirements (tested, checked with the real client).** A gem's level requirement is the character level of its
   level (GrantedEffectStatSetsPerLevel `PlayerLevelReq`; Haste 24 at gem level 1 . 70 at 20, the client's tooltips),
   and its attribute requirements follow the client's own formula (`0x14246fc40`: `trunc((3 * level_req + 11) *

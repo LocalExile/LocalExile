@@ -152,12 +152,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Main ascendancy effects execute through the existing combat and skill paths.
   Initial support includes active-gem level/quality, attributes/requirements, ordinary-point grants,
   lucky/unlucky hit and block rolls, triple damage and hit resistance rules.
+  The Phrecia family gem-level stats raise their families' gems too (Herald, Vaal, Link, Raise Zombie), classified
+  from the client's own gem metadata by `SkillGemFamilies.cs`; not checked with the real client yet.
   Gem changes refresh retained auras and Righteous Fire, including its life and energy-shield coefficients.
   Spell-use, spell-damage and aura restrictions have separate rules; aura suspension preserves enabled intent.
   Real-client checks cover an Aristocrat Fireball cast and native point grants/refunds.
   Controlled Gateway tests cover actual impact targets, aura reservation/effects, restrictions and refund/reload.
   Most Phrecia signature mechanics remain absent; selecting a class does not implement its entire tree.
-  Code: `PassiveGemModifiers.cs`, `GamblerModifiers.cs`, `SkillRestrictions.cs`, Gateway skill/combat partials.
+  Code: `PassiveGemModifiers.cs`, `SkillGemFamilies.cs`, `GamblerModifiers.cs`, `SkillRestrictions.cs`, Gateway skill/combat partials.
   Docs: [implemented effects by class](../docs/game/ascendancies.md#what-this-does-not-complete).
 
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool

@@ -497,6 +497,9 @@ partial class Program
     // its base skill (ItemCatalog.GemEffects). Each skill keeps its id while its gem stays socketed (GemSkillIds): the client
     // binds skill bar keys by skill id. A gem whose requirements the character does not meet makes its item inactive
     // (CharacterStatSources), so it grants nothing here; a use that still arrives is refused (GemDisabled).
+    // The effective level is the gem's plus the global active-gem bonus and the family stats its gem belongs to
+    // (PassiveGemModifiers, SkillCatalog.FamilyStatRaises): one composition per skill the gem grants, so a Vaal gem's
+    // two skills share the boosted level. Supports grant no skills and never reach the bonuses.
     static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(ClientState conn)
     {
         string name = CharacterName(conn);
@@ -513,7 +516,9 @@ partial class Program
         for (int i = 0; i < gems.Count; i++)
             if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
             {
-                var (level, quality) = modifiers.Apply(Items.GemLevel(gems[i].Gem), gems[i].Gem.Quality);
+                int gemRow = Items.ByHash(gems[i].Gem.TypeHash)?.Row ?? -1;
+                var (level, quality) = modifiers.Apply(Items.GemLevel(gems[i].Gem), gems[i].Gem.Quality,
+                    family: stat => Skills.FamilyStatRaises(stat, gemRow));
                 yield return (id, gems[i].Effect, Items.GemName(gems[i].Gem), level, quality, gems[i].Gem.TypeHash);
             }
         // Inventory item ids start at one. Host zero is reserved for passive attachments, so adding/removing a
