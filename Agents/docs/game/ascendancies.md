@@ -202,7 +202,8 @@ Three further checks combine Sea Legs, three Power charges and linked Faster Cas
 The selected Fireball retains base 750 ms, cast speed 20%, rate 160 and critical chance 2,485 permyriad.
 Ignored source/DLL metadata and results are under `logs/phrecia-completion/merge-native/`.
 These checks do not measure the precise early-attack boundary with a native stopwatch.
-Normal manual Enduring Cry now has bounded source execution with automated checks; native validation is pending.
+The later `dbfe717` checkpoint passes Core 535, Data 34, Gateway 2,739 and 12 extractor tests.
+Fourteen further native checks verify bounded manual Enduring Cry; six verify Life corpse eligibility flags.
 
 ### Standard charges
 
@@ -232,8 +233,16 @@ Quality 20 adds 40% recovery once; use speed and global action speed do not chan
 The owner buff pauses and ends on death, source removal, transfer invalidation or disconnect, with no carry/relog.
 Accepted paid execution ignores later ordinary action tokens; its exact native contact boundary remains unverified.
 Guarded sends sample current life and remaining buff duration at the cipher gate.
-Automated tests and offline timing evidence support this slice; the parent still owns its real-client trace.
-That pass must check native raw base/rate, Call allocation/refund, quality, cooldown admission and elapsed recovery.
+Fourteen real-client checks verify level 1/20, Call allocation/refund, quality, instant use and cooldown peer refusal.
+The observed alternate animation selector returns local playback 4.225 with or without +22% action speed.
+The separate renderer global factor changes from 1 to 1.22 and advances that clip once at the adjusted rate.
+The native raw nonspell rate remains 423; generic cast speed does not change it.
+Quality 20 gives cooldown recovery 1.4, or 1.1 with Call; refund preserves the spent base-time budget.
+With 100% owner buff effect, actual regeneration is 960% life/minute and Life rises 600→761 over 0.834 s.
+An actual instant request installs the buff after 53 ms without an ordinary action wait.
+Adding Rallying Cry refuses the next use before echo or mana spending, leaving mana 581→581.
+Ignored source/DLL metadata and results are under `logs/phrecia-completion/cry-corpse-native/`.
+Exact native contact/cancellation boundaries, rather than the local/global speed composition, remain unmeasured.
 Ally charge/buff sharing, taunt AI, Deathrattle corpses/chests and other warcries remain unsupported.
 See [skills, bounded manual Enduring Cry](../protocol/11-skills.md#bounded-manual-enduring-cry).
 

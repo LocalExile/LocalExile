@@ -1737,7 +1737,7 @@ Charge sharing, charge consumption/replacement and unsupported event conditions 
 ### Bounded manual Enduring Cry
 
 `EnduringCry`, `WarcryTiming` and `Program.EnduringCry` execute normal GE268 for the owner through paid skill use.
-This is automated source coverage with offline native evidence, not a real-client verification claim.
+Fourteen real-client checks at source `dbfe717` verify this bounded route alongside the automated coverage.
 It reuses the merged charge session and guarded publication rather than the earlier standalone completion helper.
 Level 1 uses 800 ms raw time, 13 mana, 0% own warcry speed and a 2500 ms buff.
 Level 20 uses 800 ms, 19 mana, 38% own speed and a 3400 ms buff.
@@ -1781,7 +1781,15 @@ Buff IDs, remaining duration and stat/life publication are resolved under the ci
 Life packets use current life at the actual send boundary.
 
 Offline 3.29.3b evidence identifies warcry action `0x141abcaa0` reading raw GE CastTime at row +0x5f.
-It applies skill/player `warcry_speed_+%` 3543 once before common animation `0x141e99bd0` applies action speed 3302.
+It applies skill/player `warcry_speed_+%` 3543 once before handing the local duration to common animation.
+The observed Marauder branch in `0x141e9a3c0` selects `0x141e999e0`, not `0x141e99bd0`.
+Its request carries local seconds at +0x44 and a present byte at +0x48.
+The selector returns a clip index and local playback ratio: intrinsic clip seconds divided by requested seconds.
+This float is a speed ratio, not another duration.
+Actor setup `0x141e9ca20` and stat callback `0x141e9cf90` set render +0x1f8 from action speed 3302.
+Setter `0x141dbe050` stores that separate global factor; local playback is render +0x1b0.
+Frame routine `0x141dbc010` advances clip time by elapsed seconds times local playback times the global factor.
+Thus global action speed applies once after the actual alternate selector; no publication compensation is needed.
 Native base keys 681/9401 remain 800; generic cast speed does not pre-divide the warcry base.
 Final instant key 8292 is intrinsic 8291 OR (warcry 3454 AND warcries-instant 3777).
 A passive instant input does not fabricate intrinsic instant 8291.
@@ -1791,9 +1799,20 @@ Level 20 plus +200% warcry speed and +22% action speed gives raw rate 423 and a 
 The action-adjusted inverse of that wait is not published to key 2990.
 Conditional/retaliation speed, base overrides and steel-reload timing remain outside bounded admission.
 
-The parent native pass must trace action hash 0xc320, raw GE+0x5f, keys 3543/3302/8292/9401/2990 and action +0x350.
-It must compare level 1/20, Call allocation/refund, quality 20, action speed and generic-cast-speed controls.
-Selected clip/contact timing, instant dispatch, singleton/group-peer refusal and elapsed regeneration need that pass.
+Native traces verify action hash 0xc320, raw GE+0x5f and keys 3543/3302/8292/9401/2990 against action +0x350.
+Level 1 gives raw 800 ms and rate 125; level 20 gives own speed 38 and rate 173.
+With Call, level 20 gives combined speed 238, rate 423 and local duration 0.236686 s.
+Adding 22% action speed changes render global factor from 1 to 1.22 while local playback remains 4.225.
+Generic cast speed 999 does not change this warcry's raw base, rate or local duration.
+Quality 20 gives cooldown base 8000 ms and recovery 1.4; Call changes recovery to 1.1.
+Paid Call refund retains the spent base-time budget and restores recovery 1.4.
+An actual nearby unique supplies four charges with Ancestral Endurance's maximum of five.
+With 100% owner buff effect, native regeneration is 960% life/minute and Life rises from 600 to 761 in 0.834 s.
+The instant path sends actual C→S 0x191 and installs the buff 53 ms later, without an ordinary action wait.
+Clearing instant permits the next ordinary cast; a socketed Rallying Cry peer rejects before echo or mana payment.
+The peer rejection leaves mana at 581; it does not bypass native group identity.
+Ignored metadata and results are under `logs/phrecia-completion/cry-corpse-native/`.
+Exact clip-contact and cancellation boundaries remain unmeasured; the checks do not establish frame-perfect timing.
 Ally charge/buff sharing, taunt AI, Deathrattle corpses/chests and other warcries remain unsupported.
 
 ## Open

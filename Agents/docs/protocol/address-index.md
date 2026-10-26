@@ -372,6 +372,18 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x142197d24..0x142197e7b` | Fn | Actor 0x40 cooldown trailer reads base-time progress/total, rate and flags |
 | `0x142197f90..0x142197fd8` | Fn | Actor 0x40 replaces the matching existing cooldown entry vector |
 | `0x1401232e0` | Fn | instant input sender: mode 4 ground 0x190, modes 5/6 object/self 0x191 |
+| `0x141998a40` | Fn | warcry action factory, action hash 0xc320 |
+| `0x141abcaa0` | Fn | warcry start: raw GE time, own speed 3543 and local duration +0x350 |
+| `0x14193b350` | Fn | skill stat getter used by the warcry timing trace |
+| `0x14278ab90` | Fn | raw nonspell rate 2990, excluding global action speed |
+| `0x142888200` / `0x142888400` | Fn | virtual base use time / resolved instant eligibility |
+| `0x141e9a3c0` | Fn | common animation request; observed warcry branch selects 0x141e999e0 |
+| `0x141e999e0` | Fn | alternate selector returns clip index and intrinsic/requested local playback ratio |
+| `0x141e9cc35..0x141e9cc60` | Code | actor setup reads action speed 3302 and sets the renderer global factor |
+| `0x141e9cf90` / `0x141e9d00a` | Fn/Code | action-speed change callback / global-factor setter call |
+| `0x141dbe050` / `0x141dbe09e` | Fn/Code | renderer global-factor setter / store at +0x1f8 |
+| `0x141dbc010` | Fn | clip clock: elapsed seconds times local playback +0x30 times renderer global +0x1f8 |
+| `0x141dbf213..0x141dbf22b` | Code | native debug label and product for playback including global speed |
 | `0x1435c0718` | Cls | C→S 0x190 location instant; writer `0x141f91f60`, reader `0x141f92000` |
 | `0x142195880` | Fn | S→C 0x1ce instant action and use consumption, without an ordinary action sequence |
 | `0x1432823d0` | Vt | IceDash action, installed by factory `0x1412805a0` |

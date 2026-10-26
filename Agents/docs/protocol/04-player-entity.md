@@ -191,7 +191,8 @@ Missing inheritance keeps unresolved fields null; explicit later overrides, incl
 `MonsterObject` writes the resolved bits; owned summons and companions force corpse usability false at creation.
 `MonsterLifeData.IsUsableAsCorpse` mirrors the source predicate and also excludes owned actors by server policy.
 It does not establish final death, corpse identity, availability or consumption.
-Native acceptance of the new flags and an actual Raise Zombie consumer remain pending.
+Six native scenarios at source `dbfe717` verify alive/dead, explicit false, life-1, sinking and owned flags.
+The primary predicate is called on the game thread; an actual Raise Zombie consumer remains unfinished.
 
 ### 4.5 Animated (`0x141e56a80`), 1 byte minimal
 

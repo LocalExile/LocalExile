@@ -26,7 +26,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   They use the minion life/damage columns and are excluded from ordinary instance monster snapshots.
   The three Visiting Harbingers now have separate native summon/buff cycles and owner-effect consumers.
   Inherited Life corpse flags, the true native default and Player-component veto now have static proof and tests.
-  The new creation flags still need native acceptance; Zombie/Spider types retain their explicit false eligibility.
+  Six native scenarios verify the creation flags and predicate; Zombie/Spider types retain explicit false eligibility.
   [Verified data and limits](../docs/game/owned-summons.md).
 - **Start:** reuse the roster for the other Phrecia summon families, adding each source's exact behaviour and stats.
   `OwnedSummonCatalog` now resolves Zombie variants and Broodguard's Spider metadata; actor/trigger execution is open.

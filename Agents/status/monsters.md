@@ -73,7 +73,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Other summon families and their individual effects remain unfinished.
   Zombie/Spider metadata has typed foreign-key tests and inherited Life eligibility, with explicit false retained.
   Life creation flags now preserve source corpse/sinking data; owned actors remain unusable as corpses.
-  Static proof and tests cover defaults, the Player veto and dead/alive restrictions; native acceptance is pending.
+  Six native scenarios verify alive/dead eligibility, explicit false, a life-1 stage, sinking and owned false flags.
+  Static proof and tests also cover inherited defaults, the Player veto and spectre restrictions.
   Corpse identity/consumption and actual Zombie/Spider execution remain unfinished.
   Code: `SummonRoster.cs`, `SpectralWolf.cs`, `MinionLeech.cs`, `Program.Summons.cs`.
   Docs: [owned summons](../docs/game/owned-summons.md).

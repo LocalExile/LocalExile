@@ -133,8 +133,13 @@ Extraction tests cover inheritance, missing parents, nested scripts, the pinned 
 Core tests cover both wire bits, ordinary dead/alive eligibility, the Player veto, owned actors and native exceptions.
 Gateway tests bind synthetic and actual extracted varieties to the inherited record.
 The data contract advances `object-types` from manifest v2 to v3, preserving all prior component/action/Emerge fields.
-No client or server process was launched for this bounded prerequisite; native acceptance remains pending.
-The parent must verify one ordinary eligible death, an explicit ineligible type, a life-1 stage and owned false flags.
+Six native scenarios at source `dbfe717` verify Life creation flags and the primary corpse predicate.
+The probe calls it on game-thread hooks.
+An ordinary living Hungry Corpse has usable bit 1 but predicate false; actual death changes the predicate to true.
+An explicitly ineligible Raised Zombie type remains false after death, and Hillock's life-1 stage remains false.
+A Strength Totem independently carries the sinking bit without corpse usability.
+An actual owned Spectral Wolf with Life 16,258 receives usable bit 0 despite its source type's true default.
+Ignored source/DLL metadata and results are under `logs/phrecia-completion/cry-corpse-native/`.
 Actual Raise Zombie still needs final-death registration, one-use reservation/consumption, selection and execution.
 Dead-object recreation also needs Actor's conditional death bytes before any corpse snapshot restoration is supported.
 Corpse radius, kill-attribution exceptions, at-cap policy, AI scheduling, native ownership and actual poison/contact

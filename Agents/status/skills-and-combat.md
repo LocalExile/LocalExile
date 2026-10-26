@@ -521,7 +521,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Complete damage/critical/mitigation paths, exact-ticket travel and queued-expiry publication have regression checks.
   Twenty-three real-client checks cover both Phrecia paths, native buffs, accepted hit/kill gains, combined critical
   and incoming damage, original transfer deadline, pause, death and reconnect.
-  Normal manual Enduring Cry GE268 now has bounded paid owner execution with automated coverage.
+  Normal manual Enduring Cry GE268 has bounded paid owner execution with automated and real-client coverage.
   It requires one actual player-native ID in its non-36 group, one stored use and bypass 4.
   Duplicate gems and group peers across default, socketed-item and passive player skills are refused.
   Separate item-mod skill granting remains unimplemented.
@@ -536,12 +536,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   The pausable buff ends on death, source removal, transfer invalidation or disconnect, without carry/relog.
   Once paid execution starts, later ordinary action tokens do not cancel it; native contact timing remains unverified.
   Buff/stat/life sends use lifecycle guards and current values at the cipher gate.
-  This new path has no real-client verification; the parent still owns the native action/elapsed-regeneration trace.
+  Fourteen real-client checks verify raw base/rate, level 1/20, Call, quality, instant use and group-peer rejection.
+  Actual local playback remains 4.225 while the separate global action factor changes 1→1.22.
+  Quality 20 gives cooldown recovery 1.4, or 1.1 with Call; refund preserves the spent budget.
+  Owner buff effect 100% gives native regeneration 960% life/minute and Life 600→761 in 0.834 s.
   Ally charge/buff sharing, taunt AI, Deathrattle corpses/chests, other warcries and charge consumption remain open.
   See [skills](../docs/protocol/11-skills.md).
   Upstream native checks verified counted/timed charge icons, refresh/expiry, death and sample damage/speed effects.
   Those captures establish the original protocol; the guarded root verification above targets source `a959224`.
-  The pinned upstream merge has automated integration coverage, with no additional merged-runtime native pass.
+  The pinned upstream merge also passes native linked-support, charge and repeated-transfer checks.
 
 ## Not working yet
 
