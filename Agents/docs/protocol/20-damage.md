@@ -183,12 +183,30 @@ The modelled damaging ailments are:
 | Bleed | physical | 70% of the hit's physical damage per second (200% while moving is not modelled) | 5 s |
 | Poison | chaos | 30% of the hit's physical + chaos damage per second, stacking | 2 s |
 
-`Ailments.Ignite/Bleed/Poison` build the effect from a hit packet. Pass the **converted base packet before hit-only
-increased/more modifiers**; the method's `increasedPct`/`more` arguments are the ailment-specific multipliers, so a
-caller cannot double-count hit modifiers. For a specific hit pass its rolled packet; for expected damage pass the
-average range. The caller applies the target's resistance. Non-damaging ailments (chill, freeze, shock), critical
-ailment damage, ailment chance/application and ailment duration stats are not modelled yet. Righteous Fire still uses
+`Ailments.Ignite/Bleed/Poison` are the older average-range helpers. Pass the **converted base packet before hit-only
+increased/more modifiers**; their `increasedPct`/`more` arguments are the ailment-specific multipliers, so a
+caller cannot double-count hit modifiers.
+They do not retain conversion ancestry and are not the input for the newer application pipeline.
+The caller applies the target's resistance.
+Non-damaging ailments (chill, freeze, shock), ailment chance/application and ailment duration stats remain incomplete.
+Righteous Fire still uses
 its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
+
+### Raw ailment damage foundation
+
+`AilmentDamage.Seed` starts from unmodified base and added ranges before any hit-only modifier or damage roll.
+It preserves separate conversion branches and their ancestral types, including skill-priority and gain-as-extra.
+Typed modifiers distinguish hit damage from ailment damage; an attack's hit-only increases, Rage, triple damage and
+ordinary critical multiplier cannot become an ailment source by reversing the final hit.
+The calculation gives the ailment its own damage range and roll, then applies the separate additive DoT multiplier.
+For example, fixed 100 fire with 50 critical DoT multiplier and 20 fire DoT multiplier yields 153 ignite DPS.
+Current `Character.ot` supplies 50 critical DoT multiplier and `Monster.ot` supplies 30.
+
+This pure calculation follows [GGG's separate ailment model](https://www.pathofexile.com/forum/view-thread/1930316/filter-account-type/staff)
+and [the pinned PoB conversion calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L69).
+Seventeen oracle/regression tests cover ancestry, scope, fractional DPS and independent rolls.
+Application chance, avoidance, duration modifiers, stacking, target mitigation, native buffs and kill ownership are
+still separate runtime work; native rounding/RNG correlation and minion-specific penalties remain unverified.
 
 ## 4. What the server uses now
 

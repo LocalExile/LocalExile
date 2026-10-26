@@ -355,6 +355,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Seven native damage checks and combined automated cases verify their ordering and source removal.
   Not yet: exposure, conditional added damage and more support modifiers, ailment
   application/duration and monster resistance modifiers ([20](../docs/protocol/20-damage.md)).
+  A separate pure ailment calculator retains raw base/added damage, conversion ancestry and scoped modifiers.
+  Its critical DoT multiplier and independent ailment range have oracle tests; runtime application is still absent.
   Monster base resistances now come from the target client's MonsterTypes/MonsterResistances tables.
 - Continuous life/mana recovery (2026-10-24): regeneration, flask recovery and self RF now share a 16 ms
   elapsed-game-time loop, replacing regeneration's 250 ms jumps; pool fractions and caps are preserved.

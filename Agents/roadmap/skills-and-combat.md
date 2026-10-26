@@ -60,6 +60,8 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   chained conversion, the 100% cap and gain-as-extra.
   DoT/ailment formulas and fractional ticks are in the same model, and per-type resistance mitigation works on
   packets.
+  A pure raw-damage ailment seed now retains conversion ancestry and separate hit/ailment modifier scopes.
+  Connect it before hit-only increases and rolls when implementing application; never reconstruct it from final hits.
   The default attack, Fireball and monster melee use packets and read the player's/skill's conversion stats
   ([20](../docs/protocol/20-damage.md)).
   The player's real life, resistances, armour and evasion are computed from level, passives and base equipment, and
