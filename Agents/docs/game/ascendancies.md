@@ -111,7 +111,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
-| Behemoth | Strength/mana; unarmed crit; Rage; chaos armour; armour-scaled attacks | Fortification, Rampage, Vaal costs |
+| Behemoth | Mana; unarmed crit; Rage; chaos armour; armour-scaled attacks | Fortification, Rampage, Vaal costs |
 | Antiquarian | Ward/Adrenaline; Strength duration | Far Shot, stun and ranged/shield rules |
 | Wildspeaker | Suppression; Dexterity; minion damage transfer | Wolves, Aspects, Tailwind and sharing |
 | Whisperer | Mana, lightning, free costs, Rage; spell-to-attack | Recoup, absorption, blind, forks |

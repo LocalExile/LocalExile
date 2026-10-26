@@ -162,7 +162,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Wildspeaker counts supported minion damage per five final Dexterity; generic damage reaches owner spells and RF.
   Steel Willed and Forest Tracking scale attack increases from complete groups of 450 final armour/evasion.
   Fractional transfers join base and added damage before conversion and Rage.
-  Sixteen native checks cover real-node allocation, fixed hits reaching enemy Life and paid refunds for all four sources.
+  Sixteen native checks cover real-node allocation, fixed hits reaching enemy Life and paid refunds for four sources.
   Most Phrecia signature mechanics remain absent; selecting a class does not implement its entire tree.
   Code: `PassiveGemModifiers.cs`, `SkillGemFamilies.cs`, `GamblerModifiers.cs`, `SkillRestrictions.cs`, Gateway skill/combat partials.
   Docs: [implemented effects by class](../docs/game/ascendancies.md#what-this-does-not-complete).
