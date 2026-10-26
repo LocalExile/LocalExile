@@ -24,6 +24,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The three Visiting Harbingers now have separate native summon/buff cycles and owner-effect consumers.
   [Verified data and limits](../docs/game/owned-summons.md).
 - **Start:** reuse the roster for the other Phrecia summon families, adding each source's exact behaviour and stats.
+  `OwnedSummonCatalog` now resolves Zombie variants and Broodguard's Spider metadata; actor/trigger execution is open.
   Complete Harbinger warp/ally application and shared action-speed/immunity consumers.
   This work is claimed in [#231](https://github.com/Wrathen/LocalExile/issues/231).
 - **Done when:** the granted summon families and their modifiers execute with source removal and native checks.

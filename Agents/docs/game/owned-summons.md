@@ -93,4 +93,25 @@ General minion equipment/charge inheritance, auras, ailments and the accuracy-eq
 No cosmetic `PetAi` owner field is reused as a guessed combat-minion wire owner.
 The three Visiting Harbingers have a separate [companion and buff lifecycle](harbinger-companions.md).
 
+### Zombie and spider metadata groundwork
+
+`OwnedSummonCatalog` resolves the next families without creating actors or claiming their gameplay is implemented.
+Puppeteer's Flesh Puppets 18817 grants no skill: it raises all three Raise Zombie gem variants by five levels and
+supplies the zombie scale modifier.
+Regular Raise Zombie at effective level 20 resolves to actor level 70, limit 6 and base life 7,647.
+Effective level 25 resolves to actor level 80, limit 7 and base life 13,875.
+Slamming and Falling retain their distinct skill/type rules; Falling cannot survive its impact and needs no corpse.
+
+Broodguard 22622 grants Raise Spiders effect 6454 at level 20 through GEPL 47614.
+It resolves a 20-spider limit, 30-second duration, two-second cooldown and a native owner buff per spider.
+BuffDefinitions 1236 provides 2% attack speed and 15% poison damage per spider; count and final-limit keys differ.
+The skill's on-kill chance is 100, distinct from the passive display value 200.
+The description specifies two spiders per nearby corpse.
+Actor level 84 is explicitly inferred from the granted effect's level requirement using pinned PoB's fallback;
+it is not a native observation.
+
+Raw foreign-key tests distinguish table values, pinned OT flags and inferred actor-level provenance.
+Corpse radius, kill-attribution exceptions, at-cap policy, AI scheduling, native ownership and actual poison/contact
+behaviour still need their runtime implementation and client checks.
+
 Code: `SummonRoster.cs`, `SpectralWolf.cs`, `MinionLeech.cs`, `Program.Summons.cs` and the shared monster hit paths.
