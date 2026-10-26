@@ -1181,6 +1181,25 @@ on the Defence tab as Stun Recovery 30%, the four Avoidance rows at 20% and "Can
 ## Standard maximum-charge rows
 
 `ChargePanelStats.Compute` derives the three standard maximum-charge display values from base three plus unconditional modifiers. The current values remain zero; conditional modifiers, replacement charges and gain/expiry mechanics are outside this change. Verified on the native Charges tab with all three baseline rows at `0 / 3`; eight focused modifier tests cover the formulas.
+
+### Charge lifecycle foundation
+
+The pure charge model is adapted from [PR #241](https://github.com/Wrathen/LocalExile/pull/241), pinned at `85fffc1`.
+`ChargeSession.EnqueueAccepted` captures an already committed event's time, player/skill stats and active weapon.
+Later refunds or weapon swaps cannot change that event's gain chance.
+Expiry is applied before each event's gain, so a new gain after an old stack expires produces one fresh charge.
+Periodic gains retain their actual due times when polling is late.
+`CloseAndCarry` flushes pending events and closes the old session; its one-use transfer preserves UTC deadlines
+through loading without restarting duration.
+Normal gameplay uses the pausable game clock.
+Sixty-three pure tests cover these contracts, current maximum/minimum/duration limits, per-charge stats and overflow.
+
+Charge icons use native buff rows 27/28/29, count in flags bit2 and duration in bit1 as floating-point seconds.
+The optional stack count follows bit7's float and precedes bit3's skill association.
+Existing buff payload and Actor cooldown layouts are preserved.
+The model still needs production hit/kill/block hooks, owner effect application and combined native verification;
+the calculation tests do not establish gameplay support.
+
 ### Aura lifecycle: town suppression and death
 
 ActiveAuras records per-character enabled intent by GrantedEffects Id. LoadProgress restores every remembered aura whose gem is available, using fresh connection skill/buff ids. Restoration is not a new cast and does not drop saved auras when their combined reservation exceeds a transient mana pool; displayed reservation is clamped to maximum mana. New manual activations still validate the full reservation.

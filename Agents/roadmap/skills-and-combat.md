@@ -76,6 +76,8 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   Validate their real-client allocation/refund and damage behavior before moving them out of partial status.
   Special ES mechanics, exposure, ailment application, conditional added-damage stats and support
   modifiers remain open.
+  Reuse the adapted `ChargeSession` model for current-charge hooks and effects; its pure transfer tests are not
+  runtime/native acceptance.
 - **Start:** special ES mechanics, exposure and the remaining conditional critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.

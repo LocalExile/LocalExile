@@ -362,6 +362,20 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Charge_stacks_follow_duration_and_precede_the_optional_skill_icon()
+    {
+        // PR241's native-observed Frenzy3/10second layout, with the count in flags bit2.
+        Assert.Equal("01C1000010000000000000000001001B0000100000000641200000000300000000",
+            Convert.ToHexString(InstanceEntities.AddBuff(0x1000, 1, 27, 0x1000,
+                u68: BitConverter.SingleToUInt32Bits(10f), stacks: 3)));
+        Assert.Equal("01C1000010000000000000000002001D00001000000004000100000000",
+            Convert.ToHexString(InstanceEntities.AddBuff(0x1000, 2, 29, 0x1000, stacks: 1)));
+        Assert.Equal("01C100001000000000000000000100980000100001039E00000BB83F8000000002C1BA0103000700000000",
+            Convert.ToHexString(InstanceEntities.AddBuff(0x1000, 1, 152, 0x1000, 0x103,
+                u68: 3000, f6c: 1f, visual: 7, activeSkill: (0x103, 0xc1ba), stacks: 2)));
+    }
+
+    [Fact]
     public void A_buff_visual_override_is_flags_bit4_after_the_f32()
     {
         // righteous_fire with Divine's art: flags 0x90, f32 +0x6c, then u16 BE BuffVisuals row 401 (righteous_fire_white).

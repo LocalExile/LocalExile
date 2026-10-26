@@ -221,6 +221,15 @@ public class DamageModelTests
     }
 
     [Fact]
+    public void Elemental_damage_reduction_follows_resistance_and_uses_the_reduction_cap()
+    {
+        Assert.Equal(220, DamageModel.Reduce(DamageModel.Mitigate(1000, 75), 12));
+        Assert.Equal(100, DamageModel.Reduce(1000, 120));
+        Assert.Equal(1000, DamageModel.Reduce(1000, -20));
+        Assert.Equal(0, DamageModel.Reduce(0, 12));
+    }
+
+    [Fact]
     public void Evasion_is_the_missing_part_of_the_attack_hit_chance()
     {
         Assert.Equal(7, DamageModel.EvadeChance(67, 30));

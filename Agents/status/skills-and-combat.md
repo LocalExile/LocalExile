@@ -372,6 +372,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Cyclone's additional melee-range and stage modifiers remain partial.
   See protocol/11-skills.md.
 - Standard maximum-charge rows now include unconditional maximum Endurance/Frenzy/Power charge bonuses.
+  The combined all-three maximum modifier is included.
+  A pure charge lifecycle model now covers event snapshots, expiry, transfer and per-charge expansion.
   Current-charge mechanics, conditional bonuses and replacement rules remain unimplemented.
   See [skills](../docs/protocol/11-skills.md).
 

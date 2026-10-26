@@ -67,7 +67,7 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] AddBuff(uint objectId, ushort buffInstance, ushort buffRow, uint sourceId = 0, ushort sourceSkill = 0,
         IReadOnlyList<uint>? values = null, uint? u68 = null, float? f6c = null, ushort? visual = null,
-        (ushort Id, ushort Action)? activeSkill = null, bool auraSource = false, byte? displayState = null)
+        (ushort Id, ushort Action)? activeSkill = null, bool auraSource = false, byte? displayState = null, ushort? stacks = null)
     {
         // flags bit1: u32 +0x68; bit7: f32 +0x6c (read right after bit1's field); bit4: u16 BE a BuffVisuals row in place
         // of the BuffDefinitions row's (+0x38; read after bits 2 and 3, a row past the table keeps none): a skill
@@ -75,7 +75,8 @@ public static class InstanceEntities
         // Bit3 associates a skill buff with the skill-bar icon: ActionTypes HASH16 first, then the server skill id.
         // SourceSkill alone identifies the caster's source and does not enable AuraFrame/AuraCircle.
         byte flags = (byte)((u68 is null ? 0 : 0x02) | (f6c is null ? 0 : 0x80) | (visual is null ? 0 : 0x10)
-            | (activeSkill is null ? 0 : 0x08) | (auraSource ? 0x01 : 0) | (displayState is null ? 0 : 0x20));
+            | (activeSkill is null ? 0 : 0x08) | (auraSource ? 0x01 : 0) | (displayState is null ? 0 : 0x20)
+            | (stacks is null ? 0 : 0x04));
         var w = new LoginWriter().U16(AddBuffId).U32(objectId).U32(0).U16(0).U16(buffInstance).U16(buffRow).U32(sourceId).U16(sourceSkill).U8(flags);
         // Nonzero +0x76 becomes Buff +0x30: Render selects EPKFiles2 (m_AuraEffectPack), rather than
         // EPKFiles1 (m_EffectPack). All four bit0 fields must precede the remaining optional fields.
@@ -83,6 +84,7 @@ public static class InstanceEntities
         if (auraSource) w.U8(1).U32(0).U8(0).U16(0);
         if (u68 is { } a) w.U32(a);
         if (f6c is { } f) w.U32(BitConverter.SingleToUInt32Bits(f));
+        if (stacks is { } count) w.U16(count); // Bit2 follows bit7's float and precedes bit3's skill association.
         if (activeSkill is { } skill) w.U16(skill.Action).U16(skill.Id);
         if (visual is { } v) w.U16(v);
         if (displayState is { } state) w.U8(state);

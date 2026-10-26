@@ -183,6 +183,10 @@ public static class DamageModel
         return (int)Math.Max(0, Math.Round(damage * (100.0 - reduction) / 100.0));
     }
 
+    /// <summary>Additional elemental damage reduction after resistance, with the common 90% reduction cap.</summary>
+    public static int Reduce(int damage, int reduction) => damage <= 0 ? 0
+        : (int)Math.Max(0, Math.Round(damage * (100.0 - Math.Clamp(reduction, 0, DamageReductionCap)) / 100.0));
+
     /// <summary>The chance for an attack to evade a defender with this evasion rating, given the attacker's accuracy.
     /// The 5% minimum hit chance means evasion cannot exceed 95%.</summary>
     public static int EvadeChance(int evasion, int accuracy) => 100 - AccuracyHitChance(evasion, accuracy);
