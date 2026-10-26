@@ -4,13 +4,6 @@ namespace GameServer.Gateway.Tests;
 
 public class SpellCriticalStrikeTests
 {
-    static string Data()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (Directory.Exists(Path.Combine(dir.FullName, "data", "tables"))) return Path.Combine(dir.FullName, "data");
-        throw new DirectoryNotFoundException("data/tables");
-    }
-
     static Func<string, int> Values(params (string Key, int Value)[] values) =>
         name => values.FirstOrDefault(v => v.Key == name).Value;
 
@@ -22,7 +15,7 @@ public class SpellCriticalStrikeTests
     [InlineData("ScorchingRay", 0)]
     public void Each_spell_uses_its_own_extracted_base(string effect, int expected)
     {
-        var skills = new SkillCatalog(Data());
+        var skills = new SkillCatalog();
         int row = skills.EffectRow(effect);
         Assert.Equal(expected, skills.SpellCritChance(row, 1));
         Assert.Equal(expected, skills.SpellCritChance(row, 20));
@@ -39,8 +32,8 @@ public class SpellCriticalStrikeTests
     [InlineData("EnduringCry", false)]
     public void Panel_spell_gating_comes_from_the_skill_type_not_the_absence_of_attack(string effect, bool expected)
     {
-        var skills = new SkillCatalog(Data());
-        var stats = new StatCatalog(Data());
+        var skills = new SkillCatalog();
+        var stats = new StatCatalog();
         int row = skills.EffectRow(effect);
         Assert.Equal(expected, skills.IsSpell(row));
         Assert.Contains((stats.Key("casting_spell")!.Value, expected ? 1 : 0), skills.EffectStats(row, 1));
@@ -88,8 +81,8 @@ public class SpellCriticalStrikeTests
     [Fact]
     public void Runtime_stat_vectors_keep_player_and_skill_inputs_separate()
     {
-        var skills = new SkillCatalog(Data());
-        var stats = new StatCatalog(Data());
+        var skills = new SkillCatalog();
+        var stats = new StatCatalog();
         var player = new Dictionary<uint, int>
         {
             [stats.Key("critical_strike_chance_+%")!.Value] = 20,
@@ -114,7 +107,7 @@ public class SpellCriticalStrikeTests
     public void Hitless_spells_and_unclassified_actions_never_borrow_weapon_damage_or_attack_crit(
         string effect, bool spell)
     {
-        var skills = new SkillCatalog(Data());
+        var skills = new SkillCatalog();
         int row = skills.EffectRow(effect);
         var plan = SkillHitPlan.ForSkill(skills, row, 1);
         Assert.Equal(spell ? SkillHitKind.Spell : SkillHitKind.Unsupported, plan.Kind);
@@ -131,7 +124,7 @@ public class SpellCriticalStrikeTests
     [Fact]
     public void Real_spell_and_attack_plans_keep_their_separate_damage_and_crit_routes()
     {
-        var skills = new SkillCatalog(Data());
+        var skills = new SkillCatalog();
         var arc = SkillHitPlan.ForSkill(skills, skills.EffectRow("Arc"), 1);
         Assert.True(arc.CanHit);
         Assert.Equal(SkillHitKind.Spell, arc.Kind);
@@ -151,7 +144,7 @@ public class SpellCriticalStrikeTests
     [InlineData("CausticArrow")]
     public void Bow_projectile_gems_keep_weapon_damage_and_attack_crit_despite_zero_spell_base(string effect)
     {
-        var skills = new SkillCatalog(Data());
+        var skills = new SkillCatalog();
         int row = skills.EffectRow(effect);
         Assert.NotNull(skills.ProjectileFor(row));
         Assert.Equal(0, skills.SpellCritChance(row, 1));
@@ -197,6 +190,32 @@ public class SpellCriticalStrikeTests
         Assert.Equal(0, SpellCriticalStrike.Chance(750, Values(("critical_strike_chance_+%", int.MinValue))));
     }
 
+    [Fact]
+    public void Complete_player_sum_preserves_signed_cancellation_before_skill_inputs()
+    {
+        // The int-valued native vector clipped the generic increase after adding 45 overcap. Combat uses Pools'
+        // complete long sum: MaxValue + MinValue + 45 = 44, rather than reconstructing it from that vector.
+        var clipped = Values(("critical_strike_chance_+%", int.MaxValue),
+            ("spell_critical_strike_chance_+%", int.MinValue));
+        Assert.Equal(720, SpellCriticalStrike.Chance(500, clipped, playerIncrease: 44));
+        Assert.Equal(970, SpellCriticalStrike.Chance(500, clipped,
+            Values(("critical_strike_chance_+%", 50)), playerIncrease: 44));
+
+        // Do not clamp the player sum before opposing skill contributions are added either.
+        Assert.Equal(745, SpellCriticalStrike.Chance(500, Values(),
+            Values(("critical_strike_chance_+%", int.MaxValue), ("spell_critical_strike_chance_+%", 100)),
+            playerIncrease: (long)int.MinValue - 50));
+    }
+
+    [Theory]
+    [InlineData("global_cannot_crit")]
+    [InlineData("virtual_global_cannot_crit")]
+    public void Complete_player_sum_does_not_bypass_critical_prohibitions(string flag)
+    {
+        Assert.Equal(0, SpellCriticalStrike.Chance(500, Values((flag, 1)), playerIncrease: int.MaxValue));
+        Assert.Equal(0, SpellCriticalStrike.Chance(500, Values(), Values((flag, 1)), playerIncrease: int.MaxValue));
+    }
+
     [Theory]
     [InlineData("global_cannot_crit")]
     [InlineData("virtual_global_cannot_crit")]
@@ -212,7 +231,7 @@ public class SpellCriticalStrikeTests
     {
         Assert.Equal(0, SpellCriticalStrike.Chance(null, Values(("critical_strike_chance_+%", 10000))));
         Assert.Equal(0, SpellCriticalStrike.Chance(-1, Values()));
-        var skills = new SkillCatalog(Data());
+        var skills = new SkillCatalog();
         Assert.Null(skills.SpellCritChance(-1, 1));
         Assert.Null(skills.SpellCritChance(int.MaxValue, 1));
         Assert.Null(skills.SpellCritChance(skills.EffectRow("Fireball"), 0));
@@ -234,8 +253,8 @@ public class SpellCriticalStrikeTests
     [InlineData(50)]
     public void Precision_and_Zealotry_raw_sources_match_the_existing_pool_bonus_once(int auraEffect)
     {
-        var skills = new SkillCatalog(Data());
-        var stats = new StatCatalog(Data());
+        var skills = new SkillCatalog();
+        var stats = new StatCatalog();
         var auras = new[]
         {
             new AuraCatalog.Aura(0x103, skills.EffectRow("Precision"), "Precision", "Precision", 1, 1293, 22, 0),

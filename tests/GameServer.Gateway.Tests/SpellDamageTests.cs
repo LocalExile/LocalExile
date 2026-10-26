@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 namespace GameServer.Gateway.Tests;
 
 public class SpellDamageTests
@@ -8,6 +10,28 @@ public class SpellDamageTests
     public void Fireball_level_1_without_increases_is_its_base()
     {
         Assert.Equal((9, 14), SpellDamage.Hit(Stats(("spell_minimum_base_fire_damage", 9), ("spell_maximum_base_fire_damage", 14))));
+    }
+
+    [Fact]
+    public void Actual_Fireball_uses_three_hundred_percent_added_effectiveness_without_rescaling_its_base_damage()
+    {
+        var skills = new SkillCatalog("data");
+        int effect = skills.EffectRow("Fireball");
+        Assert.Equal(30000, skills.DamageEffectiveness(effect, 1)); // raw GESSPL delta 20000 means 1+2.
+        Assert.Equal(10000, skills.AttackBaseMultiplier(effect, 1)); // raw zero is identity.
+        var hit = SpellDamage.Packet(skills.HitDamage(effect, 1),
+            Stats(("spell_minimum_added_fire_damage", 2), ("spell_maximum_added_fire_damage", 4)),
+            skills.DamageEffectiveness(effect, 1) / 10000.0);
+        Assert.Equal(new DamageRange(15, 26), hit[DamageType.Fire]); // 9..14 base + (2..4)*3.
+    }
+
+    [Fact]
+    public void An_explicit_normalized_zero_factor_is_zero_and_ten_thousand_is_identity()
+    {
+        var hit = DamagePacket.Of(DamageType.Physical, 10, 20).Add(DamageType.Fire, new DamageRange(3, 7));
+        Assert.True(SpellDamage.WithEffectiveness(hit, 0).IsZero);
+        Assert.Equal(hit.Components, SpellDamage.WithEffectiveness(hit, 10000).Components);
+        Assert.Equal(new DamageRange(5, 10), SpellDamage.WithEffectiveness(hit, 5000)[DamageType.Physical]);
     }
 
     [Fact]
@@ -68,10 +92,5 @@ public class SpellDamageTests
         Assert.Equal(0x10u, stats.Key("0x10"));
     }
 
-    static string Data()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (Directory.Exists(Path.Combine(dir.FullName, "data", "tables"))) return Path.Combine(dir.FullName, "data");
-        throw new DirectoryNotFoundException("data/tables");
-    }
+    static string Data() => "data";
 }

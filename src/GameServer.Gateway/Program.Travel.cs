@@ -23,6 +23,11 @@ partial class Program
         if (use.TargetId == PlayerId && Skills.IsGemSkill(use.SkillId))
         {
             var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
+            if (gem.Name is not null && GemDisabled(conn, gem.Effect, use.SkillId) is { } disabled)
+            {
+                Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: {disabled} (self action not started)");
+                return;
+            }
             double at = conn.Clock.Elapsed.TotalSeconds;
             (int X, int Y) self = default;
             if (!TryBeginCooldownUse(conn, gem.Effect,

@@ -203,7 +203,11 @@ partial class Program
         long revision = Interlocked.Read(ref conn.CompanionRevision);
         if (sendOwnerStats && revision != Interlocked.Read(ref conn.PublishedCompanionRevision))
         {
-            lock (conn.Monsters) conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            lock (conn.Monsters)
+            {
+                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                conn.ApplyMovementSpeed();
+            }
             await SendCharacterStats(remote, stream, ciphers, conn, "Harbinger effects changed");
             Interlocked.Exchange(ref conn.PublishedCompanionRevision, revision);
         }

@@ -41,22 +41,36 @@ partial class Program
             int percent = int.Parse(args[0]);
             if (percent is < 10 or > 1000) throw new ArgumentException("10 to 1000");
             int totalPct = conn.Pools.MovementVelocityPct + percent - 100;
-            conn.Walk.SetSpeed(WalkSpeed * (100 + totalPct) / 100, conn.Clock.Elapsed.TotalSeconds);
             lock (conn.Monsters) conn.PlayerStats[StatKeys.MovementVelocityPct] = totalPct;
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, totalPct)]),
+            conn.ApplyMovementSpeed();
+            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)),
                 $"0x01b3 stats: movement_velocity_+% (key {StatKeys.MovementVelocityPct}) = {totalPct} ({conn.Pools.MovementVelocityPct} passive + {percent - 100} dev)");
         })
         .Add("set_stat", "/set_stat <stat name or client key> <value> (e.g. attack_speed_+% 100)", async args =>
         {
             uint stat = Stats.Key(args[0]) ?? throw new ArgumentException($"unknown stat {args[0]}");
             int value = int.Parse(args[1]);
-            lock (conn.Monsters)
+            string name = Stats.Name(stat) ?? args[0];
+            lock (conn.Monsters) conn.PlayerStats[stat] = value;
+            if (AttackBaseCriticalStrike.IsInput(name) || ResistanceOvercap.IsInput(name)
+                || AttackBaseCriticalStrike.IsConditionalInput(name))
             {
-                conn.PlayerStats[stat] = value;
-                string name = Stats.Name(stat) ?? args[0];
-                if (AttackBaseCriticalStrike.IsInput(name) || ResistanceOvercap.IsInput(name))
-                    conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                while (true)
+                {
+                    CharacterStats.Pools before;
+                    lock (conn.Monsters) before = conn.Pools;
+                    var rebuilt = PoolsFor(conn, before.Level);
+                    lock (conn.Monsters)
+                    {
+                        // A concurrent level/aura rebuild wins; recompute against its current level and inputs.
+                        if (!ReferenceEquals(conn.Pools, before)) continue;
+                        conn.Pools = rebuilt;
+                        break;
+                    }
+                }
             }
+            if (ActionSpeed.IsInput(name) || name == "movement_velocity_+%")
+                lock (conn.Monsters) conn.ApplyMovementSpeed();
             // The client's requirement checks (gear and gems) read virtual_strength/dexterity/intelligence_for_requirements,
             // not the attributes themselves (13-items.md §2d), so an attribute set here sets its requirement value too.
             if (Stats.Key($"virtual_{args[0]}_for_requirements") is uint requirement && requirement != stat)
@@ -544,8 +558,10 @@ partial class Program
             }
             int evasion = Monsters.BaseEvasion(level) ?? 0;
             int evasiveEvasion = Monsters.BaseEvasiveEvasion(level) ?? 0;
-            int chance = DamageModel.AccuracyHitChance(evasion, conn.Pools.Accuracy);
-            int evasiveChance = DamageModel.AccuracyHitChance(evasiveEvasion, conn.Pools.Accuracy);
+            // Exhibit 122's can't-be-evaded flag: the reference chances cannot be below 100, and the diagnostic
+            // agrees with the panel and the roll (the rating and the mastery's own fields stay unconditional).
+            int chance = conn.Pools.AlwaysHit ? 100 : DamageModel.AccuracyHitChance(evasion, conn.Pools.Accuracy);
+            int evasiveChance = conn.Pools.AlwaysHit ? 100 : DamageModel.AccuracyHitChance(evasiveEvasion, conn.Pools.Accuracy);
             var withMastery = conn.Pools.AccuracyMoreVsUniquePct != 0 || conn.Pools.AccuracyMoreInCloseRangePct != 0
                 ? $" Targets gain {conn.Pools.AccuracyMoreVsUniquePct:0.#}% more accuracy against unique enemies and " +
                   $"{conn.Pools.AccuracyMoreInCloseRangePct:0.#}% more within the 20-unit close range, applied per attack roll."

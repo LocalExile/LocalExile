@@ -79,7 +79,14 @@ partial class Program
     static Dictionary<uint, int> CharacterStatSources(ClientState conn, IEnumerable<ushort>? nodes = null, int? level = null)
     {
         var items = ItemsOf(conn);
-        var passives = Passives.Stats((nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated), conn.MasteryEffects);
+        ushort[] allocated;
+        IReadOnlyDictionary<ushort, ushort> masteries;
+        lock (conn.Monsters)
+        {
+            allocated = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).ToArray();
+            masteries = new Dictionary<ushort, ushort>(conn.MasteryEffects);
+        }
+        var passives = Passives.Stats(allocated, masteries);
         passives = ItemModStats.Plus(passives, PassiveEffects.OwnerStats(PhreciaNodes(conn)));
         passives = ItemModStats.Plus(passives, TemporaryPassiveStats(conn));
         passives = ItemModStats.Plus(passives, CompanionStats(conn));
@@ -122,6 +129,22 @@ partial class Program
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values.Where(a => AuraAllowed(auraRestrictions, a.Effect))];
         var aura = AuraCatalog.Bonus(auras, bonus.AuraEffectPct, Skills, Stats);
+        // A dev input replaces that complete passive/equipment/aura input, as in CharacterPlayerStats. Sum only
+        // the critical dependencies here; rebuilding every passive bonus would repeat equipment and defence work.
+        Dictionary<uint, int> devStats;
+        lock (conn.Monsters) devStats = new(conn.PlayerStats);
+        long RawCriticalIncrease(string name)
+        {
+            if (Stats.Key(name) is not uint key) return 0;
+            if (devStats.TryGetValue(key, out int value)) return value;
+            return (long)sources.GetValueOrDefault(key) + (name switch
+            {
+                "critical_strike_chance_+%" => aura.CriticalStrikeChancePct,
+                "spell_critical_strike_chance_+%" => aura.SpellCriticalStrikeChancePct - aura.CriticalStrikeChancePct,
+                _ => 0,
+            });
+        }
+        int RawCritical(string name) => (int)Math.Clamp(RawCriticalIncrease(name), int.MinValue, int.MaxValue);
         bonus = bonus with
         {
             FireResistance = bonus.FireResistance + aura.FireResistance,
@@ -138,8 +161,8 @@ partial class Program
             EnergyShield = bonus.EnergyShield + aura.EnergyShield,
             ArmourMorePct = aura.ArmourMorePct,
             EvasionMorePct = aura.EvasionMorePct,
-            CriticalStrikeChancePct = bonus.CriticalStrikeChancePct + aura.CriticalStrikeChancePct,
-            SpellCriticalStrikeChancePct = bonus.SpellCriticalStrikeChancePct + aura.SpellCriticalStrikeChancePct,
+            CriticalStrikeChancePct = AttackBaseCriticalStrike.IncreasedSum(activeWeapon, RawCriticalIncrease),
+            SpellCriticalStrikeChancePct = RawCriticalIncrease("critical_strike_chance_+%") + RawCriticalIncrease("spell_critical_strike_chance_+%"),
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct,
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct
         };
@@ -150,31 +173,36 @@ partial class Program
         // raw inputs: the resistances after the Kitava penalty and the per-type maxima, with an explicit dev stat
         // (/set_stat) replacing its own contribution. Pools stores the derived increases, so the pools, the panel and
         // the spell consumers read them from one place and nothing counts them twice.
-        Dictionary<uint, int> devStats;
-        lock (conn.Monsters) devStats = new(conn.PlayerStats);
         bonus = ResistanceOvercap.Applied(bonus, sources, devStats, ResistancePenalty(conn), Stats);
         var pools = CharacterStats.For(Skills.ClassFor(conn.ClassRow), level, bonus);
         // The pure base critical stats replace the weapon/unarmed base before increases; overcap is included once.
-        var criticalSources = new Dictionary<uint, int>(sources);
-        foreach (var (key, value) in devStats) criticalSources[key] = value;
-        int RawCritical(string name) => Stats.Key(name) is uint key ? criticalSources.GetValueOrDefault(key) : 0;
-        int criticalIncrease = PassiveBonus(criticalSources, activeWeapon).CriticalStrikeChancePct
-            + aura.CriticalStrikeChancePct + pools.LightningOvercapCritPct;
         pools = pools with
         {
             AttackBlockLucky = pools.AttackBlockLucky || conn.ForceAttackBlockLucky,
             SpellBlockLucky = pools.SpellBlockLucky || conn.ForceSpellBlockLucky,
             SpellSuppressionLucky = pools.SpellSuppressionLucky || conn.ForceSpellSuppressionLucky,
             SpellSuppressionUnlucky = pools.SpellSuppressionUnlucky || conn.ForceSpellSuppressionUnlucky,
+            // Exhibit 122's can't-be-evaded flag also honours a dev /set_stat input, like the overcap flags do; a dev
+            // value replaces its own input (the present override or ordinary threshold), and thresholds' static
+            // sources otherwise keep the passives' values.
+            AlwaysHit = RawCritical("global_always_hit") != 0,
+            LowLifeThresholdOverride = Stats.Key("low_life_threshold_%_override") is uint ovKey && devStats.TryGetValue(ovKey, out var ovDev)
+                ? ovDev : bonus.LowLifeThresholdOverride,
+            LowLifeThresholdPct = Stats.Key("low_life_threshold_%") is uint thKey && devStats.TryGetValue(thKey, out var thDev)
+                ? thDev : bonus.LowLifeThresholdPct,
             // WeaponTypes.dat gives the main hand's base critical chance (permyriad, e.g. 830 = 8.30%); unarmed is 0.
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
             AttackCriticalStrikeChance = AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
-                activeWeapon.Critical, criticalIncrease, RawCritical),
-            SpellCriticalStrikeChance = (int)Math.Round(
-                DamageModel.CriticalStrikeChance(DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
-                    pools.SpellCriticalStrikeChancePct) * 100)
+                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical),
+            // Final Blow's unarmed_melee_attack_critical_strike_multiplier_+ (Stats key 21565, +50): only the empty
+            // active main hand (unarmed) grants it, stored separately so the consumers apply it only in a melee
+            // context (CriticalMultiplierFor); spells and non-melee attack gems keep the plain attack multiplier.
+            UnarmedCriticalStrikeMultiplierBonus = activeWeapon.Unarmed && activeWeapon.Melee
+                ? RawCritical(AttackBaseCriticalStrike.UnarmedCriticalStrikeMultiplierStat) : 0,
+            SpellCriticalStrikeChance = SpellCriticalStrike.Chance(DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
+                RawCritical, playerIncrease: pools.SpellCriticalStrikeChancePct)
         };
         int shieldBlock = weapons.Shield ? ShieldBaseBlock(conn) : 0;
         if (weapons.Shield && Get("block_chance_from_equipped_shield_is_%") is > 0 and var overrideBlock)
@@ -262,21 +290,8 @@ partial class Program
         int attackSpeedMore = (int)Math.Round(((weapons.DualWield || weapons.Unarmed ? 1.10 : 1.0) * (1 + weapons.LocalAttackSpeedPct / 100.0) - 1) * 100);
         // Unconditional critical strike chance and multiplier passives: generic, attack/melee/weapon-shape and spell.
         // Timed or enemy-state conditions are not modelled.
-        int criticalChance = Get("critical_strike_chance_+%") + Get("attack_critical_strike_chance_+%")
-            + (weapons.Melee ? Get("melee_critical_strike_chance_+%") : 0)
-            + (weapons.OneHandMelee ? Get("one_handed_melee_critical_strike_chance_+%") : 0)
-            + (weapons.TwoHandMelee ? Get("two_handed_melee_critical_strike_chance_+%") : 0)
-            + (weapons.DualWield ? Get("critical_strike_chance_while_dual_wielding_+%") : 0)
-            + (weapons.Shield ? Get("critical_strike_chance_while_wielding_shield_+%") : 0)
-            + (weapons.Axe ? Get("axe_critical_strike_chance_+%") : 0)
-            + (weapons.Sword ? Get("sword_critical_strike_chance_+%") : 0)
-            + (weapons.Mace ? Get("mace_critical_strike_chance_+%") : 0)
-            + (weapons.Claw ? Get("claw_critical_strike_chance_+%") : 0)
-            + (weapons.Dagger ? Get("dagger_critical_strike_chance_+%") : 0)
-            + (weapons.Wand ? Get("wand_critical_strike_chance_+%") : 0)
-            + (weapons.Bow ? Get("bow_critical_strike_chance_+%") + Get("global_critical_strike_chance_+%_while_holding_bow") : 0)
-            + (weapons.Staff ? Get("staff_critical_strike_chance_+%") + Get("global_critical_strike_chance_+%_while_holding_staff") : 0);
-        int spellCriticalChance = Get("critical_strike_chance_+%") + Get("spell_critical_strike_chance_+%");
+        long criticalChance = AttackBaseCriticalStrike.IncreasedSum(weapons, name => Get(name));
+        long spellCriticalChance = (long)Get("critical_strike_chance_+%") + Get("spell_critical_strike_chance_+%");
         int criticalMultiplier = Get("base_critical_strike_multiplier_+")
             + (weapons.Melee ? Get("melee_critical_strike_multiplier_+") + Get("melee_weapon_critical_strike_multiplier_+") : 0)
             + (weapons.OneHandMelee ? Get("one_handed_melee_critical_strike_multiplier_+") : 0)
@@ -334,6 +349,13 @@ partial class Program
         int auraEffect = Get("non_curse_aura_effect_+%") + Get("aura_effect_+%")
             + Get("aura_effect_on_self_from_your_skills_+%");
         int auraArea = Get("base_aura_area_of_effect_+%");
+        // Exhibit 122 (graph id 36978): global_always_hit (Stats key 687) — attacks cannot be evaded. It is a flag,
+        // not an accuracy value: the rating, the rolls' target-conditional multipliers and the crit stay as they are.
+        bool alwaysHit = Get("global_always_hit") != 0;
+        // The rolls' Low Life threshold: the override percentage (when positive) or the ordinary conditional
+        // percentage (when positive), else the default 50 (DamageModel.LowLife clamps and decides).
+        int lowLifeThresholdOverride = Get("low_life_threshold_%_override");
+        int lowLifeThresholdPct = Get("low_life_threshold_%");
         // Defences: the tree's flat armour/evasion and their increased modifiers. "Defences" and the combined armour and
         // evasion increase apply to both ratings, as in PoB's calcLib.mod.
         int defencesPct = Get("global_defences_+%") + Get("combined_global_defences_+%")
@@ -400,7 +422,9 @@ partial class Program
             LifeAsEnergyShieldPct: Get("maximum_life_%_to_add_as_maximum_energy_shield"),
             ManaAsEnergyShieldPct: Get("mana_%_to_add_as_energy_shield"),
             NoEnergyShield: Get("no_energy_shield") != 0,
-            Ward: Get("base_ward"), WardPct: Get("ward_+%") + Get("global_defences_+%") + Get("combined_global_defences_+%"));
+            Ward: Get("base_ward"), WardPct: Get("ward_+%") + Get("global_defences_+%") + Get("combined_global_defences_+%"),
+            AlwaysHit: alwaysHit,
+            LowLifeThresholdOverride: lowLifeThresholdOverride, LowLifeThresholdPct: lowLifeThresholdPct);
     }
 
     // The character's passive skill points (one per level after the first, plus the extra points from

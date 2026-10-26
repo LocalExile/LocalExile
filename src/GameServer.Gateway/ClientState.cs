@@ -273,9 +273,9 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
         lock (_blockers) if (_blockers.Remove(id)) _blockerList = [.. _blockers.Values];
     }
 
-    /// <summary>Applies the passive movement speed to the server's walk estimate; /set_speed is a dev override.</summary>
+    /// <summary>Applies final movement and the independent action multiplier to the server's walk estimate.</summary>
     public void ApplyMovementSpeed() =>
-        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100 + Pools.MovementVelocityPct) / 100), Clock.Elapsed.TotalSeconds);
+        Walk.SetSpeed(Program.PlayerMovementSpeed(this), Clock.Elapsed.TotalSeconds);
 
     /// <summary>Replaces an area transition of this connection's layout (dev changes; the walk estimate keeps going).</summary>
     public void ReplaceAreaTransition(uint id, AreaTransitionObject transition) =>

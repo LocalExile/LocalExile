@@ -125,13 +125,13 @@ charges, and a skill's table entry does not grant or execute that skill.
 
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
-| Ancestral Commander | Life/armour modifiers; doubled body armour; Born under Fire's nearby conversion | Action floors, ancestors, totems, echoes and warcries |
+| Ancestral Commander | Life/armour; doubled body armour; Born under Fire; action/movement floors | Ancestors, totems, echoes and warcries |
 | Behemoth | Mana; unarmed crit; Rage; chaos armour; armour-scaled attacks | Fortification, Rampage, Vaal costs |
-| Antiquarian | Ward/Adrenaline; Strength duration | Far Shot, stun and ranged/shield rules |
-| Wildspeaker | Suppression; Dexterity; owned wolves; minion damage transfer | Aspects, Tailwind and sharing |
+| Antiquarian | Ward/Adrenaline; Strength duration; attacks cannot be evaded | Far Shot, stun and ranged/shield rules |
+| Wildspeaker | Suppression; Dexterity; owned wolves; minion damage transfer; Tailwind effect | Aspects and sharing |
 | Whisperer | Mana, lightning, free costs, Rage; spell-to-attack | Recoup, absorption, blind, forks |
 | Daughter of Oshabi | Oath; evasion-scaled attacks | Tracking, Wisps, Shrines, Vines, Spellslinger |
-| Harbinger | Extra ES/bypass, three actual companions, Arcane effects and Focus damage reduction | Ally-wide buffs, action-speed timing and remaining time effects |
+| Harbinger | Extra ES/bypass, three actual companions, Arcane effects, Time action speed and Focus damage reduction | Ally-wide buffs and remaining time effects |
 | Herald | Shared choice-node allocation, Apocalypse's Herald-gem levels and supported generic modifiers | Actual Herald effects/minions and Herald-specific reservation rules |
 | Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |
 | Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Support-gem execution and conditional ailment immunity |

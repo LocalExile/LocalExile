@@ -86,11 +86,11 @@ partial class Program
         lock (conn.Monsters) stats = new(conn.PlayerStats);
         foreach (var (k, v) in BaseStats(conn)) stats.TryAdd(k, v);
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
-        // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances
-        // already fold the same value into the pools. Additive with whatever won above, as a derived stat source.
+        // native stat vector carries the int-valued raw increase. Actual spell rolls use the complete long sum in
+        // Pools, so clipping this presentation value cannot lose signed cancellation with another input.
         if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0
             && Stats.Key("critical_strike_chance_+%") is uint critInc)
-            stats[critInc] = stats.GetValueOrDefault(critInc) + overCrit;
+            stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
         // The passives' conditional attack speed is already one final value in Pools; /set_stat's raw attack-speed stats
         // stay additive. main_hand_attack_speed_+% is the total the client swings with, so Unarmed reads only it.
         int devAttackSpeed = 0;
@@ -116,6 +116,13 @@ partial class Program
                 ("energy_shield_recharge_active", 0) })
             .Concat(ChargePanelStats.Compute(Get)))
             if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+        // Publish the action multiplier independently of attack/cast/movement increases. Tailwind's raw base is
+        // already in the source reduction; only its own effect bonus is added, and each floor has its own scope.
+        var actionSpeed = ActionSpeed.From(Get);
+        foreach (var (name, value) in new[] { (ActionSpeed.Virtual, actionSpeed.Percent),
+            ("intermediary_combined_action_speed_+%", actionSpeed.Percent),
+            ("movement_velocity_+%", actionSpeed.MovementPercent(Get("movement_velocity_+%"))) })
+            if (Stats.Key(name) is uint key) stats[key] = value;
         // The Offence tab's per-hand damage rows (issue #75): the hit the default attack actually swings with, so the panel
         // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
         // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
@@ -136,16 +143,16 @@ partial class Program
         gemEffect >= 0 && Skills.IsAttack(gemEffect) ? Skills.IsMelee(gemEffect)
             : WeaponProfileFor(conn, activeSet: true).Melee;
 
-    // Conversion for one hit: the player's stats plus the skill's own stats (base/skill conversion). Player stats win on
-    // a key collision; the normal case is that the skill adds stats the player does not have.
-    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee)
-    {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        var derived = DerivedDamageIncreases.From(Get);
-        return DamageStats.Added(weapon.HitDamage(stats, melee, derived.AttackPercent), Get, spell: false, melee,
-                additionalIncreasedPct: derived.AttackPercent)
-            .Scale(Math.Max(0, 1 + Get("attack_damage_+%_final_from_rage") / 100.0));
-    }
+    // A hit's critical strike multiplier: spells use the spell multiplier; attacks the attack multiplier plus Final
+    // Blow's unarmed extra (+50, UnarmedCriticalStrikeMultiplierBonus) only in the attack's own melee context
+    // (MeleeAttack), so an unarmed non-melee attack gem keeps the plain 150%-based multiplier.
+    internal static int CriticalMultiplierFor(ClientState conn, bool spell, bool melee) =>
+        spell ? conn.Pools.SpellCriticalStrikeMultiplier
+        : conn.Pools.CriticalStrikeMultiplier + (melee ? conn.Pools.UnarmedCriticalStrikeMultiplierBonus : 0);
+
+    // The raw weapon and added attack packet, before a gem's effectiveness/conversion and target-specific stages.
+    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
+        AttackSkillHit.BaseHit(weapon, stats, Stats, melee);
 
     static GamblerModifiers GamblerFor(IReadOnlyDictionary<uint, int> stats) =>
         GamblerModifiers.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
@@ -172,7 +179,7 @@ partial class Program
             MonsterResistance(conn, monster, type) with { Penetration = penetration.Of(type) }, strike, mods);
     }
 
-    static double AddedEffectiveness(int effect, int level) => Skills.DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
+    static double AddedEffectiveness(int effect, int level) => Skills.DamageEffectiveness(effect, level) / 10000.0;
 
     static GameServer.Core.World.DamageConversion ConversionFor(ClientState conn, int effectRow, int level, bool attack, int quality = 0)
     {
@@ -232,8 +239,10 @@ partial class Program
     {
         int referenceEvasion = Monsters.BaseEvasion(pools.Level) ?? 0;
         int referenceEvasiveEvasion = Monsters.BaseEvasiveEvasion(pools.Level) ?? 0;
-        int chanceToHit = DamageModel.AccuracyHitChance(referenceEvasion, pools.Accuracy);
-        int evasiveChanceToHit = DamageModel.AccuracyHitChance(referenceEvasiveEvasion, pools.Accuracy);
+        // Exhibit 122's global_always_hit: the reference monster's evasion cannot matter, so both Chance to Hit rows
+        // read 100 without the accuracy rating or its crit touching the pools.
+        int chanceToHit = pools.AlwaysHit ? 100 : DamageModel.AccuracyHitChance(referenceEvasion, pools.Accuracy);
+        int evasiveChanceToHit = pools.AlwaysHit ? 100 : DamageModel.AccuracyHitChance(referenceEvasiveEvasion, pools.Accuracy);
         foreach (var (stat, value) in new[] { ("level", pools.Level), ("base_maximum_life", (int)pools.Life), ("maximum_life", (int)pools.Life),
             ("base_maximum_mana", (int)pools.Mana), ("maximum_mana", (int)pools.Mana), ("accuracy_rating", pools.Accuracy),
             ("main_hand_accuracy_rating", pools.Accuracy), ("off_hand_accuracy_rating", pools.Accuracy),
@@ -279,7 +288,7 @@ partial class Program
             ("base_spell_damage_%_suppressed", pools.SpellSuppressionEffect),
             // The Offence panel's crit rows read these final values (permyriad for chance, percent for multiplier).
             ("main_hand_critical_strike_chance", pools.AttackCriticalStrikeChance),
-            ("main_hand_critical_strike_multiplier", pools.CriticalStrikeMultiplier),
+            ("main_hand_critical_strike_multiplier", pools.CriticalStrikeMultiplier + pools.UnarmedCriticalStrikeMultiplierBonus),
             ("spell_critical_strike_chance", pools.SpellCriticalStrikeChance),
             ("spell_critical_strike_multiplier", pools.SpellCriticalStrikeMultiplier) })
             if (Stats.Key(stat) is uint key) yield return (key, value);
@@ -299,14 +308,22 @@ partial class Program
     // no basic action uses (SkillCatalog.SkillIds).
     static IEnumerable<GrantedSkill> GemSkills(ClientState conn, IEnumerable<(uint, int)>? player = null)
     {
+        // Creation and refresh may inherit already-derived weapon display rows. Damage uses raw character inputs.
+        var characterInputs = CharacterPlayerStats(conn);
+        var mainHand = WeaponFor(conn);
         var playerStats = new Dictionary<uint, int>();
         foreach (var (key, value) in player ?? []) playerStats[key] = value;
         var gems = GemSkillEffects(conn).ToArray();
         var singleSources = gems.GroupBy(g => g.Effect).Where(g => g.Count() == 1).Select(g => g.Key).ToHashSet();
+        // Serialize each skill's own critical multiplier: since Final Blow, the copied main-hand row carries the
+        // unarmed melee attack's +50, which a gem with its own context must not inherit wholesale.
+        var gemPlayerStats = new Dictionary<uint, int>(playerStats);
+        if (Stats.Key("main_hand_critical_strike_multiplier") is uint mainMultiplierKey) gemPlayerStats.Remove(mainMultiplierKey);
         var skillCosmetics = CharacterSaves.SkillCosmetics(CharacterName(conn));
         foreach (var (id, effect, name, level, quality, gem) in gems)
         {
-            var stats = Skills.EffectStatsFor(effect, level, quality, playerStats);
+            var stats = Skills.EffectStatsFor(effect, level, quality, gemPlayerStats);
+            SkillAttackTiming.Apply(Skills, effect, level, stats);
             var cost = CostFor(conn, effect, level, quality);
             if (Stats.Key("mana_cost") is uint manaCost) stats[manaCost] = (int)cost.Mana;
             if (Stats.Key("life_cost") is uint lifeCost) stats[lifeCost] = (int)cost.Life;
@@ -316,13 +333,18 @@ partial class Program
             if (singleSources.Contains(effect) && SingleUseCooldown.ForSkill(Skills, Stats, effect, level, playerStats, own) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
+            // The gem's own record swings with its own context's attack multiplier (MeleeAttack classifies the gem
+            // itself; unarmed non-melee attack gems keep the plain attack value, armed and spell gems theirs).
+            if (Skills.IsAttack(effect) && Stats.Key("main_hand_critical_strike_multiplier") is uint multiplierKey)
+                stats[multiplierKey] = CriticalMultiplierFor(conn, spell: false, melee: MeleeAttack(conn, effect));
             if (Skills.IsSpell(effect) && !Skills.IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
-                stats[critKey] = SpellCriticalStrike.Chance(Skills.SpellCritChance(effect, level), Stats, playerStats, own);
+                stats[critKey] = SpellCriticalStrike.Chance(Skills.SpellCritChance(effect, level), Stats, playerStats, own,
+                    conn.Pools.SpellCriticalStrikeChancePct);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
             foreach (var (key, worn) in skillCosmetics)
                 if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Find(worn.Record) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                     foreach (var (k, v) in fx.Stats) stats[k] = v;
-            // EffectStatsFor publishes the same quality-aware cast duration used by the server's release delay.
+            // EffectStatsFor publishes native base time and final speed/rate from the same quality-aware server timing.
             // A spell's tooltip DPS is its own hit (SpellDamage) × casts per second, not the default attack's values that
             // came with the player's stats.
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -348,6 +370,16 @@ partial class Program
                 var (perUse, perSecond) = SpellDamage.Display((hit.Min * damageFactor, hit.Max * damageFactor), cps / 100.0);
                 stats[StatKeys.DisplayHundredTimesDamagePerSkillUse] = perUse;
                 stats[StatKeys.HundredTimesDamagePerSecond] = perSecond;
+            }
+            var attackPlan = SkillHitPlan.ForSkill(Skills, effect, level, quality);
+            if (attackPlan.Kind == SkillHitKind.Attack)
+            {
+                var attackHit = AttackSkillHit.Resolve(mainHand, characterInputs, Skills.EffectStats(effect, level),
+                    Stats, Skills.DamageEffectiveness(effect, level), MeleeAttack(conn, effect), Skills.QualityStats(effect, quality),
+                    Skills.AttackBaseMultiplier(effect, level))
+                    .Scale(GamblerFor(characterInputs).DamageFactor);
+                foreach (var (stat, value) in AttackPanelStats.Compute(attackPlan, attackHit, Get("hundred_times_attacks_per_second")))
+                    if (Stats.Key(stat) is uint key) stats[key] = value;
             }
             if (Skills.FindByRow(id, effect, level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
@@ -465,9 +497,9 @@ partial class Program
             return Stats.Key($"virtual_{attribute}_for_requirements") is uint key && conn.PlayerStats.TryGetValue(key, out int set) ? set : value;
     }
 
-    // Why a gem skill may not be used: a skill-type restriction, or the character's level/attributes below its requirements.
+    // Shared preflight for handlers and cooldown reservation: restrictions, requirements and impossible cast duration.
     // The client reds the gem but still sends the use, so this is the backstop for a client whose item is not inactive yet.
-    // Null when no gem granting the effect is below its requirement.
+    // A null reason permits the use; this path does not start an action or reserve a cooldown.
     static string? GemDisabled(ClientState conn, int effect, ushort skillId = 0)
     {
         if (Stats.Key("spell_uncastable_if_triggerable") is uint triggered
@@ -475,11 +507,15 @@ partial class Program
                 .Any(kv => kv.Item1 == triggered && kv.Item2 != 0))
             return "This skill can only be triggered.";
         if (SkillRestrictionReason(conn, effect) is { } restriction) return restriction;
-        // Passive-granted skills have their own level and no socketed gem's requirements.
-        if (skillId != 0 && GemSkillEffects(conn).Any(g => g.Id == skillId && g.Gem == 0)) return null;
-        foreach (var place in PlayerInventories.For(CharacterName(conn), Items).SocketedGemPlaces())
-            if (Items.GemEffects(place.Gem).Contains(effect) && GemRequirementsUnmet(conn, place.Gem) is { } missing)
-                return missing;
+        var grants = GemSkillEffects(conn).Where(g => g.Effect == effect && (skillId == 0 || g.Id == skillId)).ToArray();
+        // Passive-granted skills have their own level and no socketed gem's requirements, but still need valid timing.
+        if (skillId == 0 || !grants.Any(g => g.Gem == 0))
+            foreach (var place in PlayerInventories.For(CharacterName(conn), Items).SocketedGemPlaces())
+                if (Items.GemEffects(place.Gem).Contains(effect) && GemRequirementsUnmet(conn, place.Gem) is { } missing)
+                    return missing;
+        if (Skills.IsSpell(effect) && !Skills.IsAttack(effect) && !Skills.IsInstant(effect))
+            foreach (var grant in grants)
+                if (CastMs(conn, effect, grant.Level, grant.Quality) is null) return "Invalid cast duration";
         return null;
     }
 

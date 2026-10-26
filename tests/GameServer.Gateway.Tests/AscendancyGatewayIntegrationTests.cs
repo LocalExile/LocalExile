@@ -18,7 +18,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class AscendancyGatewayIntegrationCollection;
 
 [Collection("Ascendancy Gateway integration")]
-public sealed class AscendancyGatewayIntegrationTests
+public sealed partial class AscendancyGatewayIntegrationTests
 {
     [Fact]
     public async Task Ascendancy_allocation_grants_ordinary_points_and_both_pools_survive_a_new_connection()
@@ -1737,6 +1737,34 @@ public sealed class AscendancyGatewayIntegrationTests
     }
 
     [Fact]
+    public async Task Time_Harbinger_start_expiry_and_source_refund_update_authoritative_movement_speed()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 60867), true)).Error);
+        var source = Program.Harbingers.ForNode(60867)!;
+        Assert.True((await game.Cast(game.GemEffects().Single(g => g.Effect == source.SummonEffect).Name)).Accepted);
+        double before = game.State.Walk.Speed;
+        var now = DateTimeOffset.UtcNow;
+        var roster = game.State.Companions!;
+        roster.Step(game.State.SummonLease, now.AddMilliseconds(5100), true, false);
+        roster.Step(game.State.SummonLease, now.AddMilliseconds(5800), true, false);
+        await game.RefreshCompanions();
+        Assert.Equal(before * 1.1, game.State.Walk.Speed, 6);
+        Assert.Equal(Program.PlayerMovementSpeed(game.State), game.State.Walk.Speed, 6);
+        roster.Step(game.State.SummonLease, now.AddMilliseconds(13800), true, false);
+        await game.RefreshCompanions();
+        Assert.Equal(before, game.State.Walk.Speed, 6);
+        roster.Step(game.State.SummonLease, now.AddMilliseconds(18100), true, false);
+        roster.Step(game.State.SummonLease, now.AddMilliseconds(18800), true, false);
+        await game.RefreshCompanions();
+        Assert.Equal(before * 1.1, game.State.Walk.Speed, 6);
+        Assert.Null((await game.Change([60867], false, refundPoints: true)).Error);
+        Assert.Equal(before, game.State.Walk.Speed, 6);
+    }
+
+    [Fact]
     public async Task Harbinger_phase_completed_by_skills_only_stays_dirty_until_native_owner_stats_are_published()
     {
         if (!DataAvailable()) return;
@@ -1977,7 +2005,7 @@ public sealed class AscendancyGatewayIntegrationTests
             BinaryPrimitives.ReadUInt16BigEndian(packet[6..]), packet[8], packet[9], nodes);
     }
 
-    sealed class GatewayCharacter : IDisposable
+    sealed partial class GatewayCharacter : IDisposable
     {
         static readonly MethodInfo Load = GatewayMethod("LoadProgress");
         static readonly MethodInfo ChangeMethod = GatewayMethod("ChangePassives");

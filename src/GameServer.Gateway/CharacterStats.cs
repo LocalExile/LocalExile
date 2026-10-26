@@ -32,7 +32,7 @@ static class CharacterStats
         int SpellBlockPer5AttackBlock = 0, int LifeGainedOnBlock = 0, int ManaGainedOnBlock = 0,
         bool VersatileCombatant = false, bool AttackBlockLucky = false, bool SpellBlockLucky = false,
         int AttackSpeedPct = 0,
-        int CriticalStrikeChancePct = 0, int SpellCriticalStrikeChancePct = 0,
+        long CriticalStrikeChancePct = 0, long SpellCriticalStrikeChancePct = 0,
         int CriticalStrikeMultiplier = DamageModel.BaseCriticalStrikeMultiplier,
         int SpellCriticalStrikeMultiplier = DamageModel.BaseCriticalStrikeMultiplier,
         int AttackCriticalStrikeChance = 0,
@@ -44,7 +44,16 @@ static class CharacterStats
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
         int AuraEffectPct = 0, int AuraAreaPct = 0, bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
         uint EnergyShield = 0, uint Ward = 0,
-        int ColdOvercapEvasionPct = 0, int LightningOvercapCritPct = 0);
+        int ColdOvercapEvasionPct = 0, int LightningOvercapCritPct = 0,
+        // Exhibit 122's global_always_hit: attacks cannot be evaded. Not an accuracy value; it only turns the hit
+        // chance itself into 100 and skips the roll.
+        bool AlwaysHit = false,
+        // The player Low Life threshold that rolls use: the override percentage when the stat is set, else the
+        // ordinary conditional threshold, else the default 50 (DamageModel.LowLife).
+        int LowLifeThresholdOverride = 0, int LowLifeThresholdPct = 0,
+        // Final Blow's unarmed melee critical multiplier bonus (percentage points), which only the melee-context
+        // consumers add (CriticalMultiplierFor and the main hand's panel row); 0 armed or for spells.
+        int UnarmedCriticalStrikeMultiplierBonus = 0);
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,
     /// mana, armour and evasion, increased energy shield and melee physical damage, the base resistances, attack speed's
@@ -64,7 +73,7 @@ static class CharacterStats
         int BlockChanceInc = 0, int BlockChanceMore = 0,
         bool VersatileCombatant = false, bool AttackBlockLucky = false, bool SpellBlockLucky = false,
         int AttackSpeedPct = 0, int AttackSpeedMorePct = 0,
-        int CriticalStrikeChancePct = 0, int SpellCriticalStrikeChancePct = 0,
+        long CriticalStrikeChancePct = 0, long SpellCriticalStrikeChancePct = 0,
         int CriticalStrikeMultiplier = 0, int SpellCriticalStrikeMultiplier = 0,
         int Accuracy = 0, int AccuracyPct = 0, int AccuracyPerLevel = 0,
         bool DexterityAccuracyTriple = false, bool AccuracyEqualsIntelligence = false,
@@ -73,6 +82,8 @@ static class CharacterStats
         int AuraEffectPct = 0, int AuraAreaPct = 0, int ArmourMorePct = 0, int EvasionMorePct = 0,
         int StrengthPct = 0, int DexterityPct = 0, int IntelligencePct = 0,
         bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
+        bool AlwaysHit = false,
+        int LowLifeThresholdOverride = 0, int LowLifeThresholdPct = 0,
         bool NoIntelligence = false, bool NoIntelligenceMana = false, int LifePerLevel = 0, int ManaPerDexterity = 0,
         int ManaPerFourStrength = 0, int ManaConvertedToArmourPct = 0, int EnergyShield = 0,
         int LifeAsEnergyShieldPct = 0, int ManaAsEnergyShieldPct = 0, bool NoEnergyShield = false, decimal Ward = 0, int WardPct = 0,
@@ -114,6 +125,8 @@ static class CharacterStats
     public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null, string folder = "data")
     {
         var b = bonus ?? Bonus.None;
+        long attackCriticalIncrease = b.CriticalStrikeChancePct + b.LightningOvercapCritPct;
+        long spellCriticalIncrease = b.SpellCriticalStrikeChancePct + b.LightningOvercapCritPct;
         level = Math.Clamp(level, 1, Progression.MaxLevel);
         var (str, dex, intel) = new PassiveAttributeModifiers.Increases(b.StrengthPct, b.DexterityPct, b.IntelligencePct)
             .Apply((c.Strength + b.Strength, c.Dexterity + b.Dexterity, c.Intelligence + b.Intelligence));
@@ -193,13 +206,13 @@ static class CharacterStats
             SpellBlockPer5AttackBlock: b.SpellBlockPer5AttackBlock, LifeGainedOnBlock: b.LifeGainedOnBlock,
             ManaGainedOnBlock: b.ManaGainedOnBlock, VersatileCombatant: b.VersatileCombatant,
             AttackBlockLucky: b.AttackBlockLucky, SpellBlockLucky: b.SpellBlockLucky, AttackSpeedPct: attackSpeedPct,
-            CriticalStrikeChancePct: b.CriticalStrikeChancePct + b.LightningOvercapCritPct,
-            SpellCriticalStrikeChancePct: b.SpellCriticalStrikeChancePct + b.LightningOvercapCritPct,
+            CriticalStrikeChancePct: attackCriticalIncrease,
+            SpellCriticalStrikeChancePct: spellCriticalIncrease,
             CriticalStrikeMultiplier: DamageModel.BaseCriticalStrikeMultiplier + b.CriticalStrikeMultiplier,
             SpellCriticalStrikeMultiplier: DamageModel.BaseCriticalStrikeMultiplier + b.SpellCriticalStrikeMultiplier,
-            SpellCriticalStrikeChance: (int)Math.Round(DamageModel.CriticalStrikeChance(
+            SpellCriticalStrikeChance: DamageModel.CriticalStrikeChancePerMyriad(
                 DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
-                b.SpellCriticalStrikeChancePct + b.LightningOvercapCritPct) * 100),
+                spellCriticalIncrease),
             AccuracyPct: b.AccuracyPct,
             AccuracyMoreVsUniquePct: b.AccuracyMoreVsUniquePct,
             AccuracyMoreInCloseRangePct: b.AccuracyMoreInCloseRangePct,
@@ -207,7 +220,9 @@ static class CharacterStats
             LifeReservationEfficiencyPct: b.LifeReservationEfficiencyPct,
             AuraEffectPct: b.AuraEffectPct, AuraAreaPct: b.AuraAreaPct,
             AttackBlockUnlucky: b.AttackBlockUnlucky, SpellBlockUnlucky: b.SpellBlockUnlucky,
-            ColdOvercapEvasionPct: b.ColdOvercapEvasionPct, LightningOvercapCritPct: b.LightningOvercapCritPct);
+            ColdOvercapEvasionPct: b.ColdOvercapEvasionPct, LightningOvercapCritPct: b.LightningOvercapCritPct,
+            AlwaysHit: b.AlwaysHit,
+            LowLifeThresholdOverride: b.LowLifeThresholdOverride, LowLifeThresholdPct: b.LowLifeThresholdPct);
     }
 
     private static readonly Lazy<uint[]> Experience = new(() => LoadExperience("data"));

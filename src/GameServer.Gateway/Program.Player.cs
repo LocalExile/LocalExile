@@ -188,7 +188,7 @@ partial class Program
     }
 
     // A cast's time in ms: the same level, effective quality and character modifiers as the client skill record.
-    static int CastMs(ClientState conn, int effect, int level, int quality) =>
+    static int? CastMs(ClientState conn, int effect, int level, int quality) =>
         Skills.CastTimeMs(effect, level, quality, CharacterPlayerStats(conn));
 
     // Righteous Fire (GrantedEffects RighteousFire): casting it puts the righteous_fire buff (BuffDefinitions row 12: the

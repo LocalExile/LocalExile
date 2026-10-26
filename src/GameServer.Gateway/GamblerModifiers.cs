@@ -3,19 +3,29 @@ using GameServer.Core.World;
 /// <summary>Per-event roll policies read from actual passive stats. These do not change the character's ordinary
 /// resistance caps or turn a random chance into an average bonus. The caller rolls them once for each hit.</summary>
 readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int CriticalExtraRolls = 0, int EnemyDamageExtraRolls = 0,
-    int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0)
+    int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0,
+    int LowLifeCriticalExtraRolls = 0)
 {
     public static GamblerModifiers From(Func<string, int> get) => new(
         get("base_extra_damage_rolls"), get("extra_critical_rolls"), get("base_enemy_extra_damage_rolls"),
         get("base_chance_to_deal_triple_damage_%"), get("marauder_hidden_ascendancy_damage_+%_final"),
         get("treat_enemy_resistances_as_negated_on_elemental_damage_hit_%_chance"),
-        get("enemy_hits_%_chance_to_treat_elemental_resistances_as_90%"));
+        get("enemy_hits_%_chance_to_treat_elemental_resistances_as_90%"),
+        get("extra_critical_rolls_while_on_low_life"));
 
     /// <summary>Growing Accumulator's less damage applies to hits and damage over time; triple damage only to hits.</summary>
     public double DamageFactor => Math.Max(0, (100.0 + DamageMorePct) / 100.0);
 
-    public bool IsCritical(int chancePerMyriad, Random random) =>
-        RandomRolls.Chance(chancePerMyriad, 10_000, random, CriticalExtraRolls);
+    public bool IsCritical(int chancePerMyriad, Random random) => IsCritical(chancePerMyriad, random, onLowLife: false);
+
+    /// <summary>The low-life extra roll (Final Blow's <c>extra_critical_rolls_while_on_low_life</c>, Stats key 14290) is
+    /// only added while the player is actually on low life at this roll; off the boundary only the ordinary
+    /// <c>extra_critical_rolls</c> count applies, and opposing luck still cancels in the sum. The sum is kept
+    /// overflow-safe: each stat's own magnitude may reach the int bounds, so the combined count clamps to the long
+    /// range before RandomRolls sees it.</summary>
+    public bool IsCritical(int chancePerMyriad, Random random, bool onLowLife) =>
+        RandomRolls.Chance(chancePerMyriad, 10_000, random, (int)Math.Clamp(
+            (long)CriticalExtraRolls + (onLowLife ? LowLifeCriticalExtraRolls : 0), int.MinValue, int.MaxValue));
 
     /// <summary>Apply the less damage and roll the triple-damage chance, then roll each damage type independently.
     /// Critical strike multiplication and target mitigation still belong to the caller.</summary>

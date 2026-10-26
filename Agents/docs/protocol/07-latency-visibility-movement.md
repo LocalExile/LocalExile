@@ -186,8 +186,15 @@ client's arguments for those walks are not traced yet.
 walk estimate uses `37 × (1 + pct / 100)` cells/s; the same total is sent as the client's `movement_velocity_+%`, so the
 client and server walk at the same speed. `ApplyMovementSpeed` runs on login, level, passive changes and area changes;
 `/set_speed` adds its percentage on top of the passive total.
-Only unconditional `increased Movement Speed` passives are modelled: action speed, more multipliers, gear/buff
-`movement_velocity_+%`, conditional nodes and the `movement_velocity_cap` constant are not applied yet.
+The server now multiplies that movement factor by the separate final action-speed factor from `ActionSpeed`.
+`movement_speed_cannot_be_reduced_below_base` clamps movement's own factor before action speed applies.
+`action_speed_cannot_be_reduced_below_base` clamps only the action factor.
+The native `movement_velocity_+%` keeps movement's own final increase; `virtual_action_speed_+%` stays separate.
+`/set_speed` and action/movement development inputs use the same server walk calculation.
+A zero factor stops the server walk at its current cell and retains its order for resumption when speed returns.
+Positive-speed segment stepping retains its existing behavior.
+Real-node allocate/refund and zero-speed walk tests cover these changes; native action-speed validation is pending.
+Other movement more multipliers, conditional nodes and `movement_velocity_cap` remain incomplete.
 
 **Compact int** (writer `0x141fa3c50`): signed, 1 byte for −0x40..0x3f (value & 0x7f), else 2/3/4 bytes with first-byte
 prefixes 0x80/0xc0/0xe0 carrying the top 6/5/4 bits, else 0xf0 + 4 bytes; big-endian (`InstanceProtocol.CompactInt`).

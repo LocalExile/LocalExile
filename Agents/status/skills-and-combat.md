@@ -38,6 +38,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   in the constant 20-unit close range (2 metres; 10 units per metre), multiplying when both hold and never folded into
   the panel's rating or `/accuracy`'s unconditional rating.
   Gems' attack hits do not roll accuracy yet, so the conditions apply where a roll exists (the default attack).
+  Exhibit 122 (graph id 36978, the Chieftain position) grants `global_always_hit` (Stats row 686, key 687 = 1):
+  the default attack cannot be evaded, so it skips the accuracy roll entirely and the panel's Chance to Hit
+  reference rows (normal and high-dexterity monster) read 100;
+  the rating itself, the mastery's target multipliers and the critical chance never change with the flag.
+  A dev `/set_stat` global always-hit reaches the same pools' flag and both allocation and dev removals drop it.
   Ten native checks used connected ordinary paths and actual mastery selection requests.
   The panel stayed at 711 while target rolls used 995 against Unique, 1066 in close range and 1493 when both held.
   A far Unique kept only 995; target movement, relog and refund restored the expected conditions and baseline.
@@ -59,8 +64,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   `virtual_base_spell_cast_time_ms`, 5 mana), cast at the ground or at a monster; a bow's ordinary attack and attack
   gems create `Metadata/Projectiles/DefaultArrow` (or the gem's own projectile) at the attack animation's `attack1_bow`
   contact (0.374 of the attack time).
-  Attack gems deal the weapon's damage × `DamageEffectiveness` with the attack's crit; a bow arrow has no Fireball
-  impact.
+  Attack gems scale weapon base and added damage by separate normalized GESSPL factors, with the attack's crit.
+  Both raw fields are signed deltas from 10000; a bow arrow has no Fireball impact.
+  Automated controls cover positive/negative deltas, unequal factors, missing identity and true zero.
+  The corrected scalar still needs integrated native damage verification.
   Projectiles spawn at the captured terrain height + `Game_PROJECTILE_HEIGHT` (5 steps = torso) on natural ground;
   without a capture they use the bare offset.
   Code: `SkillCatalog.cs`, Gateway (`CastOn`, `LaunchProjectile`, `AreaSkillHit`), `ProjectileObject`.
@@ -107,8 +114,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Movement speed: the passive `base_movement_velocity_+%` is summed into `Pools`, sent as the client's
   `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100) cells/s);
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top;
-  only unconditional passive increases are modelled (no action speed, more multipliers, gear/buff movement or the 128
-  cap yet).
+  unconditional passive increases have native coverage.
+  Action speed and floors have separate automated coverage below; other more multipliers and the 128 cap remain open.
   Code: `CharacterStats.cs`, Gateway (`ApplyMovementSpeed`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
@@ -163,6 +170,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   Steel Willed and Forest Tracking scale attack increases from complete groups of 450 final armour/evasion.
   Fractional transfers join base and added damage before conversion and Rage.
   Sixteen native checks cover real-node allocation, fixed hits reaching enemy Life and paid refunds for four sources.
+  Multiplicative action speed, Tailwind effect and Toughened Skin's independent floors execute in attack/cast/walk.
+  Timing reuses PR #194's inherent attack bases and PR #195's native spell base plus final cast-speed contract.
+  Native Q Fireball keeps 750 ms base and changes from 107 to 133 casts per hundred seconds with the action floor.
+  Connected Tailwind gives 12%, or 22% with a separate Harbinger 10%; effect 56 still rounds that total to 22%.
+  Native allocation, fractional effect and paid refunds pass; animation duration was not measured by stopwatch.
+  Shared eligibility refuses impossible casts before action replacement, movement, echo, costs or cooldown reservation.
+  Ground, monster, self and instant handler regressions cover actual level/quality and unchanged prior action state.
+  PR #198's shared raw attack packet now supplies selected attack-gem ranges and pre-crit DPS at the emitted APS.
+  Creation/refresh, quality conversion, skill-owned damage and active-hand controls pass automated checks.
+  Native selected Burning Arrow APS changes 10.78 → 14.35 and its DPS follows the emitted rate.
+  That earlier build used the wrong 1.8 scalar; it verifies timing, not corrected 2.8 damage scaling.
+  Corrected native damage and complete official DPS remain open.
   Most Phrecia signature mechanics remain absent; selecting a class does not implement its entire tree.
   Code: `PassiveGemModifiers.cs`, `SkillGemFamilies.cs`, `GamblerModifiers.cs`, `SkillRestrictions.cs`, Gateway skill/combat partials.
   Docs: [implemented effects by class](../docs/game/ascendancies.md#what-this-does-not-complete).
@@ -260,7 +279,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Each is a base, not a fixed final chance: generic increased crit still applies on top;
   the weapon override stays out of unarmed and spell rolls, and the unarmed base stays out of a weapon hand.
   Only the active weapon set supplies the attack base and its weapon-specific increases.
-  `/set_stat` replaces the input and rebuilds the pools, so the panel and the rolls agree.
+  Final Blow also grants `unarmed_melee_attack_critical_strike_multiplier_+` (key 21565, +50 points).
+  The pools store it separately; only the attack's own melee context receives it.
+  Unarmed non-melee attack gems and spells keep the plain multiplier.
+  Its `extra_critical_rolls_while_on_low_life` (key 14290) adds a roll at or below the live Low Life threshold.
+  The default is 50% inclusive; positive override key 17896 wins over ordinary threshold key 17901.
+  Ordinary lucky/unlucky rolls compose with that conditional count.
+  Actual native critical hits remove 200 enemy Life unarmed and 150 armed; empty-hand and paid-refund controls pass.
+  The native checks do not estimate critical probability; deterministic threshold/roll tests cover it.
+  Exhibit 122 (graph id 36978, Chieftain) grants `global_always_hit` (key 687).
+  The default attack skips accuracy and the panel's Chance to Hit rows read 100, with rating and crit untouched.
+  Native allocation/refund also preserves the node's Dexterity drawback, 14 → 7 → 14.
+  Automated checks cover active/inactive/swap/refund, non-melee exclusion, low-life boundaries and always-hit rows.
+  `/set_stat` replaces the complete input contribution and rebuilds pools outside the combat lock.
   Twelve native checks verified 830 → 800 → 900, increased chance → 1800, cannot-crit → zero,
   empty-set/unarmed behavior, weapon restoration and relog; spell chance stayed 500.
   Ascendancy allocation remains in the separate lifecycle change.
@@ -269,13 +300,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   The final main-hand and spell crit chance/multiplier stats go to the client for the Offence panel;
   selected spell chance and server projectile/area rolls now share raw player and skill inputs once.
   Precision and Zealotry retain their existing bonuses without counting them twice.
+  Attack, pooled spell and actual spell chance use the same integer-permyriad calculation and half-up rounding.
+  Complete player increases stay signed `long`; skill increases add before the final clamp, preserving cancellation.
+  Lightning overcap contributes exactly once; clipped native raw stats are not reused as combat inputs.
+  Both pooled and actual spell chances honor global/virtual cannot-crit flags.
+  Five standalone maintainer follow-up native checks cover ordinary and extreme developer critical inputs.
+  The combined long-sum, no-crit and overcap integration still needs a fresh native check.
   Actual Spell skill types set the panel's casting flag; attacks and non-spell warcries keep it clear.
   Hitless spells and unsupported action types cannot fall through to weapon damage or attack critical rolls.
   Native panel/getter checks show Fireball 5%, Freezing Pulse and Ice Nova 7.5%, and Arc 6%, including after relog.
   Combined generic/spell bonuses add once; the no-crit flag clears the native chance and hides its row.
   A hitless Scorching Ray cast dealt no weapon damage, while the same connection's Fireball dealt a critical hit.
   Catalog, chance, panel gates, aura sources and hit routing also have automated checks.
-  Timed, charge, enemy-state, lucky/more and added-base crit mechanics are not modelled.
+  Timed, charge, enemy-state and added-base crit mechanics are not modelled (low-life conditional crit rolls now
+  are, in this entry above).
   `/crit` shows the attack values and a pooled 5%-base spell reference ([11](../docs/protocol/11-skills.md) §5).
 - **Overcapped-resistance modifiers.** While the flag stat is set, the uncapped resistance above its maximum is a
   generic increased modifier, exactly PoB's `ResistOverCap` (the maximum capped at 90): +1% increased evasion per 1%

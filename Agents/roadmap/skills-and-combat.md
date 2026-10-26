@@ -35,6 +35,10 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   Remaining cooldown work includes multi-use recharge, shared groups, bypass, typed/conditional/more recovery,
   official tick boundaries and the separate location-instant C→S 0x190 contribution.
   See [11](../docs/protocol/11-skills.md) §9.
+  Action speed, active Tailwind effect and Toughened Skin's action/movement floors now have production consumers.
+  Impossible-cast eligibility now precedes handler side effects and composes with shared cooldown preflight.
+  Native casts, floor flags, fractional Tailwind effect and paid refunds pass; elapsed animation timing remains open.
+  Cooldown recovery is separate.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
   The overcapped resistances' derived evasion and critical increases now follow that rule and are native-verified.
@@ -74,6 +78,10 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   General/attack penetration and critical elemental ignore now execute with native damage and combined-effect checks.
   Spell-to-attack and minion-to-owner transfers plus final-defence attack scaling have production-path coverage.
   Validate their real-client allocation/refund and damage behavior before moving them out of partial status.
+  Selected attack-gem ranges and pre-crit averages now reuse PR #198's raw packet and the emitted attack rate.
+  Native selected APS/DPS timing agrees, but that run used the old incorrect damage scalar.
+  Both GESSPL factors now decode signed deltas independently, with automated oracle cases.
+  Verify corrected native base/added damage before accepting that arithmetic; fuller DPS weighting remains open.
   Special ES mechanics, exposure, ailment application, conditional added-damage stats and support
   modifiers remain open.
   Reuse the adapted `ChargeSession` model for current-charge hooks and effects; its pure transfer tests are not
@@ -86,12 +94,15 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   unarmed base in `AttackBaseCriticalStrike`): Slayer Overwhelm, Blind Prophet's Sightless and Behemoth Final Blow
   have native-verified base calculations, active-set isolation and cannot-crit gates (Status and
   protocol/11-skills.md §critical strikes).
-  Deliver their nodes through the separate ascendancy lifecycle; Slayer's per-nearby-enemy crit multiplier and
-  Final Blow's remaining unarmed bonuses are separate work.
+  Final Blow's unarmed melee multiplier and low-life extra roll now execute through the ascendancy lifecycle.
+  Native 200/150 critical hits and refund controls pass; deterministic tests cover low-life roll probability.
+  Slayer's per-nearby-enemy crit multiplier remains separate work.
   The overcapped-resistance modifiers (Sea Legs' flags: cold overcap as increased evasion, lightning overcap as
   increased critical chance) are implemented through the pools with native panel and relog checks.
   Combined base-override/overcap regression checks include active-set isolation and spell-source deduplication.
-  Added-base, lucky/more and conditional crit remain separate work.
+  Complete signed player/skill critical sums now share half-up integer-permyriad calculation.
+  Verify the integrated extreme-input, cannot-crit and overcap combination natively.
+  Other added-base, more and conditional critical effects remain separate work.
   Add support effects through `DamagePacket.Add`, `Scale`, `Convert` and `AddGain`.
 - **Done when:** damage numbers match the character panel and the monsters' levels.
 

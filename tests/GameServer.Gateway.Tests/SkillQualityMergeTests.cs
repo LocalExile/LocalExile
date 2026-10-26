@@ -16,7 +16,9 @@ public sealed class SkillQualityMergeTests : IDisposable
              {"Id":"hundred_times_casts_per_second"},{"Id":"base_mana_cost"},{"Id":"mana_cost"},
              {"Id":"attack_and_cast_speed_+%"},{"Id":"skill_area_of_effect_+%"}]
             """);
-        File.WriteAllText(Path.Combine(tables, "GrantedEffects.json"), """[{"Id":"FixtureSpell","StatSet1":0,"CastTime":1300}]""");
+        File.WriteAllText(Path.Combine(tables, "GrantedEffects.json"), """[{"Id":"FixtureSpell","StatSet1":0,"CastTime":1300,"ActiveSkill":0}]""");
+        File.WriteAllText(Path.Combine(tables, "ActiveSkills.json"), """[{"ActiveSkillTypes":[0]}]""");
+        File.WriteAllText(Path.Combine(tables, "ActiveSkillType.json"), """[{"Id":"Spell"}]""");
         File.WriteAllText(Path.Combine(tables, "GrantedEffectsPerLevel.json"), """[{"GrantedEffect":0,"Level":1,"CostTypes":[0],"CostAmounts":[5]}]""");
         File.WriteAllText(Path.Combine(tables, "GrantedEffectStatSets.json"), """[{"ImplicitStats":[],"ConstantStats":[],"ConstantStatsValues":[]}]""");
         File.WriteAllText(Path.Combine(tables, "GrantedEffectStatSetsPerLevel.json"), """
@@ -32,9 +34,33 @@ public sealed class SkillQualityMergeTests : IDisposable
     private uint Key(string name) => _stats.Key(name)!.Value;
 
     [Theory]
+    [InlineData(-10000, -10000, 0, 0)]
+    [InlineData(0, 0, 10000, 10000)]
+    [InlineData(5000, -7500, 15000, 2500)]
+    public void Raw_damage_deltas_decode_independently_and_keep_explicit_zero_distinct_from_identity(
+        int rawBaseDelta, int rawAddedDelta, int expectedBase, int expectedAdded)
+    {
+        File.WriteAllText(Path.Combine(_folder, "tables", "GrantedEffectStatSetsPerLevel.json"),
+            System.Text.Json.JsonSerializer.Serialize(new[] { new { StatSet = 0, GemLevel = 1,
+                BaseMultiplier = rawBaseDelta, DamageEffectiveness = rawAddedDelta } }));
+        var skills = new SkillCatalog(_folder);
+        Assert.Equal(expectedBase, skills.AttackBaseMultiplier(0, 1));
+        Assert.Equal(expectedAdded, skills.DamageEffectiveness(0, 1));
+    }
+
+    [Fact]
+    public void Missing_damage_columns_and_missing_effect_rows_keep_identity()
+    {
+        Assert.Equal(10000, _skills.AttackBaseMultiplier(0, 1));
+        Assert.Equal(10000, _skills.DamageEffectiveness(0, 1));
+        Assert.Equal(10000, _skills.AttackBaseMultiplier(-1, 1));
+        Assert.Equal(10000, _skills.DamageEffectiveness(-1, 1));
+    }
+
+    [Theory]
     [InlineData(0, 10, 1182, 18)]
     [InlineData(20, 30, 1000, 21)]
-    public void Quality_adds_to_global_modifiers_and_the_published_cast_time_is_the_server_delay(int quality, int increase, int expectedMs, int expectedRadius)
+    public void Quality_adds_to_global_modifiers_while_native_base_and_final_server_delay_stay_distinct(int quality, int increase, int expectedMs, int expectedRadius)
     {
         var character = new Dictionary<uint, int>
         {
@@ -50,7 +76,7 @@ public sealed class SkillQualityMergeTests : IDisposable
         Assert.Equal(increase, merged[Key("skill_area_of_effect_+%")]);
         Assert.Equal(expectedRadius, merged[Key("active_skill_base_area_of_effect_radius")]);
         Assert.Equal(5, merged[Key("mana_cost")]); // intrinsic level stats keep their existing precedence
-        Assert.Equal(expectedMs, merged[Key("virtual_base_spell_cast_time_ms")]);
+        Assert.Equal(1300, merged[Key("virtual_base_spell_cast_time_ms")]);
         Assert.Equal(expectedMs, _skills.CastTimeMs(0, 1, quality, character));
         Assert.Equal(10, character[Key("damage_+%")]); // no mutation or double counting on refresh
         Assert.Equal(merged[Key("damage_+%")], _skills.EffectStatsFor(0, 1, quality, character)[Key("damage_+%")]);
@@ -61,7 +87,8 @@ public sealed class SkillQualityMergeTests : IDisposable
     {
         var merged = _skills.EffectStatsFor(0, 1, 20, new Dictionary<uint, int> { [Key("base_cast_speed_+%")] = 10 });
         Assert.Equal(30, merged[Key("cast_speed_+%")]);
-        Assert.Equal(1000, merged[Key("virtual_base_spell_cast_time_ms")]);
+        Assert.Equal(1300, merged[Key("virtual_base_spell_cast_time_ms")]);
+        Assert.Equal(1000, _skills.CastTimeMs(0, 1, 20, new Dictionary<uint, int> { [Key("base_cast_speed_+%")] = 10 }));
     }
 
     [Fact]
@@ -97,7 +124,7 @@ public sealed class SkillQualityMergeTests : IDisposable
         // Actual target-table CastTime is 600 ms for both skills: 600/1.1 rounds to 545; 600/1.3 to 462.
         Assert.Equal(545, skills.CastTimeMs(row, 1, 0, player));
         Assert.Equal(462, skills.CastTimeMs(row, 1, 20, player));
-        Assert.Equal(462, twenty[Key("virtual_base_spell_cast_time_ms")]);
+        Assert.Equal(600, twenty[Key("virtual_base_spell_cast_time_ms")]);
     }
 
     [Fact]
@@ -120,14 +147,9 @@ public sealed class SkillQualityMergeTests : IDisposable
 
     private static string? Data()
     {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            string data = Path.Combine(dir.FullName, "data");
-            string[] required = ["Stats", "GrantedEffects", "GrantedEffectsPerLevel", "GrantedEffectStatSets",
-                "GrantedEffectStatSetsPerLevel", "GrantedEffectQualityStats"];
-            if (required.All(name => File.Exists(Path.Combine(data, "tables", name + ".json")))) return data;
-        }
-        return null;
+        string[] required = ["Stats", "GrantedEffects", "GrantedEffectsPerLevel", "GrantedEffectStatSets",
+            "GrantedEffectStatSetsPerLevel", "GrantedEffectQualityStats"];
+        return required.All(name => File.Exists(Path.Combine("data", "tables", name + ".json"))) ? "data" : null;
     }
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);

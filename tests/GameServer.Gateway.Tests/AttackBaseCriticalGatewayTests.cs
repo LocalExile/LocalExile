@@ -41,8 +41,15 @@ public sealed class AttackBaseCriticalGatewayTests : IDisposable
         Set(conn, "critical_strike_chance_+%", 100);
         conn.Pools = Pools(conn);
         Assert.Equal(chance * 2, conn.Pools.AttackCriticalStrikeChance);
+        Assert.Equal(100, conn.Pools.CriticalStrikeChancePct);
+        Assert.Equal(100, conn.Pools.SpellCriticalStrikeChancePct);
+        Assert.Equal(1000, conn.Pools.SpellCriticalStrikeChance);
         var shown = (Dictionary<uint, int>)Method("CharacterPlayerStats").Invoke(null, [conn])!;
         Assert.Equal(chance * 2, shown[Program.Stats.Key("main_hand_critical_strike_chance")!.Value]);
+        Assert.Equal(100, shown[Program.Stats.Key("critical_strike_chance_+%")!.Value]);
+        Assert.Equal(conn.Pools.SpellCriticalStrikeChance,
+            SpellCriticalStrike.Chance(500, Program.Stats, shown, new Dictionary<uint, int>(),
+                conn.Pools.SpellCriticalStrikeChancePct));
         Set(conn, armed ? AttackBaseCriticalStrike.WeaponOverrideStat : AttackBaseCriticalStrike.UnarmedBaseStat, 0);
         Assert.Equal(armed ? 1660 : 0, Pools(conn).AttackCriticalStrikeChance);
     }
@@ -56,7 +63,14 @@ public sealed class AttackBaseCriticalGatewayTests : IDisposable
         var conn = Character(true);
         Set(conn, AttackBaseCriticalStrike.WeaponOverrideStat, 900);
         Set(conn, prohibition, 1);
-        Assert.Equal(0, Pools(conn).AttackCriticalStrikeChance);
+        conn.Pools = Pools(conn);
+        Assert.Equal(0, conn.Pools.AttackCriticalStrikeChance);
+        int expectedSpell = prohibition == "cannot_critical_strike_with_attacks" ? 500 : 0;
+        Assert.Equal(expectedSpell, conn.Pools.SpellCriticalStrikeChance);
+        var shown = Program.CharacterPlayerStats(conn);
+        Assert.Equal(expectedSpell, shown[Program.Stats.Key("spell_critical_strike_chance")!.Value]);
+        Assert.Equal(expectedSpell, SpellCriticalStrike.Chance(500, Program.Stats, shown,
+            new Dictionary<uint, int>(), conn.Pools.SpellCriticalStrikeChancePct));
         Set(conn, prohibition, 0);
         Assert.Equal(900, Pools(conn).AttackCriticalStrikeChance);
     }
@@ -75,6 +89,88 @@ public sealed class AttackBaseCriticalGatewayTests : IDisposable
         Assert.Equal(800, Pools(conn).AttackCriticalStrikeChance);
     }
 
+    [Theory]
+    [InlineData(0, 0, 1204, 725)]
+    [InlineData(100, 40, 2034, 1425)]
+    public void Debug_increases_replace_complete_aura_inputs_then_add_Sea_Legs_once(
+        int generic, int spell, int expectedAttack, int expectedSpell)
+    {
+        var conn = Character(true);
+        var skills = Program.Skills;
+        conn.Auras[0x103] = new(0x103, skills.EffectRow("Precision"), "Precision", "Precision", 1, 1293, 22, 0);
+        conn.Auras[0x104] = new(0x104, skills.EffectRow("Zealotry"), "Zealotry", "Zealotry", 2, 0, 0, 5000);
+        Set(conn, ResistanceOvercap.LightningCritFlag, 1);
+        Set(conn, "base_lightning_damage_resistance_%", 120);
+        var baseline = Pools(conn);
+        Assert.True(baseline.CriticalStrikeChancePct > 45);
+        Assert.True(baseline.SpellCriticalStrikeChancePct > baseline.CriticalStrikeChancePct);
+
+        Set(conn, "critical_strike_chance_+%", generic);
+        Set(conn, "spell_critical_strike_chance_+%", spell);
+        conn.Pools = Pools(conn);
+        Assert.Equal(45, conn.Pools.LightningOvercapCritPct);
+        Assert.Equal(generic + 45L, conn.Pools.CriticalStrikeChancePct);
+        Assert.Equal(generic + spell + 45L, conn.Pools.SpellCriticalStrikeChancePct);
+        Assert.Equal(expectedAttack, conn.Pools.AttackCriticalStrikeChance);
+        Assert.Equal(expectedSpell, conn.Pools.SpellCriticalStrikeChance);
+        var shown = Program.CharacterPlayerStats(conn);
+        Assert.Equal(generic + 45, shown[Program.Stats.Key("critical_strike_chance_+%")!.Value]);
+        Assert.Equal(expectedAttack, shown[Program.Stats.Key("main_hand_critical_strike_chance")!.Value]);
+        Assert.Equal(expectedSpell, SpellCriticalStrike.Chance(500, Program.Stats, shown,
+            new Dictionary<uint, int>(), conn.Pools.SpellCriticalStrikeChancePct));
+    }
+
+    [Theory]
+    [InlineData(int.MaxValue, 0, 0, 50, 2147483647L, 2147483697L, 10000, 10000)]
+    [InlineData(int.MaxValue, 0, 50, 0, 2147483697L, 2147483647L, 10000, 10000)]
+    [InlineData(int.MinValue, 0, -50, -50, -2147483698L, -2147483698L, 0, 0)]
+    [InlineData(int.MaxValue, 50, -int.MaxValue, int.MinValue, 50L, -1L, 1350, 495)]
+    [InlineData(int.MinValue, -50, int.MaxValue, int.MaxValue, -51L, -1L, 441, 495)]
+    public void Actual_pools_preserve_signed_critical_sums_until_the_final_chance(
+        int generic, int attack, int wand, int spell, long attackIncrease, long spellIncrease,
+        int expectedAttack, int expectedSpell)
+    {
+        var conn = Character(true);
+        Set(conn, AttackBaseCriticalStrike.WeaponOverrideStat, 900);
+        Set(conn, "critical_strike_chance_+%", generic);
+        Set(conn, "attack_critical_strike_chance_+%", attack);
+        Set(conn, "wand_critical_strike_chance_+%", wand);
+        Set(conn, "spell_critical_strike_chance_+%", spell);
+        conn.Pools = Pools(conn);
+        Assert.Equal(attackIncrease, conn.Pools.CriticalStrikeChancePct);
+        Assert.Equal(spellIncrease, conn.Pools.SpellCriticalStrikeChancePct);
+        Assert.Equal(expectedAttack, conn.Pools.AttackCriticalStrikeChance);
+        Assert.Equal(expectedSpell, conn.Pools.SpellCriticalStrikeChance);
+        var shown = Program.CharacterPlayerStats(conn);
+        Assert.Equal(expectedAttack, shown[Program.Stats.Key("main_hand_critical_strike_chance")!.Value]);
+        Assert.Equal(expectedSpell, SpellCriticalStrike.Chance(500, Program.Stats, shown,
+            new Dictionary<uint, int>(), conn.Pools.SpellCriticalStrikeChancePct));
+    }
+
+    [Fact]
+    public void Sea_Legs_extreme_opposing_inputs_cancel_before_the_native_raw_stat_is_saturated()
+    {
+        var conn = Character(true);
+        Set(conn, AttackBaseCriticalStrike.WeaponOverrideStat, 900);
+        Set(conn, ResistanceOvercap.LightningCritFlag, 1);
+        Set(conn, "base_lightning_damage_resistance_%", 120);
+        Set(conn, "critical_strike_chance_+%", int.MaxValue);
+        Set(conn, "wand_critical_strike_chance_+%", int.MinValue);
+        Set(conn, "spell_critical_strike_chance_+%", int.MinValue);
+        conn.Pools = Pools(conn);
+        Assert.Equal(44, conn.Pools.CriticalStrikeChancePct);
+        Assert.Equal(44, conn.Pools.SpellCriticalStrikeChancePct);
+        Assert.Equal(1296, conn.Pools.AttackCriticalStrikeChance);
+        Assert.Equal(720, conn.Pools.SpellCriticalStrikeChance);
+        var shown = Program.CharacterPlayerStats(conn);
+        Assert.Equal(int.MaxValue, shown[Program.Stats.Key("critical_strike_chance_+%")!.Value]);
+        Assert.Equal(720, SpellCriticalStrike.Chance(500, Program.Stats, shown,
+            new Dictionary<uint, int>(), conn.Pools.SpellCriticalStrikeChancePct));
+        var skill = new Dictionary<uint, int> { [Program.Stats.Key("critical_strike_chance_+%")!.Value] = 50 };
+        Assert.Equal(970, SpellCriticalStrike.Chance(500, Program.Stats, shown, skill,
+            conn.Pools.SpellCriticalStrikeChancePct));
+    }
+
     [Fact]
     public void A_weapon_in_the_inactive_set_does_not_make_the_active_empty_hand_armed()
     {
@@ -82,11 +178,16 @@ public sealed class AttackBaseCriticalGatewayTests : IDisposable
         var items = PlayerInventories.For(_name, Program.Items);
         items.Add(PlayerInventories.Weapon2, 0, 0, ItemCatalog.Create(Program.Items.Row(384)!));
         Set(conn, AttackBaseCriticalStrike.WeaponOverrideStat, 900);
+        Set(conn, "wand_critical_strike_chance_+%", 100);
         Assert.Equal(0, Pools(conn).AttackCriticalStrikeChance);
         Set(conn, AttackBaseCriticalStrike.UnarmedBaseStat, 1000);
-        Assert.Equal(1000, Pools(conn).AttackCriticalStrikeChance);
+        var unarmed = Pools(conn);
+        Assert.Equal(1000, unarmed.AttackCriticalStrikeChance);
+        Assert.Equal(0, unarmed.CriticalStrikeChancePct);
         items.SwapWeaponSets();
-        Assert.Equal(900, Pools(conn).AttackCriticalStrikeChance);
+        var armed = Pools(conn);
+        Assert.Equal(1800, armed.AttackCriticalStrikeChance);
+        Assert.Equal(100, armed.CriticalStrikeChancePct);
     }
 
     [Fact]

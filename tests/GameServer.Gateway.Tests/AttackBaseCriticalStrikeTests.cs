@@ -10,26 +10,14 @@ namespace GameServer.Gateway.Tests;
 /// Building's CalcOffence.lua replaces the attack pass's <c>source.CritChance</c> with the WeaponBaseCritChance
 /// override only when that hand's type is not "None" (unarmed) — and the unarmed base
 /// <c>base_melee_critical_strike_chance_while_unarmed_%</c> (Behemoth Final Blow 1000 = 10%) does the same with the
-/// empty weapon base. The pool mirrors <c>PoolsFor</c>'s line; the spell crit route keeps its own extracted bases.
+/// empty weapon base. Tests call the production chance calculation; spells keep their own extracted bases.
 /// </summary>
 public class AttackBaseCriticalStrikeTests
 {
-    static string Data()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (Directory.Exists(Path.Combine(dir.FullName, "data", "tables"))) return Path.Combine(dir.FullName, "data");
-        throw new DirectoryNotFoundException("data/tables");
-    }
-
     static readonly Lazy<(PassiveTree Tree, ItemCatalog Catalog, StatCatalog Stats)> Setup =
-        new(() => (new PassiveTree(Data()), new ItemCatalog(Data()), new StatCatalog(Data())));
+        new(() => (new PassiveTree(), new ItemCatalog(), new StatCatalog()));
 
     static ItemCatalog Catalog => Setup.Value.Catalog;
-
-    /// <summary>PoolsFor's composition: the raw base (override or weapon) under the global increases, permyriad out.</summary>
-    static int PoolChance(bool weaponInMainHand, int weaponBase, int increasedPct, Func<string, int> raw) =>
-        (int)Math.Round(DamageModel.CriticalStrikeChance(
-            AttackBaseCriticalStrike.OfMainHand(weaponInMainHand, weaponBase, raw), increasedPct) * 100);
 
     static Func<string, int> Raw(params (string Name, int Value)[] stats) => name =>
     {
@@ -54,10 +42,33 @@ public class AttackBaseCriticalStrikeTests
     [Theory]
     [InlineData(500, 1, 505)]
     [InlineData(850, 1, 859)]
+    [InlineData(750, 3, 773)]
+    [InlineData(830, 45, 1204)]
+    [InlineData(830, 195, 2449)]
     [InlineData(900, -100, 0)]
     [InlineData(900, 2000, 10000)]
     public void Final_chance_rounds_permyriad_once_and_clamps(int baseChance, int increased, int expected)
-        => Assert.Equal(expected, AttackBaseCriticalStrike.Chance(true, 830, increased, Raw((OverrideStat, baseChance))));
+    {
+        // Pinned PoB Common.lua round is floor(value + .5); a half permyriad rounds up on both hit routes.
+        Assert.Equal(expected, AttackBaseCriticalStrike.Chance(true, 830, increased, Raw((OverrideStat, baseChance))));
+        Assert.Equal(expected, SpellCriticalStrike.Chance(baseChance,
+            Raw(("critical_strike_chance_+%", increased))));
+        Assert.Equal(expected, DamageModel.CriticalStrikeChancePerMyriad(baseChance, increased));
+    }
+
+    [Theory]
+    [InlineData("critical_strike_chance_+%", true)]
+    [InlineData("wand_critical_strike_chance_+%", true)]
+    [InlineData("global_critical_strike_chance_+%_while_holding_bow", true)]
+    [InlineData("spell_critical_strike_chance_+%", true)]
+    [InlineData("override_weapon_base_critical_strike_chance", true)]
+    [InlineData("base_melee_critical_strike_chance_while_unarmed_%", true)]
+    [InlineData("cannot_critical_strike_with_attacks", true)]
+    [InlineData("minion_critical_strike_chance_+%", false)]
+    [InlineData("critical_strike_chance_+%_while_focused", false)]
+    [InlineData("base_critical_strike_multiplier_+", false)]
+    public void Only_dependencies_consumed_by_the_critical_pools_trigger_a_refresh(string stat, bool expected)
+        => Assert.Equal(expected, AttackBaseCriticalStrike.IsInput(stat));
 
     // --- The raw stats in the data (Agents/docs/protocol/11-skills.md §crit) ---
 
@@ -102,14 +113,14 @@ public class AttackBaseCriticalStrikeTests
         var wand = Catalog.Row(384);
         Assert.NotNull(wand);
         Assert.Equal(830, Catalog.WeaponCritical(wand));
-        Assert.Equal(permyriad, PoolChance(weaponInMainHand: true, 830, 0, Raw((OverrideStat, permyriad))));
+        Assert.Equal(permyriad, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, 830, 0, Raw((OverrideStat, permyriad))));
     }
 
     [Fact]
     public void Without_the_override_the_armed_weapon_keeps_its_base()
     {
         // A refunded tree removes the node's the key from the raw stats, and the weapon base is back.
-        Assert.Equal(830, PoolChance(weaponInMainHand: true, 830, 0, Raw()));
+        Assert.Equal(830, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, 830, 0, Raw()));
     }
 
     [Theory]
@@ -117,7 +128,7 @@ public class AttackBaseCriticalStrikeTests
     [InlineData(-300)]
     public void An_override_at_or_below_zero_is_not_present(int permyriad)
     {
-        Assert.Equal(830, PoolChance(weaponInMainHand: true, 830, 0, Raw((OverrideStat, permyriad))));
+        Assert.Equal(830, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, 830, 0, Raw((OverrideStat, permyriad))));
     }
 
     [Fact]
@@ -125,8 +136,8 @@ public class AttackBaseCriticalStrikeTests
     {
         // PoB CalcOffence.lua: the pass's base is the override, then (baseCrit + base) × (1 + inc/100).
         // 8.00% with +100% increased arrives at 16.00% (permyriad 1600), like the spell route's known base.
-        Assert.Equal(1600, PoolChance(weaponInMainHand: true, 830, 100, Raw((OverrideStat, 800))));
-        Assert.Equal(800, PoolChance(weaponInMainHand: true, 830, 0, Raw((OverrideStat, 800))));
+        Assert.Equal(1600, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, 830, 100, Raw((OverrideStat, 800))));
+        Assert.Equal(800, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, 830, 0, Raw((OverrideStat, 800))));
     }
 
     // --- The weapon's local mods stay on the weapon path, not on the override ---
@@ -144,9 +155,9 @@ public class AttackBaseCriticalStrikeTests
         int weaponBase = Catalog.WeaponCritical(baseRow) * (100 + stats["local_critical_strike_chance_+%"]) / 100;
         // PoolsFor: WeaponProfileFor.Critical = WeaponCritical(main) × (100 + local) / 100 — here 9.46%.
         Assert.Equal(946, weaponBase);
-        Assert.Equal(946, PoolChance(weaponInMainHand: true, weaponBase, 0, Raw()));
+        Assert.Equal(946, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, weaponBase, 0, Raw()));
         // The override replaces that raised base wholesale; the local mod does not scale it again.
-        Assert.Equal(900, PoolChance(weaponInMainHand: true, weaponBase, 0, Raw((OverrideStat, 900))));
+        Assert.Equal(900, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, weaponBase, 0, Raw((OverrideStat, 900))));
     }
 
     // --- The unarmed context: its own unrelated base, never the weapon override ---
@@ -155,14 +166,14 @@ public class AttackBaseCriticalStrikeTests
     public void Unarmed_uses_its_own_base_instead_of_the_weapon_override()
     {
         // PoB's guard (source.type ~= "None"): unarmed with both raw stats present stays on the unarmed base.
-        Assert.Equal(1000, PoolChance(weaponInMainHand: false, 0, 0, Raw((OverrideStat, 800), (UnarmedStat, 1000))));
+        Assert.Equal(1000, AttackBaseCriticalStrike.Chance(weaponInMainHand: false, 0, 0, Raw((OverrideStat, 800), (UnarmedStat, 1000))));
     }
 
     [Fact]
     public void The_unarmed_base_is_absent_without_its_stat()
     {
-        Assert.Equal(0, PoolChance(weaponInMainHand: false, 0, 0, Raw((OverrideStat, 800))));
-        Assert.Equal(0, PoolChance(weaponInMainHand: false, 0, 0, Raw()));
+        Assert.Equal(0, AttackBaseCriticalStrike.Chance(weaponInMainHand: false, 0, 0, Raw((OverrideStat, 800))));
+        Assert.Equal(0, AttackBaseCriticalStrike.Chance(weaponInMainHand: false, 0, 0, Raw()));
     }
 
     [Theory]
@@ -170,13 +181,13 @@ public class AttackBaseCriticalStrikeTests
     [InlineData(-300)]
     public void An_unarmed_base_at_or_below_zero_stays_at_zero(int permyriad)
     {
-        Assert.Equal(0, PoolChance(weaponInMainHand: false, 0, 0, Raw((UnarmedStat, permyriad))));
+        Assert.Equal(0, AttackBaseCriticalStrike.Chance(weaponInMainHand: false, 0, 0, Raw((UnarmedStat, permyriad))));
     }
 
     [Fact]
     public void The_armed_context_never_takes_the_unarmed_base()
     {
-        Assert.Equal(830, PoolChance(weaponInMainHand: true, 830, 0, Raw((UnarmedStat, 1000))));
+        Assert.Equal(830, AttackBaseCriticalStrike.Chance(weaponInMainHand: true, 830, 0, Raw((UnarmedStat, 1000))));
     }
 
     // --- The spells keep their own route ---

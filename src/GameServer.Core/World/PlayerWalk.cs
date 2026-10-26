@@ -18,6 +18,7 @@ public sealed class PlayerWalk
     private List<Segment> _segments = [];
     private (int X, int Y) _rest;
     private double _restSince;
+    private ((int X, int Y) Target, int MaxRange, int Tolerance)? _order;
 
     private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step)
     {
@@ -41,11 +42,26 @@ public sealed class PlayerWalk
     public double Speed => _speed;
 
     /// <summary>Changes the walking speed. As in the client, the segment in progress keeps its pace; the following
-    /// segments are set up at the new speed.</summary>
+    /// segments are set up at the new speed. Zero suspends the order at the current cell until speed returns.</summary>
     public void SetSpeed(double speed, double now)
     {
-        if (speed <= 0) throw new ArgumentOutOfRangeException(nameof(speed));
+        if (speed < 0 || !double.IsFinite(speed)) throw new ArgumentOutOfRangeException(nameof(speed));
+        bool stopped = _speed == 0;
+        if (speed == 0)
+        {
+            if (!stopped && now >= ArrivesAt) _order = null;
+            _rest = Position(now);
+            _restSince = now;
+            _segments = [];
+            _speed = 0;
+            return;
+        }
         _speed = speed;
+        if (stopped && _order is { } order)
+        {
+            Walk(order.Target, order.MaxRange, order.Tolerance, now);
+            return;
+        }
         int i = _segments.FindIndex(s => now < s.End);
         if (i < 0) return;
         for (int k = i + 1; k < _segments.Count; k++)
@@ -82,6 +98,7 @@ public sealed class PlayerWalk
         _segments = [];
         _rest = (x, y);
         _restSince = now;
+        _order = null;
     }
 
     /// <summary>When the current walk ends (when it ended, once the walker stands).</summary>
@@ -128,6 +145,14 @@ public sealed class PlayerWalk
     private (int X, int Y) Walk((int X, int Y) target, int maxRange, int tolerance, double now)
     {
         var here = At(now, out double fraction);
+        _order = (target, maxRange, tolerance);
+        if (_speed == 0)
+        {
+            _segments = [];
+            _rest = here;
+            _restSince = now;
+            return here;
+        }
         var path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _blockers(), _size, 0, maxRange, tolerance);
         _segments = [];
         _rest = here;

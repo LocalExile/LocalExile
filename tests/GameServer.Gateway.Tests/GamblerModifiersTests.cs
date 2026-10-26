@@ -28,6 +28,36 @@ public class GamblerModifiersTests
     }
 
     [Fact]
+    public void Extra_critical_rolls_change_only_their_own_chance_and_cost_no_roll_off_low_life()
+    {
+        // Chance 5% (permyriad 500): a first roll of 600 fails, a second of 400 succeeds.
+        // Final Blow grants the extra crit roll through the real stat catalog, resolved with everything else.
+        var from = GamblerModifiers.From(name => name == "extra_critical_rolls_while_on_low_life" ? 1 : 0);
+        Assert.Equal(1, from.LowLifeCriticalExtraRolls);
+        // Without the condition the extra roll is not in the count: one Next call, 600 does not crit.
+        var random = new SequenceRandom(600);
+        Assert.False(new GamblerModifiers(LowLifeCriticalExtraRolls: 1).IsCritical(500, random));
+        Assert.Equal(1, random.Calls);
+        // On low life the second roll can save it (PoB's 1-(1-p)^2 lucky form, not a forced success or a more).
+        Assert.True(new GamblerModifiers(LowLifeCriticalExtraRolls: 1).IsCritical(500, new SequenceRandom(600, 400), onLowLife: true));
+        // A 100% or 0% chance resolves before any roll is spent (RandomRolls guards the bounds).
+        Assert.True(new GamblerModifiers(LowLifeCriticalExtraRolls: 1).IsCritical(10_000, new SequenceRandom(), onLowLife: true));
+        Assert.False(new GamblerModifiers(LowLifeCriticalExtraRolls: 1).IsCritical(0, new SequenceRandom(600), onLowLife: true));
+        // The low-life lucky roll and a general unlucky roll cancel; the sum drives the count in both states.
+        var cancel = new GamblerModifiers(CriticalExtraRolls: -1, LowLifeCriticalExtraRolls: 1);
+        Assert.False(cancel.IsCritical(500, new SequenceRandom(600), onLowLife: true)); // -1+1=0: one roll, failure
+        // Off low life only the -1 unlucky general roll remains: both values (one true roll, one) must succeed.
+        Assert.False(cancel.IsCritical(500, new SequenceRandom(700, 600)));
+        Assert.True(cancel.IsCritical(500, new SequenceRandom(400, 400)));
+        // The ordinary lucky extra roll keeps costing and compounding exactly as before.
+        var lucky = new GamblerModifiers(CriticalExtraRolls: 1);
+        Assert.True(lucky.IsCritical(500, new SequenceRandom(600, 400)));
+        var counter = new SequenceRandom(600, 400);
+        lucky.IsCritical(500, counter);
+        Assert.Equal(2, counter.Calls);
+    }
+
+    [Fact]
     public void Overly_Confident_uses_the_lower_roll_of_each_enemy_damage_type()
     {
         var hit = DamagePacket.Of(DamageType.Physical, 1, 100).Add(DamageType.Fire, new(1, 100));
@@ -85,7 +115,9 @@ public class GamblerModifiersTests
         var allocated = new PassiveTree(data).Stats([15874, 5523, 16638, 25530, 62445]);
         var names = new StatCatalog(data);
         var mods = GamblerModifiers.From(name => names.Key(name) is uint key ? allocated.GetValueOrDefault(key) : 0);
-        Assert.Equal(new(-1, 1, -1, 40, -30, 50, 50), mods);
+        Assert.Equal((-1, 1, -1, 40, -30, 50, 50, 0), (mods.DamageExtraRolls, mods.CriticalExtraRolls, mods.EnemyDamageExtraRolls,
+            mods.TripleDamageChance, mods.DamageMorePct, mods.InvertElementalResistanceChance, mods.EnemyHitsNinetyResistanceChance,
+            mods.LowLifeCriticalExtraRolls));
     }
 
     private static string? Data()

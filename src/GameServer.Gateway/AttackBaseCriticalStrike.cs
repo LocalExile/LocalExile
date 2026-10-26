@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 /// <summary>
 /// The attack hit's base critical strike chance before the global increased critical chance: the equipped main hand's
 /// weapon base with its local mods, or a pure base stat that replaces it. Path of Building's CalcOffence.lua
@@ -22,6 +24,45 @@ static class AttackBaseCriticalStrike
     /// <summary>Stats.dat row 3906: the unarmed melee attack's base critical strike chance, permyriad (1000 = 10.00%).</summary>
     public const string UnarmedBaseStat = "base_melee_critical_strike_chance_while_unarmed_%";
 
+    // The same dependencies drive the calculation and /set_stat's pool refresh.
+    static readonly (string Stat, Func<WeaponProfile, bool>? Applies)[] Increases =
+    [
+        ("critical_strike_chance_+%", null),
+        ("attack_critical_strike_chance_+%", null),
+        ("melee_critical_strike_chance_+%", w => w.Melee),
+        ("one_handed_melee_critical_strike_chance_+%", w => w.OneHandMelee),
+        ("two_handed_melee_critical_strike_chance_+%", w => w.TwoHandMelee),
+        ("critical_strike_chance_while_dual_wielding_+%", w => w.DualWield),
+        ("critical_strike_chance_while_wielding_shield_+%", w => w.Shield),
+        ("axe_critical_strike_chance_+%", w => w.Axe),
+        ("sword_critical_strike_chance_+%", w => w.Sword),
+        ("mace_critical_strike_chance_+%", w => w.Mace),
+        ("claw_critical_strike_chance_+%", w => w.Claw),
+        ("dagger_critical_strike_chance_+%", w => w.Dagger),
+        ("wand_critical_strike_chance_+%", w => w.Wand),
+        ("bow_critical_strike_chance_+%", w => w.Bow),
+        ("global_critical_strike_chance_+%_while_holding_bow", w => w.Bow),
+        ("staff_critical_strike_chance_+%", w => w.Staff),
+        ("global_critical_strike_chance_+%_while_holding_staff", w => w.Staff),
+    ];
+
+    /// <summary>Keep signed inputs unbounded until every applicable source, including derived overcap, is added.</summary>
+    public static long IncreasedSum(WeaponProfile weapons, Func<string, long> raw)
+    {
+        long increased = 0;
+        foreach (var (stat, applies) in Increases)
+            if (applies is null || applies(weapons)) increased += raw(stat);
+        return increased;
+    }
+
+    public static int IncreasedPct(WeaponProfile weapons, Func<string, int> raw) =>
+        (int)Math.Clamp(IncreasedSum(weapons, name => raw(name)), int.MinValue, int.MaxValue);
+
+    /// <summary>Stats.dat row 21564: the unarmed melee attack's critical strike multiplier, percentage points on top of
+    /// the base multiplier (the final multiplier is 150 + this sum; Final Blow grants 50 = +50%). Only an empty active
+    /// main hand in a melee context grants it; it is not a spell or weapon value.</summary>
+    public const string UnarmedCriticalStrikeMultiplierStat = "unarmed_melee_attack_critical_strike_multiplier_+";
+
     /// <summary>
     /// The main hand's attack base critical strike chance (permyriad) before the global increased chance.
     /// <paramref name="weaponBase"/> is the armed weapon's base with its own local mods (WeaponProfileFor.Critical);
@@ -39,15 +80,22 @@ static class AttackBaseCriticalStrike
         return Math.Max(0, raw(UnarmedBaseStat));
     }
 
-    public static int Chance(bool weaponInMainHand, int weaponBase, int increasedPct, Func<string, int> raw)
+    public static int Chance(bool weaponInMainHand, int weaponBase, long increasedPct, Func<string, int> raw)
     {
         if (raw("global_cannot_crit") != 0 || raw("virtual_global_cannot_crit") != 0
             || raw("cannot_critical_strike_with_attacks") != 0) return 0;
-        decimal chance = decimal.Round(OfMainHand(weaponInMainHand, weaponBase, raw) * (100m + increasedPct) / 100m,
-            0, MidpointRounding.AwayFromZero);
-        return (int)Math.Clamp(chance, 0m, 10_000m);
+        return DamageModel.CriticalStrikeChancePerMyriad(
+            OfMainHand(weaponInMainHand, weaponBase, raw), increasedPct);
     }
 
-    public static bool IsInput(string name) => name.Contains("critical_strike_chance", StringComparison.Ordinal)
-        || name is "global_cannot_crit" or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
+    public static bool IsInput(string name) => name is WeaponOverrideStat or UnarmedBaseStat
+        or "global_cannot_crit" or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks"
+        or "spell_critical_strike_chance_+%"
+        || Increases.Any(input => input.Stat == name);
+
+    /// <summary>The conditional pool inputs PoolsFor reads beyond the ordinary chance and override names: the unarmed
+    /// melee critical multiplier, the always-hit flag and its Low Life threshold (override or ordinary). A dev
+    /// /set_stat input for any of them rebuilds the pools, so the rolls and the panel see the change at once.</summary>
+    public static bool IsConditionalInput(string name) => name is UnarmedCriticalStrikeMultiplierStat
+        or "global_always_hit" or "low_life_threshold_%_override" or "low_life_threshold_%";
 }

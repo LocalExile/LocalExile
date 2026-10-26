@@ -190,7 +190,7 @@ Ten native checks allocated connected ordinary paths and selected both effects t
 The unconditional native panel stayed at 711; logged rolls used 995 against Unique and 1066 against a close normal.
 A close Unique used 1493, while a Unique outside close range used 995.
 Moving a target back into range restored the close multiplier, relog preserved both choices, and refund restored 30.
-Other conditional stats (nearby ally, marked enemy, low life, frenzy charges) are not modelled, and the panel is not
+Other conditional stats (nearby ally, marked enemy, frenzy charges) are not modelled, and the panel is not
 told the conditions: it keeps the unconditional `accuracy_rating` and, for the Offence
 panel's Main Hand / Off Hand Accuracy rows, `main_hand_accuracy_rating` / `off_hand_accuracy_rating`. Its Chance to
 Hit rows are sent directly as `main_hand_chance_to_hit_%` / `off_hand_chance_to_hit_%` (and the evasive-monster
@@ -241,11 +241,76 @@ once. The Gateway now sends the 0x20 update instead (above), which also removes 
    `TargetAccuracy.AgainstTarget` at the target's own rarity and position at that moment (§4); the gateway logs the
    value whenever a condition changes it. A miss is logged and
    sends no life update; spells do not roll accuracy and always hit.
+   Exhibit 122 (graph id 36978, the Chieftain position) grants `global_always_hit` (Stats.dat row 686, client key
+   687 = 1): the attack cannot be evaded, so the default attack skips the accuracy roll entirely, the panel's
+   Chance to Hit reference rows read 100, and the pools' rating, the mastery's target multipliers and the critical
+   chance are untouched (attack gems keep their current no-roll behavior).
+   `/accuracy` states the can't-be-evaded reference chances the same way: both of its Chance to Hit values read
+   100 with the flag, keeping the diagnostic and the panel agreed.
 4. Any later player action (0x25 move, another 0x24) cancels steps 2 and 3 (`ClientState.ActionCount`).
 5. Pacing: one swing per attack time. While the button is held the client sends one 0x24 per swing; a swing may
    arrive up to a quarter of an attack early (jitter) and the schedule stays on the client's cadence. When the server
    thought the swing took 833 ms instead of 757 ms it fell behind and dropped every third or fourth swing, which then
    animated without damage.
+
+**Action speed and inherent timing.** `SkillAttackTiming` adapts PR #194's implementation at
+`4de759ed65966dd099d57c0b827de7a3987aa43e`.
+The GEPL `AttackSpeedMultiplier` changes the integer total base attack duration before player attack speed.
+Burning Arrow's -30% rate changes a 714 ms weapon base into a 1020 ms total base; Flicker Strike's +20% is separate.
+The weapon's ordinary base and per-hand increased-speed stats retain their native meanings.
+Default attacks, attack gems, approach readiness, projectile/area contact waits and existing channel ticks use
+the same duration, with the server tick cap applied after all multipliers.
+
+`ActionSpeed` reads signed `action_speed_-%` (key 348): -10 gives a 1.10 action multiplier.
+It publishes the final `virtual_action_speed_+%` (key 3302) and the combined action-speed panel row.
+Attack and spell timing consume that final multiplier once, independently of their own increased speed.
+Ancestral Commander's Toughened Skin (node 37852) supplies action floor 3444 and movement floor 3445.
+The action floor clamps only action speed; it does not cancel reduced attack/cast speed or reduced movement speed.
+Movement applies its own floor before multiplying by action speed (see [07](07-latency-visibility-movement.md)).
+
+Tailwind template 44 (`DeadeyeTailwind`, BuffDefinition 1094) already contributes raw reduction -8.
+Only while `has_tailwind` (key 7786) is active does `tailwind_effect_on_self_+%` (key 7766) add its extra effect.
+The integer Tailwind contribution is floored after effect scaling, then its existing eight is subtracted.
+Greatwolf's Call (node 14442) gives 50% effect, so its action bonus becomes 12%, not 20%.
+With a separate Harbinger raw -10, raw -18 plus that effect becomes 22%; Harbinger's contribution is not scaled.
+The integration owner supplies the active owner-buff marker; no trigger or charge engine is inferred from the flag.
+The stat keys and signs follow the pinned Stats/Buff tables, including Harbinger BuffDefinition 922.
+Automated tests cover real connected allocation/paid refunds, native stat records and server consumers.
+Native Q casts observe stat getter `0x1424cfa40` during action creation/start (`0x141941c90` / `0x141e8cf10`).
+Fireball retains base 750 ms: action -20% gives 107 casts per hundred seconds; Toughened Skin restores 133.
+Its separate native action/movement floors clear their negative factors; paid refunds restore them.
+Greatwolf's connected allocation gives raw -8, marker 1, effect 50 and final action 12.
+Adding separate raw -10 gives 22; effect 56 still floors Tailwind's contribution to the same 22.
+Refund removes the marker and its extra contribution.
+These checks verify received timing inputs and actual native actions, without measuring animation duration by stopwatch.
+Cooldown recovery remains a separate multiplier.
+
+**Selected attack-gem damage rows.** The shared `AttackSkillHit` and `AttackPanelStats` reuse PR #198 head
+`228b5362d6555f2c07cf1ab0546d218edc6f8de2`.
+Creation and refresh rebuild the selected main-hand packet from raw character sources and the active main hand,
+never from inherited, already-derived weapon display rows.
+The same packet resolver serves attack-gem projectile and area hits before their existing roll/crit/mitigation stages.
+Typed derived increases scale base and added damage together; final Rage is applied once.
+An attack gem's own Melee classification scopes melee increases, independently of the active weapon's shape.
+The skill's normalized base multiplier scales weapon damage; its separate added effectiveness scales added damage (§9).
+Player conversion keys win over level inputs, then actual gem-quality conversion/gain inputs add once,
+matching the current quality-aware `ConversionFor` overlay rather than PR #198's older level-only limitation.
+Supported skill-owned damage inputs join character inputs before building both combat and panel packets.
+Archmage Power Siphon's own 15%, quality-20's 3% and Whisperer's 6% sum to 24% of maximum mana.
+At 1000 mana, its 0.6 added effectiveness turns the resulting 240 lightning into 144 before other scaling.
+The panel writes all main-hand type/total bounds, including zero for absent types, using whole-number floors.
+Damage per Use retains the packet's unrounded pre-crit average; DPS uses that average and the emitted native APS.
+It does not rescale previously rounded DPS or change critical rows, off-hand rows, accuracy or target mitigation.
+These remain limited supported pre-crit averages, not a claim of official complete skill DPS.
+Automated checks cover real Burning Arrow creation/refresh, active-hand changes, fractional derived damage,
+Rage/mana lightning, stale inherited rows, quality conversion and matching APS/DPS.
+Native Q Burning Arrow retained weapon base 714 ms and inherent total base 1020 ms.
+In the controlled +1000% attack-speed fixture, APS changed from 10.78 to 14.35 after another 100 attack-speed points
+and final action 22%; the selected DPS tracked each emitted APS.
+That earlier build used the incorrect 1.8 damage scalar and recorded 16.20 damage per use.
+It verifies timing and panel agreement only; it does not validate the corrected 2.8 scalar.
+The corrected 5–13 fixture produces 25.20 damage per use in automated checks; native damage verification is pending.
+Ignored evidence: `logs/three-pr/native-phrecia-followups/{affloors,afpanel,aftailwind}-results.json`.
 
 **Critical strikes.** The server rolls a hit's critical chance after the damage roll: `base chance × (1 + increased
 critical strike chance / 100)`, capped at 100%, then multiplies the damage by the final multiplier (150% plus
@@ -267,7 +332,29 @@ context keeps the weapon override out, and `SpellCriticalStrike`'s spell route r
 The active weapon set determines the attack base and weapon-specific increases; an inactive weapon grants neither.
 `global_cannot_crit`, `virtual_global_cannot_crit` and `cannot_critical_strike_with_attacks` suppress attack crits.
 The pool builds the base once in `AttackBaseCriticalStrike`.
+Final Blow (graph id 10135) also grants `unarmed_melee_attack_critical_strike_multiplier_+` (Stats.dat row 21564,
+client key 21565, 50 = +50 percentage points): the pools store it as a separate
+`UnarmedCriticalStrikeMultiplierBonus`, and `CriticalMultiplierFor` adds it to a hit's multiplier only when the hit
+is an attack in a melee context (`MeleeAttack`), so the default unarmed attack and melee attack gems get +50 while
+unarmed non-melee attack gems (for example Explosive Concoction) and spells keep the plain multiplier.
+Final Blow also grants `extra_critical_rolls_while_on_low_life` (Stats.dat row 14289, client key 14290, 1): the crit
+roll gains one extra roll while the player's live current life is at or below the Low Life threshold of maximum life.
+The threshold is 50% inclusive by default (the Ultimatum manifesto's official "50% or below" definition,
+[pathofexile.com/forum/view-thread/3079632](https://www.pathofexile.com/forum/view-thread/3079632)), and the stats
+`low_life_threshold_%_override` (key 17896, winning when positive) and `low_life_threshold_%` (key 17901) can raise
+it; the comparison is `(current × 100 ≤ maximum × threshold)` and the condition does not touch the chance itself.
+The ordinary `extra_critical_rolls` (lucky and unlucky alike) keep their own behavior, and opposing luck still
+cancels in the count the roll receives.
+A conditional low-life source outside this slice (the "count as low life" flag, key 7751) is not consumed.
+Actual Final Blow allocation publishes multiplier 200 and the low-life extra-roll flag.
+Controlled critical hits remove 200 native enemy Life unarmed and 150 armed; an empty hand restores 200.
+Paid refund removes the extra multiplier and flag.
+Exhibit 122 allocation publishes 100% hit chance while retaining its Dexterity drawback (14 to 7).
+Its accuracy diagnostic reports 100%; paid refund clears the flag and restores Dexterity.
+These native checks do not estimate low-life critical probability; deterministic roll/threshold tests cover it.
 `/set_stat` replaces its source value and rebuilds the pools for critical-chance inputs and prohibitions.
+An explicit input replaces its complete passive/equipment/aura contribution for that key.
+Pool construction runs outside the combat lock and retries if another rebuild replaces the captured pools.
 The panel's final `main_hand_critical_strike_chance` and the rolls share that result.
 Twelve real-client checks used a fresh synthetic character and read the client's received stat values.
 A Driftwood Wand's 830 became 800 and 900; 100% increased chance raised 900 to 1800, then cannot-crit set it to zero.
@@ -285,14 +372,17 @@ stats for attacks, and `spell_critical_strike_chance_+%` / `base_spell_critical_
 client, so the Offence panel shows them.
 `SpellCriticalStrike` shares the raw player-plus-skill increased-chance calculation between `GemSkills` and projectile/
 area spell hits; the old final Fireball-based player display chance is not added as another input.
-The overcapped lightning resistance's increase reaches that calculation through `CharacterPlayerStats`, which adds the
-pools' stored derived value to the raw `critical_strike_chance_+%` once (§12); the attack and panel chances fold the
-same value in `PoolsFor` instead.
-Precision and Zealotry expose their existing crit bonuses through `AuraCatalog.RawStats` for that calculation.
-Pool construction still reads passives/items and adds `AuraCatalog.Bonus` once; it does not read `RawStats` back.
-The result rounds to integer permyriad, halves away from zero, then caps at 0–10000, matching
-[PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L3022-L3027).
+`PoolsFor` retains complete signed player increases as `long`, including lightning overcap exactly once (§12).
+Spells add their own raw increases before the shared final chance calculation.
+Only the native int-valued display inputs saturate; combat never reconstructs a sum from those clipped values.
+This preserves cancellation between extreme positive and negative player or skill inputs.
+Precision and Zealotry contribute their existing bonuses once; a developer override replaces its complete key input.
+Attacks, pooled spell references and actual spell chances share `DamageModel.CriticalStrikeChancePerMyriad(int, long)`.
+It rounds the final permyriad chance half up and clamps it to 0–10000, following
+[PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L3022-L3027)
+and [Common.round](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/Common.lua#L683-L688).
 `global_cannot_crit` and `virtual_global_cannot_crit` disable the supported spell roll.
+The pooled 5%-base reference honors those flags too.
 Ordinary increased chance cannot make a known zero-base spell crit.
 The selected skill's spell rows also require `casting_spell = 1` (CharacterPanelStats `Spell_CritChance`);
 the main-hand rows exclude that flag.
@@ -320,7 +410,10 @@ Evidence: validation `logs/spell-crit-{after-default,after-generic100,after-comb
 final-arc-ice,final-scorching-ray}.json`, `spell-critical-live-summary.json` and `live-gateway.log`.
 Native probes reported no errors.
 Catalog, raw-source, aura, flag, rounding, hit routing and roll-boundary checks are also automated.
-Timed, charge, enemy-state, lucky/more and added-base critical mechanics remain outside this slice.
+Five standalone PR #220 follow-up checks verified base attack 900 and pooled spell 500,
+generic +100% giving 1800/1000, spell +50% giving 1800/1250, and extreme signed inputs giving 10000/10000 or 0/0.
+Those checks preceded the integrated long-sum and overcap composition; its native recheck remains pending.
+Timed, charge, enemy-state, more and added-base critical mechanics remain outside this slice.
 `/crit` prints the attack values and the legacy pooled 5%-base spell reference, not the selected gem's chance.
 
 **Impale.** A hit that rolls `impale_on_hit_%_chance` stores 10% of the swing's physical damage on the monster as a
@@ -406,7 +499,7 @@ dead was ignored), then 0x1b7 next to the area's waypoint if the character has a
 
 **Client stat key = Stats.dat row + 1** with the vendored schema: every key read during an attack matches
 (0xf5 → row 244 `movement_velocity_+%`, 0x7d → 124 `base_maximum_life`, 0x144 → 323
-`main_hand_minimum_attack_distance`, 0x35a → 857 `is_totem`, 0xce6 → 3301 `virtual_action_speed_+%`, …).
+`main_hand_minimum_attack_distance`, 0x35a → 857 `is_totem`, 0xce6 → 3302 `virtual_action_speed_+%`, …).
 `scripts/re/frida/trace-skill-stats.js` logs the keys, values and callers of the stat getter `0x1424cfa40` while an
 action is created (`0x141941c90`) or started (`0x141e8cf10`); `dump-stats-object.js` dumps the stored (key, value)
 vector (stats +0xf0) of whichever stats object answers a key; `scripts/re/statkeys.py <key>…` lists the client code
@@ -428,7 +521,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   skill's list also carries the player's stats.
 - **Cast time.** The client reads **`virtual_base_spell_cast_time_ms`** (0x24b9) when it starts the cast; without it
   the cast was instant (`trace-skill-stats.js`). The Gateway sends GrantedEffects `CastTime` (750 ms) there and in
-  `base_spell_cast_time_ms`, and `hundred_times_casts_per_second`. `mana_cost` (0x2e72) is what the client spends.
+  `base_spell_cast_time_ms`; only `hundred_times_casts_per_second` uses the final adjusted duration.
+  `mana_cost` (0x2e72) is what the client spends.
 - **Casting.** At the ground: C→S 0x25 with the gem skill's id. A **spell** stops where it stands and the server echoes
   0x1ab from there (no walk). An **attack** (ActiveSkillType Attack: Holy Strike, Ground Slam …) follows bit 0 of the
   message's flags, the client's **"Always Attack Without Moving"** setting (live 2026-10-25: 0x400 with it off, 0x401
@@ -486,8 +580,16 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   time: the Witch's `spell_projectile_wand` in `Art/Models/CHARACTERS/Witch/rig.amd` is 1066 ms long with `contact` at
   599 ms, so Fireball leaves after 56% of the cast. `python -I scripts/re/anim_contacts.py` writes every class's
   contacts to data/animation-contacts.json (`AnimationContacts`); the Gateway waits cast time × that fraction.
-- **Cast speed.** `base_cast_speed_+%` and `cast_speed_+%` shorten `virtual_base_spell_cast_time_ms` and
-  `hundred_times_casts_per_second` in the skill's stats and the server's release time.
+- **Cast speed.** `SpellCastTiming` adapts PR #195 head `af10f7b7e35cfc68cc3822b72dc9a01de7c0c916`.
+  The native spell action receives unadjusted base milliseconds and final `cast_speed_+%` separately.
+  The server divides that base by cast speed and action speed, then rounds its integer-ms duration once.
+  Quality adds to the final cast-speed stat once; it does not pre-divide the native virtual base.
+  Instant spells retain zero delay and zero fabricated cast rate, even at nonpositive speed.
+  Impossible or unrepresentable noninstant casts have no duration/rate.
+  Shared `GemDisabled` eligibility checks the actual granted level/quality before action replacement, walk changes,
+  action echoes, costs or cooldown reservation; ground, monster, self and instant entry paths all use that reason.
+  Passive-granted spells still receive timing checks; true instant spells and attacks retain their own eligibility.
+  Projectile release still uses the animation contact fraction; area spells and Portal use their existing waits.
 - **Instant skills.** The client knows an instant skill by its stat **`skill_is_instant`** (0x2064), not by the
   ActiveSkillType `Instant`; the server derives it from the type and sends it with `base_skill_is_instant`
   (`SkillCatalog.EffectStats`). Without it Haste's and Righteous Fire's actions used the spell action class (vtable
@@ -620,14 +722,19 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   the skill's own. The server's hits roll between the unrounded minimum and maximum and drop the fraction; the skill's
   tooltip gets `display_hundred_times_damage_per_skill_use` (the unrounded average × 100) and
   `hundred_times_damage_per_second` (× casts per second). Before 2026-10-20 a gem skill carried the default attack's
-  DPS with the player's stats. Conversion is applied per type through `DamagePacket`; more multipliers and added
-  damage are not modelled.
-- **Damage effectiveness** (2026-10-24). An attack gem's hit is the weapon's damage × its `DamageEffectiveness` (the
-  GESSPL row, permyriad: Flicker Strike 7730 at level 1, 30890 at 20, 69600 at 40 — the gem's "Deals 77.3% of base
-  Attack Damage"), through `SkillCatalog.DamageEffectiveness` and `SpellDamage.WithEffectiveness`. A row of 0 (the
-  default attack's) or a negative one (a few skills have them) scales nothing. A **spell**'s own base damage is already
-  final: its effectiveness is the added-damage one (Fireball 200%), and the GESSPL `BaseMultiplier` is 0 for every spell,
-  so spells are left alone until added damage is modelled.
+  DPS with the player's stats.
+  Conversion is applied per type through `DamagePacket`; supported added damage and Rage share the combat packet.
+- **Base damage and added effectiveness.** GESSPL `BaseMultiplier` and `DamageEffectiveness` are separate signed deltas.
+  Each becomes a normalized permyriad factor `10000 + raw`, not the raw value itself.
+  The pinned [PoB exporter](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Export/Scripts/skills.lua#L304-L316)
+  decodes each as `raw / 10000 + 1`.
+  `SkillCatalog.AttackBaseMultiplier` scales weapon base damage;
+  `SkillCatalog.DamageEffectiveness` scales added damage, independently, before final Rage.
+  Spell base damage is already final; only its added damage receives added effectiveness.
+  Extracted controls are Burning Arrow raw 18000 → 2.8, Heavy Strike 12430 → 2.243,
+  Flicker Strike 7730 → 1.773, Archmage Power Siphon -4000 → 0.6 and PlayerMelee 0 → 1.
+  Missing fields default to identity 10000; raw -10000 is a real zero factor and stays zero.
+  Automated controls use unequal base/added factors, negative deltas, missing data and zero to prevent conflation.
 - **Per-level stats** add to a ConstantStats value of the same stat instead of replacing it (Righteous Fire's radius:
   18 + 0 at level 1).
 
@@ -644,8 +751,9 @@ else the class's unarmed attack; the player's stats on top), spells `SkillCatalo
 The player object of every area (`SendPlayer`) carries the same weapon attack, so the character panel's DPS includes the
 weapon's local mods from the start (until 2026-10-23 it started with the unarmed attack, and only an equipment change,
 `SendSkills`, brought the weapon's numbers).
-`base_deal_no_damage` skills (Portal) deal none. An attack's hit carries the skill's damage effectiveness (§9). Not
-modelled: the skills' shapes (waves, cones, chains, leaps), stun, and the accuracy roll. Being tested live.
+`base_deal_no_damage` skills (Portal) deal none.
+An attack's hit carries separate base and added effectiveness (§9).
+Not modelled: the skills' shapes (waves, cones, chains, leaps), stun, and the accuracy roll.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
@@ -1135,7 +1243,7 @@ it:
 | `minimum/maximum_*_damage_to_return_to_melee_attacker` | `*_damage_to_return_to_melee_attacker` (both ends) |
 | `extra_damage_taken_from_crit_+%` | − `base_self_critical_strike_multiplier_-%` |
 | `impale_on_hit_%_chance` | `attacks_impale_on_hit_%_chance` (the attack reads this row's name) |
-| `intermediary_combined_action_speed_+%` | − `action_speed_-%` |
+| `intermediary_combined_action_speed_+%` | Signed action source plus active Tailwind effect, with the action floor |
 
 **Main hand / off hand rows** (`main_hand_…` / `off_hand_…`, `virtual_total_main_hand_…`) add the global stats and that
 hand's item's own local stats (`HandLocalStats`: the active item in the first weapon set, else the second):
@@ -1162,9 +1270,10 @@ Conditional stats (while, if, per charge, against …) are not counted. Flags (`
 …) are 1 when any source is set; "Immune to Ignite and Shock" sets both. Only non-zero values are sent; a sum that drops
 to zero is cleared with the other stale stats (`PlayerStatsWithCleared`). A stat set with `/set_stat` keeps its value.
 `cast_speed_+%` is now the total, so `CastSpeedPct` reads only it. Which combined stats count is from the game's
-documented behaviour, not a capture; the signs of the crit-taken and action speed rows are not confirmed. Live
-2026-10-20: `/set_stat base_stun_recovery_+% 30`, `avoid_all_elemental_status_% 20` and `base_cannot_be_frozen 1` show
-on the Defence tab as Stun Recovery 30%, the four Avoidance rows at 20% and "Cannot be Frozen".
+documented behaviour; action speed's signed source and final native action inputs are verified above.
+The crit-taken row's sign remains unconfirmed.
+Live 2026-10-20: `/set_stat base_stun_recovery_+% 30`, `avoid_all_elemental_status_% 20`
+and `base_cannot_be_frozen 1` show on Defence as Stun Recovery 30%, four Avoidance rows at 20% and "Cannot be Frozen".
 
 ## Open
 
