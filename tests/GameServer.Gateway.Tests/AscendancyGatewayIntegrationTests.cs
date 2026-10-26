@@ -547,6 +547,38 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.Equal((Program.Items.Gem(type)!.ExperienceFor(20), (byte)15), (savedGem.GemExperience, savedGem.Quality));
     }
 
+    [Theory]
+    [InlineData(1, 3, "Herald", 40058, "Herald of Ash", 4)]
+    [InlineData(6, 5, "Architect of Chaos", 45399, "Vaal Fireball", 4)]
+    [InlineData(4, 4, "Paladin", 34448, "Soul Link", 6)]
+    [InlineData(6, 5, "Puppeteer", 18817, "Raise Zombie", 6)]
+    public async Task Family_gem_levels_follow_active_weapon_sets_and_a_new_connection(
+        int classRow, int baseClass, string choice, int notable, string gemName, int boostedLevel)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: classRow, baseClass: (byte)baseClass,
+            choice: choice, refundPoints: 60, level: 90, god: true);
+        var (type, variant) = Program.Items.FindGem(gemName)!.Value;
+        var gem = ItemCatalog.Create(type) with { GemVariant = variant.Index, Quality = 17 };
+        game.Items.Add(PlayerInventories.Weapon2, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, (ushort)notable), allocate: true)).Error);
+        Assert.DoesNotContain(game.GemEffects(), g => g.Gem == type.Hash);
+        game.Items.SwapWeaponSets();
+        var active = game.GemEffects().Where(g => g.Gem == type.Hash).ToArray();
+        Assert.NotEmpty(active);
+        Assert.All(active, g => Assert.Equal((boostedLevel, 17), (g.Level, g.Quality)));
+        var restored = game.GemEffects(game.Reload()).Where(g => g.Gem == type.Hash).ToArray();
+        Assert.Equal(active.Length, restored.Length);
+        Assert.All(restored, g => Assert.Equal((boostedLevel, 17), (g.Level, g.Quality)));
+        Assert.Equal((1, (byte)17), (Program.Items.GemLevel(gem), gem.Quality));
+        game.Items.SwapWeaponSets();
+        Assert.DoesNotContain(game.GemEffects(), g => g.Gem == type.Hash);
+    }
+
     [Fact]
     public async Task Already_running_Clarity_and_Precision_refresh_when_ascendancy_gem_modifiers_change()
     {
@@ -1607,8 +1639,8 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             return state;
         }
 
-        public IReadOnlyList<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemEffects() =>
-            ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)EffectsMethod.Invoke(null, [State])!).ToArray();
+        public IReadOnlyList<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemEffects(ClientState? state = null) =>
+            ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)EffectsMethod.Invoke(null, [state ?? State])!).ToArray();
 
         public int SkillRadius((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem)
         {

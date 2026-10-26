@@ -126,6 +126,7 @@ The server writes the component as `i32 experience, u32 variant, u8 flags, u16 0
   Herald tag, `vaal_skill_gem_level_+` on Vaal, `link_skill_gem_level_+` on Link). A SkillGems row can carry a stat
   itself (`MinionGlobalSkillLevelStat`: Raise Zombie's row). `SkillGemFamilies` classifies gems by these rows — never
   by display names — and PassiveGemModifiers composes the family bonus with the global active-gem one (§3).
+  Gateway checks cover all four families through active/inactive weapon swaps and a new connection with saved nodes.
 
 ## 3. Skills from gems today
 
