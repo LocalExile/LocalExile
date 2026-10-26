@@ -231,6 +231,24 @@ The subsequent checks restored loss, retained current Rage through an area trans
 and removed mana-based generation through a paid refund.
 Ignored evidence: `logs/phrecia-completion/rage-native.jsonl` and `rage-results.json`.
 
+## Chaos armour from Incorruptible
+
+Behemoth node 29437 grants `base_armour_applies_to_chaos_damage` (client key 12064).
+`ApplyPlayerArmour` uses the character's full final armour for chaos hits while that flag is active.
+Resistance is applied first, then armour, then spell suppression, Ward and ES.
+Additional physical damage reduction remains physical-only; damage over time never enters this hit stage.
+This follows the full-armour chaos modifier and resistance-before-armour calculation in
+[PoB's modifier parser](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/ModParser.lua)
+and [defence calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcDefence.lua).
+The separate percentage-of-armour variants remain outside this adapter; do not infer their support from this flag.
+
+The common stage is used by monster hits and `/hit`, `/spellhit`, `/blockhit`.
+Gateway checks allocate the real path, equip a Plate Vest and test resistance-before-armour, physical-only reduction
+isolation, suppression-after-armour, Ward-after-armour and paid refund.
+Native checks observed 100 chaos damage without the node, then 45 with the allocated path's 616 final armour.
+The spell-hit and physical-reduction controls also dealt 45; refund and relog restored 100 damage.
+The native life values, stat getter and logs are in ignored `logs/phrecia-completion/chaos-armour-native.jsonl`.
+
 ## Player Ward and timed Adrenaline
 
 `WardState` absorbs one mitigated, unblocked hit before energy shield, then breaks even when it absorbed the whole hit.

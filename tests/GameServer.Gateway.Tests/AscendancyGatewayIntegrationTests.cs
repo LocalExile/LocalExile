@@ -1235,6 +1235,46 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.Equal(221, Program.AttackHit(weapon, stats, melee: false).MinTotal, 6);
     }
 
+    [Fact]
+    public async Task Incorruptible_applies_equipped_armour_to_chaos_hits_after_resistance_and_is_removed_by_refund()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Behemoth", refundPoints: 60, level: 30);
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Plate Vest")!));
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 29437), allocate: true)).Error);
+        Assert.Equal(1, game.PlayerStat("base_armour_applies_to_chaos_damage"));
+        Assert.True(game.State.Pools.Armour > 0);
+        uint before = game.State.PlayerLife;
+        await game.Command("/hit chaos 100");
+        Assert.Equal(100 - DamageModel.ArmourReduction(game.State.Pools.Armour, 100), (int)(before - game.State.PlayerLife));
+        await game.Command("/set_stat base_additional_physical_damage_reduction_% 90");
+        game.State.Pools = game.State.Pools with { ChaosResistance = 50 };
+        before = game.State.PlayerLife;
+        await game.Command("/spellhit chaos 100");
+        int expected = DamageModel.MitigatePhysical(50, game.State.Pools.Armour);
+        Assert.Equal((uint)expected, before - game.State.PlayerLife); // Physical-only 90% does not leak into chaos.
+        await game.Command("/heal");
+        before = game.State.PlayerLife;
+        await game.Command("/blockhit attack chaos 100");
+        Assert.Equal((uint)expected, before - game.State.PlayerLife);
+        game.State.Pools = game.State.Pools with { SpellSuppressionChance = 100 };
+        before = game.State.PlayerLife;
+        await game.Command("/spellhit chaos 100");
+        Assert.Equal((uint)DamageModel.Suppress(expected, 40), before - game.State.PlayerLife);
+        game.State.Pools = game.State.Pools with { Ward = 10, SpellSuppressionChance = 0 };
+        before = game.State.PlayerLife;
+        await game.Command("/hit chaos 100");
+        Assert.Equal((uint)Math.Max(0, expected - 10), before - game.State.PlayerLife);
+        Assert.True(game.State.Ward.Broken);
+        Assert.Null((await game.Change([29437], allocate: false, refundPoints: true)).Error);
+        game.State.Pools = game.State.Pools with { ChaosResistance = 50 };
+        before = game.State.PlayerLife;
+        await game.Command("/hit chaos 100");
+        Assert.Equal(50u, before - game.State.PlayerLife);
+        Assert.Equal(0, game.PlayerStat("base_armour_applies_to_chaos_damage"));
+    }
+
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 

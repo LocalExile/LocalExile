@@ -82,6 +82,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   The character panel gets the chance again within 250 ms of a condition changing (the player tick).
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
+- Behemoth's Incorruptible applies full final armour to chaos hits after resistance and before suppression/Ward/ES.
+  Physical-only additional reduction does not apply to chaos; damage over time keeps its existing resistance path.
+  A real connected path and Plate Vest produced 616 armour and native 45 damage from an otherwise 100-chaos hit.
+  Spell-hit, physical-reduction, paid-refund and relog controls passed.
+  Percentage-of-armour variants remain separate work.
+  Code: `Program.IncomingArmour.cs`, the monster-hit and development-hit paths.
+  Docs: [chaos armour](../docs/protocol/20-damage.md#chaos-armour-from-incorruptible).
 - Current Rage accumulates from paid mana costs and supported hit sources, with a shared hit-gain cooldown.
   It has an actual maximum, loss delay/rate and attack damage multiplier; pause suspends timers and death clears it.
   State and the spending remainder survive area connections, while refunded sources stop generating Rage.

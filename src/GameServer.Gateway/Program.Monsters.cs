@@ -255,10 +255,9 @@ partial class Program
             foreach (var (type, range) in mitigated.Components)
             {
                 int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
+                value = ApplyPlayerArmour(conn, type, value);
                 if (type == DamageType.Chaos) chaosDamage += value;
-                damage += type == DamageType.Physical
-                    ? DamageModel.MitigatePhysical(value, conn.Pools.Armour, AdditionalPhysicalReduction(conn))
-                    : value;
+                damage += value;
             }
             blocked = DamageModel.Blocks(conn.Pools.BlockChance, Random.Shared.NextDouble() * 100,
                 conn.Pools.AttackBlockLucky, conn.Pools.AttackBlockUnlucky);
