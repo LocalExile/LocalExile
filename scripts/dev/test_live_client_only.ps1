@@ -10,7 +10,7 @@ $archiveWrites = $ast.FindAll({ param($node)
     $node.Value -in @('--apply', '--recover', '--restore')
 }, $true)
 if ($archiveWrites.Count) { throw 'standard startup must not invoke a client graph mutation command' }
-foreach ($name in @('Need', 'Select-LocalGateway')) {
+foreach ($name in @('Need', 'Select-LocalGateway', 'Assert-NoPendingClientMaintenance', 'Stop-ClientForRestart')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $false)
@@ -35,7 +35,18 @@ $script:gatewayExit = 0
 $script:gatewayArgs = @()
 $script:graphExit = 0
 $script:graphArgs = @()
+$script:journal = 'none'
+$script:stopped = @()
 function Get-Process { $script:existing }
+function Test-Path {
+    param($LiteralPath)
+    ($script:journal -eq 'bin' -and $LiteralPath.EndsWith('.bin')) -or
+        ($script:journal -eq 'prepare' -and $LiteralPath.EndsWith('.prepare'))
+}
+function Stop-Process {
+    param([Parameter(ValueFromPipeline = $true)] $InputObject, [switch] $Force)
+    process { $script:stopped += $InputObject.Id; $script:events.Add('stop-client') }
+}
 function Get-NetTCPConnection {
     param($LocalPort, $State, $ErrorAction)
     if ($LocalPort -ne $script:missingPort) { [pscustomobject]@{ LocalPort = $LocalPort } }
@@ -81,6 +92,12 @@ $script:missingPort = 20493
 Expect-Failure 'missing port 20493'
 Assert ($script:events.Count -eq 0) 'missing server must return before gateway write'
 $script:missingPort = 0
+foreach ($journal in @('bin', 'prepare')) {
+    $script:journal = $journal
+    Expect-Failure 'interrupted explicit GGPK maintenance'
+    Assert ($script:events.Count -eq 0) 'pending maintenance must prevent gateway writes and client launch'
+}
+$script:journal = 'none'
 $script:gatewayExit = 1
 Expect-Failure 'could not select local login server'
 Assert (($script:events -join ',') -eq 'gateway') 'failed gateway reset must prevent launch'
@@ -89,4 +106,12 @@ $script:events.Clear()
 $NoClient = $true
 Expect-Failure '-ClientOnly cannot be combined'
 Assert ($script:events.Count -eq 0) 'invalid options must return before gateway write'
+$NoClient = $false
+$script:existing = @([pscustomobject]@{ Id = 42 })
+Stop-ClientForRestart
+Assert (($script:stopped -join ',') -eq '42') 'full startup must close the previous client independently of graph setup'
+$script:events.Clear()
+$NoClient = $true
+Stop-ClientForRestart
+Assert ($script:events.Count -eq 0) 'server-only startup must preserve the existing client'
 Write-Output 'ClientOnly launch checks passed (mocked; no client or GGPK touched).'

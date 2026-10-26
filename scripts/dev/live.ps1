@@ -18,6 +18,15 @@ $out = Join-Path $repo 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
+function Assert-NoPendingClientMaintenance {
+    $journal = Join-Path $repo 'Client\LocalExileBackups\phrecia-passive-graph-v1\ggpk-write-journal.bin'
+    if ((Test-Path -LiteralPath $journal) -or (Test-Path -LiteralPath "$journal.prepare")) {
+        throw 'interrupted explicit GGPK maintenance is pending; standard startup leaves the archive and journal unchanged'
+    }
+}
+function Stop-ClientForRestart {
+    if (-not $NoClient) { Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force }
+}
 function Select-LocalGateway {
     # The client can use a cached gateway list even when the patch welcome needs no download.
     & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') gateway (Join-Path $repo 'Client\Content.ggpk') --login '127.0.0.1:20493' | Out-Null
@@ -41,6 +50,7 @@ if ($ClientOnly) {
     foreach ($port in @(12995, 20493, 6112)) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
+    Assert-NoPendingClientMaintenance
     Select-LocalGateway
     $p = Start-Process (Join-Path $repo 'Client\Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory (Join-Path $repo 'Client') -PassThru
     Write-Output "client pid $($p.Id)"
@@ -63,10 +73,8 @@ if ($Only) { $NoClient = $true }
 
 # Standard startup must not apply, restore or recover a feature-specific client archive patch.
 # An interrupted explicit maintenance operation needs separate recovery before extraction can read the archive.
-$ggpkJournal = Join-Path $repo 'Client\LocalExileBackups\phrecia-passive-graph-v1\ggpk-write-journal.bin'
-if ((Test-Path $ggpkJournal) -or (Test-Path "$ggpkJournal.prepare")) {
-    throw 'interrupted explicit GGPK maintenance is pending; standard startup leaves the archive and journal unchanged'
-}
+Assert-NoPendingClientMaintenance
+Stop-ClientForRestart
 
 # Read game data from the GGPK into data/; extraction does not install a client graph.
 if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
