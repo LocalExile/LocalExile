@@ -278,29 +278,45 @@ public class GlyphQuestTests : IDisposable
         // "Collection was modified" and never see half a change (each write swaps one flag for another).
         var conn = new ClientState(new AreaLayout(1, "test", 200, 200, 10, 10, null, []), 1, 1);
         lock (conn.Monsters) for (int i = 0; i < 50; i++) conn.QuestFlags.Add($"f{i}");
-        var until = DateTime.UtcNow.AddMilliseconds(400);
-        int reads = 0, torn = 0;
-        var writer = Task.Run(() =>
+        const int Iterations = 2000;
+        // Dedicated workers start every read/write round together. A wall-clock deadline could expire before a
+        // thread-pool reader was scheduled during a full data-backed run, without exercising the production locks.
+        using var step = new Barrier(4);
+        void Rendezvous()
         {
-            for (int i = 0; DateTime.UtcNow < until; i++)
+            if (!step.SignalAndWait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("Quest flag concurrency workers did not reach the same round.");
+        }
+        static Task Worker(Action action) => Task.Factory.StartNew(action, CancellationToken.None,
+            TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        int reads = 0, torn = 0;
+        var writer = Worker(() =>
+        {
+            for (int i = 0; i < Iterations; i++)
+            {
+                Rendezvous();
                 lock (conn.Monsters)
                 {
                     conn.QuestFlags.Remove($"f{i % 100}");
                     conn.QuestFlags.Add($"f{(i + 50) % 100}");
                 }
+                Rendezvous();
+            }
         });
-        var readers = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
+        var readers = Enumerable.Range(0, 3).Select(_ => Worker(() =>
         {
-            while (DateTime.UtcNow < until)
+            for (int i = 0; i < Iterations; i++)
             {
+                Rendezvous();
                 var snapshot = conn.QuestFlagsSnapshot();
                 if (snapshot.Count(f => f.StartsWith('f')) != 50) Interlocked.Increment(ref torn);
                 conn.HasQuestFlag("f7");
                 Interlocked.Increment(ref reads);
+                Rendezvous();
             }
         })).ToArray();
         await Task.WhenAll([writer, .. readers]);
-        Assert.True(reads > 0);
+        Assert.Equal(3 * Iterations, reads);
         Assert.Equal(0, torn);
     }
 
