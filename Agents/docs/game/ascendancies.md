@@ -226,6 +226,7 @@ Each whole five power grants one charge through the shared charge foundation and
 Ancestral Endurance 23061 adds two maximum Endurance Charges without granting them on allocation.
 Buff 1541 also grants owner regeneration and `affected_by_a_warcry` for 2.5 s at level 1 or 3.4 s at level 20.
 Regeneration is 120% life/minute per five power, counting at most 25 power; charge duration remains separate.
+Owner buff effect adds once with applicable skill, warcry and Enduring Cry buff-effect modifiers.
 Call of the Ancestors 48740 adds 200% warcry speed and -30% cooldown recovery.
 Quality 20 adds 40% recovery once; use speed and global action speed do not change buff or charge duration.
 The owner buff pauses and ends on death, source removal, transfer invalidation or disconnect, with no carry/relog.

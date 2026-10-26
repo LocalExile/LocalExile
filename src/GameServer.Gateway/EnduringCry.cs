@@ -61,7 +61,8 @@ static class EnduringCry
             * Math.Max(0m, 100m + Sum("skill_effect_duration_+%_final")) / 100m;
         int durationMs = (int)Math.Clamp(decimal.Truncate(duration), 0m, int.MaxValue);
         decimal buffEffect = Math.Max(0m, 100m + Sum("skill_buff_effect_+%")
-            + Sum("warcry_buff_effect_+%") + Sum("enduring_cry_buff_effect_+%")) / 100m;
+            + Sum("warcry_buff_effect_+%") + Sum("enduring_cry_buff_effect_+%")
+            + Sum("buff_effect_on_self_+%")) / 100m;
 
         // The generic area total is already combined by CharacterPlayerStats. Add only applicable warcry area once.
         int Area(string name) => name switch

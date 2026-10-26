@@ -63,6 +63,31 @@ public sealed partial class AscendancyGatewayIntegrationTests
     }
 
     [Theory]
+    [InlineData(100, 0, 960)]
+    [InlineData(100, 50, 1200)]
+    [InlineData(-100, 0, 0)]
+    public async Task Paid_Enduring_Cry_applies_owner_buff_effect_once(int self, int warcry, int regen)
+    {
+        using var game = CryCharacter();
+        CryInput(game, "warcry_speed_+%", 900);
+        CryInput(game, "buff_effect_on_self_+%", self);
+        CryInput(game, "warcry_buff_effect_+%", warcry);
+        CryMonster(game, 0x4000, MonsterRarity.Unique);
+        uint mana = game.State.PlayerMana;
+
+        var result = await game.Cast("Enduring Cry");
+
+        Assert.True(result.Accepted);
+        Assert.Equal(mana - 13, game.State.PlayerMana);
+        Assert.Equal(3, game.PlayerStat("current_endurance_charges"));
+        Assert.Equal(regen, CryStat(game, "life_regeneration_rate_per_minute_%"));
+        Assert.Equal(regen, game.PlayerStat("life_regeneration_rate_per_minute_%"));
+        Assert.Equal(1, CryStat(game, "affected_by_a_warcry"));
+        Assert.True(CryBuffOffset(result.Bytes) >= 0);
+        Assert.Equal(1000u, game.State.Monsters[0x4000].Life);
+    }
+
+    [Theory]
     [InlineData(MonsterRarity.Normal, 4, 0, 0)]
     [InlineData(MonsterRarity.Normal, 5, 1, 120)]
     [InlineData(MonsterRarity.Magic, 3, 1, 120)]

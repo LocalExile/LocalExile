@@ -149,6 +149,20 @@ public sealed class EnduringCryTests
         Assert.Equal(720, result.RegenPerMinute); //8%life/sec from20power, then50%buffeffect=>12%
     }
 
+    [Theory]
+    [InlineData(100, 0, 960)]
+    [InlineData(100, 50, 1200)]
+    [InlineData(-100, 0, 0)]
+    [InlineData(-25, 25, 480)]
+    public void Owner_buff_effect_adds_once_with_warcry_effect_before_regeneration(int self, int warcry, int expected)
+    {
+        var profile = Profile(1, 0, ("buff_effect_on_self_+%", self), ("warcry_buff_effect_+%", warcry));
+        var result = EnduringCry.Resolve(profile, [new(MonsterRarity.Unique, 0)]);
+        Assert.Equal(expected, result.RegenPerMinute);
+        Assert.Equal(4, result.Charges);
+        Assert.Equal(2500, result.DurationMilliseconds);
+    }
+
     [Fact]
     public void Warcry_area_joins_combined_generic_area_once_and_ignores_spell_only_area()
     {
