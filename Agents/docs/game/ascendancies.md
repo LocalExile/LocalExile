@@ -192,8 +192,13 @@ Linked supports use the existing raw skill/quality, normalized base/added damage
 Monster mod resistances compose with variety resistances, penetration and passive damage-taken rules.
 Owned wolves and Harbingers retain their lifetime/ownership guards; target leech prohibitions apply to wolves.
 Iron Flasks use the shared Ward state, and instant recovery respects reserved life.
-Isolated full suites pass Core 515, Data 34 and Gateway 2,635 using ordinary copied public extracted data.
-No client was launched or attached for this merge; the native observations below target their stated source commits.
+Root full suites pass Core 515, Data 34 and Gateway 2,638 after the supported-attack admission correction.
+Three handler regressions preserve the pending action, cost and echo at the early timing boundary.
+Fresh-account native checks at `7e145c9` repeat 19 charge controls and ten area transfers.
+Three further checks combine Sea Legs, three Power charges and linked Faster Casting/Increased Critical Strikes.
+The selected Fireball retains base 750 ms, cast speed 20%, rate 160 and critical chance 2,485 permyriad.
+Ignored source/DLL metadata and results are under `logs/phrecia-completion/merge-native/`.
+These checks do not measure the precise early-attack boundary with a native stopwatch.
 Enduring Cry's metadata is reusable, while its actual warcry timing, cooldown and buff execution remain open.
 
 ### Standard charges

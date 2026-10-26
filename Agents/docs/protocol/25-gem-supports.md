@@ -44,6 +44,9 @@ Channelled attacks pay the supported cost on subsequent channel hits.
 
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
+The merged Phrecia client check combines Sea Legs, three Power charges and level-one Faster Casting/Increased Crit.
+The actual selected Fireball has base 750 ms, cast speed 20%, rate 160 and critical chance 2,485 permyriad.
+This reads native action stats after an actual cast; it does not time the attack-admission boundary.
 Tests cover link isolation, duplicate families, multiple supports, compatibility expressions, costs,
 area quality, attack speed, damage prohibitions, conversion ordering and complete support record framing.
 

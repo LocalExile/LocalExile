@@ -18,6 +18,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
   Attack admission uses that supported timing before replacing a pending swing or sending an action echo.
+  A native selected Fireball also combines both speed/critical supports with Sea Legs and three Power charges.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
