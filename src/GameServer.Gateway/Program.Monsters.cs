@@ -309,7 +309,8 @@ partial class Program
             }
             // Roll each damage type separately, apply its resistance, then armour to the physical part. The attack is
             // currently physical only (MonsterAttack), but the packet path keeps future monster skills correct.
-            var rolls = GamblerFor(CharacterPlayerStats(conn));
+            var playerAtHit = CharacterPlayerStats(conn);
+            var rolls = GamblerFor(playerAtHit);
             var rolled = rolls.RollIncomingHit(a.Damage, Random.Shared);
             rolled = IncomingPassiveConversion(conn, m, rolled);
             var mitigated = rolls.MitigateIncomingHit(rolled, type =>
@@ -334,6 +335,7 @@ partial class Program
             conn.PlayerLife = (uint)Math.Min(UnreservedLife(conn), Math.Max(0, (long)conn.PlayerLife
                 - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now) + gainedLife));
             conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
+            ChargeIncomingCommitted(conn, blocked, spell: false, playerAtHit);
             life = conn.PlayerLife;
             mana = conn.PlayerMana;
         }

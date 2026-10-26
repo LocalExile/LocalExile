@@ -41,9 +41,29 @@ partial class Program
         lock (conn.Monsters)
         {
             stats.AddRange(conn.SentStatKeys.Where(k => !now.Contains(k)).Select(k => (k, 0)));
-            conn.SentStatKeys = now;
         }
         return stats;
+    }
+
+    // Build catalog/derived stats before waiting for the cipher, but decide clears and commit the client-key ledger
+    // only in the accepted gate. A discarded charge revision must not consume clears that a fresh retry still owes.
+    internal static Task<bool> SendPlayerStats(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, string? why, Func<bool>? still = null)
+    {
+        RefreshSingleUseCooldowns(conn);
+        var stats = FinalPlayerStats(conn).ToList();
+        var keys = stats.Select(s => s.Item1).ToHashSet();
+        return SendGenerated(remote, stream, ciphers, () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (still?.Invoke() == false) return null;
+                var values = stats.Concat(conn.SentStatKeys.Where(k => !keys.Contains(k)).Select(k => (k, 0))).ToList();
+                byte[] packet = InstanceEntities.StatsUpdate(PlayerId, values);
+                conn.SentStatKeys = keys;
+                return packet;
+            }
+        }, why);
     }
 
     static IEnumerable<(uint, int)> FinalPlayerStats(ClientState conn)
@@ -182,8 +202,13 @@ partial class Program
     static double AddedEffectiveness(int effect, int level) => Skills.DamageEffectiveness(effect, level) / 10000.0;
 
     static GameServer.Core.World.DamageConversion ConversionFor(ClientState conn, int effectRow, int level, bool attack, int quality = 0)
+        => SkillConversion(CharacterPlayerStats(conn), effectRow, level, attack, quality);
+
+    // A committed area/projectile contact must not re-read mutable owner stats between its targets.
+    static GameServer.Core.World.DamageConversion SkillConversion(IReadOnlyDictionary<uint, int> player,
+        int effectRow, int level, bool attack, int quality = 0)
     {
-        var stats = CharacterPlayerStats(conn);
+        var stats = player;
         if (effectRow >= 0)
             stats = Skills.EffectStatsFor(effectRow, level, quality, stats, characterStatsWin: true);
         return DamageStats.Conversion(stats, Stats, attack);
@@ -399,10 +424,12 @@ partial class Program
     // The saved skill bar as the player's current skill ids, sent with S→C 0x53. The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
-    static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task<bool> SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        Func<bool>? still = null)
     {
+        if (still?.Invoke() == false) return false;
         FillSkillBar(conn);
-        if (CharacterSaves.Load(CharacterName(conn))?.SkillBar is not { Count: > 0 } bar) return;
+        if (CharacterSaves.Load(CharacterName(conn))?.SkillBar is not { Count: > 0 } bar) return still?.Invoke() != false;
         var ids = new ushort[InstanceProtocol.SkillBarSlots];
         var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: Skills.EffectId(g.Effect)))
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
@@ -414,8 +441,8 @@ partial class Program
             else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
         }
         if (!bar.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
-        await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids),
-            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}");
+        return await SendGenerated(remote, stream, ciphers, () => InstanceProtocol.SkillBar(ids),
+            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}", still);
     }
 
     // Puts the skills that are nowhere on the saved bar into its empty slots (SkillBarLayout), leaving every other slot as
@@ -631,50 +658,100 @@ partial class Program
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
-    static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    internal static async Task<bool> SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, string why, Func<bool>? still = null)
     {
-        await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
-        await SendSkills(remote, stream, ciphers, conn);
-        await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        if (!await SendPlayerStats(remote, stream, ciphers, conn, $"0x01b3 player stats ({why})", still)) return false;
+        if (!await SendSkills(remote, stream, ciphers, conn, still)) return false;
+        if (still?.Invoke() == false) return false;
+        if (!await SendPlayerEnergyShield(remote, stream, ciphers, conn, still)) return false;
+        return still?.Invoke() != false;
+    }
+
+    internal sealed record SkillListPublication(IReadOnlyList<ushort> Gone, IReadOnlyList<ushort> Added);
+
+    // The client-skill ledger records accepted Actor records, not attempted snapshots. Compute removed ids against
+    // that ledger only after the cipher gate has admitted this revision, so a stale attempt cannot lose removals.
+    internal static async Task<SkillListPublication?> SendSkillList(string remote, NetworkStream stream,
+        ConnectionCiphers ciphers, ClientState conn, Func<bool>? still = null)
+    {
+        var skills = PlayerSkills(conn);
+        var ids = skills.Select(s => s.Id).ToHashSet();
+        SkillListPublication? publication = null;
+        bool accepted = await SendGenerated(remote, stream, ciphers, () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (still?.Invoke() == false) return null;
+                var gone = conn.ClientSkillIds.Except(ids).Order().ToList();
+                var added = ids.Except(conn.ClientSkillIds).ToList();
+                byte[] packet = InstanceEntities.PlayerSkillsChange(PlayerId, skills, gone);
+                conn.ClientSkillIds = ids;
+                publication = new(gone, added);
+                return packet;
+            }
+        }, $"0x02ba player Actor: {skills.Count} skill(s) with {skills.Sum(k => k.Stats?.Count ?? 0)} stats");
+        return accepted ? publication : null;
     }
 
     // The player's skills again, and the removal of the ones the client still has whose gems left the equipment, in one
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
-    static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task<bool> SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, Func<bool>? still = null)
     {
+        if (still?.Invoke() == false) return false;
         await RefreshPassiveBuffs(remote, stream, ciphers, conn);
+        if (still?.Invoke() == false) return false;
         await RefreshSummons(remote, stream, ciphers, conn, sendOwnerStats: false);
+        if (still?.Invoke() == false) return false;
         await RefreshCompanions(remote, stream, ciphers, conn, sendOwnerStats: false);
+        if (still?.Invoke() == false) return false;
         await RefreshPassivePresences(remote, stream, ciphers, conn);
+        if (still?.Invoke() == false) return false;
         await SendWardState(remote, stream, ciphers, conn);
-        bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn);
-        await RefreshRighteousFireStats(remote, stream, ciphers, conn);
+        if (still?.Invoke() == false) return false;
+        bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn, still);
+        if (still?.Invoke() == false) return false;
+        await RefreshRighteousFireStats(remote, stream, ciphers, conn, still);
+        if (still?.Invoke() == false) return false;
         RefreshSingleUseCooldowns(conn);
-        var skills = PlayerSkills(conn);
-        var gone = conn.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
-        var added = skills.Select(s => s.Id).Where(id => !conn.ClientSkillIds.Contains(id)).ToList();
-        conn.ClientSkillIds = [.. skills.Select(s => s.Id)];
-        await Send(remote, stream, ciphers, InstanceEntities.PlayerSkillsChange(PlayerId, skills, gone),
-            $"0x02ba player Actor: {skills.Count} skill(s) with {skills.Sum(k => k.Stats?.Count ?? 0)} stats" +
-            (gone.Count > 0 ? $", remove skill(s) {string.Join(", ", gone.Select(id => $"0x{id:x4}"))}" : ""));
-        await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
-        if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
+        var publication = await SendSkillList(remote, stream, ciphers, conn, still);
+        if (publication is null) return false;
+        var (gone, added) = publication;
+        await SendNativeCooldownRefresh(remote, stream, ciphers, conn, still);
+        if (still?.Invoke() == false) return false;
+        ushort[] endedEffects;
+        lock (conn.Monsters)
+            endedEffects = gone.Concat(conn.Auras.Keys.Where(id => !conn.ClientSkillIds.Contains(id)))
+                .Concat(conn.RighteousFire is { } orphan && !conn.ClientSkillIds.Contains(orphan.Skill)
+                    ? [orphan.Skill] : Array.Empty<ushort>()).Distinct().ToArray();
+        // An accepted Actor removal can be followed by charge expiry before effect cleanup. A fresh retry must
+        // still end orphan effects even though that Actor id is no longer in the accepted client-skill ledger.
+        if (endedEffects.Length > 0 && !await EndSkillEffects(remote, stream, ciphers, conn, endedEffects, still)) return false;
         IReadOnlyList<AuraCatalog.Aura> resumed = [];
         lock (conn.Monsters)
-            if (conn.PlayerLife > 0 && !InTown(conn))
+            if (still?.Invoke() != false && conn.PlayerLife > 0 && !InTown(conn))
                 resumed = RestoreRememberedAuras(conn, CharacterSaves.Load(CharacterName(conn))?.ActiveAuras ?? []);
         if (resumed.Count > 0)
         {
+            // These are aura lifecycle metadata, not charge-derived stats. Complete an accepted restoration even
+            // when its own pool rebuild invalidated the charge token; the following stat/Actor retry stays dirty.
             foreach (var aura in resumed)
                 foreach (var packet in AuraBuffs(aura))
                     await Send(remote, stream, ciphers, packet, $"aura {aura.EffectId} resumes after skill refresh");
-            await SendCharacterStats(remote, stream, ciphers, conn, "remembered auras resumed");
+            if (still?.Invoke() == false) return false;
+            if (!await SendCharacterStats(remote, stream, ciphers, conn, "remembered auras resumed", still)) return false;
+            if (still?.Invoke() == false) return false;
             await SendPlayerMana(remote, stream, ciphers, conn, "remembered aura reservation");
+            if (still?.Invoke() == false) return false;
         }
+        if (still?.Invoke() == false) return false;
         if (refreshedAuras)
         {
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)), "aura stats refreshed after gem modifiers");
+            if (!await SendPlayerStats(remote, stream, ciphers, conn, "aura stats refreshed after gem modifiers", still)) return false;
+            if (still?.Invoke() == false) return false;
             await SendPlayerMana(remote, stream, ciphers, conn, "aura reservation refreshed after gem modifiers");
+            if (still?.Invoke() == false) return false;
         }
 
         // The update can take a bound skill off the skill bar (live 2026-10-21: Haste's slot emptied when its aura went on,
@@ -685,13 +762,19 @@ partial class Program
         FillSkillBar(conn);
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
         if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
-            await SendSkillBar(remote, stream, ciphers, conn);
-        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), "life reservation after skills changed");
+            if (!await SendSkillBar(remote, stream, ciphers, conn, still)) return false;
+        return await SendGenerated(remote, stream, ciphers, () =>
+        {
+            lock (conn.Monsters)
+                return still?.Invoke() == false ? null : PlayerLifeUpdate(conn);
+        }, "life reservation after skills changed");
     }
 
     // Retained auras use the current effective gem properties. Preserve intent and buff identities; this is not a recast.
-    static async Task<bool> RefreshActiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task<bool> RefreshActiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, Func<bool>? still = null)
     {
+        if (still?.Invoke() == false) return false;
         if (conn.Auras.Count == 0) return false;
         var gems = GemSkillEffects(conn).ToDictionary(g => g.Id);
         var changes = new List<(AuraCatalog.Aura Before, AuraCatalog.Aura After)>();
@@ -699,6 +782,7 @@ partial class Program
         var restrictions = RestrictionsFor(conn);
         lock (conn.Monsters)
         {
+            if (still?.Invoke() == false) return false;
             foreach (var aura in conn.Auras.Values.ToArray())
             {
                 if (!AuraAllowed(restrictions, aura.Effect))
@@ -729,6 +813,8 @@ partial class Program
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
         }
+        // Aura identity/level metadata has its own lifecycle. Finish its native transition before reporting an
+        // invalidated charge revision; dependent stats and Actor records are retried with fresh pools separately.
         foreach (var aura in suspended)
             foreach (var packet in AuraCatalog.EndPackets(aura, PlayerId))
                 await Send(remote, stream, ciphers, packet, $"aura {aura.EffectId} suspended by a skill restriction");
@@ -744,11 +830,13 @@ partial class Program
 
     // Skills the player no longer has (their gems left the equipment): their auras and Righteous Fire end with them, and the
     // reserved mana comes back.
-    static async Task EndSkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<ushort> gone)
+    static async Task<bool> EndSkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, IReadOnlyCollection<ushort> gone, Func<bool>? still = null)
     {
         List<AuraCatalog.Aura> ended;
         lock (conn.Monsters)
         {
+            if (still?.Invoke() == false) return false;
             ended = [.. conn.Auras.Values.Where(a => gone.Contains(a.SkillId))];
             foreach (var aura in ended) conn.Auras.Remove(aura.SkillId);
             if (ended.Count > 0)
@@ -762,11 +850,16 @@ partial class Program
             foreach (var packet in AuraCatalog.EndPackets(aura, PlayerId))
                 await Send(remote, stream, ciphers, packet, $"0x01c2 player aura {aura.Name} ends (its gem left)");
         }
+        if (still?.Invoke() == false) return false;
         if (ended.Count > 0)
         {
-            await SendCharacterStats(remote, stream, ciphers, conn, $"aura {string.Join(", ", ended.Select(a => a.Name))} off (gem left)");
+            if (!await SendCharacterStats(remote, stream, ciphers, conn,
+                $"aura {string.Join(", ", ended.Select(a => a.Name))} off (gem left)", still)) return false;
+            if (still?.Invoke() == false) return false;
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         }
+        if (still?.Invoke() == false) return false;
         if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill)) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left");
+        return still?.Invoke() != false;
     }
 }

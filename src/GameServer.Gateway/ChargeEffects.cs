@@ -20,6 +20,10 @@
 /// </summary>
 static class ChargeEffects
 {
+    /// <summary>Raw inputs whose developer replacement can change current limits or derived pool effects.</summary>
+    public static bool IsInput(string name) => Charges.LimitInputs.Contains(name)
+        || Inherent.Any(stat => stat.Stat == name) || PerCharge.Any(rule => rule.Stat == name);
+
     /// <summary>Metadata/Characters/Character.ot's per-charge stats (the Brine charge ones belong to another charge
     /// type and are left out). They are the base forms the panel rows sum and <see cref="PerCharge"/> reads.</summary>
     public static readonly IReadOnlyList<(string Stat, int Value)> Inherent =

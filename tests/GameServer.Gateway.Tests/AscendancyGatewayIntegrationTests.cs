@@ -2083,7 +2083,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             {
                 await (Task)FlyProjectileMethod.Invoke(null, ["ascendancy-integration", stream, cipher, State,
                     ("Metadata/Projectiles/Fireball", 100_000f), (80, 100), (100, 100), damage,
-                    State.ProjectileEpoch, false, "none", radius, null])!;
+                    State.ProjectileEpoch, false, "none", radius, null, null])!;
                 return null;
             });
 
@@ -2144,7 +2144,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
 
         public Task<(string? Error, byte[] Bytes)> SkillsOnly() => Exchange(async (stream, cipher) =>
         {
-            await ProgramValue<Task>("SendSkills", "ascendancy-integration", stream, cipher, State);
+            await ProgramValue<Task>("SendSkills", "ascendancy-integration", stream, cipher, State, null);
             return null;
         });
 

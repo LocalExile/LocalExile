@@ -43,7 +43,7 @@ partial class Program
             int totalPct = conn.Pools.MovementVelocityPct + percent - 100;
             lock (conn.Monsters) conn.PlayerStats[StatKeys.MovementVelocityPct] = totalPct;
             conn.ApplyMovementSpeed();
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)),
+            await SendPlayerStats(remote, stream, ciphers, conn,
                 $"0x01b3 stats: movement_velocity_+% (key {StatKeys.MovementVelocityPct}) = {totalPct} ({conn.Pools.MovementVelocityPct} passive + {percent - 100} dev)");
         })
         .Add("set_stat", "/set_stat <stat name or client key> <value> (e.g. attack_speed_+% 100)", async args =>
@@ -53,7 +53,7 @@ partial class Program
             string name = Stats.Name(stat) ?? args[0];
             lock (conn.Monsters) conn.PlayerStats[stat] = value;
             if (AttackBaseCriticalStrike.IsInput(name) || ResistanceOvercap.IsInput(name)
-                || AttackBaseCriticalStrike.IsConditionalInput(name))
+                || AttackBaseCriticalStrike.IsConditionalInput(name) || ChargeEffects.IsInput(name))
             {
                 while (true)
                 {
@@ -75,7 +75,7 @@ partial class Program
             // not the attributes themselves (13-items.md §2d), so an attribute set here sets its requirement value too.
             if (Stats.Key($"virtual_{args[0]}_for_requirements") is uint requirement && requirement != stat)
                 lock (conn.Monsters) conn.PlayerStats[requirement] = value;
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)),
+            await SendPlayerStats(remote, stream, ciphers, conn,
                 $"0x01b3 stats: {Stats.Name(stat)} (key 0x{stat:x}) = {value}, and the attack's final stats");
             // Skills compute with their own stats (the attack and the character panel read those), so send them again.
             await SendSkills(remote, stream, ciphers, conn);
@@ -498,6 +498,7 @@ partial class Program
                 : type == DamageType.Physical
                     ? $"{PlayerPhysicalReduction(conn, amount)}% physical reduction"
                     : PlayerResistanceDescription(conn, type, resistance, maxResistance);
+            var playerAtIncoming = CharacterPlayerStats(conn);
             uint life;
             bool wasDead;
             lock (conn.Monsters)
@@ -507,6 +508,7 @@ partial class Program
                 {
                     conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt,
                         type == DamageType.Chaos ? dealt : 0, conn.Clock.Elapsed.TotalSeconds));
+                    ChargeIncomingCommitted(conn, blocked: false, spell: false, playerAtIncoming);
                     life = conn.PlayerLife;
                 }
                 else life = 0;
@@ -625,6 +627,7 @@ partial class Program
             var (chance, effect, lucky, unlucky) = Suppression(conn);
             bool suppressed = DamageModel.Suppresses(chance, Random.Shared.Next(100), lucky, unlucky);
             if (suppressed) dealt = DamageModel.Suppress(dealt, effect);
+            var playerAtIncoming = CharacterPlayerStats(conn);
             uint life;
             bool wasDead;
             lock (conn.Monsters)
@@ -634,6 +637,7 @@ partial class Program
                 {
                     conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt,
                         type == DamageType.Chaos ? dealt : 0, conn.Clock.Elapsed.TotalSeconds));
+                    ChargeIncomingCommitted(conn, blocked: false, spell: true, playerAtIncoming);
                     life = conn.PlayerLife;
                 }
                 else life = 0;
@@ -655,6 +659,36 @@ partial class Program
             await conn.Commands!.Reply($"{type} spell hit: {amount} → {dealt} after {mitigation}; " +
                 $"suppression {(suppressed ? "rolled" : "not rolled")} ({chance}% chance, effective {effective:0.#}%" +
                 $"{(lucky ? ", lucky" : "")}{(unlucky ? ", unlucky" : "")}); life {life}/{conn.PlayerMaxLife}.");
+        })
+        .Add("charges", "/charges [endurance|frenzy|power <count>|clear] (dev: inspect or set standard charges)", async args =>
+        {
+            var inputs = CharacterPlayerStats(conn);
+            if (args.Length > 0)
+            {
+                bool clear = args.Length == 1 && args[0].Equals("clear", StringComparison.OrdinalIgnoreCase);
+                ChargeType? type = null;
+                int count = 0;
+                if (!clear)
+                {
+                    if (args.Length != 2 || !Enum.TryParse<ChargeType>(args[0], true, out var parsed)
+                        || !Charges.Types.Contains(parsed) || !int.TryParse(args[1], out count) || count < 0)
+                        throw new ArgumentException("endurance|frenzy|power and a nonnegative count, or clear");
+                    type = parsed;
+                }
+                lock (conn.Monsters)
+                {
+                    if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0)
+                        throw new ArgumentException("charges require a living character in an active area");
+                    ChargesOf(conn).Session.EnqueueAccepted(new ChargeEvent.Set(type, count), conn.Clock.Elapsed.TotalSeconds,
+                        name => ChargeValue(inputs, name), WeaponProfileFor(conn, activeSet: true));
+                }
+            }
+            await RefreshCharges(remote, stream, ciphers, conn,
+                publication => SendCharacterStats(remote, stream, ciphers, conn, "charges command",
+                    () => ChargePublicationCurrent(conn, publication)));
+            var current = CharacterPlayerStats(conn);
+            await conn.Commands!.Reply(string.Join(", ", Charges.Types.Select(type =>
+                $"{Charges.Name(type)}: {ChargeValue(current, $"current_{Charges.Name(type)}_charges")}")));
         })
         .Add("crit", "/crit (attack and spell critical strike chance and multiplier)", async _ =>
         {
@@ -706,6 +740,7 @@ partial class Program
                 : type == DamageType.Physical
                     ? $"{PlayerPhysicalReduction(conn, amount)}% physical reduction"
                     : PlayerResistanceDescription(conn, type, resistance, maxResistance);
+            var playerAtIncoming = CharacterPlayerStats(conn);
             uint life, mana, manaBefore;
             bool wasDead;
             lock (conn.Monsters)
@@ -720,6 +755,7 @@ partial class Program
                         Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt,
                             type == DamageType.Chaos ? dealt : 0, conn.Clock.Elapsed.TotalSeconds) + gainedLife));
                     conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
+                    ChargeIncomingCommitted(conn, blocked, spell, playerAtIncoming);
                     life = conn.PlayerLife;
                     mana = conn.PlayerMana;
                 }
@@ -759,7 +795,7 @@ partial class Program
             bool off = args[0].Equals("off", StringComparison.OrdinalIgnoreCase);
             int value = off ? 0 : int.Parse(args[0]);
             lock (conn.Monsters) { if (off) conn.PlayerStats.Remove(stat); else conn.PlayerStats[stat] = value; }
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)),
+            await SendPlayerStats(remote, stream, ciphers, conn,
                 $"0x01b3 stats: base_skill_area_of_effect_+% = {(off ? "the character's own" : value)}");
             await SendSkills(remote, stream, ciphers, conn);
             bool relit = await RelightRighteousFire(remote, stream, ciphers, conn, "/set_aoe");

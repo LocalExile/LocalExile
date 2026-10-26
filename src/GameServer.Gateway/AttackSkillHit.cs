@@ -12,7 +12,7 @@ static class AttackSkillHit
         var weaponBase = weapon.HitDamage(character, melee, derived.AttackPercent).Scale(Math.Max(0, baseMultiplier) / 10000.0);
         return DamageStats.Added(weaponBase, Get, spell: false, melee,
                 effectiveness: Math.Max(0, addedEffectiveness) / 10000.0, additionalIncreasedPct: derived.AttackPercent)
-            .Scale(Math.Max(0, 1 + Get("attack_damage_+%_final_from_rage") / 100.0));
+            .Scale(Math.Max(0, 1 + Get("attack_damage_+%_final_from_rage") / 100.0) * ChargeEffects.DamageMore(Get));
     }
 
     public static DamagePacket Resolve(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> character,

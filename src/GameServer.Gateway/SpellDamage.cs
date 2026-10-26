@@ -59,7 +59,8 @@ static class SpellDamage
 
     static double More(Func<string, int> get, string type) =>
         Math.Max(0, 1 + get("spell_damage_aura_spell_damage_+%_final") / 100.0)
-        * (type == "lightning" ? Math.Max(0, 1 + get("wrath_aura_spell_lightning_damage_+%_final") / 100.0) : 1);
+        * (type == "lightning" ? Math.Max(0, 1 + get("wrath_aura_spell_lightning_damage_+%_final") / 100.0) : 1)
+        * ChargeEffects.DamageMore(get, spell: true);
 
     /// <summary>
     /// A packet scaled by an already normalized permyriad factor: 10000 is identity and 0 means zero damage.

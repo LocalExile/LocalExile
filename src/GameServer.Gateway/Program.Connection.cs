@@ -119,6 +119,11 @@ partial class Program
                         (fixedLevel.Ok ? "" : $"; not saved to the account: {fixedLevel.Error}"));
                 }
                 conn.PlayerLife = UnreservedLife(conn);
+                _ = CharacterStatSources(conn); // observe live destination limits before taking its one-use ticket carry
+                RestoreCharges(conn, DateTimeOffset.UtcNow);
+                conn.Pools = PoolsFor(conn, level);
+                conn.ApplyMovementSpeed();
+                conn.PlayerLife = UnreservedLife(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
                 conn.AuraDeathHandled = false;
                 conn.PlayerMana = (uint)UnreservedMana(conn);
@@ -156,6 +161,7 @@ partial class Program
         }
         if (left is not null)
         {
+            CloseCharges(left);
             left.Summons?.Pause(left.SummonLease, DateTimeOffset.UtcNow, false);
             left.Summons?.Release(left.SummonLease, left.LeavingArea);
             left.Companions?.Release(left.SummonLease, left.LeavingArea, DateTimeOffset.UtcNow);

@@ -14,6 +14,12 @@ partial class Program
     {
         if (type == DamageType.Physical)
             return DamageModel.MitigatePhysical(afterResistance, conn.Pools.Armour, AdditionalPhysicalReduction(conn));
+        if (type is DamageType.Fire or DamageType.Cold or DamageType.Lightning)
+        {
+            var player = CharacterPlayerStats(conn);
+            int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+            return DamageModel.Reduce(afterResistance, ChargeEffects.Reduction(Get).Elemental);
+        }
         if (type != DamageType.Chaos || !ChaosArmourApplies(conn)) return afterResistance;
         return DamageModel.MitigatePhysical(afterResistance, conn.Pools.Armour);
     }

@@ -22,6 +22,23 @@ public class NativeCooldownRefreshTests
     static float Float(byte[] bytes, int offset) => BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(offset));
 
     [Fact]
+    public void A_revision_changed_while_building_current_skill_sources_cannot_acknowledge_dirty_progress()
+    {
+        var (conn, state, ticket) = Spent();
+        Assert.True(ticket.CommitNativeUse(conn, 0x103));
+        state.Refresh(10.5, 2);
+        bool current = true;
+        Assert.Null(Program.NativeCooldownRefresh(conn, conn.ProjectileEpoch, () =>
+        {
+            current = false; // Source construction settled a charge expiry after the outer cipher-gate guard.
+            return Eligible;
+        }, () => current));
+        Assert.True(state.NeedsNativeRefresh);
+        Assert.NotNull(Snapshot(conn));
+        Assert.False(state.NeedsNativeRefresh);
+    }
+
+    [Fact]
     public void An_acknowledged_active_rate_change_sends_progress_once_without_paying_or_consuming_again()
     {
         var (conn, state, ticket) = Spent();

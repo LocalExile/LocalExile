@@ -238,7 +238,7 @@ partial class Program
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
         lock (conn.Monsters) conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         await SendSkills(remote, stream, ciphers, conn);
-        await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, PlayerStatsWithCleared(conn)),
+        await SendPlayerStats(remote, stream, ciphers, conn,
             "0x01b3 player stats (equipment)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
     }

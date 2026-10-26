@@ -1296,7 +1296,11 @@ and `base_cannot_be_frozen 1` show on Defence as Stun Recovery 30%, four Avoidan
 
 ## Standard maximum-charge rows
 
-`ChargePanelStats.Compute` derives the three standard maximum-charge display values from base three plus unconditional modifiers. The current values remain zero; conditional modifiers, replacement charges and gain/expiry mechanics are outside this change. Verified on the native Charges tab with all three baseline rows at `0 / 3`; eight focused modifier tests cover the formulas.
+`ChargePanelStats.Compute` derives standard maxima from base three and supported unconditional modifiers.
+Current counts, minima and removable counts now come from the connection's live `ChargeSession`.
+Whisperer's there is more 2266 supplies minimum four Frenzy/Power and raises their maximum to four;
+Polytheist's Devout of Ralakesh 1830 supplies minimum three of every standard charge.
+Real connected allocation, reload and paid-refund tests exercise both nodes through the production stat path.
 
 ### Charge lifecycle foundation
 
@@ -1313,8 +1317,29 @@ Sixty-three pure tests cover these contracts, current maximum/minimum/duration l
 Charge icons use native buff rows 27/28/29, count in flags bit2 and duration in bit1 as floating-point seconds.
 The optional stack count follows bit7's float and precedes bit3's skill association.
 Existing buff payload and Actor cooldown layouts are preserved.
-The model still needs production hit/kill/block hooks, owner effect application and combined native verification;
-the calculation tests do not establish gameplay support.
+Default attacks, area contacts and projectile impacts enqueue gains only after their authoritative damage commit.
+The hit's actual zero-life result also queues its kill; the later asynchronous death notification never awards again.
+One skill use shares its once-per-use Frenzy grant across targets; each ordinary per-hit rule remains per target.
+An explosion retains one raw damage/conversion snapshot, so a first-target charge cannot strengthen later targets.
+Normal incoming hits and blocks have distinct events; evasion and canceled contacts grant neither.
+RF's player-owned kills grant on-kill charges without inventing a hit, and owned-minion kills grant none.
+
+Current effects expand once into fresh player sources before pools are built.
+The complete attack's base and added components receive Frenzy more once, alongside final Rage.
+Spell hits receive their applicable charge more factors; RF receives global Frenzy more, not spell-only Power more.
+Endurance physical reduction adds to armour's reduction; chaos armour receives no physical charge reduction.
+Elemental reduction follows resistance and precedes suppression, Ward and ES; RF self-burn also uses it.
+Developer raw input replacements retain the existing complete-key override semantics.
+`/charges` inspects counts; `/charges power 3` sets a clamped count, and `/charges clear` clears removable charges.
+
+Successful Auth-confirmed travel carries only to its exact destination ticket, with loading time deducted.
+Normal logout closes the private session and creates no carry; death clears gains and suppresses minimum buffs.
+The 50 ms observer settles expiry at the actual encrypted-send gate too.
+Changed charge revisions or pool references discard stale stats/Actor/cooldown/ES/RF publications without consuming
+their clears, removals, buff IDs or dirty progress; a fresh retry publishes the current state.
+Catalog and pool construction stays outside the broad combat lock.
+Native icons, duration/transfer/death behaviour and combined effects still require the integrated client pass.
+Enduring Cry execution, charge sharing, charge consumption/replacement and unsupported event conditions remain open.
 
 ### Aura lifecycle: town suppression and death
 

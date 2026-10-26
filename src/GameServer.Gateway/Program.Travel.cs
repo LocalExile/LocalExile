@@ -338,6 +338,7 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
             return;
         }
+        CarryCharges(conn, r.Ticket, DateTimeOffset.UtcNow);
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn) AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;

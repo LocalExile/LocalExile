@@ -12,6 +12,7 @@ partial class Program
         perSecond *= Math.Max(0, 1 + Get("delirium_aura_damage_over_time_+%_final") / 100.0);
         return perSecond * Math.Max(0, 1 + (DerivedDamageIncreases.From(Get).GenericPercent + Get("damage_+%")
             + Get("fire_damage_+%") + Get("elemental_damage_+%") + Get("burn_damage_+%")
-            + Get("damage_over_time_+%")) / 100.0) * GamblerFor(playerStats).DamageFactor;
+            + Get("damage_over_time_+%")) / 100.0) * GamblerFor(playerStats).DamageFactor
+            * ChargeEffects.DamageMore(Get);
     }
 }

@@ -111,7 +111,9 @@ partial class Program
             Console.WriteLine($"[gateway] {CharacterName(conn)}: inactive items (requirements not met): " +
                 string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                     $"{w.Id} {Items.ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
-        return EquipmentConditions(conn, ItemModStats.Plus(passives, ItemModStats.Global(active, Items.Mods, Stats)));
+        var sources = EquipmentConditions(conn, ItemModStats.Plus(passives, ItemModStats.Global(active, Items.Mods, Stats)));
+        ChargeStats(conn, sources);
+        return sources;
     }
 
     internal static CharacterStats.Pools PoolsFor(ClientState conn, int level)

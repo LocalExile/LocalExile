@@ -313,7 +313,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Combined generic/spell bonuses add once; the no-crit flag clears the native chance and hides its row.
   A hitless Scorching Ray cast dealt no weapon damage, while the same connection's Fireball dealt a critical hit.
   Catalog, chance, panel gates, aura sources and hit routing also have automated checks.
-  Timed, charge, enemy-state and added-base crit mechanics are not modelled (low-life conditional crit rolls now
+  Other timed, enemy-state and added-base crit mechanics are not modelled (low-life conditional crit rolls now
   are, in this entry above).
   `/crit` shows the attack values and a pooled 5%-base spell reference ([11](../docs/protocol/11-skills.md) §5).
 - **Overcapped-resistance modifiers.** While the flag stat is set, the uncapped resistance above its maximum is a
@@ -410,10 +410,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   its conditional path now also receives aggregate area (0xd7) and radius percentage (0x1591).
   Cyclone's additional melee-range and stage modifiers remain partial.
   See protocol/11-skills.md.
-- Standard maximum-charge rows now include unconditional maximum Endurance/Frenzy/Power charge bonuses.
-  The combined all-three maximum modifier is included.
-  A pure charge lifecycle model now covers event snapshots, expiry, transfer and per-charge expansion.
-  Current-charge mechanics, conditional bonuses and replacement rules remain unimplemented.
+- Standard Endurance/Frenzy/Power charges now execute accepted hit, kill, block and periodic gains, expiry,
+  minimum/maximum limits, per-charge effects and native buff publication.
+  Real Whisperer/Polytheist allocation, reload and refund paths have production integration tests.
+  Complete damage/critical/mitigation paths, exact-ticket travel and queued-expiry publication have regression checks.
+  Combined native verification remains pending; Enduring Cry, sharing, consumption and replacement rules remain open.
   See [skills](../docs/protocol/11-skills.md).
 
 ## Not working yet

@@ -508,6 +508,9 @@ partial class Program
                     await SpawnPets(remote, stream, ciphers, conn);
                     await SendGroundItems(remote, stream, ciphers, conn);
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
+                    await RefreshCharges(remote, stream, ciphers, conn,
+                        publication => SendCharacterStats(remote, stream, ciphers, conn, "initial charges",
+                            () => ChargePublicationCurrent(conn, publication)), resend: true);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);
                     await SpawnTownStash(remote, stream, ciphers, conn);
                     await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
@@ -519,6 +522,9 @@ partial class Program
                     _ = RunMonsterAi(remote, stream, ciphers, conn);
                     _ = RunPlayerTick(remote, stream, ciphers, conn);
                     _ = RunResourceRecovery(remote, stream, ciphers, conn);
+                    _ = RunCharges(remote, stream, ciphers, conn,
+                        publication => SendCharacterStats(remote, stream, ciphers, conn, "standard charge counts/effects",
+                            () => ChargePublicationCurrent(conn, publication)));
                 }
             }
         }

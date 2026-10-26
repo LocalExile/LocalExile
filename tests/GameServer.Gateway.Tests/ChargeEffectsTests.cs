@@ -151,10 +151,9 @@ public class ChargeEffectsTests
         // Fireball's 9-14 with 3 Frenzy Charges: 4% more each (Character.ot), 12% more.
         var get = With(Character(("spell_minimum_base_fire_damage", 9), ("spell_maximum_base_fire_damage", 14)), Held(frenzy: 3));
         var (min, max) = SpellDamage.Hit(get);
-        // More belongs around the complete hit (base plus added components), as the production caller composes it.
-        double more = ChargeEffects.DamageMore(get, spell: true);
-        Assert.Equal(9 * 1.12, min * more, 6);
-        Assert.Equal(14 * 1.12, max * more, 6);
+        // The shared spell calculator now consumes charge more itself; a caller must not multiply it again.
+        Assert.Equal(9 * 1.12, min, 6);
+        Assert.Equal(14 * 1.12, max, 6);
         // Added spell damage per Power Charge counts too.
         var cold = With(Character(("spell_minimum_added_cold_damage_per_power_charge", 2), ("spell_maximum_added_cold_damage_per_power_charge", 4)), Held(power: 3));
         Assert.Equal((6.0, 12.0), SpellDamage.Hit(cold));

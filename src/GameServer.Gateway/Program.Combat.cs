@@ -162,7 +162,7 @@ partial class Program
         var player = CharacterPlayerStats(conn);
         var attackOwn = attackEffect >= 0 ? Skills.EffectStats(attackEffect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2) : null;
         var hit = AttackHit(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee)
-            .Convert(ConversionFor(conn, attackEffect, 1, attack: true));
+            .Convert(SkillConversion(player, attackEffect, 1, attack: true));
         var rolls = GamblerFor(player);
         hit = rolls.RollOutgoingHit(hit, Random.Shared);
         bool critical = rolls.IsCritical(conn.Pools.AttackCriticalStrikeChance, Random.Shared, OnLowLife(conn));
@@ -196,6 +196,9 @@ partial class Program
             life = m.Life;
             conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
             if (life == 0) { m.Aggro = false; m.Dead = true; m.Impale.Clear(); }
+            ChargeHitCommitted(conn, m, new(life, stageStarts), critical, spell: false,
+                WeaponProfileFor(conn, activeSet: true).Melee, new(), player,
+                attackEffect >= 0 ? Skills.EffectId(attackEffect) : null, attackOwn);
         }
         // At 0 the client's Life tick (0x141e6a190) stops notifying its listeners, so the mini life bar would keep the last
         // value: hide it with the stat its listener watches (hide_mini_life_bar).
@@ -576,15 +579,19 @@ partial class Program
         // Fireball's quality changes the actual explosion targets as well as its client skill radius.
         int impactRadius = Skills.EffectId(gem.Effect) == "Fireball"
             ? SkillRadius(conn, spell: true, gem.Effect, gem.Level, gem.Quality) : 0;
+        var chargeUse = new ChargeUse();
+        Dictionary<uint, int>? impactPlayer = null, impactCharacter = null, impactOwn = null;
         await FlyProjectile(remote, stream, ciphers, conn, (projectile.Id, speed), from, to, impact: impact, impactRadius: impactRadius, damageTo: m =>
         {
             // The player's stats (passives, items, auras) under the skill's own, as GemSkills sends them. Keep the hit's
             // types separate so conversion and per-type mitigation apply. An attack gem (Burning Arrow, Caustic Arrow …) has
             // no spell damage of its own: its hit is the weapon's, scaled by the skill's damage effectiveness, with the
             // attack's crit — the same split AreaSkillHit makes for the non-projectile gems.
-            var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-            var characterInputs = CharacterPlayerStats(conn);
-            var own = Skills.EffectStats(gem.Effect, gem.Level, gem.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            // One impact/explosion has one player snapshot: a charge gained from an earlier target cannot strengthen
+            // another target of the same committed contact while the explosion is still being resolved.
+            var player = impactPlayer ??= FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            var characterInputs = impactCharacter ??= CharacterPlayerStats(conn);
+            var own = impactOwn ??= Skills.EffectStats(gem.Effect, gem.Level, gem.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
             int chance = projectileHitPlan.CriticalChance(conn.Pools.AttackCriticalStrikeChance,
                 () => SpellCriticalStrike.Chance(Skills.SpellCritChance(gem.Effect, gem.Level), Stats, player, own,
                     conn.Pools.SpellCriticalStrikeChancePct));
@@ -599,7 +606,7 @@ partial class Program
                     Skills.AttackBaseMultiplier(gem.Effect, gem.Level)),
                 spellBase => SpellDamage.Packet(spellBase, name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0,
                         AddedEffectiveness(gem.Effect, gem.Level))
-                    .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: false, quality: gem.Quality)));
+                    .Convert(SkillConversion(characterInputs, gem.Effect, gem.Level, attack: false, quality: gem.Quality)));
             var rolls = GamblerFor(stats);
             hit = rolls.RollOutgoingHit(hit, Random.Shared);
             bool critical = rolls.IsCritical(chance, Random.Shared, OnLowLife(conn));
@@ -609,7 +616,10 @@ partial class Program
             int damage = (int)Math.Round(hit.MinTotal);
             GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical);
             return (damage, critical);
-        }, epoch: epoch, actionToken: cooldownUse is null || cooldownUse.Instant ? null : action);
+        }, epoch: epoch, actionToken: cooldownUse is null || cooldownUse.Instant ? null : action,
+            onApplied: (target, applied, critical) => ChargeHitCommitted(conn, target, applied, critical,
+                projectileHitPlan.Kind == SkillHitKind.Spell, MeleeAttack(conn, gem.Effect), chargeUse,
+                impactPlayer!, Skills.EffectId(gem.Effect), impactOwn, epoch));
     }
 
     // The radius in cells of a gem skill's hit around its aimed point (AreaSkillHit): its own
@@ -676,6 +686,7 @@ partial class Program
         }
         // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is.
         var appliedHits = new List<(uint Id, SpawnedMonster Target, MonsterHit Hit, int Damage, bool Critical)>();
+        var chargeUse = new ChargeUse();
         while (true)
         {
             if (!await WaitProjectileTime(conn, contactAt, epoch)) return;
@@ -706,7 +717,7 @@ partial class Program
                             Skills.AttackBaseMultiplier(gem.Effect, gem.Level)),
                         spellBase => SpellDamage.Packet(spellBase, name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0,
                                 AddedEffectiveness(gem.Effect, gem.Level))
-                            .Convert(ConversionFor(conn, gem.Effect, gem.Level, attack: false, quality: gem.Quality)));
+                            .Convert(SkillConversion(characterInputs, gem.Effect, gem.Level, attack: false, quality: gem.Quality)));
                     var rolls = GamblerFor(stats);
                     hit = rolls.RollOutgoingHit(hit, Random.Shared);
                     bool critical = rolls.IsCritical(criticalChance, Random.Shared, OnLowLife(conn));
@@ -715,6 +726,8 @@ partial class Program
                         HitResistancesFor(conn, m, player, skillStats, critical, attack: !spell), Random.Shared));
                     int damage = (int)Math.Round(hit.MinTotal);
                     if (ApplyMonsterHitLocked(conn, m, damage) is not { } applied) continue;
+                    ChargeHitCommitted(conn, m, applied, critical, spell, MeleeAttack(conn, gem.Effect), chargeUse,
+                        player, Skills.EffectId(gem.Effect), skillStats, epoch);
                     if (critical) ReserveWolfLocked(conn, hitAt);
                     GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical);
                     appliedHits.Add((id, m, applied, damage, critical));
@@ -743,7 +756,8 @@ partial class Program
     // monster in that explosion once, including the collision target; otherwise it retains the single-target hit.
     static async Task FlyProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (string Id, float CellsPerSecond) projectile, (int X, int Y) from, (int X, int Y) to, Func<SpawnedMonster, (int Damage, bool Critical)>? damageTo,
-        int epoch, bool log = true, string? impact = null, int impactRadius = 0, int? actionToken = null)
+        int epoch, bool log = true, string? impact = null, int impactRadius = 0, int? actionToken = null,
+        Action<SpawnedMonster, MonsterHit, bool>? onApplied = null)
     {
         uint id;
         lock (conn.Monsters) id = conn.NextObjectId++;
@@ -883,6 +897,7 @@ partial class Program
                                         var (damage, critical) = damageTo(target);
                                         if (ApplyMonsterHitLocked(conn, target, damage) is { } hit)
                                         {
+                                            onApplied?.Invoke(target, hit, critical);
                                             if (critical) ReserveWolfLocked(conn, hitAt);
                                             appliedHits.Add((monsterId, target, hit, damage, critical));
                                         }

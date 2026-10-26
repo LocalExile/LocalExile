@@ -111,6 +111,7 @@ partial class Program
 
     static async Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label)
     {
+        ChargesDied(conn);
         TemporaryPassiveBuffs.For(CharacterName(conn)).Clear();
         RageOf(conn).Clear();
         conn.Summons?.Clear(conn.SummonLease);
@@ -145,24 +146,35 @@ partial class Program
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 
-    static async Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task<bool> SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, Func<bool>? still = null)
     {
-        uint current; bool active, rateChanged;
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int rate = conn.PlayerLife == 0 ? 0 : (int)Math.Round(EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield,Get,conn.EnergyShield.Recharging));
-        lock (conn.Monsters)
+        bool currentRevision = false;
+        await SendGenerated(remote, stream, ciphers, () =>
         {
-            if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
-            current = conn.EnergyShield.Current; active = conn.EnergyShield.Recharging;
-            if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate) return;
-            conn.SentEnergyShield = current; conn.SentRechargeActive = active;
-            rateChanged = conn.SentEsRecoveryRate != rate;
-            conn.SentEsRecoveryRate = rate;
-        }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, current, pool: 2), $"0x01b1 player energy shield {current}/{conn.Pools.EnergyShield}");
-        if (rateChanged && Stats.Key("energy_shield_recovery_per_minute") is uint key)
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(key, rate)]), null);
+            lock (conn.Monsters)
+            {
+                if (still?.Invoke() == false) return null;
+                currentRevision = true;
+                if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
+                uint current = conn.EnergyShield.Current;
+                bool active = conn.EnergyShield.Recharging;
+                int currentRate = conn.PlayerLife == 0 ? 0
+                    : (int)Math.Round(EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
+                if (conn.SentEnergyShield == current && conn.SentRechargeActive == active
+                    && conn.SentEsRecoveryRate == currentRate) return null;
+                var packets = new List<byte[]> { InstanceProtocol.LifeUpdate(PlayerId, current, pool: 2) };
+                if (conn.SentEsRecoveryRate != currentRate && Stats.Key("energy_shield_recovery_per_minute") is uint key)
+                    packets.Add(InstanceEntities.StatsUpdate(PlayerId, [(key, currentRate)]));
+                conn.SentEnergyShield = current;
+                conn.SentRechargeActive = active;
+                conn.SentEsRecoveryRate = currentRate;
+                return packets.SelectMany(p => p).ToArray();
+            }
+        }, "0x01b1 current player energy shield/recovery");
+        return currentRevision;
     }
 
     static SkillCost CostFor(ClientState conn, int effect, int level, int quality)
@@ -245,8 +257,10 @@ partial class Program
         }
     }
     // Refresh a running gem in place after its effective level or quality changes, without paying another cast cost.
-    static async Task RefreshRighteousFireStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task RefreshRighteousFireStats(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, Func<bool>? still = null)
     {
+        if (still?.Invoke() == false) return;
         if (conn.RighteousFire is not { } rf) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == rf.Skill);
         if (gem.Name is null) return; // EndSkillEffects handles a gem that left the equipment.
@@ -262,35 +276,30 @@ partial class Program
         await rf.RingGate.WaitAsync();
         try
         {
-            uint? oldRing = null, replacement = null;
-            (int X, int Y) at = default;
-            lock (conn.Monsters)
+            // Charge-dependent radius can expire while waiting behind another encrypted send. Commit the radius,
+            // its replacement identity and the complete remove/create/wake transition at one admitted boundary.
+            await SendGenerated(remote, stream, ciphers, () =>
             {
-                if (!ReferenceEquals(conn.RighteousFire, rf)) return;
-                bool resized = rf.Refresh(Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),
-                    Get("base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute", 5400), radius,
-                    Get("base_nonlethal_fire_damage_%_of_maximum_energy_shield_taken_per_minute", 4200),
-                    Get("base_righteous_fire_%_of_max_energy_shield_to_deal_to_nearby_per_minute", 4200));
-                if (resized && rf.RingCreated && rf.Ring is uint ring && rf.RingArt is not null)
+                lock (conn.Monsters)
                 {
-                    oldRing = ring;
-                    replacement = conn.NextObjectId++;
-                    rf.Ring = replacement;
-                    at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    if (still?.Invoke() == false || !ReferenceEquals(conn.RighteousFire, rf)) return null;
+                    bool resized = rf.Refresh(Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),
+                        Get("base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute", 5400), radius,
+                        Get("base_nonlethal_fire_damage_%_of_maximum_energy_shield_taken_per_minute", 4200),
+                        Get("base_righteous_fire_%_of_max_energy_shield_to_deal_to_nearby_per_minute", 4200));
+                    if (!resized || !rf.RingCreated || rf.Ring is not uint old || rf.RingArt is not { } art) return null;
+                    uint next = conn.NextObjectId++;
+                    var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(art) ?? 400));
+                    var ringObject = new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale };
+                    byte[] packets = [.. InstanceProtocol.RemoveObject(old),
+                        .. InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob()),
+                        .. InstanceProtocol.EnterWakeZone(next)];
+                    rf.Ring = next;
                     rf.RingAt = at;
+                    return packets;
                 }
-            }
-            if (oldRing is uint old && replacement is uint next && rf.RingArt is { } art)
-            {
-                // Positioned scale is part of object creation. Replace only this visual object, keeping the actual RF.
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(old), "RF radius changed: replace its visual ring");
-                if (!ReferenceEquals(conn.RighteousFire, rf)) return;
-                float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(art) ?? 400));
-                var ringObject = new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale };
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob()),
-                    $"RF ring refreshed: radius {radius}, effective gem level {gem.Level}, quality {gem.Quality}");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(next), null);
-            }
+            }, $"RF ring refresh: radius {radius}, effective gem level {gem.Level}, quality {gem.Quality}");
         }
         finally { rf.RingGate.Release(); }
     }
@@ -458,6 +467,7 @@ partial class Program
                 recoveryStats = CharacterPlayerStats(conn);
                 burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
                     Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire))
+                    * (1 - ChargeEffects.Reduction(RecoveryStat).Elemental / 100.0)
                     * Math.Max(0, 1 + RecoveryStat("harbinger_channel_buff_damage_taken_+%_final") / 100.0);
                 (ratesAt, cachedRf) = (now, rf);
             }
@@ -530,6 +540,7 @@ partial class Program
         var stages = new List<(uint Id, SpawnedMonster M)>();
         var entered = new List<(uint Id, ushort Buff)>();
         var left = new List<(uint Id, ushort Buff)>();
+        var playerAtBurn = CharacterPlayerStats(conn);
         lock (conn.Monsters)
         {
             var here = conn.Walk.Position(now);
@@ -558,7 +569,12 @@ partial class Program
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);
                 m.Aggro = m.Life > 0;
-                if (m.Life == 0) { m.Dead = true; if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b)); }
+                if (m.Life == 0)
+                {
+                    m.Dead = true;
+                    ChargeKillCommitted(conn, m, playerKill: true, playerAtBurn);
+                    if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
+                }
                 hits.Add((id, m, m.Life, damage));
                 if (stageStarts) stages.Add((id, m));
             }
