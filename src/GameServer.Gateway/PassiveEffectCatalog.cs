@@ -11,6 +11,7 @@ sealed class PassiveEffectCatalog(string folder = "data")
     sealed record Attachments(Skill? Skill, IReadOnlyList<Buff> Buffs);
     readonly Lazy<IReadOnlyDictionary<ushort, Attachments>> entries = new(() => Load(folder));
     readonly ConcurrentDictionary<int, Lazy<Buff?>> templates = new();
+    readonly StatCatalog stats = new(folder);
 
     public Buff? Template(int id) => templates.GetOrAdd(id, key => new(() => LoadTemplate(folder, key))).Value;
 
@@ -22,7 +23,12 @@ sealed class PassiveEffectCatalog(string folder = "data")
     {
         var result = new Dictionary<uint, int>();
         foreach (var buff in Buffs(nodes).Where(b => b.AffectsOwner))
+        {
             foreach (var (key, value) in buff.Stats) result[key] = result.GetValueOrDefault(key) + value;
+            // Native BuffDefinitions 1094 is Tailwind. Its presence is separate from the signed action-speed value:
+            // Tailwind-effect modifiers must not scale a different source such as the Harbinger of Time.
+            if (buff.Definition == 1094 && stats.Key("has_tailwind") is uint marker) result[marker] = 1;
+        }
         return result;
     }
 

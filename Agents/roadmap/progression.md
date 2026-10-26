@@ -37,6 +37,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Current Rage, mana-spending grants, supported hit grants and the attack multiplier now execute and are native-checked.
   Incorruptible's full chaos-armour flag also executes through the common incoming-hit stage and survives paid refunds.
   Pack Mentality now has owned wolves, actual attacks and owner damage buffs, with native limit/refund/area checks.
+  Toughened Skin's body-only armour doubling also executes; its action/movement floors remain timing work.
   The [current class table](../docs/game/ascendancies.md#what-this-does-not-complete) distinguishes those effects.
 - **Start:** complete the missing signature subsystems in the
   [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,

@@ -818,6 +818,60 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Greatwolfs_Call_marks_actual_Tailwind_separately_from_other_action_speed_sources()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 3, baseClass: 2, choice: "Wildspeaker", level: 30, refundPoints: 60);
+        Assert.Equal(0, game.PlayerStat("has_tailwind"));
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 14442), true)).Error);
+        Assert.Equal(1, game.PlayerStat("has_tailwind"));
+        Assert.Equal(-8, game.PlayerStat("action_speed_-%"));
+        Assert.Equal(50, game.PlayerStat("tailwind_effect_on_self_+%"));
+        Assert.Null((await game.Change([14442], false, refundPoints: true)).Error);
+        Assert.Equal(0, game.PlayerStat("has_tailwind"));
+        Assert.Equal(0, game.PlayerStat("action_speed_-%"));
+    }
+
+    [Theory]
+    [InlineData("Chainmail Vest")]
+    [InlineData("Scale Vest")]
+    public async Task Toughened_Skin_doubles_only_body_armour_with_socketed_gems_and_preserves_other_defences(string bodyName)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", refundPoints: 60, level: 30);
+        var body = Program.Items.Find(bodyName)!;
+        game.Items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(body) with
+        {
+            Quality = 20,
+            Sockets = [new ItemSocket(SocketColour.Blue, ItemCatalog.Create(Program.Items.Find("Fireball")!))]
+        });
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(Program.Items.Find("Iron Hat")!));
+        await game.SetLevel(30);
+        var before = ProgramValue<(decimal Armour, decimal Evasion, int EnergyShield, int Life, decimal Ward)>(
+            "EquippedBaseDefences", game.State, null);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 37852), true)).Error);
+        var stats = Program.CharacterPlayerStats(game.State);
+        Func<string, int> get = name => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        Assert.Equal(1, get("damage_reduction_rating_from_body_armour_doubled"));
+        var doubled = ProgramValue<(decimal Armour, decimal Evasion, int EnergyShield, int Life, decimal Ward)>(
+            "EquippedBaseDefences", game.State, get);
+        int bodyArmour = (int)(Program.Items.Defences(body)!.Value.ArmourMin * 1.2m);
+        Assert.True(bodyArmour > 0);
+        Assert.Equal(before.Armour + bodyArmour, doubled.Armour);
+        Assert.Equal(before.Evasion, doubled.Evasion);
+        Assert.Equal(before.EnergyShield, doubled.EnergyShield);
+        Assert.Equal(before.Ward, doubled.Ward);
+        Assert.Equal((int)Math.Floor(doubled.Armour * (100 + game.State.Pools.ArmourPct) / 100), game.State.Pools.Armour);
+        Assert.Null((await game.Change([37852], false, refundPoints: true)).Error);
+        stats = Program.CharacterPlayerStats(game.State);
+        var refunded = ProgramValue<(decimal Armour, decimal Evasion, int EnergyShield, int Life, decimal Ward)>(
+            "EquippedBaseDefences", game.State, get);
+        Assert.Equal(before, refunded);
+    }
+
+    [Fact]
     public async Task Glimpse_Chaos_counts_only_active_equipped_corrupted_items()
     {
         if (!DataAvailable()) return;

@@ -68,9 +68,15 @@ be refunded while ordinary allocations still spend those points.
   remembered enabled intent is retained, as for unequipped aura gems.
 - Passive `BuffTemplates` attachments contribute owner stats and native buffs. Ghost of the Deep applies its actual
   movement, attack, cast and damage increases. Non-recovery buffs have no uncounted stat-value wire payload.
+  Tailwind's owner buff publishes `has_tailwind` separately from its signed speed value, so a timing consumer can
+  scale its effect without scaling another source such as a Harbinger buff.
+  Native allocation/refund checks cover the marker; generic action-speed timing remains a separate integration.
 - Oath of the Maji checks socket contents, doubles the body armour's local defences and applies its conditional
   resistance/life/movement bonuses. Glimpse Chaos counts active equipped corrupted items. Item-local defences include
   local modifiers and quality. Sanguine Power substitutes equipped armour's energy shield with life and prevents ES.
+- Toughened Skin doubles the equipped body's armour after local modifiers/quality, before global armour increases.
+  It leaves other slots and the body's evasion/ES unchanged, and works with socketed gems.
+  Its action/movement floors remain separate timing work.
 - Harbinger gains ES from maximum life/mana; its non-chaos bypass and Scavenger's Shavronne chaos absorption use the
   actual damage path. Skill costs check and spend life/mana together; Impure Blood uses life, Nightblood adds a life
   cost, and Whisperer's no-mana-cost modifier is enforced. Hewn Flesh uses life reservation efficiency and keeps life
@@ -114,7 +120,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
-| Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
+| Ancestral Commander | Life/armour modifiers; doubled body armour; Born under Fire's nearby conversion | Action floors, ancestors, totems, echoes and warcries |
 | Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance; chaos armour | Fortification, Rampage, Vaal Rage costs and remaining conditional bonuses |
 | Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
 | Wildspeaker | Suppression, Dexterity and Pack Mentality's owned wolves | Aspects, Tailwind, charge sharing and rare-mod theft |
@@ -142,6 +148,10 @@ Gateway integration checks allocate/refund real graph paths and invoke the produ
 They cover all three Paladin aura choices, free Envy, Ghost of the Deep, Oath socket conditions, corrupted equipment,
 Sanguine Power, Harbinger's extra ES, atomic life/mana costs, life reservation and nearby enemy modifiers.
 The core wire test distinguishes life reservation from mana reservation in the initial Player object.
+Toughened Skin's native test uses a socketed Chainmail Vest with 20 quality and an Iron Hat.
+Raw body armour 27 becomes 32 after quality; the helmet contributes 9.
+The node doubles only the body contribution, and its prerequisite's 8% armour makes the total `floor(73 × 1.08)=78`.
+Refunding only the notable gives `floor(41 × 1.08)=44`, retained after relog; energy shield stays unchanged.
 
 Native checks use fresh accounts in an isolated ignored database, not the user's existing characters.
 The local client casts passive-granted Determination and Envy without gems, retains enabled intent after relog,

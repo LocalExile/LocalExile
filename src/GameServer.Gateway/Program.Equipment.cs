@@ -24,7 +24,9 @@ partial class Program
                 int scale = row == PlayerInventories.BodyArmour && stat is not null
                     && stat("body_armour_defences_doubled_while_no_gems_in_body_armour") != 0
                     && equipped.Item.Sockets.All(s => s.Gem is null) ? 2 : 1;
-                int itemArmour = scale * Rating(d.ArmourMin + Local("local_base_physical_damage_reduction_rating"),
+                int armourScale = scale * (row == PlayerInventories.BodyArmour && stat is not null
+                    && stat("damage_reduction_rating_from_body_armour_doubled") != 0 ? 2 : 1);
+                int itemArmour = armourScale * Rating(d.ArmourMin + Local("local_base_physical_damage_reduction_rating"),
                     Local("local_physical_damage_reduction_rating_+%") + Local("local_armour_and_evasion_+%")
                     + Local("local_armour_and_energy_shield_+%") + Local("local_armour_and_evasion_and_energy_shield_+%"));
                 int itemEvasion = scale * Rating(d.EvasionMin + Local("local_base_evasion_rating")

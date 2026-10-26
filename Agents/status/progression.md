@@ -51,6 +51,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Antiquarian Ward conversion/restoration and timed Adrenaline have native hit/refund/area-transfer checks.
   Wildspeaker Pack Mentality has real owned wolves, combat AI, per-wolf damage, a limit and source-refund removal.
   Other minion families and most remaining Wildspeaker effects are unfinished.
+  Toughened Skin's body-only armour doubling is native-checked with quality, socketed gems, paid refund and relog.
   The unique mechanics of most classes and native Labyrinth/Altar acquisition remain incomplete.
   Code: `AscendancyCatalog.cs`, `AscendancyProgress.cs`, `CharacterSaves.cs`, `Program.Progression.cs`.
   Docs: [usage, implemented effects and limits](../docs/game/ascendancies.md),
