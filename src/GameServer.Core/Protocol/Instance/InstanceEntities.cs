@@ -498,6 +498,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     MonsterRarity Rarity = MonsterRarity.Normal, string? Name = null, StateMachineData? StateMachine = null, byte TransitionState = 1,
     ushort Team = 1, IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null)
 {
+    /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
+    public MonsterLifeData? LifeData { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -542,7 +545,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     break;
                 case "Buffs": w.U16(0); break;
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
-                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(0); break;
+                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
                     if (AnimatedObject is null) w.U8(0);
                     else w.U8(1).WStr32(AnimatedObject);

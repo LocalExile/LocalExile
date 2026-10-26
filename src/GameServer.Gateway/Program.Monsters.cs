@@ -86,7 +86,11 @@ partial class Program
         }
         var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, variety.StateMachine,
             MonsterEmerge.CreateState(variety, emerge, waits), team,
-            objectSkills, stats) { Mods = mods.Mods, NameWords = mods.NameWords };
+            objectSkills, stats)
+        {
+            Mods = mods.Mods, NameWords = mods.NameWords,
+            LifeData = owned ? variety.LifeData with { CorpseUsable = false } : variety.LifeData,
+        };
         SpawnedMonster State() => new($"{variety.Name}@{level}", conn.NewWalk(x, y, mods.Effects.MovementSpeed(variety.MovementSpeed)),
             variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
         {

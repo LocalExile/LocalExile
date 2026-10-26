@@ -111,6 +111,11 @@ G = global / static data.
 | `0x1435dd4e8` / `0x1421c2f40` | Vt / Fn | comp1 (stats-like) |
 | `0x14359f5f8` / `0x141e114d0` | Vt / Fn | comp3 |
 | `0x1435a7340` / `0x141e6c2f0` (pool `0x141e6be70`, flags `0x141e6c270`) | Vt / Fn | Life |
+| `0x141e254f0` / `0x141e25645` | Fn / Insn | Life type constructor / default `+e4..e7 = 00 00 00 01` (corpse usable true) |
+| `0x141e67720` / `0x1435a8920` | Fn / Str | Life boolean parser / `corpse_usable` → config `+e7` |
+| `0x141e66ec0` / `0x141e66f86` | Fn / Insn | Life type finalizer / sets `+e6` corpse-use veto when `Player` exists |
+| `0x141e67110` / `0x141e678d0` | Fn | Life factory / runtime constructor copies corpse and sinking config to `+26a/+26b` |
+| `0x141e6c610` | Fn | Corpse predicate: usability, Player veto, life, spectre restriction and stat-9525 fallback |
 | `0x1435a5030` / `0x141e56a80` | Vt / Fn | Animated |
 | `0x143466450` / `0x141e7dc10` | Vt / Fn | Player (xp setter `0x141e7f6b0`) |
 | `0x14359e078` / `0x1415d8cb0` → `0x141e1ee30` | Vt / Fn | Inventories component |

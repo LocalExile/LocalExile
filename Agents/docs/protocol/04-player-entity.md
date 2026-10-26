@@ -162,9 +162,36 @@ Three pools at component `+0x178`, `+0x1c8` and `+0x210` (presumably life, mana 
 | u32 | +0x28 | |
 | u32 | +0x40 | |
 
-Then u8 flags (`0x141e6c270`): bit0 → `+0x26a`, bit1 → `+0x26b`. The **maximum is not in the blob**: the client derives
+Then u8 flags (`0x141e6c270`): bit0 → `+0x26a` (corpse usable), bit1 → `+0x26b` (prevent corpse sinking).
+The **maximum is not in the blob**: the client derives
 it from stats (Witch level 1: life 50, mana 40). Live 2026-10-16: (50, 50, …) showed "Life 50/50 Reserved 50" and
 "Mana 50/40 Reserved 40"; with (current, 0, 0, 0, 0) and mana 40 the HUD shows "Life 50/50", "Mana 40/40" and full orbs.
+
+The Life type constructor `0x141e254f0` installs vtable `0x1435a6a70`.
+Its store at `0x141e25645` writes `0x01000000` to config `+0xe4`: bytes `00 00 00 01`.
+Thus `corpse_usable` at `+0xe7` defaults to true and `prevent_corpse_sinking` at `+0xe4` defaults to false.
+Boolean parser `0x141e67720` maps `corpse_usable` (`0x1435a8920`) and `prevent_corpse_sinking` to those fields.
+The finalizer `0x141e66ec0` looks up `Player` (`0x1435a92ec`) in the object's component map.
+It sets config `+0xe6` at `0x141e66f86` when that component exists; this is the ordinary corpse-use veto.
+Factory `0x141e67110`, through constructor `0x141e678d0`, copies config `+0xe7/+0xe4` to runtime `+0x26a/+0x26b`.
+Deserializer `0x141e6c2f0` unconditionally overwrites both runtime bytes from the trailing wire flags.
+These findings come from static examination of the primary 3.29.3b `Game.exe`, SHA-256
+`78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5`.
+
+Predicate `0x141e6c610` accepts the ordinary corpse path only with runtime `+0x26a`, no config veto and life below 1.
+With a skill context, target `is_spectre_corpse` (20977) requires `skill_is_minion_skill` (6339) and no
+`cannot_use_spectre_corpses` (20976); a non-minion skill or that restriction causes an early refusal.
+The early refusal precedes the fallback; a null skill context does not apply the spectre restriction.
+Otherwise target `is_usable_as_corpse_when_alive` (9525) provides a separate fallback, including on dead targets.
+A staged boss at life 1 therefore fails the ordinary path; a living object carrying wire bit0 is not yet a corpse.
+
+`ot_components.py` resolves inherited Life booleans and the component-derived veto in `object-types` manifest v3.
+Missing inheritance keeps unresolved fields null; explicit later overrides, including false, remain authoritative.
+`MonsterCatalog.Variety.LifeData` binds this record through `BaseMonsterTypeIndex`.
+`MonsterObject` writes the resolved bits; owned summons and companions force corpse usability false at creation.
+`MonsterLifeData.IsUsableAsCorpse` mirrors the source predicate and also excludes owned actors by server policy.
+It does not establish final death, corpse identity, availability or consumption.
+Native acceptance of the new flags and an actual Raise Zombie consumer remain pending.
 
 ### 4.5 Animated (`0x141e56a80`), 1 byte minimal
 

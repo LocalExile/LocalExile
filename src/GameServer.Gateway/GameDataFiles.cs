@@ -16,7 +16,7 @@ static class GameDataFiles
         ("data/tables/UniqueMaps.json", "unique map shop identities"),
         ("data/tables/Words.json", "item names"),
         ("data/tables/ItemVisualIdentity.json", "unique map artwork"),
-        ("data/object-types.json", "monsters (and which of them rise from the ground), NPCs, area transitions"),
+        ("data/object-types.json", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions"),
         ("data/item-types.json", "items"),
         ("data/area-transitions.json", "area transitions of fixed layouts"),
         ("data/room-points.json", "unique bosses, The Twilight Strand's encounters and support-gem chest"),

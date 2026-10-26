@@ -119,6 +119,24 @@ Actor level 84 is explicitly inferred from the granted effect's level requiremen
 it is not a native observation.
 
 Raw foreign-key tests distinguish table values, pinned OT flags and inferred actor-level provenance.
+Inherited Life data now resolves through each variety's `BaseMonsterTypeIndex`, with explicit false overrides retained.
+The primary executable proves a true `corpse_usable` default and a veto for types containing the `Player` component.
+Missing inheritance remains nullable and conservative.
+Raised Zombie and Summoned Spider types explicitly set `corpse_usable=false`; an ordinary Drowned type inherits true.
+`MonsterObject` now writes Life's trailing corpse/sinking flags instead of always clearing them.
+Owned actors force corpse usability false even when their source type would allow it.
+Source eligibility separates zero Life from living/staged actors and preserves spectre restrictions and stat 9525.
+Exact primary addresses and predicate order are in the
+[Life protocol reference](../protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+
+Extraction tests cover inheritance, missing parents, nested scripts, the pinned summon OT chains and Emerge regression.
+Core tests cover both wire bits, ordinary dead/alive eligibility, the Player veto, owned actors and native exceptions.
+Gateway tests bind synthetic and actual extracted varieties to the inherited record.
+The data contract advances `object-types` from manifest v2 to v3, preserving all prior component/action/Emerge fields.
+No client or server process was launched for this bounded prerequisite; native acceptance remains pending.
+The parent must verify one ordinary eligible death, an explicit ineligible type, a life-1 stage and owned false flags.
+Actual Raise Zombie still needs final-death registration, one-use reservation/consumption, selection and execution.
+Dead-object recreation also needs Actor's conditional death bytes before any corpse snapshot restoration is supported.
 Corpse radius, kill-attribution exceptions, at-cap policy, AI scheduling, native ownership and actual poison/contact
 behaviour still need their runtime implementation and client checks.
 

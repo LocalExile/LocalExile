@@ -25,9 +25,13 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Pack Mentality's wolves have actual ownership, friendly monster objects, combat AI and owner buffs.
   They use the minion life/damage columns and are excluded from ordinary instance monster snapshots.
   The three Visiting Harbingers now have separate native summon/buff cycles and owner-effect consumers.
+  Inherited Life corpse flags, the true native default and Player-component veto now have static proof and tests.
+  The new creation flags still need native acceptance; Zombie/Spider types retain their explicit false eligibility.
   [Verified data and limits](../docs/game/owned-summons.md).
 - **Start:** reuse the roster for the other Phrecia summon families, adding each source's exact behaviour and stats.
   `OwnedSummonCatalog` now resolves Zombie variants and Broodguard's Spider metadata; actor/trigger execution is open.
+  Build authoritative final-death registration and one-use corpse reservation/consumption before real Raise Zombie.
+  Preserve zero-Life, type, spectre and owned restrictions; dead snapshot restoration also needs Actor's death bytes.
   Complete Harbinger warp/ally application and shared action-speed/immunity consumers.
   This work is claimed in [#231](https://github.com/Wrathen/LocalExile/issues/231).
 - **Done when:** the granted summon families and their modifiers execute with source removal and native checks.

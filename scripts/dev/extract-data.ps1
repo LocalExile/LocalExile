@@ -24,8 +24,8 @@ $manifest = @(
        Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 1; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
-       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 2; Needs = @('tables')
-       UsedBy = 'monsters, NPCs, area transitions, hideout decorations (their components); which monsters wait to rise (basic actions, client scripts)' }
+       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 3; Needs = @('tables')
+       UsedBy = 'monsters, NPCs, area transitions, hideout decorations (components); monster emergence and inherited Life corpse flags' }
     @{ Name = 'item-types'; Outputs = @('data\item-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--items', '--json', 'data/item-types.json'); Version = 1; Needs = @('tables')
        UsedBy = 'items: starting items, /item, drops, affix rolls (tags)' }

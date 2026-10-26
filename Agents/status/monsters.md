@@ -71,7 +71,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Visiting Harbingers have their own summon/cast/buff cycles, native objects and source-refund removal.
   Arcane's effects and Focus's damage reduction execute; ally application and remaining timing effects are incomplete.
   Other summon families and their individual effects remain unfinished.
-  Zombie/Spider metadata has typed foreign-key tests; it does not yet spawn or execute those families.
+  Zombie/Spider metadata has typed foreign-key tests and inherited Life eligibility, with explicit false retained.
+  Life creation flags now preserve source corpse/sinking data; owned actors remain unusable as corpses.
+  Static proof and tests cover defaults, the Player veto and dead/alive restrictions; native acceptance is pending.
+  Corpse identity/consumption and actual Zombie/Spider execution remain unfinished.
   Code: `SummonRoster.cs`, `SpectralWolf.cs`, `MinionLeech.cs`, `Program.Summons.cs`.
   Docs: [owned summons](../docs/game/owned-summons.md).
   Docs: [Visiting Harbingers](../docs/game/harbinger-companions.md).
