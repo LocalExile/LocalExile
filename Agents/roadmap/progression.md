@@ -39,6 +39,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Pack Mentality now has owned wolves, actual attacks and owner damage buffs, with native limit/refund/area checks.
   Visiting Harbingers have actual companions, buff casts and owner effects, with explicit timing/immunity limits.
   Toughened Skin's body-only armour doubling also executes; its action/movement floors remain timing work.
+  Whaletooth Bangle's final duration stat is native-checked; verify elapsed lifetimes when integrating summon consumers.
   The [current class table](../docs/game/ascendancies.md#what-this-does-not-complete) distinguishes those effects.
 - **Start:** complete the missing signature subsystems in the
   [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,

@@ -20,11 +20,23 @@ partial class Program
 
     static SpectralWolf.Values? WolfValues(ClientState conn, IReadOnlyDictionary<uint, int> owner)
     {
+        Dictionary<uint, int> replacements;
+        int strength;
+        lock (conn.Monsters) { replacements = new(conn.PlayerStats); strength = conn.Pools.Strength; }
         int Get(string name) => Stats.Key(name) is uint key
-            ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : owner.GetValueOrDefault(key) : 0;
+            ? replacements.TryGetValue(key, out int replacement) ? replacement : owner.GetValueOrDefault(key) : 0;
+        int DurationAware(string name)
+        {
+            int raw = Get(name);
+            if (name != SkillDurationModifiers.IncreasedDuration
+                || Stats.Key(name) is uint durationKey && replacements.ContainsKey(durationKey)) return raw;
+            int finalStrength = Stats.Key("strength") is uint strengthKey && replacements.TryGetValue(strengthKey, out int value)
+                ? value : strength;
+            return SkillDurationModifiers.Total(raw, finalStrength, Get(SkillDurationModifiers.PerTenStrength));
+        }
         if (Get("trigger_level_20_summon_spectral_wolf_on_crit") == 0) return null;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => Skills.EffectId(g.Effect) == SpectralWolf.Effect);
-        return gem.Name is null ? null : SpectralWolf.For(Skills, Stats, gem.Effect, gem.Level, Get);
+        return gem.Name is null ? null : SpectralWolf.For(Skills, Stats, gem.Effect, gem.Level, DurationAware);
     }
 
     static void SummonStats(ClientState conn, Dictionary<uint, int> owner)

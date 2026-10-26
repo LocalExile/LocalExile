@@ -28,6 +28,13 @@ validate town/combat/character-switch round trips in the real client (protocol/1
 - **Known:** client stat key = Stats.dat row + 1 ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes names.
   The server must send final values (the client derives none): the attack's are computed in
   `SkillCatalog.Unarmed.Stats`.
+  Ordinary one-use cooldown recovery now shares the native base/rate and a server base-time budget, with atomic
+  preflight before action side effects.
+  Initial Dash recovery, early raw rejection, pause and native mid-cooldown rate changes pass live alongside
+  layout/send-gate checks; remaining base progress is retained without consuming another use.
+  Remaining cooldown work includes multi-use recharge, shared groups, bypass, typed/conditional/more recovery,
+  official tick boundaries and the separate location-instant C→S 0x190 contribution.
+  See [11](../docs/protocol/11-skills.md) §9.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
   The overcapped resistances' derived evasion and critical increases now follow that rule and are native-verified.
@@ -63,6 +70,8 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` percent of the maximum mana pool
   (Whisperer "we know all", [20](../docs/protocol/20-damage.md) §2b).
   General/attack penetration and critical elemental ignore now execute with native damage and combined-effect checks.
+  Spell-to-attack and minion-to-owner transfers plus final-defence attack scaling have production-path coverage.
+  Validate their real-client allocation/refund and damage behavior before moving them out of partial status.
   Special ES mechanics, exposure, ailment application, conditional added-damage stats and support
   modifiers remain open.
 - **Start:** special ES mechanics, exposure and the remaining conditional critical strike stats

@@ -105,6 +105,42 @@ Evidence stays in ignored `logs/phrecia-completion/whisperer-node-native.jsonl`.
 The weapon's physical base also uses the explicit attack/melee context, including increased attack damage;
 melee damage and Strength's melee-physical bonus do not apply to a ranged weapon base.
 
+### Derived increased damage
+
+`DerivedDamageIncreases` keeps generic and attack-only contributions separate from the raw integer source stats.
+Whisperer node 50932 grants `additive_spell_damage_modifiers_apply_to_attack_damage_at_150%_value`
+(key 11811 = 1), transferring `spell_damage_+%` to attacks at 1.5 times its signed value.
+Wildspeaker node 24394 grants `additive_minion_damage_modifiers_apply_to_you_at_150%_value`
+(key 12161 = 1), transferring supported minion increases/reductions into the owner's generic increased damage.
+Its `minion_damage_+%_per_5_dex` (key 2683 = 1) counts complete groups of five final Dexterity, including
+the node's 100 base Dexterity, and joins `minion_damage_+%` before the 1.5 transfer.
+These transfer stats are flags, not stored percentages.
+PoB 16de4b82 `CalcOffence.lua` lines 613–622 and 651–658 copy only Damage INC modifiers;
+more damage, speed and critical modifiers are not transferred.
+Conditional minion damage modifiers remain unsupported.
+
+Behemoth node 2103 contributes `floor(final armour / 450) * 2` increased attack damage (key 13019).
+Daughter of Oshabi node 6281 contributes `floor(final evasion / 450) * 3` (key 2434).
+They read the final ratings from `CharacterPlayerStats`, after defence and attribute modifiers.
+Steel Willed's separate chance to double armour against a hit does not alter this rating and remains unimplemented.
+Forest Tracking's tracker mechanic remains separate work.
+
+All four contributions join the ordinary increased bucket for both weapon base and added attack damage.
+The generic minion transfer also reaches both spell hit representations and hostile Righteous Fire damage.
+Spell-to-attack and defence-derived attack increases do not affect spells or damage over time.
+The typed double values retain a transferred 1% as 1.5% until the existing final panel/roll quantization.
+Conversion and gain-as-extra carry the scaled packet without applying the derived contribution again.
+Flat attack damage, maximum-mana lightning, explicit melee context and the final Rage multiplier retain their order.
+The per-hand physical panel rows use the same complete hit packet when supplied.
+Production-path tests cover the real node grants, final Dexterity, 449/450/899/900 defence boundaries,
+signed reductions, fractional transfers, source removal, spell/DoT exclusion and combined attack modifiers.
+Sixteen native checks allocate the four real paths, strike a controlled monster and pay to refund each source.
+With physical damage disabled and a fixed 100 added chaos hit, Whisperer 50932 produces 101 after final flooring,
+Wildspeaker 24394 produces 140 with the fixture's final Dexterity, Behemoth 2103 produces 104 from 900 armour,
+and Daughter 6281 produces 106 from 900 evasion.
+The native enemy's Life falls from 5146 to 5045, 5006, 5042 and 5040 respectively; each refund restores 100 damage.
+Ignored evidence: `logs/three-pr/native-phrecia-followups/damage-results.json`.
+
 ## 2c. Outgoing resistance, penetration and critical ignore
 
 `HitResistancesFor` combines player and skill penetration before other skill-stat overlays.

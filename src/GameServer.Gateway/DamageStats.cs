@@ -14,7 +14,7 @@ static class DamageStats
     public const string MaxManaAddedLightning = "attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana";
 
     public static DamagePacket Added(DamagePacket hit, Func<string, int> get, bool spell, bool melee,
-        double effectiveness = 1)
+        double effectiveness = 1, double additionalIncreasedPct = 0)
     {
         foreach (var type in Types)
         {
@@ -42,7 +42,7 @@ static class DamageStats
                 // so the caller passes whether this swing is actually melee: the default attack and the panel's
                 // main-hand rows by their weapon profile (an inactive weapon is not there; unarmed is melee) and an
                 // attack gem by its own ActiveSkillType Melee classification.
-                int increased = get("damage_+%") + get("attack_damage_+%") + (melee ? get("melee_damage_+%") : 0)
+                double increased = additionalIncreasedPct + get("damage_+%") + get("attack_damage_+%") + (melee ? get("melee_damage_+%") : 0)
                     + get($"{slug}_damage_+%")
                     + (DamageTypes.IsElemental(type) ? get("elemental_damage_+%") : 0);
                 range = range.Scale(Math.Max(0, 1 + increased / 100.0));

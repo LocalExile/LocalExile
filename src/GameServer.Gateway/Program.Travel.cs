@@ -22,14 +22,23 @@ partial class Program
         // A self-cast skill (Righteous Fire) targets the player itself: echo it in place, then cast.
         if (use.TargetId == PlayerId && Skills.IsGemSkill(use.SkillId))
         {
-            Interlocked.Increment(ref conn.ActionCount);
+            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
             double at = conn.Clock.Elapsed.TotalSeconds;
-            var self = conn.Walk.Position(at);
-            conn.Walk.Order(self.X, self.Y, at);
+            (int X, int Y) self = default;
+            if (!TryBeginCooldownUse(conn, gem.Effect,
+                gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                () =>
+                {
+                    Interlocked.Increment(ref conn.ActionCount);
+                    self = conn.Walk.Position(at);
+                    conn.Walk.Order(self.X, self.Y, at);
+                }, out var cooldownUse, skillId: use.SkillId)) return;
             await Send(remote, stream, ciphers,
                 InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
-                $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})");
-            await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence);
+                $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
+                still: () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? true);
+            await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence,
+                actionToken: cooldownUse?.ActionToken, cooldownUse: cooldownUse);
             return;
         }
         if (conn.Instance.Ground.Get(use.TargetId) is { } ground)

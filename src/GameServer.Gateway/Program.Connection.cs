@@ -284,8 +284,9 @@ partial class Program
     // `still`, when given, is checked inside the connection's send gate and drops the packet when false: a packet decided
     // before another task's packets were sent can check that it still applies (SendFlinch).
     // Projectile impacts commit their short locked damage mutation inside this gate before relocation.
-    static Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
-        Func<bool>? still = null) => SendGenerated(remote, stream, ciphers, () => bytes, log, still);
+    internal static Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
+        Func<bool>? still = null, Func<byte[]?>? atGate = null) =>
+        SendGenerated(remote, stream, ciphers, atGate ?? (() => bytes), log, still);
 
     // Build a state-dependent packet only after taking the cipher send gate. Returning null suppresses it without
     // consuming cipher bytes. Creature actions use this to commit their walk/cast and packet at the same point.

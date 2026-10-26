@@ -420,6 +420,166 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task The_Heralds_Apocalypse_node_boosts_its_herald_gems_and_a_refund_restores_them()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Herald", refundPoints: 60, level: 90);
+        var (type, variant) = Program.Items.FindGem("Herald of Ash")!.Value;
+        var gem = ItemCatalog.Create(type) with
+        {
+            GemExperience = Program.Items.Gem(type)!.ExperienceFor(20), Quality = 20, GemVariant = variant.Index,
+        };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        int effect = Program.Skills.EffectRow("HeraldOfAsh");
+        var before = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((20, 20), (before.Level, before.Quality));
+
+        ushort[] path = [5273, 20602, 48062, 2204, 2380, 49731, 18026, 40058]; // the Herald tree's path to Apocalypse.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var boosted = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((23, 20), (boosted.Level, boosted.Quality)); // Apocalypse: +3 to level of Herald skill gems.
+        var intrinsic = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((20, (byte)20), (Program.Items.GemLevel(intrinsic), intrinsic.Quality));
+        Assert.Equal(Program.Items.Gem(type)!.ExperienceFor(20), intrinsic.GemExperience);
+        Assert.Equal(70, Program.Skills.PlayerLevelReq(effect, 20)); // the requirements stay the intrinsic level's.
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        var restored = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((20, 20), (restored.Level, restored.Quality));
+        var savedGem = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((20, (byte)20), (Program.Items.GemLevel(savedGem), savedGem.Quality));
+    }
+
+    [Fact]
+    public async Task The_Paladins_Deep_Connections_node_boosts_its_link_gems()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 4, baseClass: 4, choice: "Paladin", refundPoints: 60, level: 90);
+        var (type, variant) = Program.Items.FindGem("Soul Link")!.Value;
+        var gem = ItemCatalog.Create(type) with { GemVariant = variant.Index };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        int effect = Program.Skills.EffectRow("SoulLink");
+        Assert.Equal(1, game.GemEffects().Single(g => g.Effect == effect).Level);
+
+        ushort[] path = [2134, 40171, 49271, 34448]; // the Paladin tree's path to Deep Connections.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var boosted = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((6, 0), (boosted.Level, boosted.Quality)); // Deep Connections: +5 to level of Link skill gems.
+        Assert.Equal(1, Program.Items.GemLevel(gem));
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(1, game.GemEffects().Single(g => g.Effect == effect).Level);
+    }
+
+    [Fact]
+    public async Task The_Architects_Chaos_Reigns_node_boosts_both_skills_of_a_Vaal_gem_and_not_a_plain_gems()
+    {        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Architect of Chaos", refundPoints: 60, level: 90);
+        var (vaalType, vaalVariant) = Program.Items.FindGem("Vaal Fireball")!.Value;
+        var (fireType, fireVariant) = Program.Items.FindGem("Fireball")!.Value;
+        var vaal = ItemCatalog.Create(vaalType) with { GemVariant = vaalVariant.Index };
+        var plain = ItemCatalog.Create(fireType) with { GemVariant = fireVariant.Index };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, vaal), new ItemSocket(SocketColour.Blue, plain)], Links = [0],
+        });
+        int vaalEffect = Program.Skills.EffectRow("VaalFireball"), fireEffect = Program.Skills.EffectRow("Fireball");
+        // The Vaal gem grants two skills at level 1 (its Vaal skill and its base skill); the plain gem its own Fireball.
+        Assert.Equal(2, game.GemEffects().Count(g => g.Gem == vaalType.Hash));
+        Assert.Single(game.GemEffects(), g => g.Gem == fireType.Hash);
+        Assert.All(game.GemEffects(), g => Assert.Equal(1, g.Level));
+
+        ushort[] path = [12195, 50314, 44996, 45399]; // the Architect of Chaos tree's path to Chaos Reigns.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var skills = game.GemEffects().ToList();
+        // The Vaal gem's bonus raises both skills its one gem grants (+3 to level of Vaal skill gems) …
+        Assert.All(skills.Where(g => g.Gem == vaalType.Hash), g => Assert.Equal((4, 0), (g.Level, g.Quality)));
+        // … and the plain Fireball is not a Vaal gem: it stays at its intrinsic level.
+        var plainFireball = skills.Single(g => g.Effect == fireEffect && g.Gem == fireType.Hash);
+        Assert.Equal((1, 0), (plainFireball.Level, plainFireball.Quality));
+        Assert.Equal(new DamageRange(18, 28), Program.Skills.HitDamage(vaalEffect, 4)[DamageType.Fire]);
+        Assert.Equal(new DamageRange(9, 14), Program.Skills.HitDamage(plainFireball.Effect, 1)[DamageType.Fire]);
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.All(game.GemEffects(), g => Assert.Equal(1, g.Level));
+    }
+
+    [Fact]
+    public async Task The_Puppeteers_Flesh_Puppets_node_boosts_the_raise_zombie_levels()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Puppeteer", refundPoints: 60, level: 90);
+        var (type, variant) = Program.Items.FindGem("Raise Zombie")!.Value;
+        var gem = ItemCatalog.Create(type) with
+        {
+            GemExperience = Program.Items.Gem(type)!.ExperienceFor(20), Quality = 15, GemVariant = variant.Index,
+        };
+        var helmetType = Program.Items.Find("Iron Hat")!;
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(helmetType) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        int effect = Program.Skills.EffectRow("RaiseZombie");
+        Assert.Equal(20, game.GemEffects().Single(g => g.Effect == effect).Level);
+
+        ushort[] path = [44410, 27380, 64248, 18817]; // the Puppeteer tree's path to Flesh Puppets.
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var boosted = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((25, 15), (boosted.Level, boosted.Quality)); // Flesh Puppets: +5 to level of Raise Zombie gems.
+        // The stored experience and quality are the intrinsic ones; the level still comes from them.
+        var intrinsic = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((Program.Items.Gem(type)!.ExperienceFor(20), (byte)15), (intrinsic.GemExperience, intrinsic.Quality));
+        Assert.Equal(20, Program.Items.GemLevel(intrinsic));
+
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        var restored = game.GemEffects().Single(g => g.Effect == effect);
+        Assert.Equal((20, 15), (restored.Level, restored.Quality));
+        var savedGem = game.Items.Items(PlayerInventories.Helmet).Single().Item.Sockets.Single().Gem!;
+        Assert.Equal((Program.Items.Gem(type)!.ExperienceFor(20), (byte)15), (savedGem.GemExperience, savedGem.Quality));
+    }
+
+    [Theory]
+    [InlineData(1, 3, "Herald", 40058, "Herald of Ash", 4)]
+    [InlineData(6, 5, "Architect of Chaos", 45399, "Vaal Fireball", 4)]
+    [InlineData(4, 4, "Paladin", 34448, "Soul Link", 6)]
+    [InlineData(6, 5, "Puppeteer", 18817, "Raise Zombie", 6)]
+    public async Task Family_gem_levels_follow_active_weapon_sets_and_a_new_connection(
+        int classRow, int baseClass, string choice, int notable, string gemName, int boostedLevel)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: classRow, baseClass: (byte)baseClass,
+            choice: choice, refundPoints: 60, level: 90, god: true);
+        var (type, variant) = Program.Items.FindGem(gemName)!.Value;
+        var gem = ItemCatalog.Create(type) with { GemVariant = variant.Index, Quality = 17 };
+        game.Items.Add(PlayerInventories.Weapon2, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)], Links = [0],
+        });
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, (ushort)notable), allocate: true)).Error);
+        Assert.DoesNotContain(game.GemEffects(), g => g.Gem == type.Hash);
+        game.Items.SwapWeaponSets();
+        var active = game.GemEffects().Where(g => g.Gem == type.Hash).ToArray();
+        Assert.NotEmpty(active);
+        Assert.All(active, g => Assert.Equal((boostedLevel, 17), (g.Level, g.Quality)));
+        var restored = game.GemEffects(game.Reload()).Where(g => g.Gem == type.Hash).ToArray();
+        Assert.Equal(active.Length, restored.Length);
+        Assert.All(restored, g => Assert.Equal((boostedLevel, 17), (g.Level, g.Quality)));
+        Assert.Equal((1, (byte)17), (Program.Items.GemLevel(gem), gem.Quality));
+        game.Items.SwapWeaponSets();
+        Assert.DoesNotContain(game.GemEffects(), g => g.Gem == type.Hash);
+    }
+
+    [Fact]
     public async Task Already_running_Clarity_and_Precision_refresh_when_ascendancy_gem_modifiers_change()
     {
         if (!DataAvailable()) return;
@@ -927,6 +1087,39 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Harbinger_recovery_changes_actual_Dash_budget_and_native_rate_without_dividing_native_base()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 1, baseClass: 3, choice: "Harbinger", refundPoints: 60, level: 20);
+        EquipBlueGems(game, "Dash");
+        var gem = Assert.Single(game.GemEffects());
+        SingleUseCooldown Plan() => ProgramValue<SingleUseCooldown?>("CooldownFor", game.State,
+            gem.Effect, gem.Level, gem.Quality)!.Value;
+        Assert.Equal(0, Plan().RecoveryPercent);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 3702);
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        var plan = Plan();
+        Assert.Equal(55, plan.RecoveryPercent);
+        Assert.Equal(2500, plan.BaseMilliseconds);
+        var player = ProgramValue<Dictionary<uint, int>>("CharacterPlayerStats", game.State);
+        var native = ProgramValue<IEnumerable<GrantedSkill>>("GemSkills", game.State,
+            player.Select(s => (s.Key, s.Value)).ToArray()).Single(s => s.Id == gem.Id);
+        Assert.Equal(2500u, native.CooldownMs);
+        Assert.Contains((Program.Stats.Key("virtual_cooldown_speed_+%")!.Value, 55), native.Stats!);
+        Assert.True(Program.TryBeginCooldownUse(game.State, gem.Effect, plan, false, () => { }, out var ticket));
+        var state = game.State.SingleUseCooldowns[gem.Effect];
+        Assert.Equal(2.5 / 1.55, state.RemainingSeconds, 6);
+        Assert.False(Program.TryBeginCooldownUse(game.State, gem.Effect, plan, false, () => { }, out _));
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0, Plan().RecoveryPercent);
+        Assert.Equal(1, state.Rate);
+        Assert.False(state.Ready); // Refund preserves an already spent use instead of resetting its budget.
+        Assert.Equal(2500, state.TotalBaseMilliseconds);
+        Assert.True(ticket!.Current(game.State));
+    }
+
+    [Fact]
     public async Task Impure_Blood_pays_actual_cast_life_and_refuses_unaffordable_cost_before_spending()
     {
         if (!DataAvailable()) return;
@@ -1428,6 +1621,64 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task One_area_contact_commits_all_targets_before_queued_notifications_or_cancels_before_contact(bool cancelBeforeContact)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(level: 100, god: true);
+        EquipBlueGems(game, "Ice Nova");
+        var first = new SpawnedMonster("first area target", new WalkEstimator(32, 32, 0), 0, 0, 100000);
+        var second = new SpawnedMonster("second area target", new WalkEstimator(34, 32, 0), 0, 0, 100000);
+        game.State.Monsters[0x4000] = first;
+        game.State.Monsters[0x4001] = second;
+        await game.AreaWithQueuedNotification("Ice Nova", cancelBeforeContact, () =>
+        {
+            Assert.True(first.Life < 100000);
+            Assert.True(second.Life < 100000);
+        });
+        if (cancelBeforeContact)
+        {
+            Assert.Equal(100000u, first.Life);
+            Assert.Equal(100000u, second.Life);
+        }
+        else
+        {
+            Assert.True(first.Life < 100000);
+            Assert.True(second.Life < 100000);
+        }
+    }
+
+    [Fact]
+    public async Task Wolf_duration_uses_final_strength_once_and_respects_an_explicit_final_duration_override()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 3, baseClass: 2, choice: "Wildspeaker", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 26963), true)).Error);
+        uint perTen = Program.Stats.Key(SkillDurationModifiers.PerTenStrength)!.Value;
+        uint duration = Program.Stats.Key(SkillDurationModifiers.IncreasedDuration)!.Value;
+        uint strength = Program.Stats.Key("strength")!.Value;
+        game.State.Pools = game.State.Pools with { Strength = 455 };
+        game.State.PlayerStats[perTen] = 1;
+        SpectralWolf.Values Values()
+        {
+            var raw = ProgramValue<Dictionary<uint, int>>("CharacterStatSources", game.State, null, null);
+            return ProgramValue<SpectralWolf.Values>("WolfValues", game.State, raw);
+        }
+        Assert.Equal(43500, Values().DurationMs);
+        Assert.Equal(45, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Equal(43500, Values().DurationMs); // A panel rebuild does not become another duration source.
+        game.State.PlayerStats[strength] = 459;
+        Assert.Equal(43500, Values().DurationMs);
+        game.State.PlayerStats[strength] = 460;
+        Assert.Equal(43800, Values().DurationMs);
+        game.State.PlayerStats[duration] = -90;
+        Assert.Equal(3000, Values().DurationMs);
+        Assert.Equal(-90, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+    }
+
+    [Theory]
     [InlineData(20105)]
     [InlineData(18859)]
     [InlineData(60867)]
@@ -1626,6 +1877,30 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 
+    [Fact]
+    public async Task Whaletooth_Bangle_derives_duration_once_from_final_Strength_and_paid_refund_removes_it()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Antiquarian", refundPoints: 60, level: 20);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        ushort[] path = PathTo(definition, 27339);
+        Assert.Equal(0, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        Assert.Equal(1, game.PlayerStat(SkillDurationModifiers.PerTenStrength));
+        Assert.Equal(game.State.Pools.Strength / 10, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Equal(game.State.Pools.Strength / 10, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        var reloaded = game.Reload();
+        var stats = ProgramValue<Dictionary<uint, int>>("CharacterPlayerStats", reloaded);
+        Assert.Equal(game.State.Pools.Strength / 10, stats[Program.Stats.Key(SkillDurationModifiers.IncreasedDuration)!.Value]);
+        await game.Command("/set_stat strength 455");
+        Assert.Equal(45, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Null((await game.Change(path, allocate: false, refundPoints: true)).Error);
+        Assert.Equal(0, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+        Assert.Null((await game.Change(path, allocate: true)).Error);
+        await game.Command("/set_stat skill_effect_duration_+% 20");
+        Assert.Equal(20, game.PlayerStat(SkillDurationModifiers.IncreasedDuration));
+    }
+
     // These integration tests are in a nonparallel collection. Preserve developer projectile overrides while using a
     // short deterministic flight and the known collision geometry; the real damage/target paths still execute.
     sealed class ProjectileTestSettings : IDisposable
@@ -1770,8 +2045,8 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             return state;
         }
 
-        public IReadOnlyList<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemEffects() =>
-            ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)EffectsMethod.Invoke(null, [State])!).ToArray();
+        public IReadOnlyList<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemEffects(ClientState? state = null) =>
+            ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)EffectsMethod.Invoke(null, [state ?? State])!).ToArray();
 
         public int SkillRadius((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem)
         {
@@ -1797,7 +2072,7 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             {
                 await (Task)FlyProjectileMethod.Invoke(null, ["ascendancy-integration", stream, cipher, State,
                     ("Metadata/Projectiles/Fireball", 100_000f), (80, 100), (100, 100), damage,
-                    State.ProjectileEpoch, false, "none", radius])!;
+                    State.ProjectileEpoch, false, "none", radius, null])!;
                 return null;
             });
 
@@ -1807,12 +2082,40 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
             var result = await Exchange(async (stream, cipher) =>
             {
                 var gem = GemEffects().Single(g => g.Name == name);
+                var plan = ProgramValue<SingleUseCooldown?>("CooldownFor", State, gem.Effect, gem.Level, gem.Quality);
+                if (!Program.TryBeginCooldownUse(State, gem.Effect, plan, false, () => { }, out var ticket, skillId: gem.Id))
+                    return null;
                 accepted = await (Task<bool>)CastMethod.Invoke(null,
-                    ["ascendancy-integration", stream, cipher, State, gem.Id, (32, 32), (48, 32), 0u, (ushort)0])!;
+                    ["ascendancy-integration", stream, cipher, State, gem.Id, (32, 32), (48, 32), 0u, (ushort)0, null, ticket])!;
                 return null;
             });
             return (accepted, result.Bytes);
         }
+
+        public Task<(string? Error, byte[] Bytes)> AreaWithQueuedNotification(string name, bool cancelBeforeContact,
+            Action whileNotificationQueued) => Exchange(async (stream, cipher) =>
+        {
+            var gem = GemEffects().Single(g => g.Name == name);
+            var ticket = new CooldownUseTicket(gem.Effect, State.ActionCount, State.ProjectileEpoch, false);
+            var gate = Program.SendGates.GetValue(cipher, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync();
+            Task pending;
+            try
+            {
+                if (cancelBeforeContact) State.ActionCount++;
+                pending = ProgramValue<Task>("AreaSkillHit", "ascendancy-integration", stream, cipher, State,
+                    gem.Id, gem, (32, 32), (32, 32), true, (ushort)0, null, ticket);
+                if (!cancelBeforeContact)
+                {
+                    Assert.False(pending.IsCompleted);
+                    whileNotificationQueued();
+                    State.ActionCount++;
+                }
+            }
+            finally { gate.Release(); }
+            await pending;
+            return null;
+        });
 
         public Task<(string? Error, byte[] Bytes)> RefreshTemporary() => Exchange(async (stream, cipher) =>
         {

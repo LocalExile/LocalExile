@@ -152,12 +152,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Main ascendancy effects execute through the existing combat and skill paths.
   Initial support includes active-gem level/quality, attributes/requirements, ordinary-point grants,
   lucky/unlucky hit and block rolls, triple damage and hit resistance rules.
+  The Phrecia family gem-level stats raise their families' gems too (Herald, Vaal, Link, Raise Zombie), classified
+  from the client's own gem metadata by `SkillGemFamilies.cs`; twelve native level/refund checks pass.
   Gem changes refresh retained auras and Righteous Fire, including its life and energy-shield coefficients.
   Spell-use, spell-damage and aura restrictions have separate rules; aura suspension preserves enabled intent.
   Real-client checks cover an Aristocrat Fireball cast and native point grants/refunds.
   Controlled Gateway tests cover actual impact targets, aura reservation/effects, restrictions and refund/reload.
+  Typed derived damage supports Whisperer's 150% spell-to-attack and Wildspeaker's 150% minion-to-owner transfer.
+  Wildspeaker counts supported minion damage per five final Dexterity; generic damage reaches owner spells and RF.
+  Steel Willed and Forest Tracking scale attack increases from complete groups of 450 final armour/evasion.
+  Fractional transfers join base and added damage before conversion and Rage.
+  Sixteen native checks cover real-node allocation, fixed hits reaching enemy Life and paid refunds for four sources.
   Most Phrecia signature mechanics remain absent; selecting a class does not implement its entire tree.
-  Code: `PassiveGemModifiers.cs`, `GamblerModifiers.cs`, `SkillRestrictions.cs`, Gateway skill/combat partials.
+  Code: `PassiveGemModifiers.cs`, `SkillGemFamilies.cs`, `GamblerModifiers.cs`, `SkillRestrictions.cs`, Gateway skill/combat partials.
   Docs: [implemented effects by class](../docs/game/ascendancies.md#what-this-does-not-complete).
 
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
@@ -192,8 +199,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Instant skills and cooldowns (verified live 2026-10-21).** Haste, the Purities and Righteous Fire carry
   `skill_is_instant`, so the client sends them as C→S 0x191 and keeps walking;
   the server applies them and answers S→C 0x1ce, which starts the skill bar's cooldown.
-  Skill records carry the GEPL Cooldown and the stats the cooldown count, and the server refuses a skill until its
-  cooldown is over.
+  Skill records retain GEPL Cooldown as the native base and carry the cooldown count.
+  Ordinary one-use spells/attacks now resolve player and skill generic recovery once, and the server keeps remaining
+  base-time budget through stat changes and pause.
+  Preflight reserves before action/movement/echo side effects; queued effects retain the original action/area ticket.
+  Real-client Dash initial +100%/-50% recovery, early raw rejection without movement/echo/mana, and pause checks pass.
+  The native positive-rate cache required an explicit cooldown-state refresh after skill-stat changes;
+  this preserves remaining/total base time at the send gate without consuming another use.
+  Native Dash mid-cooldown recovery changes now pass live: one entry changes rate with base/total/progress preserved,
+  early input has no echo/cost, and reuse succeeds after native expiry.
+  Wire, active/expired/zero-rate and queued encrypted-send checks also pass.
+  Multi-use, duplicate same-effect gems, shared groups, extra uses, bypass, typed/conditional/more recovery and official
+  tick equivalence remain outside this slice.
+  Frostblink's location-instant 0x190 input is a separate contribution and is not implemented in this slice.
   The skill bar keeps its slots when skills are re-sent or a gem is socketed again (the saved bar goes out as 0x53)
   ([11](../docs/protocol/11-skills.md) §9, §11).
 - **Auras (the simple set is verified live).** Reservation is read from GrantedEffectsPerLevel (`ManaReservationFlat`

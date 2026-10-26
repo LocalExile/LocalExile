@@ -22,6 +22,49 @@ public class PassiveGemModifiersTests
     }
 
     [Fact]
+    public void A_family_stat_composes_with_the_global_active_bonus_once()
+    {
+        var mods = new PassiveGemModifiers(SkillLevels: 1, SkillQuality: 20,
+            FamilyLevels: [("herald_skill_gem_level_+", 3), ("raise_zombie_gem_level_+", 5)]);
+
+        // The Herald gems: the global +1 and their family's +3 in one sum, clamped once.
+        Assert.Equal((24, 37), mods.Apply(20, 17, family: stat => stat == "herald_skill_gem_level_+"));
+        // Raise Zombie: +5 of its own stat.
+        Assert.Equal((26, 37), mods.Apply(20, 17, family: stat => stat == "raise_zombie_gem_level_+"));
+        // A gem of no family (Fireball): only the global bonus.
+        Assert.Equal((21, 37), mods.Apply(20, 17, family: _ => false));
+        // A gem of two families sums both.
+        Assert.Equal((29, 37), mods.Apply(20, 17, family: _ => true));
+        // Without a family classifier only the global bonus applies.
+        Assert.Equal((21, 37), mods.Apply(20, 17));
+    }
+
+    [Fact]
+    public void The_family_stats_never_reach_a_support_gem()
+    {
+        var mods = new PassiveGemModifiers(SkillLevels: 1, SkillQuality: 20, NonExceptionalSupportLevels: 4,
+            FamilyLevels: [("vaal_skill_gem_level_+", 3)]);
+
+        // The Vaal supports carry the Vaal tag (Vaal Sacrifice Support), but the family stats raise skill gems only.
+        Assert.Equal((24, 17), mods.Apply(20, 17, support: true, family: _ => true));
+        Assert.Equal((3, 17), mods.Apply(3, 17, support: true, exceptional: true, family: _ => true));
+        // Without the family classifier the supports are the same.
+        Assert.Equal((24, 17), mods.Apply(20, 17, support: true));
+    }
+
+    [Fact]
+    public void Removing_a_family_stat_restores_the_intrinsic_level_and_reductions_do_not_underflow()
+    {
+        var intrinsic = (Level: 20, Quality: 17);
+        var with = new PassiveGemModifiers(FamilyLevels: [("link_skill_gem_level_+", 5)]);
+        Assert.Equal((25, 17), with.Apply(intrinsic.Level, intrinsic.Quality, family: _ => true));
+        Assert.Equal((20, 17), default(PassiveGemModifiers).Apply(intrinsic.Level, intrinsic.Quality, family: _ => true));
+        Assert.Equal((1, 10), new PassiveGemModifiers(FamilyLevels: [("link_skill_gem_level_+", -5)]).Apply(1, 10, family: _ => true));
+        Assert.Equal((int.MaxValue, int.MaxValue),
+            new PassiveGemModifiers(int.MaxValue, int.MaxValue, FamilyLevels: [("herald_skill_gem_level_+", 3)]).Apply(20, 20, family: _ => true));
+    }
+
+    [Fact]
     public void Removing_bonuses_restores_the_intrinsic_properties_and_reductions_do_not_underflow()
     {
         Assert.Equal((1, 0), new PassiveGemModifiers(-4, -30).Apply(1, 10));

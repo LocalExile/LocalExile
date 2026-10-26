@@ -35,6 +35,7 @@ partial class Program
     // stat only an unequipped item or a refunded passive gave) goes with 0, so the client does not keep its old value.
     static List<(uint, int)> PlayerStatsWithCleared(ClientState conn)
     {
+        RefreshSingleUseCooldowns(conn);
         var stats = FinalPlayerStats(conn).ToList();
         var now = stats.Select(s => s.Item1).ToHashSet();
         lock (conn.Monsters)
@@ -101,6 +102,11 @@ partial class Program
         HashSet<uint> devSet;
         lock (conn.Monsters) devSet = [.. conn.PlayerStats.Keys];
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        // Whaletooth Bangle derives duration from complete groups of final Strength. Work from fresh raw inputs each
+        // time; never feed a previously derived duration back into this sum. A direct developer final-stat override wins.
+        if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))
+            stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
+                Get("strength"), Get(SkillDurationModifiers.PerTenStrength));
         var (mainLocal, offLocal) = HandLocalStats(conn);
         foreach (var (stat, value) in PanelStats.Compute(Get, n => mainLocal.GetValueOrDefault(n), n => offLocal.GetValueOrDefault(n))
             .Concat(PanelStats.FromPools(Get, conn.Pools))
@@ -132,9 +138,14 @@ partial class Program
 
     // Conversion for one hit: the player's stats plus the skill's own stats (base/skill conversion). Player stats win on
     // a key collision; the normal case is that the skill adds stats the player does not have.
-    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
-        DamageStats.Added(weapon.HitDamage(stats, melee), name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell: false, melee)
-            .Scale(Math.Max(0, 1 + (Stats.Key("attack_damage_+%_final_from_rage") is uint rage ? stats.GetValueOrDefault(rage) : 0) / 100.0));
+    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var derived = DerivedDamageIncreases.From(Get);
+        return DamageStats.Added(weapon.HitDamage(stats, melee, derived.AttackPercent), Get, spell: false, melee,
+                additionalIncreasedPct: derived.AttackPercent)
+            .Scale(Math.Max(0, 1 + Get("attack_damage_+%_final_from_rage") / 100.0));
+    }
 
     static GamblerModifiers GamblerFor(IReadOnlyDictionary<uint, int> stats) =>
         GamblerModifiers.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
@@ -290,8 +301,10 @@ partial class Program
     {
         var playerStats = new Dictionary<uint, int>();
         foreach (var (key, value) in player ?? []) playerStats[key] = value;
+        var gems = GemSkillEffects(conn).ToArray();
+        var singleSources = gems.GroupBy(g => g.Effect).Where(g => g.Count() == 1).Select(g => g.Key).ToHashSet();
         var skillCosmetics = CharacterSaves.SkillCosmetics(CharacterName(conn));
-        foreach (var (id, effect, name, level, quality, gem) in GemSkillEffects(conn))
+        foreach (var (id, effect, name, level, quality, gem) in gems)
         {
             var stats = Skills.EffectStatsFor(effect, level, quality, playerStats);
             var cost = CostFor(conn, effect, level, quality);
@@ -300,6 +313,9 @@ partial class Program
             if (Stats.Key("base_mana_cost") is uint baseManaCost) stats[baseManaCost] = (int)cost.Mana;
             if (Stats.Key("base_life_cost") is uint baseLifeCost) stats[baseLifeCost] = (int)cost.Life;
             var own = Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            if (singleSources.Contains(effect) && SingleUseCooldown.ForSkill(Skills, Stats, effect, level, playerStats, own) is { } cooldown
+                && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
+                stats[recoveryKey] = cooldown.RecoveryPercent;
             if (Skills.IsSpell(effect) && !Skills.IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SpellCriticalStrike.Chance(Skills.SpellCritChance(effect, level), Stats, playerStats, own);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
@@ -492,6 +508,9 @@ partial class Program
     // its base skill (ItemCatalog.GemEffects). Each skill keeps its id while its gem stays socketed (GemSkillIds): the client
     // binds skill bar keys by skill id. A gem whose requirements the character does not meet makes its item inactive
     // (CharacterStatSources), so it grants nothing here; a use that still arrives is refused (GemDisabled).
+    // The effective level is the gem's plus the global active-gem bonus and the family stats its gem belongs to
+    // (PassiveGemModifiers, SkillCatalog.FamilyStatRaises): one composition per skill the gem grants, so a Vaal gem's
+    // two skills share the boosted level. Supports grant no skills and never reach the bonuses.
     static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(ClientState conn)
     {
         string name = CharacterName(conn);
@@ -508,7 +527,9 @@ partial class Program
         for (int i = 0; i < gems.Count; i++)
             if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
             {
-                var (level, quality) = modifiers.Apply(Items.GemLevel(gems[i].Gem), gems[i].Gem.Quality);
+                int gemRow = Items.ByHash(gems[i].Gem.TypeHash)?.Row ?? -1;
+                var (level, quality) = modifiers.Apply(Items.GemLevel(gems[i].Gem), gems[i].Gem.Quality,
+                    family: stat => Skills.FamilyStatRaises(stat, gemRow));
                 yield return (id, gems[i].Effect, Items.GemName(gems[i].Gem), level, quality, gems[i].Gem.TypeHash);
             }
         // Inventory item ids start at one. Host zero is reserved for passive attachments, so adding/removing a
@@ -592,6 +613,7 @@ partial class Program
         await SendWardState(remote, stream, ciphers, conn);
         bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn);
         await RefreshRighteousFireStats(remote, stream, ciphers, conn);
+        RefreshSingleUseCooldowns(conn);
         var skills = PlayerSkills(conn);
         var gone = conn.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
         var added = skills.Select(s => s.Id).Where(id => !conn.ClientSkillIds.Contains(id)).ToList();
@@ -599,6 +621,7 @@ partial class Program
         await Send(remote, stream, ciphers, InstanceEntities.PlayerSkillsChange(PlayerId, skills, gone),
             $"0x02ba player Actor: {skills.Count} skill(s) with {skills.Sum(k => k.Stats?.Count ?? 0)} stats" +
             (gone.Count > 0 ? $", remove skill(s) {string.Join(", ", gone.Select(id => $"0x{id:x4}"))}" : ""));
+        await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
         IReadOnlyList<AuraCatalog.Aura> resumed = [];
         lock (conn.Monsters)

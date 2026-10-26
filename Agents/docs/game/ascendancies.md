@@ -126,19 +126,19 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; doubled body armour; Born under Fire's nearby conversion | Action floors, ancestors, totems, echoes and warcries |
-| Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance; chaos armour | Fortification, Rampage, Vaal Rage costs and remaining conditional bonuses |
-| Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
-| Wildspeaker | Suppression, Dexterity and Pack Mentality's owned wolves | Aspects, Tailwind, charge sharing and rare-mod theft |
-| Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage | Recoup, mana damage absorption, blind and projectile forks |
-| Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
+| Behemoth | Mana; unarmed crit; Rage; chaos armour; armour-scaled attacks | Fortification, Rampage, Vaal costs |
+| Antiquarian | Ward/Adrenaline; Strength duration | Far Shot, stun and ranged/shield rules |
+| Wildspeaker | Suppression; Dexterity; owned wolves; minion damage transfer | Aspects, Tailwind and sharing |
+| Whisperer | Mana, lightning, free costs, Rage; spell-to-attack | Recoup, absorption, blind, forks |
+| Daughter of Oshabi | Oath; evasion-scaled attacks | Tracking, Wisps, Shrines, Vines, Spellslinger |
 | Harbinger | Extra ES/bypass, three actual companions, Arcane effects and Focus damage reduction | Ally-wide buffs, action-speed timing and remaining time effects |
-| Herald | Shared choice-node allocation and supported generic modifiers | Actual Herald effects/minions and Herald-specific gem/reservation rules |
+| Herald | Shared choice-node allocation, Apocalypse's Herald-gem levels and supported generic modifiers | Actual Herald effects/minions and Herald-specific reservation rules |
 | Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |
 | Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Support-gem execution and conditional ailment immunity |
 | Gambler | Hit/critical/block luck, triple damage and hit resistance rules | Ailment/stun avoidance and further enemy resistance sources |
-| Paladin | Granted auras and Light of Divinity's nearby elemental damage taken | Ground, Links, Relics and party sharing |
-| Architect of Chaos | Equipped corruption conditions, life reservation and life cost | Dissolution, sacrifices and Vaal souls |
-| Puppeteer | Percentage Strength | Owned minions, inheritance, corpses and minion-death effects |
+| Paladin | Granted auras, Deep Connections's Link-gem levels and Light of Divinity's nearby elemental damage taken | Ground, Links, Relics and party sharing |
+| Architect of Chaos | Equipped corruption conditions, Chaos Reigns's Vaal-gem levels, life reservation and life cost | Dissolution, sacrifices and Vaal souls |
+| Puppeteer | Percentage Strength and Flesh Puppets's Raise Zombie gem levels | Owned minions, inheritance, corpses and minion-death effects |
 | Polytheist | Gruthkul life/regeneration, Brine King maximum cold resistance, Lunaris spell area | Charges, Blind, curses, ailments and triggered effects |
 | Servant of Arakaali | Free passive-granted level 15 Envy | Spiders, Webs, Penance Mark and minion effects |
 | Blind Prophet | Armed critical base override and supported generic modifiers | Blind, projectile returns/direction and Shade Form |
@@ -150,8 +150,18 @@ charges, and a skill's table entry does not grant or execute that skill.
 ### Passive attachments, costs and nearby effects
 
 Gateway integration checks allocate/refund real graph paths and invoke the production skill, stat and damage methods.
+Whaletooth Bangle 27339 adds one increased skill-duration point per complete ten final Strength, once per stat rebuild.
+Allocation, paid refund, reload and final-attribute inputs have Gateway coverage.
+Five native stat checks give 455/459 Strength -> 45 duration, 460 -> 46, and paid refund -> 0.
+Elapsed summon-lifetime composition is a separate integration check.
+The pure duration helper is available to summon-lifetime consumers without assigning owner duration to minion buffs.
 They cover all three Paladin aura choices, free Envy, Ghost of the Deep, Oath socket conditions, corrupted equipment,
 Sanguine Power, Harbinger's extra ES, atomic life/mana costs, life reservation and nearby enemy modifiers.
+They also cover the four family gem-level nodes (Apocalypse, Chaos Reigns, Deep Connections, Flesh Puppets): a
+socketed gem's effective level rises with the node and falls back to its intrinsic level on refund, while the stored
+experience, quality and requirements stay intrinsic.
+Twelve native skill-record checks cover all four families and paid refunds, including both skills of a Vaal gem.
+Ignored evidence for these continuations is under `logs/three-pr/native-phrecia-followups/`.
 The core wire test distinguishes life reservation from mana reservation in the initial Player object.
 Toughened Skin's native test uses a socketed Chainmail Vest with 20 quality and an Iron Hat.
 Raw body armour 27 becomes 32 after quality; the helmet contributes 9.
