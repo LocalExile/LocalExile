@@ -68,12 +68,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Incoming fixed-message framing also recognizes C→S `0x020a` (3 bytes) and `0x0059` (16 bytes).
-  Primary client writers establish these lengths; all TCP splits and coalesced tick/chat regression tests cover them.
-  Their gameplay semantics and the causal chain of a prior intermittent transfer wide-string error remain unproven.
-  Other unknown message ids still stop framing the current read.
-  Code: `InstanceProtocol.cs`, `InstanceFixedMessageFramingTests.cs`.
-  Docs: [02](../docs/protocol/02-instance-connection.md#fixed-incoming-messages-without-implemented-semantics).
 - **Positions are estimated, not simulated.** The Gateway estimates where the player is from clicks, walk speed and
   the walk map; there is no server-side pathing or collision.
 - **Spawn points.** Logins, Resurrect in Town and one-way entries other than The Twilight Strand → Lioneye's Watch use

@@ -150,30 +150,4 @@ every 0x1b with 0x1c, whose u32 must carry idle HNC bytes: see [07](07-latency-v
 4. decrypt and hex-log client bytes. On the first chunk starting `00 7D`: send 0x22, 0x2b9, 117 × 0xc0, 0x3d and,
    if `Game_GATEWAY_ENTER=1`, 0x21 (see [03](03-area-and-world.md), [04](04-player-entity.md), [05](05-inventories-and-ui.md))
 
-### Fixed incoming messages without implemented semantics
-
-The stream has no length prefix, and a TCP read can contain a partial message or several messages.
-`SplitClientMessages` carries incomplete known messages into the next read.
-The pinned 3.29.3b client writers prove these additional fixed lengths, including the two-byte opcode:
-
-| C→S id | Total bytes | Primary writer evidence |
-|---|---|---|
-| `0x020a` | 3 | `0x140e29080`: u16 opcode followed by one byte from message `+0x10` |
-| `0x0059` | 16 | `0x141f935a0`: u16 opcode followed by fields of 4, 2, 2, 4, 1 and 1 bytes |
-
-The `0x020a` send site `0x140d3c409–0x140d3c43b` sets opcode `0x20a` at `+8`, byte 1 at `+0x10`,
-and vtable `0x14345ef10`, then uses the normal sender `0x14216e940`.
-The `0x0059` sender `0x142160020` sets its opcode and vtable `0x1435bfe78` and uses the same normal sender.
-That sender calls message vtable slot 1 at `0x14216e98b–0x14216e994`.
-Neither writer has a conditional payload branch.
-These are incoming messages; a server-message dispatcher case numbered `0x59` is unrelated.
-The Gateway frames and ignores their payloads without assigning unproven field meanings.
-
-`InstanceFixedMessageFramingTests` checks every incomplete prefix, every split of coalesced
-tick/message/chat/message/tick input, and one-byte reads containing both messages before a wide-string chat.
-A five-byte `0x0059` prefix must wait for eleven more bytes; `020A01` is already a complete message.
-Native transfer follow-up observed two `020A01` reads before an intermittent wide-string error.
-The original error's causal chain remains unproven; registering these lengths does not prove it fixed that error.
-Other unknown ids still stop framing the current read; this patch does not change that policy.
-
 Env: `Game_GATEWAY_PORT` (6112), `Game_INSTANCE_SECRET` (data/instance-secret.bin), `Game_GATEWAY_ENTER`.

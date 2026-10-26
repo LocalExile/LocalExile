@@ -53,11 +53,6 @@ G = global / static data.
 | `0x142506420` → `0x1425064d0` → `0x1425065b0` → `0x1425066e0` | Fn | connect job → thread → happy-eyeballs connect |
 | `0x142148500` | Fn | send opening 0x0F + 0x0E, state 2 |
 | `0x14216e940` | Fn | send message (vtable slot 1 on the stream) |
-| `0x14216e98b–0x14216e994` | Site | normal sender invokes the message writer in vtable slot 1 |
-| `0x140d3c409–0x140d3c43b` | Site | C→S `0x020a`: opcode, byte 1, vtable, normal sender |
-| `0x14345ef10` / `0x140e29080` | Cls / Fn | C→S `0x020a` class / writer: u16 opcode + u8, 3 bytes |
-| `0x142160020` | Fn | constructs and sends C→S `0x0059` through the normal sender |
-| `0x1435bfe78` / `0x141f935a0` | Cls / Fn | C→S `0x0059` class / writer: u16 + 4/2/2/4/1/1 bytes, 16 total |
 | `0x141fe1570` | Fn | digest used by 0x0E |
 | `0x142fbfbf8` | G | 8-byte constant in the 0x0E digest |
 | `0x14214a190` | Fn | instance S→C dispatcher |
