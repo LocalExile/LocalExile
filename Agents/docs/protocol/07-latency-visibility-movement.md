@@ -229,7 +229,7 @@ a lockstep client is then drawn and its world runs. Found with hardware watchpoi
 | Id | Bytes | Fields |
 |---|---|---|
 | 0x018e | 15 | use a skill at a location: i32 dx, i32 dy (the target relative to the player's cell), u16 skill id, u16 action flags, u8 (`018E 00000029 FFFFFFEF 2909 0402 00`) |
-| 0x018f | 13 | use a skill on an object: u32 object id, u16 skill id, u16 flags, u8 (instead of predictive 0x24) |
+| 0x018f | 11 | use a skill on an object: u32 object id, u16 skill id, u16 flags, u8 (instead of predictive 0x24) |
 | 0x0192 | 10 | the held skill's new target: i32 dx, i32 dy |
 | 0x0195 | 2 | release |
 | 0x0196 | 4 | u16 skill id: release that skill |

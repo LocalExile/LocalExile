@@ -349,6 +349,7 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x141e9ca20` | Fn | Actor setup: run-speed roll `+0x1a8` = 1 + v / 100, v by TinyMT32 in the actor data's [`+0xa0`, `+0xa4`] |
 | `0x1413cbe50` / `0x1404d03d0` | Fn | TinyMT32 seeding (init_by_array) / random int in a range |
 | `0x14215f700` | Fn | C→S use a skill: lockstep 0x018e (dx, dy) / 0x018f (object) when the network mode `+0x984` is 2, else 0x25 / 0x24 |
+| `0x141f92280` / `0x141f924b0` | Fn | lockstep skill writers: C→S 0x018e is 15 bytes; 0x018f is 11 bytes |
 | `0x14215fb10` / `0x14215fcb0` / `0x14215fe50` | Fn | C→S lockstep 0x0192 (new dx, dy) / 0x0195 (release) / 0x0196 (release a skill) |
 | `0x142183930` | Fn | world update: lockstep runs the queued server frames (deque `+0x9c0`, count `+0x9d8`), catching up × 1.01–5 |
 | `0x142183ce0` | Fn | world step (vtable `+0x360`): one server frame's messages, then the objects' ticks |
