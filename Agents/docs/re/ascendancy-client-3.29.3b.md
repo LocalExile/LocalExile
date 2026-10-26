@@ -120,9 +120,10 @@ ordinary edge, ordinary layout, or Phrecia node differences against their chosen
 byte-identical to the pinned original. The independently read-back audit is in ignored
 `logs/ascendancy-merged-audit.json`.
 
-`live.ps1` installs the merged virtual file after closing the client and before starting the patch server. A server-only
-`-NoClient` or `-Only Gateway` restart instead checks the actual installed hash read-only and refuses a mismatch.
-It does not rely on a potentially stale receipt. A full restart is required to install/reload a new graph.
+Standard `live.ps1` startup no longer installs, restores or recovers this experimental virtual file.
+The native results below used a separately modified development client.
+Simultaneous ordinary/Phrecia gameplay on an unchanged installation remains an open delivery prerequisite.
+Client mutation and its maintenance tooling require separate maintainer agreement before inclusion in a merge batch.
 
 The patch appends one small bundle and redirects only the existing alternate-graph file record in the bundle index.
 Every unrelated file record and the entire path/directory table are preserved. The old game bundle is untouched.
@@ -146,13 +147,15 @@ before any writes, replays before-images in reverse, and restores lengths withou
 A durable commit marker follows the fully disposed GGPK and fsynced stream; a leftover committed journal is cleaned
 without undo. Torn final frames and unpublished preparation headers are handled separately from corrupt middle data.
 
-Full `live.ps1` startup closes the client, builds/runs raw `--recover`, and only then extracts data. Server-only startup
-and standalone extraction refuse a pending journal read-only. Apply/check validate the actual ordinary PSG hash and
+Standard startup and standalone extraction refuse a pending journal without recovering it or modifying the pack.
+The experimental explicit maintenance tools validate the actual ordinary PSG hash and
 manifest revision/patch version every run. Restore removes a custom bundle only when its receipt says this patch
 created that GGPK record; a pre-existing reused record is retained. Equivalent bundle descriptors are compared with
 case-insensitive `Bundles2/` and `.bundle.bin` normalization.
 
-From the repository root, while the client is closed, the maintenance commands are:
+The following commands document the earlier explicit experiment, outside the merge-ready split scope.
+They are not standard-startup steps; client mutation needs separate maintainer review.
+The write operations require the client to be closed:
 
 ```powershell
 dotnet run --project scripts/re/passive-graphs -- --check Client/Content.ggpk data/passive-skill-graphs.json
@@ -161,9 +164,10 @@ dotnet run --project scripts/re/passive-graphs -- --restore Client/Content.ggpk
 dotnet run --project scripts/re/passive-graphs -- --recover Client/Content.ggpk
 ```
 
-The read-only `--check` also works with an already running client. After a restore, a full `live.ps1` run reapplies the
-merged graph; a server-only restart refuses to serve the merged data against the restored legacy graph. Regeneration
-uses the verified original backup when the GGPK already contains the merged graph, so repeated extraction is stable.
+The explicit read-only `--check` also works with an already running client.
+A later `live.ps1` run does not reapply the graph after a restore.
+Regeneration uses the verified original backup when the GGPK already contains the experimental merged graph.
+This preserves extraction provenance without adding a client write to startup.
 
 The latest local run (log timestamps 23:35–23:39) also exercised both families on the same account in Standard.
 Slayer loaded `Default`; a native tree click and Apply allocated node 50845, spending one of eight ascendancy points.

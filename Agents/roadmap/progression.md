@@ -32,6 +32,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 - **Known:** all 19 Phrecia alternatives have the shared choice, point and save lifecycle.
   Only an initial subset of their effects executes on the server.
+  The proven combined-graph client experiment is separate from standard startup, which does not install it.
+  Agree a client delivery mechanism before promoting the full Phrecia selection integration.
   Passive-granted ordinary auras, owner buffs, equipment conditions, life costs/reserve and nearby effects now execute.
   Ward absorption/restoration and timed Adrenaline also execute, including cross-area lifetime.
   Current Rage, mana-spending grants, supported hit grants and the attack multiplier now execute and are native-checked.

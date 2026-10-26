@@ -42,7 +42,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The catalog contains 21 ordinary and 19 Phrecia choices in the same ordinary league and account stash.
   Selection, separate point awards, class-owned connected nodes, exclusive choices and paid refunds are saved atomically.
   Old unascended saves retain their fields; stale passive snapshots cannot overwrite newer progress.
-  The merged client graph preserves the ordinary tree.
+  The experimental merged client graph preserves the ordinary tree on the explicitly modified development client.
+  Standard startup does not install it; unchanged-client delivery needs separate maintainer agreement.
   Real-client checks cover Slayer and Aristocrat, native mouse allocation, five-point refunds and restart persistence.
   Initial server effects include Aristocrat's points/gem properties and Gambler's hit rules.
   Native checks also cover Paladin/Arakaali granted auras, Ghost of the Deep, Harbinger ES and Architect life costs/reserve.

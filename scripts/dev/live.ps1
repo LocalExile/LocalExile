@@ -9,7 +9,7 @@
 #               area the client generates into data/walkability/
 #   -Only Gateway[,Auth,Patch]   rebuild and restart only these servers; the others and the client keep running (implies
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
-#   -ClientOnly open a closed client against the running servers; validate its installed passive graph first.
+#   -ClientOnly open a closed client against the running servers.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
 
 $ErrorActionPreference = 'Stop'
@@ -41,10 +41,6 @@ if ($ClientOnly) {
     foreach ($port in @(12995, 20493, 6112)) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
-    # This branch bypasses extraction/recovery below. Check read-only before even the gateway selection writes the
-    # archive: a pending undo journal must be recovered by a full run, and the running server needs this exact graph.
-    & dotnet run --no-build --project (Join-Path $repo 'scripts/re/passive-graphs') -- --check (Join-Path $repo 'Client/Content.ggpk') (Join-Path $repo 'data/passive-skill-graphs.json')
-    if ($LASTEXITCODE -ne 0) { throw 'client passive graph check failed; run scripts/dev/live.ps1 without -ClientOnly to recover/install it and restart the servers' }
     Select-LocalGateway
     $p = Start-Process (Join-Path $repo 'Client\Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory (Join-Path $repo 'Client') -PassThru
     Write-Output "client pid $($p.Id)"
@@ -65,24 +61,14 @@ if ($Walkmaps) {
 $servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
 if ($Only) { $NoClient = $true }
 
-# Recovery must precede extraction: an interrupted index write may make ordinary GGPK parsing impossible.
-# Server-only runs are read-only and refuse a pending journal. Full runs stop the client first and recover raw bytes.
+# Standard startup must not apply, restore or recover a feature-specific client archive patch.
+# An interrupted explicit maintenance operation needs separate recovery before extraction can read the archive.
 $ggpkJournal = Join-Path $repo 'Client\LocalExileBackups\phrecia-passive-graph-v1\ggpk-write-journal.bin'
-if ($NoClient) {
-    if ((Test-Path $ggpkJournal) -or (Test-Path "$ggpkJournal.prepare")) {
-        throw 'interrupted GGPK writes are pending; run live.ps1 without -NoClient/-Only to close the client and recover them'
-    }
-} else {
-    Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force
-    if (-not $NoBuild) {
-        dotnet build (Join-Path $repo 'scripts/re/passive-graphs') -v q -nologo | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'build failed: GGPK recovery tool' }
-    }
-    & dotnet run --no-build --project (Join-Path $repo 'scripts/re/passive-graphs') -- --recover (Join-Path $repo 'Client/Content.ggpk')
-    if ($LASTEXITCODE -ne 0) { throw 'raw GGPK recovery failed; retain the journal and inspect the message above' }
+if ((Test-Path $ggpkJournal) -or (Test-Path "$ggpkJournal.prepare")) {
+    throw 'interrupted explicit GGPK maintenance is pending; standard startup leaves the archive and journal unchanged'
 }
 
-# Game data from the GGPK (data/tables, object-types.json, ...): only after raw journal recovery.
+# Read game data from the GGPK into data/; extraction does not install a client graph.
 if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
 
 # Without this the Gateway stops after creating the player and the client never enters the area.
@@ -113,17 +99,9 @@ if (-not $NoBuild) {
         dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
     }
-    dotnet build (Join-Path $repo 'scripts/re/passive-graphs') -v q -nologo | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'build failed: scripts/re/passive-graphs' }
 }
 
-# Keep the current ordinary passive/Bloodline graph when the client displays Phrecia. This only writes when the
-# expected merged PSG is not installed. Server-only restarts check the actual shared GGPK read-only and require a
-# full live.ps1 restart if a patch is needed; never serve a newly generated graph to an older running client.
-# Original virtual file/index backups support `--restore` (see the ascendancy protocol notes).
-$passiveGraphAction = if ($NoClient) { '--check' } else { '--apply' }
-& dotnet run --no-build --project (Join-Path $repo 'scripts/re/passive-graphs') -- $passiveGraphAction (Join-Path $repo 'Client/Content.ggpk') (Join-Path $repo 'data/passive-skill-graphs.json')
-if ($LASTEXITCODE -ne 0) { throw 'client passive graph setup failed; run scripts/dev/live.ps1 without -NoClient/-Only to install it and restart the client' }
+# Phrecia's experimental combined client graph is a separate reviewed setup, never a startup side effect.
 
 # Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
 # redirecting form creates them with handle inheritance on, so they would hold this shell's stdout open, and whoever runs

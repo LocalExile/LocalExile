@@ -289,33 +289,18 @@ temporary control-bridge copy; it authenticates normally and leaves the tracked 
 current ordinary tree; the merged graph restores them and retains the ordinary directed edges and geometry exactly.
 Its SHA-256 is `F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A425196CC93D638`.
 
-A full `live.ps1` run closes the old client, recovers any interrupted patch before extraction, and installs the generated
-graph before starting Patch/the new client.
-The tool appends a dedicated bundle and redirects that one virtual PSG entry in the bundle index. Original bundle
-contents and the ordinary PSG remain unchanged. Original index/file backups and a hashed receipt live in ignored
-`Client/LocalExileBackups/phrecia-passive-graph-v1/`. `-NoClient`/`-Only` check the actual installed graph read-only and
-refuse a mismatch; restarting only the server cannot leave it serving a different topology from the running client.
-Every GGPK write and length change is protected by a durable byte-range undo journal, including index/hash updates
-made during disposal. Recovery restores raw bytes before parsing the index and checks the Windows file identity.
-Interrupted recovery can be repeated. Server-only runs and standalone extraction refuse a pending journal without
-modifying the pack. With the client closed, explicit recovery is:
+Standard `live.ps1` startup no longer applies, restores or recovers this experimental client graph.
+It preserves the installed passive graph and refuses a pending explicit-maintenance journal without writing it.
+The read-only extractor produces analysis/server artifacts under `data/`; it does not install them into the client.
 
-```powershell
-dotnet run --project scripts/re/passive-graphs -- --recover Client/Content.ggpk
-```
-
-With the client closed, restore the original event graph with:
-
-```powershell
-dotnet run --project scripts/re/passive-graphs -- --restore Client/Content.ggpk
-```
-
-The next full `live.ps1` run installs the merged graph again. Restore refuses unrelated index or patch-bundle changes.
-Actual installation, restoration and reinstallation passed independent GGPK/Node-OOZ readback checks; normal PSG
-remained byte-identical. Synthetic tests cover busy-file locks, unknown source data, index edits, bundle-name
-collisions, and fresh-process recovery after interrupted writes and length changes during both apply and restore.
-The existing
-login-key executable patch is still required; the ascendancy change adds no executable patch.
+The combined graph was tested on an explicitly modified development client.
+Those results do not establish simultaneous ordinary/Phrecia gameplay on an unchanged installed client.
+An approved client delivery mechanism remains a separate integration prerequisite.
+The archive writer and undo-journal experiment are outside the merge-ready split PRs and require maintainer review.
+Existing experimental backups are retained; startup does not silently restore or overwrite them.
+Installation, restoration and reinstallation previously passed independent GGPK/Node-OOZ readback checks.
+That historical evidence remains in the client research notes and does not authorize automatic startup writes.
+The repository's existing login-key patch/setup is unchanged.
 
 See [the client evidence](../re/ascendancy-client-3.29.3b.md) for exact executable/graph hashes, class-byte encoding,
 world-stat packet layout and native point accounting. All game data is generated locally through

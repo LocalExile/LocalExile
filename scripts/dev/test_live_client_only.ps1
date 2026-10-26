@@ -5,6 +5,11 @@ $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'live.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+$archiveWrites = $ast.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+    $node.Value -in @('--apply', '--recover', '--restore')
+}, $true)
+if ($archiveWrites.Count) { throw 'standard startup must not invoke a client graph mutation command' }
 foreach ($name in @('Need', 'Select-LocalGateway')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -59,9 +64,7 @@ function Expect-Failure($pattern) {
 }
 
 & $launch | Out-Null
-Assert (($script:events -join ',') -eq 'graph-check,gateway,launch') 'installed graph must be checked before gateway writes and client launch'
-Assert (($script:graphArgs[0..3] -join '|') -eq ('run|--no-build|--project|' + (Join-Path $repo 'scripts/re/passive-graphs'))) 'wrong graph verification tool'
-Assert (($script:graphArgs[-3..-1] -join '|') -eq ('--check|' + (Join-Path $repo 'Client/Content.ggpk') + '|' + (Join-Path $repo 'data/passive-skill-graphs.json'))) 'graph check must target this checkout and extracted manifest'
+Assert (($script:events -join ',') -eq 'gateway,launch') 'client-only launch must not run graph maintenance'
 Assert ($script:gatewayArgs[0] -eq (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll')) 'wrong patch executable'
 Assert (($script:gatewayArgs[1..4] -join '|') -eq ('gateway|' + (Join-Path $repo 'Client\Content.ggpk') + '|--login|127.0.0.1:20493')) 'gateway must target this checkout and local Auth'
 
@@ -78,14 +81,9 @@ $script:missingPort = 20493
 Expect-Failure 'missing port 20493'
 Assert ($script:events.Count -eq 0) 'missing server must return before gateway write'
 $script:missingPort = 0
-$script:graphExit = 1
-Expect-Failure 'client passive graph check failed'
-Assert (($script:events -join ',') -eq 'graph-check') 'failed graph check must prevent gateway writes and launch'
-$script:events.Clear()
-$script:graphExit = 0
 $script:gatewayExit = 1
 Expect-Failure 'could not select local login server'
-Assert (($script:events -join ',') -eq 'graph-check,gateway') 'failed gateway reset must prevent launch'
+Assert (($script:events -join ',') -eq 'gateway') 'failed gateway reset must prevent launch'
 
 $script:events.Clear()
 $NoClient = $true
