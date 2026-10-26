@@ -96,7 +96,7 @@ partial class Program
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
-                if (attack && !AttackReady(conn, gem.Effect, gem.Level, out double attackSeconds))
+                if (attack && !AttackReady(conn, use.SkillId, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;

@@ -888,6 +888,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `ClientState.NextAttackAt`, a use may arrive a quarter of an attack early, and a use that arrives sooner is ignored:
   no cost, no swing, no 0x1b1. The client does not deduct the cost itself (a live trace of its Life pool showed the
   mana change at the server's 0x1b1), so no "cost back" update is needed.
+  Admission and execution use the same linked-support attack duration, including object-targeted stationary attacks.
+  Using an unsupported duration for that check could cancel the pending hit before rejecting its replacement.
 - **Ground attack in dual wield crashes the client: the off hand's weapon stats were missing (issue #167, fixed
   2026-10-25).** A dual-wielded attack swings the off hand too, and the client sets that strike's weapon up from the
   hand's **own** final stats; it derives none (§4). The Gateway sent only `main_hand_*`, so the second weapon had no

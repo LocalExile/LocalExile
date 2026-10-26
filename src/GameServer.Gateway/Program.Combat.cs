@@ -61,9 +61,11 @@ partial class Program
     internal static double SkillAttackSeconds(ClientState conn, int effect, int level) =>
         SkillAttackTiming.ForSkill(Skills, effect, level, WeaponFor(conn), CharacterPlayerStats(conn));
 
-    static bool AttackReady(ClientState conn, int effect, int level, out double seconds)
+    static bool AttackReady(ClientState conn, ushort skillId, out double seconds)
     {
-        seconds = SkillAttackSeconds(conn, effect, level);
+        // Admission and execution must use the same linked support and action-speed inputs. A premature request
+        // cannot replace the current action before CastGemSkill rejects its shorter supported attack interval.
+        seconds = SupportedAttackSeconds(conn, skillId);
         double now = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters) return double.IsFinite(seconds) && AttackTiming.Ready(now, conn.NextAttackAt, seconds);
     }
@@ -290,15 +292,16 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: {disabled} (action not started)");
             return;
         }
+        if (gem.Name is not null && Skills.IsAttack(gem.Effect)
+            && !AttackReady(conn, use.SkillId, out double attackSeconds))
+        {
+            Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+            return;
+        }
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
         if (gem.Name is not null && Skills.IsAttack(gem.Effect) && !Skills.IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
-            if (!AttackReady(conn, gem.Effect, gem.Level, out double attackSeconds))
-            {
-                Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
-                return;
-            }
             var weapon = WeaponFor(conn);
             double now = conn.Clock.Elapsed.TotalSeconds;
             int action = 0;

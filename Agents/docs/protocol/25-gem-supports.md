@@ -35,6 +35,8 @@ AttackSpeedMultiplier is an increased percentage: Cyclone 200 means three times 
 Physical more damage is applied before conversion; elemental and chaos modifiers apply to their resulting damage.
 Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same canonical typed damage and critical consumers.
+Attack admission uses the same supported duration as execution, including requests targeting a monster without moving.
+A premature request preserves the pending action, movement, cost and attack timer and sends no action echo.
 Weapon base and added damage retain separate signed GESSPL normalization (`10000 + raw`).
 Critical increases retain signed long sums and canonical half-up permyriad rounding; prohibitions remain gates.
 Raw skill and quality mana inputs join additively before support cost multipliers.

@@ -103,12 +103,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
             return null;
         });
 
-        public Task<(string? Error, byte[] Bytes)> TimingInput(string route, ushort skill, uint monster) => Exchange(async (stream, cipher) =>
+        public Task<(string? Error, byte[] Bytes)> TimingInput(string route, ushort skill, uint monster,
+            ushort flags = 0x401) => Exchange(async (stream, cipher) =>
         {
             if (route == "ground")
             {
                 byte[] bytes = new LoginWriter().U16(InstanceProtocol.UseSkillAtLocationId).U32(96).U32(32)
-                    .U16(skill).U16(0).U16(0x401).ToArray();
+                    .U16(skill).U16(0).U16(flags).ToArray();
                 await ProgramValue<Task>("OnClientMessages", "timing-preflight", stream, cipher,
                     new (ushort, byte[])[] { (InstanceProtocol.UseSkillAtLocationId, bytes) }, Array.Empty<byte>(), State, 0L);
             }
@@ -117,7 +118,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
                     Program.PlayerId, State.Walk.Position(State.Clock.Elapsed.TotalSeconds));
             else
                 await ProgramValue<Task>("OnUseObject", "timing-preflight", stream, cipher, State,
-                    new InstanceTransfer.UseSkillOnObject(route == "self" ? Program.PlayerId : monster, skill, 0, 0x401),
+                    new InstanceTransfer.UseSkillOnObject(route == "self" ? Program.PlayerId : monster, skill, 0, flags),
                     State.Clock.Elapsed.TotalSeconds);
             return null;
         });

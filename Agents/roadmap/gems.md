@@ -59,6 +59,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   GrantedEffectsPerLevel its cost multiplier.
 - **Implemented:** linked native compatibility, complete support references, duplicate resolution and ordinary
   damage, area, speed, critical, cost and reservation calculations ([25](../docs/protocol/25-gem-supports.md)).
+  Preliminary attack readiness and execution share the supported duration, preserving an unfinished swing on rejection.
   Cyclone with Increased Area of Effect was checked with the real client.
 - **Next:** implement special execution mechanics separately: triggers, repeats, projectile branching,
   totems, mines, minions, leech and conditional effects; verify each against native data and live behaviour.
