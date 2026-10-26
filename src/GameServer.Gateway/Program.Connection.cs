@@ -156,6 +156,8 @@ partial class Program
         }
         if (left is not null)
         {
+            left.Summons?.Pause(left.SummonLease, DateTimeOffset.UtcNow, false);
+            left.Summons?.Release(left.SummonLease, left.LeavingArea);
             // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
@@ -262,7 +264,11 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} <= 0x01d4 pause: in a town or hideout, not paused");
             return;
         }
-        lock (conn.Monsters) { if (pause) conn.Clock.Stop(); else conn.Clock.Start(); }
+        lock (conn.Monsters)
+        {
+            conn.Summons?.Pause(conn.SummonLease, DateTimeOffset.UtcNow, pause);
+            if (pause) conn.Clock.Stop(); else conn.Clock.Start();
+        }
         await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
     }
 

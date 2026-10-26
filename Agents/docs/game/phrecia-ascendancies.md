@@ -291,8 +291,10 @@ Baseline code keys: **P** `PassiveTree.cs:40`; **S** `CharacterStats.cs:81,100` 
 **C** `ChargePanelStats.cs:9-12` (maximum rows only); **R** `RecoveryPool.cs:1`, `Flasks.cs:1-35`;
 **E** `MonsterCatalog.cs`, `Program.cs:2158+` (monster objects/hit/death hooks). Conditional flags displayed by
 `PanelStats` are not evidence of execution. Percentage attributes are now calculated by `PassiveAttributeModifiers`;
-current charges, minion ownership and a functional ES pool remain absent. A pure helper or a displayed maximum is
-not sufficient evidence that an incoming effect, summon or charge action executes.
+current charges remain absent.
+Ordinary ES absorption/recharge and Pack Mentality's owned wolves now execute; the other summon families still need
+their own source, inheritance, AI and death rules.
+A pure helper or a displayed maximum is not sufficient evidence that an incoming effect, summon or charge action executes.
 
 | Class | Representative mechanics | Reusable primitives | Partial/new adapters and absent systems | Wave |
 |---|---|---|---|---|

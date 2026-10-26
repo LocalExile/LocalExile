@@ -36,10 +36,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Ward absorption/restoration and timed Adrenaline also execute, including cross-area lifetime.
   Current Rage, mana-spending grants, supported hit grants and the attack multiplier now execute and are native-checked.
   Incorruptible's full chaos-armour flag also executes through the common incoming-hit stage and survives paid refunds.
+  Pack Mentality now has owned wolves, actual attacks and owner damage buffs, with native limit/refund/area checks.
   The [current class table](../docs/game/ascendancies.md#what-this-does-not-complete) distinguishes those effects.
 - **Start:** complete the missing signature subsystems in the
   [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,
-  minion ownership/AI, remaining Rage bonuses/costs, totems, shrines and passive-granted summons/triggers.
+  other minion families and inheritance, remaining Rage bonuses/costs, totems, shrines and passive-granted triggers.
   Juggernaut, endurance charges and stun are claimed in [#152](https://github.com/Wrathen/LocalExile/issues/152).
   Linked supports are under development in [#207](https://github.com/Wrathen/LocalExile/pull/207).
   Coordinate those dependencies before starting overlapping work.

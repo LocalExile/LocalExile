@@ -58,6 +58,10 @@ be refunded while ordinary allocations still spend those points.
 - Whisperer's maximum-mana node adds real attack lightning, including attack/melee scaling and its free-cast rule.
   General penetration and critical elemental ignore compose with existing target resistances and nearby effects.
 - Behemoth's Incorruptible applies final armour to chaos hits after resistance, with paid refund and relog coverage.
+- Wildspeaker's Pack Mentality triggers actual owned wolves from critical hits, with a separate cooldown, duration,
+  limit, owner damage buffs and combat AI.
+  Area travel preserves them; source refunds, expiry, logout and owner death remove them.
+  [Owned summon data, calculation and checks](owned-summons.md).
 - Passive `GrantedEffectsPerLevel` references grant real skills without gems, with stable skill identities and exact
   native levels. Paladin's level 30 Determination/Grace or level 40 Discipline and Arakaali's level 15 Envy execute.
   Envy's no-reservation rule applies to its real reservation. Removing the source removes the active skill/effect;
@@ -88,8 +92,8 @@ be refunded while ordinary allocations still spend those points.
 **The 19 choices are not 19 fully implemented sets of mechanics.** Forwarding a raw stat to the character panel is
 not an implementation of its effect. Current numerical support is strongest for Aristocrat and Gambler; even those
 classes still have limitations. Support-gem execution and incoming ailments/stuns are absent, so Gem-lined Cap,
-conditional ailment immunities and Risk Aversion are not complete. The server also lacks the minion ownership/AI,
-warcry/totem, shrine/wisp and other subsystems required by most other signature notables.
+conditional ailment immunities and Risk Aversion are not complete.
+Owned wolf combat now exists; other minion families, warcries/totems, shrines/wisps and several shared subsystems remain.
 Rage has a functioning resource/damage path, but its Vaal costs and other conditional mechanics remain unfinished.
 
 The [all-19 dependency map](phrecia-ascendancies.md#dependencies-of-all-19-classes) names the remaining systems and
@@ -113,7 +117,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
 | Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance; chaos armour | Fortification, Rampage, Vaal Rage costs and remaining conditional bonuses |
 | Antiquarian | Attributes/defences, body conversion to Ward, restoration and Adrenaline | Far Shot, special stun and ranged/shield rules |
-| Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
+| Wildspeaker | Suppression, Dexterity and Pack Mentality's owned wolves | Aspects, Tailwind, charge sharing and rare-mod theft |
 | Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage | Recoup, mana damage absorption, blind and projectile forks |
 | Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
 | Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |

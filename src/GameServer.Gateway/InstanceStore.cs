@@ -129,7 +129,7 @@ sealed class InstanceGround
 sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity, bool Hostile, int X, int Y, uint Life)
 {
     public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now) =>
-        [.. monsters.Where(m => !m.Dead && m.Variety is not null).Select(m =>
+        [.. monsters.Where(m => !m.Dead && m.Variety is not null && m.Summon is null).Select(m =>
         {
             var (x, y) = m.Walk.Position(now);
             return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.Hostile, x, y, m.Life);

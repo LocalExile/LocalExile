@@ -1275,6 +1275,104 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         Assert.Equal(0, game.PlayerStat("base_armour_applies_to_chaos_damage"));
     }
 
+    [Fact]
+    public async Task Pack_Mentality_triggers_current_wolves_grants_damage_and_refund_removes_owned_entities()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 3, baseClass: 2, choice: "Wildspeaker", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        var path = PathTo(definition, 26963);
+        Assert.Null((await game.Change(path, true)).Error);
+        var gem = game.GemEffects().Single(g => Program.Skills.EffectId(g.Effect) == SpectralWolf.Effect);
+        Assert.Equal(20, gem.Level);
+        var values = SpectralWolf.For(Program.Skills, Program.Stats, gem.Effect, gem.Level, _ => 0)!;
+        Assert.Equal(new SpectralWolf.Values(70, 10, 30000, 500, 6, 12), values);
+        var variety = Program.Monsters.Find(SpectralWolf.Variety)!;
+        Assert.Equal(332, variety.Row); // UI's stale DisplayMinionMonsterTypes[8] points at old Lion variety 331.
+        Assert.Equal(16258, Program.Monsters.BaseLife(variety, 70));
+        Assert.Equal((2470, 3706), Program.Monsters.BaseDamage(variety, 70));
+        uint mana = game.State.PlayerMana;
+        Assert.False((await game.Cast(gem.Name)).Accepted);
+        Assert.Equal(mana, game.State.PlayerMana);
+        Assert.Empty(game.State.SummonObjects);
+        await game.TriggerWolf(false);
+        Assert.Empty(game.State.SummonObjects);
+        int before = game.PlayerStat("attack_minimum_added_physical_damage");
+        await game.TriggerWolf(true);
+        var entity = Assert.Single(game.State.SummonObjects).Value;
+        var wolf = game.State.Monsters[entity.Object];
+        Assert.False(wolf.Hostile); Assert.NotNull(wolf.Summon);
+        Assert.Equal(SpectralWolf.Variety, wolf.Variety!.Id);
+        Assert.Equal(1, game.PlayerStat("number_of_active_wolves"));
+        Assert.Equal(before + 6, game.PlayerStat("attack_minimum_added_physical_damage"));
+        Assert.Empty(SavedMonster.Save([wolf], 0));
+        var original = Program.WolfProfile(game.State, variety, 70);
+        game.State.PlayerStats[Program.Stats.Key("damage_+%")!.Value] = 900;
+        game.State.PlayerStats[Program.Stats.Key("critical_strike_chance_+%")!.Value] = 900;
+        game.State.PlayerStats[Program.Stats.Key("attack_damage_+%_final_from_rage")!.Value] = 900;
+        var unchanged = Program.WolfProfile(game.State, variety, 70);
+        Assert.Equal(original.Attack.Damage[DamageType.Physical], unchanged.Attack.Damage[DamageType.Physical]);
+        Assert.Equal(original.Chance, unchanged.Chance);
+        game.State.PlayerStats[Program.Stats.Key("minion_damage_+%")!.Value] = 100;
+        game.State.PlayerStats[Program.Stats.Key("minion_attack_speed_+%")!.Value] = 50;
+        var modified = Program.WolfProfile(game.State, variety, 70);
+        Assert.Equal(4940, modified.Attack.Damage[DamageType.Physical].Min);
+        Assert.Equal(1, modified.Attack.Seconds);
+        Assert.Null((await game.Change([26963], false, refundPoints: true)).Error);
+        Assert.Empty(game.State.SummonObjects); Assert.DoesNotContain(entity.Object, game.State.Monsters.Keys);
+        Assert.Equal(before, game.PlayerStat("attack_minimum_added_physical_damage"));
+        await game.TriggerWolf(true);
+        Assert.Empty(game.State.SummonObjects);
+    }
+
+    [Fact]
+    public async Task Queued_creature_life_updates_read_the_latest_life_inside_the_send_gate()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter();
+        var target = new SpawnedMonster("queued", new WalkEstimator(32, 32, 0), 0, 0, 100) { Life = 90 };
+        game.State.Monsters[12345] = target;
+        var result = await game.QueuedLife(12345, target);
+        Assert.Equal(48, result.Bytes.Length);
+        for (int offset = 0; offset < 48; offset += 24)
+        {
+            Assert.Equal((ushort)0x1b1, BinaryPrimitives.ReadUInt16BigEndian(result.Bytes.AsSpan(offset)));
+            Assert.Equal(80u, BinaryPrimitives.ReadUInt32BigEndian(result.Bytes.AsSpan(offset + 12)));
+        }
+    }
+
+    [Fact]
+    public async Task A_pending_wolf_swing_waits_for_pause_and_cannot_hit_after_its_roster_source_is_cleared()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 3, baseClass: 2, choice: "Wildspeaker", level: 30, refundPoints: 60);
+        var definition = Program.Ascendancies.Find(game.State.MainAscendancy.Selection!)!;
+        Assert.Null((await game.Change(PathTo(definition, 26963), true)).Error);
+        await game.TriggerWolf(true);
+        uint wolfId = Assert.Single(game.State.SummonObjects).Value.Object;
+        var wolf = game.State.Monsters[wolfId];
+        wolf.Attack = wolf.Attack! with { Seconds = .5 };
+        var target = new SpawnedMonster("target", new WalkEstimator(32, 32, 0), 0, 0, 1000000);
+        game.State.Monsters[12345] = target;
+        game.State.Clock.Stop();
+        Task<(string? Error, byte[] Bytes)> paused = game.CreatureAttack(wolfId, wolf, 12345, target);
+        await Task.Delay(350); // wall contact passes while the game clock is paused
+        Assert.Equal(1000000u, target.Life);
+        Assert.False(paused.IsCompleted);
+        game.State.Clock.Start();
+        await Task.Delay(100);
+        Assert.Equal(1000000u, target.Life); // the remaining game-clock contact time still has to elapse
+        Assert.False(paused.IsCompleted);
+        await paused;
+        Assert.True(target.Life < 1000000u);
+        uint life = target.Life;
+        var pending = game.CreatureAttack(wolfId, wolf, 12345, target);
+        game.State.Summons!.Clear(game.State.SummonLease); // do not remove/mark the native object dead yet
+        await pending;
+        Assert.Equal(life, target.Life);
+        Assert.False(wolf.Dead); // contact rejected by roster, rather than the ordinary death check
+    }
+
     static T ProgramValue<T>(string name, params object?[] args) => (T)typeof(Program)
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args)!;
 
@@ -1470,6 +1568,34 @@ public sealed class AscendancyGatewayIntegrationTests : IDisposable
         {
             await (Task)typeof(Program).GetMethod("RefreshTemporaryPassives", BindingFlags.Static | BindingFlags.NonPublic)!
                 .Invoke(null, ["ascendancy-integration", stream, cipher, State])!;
+            return null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> TriggerWolf(bool critical) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)typeof(Program).GetMethod("TriggerWolf", BindingFlags.Static | BindingFlags.NonPublic)!
+                .Invoke(null, ["ascendancy-integration", stream, cipher, State, critical])!;
+            return null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> CreatureAttack(uint id, SpawnedMonster attacker, uint targetId, SpawnedMonster target) =>
+            Exchange(async (stream, cipher) =>
+            {
+                await ProgramValue<Task>("CreatureSwing", "ascendancy-integration", stream, cipher, State,
+                    id, attacker, targetId, target, (32, 32));
+                return null;
+            });
+
+        public Task<(string? Error, byte[] Bytes)> QueuedLife(uint id, SpawnedMonster target) => Exchange(async (stream, cipher) =>
+        {
+            var gate = Program.SendGates.GetValue(cipher, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync();
+            Task first = ProgramValue<Task>("SendMonsterLife", "ascendancy-integration", stream, cipher, State, id, target, null);
+            Assert.False(first.IsCompleted);
+            lock (State.Monsters) target.Life = 80;
+            Task second = ProgramValue<Task>("SendMonsterLife", "ascendancy-integration", stream, cipher, State, id, target, null);
+            gate.Release();
+            await Task.WhenAll(first, second);
             return null;
         });
 

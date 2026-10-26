@@ -76,7 +76,9 @@ readonly record struct MonsterHit(uint Life, bool StageStarts);
 
 sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, int stopRange, uint maxLife)
 {
-    public MonsterAttack? Attack { get; init; }
+    public MonsterAttack? Attack { get; set; }
+    // Server ownership, independent of cosmetic PetAi. Never kept in the area's ordinary monster snapshot.
+    public SummonRoster.Member? Summon { get; init; }
     public bool Hostile { get; init; } = true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
@@ -95,8 +97,12 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public WalkEstimator Walk { get; set; } = walk;
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
-    public uint MaxLife { get; } = maxLife;
+    public uint MaxLife { get; set; } = maxLife;
     public uint Life = maxLife;
+    public readonly MinionLeech Leech = new();
+    public double LastLeechAt;
+    public int EvasionEntropy = -1;
+    public double LastEvasionAt;
     // Until when its last flinch plays (Clock seconds; HitReaction): no new flinch before. Guarded by the Monsters
     // lock.
     public double FlinchUntil = double.NegativeInfinity;
@@ -146,6 +152,11 @@ sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint
 
 sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
+    public Guid SummonLease { get; } = Guid.NewGuid();
+    public SummonRoster? Summons;
+    public readonly SemaphoreSlim SummonGate = new(1, 1);
+    public readonly Dictionary<long, (uint Object, ushort Buff)> SummonObjects = [];
+    public int SentWolves = -1;
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;
@@ -366,7 +377,21 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public RighteousFireState? RighteousFire;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
     public Flasks.Effects FlaskEffects { get; } = new();
-    public ushort NextBuff = 1;
+    readonly object _buffGate = new();
+    int _nextBuff = 1;
+    public ushort NextBuff
+    {
+        get { lock (_buffGate) return (ushort)_nextBuff; }
+        set { lock (_buffGate) _nextBuff = value; }
+    }
+    public ushort AllocateBuff()
+    {
+        lock (_buffGate)
+        {
+            if (_nextBuff is < 1 or > ushort.MaxValue) throw new InvalidOperationException("Buff ids exhausted in this area");
+            return (ushort)_nextBuff++;
+        }
+    }
     public uint PlayerMaxLife => Pools.Life;
     // The player's life as the server keeps it (PlayerObject's Life, full on creation); 0 = dead.
     public bool AuraDeathHandled;

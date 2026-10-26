@@ -54,7 +54,7 @@ partial class Program
             foreach (var buff in wanted.Values)
                 if (!conn.PassiveBuffs.ContainsKey(buff.Template))
                 {
-                    ushort instance = conn.NextBuff++;
+                    ushort instance = conn.AllocateBuff();
                     conn.PassiveBuffs.Add(buff.Template, instance);
                     // Native 0x1c1 reads uncounted values only for IsRecovery rows. All Phrecia passive buffs use none.
                     var values = buff.Values.Select(v => unchecked((uint)v)).ToArray();

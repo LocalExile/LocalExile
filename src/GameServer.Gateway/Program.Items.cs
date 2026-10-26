@@ -185,7 +185,7 @@ partial class Program
             items.NextRevision(PlayerInventories.Flask), [spent.Id], [spent]), $"0x00bf flask {slot}: {spent.Item.Charges}/{use.MaxCharges} charges");
         double now = conn.Clock.Elapsed.TotalSeconds;
         ushort buff;
-        lock (conn.Monsters) buff = conn.NextBuff++;
+        lock (conn.Monsters) buff = conn.AllocateBuff();
         ushort row = use.LifePerUse > 0 ? FlaskEffectLifeBuffRow : FlaskEffectManaBuffRow;
         var effect = new Flasks.Effect((byte)slot, buff, row, use.LifePerUse / use.Seconds, use.ManaPerUse / use.Seconds, now, now + use.Seconds);
         if (conn.FlaskEffects.Start(effect) is { } replaced && FlaskBuffs)

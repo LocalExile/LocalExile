@@ -232,11 +232,15 @@ public static class InstanceEntities
     /// (<c>0x140b14b00</c> before and after, when there is a record or an id): the character panel's skill list follows it.
     /// </summary>
     public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed)
+        => ActorSkillsChange(playerId, PlayerObject.ActorComponentIndex, skills, removed);
+
+    /// <summary>The same Actor record for another creature's component index (Monster's Actor is index 9).</summary>
+    public static byte[] ActorSkillsChange(uint entityId, byte actorIndex, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed)
     {
         var w = new BlobWriter().U8(0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
         foreach (var s in skills) PlayerObject.WriteSkillRecord(w, s);
         foreach (var id in removed) w.U16(id);
-        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.U8(0).U8(0).ToArray());
+        return ComponentUpdate(entityId, actorIndex, w.U8(0).U8(0).ToArray());
     }
 
     /// <summary>

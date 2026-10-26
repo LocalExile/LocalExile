@@ -14,6 +14,7 @@ partial class Program
         lock (conn.Monsters) target = conn.Monsters.GetValueOrDefault(use.TargetId);
         if (target is not null)
         {
+            if (target.Summon is not null) return;
             if (use.SkillId != SkillCatalog.FirstSkillId) await CastOn(remote, stream, ciphers, conn, use, target);
             else await Attack(remote, stream, ciphers, conn, use, target);
             return;

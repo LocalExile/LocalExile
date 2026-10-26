@@ -108,7 +108,9 @@ sealed class MonsterCatalog(string folder = "data")
     {
         if (_life.Value is not { } t || level < 1 || level > t.Levels.Count) return null;
         var type = v.MonsterType >= 0 && v.MonsterType < t.Types.Count ? t.Types[v.MonsterType] : default;
-        double d = t.Levels[level - 1].Damage * v.DamageMultiplier / 100.0 * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
+        var row = t.Levels[level - 1];
+        double d = (type.Minion ? row.MinionDamage : row.Damage) * v.DamageMultiplier / 100.0
+            * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
         double spread = (type.DamageSpread > 0 ? type.DamageSpread : 20) / 100.0;
         return (Math.Max(1, (int)Math.Round(d * (1 - spread))), Math.Max(1, (int)Math.Round(d * (1 + spread))));
     }
@@ -149,13 +151,17 @@ sealed class MonsterCatalog(string folder = "data")
     public int? BaseEvasion(int level) =>
         _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Evasion : null;
 
+    /// <summary>DefaultMonsterStats Armour, used by player minions without an armour override.</summary>
+    public int? BaseArmour(int level) =>
+        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Armour : null;
+
     /// <summary>The evasion of an evasive (high-dexterity) monster at this level: DefaultMonsterStats `EvasiveEvasion`.
     /// The character panel's "Chance to Hit Evasive Monsters" row uses it.</summary>
     public int? BaseEvasiveEvasion(int level) =>
         _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].EvasiveEvasion : null;
 
-    private sealed record LifeTables(List<(int MonsterLife, int MinionLife, int AltLife1, int AltLife2, double Damage,
-        int Experience, int Accuracy, int Evasion, int EvasiveEvasion)> Levels,
+    private sealed record LifeTables(List<(int MonsterLife, int MinionLife, int AltLife1, int AltLife2, double Damage, double MinionDamage,
+        int Experience, int Accuracy, int Evasion, int EvasiveEvasion, int Armour)> Levels,
         List<(bool Minion, bool AltLife1, bool AltLife2, int DamageSpread, bool IgnoresAttackSpeed)> Types)
     {
         public static LifeTables? Load(string folder)
@@ -167,8 +173,9 @@ sealed class MonsterCatalog(string folder = "data")
             return new LifeTables(
                 [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("MonsterLife").GetInt32(), r.GetProperty("MinionLife").GetInt32(),
                     r.GetProperty("AltLife1").GetInt32(), r.GetProperty("AltLife2").GetInt32(), r.GetProperty("Damage").GetDouble(),
+                    r.TryGetProperty("MinionDamage", out var minionDamage) ? minionDamage.GetDouble() : r.GetProperty("Damage").GetDouble(),
                     r.GetProperty("Experience").GetInt32(), r.GetProperty("Accuracy").GetInt32(), r.GetProperty("Evasion").GetInt32(),
-                    r.GetProperty("EvasiveEvasion").GetInt32()))],
+                    r.GetProperty("EvasiveEvasion").GetInt32(), r.TryGetProperty("Armour", out var armour) ? armour.GetInt32() : 0))],
                 [.. t.RootElement.EnumerateArray().Select(r => (r.GetProperty("IsPlayerMinion").GetBoolean(), r.GetProperty("AltLife1").GetBoolean(),
                     r.GetProperty("AltLife2").GetBoolean(),
                     r.TryGetProperty("DamageSpread", out var spread) && spread.ValueKind == JsonValueKind.Number ? spread.GetInt32() : 0,

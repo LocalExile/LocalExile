@@ -39,7 +39,7 @@ partial class Program
             conn.SentWard = state;
             if (conn.Ward.Broken && conn.WardBuff is null)
             {
-                conn.WardBuff = conn.NextBuff++;
+                conn.WardBuff = conn.AllocateBuff();
                 packets.Add((InstanceEntities.AddBuff(PlayerId, conn.WardBuff.Value, 1878, PlayerId), "Ward broken"));
             }
             else if (!conn.Ward.Broken && conn.WardBuff is ushort buff)

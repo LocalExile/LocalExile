@@ -19,10 +19,12 @@ partial class Program
 {
     // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob and the area's packs (PopulateArea) use it.
-    static async Task SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
-        byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null)
+    static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
+        SummonRoster.Member? summon = null)
     {
-        uint id = conn.NextObjectId++;
+        uint id;
+        lock (conn.Monsters) id = conn.NextObjectId++;
         // Full life: the client derives the maximum from the level (MonsterCatalog.BaseLife) and the rarity's
         // monster_life_+%_final_from_rarity, which goes on its Stats; other mods are not sent yet.
         int rarityLife = MonsterCatalog.RarityLifePct(rarity);
@@ -39,6 +41,12 @@ partial class Program
         var damage = (Min: Math.Max(1, (int)Math.Round(baseMin * rarityDamage)), Max: Math.Max(1, (int)Math.Round(baseMax * rarityDamage)));
         var attack = new MonsterAttack(SkillCatalog.FirstSkillId, variety.AttackMs / 1000.0 / raritySpeed, variety.AttackRange,
             DamagePacket.Of(DamageType.Physical, damage.Min, damage.Max));
+        if (summon is not null)
+        {
+            var profile = WolfProfile(conn, variety, level);
+            life = profile.Life;
+            attack = profile.Attack;
+        }
         var skill = variety.GrantedEffects is [int effect, ..]
             ? Skills.FindByRow(attack.SkillId, effect, level, attack.SkillStats()) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights).
@@ -56,6 +64,13 @@ partial class Program
             (stats ??= []).Add((StatKeys.MonsterLifeFromRarityPct, rarityLife));
             stats.Add((StatKeys.MaximumLife, (int)life));
         }
+        if (summon is not null)
+        {
+            (stats ??= []).Add((StatKeys.MaximumLife, (int)life));
+            int movement = Stats.Key("minion_movement_speed_+%") is uint movementKey
+                ? CharacterPlayerStats(conn).GetValueOrDefault(movementKey) : 0;
+            stats.Add((StatKeys.MovementVelocityPct, movement));
+        }
         var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, variety.StateMachine, variety.TransitionStates, team,
             skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill], stats);
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
@@ -71,13 +86,14 @@ partial class Program
             conn.Monsters[id] = new SpawnedMonster($"{variety.Name}@{level}", conn.NewWalk(x, y, variety.MovementSpeed),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
-                Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
+                Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Summon = summon,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id),
             };
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
         if (damagedLife < life)
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
+        return id;
     }
 
     // The area's monsters, once the player is in (Agents/docs/protocol/14-monster-packs.md): MonsterPacks scattered over the
@@ -132,9 +148,12 @@ partial class Program
             {
                 await Task.Delay(500);
                 await RefreshPassivePresences(remote, stream, ciphers, conn);
+                await RefreshSummons(remote, stream, ciphers, conn);
                 if (!conn.AiEnabled || conn.Paused) continue;
+                await RunSummonAi(remote, stream, ciphers, conn);
                 var orders = new List<(uint Id, (int X, int Y) From, (int X, int Y) To, string Why)>();
                 var swings = new List<(uint Id, SpawnedMonster M, (int X, int Y) From)>();
+                var creatureSwings = new List<(uint Id, SpawnedMonster M, uint TargetId, SpawnedMonster Target, (int X, int Y) From)>();
                 var bossBars = new List<(uint Id, SpawnedMonster M)>();
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 var (px, py) = conn.Walk.Position(now);
@@ -142,9 +161,16 @@ partial class Program
                 {
                     foreach (var (id, m) in conn.Monsters)
                     {
-                        if (m.Dead) continue;
+                        if (m.Dead || m.Summon is not null) continue;
                         var (mx, my) = m.Walk.Position(now);
-                        double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
+                        var targetAt = (X: px, Y: py);
+                        var ownedTarget = m.Hostile ? conn.Monsters.Where(kv => kv.Value is { Summon: not null, Dead: false, Life: > 0 })
+                            .OrderBy(kv => Dist((mx, my), kv.Value.Walk.Position(now))).FirstOrDefault() : default;
+                        if (ownedTarget.Value is not null
+                            && Dist((mx, my), ownedTarget.Value.Walk.Position(now)) < Dist((mx, my), targetAt))
+                            targetAt = ownedTarget.Value.Walk.Position(now);
+                        else ownedTarget = default;
+                        double d = Dist((mx, my), targetAt);
                         if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                         if (m.Aggro && !m.BossBarShown && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
                         {
@@ -164,14 +190,15 @@ partial class Program
                             m.BusyUntil = now + a.Seconds;
                             m.LastTarget = null;
                             m.Walk.Order(mx, my, now);
-                            swings.Add((id, m, (mx, my)));
+                            if (ownedTarget.Value is not null) creatureSwings.Add((id, m, ownedTarget.Key, ownedTarget.Value, (mx, my)));
+                            else swings.Add((id, m, (mx, my)));
                             continue;
                         }
                         if (d <= m.StopRange) continue;
                         // The cell StopRange - 1 from the player on the line toward the monster (the player's cell if blocked).
                         double f = (m.StopRange - 1) / d;
-                        (int X, int Y) to = ((int)Math.Round(px + (mx - px) * f), (int)Math.Round(py + (my - py) * f));
-                        if (conn.Layout.Walkable is { } w && !w(to.X, to.Y)) to = (px, py);
+                        (int X, int Y) to = ((int)Math.Round(targetAt.X + (mx - targetAt.X) * f), (int)Math.Round(targetAt.Y + (my - targetAt.Y) * f));
+                        if (conn.Layout.Walkable is { } w && !w(to.X, to.Y)) to = targetAt;
                         if (m.LastTarget is { } last && Math.Abs(last.X - to.X) + Math.Abs(last.Y - to.Y) < 3) continue;
                         m.LastTarget = to;
                         orders.Add((id, m.Walk.Order(to.X, to.Y, now), to, $"chases (distance {d:F0})"));
@@ -184,11 +211,14 @@ partial class Program
                     await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
                 foreach (var (id, m, from) in swings)
                     _ = MonsterSwing(remote, stream, ciphers, conn, id, m, from, (px, py));
+                foreach (var (id, m, targetId, target, from) in creatureSwings)
+                    _ = CreatureSwing(remote, stream, ciphers, conn, id, m, targetId, target, from);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             // The connection closed while sending.
+            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} monster AI stopped: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

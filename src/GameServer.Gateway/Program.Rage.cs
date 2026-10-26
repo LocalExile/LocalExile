@@ -36,7 +36,7 @@ partial class Program
         }
         if (value.Current > 0 && conn.RageBuff is null)
         {
-            conn.RageBuff = conn.NextBuff++;
+            conn.RageBuff = conn.AllocateBuff();
             // BuffDefinitions 1060: no recovery values/extra u16; its count reads current_rage (key 7594).
             await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, conn.RageBuff.Value, 1060, PlayerId), "Rage gained");
         }

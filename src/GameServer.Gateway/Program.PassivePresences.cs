@@ -58,7 +58,7 @@ partial class Program
             foreach (var (key, buff) in wanted)
                 if (!conn.PassivePresences.ContainsKey(key))
                 {
-                    ushort instance = conn.NextBuff++;
+                    ushort instance = conn.AllocateBuff();
                     conn.PassivePresences.Add(key, instance);
                     packets.Add((InstanceEntities.AddBuff(key.Monster, instance, buff.Definition, PlayerId,
                         values: buff.Values.Select(v => unchecked((uint)v)).ToArray()), $"passive presence {buff.Id} on enemy"));

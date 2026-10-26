@@ -181,6 +181,7 @@ partial class Program
             }
             (m.Life, stageStarts) = TakeDamageLocked(m, damage);
             GainRageOnHit(conn, player, attack: true, WeaponProfileFor(conn, activeSet: true).Melee, critical);
+            if (critical) ReserveWolfLocked(conn, DateTimeOffset.UtcNow);
             life = m.Life;
             conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
             if (life == 0) { m.Aggro = false; m.Dead = true; m.Impale.Clear(); }
@@ -200,12 +201,13 @@ partial class Program
             InstanceProtocol.ActionHit(PlayerId, use.Sequence, use.TargetId, flags: 0x4201, kind: 0x03,
                 angle: HitAngle(target.X - stop.X, target.Y - stop.Y)),
             $"0x01af player hit on monster 0x{use.TargetId:x} (sequence 0x{use.Sequence:x4})");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(use.TargetId, life),
+        await SendMonsterLife(remote, stream, ciphers, conn, use.TargetId, m,
             $"0x01b1 monster 0x{use.TargetId:x} hit for {damage}{(critical ? " (critical)" : "")}" +
             (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
             (impaled ? $", impaled ({impaleStacks} stack(s), {impaleStored:0.#} stored)" : "") +
             $", life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
         if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, use.TargetId, m);
+        if (critical) await RefreshSummons(remote, stream, ciphers, conn);
         if (stageStarts) _ = RunBossStage(remote, stream, ciphers, conn, use.TargetId, m);
     }
 
@@ -409,8 +411,8 @@ partial class Program
             }
             else
             {
-                var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.NextBuff++, ReserveLife: ReservesLife(conn));
+                var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.AllocateBuff(),
+                    AuraCatalog.BuffRow(effectId), reservation.Flat, reservation.Percent, level, quality, SourceBuff: conn.AllocateBuff(), ReserveLife: ReservesLife(conn));
                 conn.Auras[skillId] = aura;
                 int reserved = AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values);
                 int lifeReserved = AuraCatalog.RequiredLife(conn.Pools, conn.Auras.Values);
@@ -596,7 +598,8 @@ partial class Program
         double now = conn.Clock.Elapsed.TotalSeconds;
         List<(uint Id, SpawnedMonster M)> targets;
         lock (conn.Monsters)
-            targets = [.. conn.Monsters.Where(e => !e.Value.Dead && e.Value.Life > 0 && Dist(e.Value.Walk.Position(now), centre) <= radius)
+            targets = [.. conn.Monsters.Where(e => !e.Value.Dead && e.Value.Life > 0 && e.Value.Summon is null
+                && Dist(e.Value.Walk.Position(now), centre) <= radius)
                 .Select(e => (e.Key, e.Value))];
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         int criticalChance = hitPlan.CriticalChance(conn.Pools.AttackCriticalStrikeChance,
@@ -604,6 +607,7 @@ partial class Program
         var stats = Skills.EffectStatsFor(gem.Effect, gem.Level, gem.Quality, player);
         if (!SkillRestrictions.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0)
             .DealsDamage(spell)) return;
+        DateTimeOffset hitAt = DateTimeOffset.UtcNow;
         foreach (var (id, m) in targets)
         {
             DamagePacket hit = hitPlan.BuildHit(
@@ -620,7 +624,7 @@ partial class Program
                 HitResistancesFor(conn, m, player, skillStats, critical, attack: !spell), Random.Shared));
             int damage = (int)Math.Round(hit.MinTotal);
             await HitMonster(remote, stream, ciphers, conn, id, m, damage, $"{gem.Name}{(critical ? " (critical)" : "")}", melee: !spell, sequence: sequence,
-                onApplied: () => GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical));
+                onApplied: () => GainRageOnHit(conn, stats, attack: !spell, melee: Skills.IsMelee(gem.Effect), critical), critical: critical, hitAt: hitAt);
         }
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
     }
@@ -703,7 +707,7 @@ partial class Program
         // All observations below are taken with the monster lock held, including the initial observation when the
         // glide reaches the send gate. The game clock, not time spent waiting for the gate, starts the flight.
         List<ProjectileFlight.Target> Targets(double at) => [.. conn.Monsters
-            .Where(m => !m.Value.Dead && m.Value.Life > 0 && (impactRadius <= 0 || m.Value.Hostile))
+            .Where(m => !m.Value.Dead && m.Value.Life > 0 && m.Value.Summon is null && (impactRadius <= 0 || m.Value.Hostile))
             .Select(m => new ProjectileFlight.Target(m.Key, m.Value.Walk.Position(at), m.Value.Walk))];
         ProjectileFlight? flight = null;
         try
@@ -771,11 +775,15 @@ partial class Program
                                         ? ProjectileImpactTargets.Explosion(conn.Monsters, (x, y), impactRadius, step.At)
                                         : step.TargetId != 0 && conn.Monsters.GetValueOrDefault(step.TargetId) is { Dead: false, Life: > 0 } direct
                                             ? [(step.TargetId, direct)] : [];
+                                    DateTimeOffset hitAt = DateTimeOffset.UtcNow;
                                     foreach (var (monsterId, target) in targets)
                                     {
                                         var (damage, critical) = damageTo(target);
                                         if (ApplyMonsterHitLocked(conn, target, damage) is { } hit)
+                                        {
+                                            if (critical) ReserveWolfLocked(conn, hitAt);
                                             appliedHits.Add((monsterId, target, hit, damage, critical));
+                                        }
                                     }
                                 }
                                 committed = true;
@@ -787,7 +795,7 @@ partial class Program
                 if (!committed) return;
                 foreach (var (monsterId, target, applied, damage, critical) in appliedHits)
                     await NotifyMonsterHit(remote, stream, ciphers, conn, monsterId, target, applied, damage,
-                        $"{projectile.Id}{(critical ? " (critical)" : "")}", log);
+                        $"{projectile.Id}{(critical ? " (critical)" : "")}", log, critical: critical);
                 if (log && impactRadius > 0)
                     Console.WriteLine($"[gateway] {remote} Fireball impact at ({x}, {y}), radius {impactRadius}: {appliedHits.Count} hostile target(s)");
                 impact = Environment.GetEnvironmentVariable("Game_PROJECTILE_IMPACT_AO") ?? impact ?? DefaultProjectileImpactAo;
@@ -820,29 +828,32 @@ partial class Program
 
     // A hit on a living monster: life is mutated once under Monsters, then notifications await outside the lock.
     static async Task HitMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
-        int damage, string by, bool log = true, bool melee = false, ushort sequence = 0, Action? onApplied = null)
+        int damage, string by, bool log = true, bool melee = false, ushort sequence = 0, Action? onApplied = null,
+        bool critical = false, DateTimeOffset? hitAt = null)
     {
         MonsterHit? hit;
         lock (conn.Monsters)
         {
             hit = ApplyMonsterHitLocked(conn, m, damage);
+            if (hit is not null && critical) ReserveWolfLocked(conn, hitAt ?? DateTimeOffset.UtcNow);
             if (hit is not null) onApplied?.Invoke();
         }
-        if (hit is { } applied) await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, applied, damage, by, log, melee, sequence);
+        if (hit is { } applied) await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, applied, damage, by, log, melee, sequence, critical: critical);
     }
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters.
-    static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage)
+    static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage, bool playerHit = true)
     {
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeDamageLocked(m, damage);
-        conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+        if (playerHit) conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; }
         return new(m.Life, starts);
     }
 
     static async Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
-        MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0)
+        MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
+        bool playerKill = true, bool critical = false)
     {
         var (life, stageStarts) = hit;
         if (life == 0)
@@ -861,10 +872,29 @@ partial class Program
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
         await SendFlinch(remote, stream, ciphers, conn, id, m, damage, log);
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
+        await SendMonsterLife(remote, stream, ciphers, conn, id, m,
             !log && life > 0 ? null : $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
-        if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
+        if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, playerKill);
+        if (playerKill && critical) await RefreshSummons(remote, stream, ciphers, conn);
         if (stageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
+    }
+
+    // Snapshot at the send gate, after earlier notifications finish: simultaneous minion hits must never make the
+    // native pool move backwards to an older hit's life. The same rule covers a boss refill racing a queued hit.
+    static Task SendMonsterLife(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, SpawnedMonster monster, string? log)
+    {
+        byte[] packet = InstanceProtocol.LifeUpdate(id, 0);
+        return Send(remote, stream, ciphers, packet, log, still: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || !conn.Monsters.TryGetValue(id, out var current)
+                    || !ReferenceEquals(current, monster)) return false;
+                InstanceProtocol.LifeUpdate(id, monster.Life).CopyTo(packet, 0);
+                return true;
+            }
+        });
     }
 
     // The hit reaction: one of the rig's TakeHit clips and its SoundEvent, S→C 0x1b2 kind 0 (see Attack and HitMonster).
@@ -923,7 +953,7 @@ partial class Program
         if (m.Variety?.ComponentsOrBase.ToList().IndexOf("Transitionable") is int t and >= 0)
             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)t, stage.TransitionTo),
                 $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {stage.TransitionTo}");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"0x01b1 monster 0x{id:x} ({m.Label}) life refilled to {life}");
+        await SendMonsterLife(remote, stream, ciphers, conn, id, m, $"0x01b1 monster 0x{id:x} ({m.Label}) life refilled to {life}");
         // The stage's action is over: 0x1ac ends it, so the client never keeps the boss in it.
         await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), $"0x01ac monster 0x{id:x} ({m.Label}) stage action ended");
     }
@@ -943,13 +973,14 @@ partial class Program
 
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
     // enough, it drops its items around where it fell (ItemDrops), and its corpse is removed 10 s later.
-    static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
+        bool playerKill = true)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
         bool alive;
         lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
-        if (alive && m.Hostile)
+        if (alive && m.Hostile && playerKill)
         {
             var stats = CharacterPlayerStats(conn);
             int seconds = Stats.Key("gain_adrenaline_for_X_seconds_on_kill") is uint key ? stats.GetValueOrDefault(key) : 0;

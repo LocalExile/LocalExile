@@ -182,6 +182,7 @@ partial class Program
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = CharacterStatSources(conn, nodes);
         RageStats(conn, extra);
+        SummonStats(conn, extra);
         if (Stats.Key("ward_broken") is uint brokenWard) extra[brokenWard] = conn.Ward.Broken ? 1 : 0;
         if (Stats.Key("ward_delay") is uint wardDelay) extra[wardDelay] = (int)Math.Round(WardState.Delay(
             name => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0) * 1000);
@@ -452,6 +453,10 @@ partial class Program
     // Null when no gem granting the effect is below its requirement.
     static string? GemDisabled(ClientState conn, int effect, ushort skillId = 0)
     {
+        if (Stats.Key("spell_uncastable_if_triggerable") is uint triggered
+            && Skills.EffectStats(effect, Math.Max(1, GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Level))
+                .Any(kv => kv.Item1 == triggered && kv.Item2 != 0))
+            return "This skill can only be triggered.";
         if (SkillRestrictionReason(conn, effect) is { } restriction) return restriction;
         // Passive-granted skills have their own level and no socketed gem's requirements.
         if (skillId != 0 && GemSkillEffects(conn).Any(g => g.Id == skillId && g.Gem == 0)) return null;
@@ -580,6 +585,7 @@ partial class Program
     static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         await RefreshPassiveBuffs(remote, stream, ciphers, conn);
+        await RefreshSummons(remote, stream, ciphers, conn, sendOwnerStats: false);
         await RefreshPassivePresences(remote, stream, ciphers, conn);
         await SendWardState(remote, stream, ciphers, conn);
         bool refreshedAuras = await RefreshActiveAuras(remote, stream, ciphers, conn);

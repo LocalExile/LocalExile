@@ -65,8 +65,8 @@ partial class Program
                 && SkillRestrictionReason(conn, gem.Effect) is null
                 && !conn.Auras.Values.Any(a => a.EffectId == effect)
                 && ReservationFor(conn, gem.Effect, gem.Level) is { } reservation)
-                candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect),
-                    reservation.Flat, reservation.Percent, gem.Level, gem.Quality, SourceBuff: conn.NextBuff++, ReserveLife: ReservesLife(conn)));
+                candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.AllocateBuff(), AuraCatalog.BuffRow(effect),
+                    reservation.Flat, reservation.Percent, gem.Level, gem.Quality, SourceBuff: conn.AllocateBuff(), ReserveLife: ReservesLife(conn)));
         var restored = AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn));
         var accepted = new List<AuraCatalog.Aura>();
         foreach (var aura in restored)
@@ -113,6 +113,8 @@ partial class Program
     {
         TemporaryPassiveBuffs.For(CharacterName(conn)).Clear();
         RageOf(conn).Clear();
+        conn.Summons?.Clear(conn.SummonLease);
+        await RefreshSummons(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, InstanceProtocol.DeathScreen(DeathScreenFlags(conn)), label);
     }
@@ -309,8 +311,8 @@ partial class Program
         lock (conn.Monsters)
         {
             if (conn.RighteousFire is not null || conn.PlayerLife == 0) return;
-            buff = conn.NextBuff++;
-            aura = conn.NextBuff++;
+            buff = conn.AllocateBuff();
+            aura = conn.AllocateBuff();
             ring = conn.NextObjectId++;
             at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             conn.RighteousFire = new RighteousFireState(buff, aura, ringAo is null ? null : ring, skillId,
@@ -543,7 +545,12 @@ partial class Program
                     if (rf.Auras.Remove(id, out ushort gone)) left.Add((id, gone));
                     continue;
                 }
-                if (!rf.Auras.ContainsKey(id)) { rf.Auras[id] = conn.NextBuff; entered.Add((id, conn.NextBuff++)); }
+                if (!rf.Auras.ContainsKey(id))
+                {
+                    ushort instance = conn.AllocateBuff();
+                    rf.Auras[id] = instance;
+                    entered.Add((id, instance));
+                }
                 var resistance = MonsterResistance(conn, m, DamageType.Fire);
                 var resistedDot = damageOverTime with
                 {
@@ -568,7 +575,7 @@ partial class Program
         {
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
+            await SendMonsterLife(remote, stream, ciphers, conn, id, m,
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by Righteous Fire" : null);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
         }

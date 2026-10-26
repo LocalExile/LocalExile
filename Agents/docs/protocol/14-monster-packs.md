@@ -84,6 +84,15 @@ The Coast seed 1 (live): `scavenger_camp_2a` at (1241, 598) turned [0 −1; 1 0]
 its `cannibalfire` (1173, 679); 8 bonfire rooms (12/12 or 21/21 doodads). The doodad angles agree (room angle + π/2).
 Fire Fury stands at `mapboss`, about 30 cells from the campfire, with `1_1_2-bosspack` around her.
 
+### Owned combat summons
+
+Owned combat minions use the same type registration, monster object and Actor skill records as enemies, with team 0.
+Pack Mentality's current wolf is variety 332, not the obsolete display-table variety 331.
+The owner receives one native Spectral Pack buff per living wolf.
+Its server ownership/AI, `DiesAfterTime` handling and independent level-70 calculation are documented in
+[owned summons](../game/owned-summons.md).
+Owned creatures are never stored as ordinary monsters belonging to the area instance.
+
 ## 4. Open
 
 - Pack density and magic/rare chances are guesses (§1). Rarity gives no mods, no extra life, no rare names.
