@@ -234,6 +234,34 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Monster_mods_and_rare_name_go_in_the_magic_property_lists()
+    {
+        var monster = new MonsterObject(1, 2, 100, MonsterObject.BaseComponents, Rarity: MonsterRarity.Rare)
+        {
+            Mods = [new ItemMod(ModSection.Hidden, 0x1234, [390, 1]), new ItemMod(ModSection.Explicit, 0xabcd, [40]),
+                new ItemMod(ModSection.Explicit, 0x0102, [-80, 200])],
+            NameWords = [0x11223344, 0x55667788],
+        };
+        string hex = Convert.ToHexString(monster.Blob());
+        string plain = Convert.ToHexString(new MonsterObject(1, 2, 100, MonsterObject.BaseComponents).Blob());
+        // flags 0x92a: rare 2 | identified 8 | explicit list 0x20 | Words name 0x100 | hidden list 0x800; u8 +0x7a.
+        string omp = "2A09" + "00" +
+            "01" + "3412" + "8186" + "01" +                     // hidden list: 390 is a 2-byte compact (0x80 | 0x01, 0x86)
+            "02" + "44332211" + "88776655" +                    // the name: prefix, suffix keys
+            "02" + "CDAB" + "28" + "0201" + "BFB0" + "80C8" +   // explicit: 40 (one byte); -80 and 200 (two bytes, 0x80 prefix)
+            "00";                                               // the component's own flags
+        Assert.Equal(omp, hex.Substring(60, omp.Length));
+        Assert.Equal(plain.Length - 8 + omp.Length, hex.Length);
+    }
+
+    [Fact]
+    public void A_custom_name_wins_over_name_words()
+    {
+        var named = new MonsterObject(1, 2, 100, MonsterObject.BaseComponents, Rarity: MonsterRarity.Rare, Name: "Ab") { NameWords = [1] };
+        Assert.Equal("8A00" + "00" + "02000000" + "41006200" + "00", Convert.ToHexString(named.Blob()).Substring(60, 24));
+    }
+
+    [Fact]
     public void Monster_state_machine_writes_shared_states_and_timers()
     {
         string[] list = [.. MonsterObject.BaseComponents, "StateMachine"];
@@ -270,6 +298,20 @@ public class InstanceEntitiesTests
     {
         Assert.Equal("02BA" + "00003000" + "00000000" + "0000" + "0002" + "0C" + "02",
             Convert.ToHexString(InstanceEntities.TransitionableUpdate(0x3000, 12, 2)));
+    }
+
+    [Fact]
+    public void An_emerge_monster_is_created_buried_and_rises_with_its_basic_action()
+    {
+        // Gravel Eater (SandSpitterEmerge): the base list + Transitionable without num_states, i.e. 2 states.
+        string[] list = [.. MonsterObject.BaseComponents, "Transitionable"];
+        Assert.Equal(1, new MonsterObject(1, 2, 100, list, TransitionState: 1).Blob()[^2]);   // buried: emerge paused
+        Assert.Equal(2, new MonsterObject(1, 2, 100, list, TransitionState: 2).Blob()[^2]);   // risen: targetable
+        // The Emerge basic action (ActionTypes HASH16 16641 = 0x4101 & 0x3fff) in place, not predicted (0xffff), then
+        // Transitionable (component 11) to 2.
+        Assert.StartsWith("01AB" + "00003000" + "00000000" + "0000" + "0408" + "0A0B0A0B" + "0101" + "FFFF",
+            Convert.ToHexString(InstanceProtocol.ActionStarted(0x3000, 10, 11, 10, 11, 0x0101, 0xffff, 0x0408)));
+        Assert.EndsWith("0B" + "02", Convert.ToHexString(InstanceEntities.TransitionableUpdate(0x3000, 11, 2)));
     }
 
     [Fact]
@@ -534,6 +576,14 @@ public class InstanceEntitiesTests
         string body = "09" + "2000" + "01" + "01" + "0201" + "00" + "7A110000" + "00" + "4E110000" + "00" + "00" +
             "00000000" + "00000000" + "00000000" + "00" + "00" + "0401" + "00" + "00";
         Assert.Equal("02BA" + "00001000" + "00000000" + "0000" + (body.Length / 2).ToString("X4") + body, Convert.ToHexString(m));
+    }
+
+    [Fact]
+    public void Actor_take_hit_uses_animation_type_and_native_recovery_duration()
+    {
+        Assert.Equal("01D1000010000000000000003F0000000500",
+            Convert.ToHexString(InstanceProtocol.ActorAnimation(0x1000, .5f, 5)));
+        Assert.Equal(1, InstanceProtocol.ActorAnimation(0x1000, .5f, 5, checkInterruption: true)[^1]);
     }
 
     [Fact]

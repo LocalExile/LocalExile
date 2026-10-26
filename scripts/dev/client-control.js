@@ -169,7 +169,7 @@ function execute(request) {
     case 'interaction': {
       if (current.screen !== 'game' || current.instanceState !== 3) throw new Error('Interaction requires an active area');
       const b=request.bytes, id=Array.isArray(b) && b.length>=2 ? b[0]*256+b[1] : -1;
-      const lengths={0x24:12,0x25:16,0x28:13,0x2a:18,0x82:3,0x85:2,0x88:15};
+      const lengths={0x24:12,0x25:16,0x28:13,0x2a:18,0x70:6,0x82:3,0x85:2,0x88:15};
       if (!lengths[id] || b.length!==lengths[id])
         throw new Error('Unsupported interaction message');
       sendPacket(b,'instance'); return {submitted:true};

@@ -6,34 +6,32 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 partial class Program
 {
     // Opens the native recipe browser. Harvest recipe execution is a separate feature.
-    static async Task OpenHorticrafting(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task OpenHorticrafting(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (_, stop, arrive) = conn.Walk.WalkUpTo(conn.HorticraftingAt.X, conn.HorticraftingAt.Y, 8, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, conn.HorticraftingAt.X, conn.HorticraftingAt.Y, 8, out var objectWalk)) return;
+        var (action, now, _, stop, arrive) = objectWalk;
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.Closed || conn.ActionCount != action || !PlayerWalk.InWalkUpRange(stop, conn.HorticraftingAt, 8)) return;
+        if (conn.Closed || !PlayerActionCurrent(conn, action) || !PlayerWalk.InWalkUpRange(stop, conn.HorticraftingAt, 8)) return;
         conn.BenchOpen = false;
         await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.HorticraftingUi),
-            "0x007b open Horticrafting Station recipe browser");
+            "0x007b open Horticrafting Station recipe browser", still: () => PlayerActionCurrent(conn, action));
     }
 
     // C→S 0x24: approach the bench before opening the ordinary crafting window (0x7b kind 0x33, bench type 0).
     static async Task OpenCraftingBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use)
+        InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.WalkUpTo(conn.CraftingBenchAt.X, conn.CraftingBenchAt.Y, ClientState.StashBlockerSize, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, conn.CraftingBenchAt.X, conn.CraftingBenchAt.Y, ClientState.StashBlockerSize, out var objectWalk)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 crafting bench ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.Closed || conn.ActionCount != action
+        if (conn.Closed || !PlayerActionCurrent(conn, action)
             || !PlayerWalk.InWalkUpRange(stop, conn.CraftingBenchAt, ClientState.StashBlockerSize)) return;
         conn.BenchOpen = true;
         await RefreshBenchBalance(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.CraftingBenchUi),
-            "0x007b open the crafting bench window (type 0)");
+            "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(conn, action));
     }
 
     static async Task CraftBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Recipe, bool Replace) request)
@@ -80,20 +78,19 @@ partial class Program
     // A click on the guild stash (C→S 0x24): walk there, then its tab list (S→C 0x136 kind 1) and its panel (0x7b kind 2).
     // While it is open the stash messages (0xc7, 0x28, 0x2a, Ctrl + click …) act on it (StashOf); the personal stash's open
     // switches back.
-    static async Task OpenGuildStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use)
+    static async Task OpenGuildStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.WalkUpTo(conn.GuildStashAt.X, conn.GuildStashAt.Y, ClientState.StashBlockerSize, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, conn.GuildStashAt.X, conn.GuildStashAt.Y, ClientState.StashBlockerSize, out var objectWalk)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 guild stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action) return;
+        if (!PlayerActionCurrent(conn, action)) return;
         conn.GuildStashOpen = true;
         var guild = GuildStashOf(conn);
         var tabs = guild.Records(null, conn.GuildStashTabsSent);
         await Send(remote, stream, ciphers, InstanceStash.TabList(tabs, InstanceStash.Guild), $"0x0136 guild stash tab list: {tabs.Count} tab(s)");
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceStash.OpenGuildStashUi, conn.GuildStashObject, InstanceStash.NoAffinity),
-            "0x007b open the guild stash");
+            "0x007b open the guild stash", still: () => PlayerActionCurrent(conn, action));
     }
 
     // A hideout's placed doodads (HideoutCatalog.IsPlaced: the map device) from its decoration, with their HideoutDoodad data.
@@ -115,6 +112,7 @@ partial class Program
                 $"0x02b9 create hideout doodad 0x{id:x} {d.Name} ({d.Type}) at ({d.X}, {d.Y}), components {string.Join(", ", components)}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 hideout doodad 0x{id:x} enters wake zone");
             lock (conn.HideoutDoodads) conn.HideoutDoodads[id] = d;
+            conn.HideoutEditor.Register(id, "map-device", d.X, d.Y, d.Rotation, 0);
         }
         // The portals of the character's open map stand at the device again.
         if (MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open) await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);

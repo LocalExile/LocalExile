@@ -9,7 +9,7 @@ static class StashCatalog
 
     static readonly Dictionary<ushort, Placement> Towns = new()
     {
-        // Lioneye's Watch: next to Nessa (346, 271), the place the user picked (2026-10-19).
+        // Lioneye's Watch: next to Nessa (346, 270), the place the user picked (2026-10-19).
         [AreaLayouts.LioneyesWatch] = new(319, 272, 0),
         // The Azurite Mine Encampment (Delve_Hub): across the waypoint (333, 402) from Niko (342, 410); our own cell
         // (2026-10-21). It also gets the guild stash (Program.SpawnTownStash).

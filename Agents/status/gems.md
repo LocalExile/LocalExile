@@ -14,6 +14,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
+  are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
+  Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
+  Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
+
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
   keys no longer move when other gems come or go; a skill that goes away ends its aura or Righteous Fire;
@@ -48,7 +53,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (`SkillCatalog.MaxLevelAt` in `GainGemExperience`, the game's rule;
   the client derives levels from experience alone and would not stall by itself), and the level change re-sends the
   skills.
-  Not yet: supports don't stop applying when a gem is disabled, and a disabled gem's aura keeps running
+  Not yet: verify every disabled-gem aura transition
   ([19](../docs/protocol/19-gems.md) 1, 3).
 - **Gem experience from kills (one gem in the first weapon set checked with the real client).** Every gem socketed in
   an equipped item, in either weapon set, gains 10% of a kill's monster experience (support gems included;

@@ -10,10 +10,41 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceStore.cs`, Gateway.
   Docs: [13](../docs/protocol/13-items.md) §5.
 - Life and mana flasks: a flask key (C→S 0x70) spends the flask's charges and recovers Flasks.dat's life or mana over
-  its time in a 20 ms loop, the orb rising by +1, with the flask_effect buff;
-  every kill, town, hideout and resurrection fills the flasks.
-  Code: `Flasks.cs`, Gateway (`UseFlask`, `RunFlaskRecovery`).
+  its time in a 20 ms loop, the orb rising by +1, with the flask_effect buff.
+  Quality, the flask's prefixes and suffixes and the character's flask stats count (amount, rate, instant and partial
+  instant, low life, other-pool costs, mana at the end, not removed at full, extra life), as Path of Building does.
+  Several recovery flasks queue, the highest rate first (poewiki).
+  Checked live: the base recovery and the extra-life suffix; the other mods and queueing by tests.
+  Code: `Flasks.cs`, `FlaskRecovery.cs`, Gateway (`UseFlask`, `RunResourceRecovery`).
   Docs: [13](../docs/protocol/13-items.md) §8.
+- Flask charges: kills give 1 / 3.5 / 6 / 11 charges by rarity (Mods.dat monster rarity mods, poewiki), increased
+  flask charges gained and charge recovery multiply, partial charges are kept.
+  Charges on dealing a critical strike (one 0.132 s cooldown), when hit and every 3 seconds; charges used and maximum
+  charges with mods.
+  Towns, hideouts and resurrection fill every flask; a flask put on the bar in a hostile area starts empty.
+  `Game_FLASK_CHARGES=full` brings back "every kill fills every flask".
+  Not yet: fewer charges in acts 6 to 10 and maps; charges on taking a critical strike (monsters deal none) and at
+  maximum frenzy charges (none here).
+  Checked live: kill and crit charges and the hostile-area rule; charges when hit and every 3 seconds by tests.
+  Code: `FlaskCharges.cs`, Gateway (`Program.FlaskCharges.cs`).
+  Docs: [13](../docs/protocol/13-items.md) §8b.
+- Utility flasks: every utility flask spends its charges, shows its buff and the timer bar under it, and gives its
+  buff's stats for its duration, all from the tables (Flasks.dat, BuffDefinitions, ComponentCharges).
+  The stats count in the pools (the walk estimate, `/defences`, `/resistances`, `/hit`) and go to the client.
+  Two flasks of one kind keep their own timers and only the strongest applies (poewiki); different effects stack.
+  They end with the duration, at death, with the area and when the flask leaves its cell; a pause holds them.
+  Quality, the flask's duration and effect mods, its "during effect" suffixes and the character's flask effect and
+  duration count.
+  Stibnite blinds monsters in its smoke cloud, Sulphur's consecrated ground regenerates life, Basalt taunts, Quartz
+  phases through monsters, Gold raises the rarity of drops, Silver gives Onslaught.
+  Checked live: every flask's use, stats on the client, bars, pause, death, area change; not the client walking faster
+  or phasing (the control bridge cannot make it walk).
+  Iron Flask and the Ward suffix now enter the shared Ward pool, with immediate restoration and effect expiry.
+  Combined Ward/flask integration has automated coverage; the merged interaction still needs native verification.
+  Not yet: remaining ailments, stun and curses on the player (Aquamarine, Corundum and the ailment
+  suffixes reach the panel only), Aquamarine's chilled ground, the smoke cloud's art, leech suffixes.
+  Code: `UtilityFlasks.cs`, `FlaskGrounds.cs`, Gateway (`UseUtilityFlask`, `RunUtilityFlasks`, `RunFlaskGrounds`).
+  Docs: [13](../docs/protocol/13-items.md) §8a.
 - Items: the start kit (Characters.dat skill and support gems, two life flasks on keys 1–2 and a mana flask on key 5)
   in the inventories, and the class weapon with two linked sockets worn in the main hand (`Game_START_WEAPON=ground`:
   on the ground a few cells from the spawn until it is picked up);
@@ -30,7 +61,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Item mods: rarity (normal, magic, rare, unique), identified, and the implicit, explicit, enchant, scourge and hidden
   mod lists in the Mods component; new items roll their BaseItemTypes implicits (Driftwood Wand 8-12% increased Spell
   Damage); magic names come from the affixes; rarity and mods are saved with the item (characters and stash);
-  `/mod`, `/mods`, `/rarity` on the held item.
+  `/mod`, `/mods`, `/rarity`, `/sockets` (colours and links, e.g. `/sockets RRGBBB`) on the held item.
   Magic and rare items: affixes rolled from Mods.dat by domain, item level, the item's tags and families, rare names
   from Words.dat; equipment drops magic / rare and unidentified; a Scroll of Wisdom identifies (C→S 0x71);
   `/item <type> magic|rare`, `/roll`.
@@ -130,5 +161,5 @@ Part of [Status](../Status.md); what to build next in this area is in
   currency other than Scroll of Wisdom, Chromatic Orb, Jeweller's Orb, Orb of Fusing, Orb of Alchemy, Chaos Orb,
   Divine Orb, Orb of Scouring, Orb of Transmutation, Orb of Alteration, Orb of Augmentation, Regal Orb, Exalted Orb,
   Orb of Annulment, Armourer's Scrap, Blacksmith's Whetstone, Orb of Chance, Vaal Orb, Glassblower's Bauble,
-  Fracturing Orb, Mirror of Kalandra, Gemcutter's Prism and Orb of Regret; utility flasks;
+  Fracturing Orb, Mirror of Kalandra, Gemcutter's Prism and Orb of Regret;
   support gems and links ([13](../docs/protocol/13-items.md) "Open").

@@ -18,3 +18,8 @@ verify the corrected fossil/resonator presentation in the real client (18-stash.
 - **Start:** check live that the affinity window closes on S→C 0x136 and that currency Ctrl + click (0xe1) lands in
   its slot; tab rename / colour (0xd2), order (0xcc) and folders (0xd1); the unique and divination tabs.
 - **Done when:** tab settings are kept and every special tab takes its items as the real one does.
+
+### Special-tab crafting follow-up
+
+Lifeforce limits and Delve equipment cells are implemented ([18](../docs/protocol/18-stash.md)).
+Further stack-limit increases require verifying a protocol representation beyond the current u16 Stack component.

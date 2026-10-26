@@ -38,6 +38,7 @@ public class ArmourEvasionTests
         Assert.Equal(new ItemCatalog.BaseDefences(19, 27, 0, 0), catalog.Defences(catalog.Find("Plate Vest")!));
         Assert.Equal(new ItemCatalog.BaseDefences(27, 38, 27, 38), catalog.Defences(catalog.Find("Scale Vest")!));
         Assert.Equal(new ItemCatalog.BaseDefences(0, 0, 13, 18), catalog.Defences(catalog.Find("Rawhide Gloves")!));
+        Assert.Equal(new ItemCatalog.BaseDefences(0, 0, 0, 0, 14, 20), catalog.Defences(catalog.Find("Simple Robe")!));
     }
 
     [Fact]

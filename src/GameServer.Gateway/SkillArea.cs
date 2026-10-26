@@ -8,6 +8,14 @@
 /// </summary>
 static class SkillArea
 {
+    public const string BaseIncreased = "base_skill_area_of_effect_+%";
+
+    public static Dictionary<uint, int> WithoutPlayerBase(Dictionary<uint, int> playerFinal, uint? baseKey)
+    {
+        if (baseKey is uint key) playerFinal.Remove(key);
+        return playerFinal;
+    }
+
     public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX";
 
     /// <summary>Explicit data wins. Cyclone's base radius is not in its exported stat set (PoB: 16 cells).</summary>

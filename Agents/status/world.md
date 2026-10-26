@@ -43,7 +43,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`;
   Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
-  Code: `AreaLayout.Arrival`, Gateway.
+  `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
+  Code: `AreaLayout.Arrival`, `TeleportTargets.cs`, Gateway.
   Docs: [09](../docs/protocol/09-area-change.md) §4.
 - Instances: one per town (all 12 act towns from WorldAreas `IsTown`);
   other areas get private instances that live 6 minutes once empty.
@@ -84,12 +85,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
-- Area transitions of a generated area need a `-Walkmaps` capture for its seed;
-  quest-gated ones are created but the way stays blocked: The Mud Flats' Submerged Passage has a client-side wall
-  until quest flag `a1q4-PlacedGlyphs`.
+- Area transitions of a generated area need a `-Walkmaps` capture for its seed.
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
-  Only quest a1q1 is scripted; no quest log.
+  Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
 - The client's lockstep network mode (also what "auto" picks on localhost): the player is drawn (the Gateway sends
   server frames) but cannot move or use objects.
   Only Predictive is supported; the Gateway asks for it once per connection

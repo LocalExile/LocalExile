@@ -64,6 +64,15 @@ static class DamageStats
         _ => throw new ArgumentOutOfRangeException(nameof(type)),
     };
 
+    /// <summary>Existing combat precedence: player keys win, then the skill fills missing conversion inputs.</summary>
+    public static DamageConversion Conversion(IReadOnlyDictionary<uint, int> player, IEnumerable<(uint, int)> own,
+        StatCatalog catalog, bool attack)
+    {
+        var stats = new Dictionary<uint, int>(player);
+        foreach (var (key, value) in own) stats.TryAdd(key, value);
+        return Conversion(stats, catalog, attack);
+    }
+
     /// <summary>Conversion for a hit. <paramref name="attack"/> selects the attack-only stats; spells use the spell
     /// stats instead. Conditional stats (while affected by an aura, against a frozen enemy, …) are ignored.</summary>
     public static DamageConversion Conversion(IReadOnlyDictionary<uint, int> stats, StatCatalog catalog, bool attack)

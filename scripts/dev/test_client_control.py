@@ -2,9 +2,11 @@
 import contextlib
 import io
 import json
+from pathlib import Path
+import tempfile
 import unittest
 
-from client_control import chat_packet, normalize, run_request
+from client_control import chat_packet, collect_replies, flask_packet, log_mark, normalize, read_replies, run_request, tp_text
 
 
 class ClientControlTests(unittest.TestCase):
@@ -38,6 +40,44 @@ class ClientControlTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertNotIn("do-not-echo", json.dumps(result))
         self.assertEqual("", output.getvalue())
+
+    def test_tp_requests_become_tp_commands(self):
+        self.assertEqual(tp_text({"x": 120, "y": 340}), "/tp 120 340")
+        self.assertEqual(tp_text({"dx": 5, "dy": -3}), "/tp +5 -3")
+        self.assertEqual(tp_text({"id": 0x1234}), "/tp 0x1234")
+        self.assertEqual(tp_text({"target": "RhoaChest", "index": 2}), "/tp RhoaChest 2")
+        self.assertEqual(tp_text({"text": "GlyphWall"}), "/tp GlyphWall")
+        self.assertEqual(tp_text({"list": "chest"}), "/tp list chest")
+        self.assertEqual(tp_text({"list": True}), "/tp list")
+        for bad in [{}, {"x": 1}, {"x": "1", "y": 2}, {"x": True, "y": 2}, {"target": " "}]:
+            with self.assertRaises((ValueError, KeyError)):
+                tp_text(bad)
+
+    def test_flask_use_sends_the_flask_key_message(self):
+        self.assertEqual(flask_packet({"key": 1}), ([0x00, 0x70, 0, 0, 0, 0], 0))
+        self.assertEqual(flask_packet({"slot": 4}), ([0x00, 0x70, 0, 0, 0, 4], 4))
+        self.assertEqual(flask_packet({"key": 5})[1], 4)
+        for bad in [{}, {"slot": 1, "key": 2}, {"slot": 5}, {"key": 0}, {"key": "1"}, {"slot": True}]:
+            with self.assertRaises(ValueError):
+                flask_packet(bad)
+
+    def test_replies_are_the_gateway_chat_lines_after_the_mark(self):
+        nl = chr(10)
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "live-gateway.log"
+            log.write_text('[gateway] 127.0.0.1:1 => 0x0017 chat line "old": 0017' + nl, encoding="utf-8")
+            start = log_mark(log)
+            with log.open("a", encoding="utf-8", newline="") as out:
+                out.write('[gateway] 127.0.0.1:1 <= 0x0015 chat "/pos"' + nl)
+                out.write('[gateway] 127.0.0.1:1 => 0x0017 chat line "(10, 20) in 1_1_3": 00170000' + nl)
+                out.write('[gateway] 127.0.0.1:1 => 0x0017 chat line "a "quoted": line": 0017' + nl)
+                out.write('[gateway] 127.0.0.1:1 => 0x0017 chat line "partial')
+            lines, offset = read_replies(log, start)
+            self.assertEqual(lines, ["(10, 20) in 1_1_3", 'a "quoted": line'])
+            self.assertLess(offset, log.stat().st_size)  # the unfinished line is left for the next read
+            self.assertEqual(collect_replies(start, wait=0.3, quiet=0.05, path=log), lines)
+            self.assertIsNone(collect_replies(None))
+            self.assertIsNone(log_mark(Path(folder) / "missing.log"))
 
 
 if __name__ == "__main__":

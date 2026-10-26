@@ -248,7 +248,7 @@ frames (the tick rules above) and sending the start of each action in the frame 
 |---|---|---|
 | 0x015a | 2 | id only, after entering |
 | 0x01ef | 2 | id only |
-| 0x0099 | 20 | `0099 00000134 0334 0001 0001 3400 0101 0001 29` both times; meaning unknown |
+| 0x0099 | 4 | `0099 0000`: two u8 (class `0x1435c0258`); meaning unknown. The 20 bytes once taken for it were 0x99, the two chat channel joins 0x134 ([10](10-chat-and-commands.md) §2) and 0x129 (id only) |
 | 0x004e | 5 | `004E 00 2909`: u8 + Move skill id, after a click (skill released?) |
 
 ## Open

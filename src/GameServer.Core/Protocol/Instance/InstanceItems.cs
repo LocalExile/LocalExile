@@ -182,31 +182,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// bit 5. A mod (0x142430380): u16 Mods.dat HASH16 (unknown → "Deserialised a mod that we don't recognise"), then a
     /// signed compact (0x141e490e0) per stat of the row.
     /// </summary>
-    void MagicProperties(BlobWriter w)
-    {
-        var sections = Mods.Where(m => Identified || m.Section != ModSection.Explicit).GroupBy(m => m.Section).ToDictionary(g => g.Key, g => g.ToList());
-        bool named = Identified && NameWords.Count > 0;
-        ushort flags = (ushort)((byte)Rarity & 7 | (Identified ? 0x8 : 0) | (named ? 0x100 : 0));
-        foreach (var s in sections.Keys) flags |= (ushort)(1 << (byte)s);
-        // +0x7a: how many of the first explicit mods are fractured (verified live: they show fractured).
-        w.U16(flags).U8(FracturedCount);
-        foreach (var s in new[] { ModSection.Implicit, ModSection.Enchant, ModSection.Scourge, ModSection.Hidden, ModSection.Explicit })
-        {
-            // The name comes between the lists read for every item and the identified-only explicit list.
-            if (s == ModSection.Explicit && named)
-            {
-                w.U8((byte)Math.Min(NameWords.Count, 255));
-                foreach (uint word in NameWords.Take(255)) w.U32(word);
-            }
-            if (!sections.TryGetValue(s, out var mods)) continue;
-            w.U8((byte)Math.Min(mods.Count, 255));
-            foreach (var m in mods.Take(255))
-            {
-                w.U16(m.Hash);
-                foreach (int v in m.Values) w.CompactI(v);
-            }
-        }
-    }
+    void MagicProperties(BlobWriter w) =>
+        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, NameWords, u7a: FracturedCount);
 
     /// <summary>The item as inventories and other messages carry it (0x1421ec1d0 / 0x1421ec2c0): u16 big-endian length,
     /// then <see cref="Payload"/>.</summary>

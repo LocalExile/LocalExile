@@ -38,13 +38,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Incorruptible's full chaos-armour flag also executes through the common incoming-hit stage and survives paid refunds.
   Pack Mentality now has owned wolves, actual attacks and owner damage buffs, with native limit/refund/area checks.
   Visiting Harbingers have actual companions, buff casts and owner effects, with explicit timing/immunity limits.
-  Toughened Skin's body-only armour doubling also executes; its action/movement floors remain timing work.
+  Toughened Skin's body-only armour doubling and independent action/movement floors also execute.
   Whaletooth Bangle's final duration stat is native-checked; verify elapsed lifetimes when integrating summon consumers.
   The [current class table](../docs/game/ascendancies.md#what-this-does-not-complete) distinguishes those effects.
 - **Start:** complete the missing signature subsystems in the
-  [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including support gems,
+  [dependency order](../docs/game/phrecia-ascendancies.md#dependencies-of-all-19-classes), including special support execution,
   other minion families and inheritance, remaining Rage bonuses/costs, totems, shrines and passive-granted triggers.
   Juggernaut, endurance charges and stun are claimed in [#152](https://github.com/Wrathen/LocalExile/issues/152).
-  Linked supports are under development in [#207](https://github.com/Wrathen/LocalExile/pull/207).
+  Linked support foundations from [#207](https://github.com/Wrathen/LocalExile/pull/207) are merged.
+  Support enhancement remains owned in issue #64; coordinate with its owner before expanding that work.
   Coordinate those dependencies before starting overlapping work.
 - **Done when:** each class's defining effect has a reproducible gameplay check and survives refunds and reloads.

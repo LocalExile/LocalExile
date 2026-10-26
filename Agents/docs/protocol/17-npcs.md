@@ -41,16 +41,84 @@ The NPC component's debug dump (`0x141e751d0`) prints the NPC and the NPCTalk ro
 
 ## 2. Where town NPCs stand
 
-The client files do not place them. Lioneye's Watch is one room, `beach_town_unique_normal.arm`, whose only named points
-are `entrance1`, `entrance2` and `default`. The town tiles' `.tmd` objects are the waypoint, the area transition and
-doodads, and `Tarkleigh.ot` has only its model. The real server has its own data, so `NpcCatalog.Towns` holds cells
-measured on the real game's minimap: the minimap projection was fitted on our NPCs' known cells and the waypoint (under one cell of error), then inverted for the real markers. Facing is not set yet (`/npc_face <name> <degrees>` turns one live):
+Each campaign town has one fixed town room (.arm), and the room lists its NPCs among its doodads, one line each:
+`x y 0 angle qx qy qz qw a b flag [z] scale "model.ao" "Metadata/NPC/…"` (room cells; the angle in radians, the quaternion
+is the same turn about z; z only when the flag is 1). That is a version 35 or 36 room; version 31 rooms (Oriath's
+`entrance_04.arm`) have no 0 before the angle. Lioneye's Watch's room `beach_town_unique_normal.arm` has
+`230 389 0 -0.155698 … "Metadata/NPC/Act1/Tarkleigh.ao" "Metadata/NPC/Act1/Tarkleigh"`. The client creates the plain
+doodads of those lines itself (type `Metadata/MiscellaneousObjects/Doodad`) and leaves the others (NPCs, stash, notice
+boards …) to the server.
 
-| NPC | Cell |
-|---|---|
-| Tarkleigh | (388, 182) |
-| Nessa | (346, 271) |
-| Bestel | (361, 246) |
+The room is placed like a tile ([08](08-area-transitions.md) §6, `TilePlacement`): the town's .dgr node gives the
+rotation (Lioneye's Watch R270, code 3: room (x, y) → grid (y, 413 − x), angle + 3π/2), plus the grid cell of the
+room's origin. The walk-map recorder (`scripts/walkmaps`) captured every town on 2026-10-25 (seed 1): the placed room
+(`<area>_seed1.rooms.json`: path, origin, size, code) and the client's doodads. In all twelve towns every plain doodad
+of the room stood at exactly its line's placed cell (40 of 40 in Lioneye's Watch, 829 of 829 in the Karui Shores) and
+angle, so the server's lines go through the same placement. In Lioneye's Watch that gives Tarkleigh (389, 183), Nessa
+(346, 270), Bestel (362, 247), within one cell of the cells measured earlier on the real game's minimap ((388, 182),
+(346, 271), (361, 246)). `TownNpcs` copies the NPC lines of every town with its room's code and origin;
+`/npc_face <name> <degrees>` still turns one live.
+
+Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
+fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off
+by the same amount.
+
+| Town | Room (.dgr rotation, origin) | NPCs placed |
+|---|---|---|
+| Lioneye's Watch (1_1_town) | `Act1/Town/Rooms/beach_town_unique_normal.arm` (R270, 0, 0) | Tarkleigh, Nessa, Bestel |
+| The Forest Encampment (1_2_town) | `Act2/Town/Rooms/forest_town.arm` (R270, 0, 92) | Yeena, Eramir, Greust, Silk, Helena |
+| The Sarn Encampment (1_3_town) | `Act3/Town/Rooms/city_town.arm` (I, 69, 69) | Hargan, Grigor, Maramoa, Clarissa |
+| Highgate (1_4_town) | `Act4/Town/Rooms/town.arm` (R270, 0, 0) | Kira, Oyun, Petarus and Vanja, Lady Dialla, Tasuni |
+| Overseer's Tower (1_5_town) | `Act5/Town/Rooms/town_01.arm` (I, 138, 138) | Utula, Bannon, Lani, Vilenta |
+| Lioneye's Watch (2_6_town) | `Act6/BeachTown/Rooms/part2_beach_town.arm` (R270, 0, 0) | Tarkleigh, Bestel, Sin, Lilly Roth |
+| The Bridge Encampment (2_7_town) | `Act7/Town/Rooms/broken_bridge_town.arm` (I, 437, 207) | Eramir, Yeena, Helena, Sin, Weylam Roth |
+| The Sarn Encampment (2_8_town) | `Act8/Town/Rooms/city_town.arm` (I, 69, 69) | Hargan, Maramoa, Clarissa, Sin |
+| Highgate (2_9_town) | `Act9/Town/Rooms/town.arm` (R270, 0, 0) | Petarus and Vanja, Irasha, Tasuni, Sin |
+| Oriath Docks (2_10_town) | `Act10/Town/Rooms/dock_town.arm` (I, 0, 0) | Sin, Bannon, Weylam Roth, Lani, Lilly Roth |
+| Oriath (2_11_town) | `Act11/Town/Rooms/Unique/fountain.arm` (node "fountain" I among generated nodes, 299, 299) | Zana, Innocence, Sin, Weylam Roth, Lilly Roth, Lani |
+| | `Act11/Town/Rooms/Unique/entrance_04.arm` (node "entrance_04" I, 161, 851) | Helena |
+| Karui Shores (2_11_endgame_town) | `Act11/Camp/Rooms/camp.arm` (I, 92, 92) | Lilly Roth, Weylam Roth, Lani, Helena |
+
+- **Types without an .ot.** Half of the NPCs.dat Ids have no .ot of their own (`Metadata/NPC/Act6/Tarkleigh`,
+  `Act9/Irasha`, `Epilogue/Lilly` …). The object-type register's 0xac-byte table ([04](04-player-entity.md) §1) is
+  NPCs.dat: it files every row under its Id on the .ot of its `Metadata` column (row +0x10; Act 6's Tarkleigh on
+  `Metadata/NPC/Act1/Tarkleigh`, Irasha on `Metadata/NPC/NPC`). So 0x2b9 still uses `ObjectTypeHash(Id)`, and the
+  Gateway takes the components of the Metadata .ot (`NpcCatalog`).
+- **Model.** A line's .ao is sent in Animated (bit0 + path) when the type has none (Irasha, Act 6's Lilly) or another
+  one (Weylam's `Act6/RotTooth.ao` instead of `Act7/Weylam.ao`, Lilly's poses `Act5/Lilly.ao` / `Act6/LillySitting.ao`,
+  the Karui Shores' Helena); otherwise Animated stays 0 (the type's model).
+- **Transitionable.** Helena in Oriath and the Karui Shores (`Epilogue/Helena`, an empty `Transitionable {}`) hides herself
+  while untransitioned (`create_untransitioned = { DisableRendering(); … }`): with state 1 she was invisible live
+  (her dialogue still opened), with state 2 she shows. Act 10's Bannon at state 1 is Bannon (his `create_transitioned`
+  hides him for Innocence). So an empty `Transitionable {}` has two states, not the one `object-types.json` reports.
+- **Height.** A line with flag 1 carries a world z, sent as Positioned's fixed height (flags0 bit2, before flags1
+  0x02's two bytes): i32 −z / 7.8125 and f32 z, the live server's convention for a fixed height (its projectiles,
+  [11](11-skills.md) "Sign"; world z points down). Live the NPCs looked the same with either sign of the i32 (Nessa,
+  Kira, Oyun, Act 6's Lilly on her pier, 2026-10-25: same pose and name labels at the same height), so for a standing
+  object the client seems to use the f32. The area transitions and waypoints still send +z / 7.8125
+  ([08](08-area-transitions.md) §5); aligning them is left for a later change.
+- **Seed.** The origins other than (0, 0) were captured with seed 1, the seed the Gateway gives towns; `TownNpcs`
+  stores it with those rooms and leaves a room's NPCs out (with a log line) in an instance of another seed. Oriath's
+  rooms are generated around fixed nodes, so their origins could depend on it; the single-room towns' borders
+  probably do not.
+- **Blocked cells.** Several NPCs stand on cells the client's walk map blocks (stalls, platforms, piers: Hargan in both
+  Sarn Encampments, Grigor, Petarus and Vanja and Tasuni in both Highgates, Act 6's Sin and Lilly, Act 7's and Act 8's
+  Sin) or on the edge of walkable ground. They are placed as the room has them, and the Gateway's "not walkable"
+  warning skips town-room placements (`Placement.FromRoom`).
+- **Not placed:** league NPCs of the same rooms (Einhar, Niko, Jun, Alva, Gwennen, Tujen, Rog, Dannig, Divinia,
+  Faustus, Kurai, Cassia, Tane, Johan), the Tutorial NPC and Letters of Exile, Tolman (act 8, no NPCTalk rows), Kirac
+  and the Karui Shores' `HelenaIntro` at (510, 173) (a trigger by the tunnel that plays "HelenaThroughTheTunnel" and
+  then hides; both need ControlZone, which is not serialized) and later quest stages of the same NPC: Highgate's `DiallaTownWithered` at (250, 553),
+  Oriath Docks' `InnocenceTown` in Bannon's cell, Act 6's Lilly sitting by Bestel at (148, 343) (she is placed by her
+  ship, `QuestObjects/Act6/LillyShip`). Which stage the real server shows depends on quest progress; the Gateway places
+  the first one.
+- **Verified live** (2026-10-25, OfflineWitch, `/goto` into each town): every placed NPC (Oriath's Helena added
+  afterwards and checked the same way) has its name and minimap label, clicking walks up and opens its dialogue (0x84), option 0 plays (Act 6's Tarkleigh shows Act 6's rows, so the
+  client resolves the Act 6 Id), and Goodbye closes it (0x85). Purchase Items and Sell Items open the buy and sell
+  windows for these NPCs too (§5); only the NPCs `NpcShops` stocks have goods.
+- `data/room-points.json` lists these lines with `angle` 0: `RoomFile` (GameServer.Data) reads the third number, which
+  is the angle in version 31 and older rooms (the Twilight Strand's force walls have theirs) but a 0 in version 35 and
+  36 rooms (every town room), where the angle is the fourth. `TownNpcs` copies the angles from the lines itself.
 
 ## 3. Messages
 
@@ -116,15 +184,19 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
   (the m × (compact uint index, wstr name, u8) list). `NpcShops.Tabs`: the NPC's stock in "Goods", and Nessa also sells
   every shop gem (`ItemCatalog.ShopGems`: creatable, dropping, not Vaal or awakened, one per name) in seven tabs by
   SkillGems GemColour and IsSupport: Red Skills, Red Support, Green Skills, Green Support, Blue Skills, Blue Support,
-  White Skills (2026-10-21). 1 Scroll of Wisdom each, as everything. Nessa's goods also list one of every map of tiers
-  1-16 (Maps.dat Tier, a name once at its lowest tier, by tier then name; 225 in 3.29.3b); what does not fit in Goods
-  goes into Goods2, Goods3 …. Tabs fill row by row. With more than one tab 0x8c's u8 is sent as 1 (the window at UI
+  White Skills (2026-10-21). 1 Scroll of Wisdom each, as everything.
+  Nessa's goods use exact MapWorlds base identifiers, one ordinary white item per display name, ordered by tier/name.
+  UniqueMaps supplies one identified unique item per name, with Words HASH32 and ItemVisualIdentity HASH16.
+  These are catalogue identities; complete unique modifier sets and unique-area device routing remain unimplemented.
+  No MapAtlas, MapTier or generic MapKey entries are mixed into this stock.
+  Goods2, Goods3 and later pages are created automatically when needed.
+  Tabs fill row by row. With more than one tab 0x8c's u8 is sent as 1 (the window at UI
   +0x7b8; 0 opens +0x7b0, which drew 8 tabs over its title, live 2026-10-21; being tested).
 - **Sell**: S→C 0xb8 (write `0x141d6acc0`): u32 BE other party (0 = NPC sale → VendorSell, UI +0x7c8), u32 BE your offer,
   u32 BE their offer (both manager-1 inventories, grids `0x140317440` / `0x140c605f0`), u8 flags, wstr name, u32 BE
   NPCs row, u16, u32 BE TradeWindowVisuals row, u16 (+0x54, shown as an error text when set), u16. The offer grids
   must use an Inventories.dat row that accepts items (row 83 refused every drop; row 0 now). C→S 0xb1 (u32, u8): Cancel
-  sent u8 0; Accept assumed u8 1. S→C 0xb9 (u32, u8 accepted) closes the window. The NPC offers 1 Scroll Fragment per item.
+  sent u8 0; Accept assumed u8 1. S→C 0xb9 (u32, u8 accepted) closes the window. The NPC offer is calculated by VendorRecipes from the complete ingredient set; see 24-vendor-recipes.md.
 - **0xb8 flags** (struct +0x50): bit 0 (0x01) = the active trade: the UI state's listener `0x140d62ec0` keeps the first
   u32 (struct +0x08, the other party; 0 for an NPC sale) at +0x984 and sets +0x988 = 1. Ctrl + click on an inventory item
   (`0x14030e3e0`, from the grid click handler `0x1402ddbc0` through the grid's vtable +0x4d0) sends 0xb2 only when that
@@ -167,7 +239,7 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
 - Selling: real sell prices; remaining quest reward offers/scripts; Respecialisation with refund points;
   real buy prices.
 - The NPC component's two bytes, and 0x84's other mode values.
-- The NPCs' facing (rotation 0 for now), and NPCs in the other towns and outside towns.
+- NPCs outside towns, league NPCs in towns, and quest-stage variants of town NPCs (§2).
 
 ## Quest dialogue and first rewards (2026-10-25)
 
@@ -176,7 +248,8 @@ Continue. QuestFlag3 controls read/highlight state, not eligibility. QuestFlags 
 row 0 is valid, including `a1q1-KilledHillock`. `NEVER_SET` remains an eligibility sentinel but is never applied as an
 effect. Eligibility uses the same projected visited/access flags sent to the client, plus saved character flags.
 
-Implemented offers are limited to 0 and 8 and their class-filtered normal level-one gem choices. Offer 8's magic
+Implemented offers are limited to 0, 1, 2 and 8: their class-filtered level-one gem choices, and offer 1's normal
+flasks at their row's item level (RewardLevel, QuestRewards' rarity column 0; [12](12-quests.md) §7). Offer 8's magic
 armour choices need item construction not implemented here. Nessa's Brutus conversation sets `NessaChatBrutus`,
 enabling her prison reward; claiming sets `a1q2-NessaRewardTaken`. Tarkleigh's Hillock reward sets
 `a1q1-QuestRewardTaken`. Inventory addition and the taken flag commit in one save transaction, with a durable duplicate

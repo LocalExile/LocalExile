@@ -20,12 +20,12 @@ if ((Test-Path $ggpkJournal) -or (Test-Path "$ggpkJournal.prepare")) {
 # Name, outputs (the first is checked for presence and freshness), runner (dotnet | python), arguments, version, needs,
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
 $manifest = @(
-    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\AddBuffToTargetVarieties.json'); Runner = 'dotnet'
+    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\ItemVisualIdentity.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\AddBuffToTargetVarieties.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 1; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
-       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 1; Needs = @('tables')
-       UsedBy = 'monsters, NPCs, area transitions, hideout decorations (their components)' }
+       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 2; Needs = @('tables')
+       UsedBy = 'monsters, NPCs, area transitions, hideout decorations (their components); which monsters wait to rise (basic actions, client scripts)' }
     @{ Name = 'item-types'; Outputs = @('data\item-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--items', '--json', 'data/item-types.json'); Version = 1; Needs = @('tables')
        UsedBy = 'items: starting items, /item, drops, affix rolls (tags)' }
@@ -41,8 +41,9 @@ $manifest = @(
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
        Args = @('scripts/re/anim_contacts.py'); Version = 1; Needs = @('tables')
        UsedBy = 'spell release timing per class (11-skills.md)' }
+    # monster-takehit also gives each variety's Emerge clip and its length: how long an emerge monster takes to rise.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'
-       Args = @('scripts/re/monster_takehit.py'); Version = 2; Needs = @('tables')
+       Args = @('scripts/re/monster_takehit.py'); Version = 3; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 2; Needs = @('tables')

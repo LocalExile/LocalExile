@@ -15,6 +15,8 @@ already has it). Run from the repository root:
 .\scripts\dev\control.ps1 character:play:OfflineWitch
 .\scripts\dev\control.ps1 game:status
 .\scripts\dev\control.ps1 command '/hit physical 100'
+.\scripts\dev\control.ps1 chat '#hello'           # any chat line: local, #global, $trade, or a slash command
+.\scripts\dev\control.ps1 tp 'RhoaChest 2'        # /tp: also tp '120 340' (a cell) or tp '+10 -5' (relative)
 .\scripts\dev\control.ps1 character:select
 .\scripts\dev\control.ps1 logout
 ```
@@ -32,8 +34,13 @@ Every command returns one JSON object: `ok`, `result` or `error`, and `elapsedMs
 actually received by the client; entries have `index`, `name`, `league`, `level`, and `classId`. Play resolves the name
 against that list and waits for the client to enter the area. Replaying the active character and opening an already
 running game are idempotent. Login reauthenticates, returning to selection first if necessary. A wrong password returns
-`ok:false` with login result 6; retrying works without restarting. `command` acknowledges **submission** of a slash
-command; inspect Gateway replies/logs or resulting state to establish completion. The bridge does not capture the HUD.
+`ok:false` with login result 6; retrying works without restarting. `command` sends a slash command, `chat` any chat
+line (the client's own 0x15, as typed in the chat box), and `tp` the `/tp` dev command built from `x`/`y`, `dx`/`dy`,
+`id`, `target` (+ `index`) or `list`. For slash commands the result also has `replies`: the chat lines the Gateway
+answered with, read from `logs/live-gateway.log` (its `=> 0x0017 chat line` entries) until 0.25 s pass without a new
+one or `wait` seconds (default 1.5) in total. `replies` is null when the servers were not started by this checkout's
+`live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Replies of commands
+sent from the chat box meanwhile are mixed in; the bridge does not capture the HUD.
 
 ## Persistent integration
 
@@ -45,6 +52,10 @@ per line, flush stdin, and read one JSON result line. This retains the Frida att
 {"command":"character:list"}
 {"command":"character:play","name":"OfflineWitch"}
 {"command":"command","text":"/npc Tarkleigh"}
+{"command":"command","text":"/pos","wait":0.5}
+{"command":"tp","target":"RhoaChest","index":2}
+{"command":"tp","x":120,"y":340}
+{"command":"chat","text":"#hello"}
 {"command":"game:status"}
 ```
 
@@ -73,7 +84,10 @@ The bridge refuses a different executable path or code signatures. Addresses bel
 Live verified 2026-10-25: fresh `game:open`, login, actual level-100 OfflineWitch list, Play, return to selection, logout,
 wrong-password rejection, successful retry, Play again, and `/hit physical 1` received by the Gateway. In one persistent
 run: login 0.7–0.9 s, list 94 ms, Play 1.4–2.2 s, command submission 94 ms; timings include game frames and loading,
-and are observations rather than guarantees. Only the Witch class was exercised live. An attached bridge is for the
+and are observations rather than guarantees. Only the Witch class was exercised live.
+`tp` checked live 2026-10-25 in The Mud Flats (seed 1): after `/tp RhoaChest 2`, `/tp GlyphWall` and `/tp +10 +0` the
+client's own cell (Positioned +0x294/+0x298, as `scripts/re/frida/trace-player-drift.js` reads it) equalled the
+Gateway's `/pos` every time, and the `/pos`, `/tp list` and refusal replies came back in `replies`. An attached bridge is for the
 local development client; it has no official-service support.
 
 Checks: `node --check scripts/dev/client-control.js` and
@@ -87,9 +101,11 @@ local gateway selection, and failed preflights with mocked processes and no GGPK
 JSON RPC also accepts `game:resources` (read-only Life component pools and recent 0x1b1 corrections),
 `object:interact` with an object `id`, `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
 `reward:claim` with choice `id` and main-inventory `x`/`y`, and `inventory:pickup`/`inventory:place` with `inventoryId`
-and item `id` or destination `x`/`y`. These use the existing C?S interaction messages. Their result acknowledges
+and item `id` or destination `x`/`y`, and `flask:use` with a flask-bar `slot` (0-4) or `key` (1-5; CLI
+`flask:use 1`). `flask:use` sends the flask key's own C→S 0x70 (u32 cell, [13](../protocol/13-items.md) §8), so a flask
+is used without keyboard input or window focus. These use the existing C?S interaction messages. Their result acknowledges
 submission; wait for the resulting state or logs. Movement uses the client's Move action (0x2909). Interaction from
-far away can fail to find a path; move closer and retry. Resource updates are bounded to 128 entries and drained on
+far away can fail to find a path; `tp` next to the object first (`{"command":"tp","target":"GlyphWall"}`), then interact. Resource updates are bounded to 128 entries and drained on
 read, so persistent RPC is needed to observe a recovery interval. This measures client state, not HUD pixels.
 
 Live interaction checks included Tarkleigh's reward claim, starter weapon pickup/equip, the biting zombie's death and

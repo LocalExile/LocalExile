@@ -11,6 +11,7 @@ static class HideoutCatalog
 {
     /// <summary>The first campaign hideout (Hideouts row 0, found in The Dread Thicket): every character's.</summary>
     public const string DefaultArea = "HideoutForest";
+    public const string HeistLockerType = "Metadata/MiscellaneousObjects/Heist/HeistStash_Hideout";
     public const string HorticraftingType = "Metadata/MiscellaneousObjects/Harvest/CraftingSilo_Hideout";
     public const string CraftingBenchType = "Metadata/Terrain/Missions/Hideouts/Objects/HideoutCraftingBench";
 

@@ -96,7 +96,7 @@ sealed record CooldownUseTicket(int Effect, int ActionToken, int ProjectileEpoch
     public bool Current(ClientState conn)
     {
         lock (conn.Monsters) return conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0
-            && (Instant || conn.ActionCount == ActionToken) && (State is null || !Reserved || State.UseVersion == UseVersion);
+            && (Instant || conn.ActionCount == ActionToken && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)) && (State is null || !Reserved || State.UseVersion == UseVersion);
     }
     public bool CommitNativeUse(ClientState conn, ushort skillId)
     {

@@ -29,6 +29,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Lifeforce and crafting cells.** Currency-tab lifeforce slots hold 65,535 each without wrapping.
+  Delve crafting cells accept equipment, support swaps and retain their contents after reload.
+  Lioneye's Watch now creates a guild stash beside its personal stash.
+  Persistence checks pass; the real client opened the city guild stash and loaded its guild tab.
+
 Nothing yet.
 
 ## Not working yet

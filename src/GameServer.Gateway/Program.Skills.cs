@@ -105,6 +105,10 @@ partial class Program
         Dictionary<uint, int> stats;
         lock (conn.Monsters) stats = new(conn.PlayerStats);
         foreach (var (k, v) in BaseStats(conn)) stats.TryAdd(k, v);
+        UtilityFlasks.AddRawStats(stats, conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
+        // A developer value replaces its complete input, including temporary flask/ground contributions.
+        lock (conn.Monsters)
+            foreach (var (key, value) in conn.PlayerStats) stats[key] = value;
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
         // native stat vector carries the int-valued raw increase. Actual spell rolls use the complete long sum in
         // Pools, so clipping this presentation value cannot lose signed cancellation with another input.
@@ -177,11 +181,12 @@ partial class Program
     static GamblerModifiers GamblerFor(IReadOnlyDictionary<uint, int> stats) =>
         GamblerModifiers.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
 
-    // Base MonsterTypes/MonsterResistances data, not a fixed zero for every enemy. Spawned resistance modifiers,
-    // exposure and curses remain separate mechanics; physical armour is not a resistance and is not handled here.
+    // Compose base variety and rolled-mod resistances before penetration and critical-ignore rules.
+    // Exposure and curses remain separate mechanics; physical armour is not a resistance.
     static DamageModel.ResistanceValue MonsterResistance(ClientState conn, SpawnedMonster monster, DamageType type) =>
         new(type == DamageType.Chaos && PassivePresences(conn, monster).Any(b => b.Id == "CustomAscendancyNoChaosResistance")
-            ? 0 : monster.Variety is { } variety ? Monsters.BaseResistance(variety, monster.Level, type) ?? 0 : 0);
+            ? 0 : (monster.Variety is { } variety ? Monsters.BaseResistance(variety, monster.Level, type) ?? 0 : 0)
+                + monster.Mods.Effects.Resistance(type));
 
     // Resolve raw player/skill penetration before their other skill-stat overlays. Ignore is a property of this
     // already-decided strike; the Gambler mitigation pass retains its one inversion roll and subtracts pen last.
@@ -345,26 +350,27 @@ partial class Program
         var gemPlayerStats = new Dictionary<uint, int>(playerStats);
         if (Stats.Key("main_hand_critical_strike_multiplier") is uint mainMultiplierKey) gemPlayerStats.Remove(mainMultiplierKey);
         var skillCosmetics = CharacterSaves.SkillCosmetics(CharacterName(conn));
-        foreach (var (id, effect, name, level, quality, gem) in gems)
+        foreach (var (id, effect, name, _, _, gem) in gems)
         {
-            var stats = Skills.EffectStatsFor(effect, level, quality, gemPlayerStats);
+            var supported = SupportedSkill(conn, id);
+            int level = supported.Level, quality = supported.Quality;
+            var stats = SupportedStatsFor(conn, id, gemPlayerStats);
             SkillAttackTiming.Apply(Skills, effect, level, stats);
-            var cost = CostFor(conn, effect, level, quality);
+            var cost = CostFor(conn, effect, level, quality, id);
             if (Stats.Key("mana_cost") is uint manaCost) stats[manaCost] = (int)cost.Mana;
             if (Stats.Key("life_cost") is uint lifeCost) stats[lifeCost] = (int)cost.Life;
             if (Stats.Key("base_mana_cost") is uint baseManaCost) stats[baseManaCost] = (int)cost.Mana;
             if (Stats.Key("base_life_cost") is uint baseLifeCost) stats[baseLifeCost] = (int)cost.Life;
-            var own = Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            var own = supported.Stats;
             if (singleSources.Contains(effect) && SingleUseCooldown.ForSkill(Skills, Stats, effect, level, playerStats, own) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
             // The gem's own record swings with its own context's attack multiplier (MeleeAttack classifies the gem
             // itself; unarmed non-melee attack gems keep the plain attack value, armed and spell gems theirs).
             if (Skills.IsAttack(effect) && Stats.Key("main_hand_critical_strike_multiplier") is uint multiplierKey)
-                stats[multiplierKey] = CriticalMultiplierFor(conn, spell: false, melee: MeleeAttack(conn, effect));
+                stats[multiplierKey] = SupportedCriticalMultiplier(conn, id, supported);
             if (Skills.IsSpell(effect) && !Skills.IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
-                stats[critKey] = SpellCriticalStrike.Chance(Skills.SpellCritChance(effect, level), Stats, playerStats, own,
-                    conn.Pools.SpellCriticalStrikeChancePct);
+                stats[critKey] = SupportedCriticalChance(conn, id, characterInputs, supported);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
             foreach (var (key, worn) in skillCosmetics)
                 if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Find(worn.Record) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
@@ -389,28 +395,32 @@ partial class Program
                 if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
                 Console.WriteLine($"[gateway] Cyclone area: base {baseRadius}, radius {radius}, increased area {increased}%, radius scale {radiusPercent}%");
             }
-            if (SpellDamage.Hit(Get, AddedEffectiveness(effect, level)) is { Max: > 0 } hit && Get("hundred_times_casts_per_second") is int cps and > 0)
+            var hitPlan = SkillHitPlan.ForSkill(Skills, effect, level, quality);
+            var supportedHit = SupportedHit(conn, id, characterInputs, supported)
+                .Scale(SkillRestrictions.From(Get).DealsDamage(Skills.IsSpell(effect)) ? GamblerFor(characterInputs).DamageFactor : 0);
+            if (hitPlan.Kind == SkillHitKind.Spell)
             {
-                double damageFactor = SkillRestrictions.From(Get).DealsDamage(Skills.IsSpell(effect)) ? GamblerFor(stats).DamageFactor : 0;
-                var (perUse, perSecond) = SpellDamage.Display((hit.Min * damageFactor, hit.Max * damageFactor), cps / 100.0);
-                stats[StatKeys.DisplayHundredTimesDamagePerSkillUse] = perUse;
-                stats[StatKeys.HundredTimesDamagePerSecond] = perSecond;
+                foreach (var (stat, value) in SpellPanelStats.Compute(hitPlan, supportedHit, Get("hundred_times_casts_per_second")))
+                    if (Stats.Key(stat) is uint key) stats[key] = value;
             }
-            var attackPlan = SkillHitPlan.ForSkill(Skills, effect, level, quality);
-            if (attackPlan.Kind == SkillHitKind.Attack)
+            if (hitPlan.Kind == SkillHitKind.Attack)
             {
-                var attackHit = AttackSkillHit.Resolve(mainHand, characterInputs, Skills.EffectStats(effect, level),
-                    Stats, Skills.DamageEffectiveness(effect, level), MeleeAttack(conn, effect), Skills.QualityStats(effect, quality),
-                    Skills.AttackBaseMultiplier(effect, level))
-                    .Scale(GamblerFor(characterInputs).DamageFactor);
-                foreach (var (stat, value) in AttackPanelStats.Compute(attackPlan, attackHit, Get("hundred_times_attacks_per_second")))
+                double seconds = SupportedAttackSeconds(conn, id);
+                var (increasedSpeed, moreSpeed) = SupportedAttackSpeed(conn, supported, characterInputs);
+                stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((100 + increasedSpeed) * moreSpeed - 100);
+                stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
+                if (Stats.Key("main_hand_critical_strike_chance") is uint chanceKey)
+                    stats[chanceKey] = SupportedCriticalChance(conn, id, characterInputs, supported);
+                foreach (var (stat, value) in AttackPanelStats.Compute(hitPlan, supportedHit, Get("hundred_times_attacks_per_second")))
                     if (Stats.Key(stat) is uint key) stats[key] = value;
             }
             if (Skills.FindByRow(id, effect, level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
                 Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
                     $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
-                yield return skill;
+                yield return skill with { Supports = [.. supported.Supports.Select(s => Skills.FindByRow(0, s.Effect.Row, s.Gem.Level))
+                    .OfType<GrantedSkill>().Select(s => new GrantedSupport(s.EffectsPerLevelRow, s.StatSetsPerLevelRow)
+                    { ExtraStatSets = [.. s.ExtraStatSets.Select(e => e.Row)] })] };
             }
         }
     }
@@ -530,8 +540,8 @@ partial class Program
     static string? GemDisabled(ClientState conn, int effect, ushort skillId = 0)
     {
         if (Stats.Key("spell_uncastable_if_triggerable") is uint triggered
-            && Skills.EffectStats(effect, Math.Max(1, GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Level))
-                .Any(kv => kv.Item1 == triggered && kv.Item2 != 0))
+            && (skillId == 0 ? Skills.EffectStats(effect, 1).Any(kv => kv.Item1 == triggered && kv.Item2 != 0)
+                : SupportedSkill(conn, skillId).Stats.GetValueOrDefault(triggered) != 0))
             return "This skill can only be triggered.";
         if (SkillRestrictionReason(conn, effect) is { } restriction) return restriction;
         var grants = GemSkillEffects(conn).Where(g => g.Effect == effect && (skillId == 0 || g.Id == skillId)).ToArray();
@@ -542,7 +552,7 @@ partial class Program
                     return missing;
         if (Skills.IsSpell(effect) && !Skills.IsAttack(effect) && !Skills.IsInstant(effect))
             foreach (var grant in grants)
-                if (CastMs(conn, effect, grant.Level, grant.Quality) is null) return "Invalid cast duration";
+                if (CastMs(conn, effect, grant.Level, grant.Quality, grant.Id) is null) return "Invalid cast duration";
         return null;
     }
 
@@ -791,8 +801,9 @@ partial class Program
                     suspended.Add(aura); // Keep the saved intent, as when a town temporarily suppresses an aura.
                     continue;
                 }
-                if (!gems.TryGetValue(aura.SkillId, out var gem) || ReservationFor(conn, gem.Effect, gem.Level) is not { } reservation) continue;
-                var refreshed = aura with { Level = gem.Level, Quality = gem.Quality, ManaFlat = reservation.Flat,
+                if (!gems.TryGetValue(aura.SkillId, out var gem) || SupportedReservation(conn, gem.Id) is not { } reservation) continue;
+                var supported = SupportedSkill(conn, gem.Id);
+                var refreshed = aura with { Level = supported.Level, Quality = supported.Quality, ManaFlat = reservation.Flat,
                     ManaPercent = reservation.Percent, ReserveLife = ReservesLife(conn) };
                 if (refreshed == aura) continue;
                 conn.Auras[aura.SkillId] = refreshed;

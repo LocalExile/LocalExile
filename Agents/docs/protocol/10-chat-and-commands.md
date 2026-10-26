@@ -18,6 +18,17 @@ rows with `SendsGenericCommandPacket` never arrive as chat: the client sends C�
 (`/destroy` 9, `/hideout` 45: [21](21-hideouts.md) §3), so our commands must not reuse those words. `InstanceChat.Length` frames it
 (the length depends on the text), and `SplitClientMessages` uses it for id 0x15.
 
+The prefixes are `#` global, `$` trade, `%` party, `&` guild and `@` whisper; local has none (live 2026-10-25, typed in
+the chat box: `hello local`, `#hello global`, `$hello trade`).
+After a trade line the chat box opens with `$` already typed, so the next line goes to trade too.
+The client's sender is `0x14215ddd0` (instance, text, linked items): it runs the client's own slash commands
+(`0x14215c3b0`, Commands.dat), then sends the rest as 0x15.
+The Gateway echoes a plain line as a 0x17 chat line from the character (`ChatChannels.Echo`, `Program.Chat.cs`): sender
+`Name` for local, `#Name` for global and `$Name` for trade, the text without its prefix.
+Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name green, `#OfflineWitch: hello global`
+with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
+Party, guild and whisper lines are not echoed (there is nobody to send them to).
+
 ## 2. Server → client text
 
 Candidates that read a wide string were found by mapping every S→C factory case to its class and read function (slot
@@ -48,9 +59,56 @@ text white with no name, like an empty sender. So a coloured line always shows i
 looked up by `0x142426ea0(byte & 0x1f)` (the byte at +0x158 of the object at instance +0xc810) and runs it through the
 markup parser `0x14018fb50`; `ChatColours.dat` has rows Default, Red, Green, Blue, ChayulaMessage. Per-line colour: open.
 
-Previously: the chat line message was not found. It does not go over the login connection
-(Auth received nothing after Play). The client also prints "Timeout while joining global chat channel 820", so the
-channel join is a request we don't answer yet.
+**Chat channels: C→S 0x134 and S→C 0x135** (on the instance connection; live 2026-10-25).
+After entering an area the client joins a global and a trade channel by itself: the in-game listener `0x140d5bf60`
+(instance +0x240 listeners, once per game state, flag +0xa08) calls `0x142169250` twice with the channel from the
+`join_global_channel` / `join_trade_channel` settings (0 → 0xffff, "any"; `0x14190f7d0` / `0x14190f8a0`) and the
+language (`0x141912640`).
+`/global N` and `/trade N` (Commands.dat rows 41 and 42) are handled by the client (`0x14215c3b0`) and call the same
+function with N.
+`0x142169250` sends **C→S 0x134** (class `0x1435bf730`, write `0x141f9ae30`, 7 bytes):
+
+```
+u16 0x0134, u16 channel (0xffff = any), u8 kind (0 global, 1 trade), u8 automatic (1 after entering, 0 for a command),
+u8 language
+```
+
+Then it sets a 5 s deadline (instance +0xcf18 for global, +0xcf08 for trade; the channel at +0xcf10 / +0xcf00).
+A 0xffff request takes the channel the client remembers (`0x143a60ce8` global, `0x143a60c98` trade; 0xffff until a
+command names one).
+When the deadline passes, the network update `0x142148880` fires the instance +0xe78 listeners, and the chat panel's
+`0x14017dd10` prints "Timeout while joining global chat channel N" (ClientStrings row 207) or, for 0xffff,
+"Timeout while joining global chat." (row 206).
+Live 2026-10-25 the two requests were `0134 FFFF 00 01 00` and `0134 FFFF 01 01 00`; `/global 821` sent
+`0134 0335 00 00 00`.
+An older capture had `0134 0334 00 01 00` (global, channel 820, the number in the timeout seen before) and
+`0134 0001 01 01 00` (trade, channel 1).
+A kind other than 0 or 1 is ignored (logged).
+The Gateway took 20 bytes for 0x99 then: 0x99 is 4 bytes (class `0x1435c0258`, write `0x141f95200`: two u8), and the
+same chunk held the two joins and 0x129 (id only).
+
+**S→C 0x135** (class `0x1435dc240`, ctor `0x1421a6c00`, read `0x1421a6cd0`; dispatcher case 0x56) answers it:
+
+```
+u16 0x0135, u16 channel, u8 kind (0 global, 1 trade), u8 language
+```
+
+The client clears the deadline and keeps the channel as the current one: channel and language at instance +0xcef8
+and +0xcefc for global, +0xcef0 and +0xcef4 for trade.
+Then it fires the instance +0xef8 listeners.
+The chat panel's Global and Trade tabs, greyed out before, become usable.
+It prints no line itself: S→C 0x12d with BackendErrors code 240 (JoinedGlobalChannel) printed "You have joined global
+chat channel {1} {0}." with the placeholders unfilled, so the Gateway sends that text filled in as a 0x17 line instead.
+The Gateway (`Program.Chat.cs`, `ChatChannels`) answers every 0x134 with 0x135: the number asked for, else the
+character's last channel of that kind, else channel 1, and the language echoed.
+After the answer it prints "You have joined global chat channel N." when the channel is new for the character or a
+command asked for it.
+The client joins only once per game session: after an area change (a new instance connection, live 2026-10-25 with
+`/goto`) the listener runs again but flag +0xa08 is set, and the new instance's channels are 0, so the tabs would grey
+out again.
+So the Gateway sends 0x135 for each channel the character joined (`ChatChannels.Current`) on every area entry, right
+after the skill bar.
+Live, the global and trade channels were 821 and 822 again after `/goto`, and `#` lines still worked.
 
 ## 3. S→C 0x1b3: stats update
 
@@ -93,7 +151,7 @@ compact uint n, n × (compact uint stat key, compact int value)
 | `/add_passive <PassiveSkillGraphId>` | allocates one passive node through the same checks as C→S 0x34, saved and sent back (0x33) |
 | `/reset_passives` | refunds every passive, saved, and sends the tree (0x33) |
 | `/resistances` | the character's uncapped and capped fire/cold/lightning/chaos resistance |
-| `/hit <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: damages the player through the resistance model (physical through armour), showing the mitigation used and the life left |
+| `/hit <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: damages the player through the resistance model (physical through armour, both with the additional damage reduction of Endurance Charges), showing the mitigation used and the life left |
 | `/accuracy [monster level]` | final accuracy rating and attack hit chance against a normal and an evasive monster of that level (default: your level; spells always hit) |
 | `/defences [monster level]` | armour, physical reduction and evasion with the chance to evade a monster of that level |
 | `/auras` | active auras, their flat/percent reservation, reserved and unreserved mana, reservation efficiency and aura effect ([11](11-skills.md) 13) |
@@ -101,20 +159,24 @@ compact uint n, n × (compact uint stat key, compact int value)
 | `/spellhit <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: a spell hit through resistance and Spell Suppression, rolling the suppression chance |
 | `/crit` | attack and spell critical strike chance and multiplier from the unconditional passives and weapon base |
 | `/block` | attack block and spell block chance, caps and effective lucky chances |
+| `/charges [<endurance\|frenzy\|power> <n>]`, `/charges add <type> [n]`, `/charges clear` | dev: each charge type's count, maximum, minimum, duration and time left; sets a count, gains like a skill (refreshing the duration) or clears them ([11](11-skills.md) §15) |
 | `/block_luck <attack\|spell\|both\|off>` | dev: force lucky block for testing |
 | `/blockhit <attack\|spell> <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: a hit through block and resistance |
 | `/god` | toggles 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, +10 000 life, +1000 to each attribute ([11](11-skills.md) §12) |
 | `/death_screen [hex flags]` | S→C 0x55 with these flags (default: the league's; 2 hides it), [11](11-skills.md) §7 |
 | `/quest_flag [<QuestFlags Id> [off]]` | lists the character's quest flags, or sets or clears one (saved); the quest's room objects follow ([12](12-quests.md) §5) |
 | `/goto <area id or name>` | change area as if through an area transition (e.g. `/goto 1_1_3`; ids from the atlas), [08](08-area-transitions.md) §7 |
+| `/tp <x> <y> \| <+dx> <+dy> \| <id> \| <name> [n] \| list [filter]` | dev: 0x1b7 teleports the player within the area, for testing without walking. A cell lands on itself when walkable, else on the nearest walkable cell; a value with + or - is relative to the player on that axis. A name (whole, else a part, any case) or id lands next to a monster, NPC, area transition (`transition to <area>`), the `waypoint`, the `arrival` point or an object of the area's walk-map capture (`RhoaChest`, `GlyphWall`: the last part of its object type); `n` picks the n-th of equal names. `/tp list` shows them. The current action ends and the server's position estimate moves with the player (`TeleportTargets.cs`) |
 | `/transition [pos … \| rot <deg> \| z <z \| none> \| model <path \| none> \| index <n>]` | show or change the first area transition (re-created), [08](08-area-transitions.md) §5 |
-| `/mobs` | lists the monsters spawned on this connection |
-| `/despawn [all \| <id>]` | S→C 0x2bb (remove object, header only) for the last spawned monster, all of them, or one id |
+| `/mobs` | lists the monsters spawned on this connection; emerge monsters that have not risen are marked "(buried)" or "(lurking)" |
+| `/despawn [all \| <id>]` | S→C 0x2bb (remove object, header only) for the last spawned monster, all of them (buried ones too), or one id |
 | `/mob_walk [0x<id>] [skill hex]` | 0x1ab: the monster starts its Move action (skill 0x2909) toward the player; it walks, animated, along the client's path |
 | `/mob_move [0x<id>] [cells/s]` | 0x1ba: slides the monster in a straight line (probe; no animation or pathing) |
 | `/mob_tp [0x<id>]` | 0x1b7: teleports the monster next to the player |
+| `/mob_mods [id] [mod …\|pool]` | a monster's affixes and rare name; with mods, creates it again with those affixes; `pool`: what it could roll ([14](14-monster-packs.md) §5) |
 | `/npc <row, Id or name> [rotation°]`, `/npcs`, `/pos` | creates an NPC next to the player ([17](17-npcs.md)), lists the NPCs, prints the player's cell |
-| `/ai [on\|off]` | monster AI for this connection (on by default): monsters chase the player (below) |
+| `/sockets [colours]` | the held item's sockets and links: R, G, B, W, linked within a word and unlinked between words (`/sockets RRGBBB` a 6-link, `/sockets RRG B` a 3-link and a single); without colours it shows the layout. Up to the base's socket capacity; gems stay in their sockets ([13](13-items.md) §7) |
+| `/ai [on\|off]` | monster AI for this connection (on by default): monsters chase the player (below); emerge monsters rise either way |
 | `/cosmetic portal <name, number or part of a name>`, `/cosmetic list [filter]`, `/cosmetic off` | the shop's portal effects, as game data ([21](21-hideouts.md) §5). Several effects containing what was typed are listed with their numbers rather than the first being picked |
 
 Every player can use every command; there are no permissions yet.
@@ -187,14 +249,51 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   about 2 minutes); without it, it assumes the base list and refuses StateMachine types.
 - **Transitionable** (`ClientInternalTransitionable` `0x1435dd290`, slot 17 `0x1421c24b0`): u8 = state (low 7 bits,
   `+0x120`) | bit 7 (`+0x122`, transition in progress). States run **1..num_states** (.ot `Transitionable { num_states
-  = N }`, default 1, the type's `+0xb0`); `num_states` = fully transitioned (`create_transitioned`), lower =
-  untransitioned (`create_untransitioned`). The post-create slot `0x1421c26f0` always runs the event at index
-  `(state − 1)` of a 0x18-byte array, so **state 0 is invalid**: it read a garbage script pointer and crashed in the
-  animation-event interpreter (`0x141ded7b9`, live 2026-10-17, Alira and Gravel Eater). The Gateway sends
-  `num_states` (extracted by `ot_components.py` as `transitionable.num_states`).
-  - "Emerge" monsters (Gravel Eater, Disbanded Dead …) are created and stay hidden or lie as a corpse: their .ot pauses
-    the `emerge` animation at creation and only their `Emerge` action (`on_transition`) shows them. That needs the
-    server to start the action.
+  = N }`, the type's `+0xb0`); `num_states` = fully transitioned (`create_transitioned`), lower =
+  untransitioned (`create_untransitioned`). Without the key `num_states` is **2** (the type constructor `0x141e42d50`
+  writes 2; the key itself only takes 2..127, `0x141e42a80`). The post-create slot `0x1421c26f0` always runs the event
+  at index `(state − 1)` of a 0x18-byte array, so **state 0 is invalid**: it read a garbage script pointer and crashed
+  in the animation-event interpreter (`0x141ded7b9`, live 2026-10-17, Alira and Gravel Eater). The Gateway sends
+  `num_states` as `ot_components.py` extracts it (`transitionable.num_states`), which is 1 when the .ot has no key: for
+  those types that is the untransitioned state.
+  - **Emerge monsters** (Gravel Eater, Dripping Dead, the Twilight Strand's Drowned, Tide Strider …). 2 571 types
+    have the basic action `Emerge` (ActionTypes HASH16 16641 = 0x4101, skill id **0x0101**, [11](11-skills.md) §2;
+    most inherit it), 424 of them also a Transitionable, and 340 of those leave out `num_states`. What makes one an
+    emerge monster is its client script: in **143 types** `create_untransitioned` plays a clip and pauses it
+    (`PlayAnimation( emerge ); PauseAnimation();`), so in state 1 the monster waits below ground, in the water or as a
+    corpse. The others use the Transitionable for something else (Hillock's sword stage, [12](12-quests.md) §6) and are
+    created as before. `ot_components.py` extracts the client scripts (`client_transitionable`) and Targetable's key
+    (`client_targetable`) into `data/object-types.json`; `MonsterEmerge.cs` sorts the 143:
+    - **Buried** (74 types, 187 varieties: Gravel Eater, Dripping Dead, Strand Drowned, Devourer …): the client keeps
+      them untargetable while they wait (`targetable = false`, or DisableTargetable in `create_untransitioned`) and
+      `on_transition = { EnableTargetable(); }`. The server keeps them out of the connection's monsters until they
+      rise, so no attack, skill, projectile or aura reaches them either.
+    - **Lurking** (69 types, 115 varieties: Tide Strider, Blood Elemental, Dreadwheel …): the client shows them frozen
+      in the first frame of the clip but targetable. They stay among the connection's monsters and can be hit; the AI
+      leaves them alone until they rise, and they rise when hit.
+    - **Unique monsters** keep their own state (no rise): a boss's entrance (Kitava's 7 s `phase1_transition_in`, the
+      Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script.
+
+    The server raises one:
+    1. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, sequence 0xffff, flags 0x0408:
+       the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead: `grasp_emerge`, 3.7 s).
+    2. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
+    3. When the clip has played, S→C **0x1ac**, as after Hillock's stage; the monster then chases and attacks like any
+       other. Live, its first attack still found the Emerge action current and replaced it, so whether 0x1ac is needed
+       here is not settled.
+    Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
+    one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
+    time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to
+    the player at once. Types that list `num_states` (SpiderBoss, Tukohama's totem: 3) are created transitioned as
+    before.
+    Live 2026-10-25 (`scripts/re/frida/trace-actions.js`, `trace-action-start.js`, `trace-skills.js`): a Gravel Eater
+    gets the basic actions 0x101 (action 0x4101, Emerge) and 0x239b (Emerge2) besides its granted skill 0x102; the
+    0x1ab starts action 0x4101 (usable, result 1), the buried monster (invisible) comes out of the ground within the
+    second and spits at the player.
+    Dripping Dead (Mud Flats) and the Twilight Strand's Drowned rose the same way from their packs, and a risen monster
+    kept by the instance came back standing (created in state 2).
+    Tidal Island's 35 Tide Striders wait lurking: only their red life bars show over the water; a Fireball from 27
+    cells (beyond the 24) hit one, it rose at once, chased and attacked.
 - **Animated path.** Not sent (flags 0): the type supplies the animated object. `Game_MONSTER_AO=1` sends the variety's
   first `AOFiles` path instead (bit 0), which also works for plain monsters but is not needed.
 - **StateMachine** (live vtable `ClientInternalStateMachine` `0x1435da8b8`, slot 17 `0x142191f10` → base
@@ -244,7 +343,6 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
 
 ## 6. Open
 
-- The chat line's flags and channels, and the channel join request and its answer.
-- Monsters: **skills** (their GrantedEffects, so they fight back), mods (the
-  ObjectMagicProperties mod lists; rarity life bonuses come from mods), the boss life bar (StateMachine `boss_life_bar`), the Emerge action for emerge monsters, the 346
+- The chat line's flags, and the language names of 0x134's language byte (the official text ends with one).
+- Monsters: **skills** (their GrantedEffects, so they fight back), the boss life bar (StateMachine `boss_life_bar`), the 346
   varieties with other components (NPC, ControlZone, …), AI and combat.

@@ -228,3 +228,14 @@ Socket colour **6** is Delve (yellow/orange); 5 is Abyss. Verified against the c
 both use this resonator-specific layout, including the stackable item creation path.
 Regression coverage uses every stored item in DelveStashTabLayout, 5000-item stacks, merge and save/reload,
 and all eight resonator families/tiers. The user confirmed the correction in the real client.
+
+## Lifeforce limits and Delve crafting cells
+
+Currency-tab HarvestSeed slots hold 65,535 units each, the maximum unsigned 16-bit Stack component value.
+Ordinary special slots retain their 5,000 limit; inventory stacks retain their item-defined limit.
+Excess lifeforce goes to available overflow cells or remains with the source, without truncation.
+DelveStashTabLayout GenericSlot1 and GenericSlot2 are manual crafting cells at (37,0) and (39,0).
+They accept equipment at its normal stack size; dropping another item swaps the old item onto the cursor.
+Load-time validation retains these items in their crafting cells.
+Ctrl-click affinity routing continues to select material slots rather than moving equipment automatically.
+Lioneye's Watch creates a guild stash beside the personal stash and uses the existing guild inventory dialogue.

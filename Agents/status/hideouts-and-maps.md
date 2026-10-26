@@ -5,6 +5,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
+  The native window handler and visible state were verified through the real client.
+  Its placement supports the hideout editor; storage transfers were not added by this change.
+  See [21](../docs/protocol/21-hideouts.md), Heist Locker.
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
@@ -29,6 +33,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
+  including login and returns from other areas.
+  Live player and waypoint records used the same saved cell.
+
+- Hideout editing moves and rotates installed furniture, the waypoint and NPCs through native C→S 0x5b.
+  Placements persist per character/template; runtime interactions and path blockers follow the moved objects.
+  Map-device, Nessa and stash movement/rotation and reconnect persistence were verified in the real client.
+  Adding/removing decorations and changing their appearance remain unimplemented.
+  See [21](../docs/protocol/21-hideouts.md), Moving installed furniture and NPCs.
 - Horticrafting Station: placed beside the ordinary bench in every selected hideout;
   interaction approaches and opens the native Harvest recipe browser (0x7b kind 0x39).
   Recipe execution/payment are not implemented.
@@ -83,7 +96,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
-- Hideouts: decorative trees/tents and editing are not implemented.
+- Hideouts: adding/removing decorative trees/tents and changing decoration appearance are not implemented.
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
 - Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);

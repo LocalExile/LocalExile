@@ -152,7 +152,8 @@ sealed class SkillCatalog(string folder = "data")
     /// combined speed inputs, so only the skill's extra quality inputs are added to this final value. The native
     /// skill_area_of_effect_+% likewise contains the base area input, including quality, exactly once.</summary>
     public Dictionary<uint, int> EffectStatsFor(int effectRow, int level, int quality,
-        IReadOnlyDictionary<uint, int> character, bool characterStatsWin = false)
+        IReadOnlyDictionary<uint, int> character, bool characterStatsWin = false,
+        IReadOnlyList<(uint, int)>? additionalStats = null)
     {
         var result = new Dictionary<uint, int>(character);
         foreach (var (key, value) in EffectStats(effectRow, level))
@@ -162,7 +163,7 @@ sealed class SkillCatalog(string folder = "data")
             ? value : inputs.Sum(Get);
         int castSpeed = Projected("cast_speed_+%", "base_cast_speed_+%", "attack_and_cast_speed_+%");
         int area = Projected("skill_area_of_effect_+%", "base_skill_area_of_effect_+%");
-        var qualityStats = QualityStats(effectRow, quality);
+        var qualityStats = QualityStats(effectRow, quality).Concat(additionalStats ?? []).ToArray();
         foreach (var (key, value) in qualityStats) result[key] = result.GetValueOrDefault(key) + value;
         int Quality(string name) => _stats.Key(name) is uint key ? qualityStats.Where(s => s.Item1 == key).Sum(s => s.Item2) : 0;
         if (_stats.Key("cast_speed_+%") is uint castSpeedKey)

@@ -1,6 +1,7 @@
 # usage: python -I scripts/re/monster_takehit.py [--json data/monster-takehit.json]
 #
-# For every MonsterVarieties row: the indexes of its TakeHit clips in the rig's animation list, and their lengths.
+# For every MonsterVarieties row: the indexes of its TakeHit clips in the rig's animation list, and their lengths; and
+# its Emerge clip ("emerge": index and length), for monsters that rise from the ground.
 # The client's S->C 0x1b2 "play animation" takes an index into the actor's animation list, and that list is the rig
 # .amd's animations in file order (0-based). Live 2026-10-25 on the Sanctum zombie: index 156 = flinch_unarmed and
 # 151 = flinch_pitchfork played the flinch *with its SoundEvent*, both at the position of the clip in
@@ -55,14 +56,19 @@ def expand_clips(value, entries, seen):
 
 
 def act_takehit(act):
-    """The clips an .act maps TakeHit to ("@Name" aliases and "clip:condition" variants resolved) and the .ao it animates."""
+    """The clips an .act maps TakeHit to ("@Name" aliases and "clip:condition" variants resolved), the .ao it animates,
+    and the first clip of its Emerge animation (None without one)."""
     text = read_text(act)
     if text is None:
-        return [], None
+        return [], None, None
     entries = {m.group(1): m.group(2).strip() for m in re.finditer(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]*)"\s*;', text, re.M)}
     clips = expand_clips(entries.get("TakeHit") or "", entries, set())
     m = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M)
-    return clips, (m.group(1) if m else None)
+    # Emerge (the basic action of monsters that rise from the ground, 10-chat-and-commands.md section 5) may carry an
+    # effect after the clip: Emerge = "grasp_emerge" effect_detached "...";
+    e = re.search(r'^\s*Emerge\s*=\s*"([^"]*)"', text, re.M)
+    emerge = (expand_clips(e.group(1), entries, set()) or [None])[0] if e else None
+    return clips, (m.group(1) if m else None), emerge
 
 
 def main():
@@ -106,33 +112,40 @@ def main():
     for n, row in enumerate(variants, 1):
         key = (tuple(row.get("ACTFiles") or []), tuple(row.get("AOFiles") or []))
         if key not in cache:
-            index = None
+            index, emerge = None, None
             for act in key[0]:
                 if act not in act_clips:
                     act_clips[act] = act_takehit(act)
-                clips, act_ao = act_clips[act]
-                if not clips:
-                    continue
+                clips, act_ao, emerge_clip = act_clips[act]
                 for ao in ([act_ao] if act_ao else []) + list(key[1]):
                     amd = amds.get(ao)
                     anims = rig(amd) if amd else {}
                     found = [c for c in clips if c in anims]
-                    if found:
+                    if found and not index:
                         index = ([anims[c][0] for c in found], [anims[c][1] for c in found], found, amd, act)
-                        break
-                if index:
+                    if emerge_clip in anims and not emerge:
+                        emerge = {"index": anims[emerge_clip][0], "length": anims[emerge_clip][1], "clip": emerge_clip}
+                if index and (emerge or not emerge_clip):
                     break
-            cache[key] = index
-        if cache[key]:
-            indexes, lengths, clips, amd, act = cache[key]
+            cache[key] = (index, emerge)
+        index, emerge = cache[key]
+        entry = {}
+        if index:
+            indexes, lengths, clips, amd, act = index
             # lengths: each clip's length in ms (the Gateway holds the next flinch until the clip has played).
-            out[row["Id"]] = {"index": indexes[0], "indexes": indexes, "lengths": lengths, "clips": clips,
-                              "amd": amd, "act": act}
+            entry = {"index": indexes[0], "indexes": indexes, "lengths": lengths, "clips": clips, "amd": amd, "act": act}
+        if emerge:
+            # The Emerge clip (index in the rig, length in ms): how long a burrowed monster takes to rise
+            # (MonsterEmerge.cs).
+            entry["emerge"] = emerge
+        if entry:
+            out[row["Id"]] = entry
         if n % 1000 == 0:
             print(f"  {n}/{len(variants)}", file=sys.stderr, flush=True)
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1, sort_keys=True)
-    print(f"wrote {dest}: {len(out)} of {len(variants)} monster varieties have a TakeHit index", file=sys.stderr, flush=True)
+    print(f"wrote {dest}: {sum('index' in e for e in out.values())} of {len(variants)} monster varieties have a TakeHit "
+          f"index, {sum('emerge' in e for e in out.values())} an Emerge clip", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

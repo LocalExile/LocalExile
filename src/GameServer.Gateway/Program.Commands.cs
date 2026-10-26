@@ -334,6 +334,16 @@ partial class Program
             await ChangeHeldItem(remote, stream, ciphers, conn, i => i with { Rarity = rarity, Identified = identified },
                 $"{rarity}{(identified ? "" : ", unidentified")}");
         })
+        .Add("sockets", "/sockets [colours] (the held item's sockets: R G B W, linked within a word, e.g. /sockets RRGBBB a 6-link, /sockets RRG B a 3-link and a single; without colours, shows them)", async args =>
+        {
+            if (ItemsOf(conn).Items(PlayerInventories.Cursor) is not [var held, ..]) { await conn.Commands!.Reply("Hold an item first"); return; }
+            if (args.Length == 0) { await conn.Commands!.Reply($"sockets: {SocketLayout.Describe(held.Item)}"); return; }
+            if (Items.ByHash(held.Item.TypeHash) is not { } type) { await conn.Commands!.Reply("Unknown item type"); return; }
+            if (SocketLayout.Parse(args, out string? error) is not var (colours, links)) throw new ArgumentException(error);
+            if (SocketLayout.Apply(held.Item, type, colours, links, out error) is not { } result) { await conn.Commands!.Reply(error!); return; }
+            await ChangeHeldItem(remote, stream, ciphers, conn, i => SocketLayout.Apply(i, type, colours, links, out _) ?? i,
+                $"sockets: {SocketLayout.Describe(result)}", "Sockets");
+        })
         .Add("set_level", "/set_level <1 to 100> (saved to the account; the level's experience and stats are sent at once)", async args =>
         {
             if (args.Length == 0 || !int.TryParse(args[0], out int level) || level is < 1 or > 100) throw new ArgumentException("level 1 to 100");
@@ -969,19 +979,34 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} /pos ({x}, {y}) in {conn.Layout.Id}");
             await conn.Commands!.Reply($"({x}, {y}) in {conn.Layout.Id}");
         })
+        .Add("tp", "/tp <x> <y> | <+dx> <+dy> | <id> | <name> [n] | list [filter] (dev: teleport to a cell, a monster, NPC, transition, waypoint or captured object, e.g. /tp RhoaChest 2)",
+            args => DevTeleport(remote, stream, ciphers, conn, args))
         .Add("mobs", "/mobs (list spawned monsters)", async _ =>
-            await conn.Commands!.Reply(conn.Monsters.Count == 0 ? "No monsters." :
-                string.Join(", ", conn.Monsters.Select(m =>
-                    $"0x{m.Key:x} {m.Value.Label} {m.Value.Walk.Position(conn.Clock.Elapsed.TotalSeconds)}{(m.Value.Aggro ? " (chasing)" : "")}"))))
+        {
+            // Copied under the lock: the AI and the emerge watch change both lists.
+            List<string> listed;
+            lock (conn.Monsters)
+            {
+                var buried = MonsterEmerge.Buried(conn);
+                var waiting = new HashSet<SpawnedMonster>(MonsterEmerge.Unrisen(conn), ReferenceEqualityComparer.Instance);
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                listed = [.. conn.Monsters.Concat(buried).Select(m =>
+                    $"0x{m.Key:x} {m.Value.Label} {m.Value.Walk.Position(now)}" +
+                    (waiting.Contains(m.Value) ? buried.ContainsKey(m.Key) ? " (buried)" : " (lurking)" : m.Value.Aggro ? " (chasing)" : ""))];
+            }
+            await conn.Commands!.Reply(listed.Count == 0 ? "No monsters." : string.Join(", ", listed));
+        })
         .Add("despawn", "/despawn [all | <id>] (default: the last one spawned)", async args =>
         {
-            IEnumerable<uint> ids = args.Length == 0 ? conn.Monsters.Keys.TakeLast(1)
-                : args[0].Equals("all", StringComparison.OrdinalIgnoreCase) ? [.. conn.Monsters.Keys]
-                : [Convert.ToUInt32(args[0], args[0].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 16 : 10)];
-            foreach (uint id in ids.ToList())
+            List<uint> ids;
+            lock (conn.Monsters)
+                ids = args.Length == 0 ? [.. conn.Monsters.Keys.Concat(MonsterEmerge.Buried(conn).Keys).OrderBy(k => k).TakeLast(1)]
+                    : args[0].Equals("all", StringComparison.OrdinalIgnoreCase) ? [.. conn.Monsters.Keys, .. MonsterEmerge.Buried(conn).Keys]
+                    : [Convert.ToUInt32(args[0], args[0].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 16 : 10)];
+            foreach (uint id in ids)
             {
                 bool removed;
-                lock (conn.Monsters) removed = conn.Monsters.Remove(id);
+                lock (conn.Monsters) removed = conn.Monsters.Remove(id) || MonsterEmerge.Buried(conn).Remove(id);
                 if (!removed) { await conn.Commands!.Reply($"No monster 0x{id:x}."); continue; }
                 await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove monster 0x{id:x}");
             }
@@ -1026,6 +1051,8 @@ partial class Program
                 $"0x01b2 monster 0x{id:x} play animation {index} at speed {speed}");
             await conn.Commands!.Reply($"0x1b2 anim {index} (speed {speed}) -> monster 0x{id:x}");
         })
+        .Add("mob_mods", "/mob_mods [id] [mod …|pool] (a monster's mods; with mods: create it again with those affixes, e.g. /mob_mods Quick of_Flames)",
+            args => MonsterModsCommand(remote, stream, ciphers, conn, args))
         .Add("mob_tp", "/mob_tp [id] (0x1b7 next to you; default the last monster)", async args =>
         {
             if (MonsterArg(conn, args, 0) is not { } id) { await conn.Commands!.Reply("No such monster."); return; }
@@ -1033,7 +1060,7 @@ partial class Program
             await Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, x, y), $"0x01b7 teleport monster 0x{id:x} to ({x}, {y})");
             lock (conn.Monsters) conn.Monsters[id].Walk = conn.NewWalk(x, y, conn.Monsters[id].Walk.Speed);
         })
-        .Add("ai", "/ai [on|off] (monsters chase you when you come near)", async args =>
+        .Add("ai", "/ai [on|off] (monsters chase you when you come near; emerge monsters rise either way)", async args =>
         {
             if (args.Length > 0) conn.AiEnabled = !args[0].Equals("off", StringComparison.OrdinalIgnoreCase);
             await conn.Commands!.Reply($"Monster AI is {(conn.AiEnabled ? "on" : "off")}.");

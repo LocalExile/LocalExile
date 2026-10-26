@@ -47,6 +47,8 @@ public static class InstanceWaypoints
     /// <summary>Harvest crafting: 0x7b kind 0x39 -> instance +0x4ef8 -> HUD virtual +0xcc0
     /// (PC 0x140dcee40, controller 0x140d8d750). Recipes are populated from HarvestCraftOptions.dat.</summary>
     public const byte HorticraftingUi = 0x39;
+    // 0x142163420 case 0x37 -> +0x5278 -> LAB_140dae778 -> HUD +0xcf8 -> 0x140dcf150.
+    public const byte HeistLockerUi = 0x37;
 
     /// <summary>
     /// S→C 0x4c (class 0x1435dc7e0, read 0x14219f460; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the

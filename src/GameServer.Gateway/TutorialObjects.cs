@@ -16,6 +16,8 @@ static class TutorialObjects
             int x=point.X,y=point.Y;
             var (cx,cy)=Code switch {0=>(x,y),1=>(Height-y-1,x),2=>(Width-x-1,Height-y-1),3=>(y,Width-x-1),
                 4=>(Width-x-1,y),5=>(Height-y-1,Width-x-1),6=>(x,Height-y-1),7=>(y,x),_=>throw new ArgumentOutOfRangeException(nameof(Code))};
+            // Mirrored codes 4..7 take 2π − θ, as the town rooms' NPC lines do (#236, TownNpcs.Room.Angle, from the client's
+            // own placements). AreaPopulation.TurnAngle gives π − θ for its flip matrices; only its identity is checked.
             float turn=MathF.PI*2,angle=(Code>=4?turn-point.Angle:point.Angle)+(Code&3)*MathF.PI/2;
             return new(point.Name,X+cx,Y+cy,(angle%turn+turn)%turn);
         }
@@ -24,11 +26,20 @@ static class TutorialObjects
     {
         string file=Path.Combine(folder,$"{area}_seed{seed}.rooms.json");
         if(!File.Exists(file)) return [];
-        using var doc=JsonDocument.Parse(File.ReadAllBytes(file));var root=doc.RootElement;
-        if(root.GetProperty("area").GetString()!=area || root.GetProperty("seed").GetUInt32()!=seed) return [];
-        return root.GetProperty("rooms").EnumerateArray().Where(r=>string.Equals(r.GetProperty("path").GetString(),path,StringComparison.OrdinalIgnoreCase))
-            .Select(r=>new RoomPlacement(r.GetProperty("x").GetInt32(),r.GetProperty("y").GetInt32(),r.GetProperty("width").GetInt32(),r.GetProperty("height").GetInt32(),r.GetProperty("code").GetInt32()))
-            .Where(r=>r.Width>0 && r.Height>0 && r.Code is >=0 and <=7).Distinct().ToList();
+        // It runs while the area's layout is built (room points): a broken capture means no placement, not an error.
+        try
+        {
+            using var doc=JsonDocument.Parse(File.ReadAllBytes(file));var root=doc.RootElement;
+            if(root.GetProperty("area").GetString()!=area || root.GetProperty("seed").GetUInt32()!=seed) return [];
+            return root.GetProperty("rooms").EnumerateArray().Where(r=>string.Equals(r.GetProperty("path").GetString(),path,StringComparison.OrdinalIgnoreCase))
+                .Select(r=>new RoomPlacement(r.GetProperty("x").GetInt32(),r.GetProperty("y").GetInt32(),r.GetProperty("width").GetInt32(),r.GetProperty("height").GetInt32(),r.GetProperty("code").GetInt32()))
+                .Where(r=>r.Width>0 && r.Height>0 && r.Code is >=0 and <=7).Distinct().ToList();
+        }
+        catch(Exception ex) when(ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            Console.WriteLine($"[gateway] {file}: {ex.Message}");
+            return [];
+        }
     }
     public static Placement? ChestAt(AreaPopulation.RoomPoint point,string folder="data")
     {

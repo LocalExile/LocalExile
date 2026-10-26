@@ -271,24 +271,29 @@ partial class Program
                 var hit = attack.Damage.Roll(Random.Shared);
                 if (attacker.Summon is not null && attacker.Variety is { } variety)
                 {
+                    if (MonsterBlocks(target, Random.Shared, spell: false)) return;
                     // Character.ot supplies minion_global_always_hit=1 in this client. The owner's own accuracy and
                     // ordinary attack evasion rolls do not transfer to its minions (PoB CalcPerform's minion setup).
                     var profile = WolfProfile(conn, variety, attacker.Level);
                     hit = profile.Attack.Damage.Roll(Random.Shared);
-                    if (Random.Shared.Next(10000) < profile.Chance) hit = hit.Critical(profile.Multiplier);
-                    hit = ApplyPassiveDamageTaken(conn, target, DamageModel.Mitigate(hit, type => MonsterResistance(conn, target, type)));
-                    attacker.Leech.Add(now, attacker.MaxLife, attacker.Life, hit[DamageType.Physical].Min);
+                    if (Random.Shared.Next(10000) < profile.Chance)
+                        hit = hit.Critical(CriticalMultiplierOn(target, profile.Multiplier));
+                    hit = ApplyPassiveDamageTaken(conn, target, ApplyMonsterModDamageTaken(target,
+                        DamageModel.Mitigate(hit, type => MonsterResistance(conn, target, type)), spell: false));
+                    if (MonsterAllowsLeech(target))
+                        attacker.Leech.Add(now, attacker.MaxLife, attacker.Life, hit[DamageType.Physical].Min);
                 }
                 else if (target.Summon is not null && target.Variety is { } minionType)
                 {
                     int chance = DamageModel.AccuracyHitChance(Monsters.BaseEvasion(target.Level) ?? 0,
-                        Monsters.BaseAccuracy(attacker.Level) ?? 0);
+                        conn.FlaskGrounds.Accuracy(id, attacker.Mods.Effects.Accuracy(Monsters.BaseAccuracy(attacker.Level) ?? 0)));
                     if (target.EvasionEntropy < 0 || now - target.LastEvasionAt > 3.33)
                         target.EvasionEntropy = Random.Shared.Next(100);
                     target.LastEvasionAt = now;
                     target.EvasionEntropy += chance;
                     if (target.EvasionEntropy < 100) return;
                     target.EvasionEntropy -= 100;
+                    hit = MonsterModHit(attacker, hit, target.Life, target.MaxLife, Random.Shared, out _);
                     int conversion = PassivePresenceStat(conn, attacker, "base_physical_damage_%_to_convert_to_fire");
                     if (conversion != 0)
                         hit = hit.Convert(new DamageConversion().AddGlobal(DamageType.Physical, DamageType.Fire, conversion));

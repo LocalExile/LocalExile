@@ -32,6 +32,7 @@ Ordinary owner accuracy is therefore not an extra wolf hit roll.
 
 Variety 332 carries `SummonedWolfLifeLeech`, mod 4163: 100% of physical attack damage leeched as life.
 Leech uses full mitigated hit damage, including overkill, rather than the amount of enemy life removed.
+A target with `cannot_have_life_leeched_from` prevents the hit from creating that leech instance.
 The standard rate is 2% maximum life per instance per second; `Monster.ot` caps each instance at 10% of maximum life
 and total recovery at 20% per second.
 Fractional recovery and exact instance expiry are retained, and reaching full life removes the instances.

@@ -71,13 +71,14 @@ public static class InstanceProtocol
     public const ushort UseSkillAtLocationId = 0x25, ActionStartedId = 0x1ab;
 
     /// <summary>Encrypted C→S messages whose length is known (live captures 2026-10-16): 0x1b tick, 0x7d area generated,
-    /// 0x25 use skill at location (16), 0x015a and 0x01ef (id only). Primary writers establish 0x0099, 0x020a and 0x0059.</summary>
+    /// 0x25 use skill at location (16), 0x015a, 0x01ef and 0x0129 (id only). Primary writers establish 0x0099, 0x020a and 0x0059.</summary>
     public static int? KnownClientLength(ushort id) => id switch
     {
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2,
         0x0099 => 4, // 0x141f95200: u16 opcode + two bytes; earlier 20-byte captures included following messages.
         // Primary client writers: 0x140e29080 (u16 + u8), 0x141f935a0 (u16 + 4/2/2/4/1/1 bytes).
         0x020a => 3, 0x0059 => 16,
+        0x0129 => 2, InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength,
         InstanceTransfer.UseSkillOnObjectId => 12, InstanceTransfer.ChooseInstanceId => 3, ResurrectId => 3, InstanceItems.DropItemId => 2,
         InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
         InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
@@ -87,19 +88,33 @@ public static class InstanceProtocol
         InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength,
         InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
         InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength,
-        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, UseInstantSkillId => 8,
+        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2,
+        UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
         InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
+        InstanceHideoutEditing.MoveId => InstanceHideoutEditing.MoveLength,
         InstanceBench.CraftId => InstanceBench.CraftLength, _ => null,
     };
 
     /// <summary>
-    /// C→S 0x191 (8 bytes, live 2026-10-21): use an instant skill, one whose stats have <c>skill_is_instant</c> (Haste,
-    /// Purity of Elements, Righteous Fire). u32 target object id (the player's own for a self-cast), u16 skill id. It has
-    /// no action sequence: the client starts no action for it and waits for no echo. The layout is read from captures
-    /// (0191 00001000 0105), not from the client's serializer.
+    /// C→S 0x190 (12 bytes): use an instant skill at a ground point, without an action sequence.
+    /// 0x1401232e0 selects target mode 4; vtable 0x1435c0718's writer 0x141f91f60 writes id, x, y and skill
+    /// in network byte order. Frostblink Q captured 0190 0000011A 000000DC 0103.
+    /// </summary>
+    public const ushort UseInstantSkillAtLocationId = 0x190;
+
+    public static (uint X, uint Y, ushort SkillId) ReadUseInstantSkillAtLocation(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return (r.U32(), r.U32(), r.U16());
+    }
+
+    /// <summary>
+    /// C→S 0x191 (8 bytes, live 2026-10-21): u32 target object id (the player's own for a self-cast), u16 skill id.
+    /// An instant skill (Haste, Purity of Elements, Righteous Fire) has no action sequence.
+    /// Sender 0x1401232e0 uses target modes 5/6; captured Haste: 0191 00001000 0105.
     /// </summary>
     public const ushort UseInstantSkillId = 0x191;
 
@@ -286,6 +301,16 @@ public static class InstanceProtocol
 
     public const ushort AnimationUpdateId = 0x1b2;
 
+    public const ushort ActorAnimationId = 0x1d1;
+
+    /// <summary>S→C 0x1d1: object header, BE float duration, Animation.dat row (not a rig clip index), bool.
+    /// Actor handler 0x1421949c3 calls 0x141e95e60, which cancels predictive actions, selects the current stance's
+    /// animation and blocks action starts until recovery ends. Row 5 is TakeHit. The optional bool enables the
+    /// client's avoid-interruption check; the server normally decides eligibility itself.</summary>
+    public static byte[] ActorAnimation(uint objectId, float seconds, byte animationType, bool checkInterruption = false) =>
+        new LoginWriter().U16(ActorAnimationId).U32(objectId).U32(0).U16(0)
+            .U32(BitConverter.SingleToUInt32Bits(seconds)).U8(animationType).U8(checkInterruption ? (byte)1 : (byte)0).ToArray();
+
     /// <summary>
     /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group; the handler maps it and 0x26f/0x270/0x271 to the
     /// Animated component's <c>0x141e58ef0</c>): object header, u8 kind, then per kind — 0/1: u32 animation index
@@ -315,9 +340,10 @@ public static class InstanceProtocol
 
     /// <summary>
     /// S→C 0x1ba (world group, class 0x1435dd7b8, read 0x141fe0ff0; Positioned handler 0x141e30c90): move an object to a
-    /// grid cell. Object header, i32 x, i32 y, u32 height (+0x28: 0x7fffffff = follow the terrain; otherwise it is the
-    /// object's world z in 7.8125-unit steps, read as a signed i32 and <b>positive down</b>: z = height × 7.8125. A
-    /// positive height goes below sea level, a negative one above; 0 put a projectile under the ground), f32 duration
+    /// grid cell. Object header, i32 x, i32 y, u32 height marker (+0x28: 0x7fffffff = follow the terrain;
+    /// otherwise signed i32 marker = -world z / 7.8125). The native endpoint is z = -marker * 7.8125, so positive
+    /// markers are above sea level and negative ones below. This is the Positioned blob's i32, not the opposite-sign
+    /// ProjectileObject.Height API argument. The float is duration
     /// (+0x2c, seconds: the handler passes distance / duration as the speed to 0x141e34120; Positioned +0x23c = that
     /// speed, +0x240 = the time per cell step = duration / the path's longest axis in cells. Live 2026-10-18: sending
     /// 95.7 meant "~1 s per cell" and the fireball crawled), u8 (+0x30). 0x1b7 (teleport) is the same header, x, y, u32

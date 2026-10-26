@@ -5,18 +5,40 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
 partial class Program
 {
+    // Reserve an object walk and its original token atomically with the same recovery/read-time check as skills.
+    // An interaction dispatched before a hit may not capture a new token after that hit cancels the old action.
+    internal static bool TryBeginObjectWalk(ClientState conn, double requestedAt, int x, int y, double reach,
+        out (int Action, double Now, (int X, int Y) Here, (int X, int Y) Stop, double Arrive) started,
+        bool centreRange = false)
+    {
+        started = default;
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            if (conn.Closed || conn.PlayerLife == 0 || conn.HitRecovery.BlocksInput(requestedAt, now)) return false;
+            int action = Interlocked.Increment(ref conn.ActionCount);
+            conn.ChannelSkill = 0;
+            var (here, stop, arrive) = centreRange ? conn.Walk.Approach(x, y, reach, now) : conn.Walk.WalkUpTo(x, y, (int)reach, now);
+            started = (action, now, here, stop, arrive);
+            return true;
+        }
+    }
+
     // An area transition click. Plain: change area (0x2b2 now, the move itself once the client acknowledges with 0x2cb).
     // With Ctrl: list the destination's instances (0xae) for the client's instance chooser.
-    static async Task OnUseObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use)
+    static async Task OnUseObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
+        lock (conn.Monsters)
+            if (conn.HitRecovery.BlocksInput(requestedAt, conn.Clock.Elapsed.TotalSeconds)) return;
         if (InTown(conn) && (Skills.IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)) return;
         SpawnedMonster? target;
         lock (conn.Monsters) target = conn.Monsters.GetValueOrDefault(use.TargetId);
         if (target is not null)
         {
             if (target.Owned) return;
-            if (use.SkillId != SkillCatalog.FirstSkillId) await CastOn(remote, stream, ciphers, conn, use, target);
-            else await Attack(remote, stream, ciphers, conn, use, target);
+            if (use.SkillId != SkillCatalog.FirstSkillId) await CastOn(remote, stream, ciphers, conn, use, target, requestedAt);
+            else await Attack(remote, stream, ciphers, conn, use, target, requestedAt);
             return;
         }
         // A self-cast skill (Righteous Fire) targets the player itself: echo it in place, then cast.
@@ -37,7 +59,7 @@ partial class Program
                     Interlocked.Increment(ref conn.ActionCount);
                     self = conn.Walk.Position(at);
                     conn.Walk.Order(self.X, self.Y, at);
-                }, out var cooldownUse, skillId: use.SkillId)) return;
+                }, out var cooldownUse, requestedAt: requestedAt, skillId: use.SkillId)) return;
             await Send(remote, stream, ciphers,
                 InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
                 $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
@@ -48,74 +70,91 @@ partial class Program
         }
         if (conn.Instance.Ground.Get(use.TargetId) is { } ground)
         {
-            await PickUpGroundItem(remote, stream, ciphers, conn, use.TargetId, ground, use);
+            if (await PickUpQuestItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt)) return;   // a1q5's Medicine Chest
+            await PickUpGroundItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt);
             return;
         }
         if (conn.TutorialChestId == use.TargetId && conn.TutorialChest is { } tutorialChest)
         {
-            await OpenTutorialChest(remote, stream, ciphers, conn, use, tutorialChest);
+            await OpenTutorialChest(remote, stream, ciphers, conn, use, tutorialChest, requestedAt);
+            return;
+        }
+        GlyphQuest.Nest? nest;
+        lock (conn.GlyphNests) nest = conn.GlyphNests.GetValueOrDefault(use.TargetId);
+        if (nest is not null)
+        {
+            await OpenRhoaNest(remote, stream, ciphers, conn, use, nest, requestedAt);
+            return;
+        }
+        if (conn.GlyphWallId != 0 && use.TargetId == conn.GlyphWallId)
+        {
+            await UseGlyphWall(remote, stream, ciphers, conn, use, requestedAt);
             return;
         }
         if (use.TargetId == WaypointCatalog.ObjectId && conn.Layout.Waypoint is { } waypoint)
         {
-            await UseWaypoint(remote, stream, ciphers, conn, use, waypoint);
+            await UseWaypoint(remote, stream, ciphers, conn, use, waypoint, requestedAt);
             return;
         }
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(use.TargetId);
         if (npc is not null)
         {
-            await TalkToNpc(remote, stream, ciphers, conn, use, npc);
+            await TalkToNpc(remote, stream, ciphers, conn, use, npc, requestedAt);
             return;
         }
         if (conn.BackPortal is { } home && use.TargetId == home.Id && OpenPortals.TryGetValue(CharacterName(conn), out var origin))
         {
-            int homeAction = Interlocked.Increment(ref conn.ActionCount);
-            double homeNow = conn.Clock.Elapsed.TotalSeconds;
-            var (_, _, homeArrive) = conn.Walk.WalkUpTo(home.X, home.Y, AreaTransitionObjectSize, homeNow);
+            if (!TryBeginObjectWalk(conn, requestedAt, home.X, home.Y, AreaTransitionObjectSize, out var homeWalk)) return;
+            var (homeAction, homeNow, _, _, homeArrive) = homeWalk;
             if (homeArrive > homeNow) await Task.Delay(TimeSpan.FromSeconds(homeArrive - homeNow));
-            if (conn.ActionCount != homeAction) return;
+            if (!PlayerActionCurrent(conn, homeAction)) return;
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)),
                 "back through the town portal");
             return;
         }
         if (conn.ReturnPortal is { } back && use.TargetId == back.Id)
         {
-            await UseMapReturnPortal(remote, stream, ciphers, conn, use, (back.X, back.Y));
+            await UseMapReturnPortal(remote, stream, ciphers, conn, use, (back.X, back.Y), requestedAt);
             return;
         }
         (int X, int Y, int Index)? portal;
         lock (conn.MapPortals) portal = conn.MapPortals.TryGetValue(use.TargetId, out var at) ? at : null;
         if (portal is { } p)
         {
-            await UseMapPortal(remote, stream, ciphers, conn, use, p);
+            await UseMapPortal(remote, stream, ciphers, conn, use, p, requestedAt);
             return;
         }
         HideoutCatalog.Doodad? doodad;
         lock (conn.HideoutDoodads) doodad = conn.HideoutDoodads.GetValueOrDefault(use.TargetId);
         if (doodad is not null)
         {
-            await UseMapDevice(remote, stream, ciphers, conn, use, doodad);
+            await UseMapDevice(remote, stream, ciphers, conn, use, doodad, requestedAt);
             return;
         }
         if (conn.StashObject != 0 && use.TargetId == conn.StashObject)
         {
-            await OpenStash(remote, stream, ciphers, conn, use);
+            await OpenStash(remote, stream, ciphers, conn, use, requestedAt);
             return;
         }
         if (conn.GuildStashObject != 0 && use.TargetId == conn.GuildStashObject)
         {
-            await OpenGuildStash(remote, stream, ciphers, conn, use);
+            await OpenGuildStash(remote, stream, ciphers, conn, use, requestedAt);
+            return;
+        }
+        if (conn.HeistLockerObject != 0 && use.TargetId == conn.HeistLockerObject)
+        {
+            await OpenHeistLocker(remote, stream, ciphers, conn, requestedAt);
             return;
         }
         if (conn.CraftingBenchObject != 0 && use.TargetId == conn.CraftingBenchObject)
         {
-            await OpenCraftingBench(remote, stream, ciphers, conn, use);
+            await OpenCraftingBench(remote, stream, ciphers, conn, use, requestedAt);
             return;
         }
         if (conn.HorticraftingObject != 0 && use.TargetId == conn.HorticraftingObject)
         {
-            await OpenHorticrafting(remote, stream, ciphers, conn);
+            await OpenHorticrafting(remote, stream, ciphers, conn, requestedAt);
             return;
         }
         var (_, transition) = conn.Layout.AreaTransitions.FirstOrDefault(e => e.Id == use.TargetId);
@@ -126,18 +165,17 @@ partial class Program
         }
         ushort dest = transition.DestinationHash16;
         // A quest can close an exit: The Twilight Strand's way into Lioneye's Watch needs Hillock dead (a1q1).
-        if (AreaTransitionCatalog.IdOf(dest) is { } destId && Quests.FlagToEnter(conn.Layout.Id, destId) is { } needed && !conn.QuestFlags.Contains(needed))
+        if (AreaTransitionCatalog.IdOf(dest) is { } destId && Quests.FlagToEnter(conn.Layout.Id, destId) is { } needed && !ClientHasQuestFlag(conn, needed))
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0024 area transition 0x{use.TargetId:x} to {destId}: closed until quest flag {needed}");
             return;
         }
         // The client walks to the area transition first; follow it and act once the player is there (a move meanwhile cancels).
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.WalkUpTo(transition.GridX, transition.GridY, AreaTransitionObjectSize, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, transition.GridX, transition.GridY, AreaTransitionObjectSize, out var objectWalk)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 area transition 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action) return;
+        if (!PlayerActionCurrent(conn, action)) return;
         if (!PlayerWalk.InWalkUpRange(stop, (transition.GridX, transition.GridY), AreaTransitionObjectSize))
         {
             Console.WriteLine($"[gateway] {remote} area transition 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
@@ -147,9 +185,14 @@ partial class Program
         if (transition.TeleportTo is { } pair)
         {
             var (tx, ty) = conn.Layout.Near(pair);
-            conn.Walk.Teleport(tx, ty, conn.Clock.Elapsed.TotalSeconds);
+            lock (conn.Monsters)
+            {
+                if (!PlayerActionCurrent(conn, action)) return;
+                conn.Walk.Teleport(tx, ty, conn.Clock.Elapsed.TotalSeconds);
+            }
             await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, tx, ty),
-                $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), next to its pair at ({pair.X}, {pair.Y})");
+                $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), next to its pair at ({pair.X}, {pair.Y})",
+                still: () => PlayerActionCurrent(conn, action));
             return;
         }
         if (use.Ctrl)
@@ -175,14 +218,13 @@ partial class Program
     // A waypoint click (C→S 0x24 on the waypoint, Agents/docs/protocol/16-waypoints.md): walk there, activate it if it is
     // not yet, then open the World panel for travel (S→C 0x7b kind 0). The panel's pick arrives as C→S 0x4d.
     static async Task UseWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use, WaypointObject waypoint)
+        InstanceTransfer.UseSkillOnObject use, WaypointObject waypoint, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.WalkUpTo(waypoint.GridX, waypoint.GridY, WaypointObjectSize, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, waypoint.GridX, waypoint.GridY, WaypointObjectSize, out var objectWalk)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 waypoint ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action) return;
+        if (!PlayerActionCurrent(conn, action)) return;
         if (!PlayerWalk.InWalkUpRange(stop, (waypoint.GridX, waypoint.GridY), WaypointObjectSize))
         {
             Console.WriteLine($"[gateway] {remote} waypoint out of reach from ({stop.X}, {stop.Y})");
@@ -190,7 +232,7 @@ partial class Program
         }
         await ActivateWaypoint(remote, stream, ciphers, conn, "clicked");
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.WorldPanelUi, WaypointCatalog.ObjectId),
-            "0x007b open the World panel for waypoint travel");
+            "0x007b open the World panel for waypoint travel", still: () => PlayerActionCurrent(conn, action));
     }
 
     // Activates this area's waypoint for the character (saved, added to the saved ones) and tells the client: a new 0x4c with
@@ -241,10 +283,13 @@ partial class Program
         // ThisIsMyHideout only in a hideout and the Mine Encampment, where Niko needs it for his own options; elsewhere NPCs
         // show their "not my hideout" rows. (It does not hide Sell Items: the client offers Sell only in towns and hideouts.)
         bool inHideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null || conn.Layout.Hash == StashCatalog.DelveHub;
+        // The quest flags as a snapshot, taken before the Waypoints lock (ClientState.QuestFlagsSnapshot): the two locks are
+        // never held together.
+        var own = conn.QuestFlagsSnapshot();
         lock (conn.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => conn.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(conn.Visited.Concat(conn.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))
-                .Concat(Quests.Rows(conn.QuestFlags.Where(f => inHideout || f != Quests.ThisIsMyHideout)))
+                .Concat(Quests.Rows(own.Where(f => inHideout || f != Quests.ThisIsMyHideout)))
                 .Distinct().Order()];
     }
 
@@ -288,7 +333,7 @@ partial class Program
 
     static HideoutScene? HideoutFurniture(ClientState conn) => conn.Furniture ??=
         HideoutCatalog.ByArea(conn.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
-            ? HideoutScene.Build(hideout, fallback, conn.Layout.Walkable) : null;
+            ? HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, conn.Layout.Walkable), SavedHideoutPlacements(conn)) : null;
 
     static async Task SelectHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Row, bool Guild) selected)
     {

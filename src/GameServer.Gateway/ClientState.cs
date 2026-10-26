@@ -56,6 +56,9 @@ sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
     public uint Theirs { get; } = theirs;
     // The offered items stay in the character's inventory cells until the sale ends (PlayerInventories.Offer).
     public List<InventoryItem> Reward = [];
+    public IReadOnlyList<InventoryItem> QuotedItems = [];
+    public IReadOnlyList<Item> QuotedRewards = [];
+    public string? QuoteError;
     public uint MineRevision, TheirsRevision;
 }
 
@@ -89,8 +92,12 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];
     public byte Level { get; init; } = 1;
     public MonsterRarity Rarity { get; init; }
+    // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
+    public MonsterModSet Mods { get; init; } = MonsterModSet.None;
     // Damage over time not yet applied (fractions of a point between ticks).
     public double Burn;
+    // Life regeneration not yet applied (fractions of a point between ticks; RegenerateMonsters).
+    public double Regen;
     // The impales the player's attacks have left on it (Impale.cs); cleared when it dies.
     public readonly ImpaleState Impale = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
@@ -250,6 +257,7 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
         get
         {
             var fixedOnes = _blockerList;
+            if (Phasing) return fixedOnes;   // phasing (Quartz Flask): monsters do not block (UtilityFlasks.Phasing)
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
             lock (Monsters)
@@ -331,6 +339,7 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
     public int ActionCount;
+    public readonly PlayerHitRecovery HitRecovery = new();
     // The stats the server has set on the player after creating it (/set_stat, /set_speed): what the client computes
     // with, so the server can follow it (attack time).
     public readonly Dictionary<uint, int> PlayerStats = [];
@@ -385,6 +394,17 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public RighteousFireState? RighteousFire;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
     public Flasks.Effects FlaskEffects { get; } = new();
+    /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>
+    public UtilityFlasks.Effects UtilityFlaskEffects { get; } = new();
+    /// <summary>The flasks' partial charges and the crit charge cooldown (FlaskCharges).</summary>
+    public FlaskCharges.Carry FlaskChargeCarry { get; } = new();
+    /// <summary>One change of the flask bar and its S→C 0xbf at a time (Program.ChangeFlaskBar), so the revisions go out in
+    /// order with the latest charges.</summary>
+    public SemaphoreSlim FlaskBarGate { get; } = new(1, 1);
+    /// <summary>The smoke clouds, consecrated ground and taunts of flasks (FlaskGrounds).</summary>
+    public FlaskGrounds.State FlaskGrounds { get; } = new();
+    /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
+    public volatile bool Phasing;
     readonly object _buffGate = new();
     int _nextBuff = 1;
     public ushort NextBuff
@@ -422,6 +442,8 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// panel is the one open (then the stash messages act on it; StashOf).</summary>
     public uint GuildStashObject;
     public (int X, int Y) GuildStashAt;
+    public uint HeistLockerObject;
+    public (int X, int Y) HeistLockerAt;
     public uint HorticraftingObject;
     public (int X, int Y) HorticraftingAt;
     public uint CraftingBenchObject;
@@ -430,6 +452,9 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public uint BenchBalanceRevision;
     public IReadOnlyList<InventoryItem> BenchBalanceItems = [];
     public HideoutScene? Furniture;
+    public readonly HideoutEditing HideoutEditor = new();
+    public (int X, int Y) StashAt;
+    public void MoveWaypoint(WaypointObject waypoint) => Layout = Layout with { Waypoint = waypoint };
     public (int X, int Y) CraftingBenchAt;
     public readonly HashSet<int> GuildStashTabsSent = [];
     public bool GuildStashOpen;
@@ -444,6 +469,11 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Whether the open dialogue shows an NPCTalk row's talk (0x84 with its index) rather than the option list.
     public volatile bool InNpcTalk;
     public uint TutorialSceneId, TutorialChestId;
+    // a1q4 in The Mud Flats (GlyphQuest): the captured layout, the nests by object id (guarded by itself), the wall and the waterfall.
+    public GlyphQuest.Layout? Glyphs;
+    public readonly Dictionary<uint, GlyphQuest.Nest> GlyphNests = [];
+    public uint GlyphWallId, GlyphWaterId;
+    public double GlyphSyncAt;
     public TutorialObjects.Placement? TutorialChest;
     public AreaPopulation.RoomObject? TutorialZombiePlacement;
     public bool TutorialSceneRunning;
@@ -454,6 +484,13 @@ sealed class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly Dictionary<uint, SpawnedNpc> Npcs = [];
     /// <summary>The character's quest flags (QuestFlags.dat Ids), saved in data/saves/.</summary>
     public HashSet<string> QuestFlags = [];
+    // QuestFlags is changed under the Monsters lock (SetQuestFlagsHeld); code that may run beside it (the player tick)
+    // reads it through these, under the same lock.
+    public HashSet<string> QuestFlagsSnapshot() { lock (Monsters) return [.. QuestFlags]; }
+    public bool HasQuestFlag(string flag) { lock (Monsters) return QuestFlags.Contains(flag); }
+    // One quest-flag change at a time per connection (SetQuestFlags, SyncGlyphs, the a1q5 sync): each reads, changes and sends the whole
+    // set, so two at once could send an older set last.
+    public readonly SemaphoreSlim QuestGate = new(1, 1);
 
     /// <summary>The character's league quest flags (client ids, Quests.League); not saved: every character has the same.</summary>
     public HashSet<int> LeagueQuestFlags = [.. Quests.League.EveryCharacter, .. Program.Bench.UnlockFlags];

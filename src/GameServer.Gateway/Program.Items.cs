@@ -164,69 +164,89 @@ partial class Program
     }
 
     // C→S 0x70: a flask key. The flask in that cell of the flask bar spends its charges (S→C 0xbf with the changed item) and
-    // its life or mana comes back over its recovery time in the player tick, under the flask_effect_life / _mana buff
-    // (13-items.md §8). Without enough charges, or while dead, nothing happens.
+    // its life or mana comes back, instantly or over its recovery time, under the flask_effect_life / _mana buff
+    // (13-items.md §8): its quality, its mods and the character's flask stats count (FlaskCharges, FlaskRecovery). Without
+    // enough charges, or while dead, nothing happens. A utility flask goes to UseUtilityFlask.
     static async Task UseFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot)
     {
         var items = ItemsOf(conn);
         var flask = items.Items(PlayerInventories.Flask).FirstOrDefault(i => i.X == slot);
+        if (flask is not null && Items.ByHash(flask.Item.TypeHash) is { } utilityType && Items.UtilityFlaskOf(utilityType) is { } utility)
+        {
+            await UseUtilityFlask(remote, stream, ciphers, conn, slot, flask, utilityType, utility);
+            return;
+        }
         if (flask is null || Items.ByHash(flask.Item.TypeHash) is not { } type || Items.FlaskOf(type) is not { } use)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot}: {(flask is null ? "no flask there" : "not a life or mana flask (not handled)")}");
+            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot}: {(flask is null ? "no flask there" : "not a flask (not handled)")}");
             return;
         }
-        if (conn.PlayerLife == 0 || Flasks.Spend(flask.Item, use) is null)
+        var character = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        var local = ItemModStats.Local(flask.Item, Items.Mods);
+        var charges = FlaskCharges.Of(use, local, Get);
+        if (conn.PlayerLife == 0 || Flasks.Spend(flask.Item, charges) is null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {(conn.PlayerLife == 0 ? "dead" : $"{flask.Item.Charges}/{use.MaxCharges} charges, a use needs {use.ChargesPerUse}")}");
+            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {(conn.PlayerLife == 0 ? "dead" : $"{flask.Item.Charges}/{charges.MaxCharges} charges, a use needs {charges.ChargesPerUse}")}");
             return;
         }
-        if (items.Change(PlayerInventories.Flask, flask.Id, i => Flasks.Spend(i, use) ?? i) is not { } spent) return;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
-            items.NextRevision(PlayerInventories.Flask), [spent.Id], [spent]), $"0x00bf flask {slot}: {spent.Item.Charges}/{use.MaxCharges} charges");
+        if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is null) return;
+        var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife);
+        Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {r.Life:0.#} life, {r.Mana:0.#} mana over {r.Seconds:0.##} s, " +
+            $"instantly {r.InstantLife:0.#} life, {r.InstantMana:0.#} mana{(r.ManaAtEnd > 0 ? $", {r.ManaAtEnd:0.#} mana at the end" : "")}" +
+            $"{(r.RemovesLife + r.RemovesMana > 0 ? $", removes {r.RemovesLife:0.#} life, {r.RemovesMana:0.#} mana" : "")}" +
+            $"{(r.ExtraLife > 0 ? $", {r.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
+        // The instant part and what the flask takes from the other pool (never below 1 life), at once. A monster may have
+        // killed the player while the charges went out: then nothing (FlaskRecovery.Instant), or the death screen would stay
+        // with 1 life.
+        uint lifeBefore, manaBefore, lifeAfter, manaAfter;
+        lock (conn.Monsters)
+        {
+            (lifeBefore, manaBefore) = (conn.PlayerLife, conn.PlayerMana);
+            if (FlaskRecovery.Instant(r, lifeBefore, manaBefore, UnreservedLife(conn), UnreservedMana(conn)) is not var (l, m))
+            {
+                Console.WriteLine($"[gateway] {remote} flask {slot} ({type.Name}): the player died meanwhile, no recovery");
+                return;
+            }
+            (conn.PlayerLife, conn.PlayerMana) = (lifeAfter, manaAfter) = (l, m);
+        }
+        if (lifeAfter != lifeBefore) await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), $"0x01b1 player life {lifeAfter} (flask)",
+            atGate: () => { lock (conn.Monsters) return PlayerLifeUpdate(conn); });
+        if (manaAfter != manaBefore) await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {manaAfter} (flask)");
         double now = conn.Clock.Elapsed.TotalSeconds;
+        if (r.ExtraLife > 0)
+            conn.FlaskEffects.Start(new Flasks.Effect((byte)slot, 0, 0, r.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
+        if (r.Seconds <= 0 || r.Life + r.Mana + r.ManaAtEnd <= 0) return;
         ushort buff;
         lock (conn.Monsters) buff = conn.AllocateBuff();
         ushort row = use.LifePerUse > 0 ? FlaskEffectLifeBuffRow : FlaskEffectManaBuffRow;
-        var effect = new Flasks.Effect((byte)slot, buff, row, use.LifePerUse / use.Seconds, use.ManaPerUse / use.Seconds, now, now + use.Seconds);
-        if (conn.FlaskEffects.Start(effect) is { } replaced && FlaskBuffs)
-            await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, replaced.Buff), null);
-        Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {use.LifePerUse} life, {use.ManaPerUse} mana over {use.Seconds:0.##} s");
+        var effect = new Flasks.Effect((byte)slot, buff, row, r.Life / r.Seconds, r.Mana / r.Seconds, now, now + r.Seconds,
+            r.ManaAtEnd, r.LifeStaysAtFull, r.ManaStaysAtFull, r.NoQueue);
+        conn.FlaskEffects.Start(effect);   // recovers at once or waits in its queue (Flasks.Effects)
         // Both rows are IsRecovery: 0x1c1 carries one u32 per GrantedStats entry, here base_life (or mana)
         // _recovery_per_minute_from_flask. Without it the client misread the message and showed no life change after it
         // (live 2026-10-20).
-        uint perMinute = (uint)Math.Round((use.LifePerUse > 0 ? use.LifePerUse : use.ManaPerUse) * 60 / use.Seconds);
-        // Being tested: the duration, from which the orb could draw the life still to come. Game_FLASK_BUFF_DURATION picks
-        // the field: "ms" (default) u32 +0x68 in milliseconds (flags bit1), "f6c" f32 +0x6c in seconds (bit7), "0" none.
-        string durationField = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") ?? "ms";
-        uint? u68 = durationField == "ms" ? (uint)Math.Round(use.Seconds * 1000) : null;
-        float? f6c = durationField == "f6c" ? (float)use.Seconds : null;
+        uint perMinute = (uint)Math.Round((use.LifePerUse > 0 ? r.Life : r.Mana) * 60 / r.Seconds);
+        // The duration (+0x68, f32 seconds) and the flask-bar cell (source skill): the timer bar under the flask (Flasks.Buff).
+        // Game_FLASK_BUFF_DURATION=0 sends no duration (before 2026-10-25 a u32 in milliseconds went there, which the client
+        // read as a float of almost 0 s).
+        bool withDuration = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") != "0";
         if (FlaskBuffs)
-            await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, row, PlayerId, values: [perMinute], u68: u68, f6c: f6c),
-                $"0x01c1 player buff {buff}: {(row == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} (BuffDefinitions row {row}), {perMinute} per minute, duration field {durationField}");
+            await Send(remote, stream, ciphers, Flasks.Buff(PlayerId, buff, row, (byte)slot, withDuration ? r.Seconds : null, [perMinute]),
+                $"0x01c1 player buff {buff}: {(row == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} (BuffDefinitions row {row}), {perMinute} per minute, {(withDuration ? $"{r.Seconds:0.##} s" : "no duration")}");
     }
 
-    // Gives each life and mana flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
+    // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
     // the refills of kills and the like, lets them wait for the next save: PlayerInventories.ChangeUnsaved): the
     // flasks that changed.
-    static List<InventoryItem> FillFlasks(PlayerInventories items, int charges, bool saveNow = true)
-    {
-        List<InventoryItem> changed = [];
-        foreach (var flask in items.Items(PlayerInventories.Flask))
-            if (Items.ByHash(flask.Item.TypeHash) is { } type && Items.FlaskOf(type) is { } use && flask.Item.Charges < use.MaxCharges &&
-                (saveNow ? items.Change(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, use, charges)) : items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, use, charges))) is { } done)
-                changed.Add(done);
-        return changed;
-    }
+    static List<InventoryItem> FillFlasks(PlayerInventories items, int charges, bool saveNow = true) =>
+        Flasks.Fill(items, Items, charges, saveNow);
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
-    static async Task GainFlaskCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int charges, string why)
-    {
-        var items = ItemsOf(conn);
-        if (FillFlasks(items, charges, saveNow: false) is not { Count: > 0 } changed) return;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
-            items.NextRevision(PlayerInventories.Flask), [.. changed.Select(c => c.Id)], changed),
-            $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
-    }
+    static Task GainFlaskCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int charges, string why) =>
+        ChangeFlaskBar(remote, stream, ciphers, conn, items => FillFlasks(items, charges, saveNow: false) is { Count: > 0 } changed
+                ? ([.. changed.Select(c => c.Id)], changed) : null,
+            changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
 
     // A new character's class weapon lies on the ground a few cells from where it appears, as on the real game's Twilight
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
@@ -260,19 +280,25 @@ partial class Program
 
     // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bb).
     static async Task PickUpGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground,
-        InstanceTransfer.UseSkillOnObject use)
+        InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.Approach(ground.GridX, ground.GridY, PickupReach, now);
+        // a1q4: a glyph is not needed once the glyphs are placed (a copy left in another instance): it goes, unpicked.
+        if (GlyphIndex(ground.Item) is not null && ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs))
+        {
+            if (conn.Instance.Ground.Take(id) is not null)
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove glyph 0x{id:x}: the glyphs are placed");
+            return;
+        }
+        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its
         // own pickup range itself. An echo sent on arrival carried the server's estimated stop, and the client snapped to it.
         await Send(remote, stream, ciphers,
             InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
-            $"0x01ab player picks up world item 0x{id:x}");
+            $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action) return;
+        if (!PlayerActionCurrent(conn, action)) return;
         if (IsGold(ground))
         {
             await PickUpGold(remote, stream, ciphers, conn, id, ground, "picked up");
@@ -323,6 +349,8 @@ partial class Program
         if (conn.Instance.IsStartWeapon(CharacterName(conn), id) && items.ClaimStartWeapon())
             Console.WriteLine($"[gateway] {remote} start weapon picked up");
 
+        // A glyph (a1q4) sets its quest flags with the pickup, in the same save.
+        int? glyph = GlyphIndex(ground.Item);
         var placed = KeepOnGroundIfNotSaved(conn, ground, () =>
         {
             InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
@@ -330,12 +358,13 @@ partial class Program
                 foreach (bool support in new[] { false, true })
                     if (conn.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(conn), tutorial, support), id))
                         return TutorialObjects.Claim(CharacterName(conn), support, ground.Item, Put);
-            return Put();
+            return glyph is int g ? GlyphQuest.Claim(CharacterName(conn), g, Put) : Put();
         }, id);
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
             toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
+        if (glyph is int picked) await SetQuestFlags(remote, stream, ciphers, conn, GlyphQuest.PickupFlags(picked));
     }
 
     static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
@@ -718,6 +747,7 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: refused ({why})");
             return;
         }
+        if (done.Row == PlayerInventories.Flask) done = done with { Placed = EmptyIfEquippedInHostileArea(conn, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
         if (done.Merged || done.Rest is not null) { await SendMerged(remote, stream, ciphers, items, done); return; }

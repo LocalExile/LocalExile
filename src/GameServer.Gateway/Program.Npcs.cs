@@ -4,44 +4,49 @@ using GameServer.Core.Protocol.Login;
 
 partial class Program
 {
+    internal static readonly Lazy<VendorRecipes> VendorSales = new(() => new(Items));
+
     // Creates one NPC (0x2b9, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
     static async Task SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
         int x, int y, float rotation)
     {
         uint id = conn.NextObjectId++;
-        var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState);
+        var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type, obj.Blob()),
             $"0x02b9 create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 npc 0x{id:x} enters wake zone");
         lock (conn.Npcs) conn.Npcs[id] = new SpawnedNpc(npc, x, y);
         conn.SetBlocker(id, x, y, ClientState.NpcBlockerSize);
+        if (HideoutCatalog.ByArea(conn.Layout.Hash) is not null)
+            conn.HideoutEditor.Register(id, "npc:" + npc.Id, x, y, rotation, ClientState.NpcBlockerSize);
     }
 
     // The town's NPCs (NpcCatalog.In) at their cells.
     static async Task SpawnTownNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash);
+        var notes = new List<string>();
+        var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
+        foreach (var note in notes) Console.WriteLine($"[gateway] {remote} npcs: {note}");
         if (placements.Count == 0 || Environment.GetEnvironmentVariable("Game_NPCS") == "0") return;
         if (Npcs.Value.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
         foreach (var p in placements)
         {
-            if (Npcs.Value.Find(p.Id) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {remote} npc {p.Id}: unknown or unsupported components"); continue; }
-            if (conn.Layout.Walkable is { } w && !w(p.X, p.Y)) Console.WriteLine($"[gateway] {remote} npc {npc.Name}: ({p.X}, {p.Y}) is not walkable");
+            if (Npcs.Value.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {remote} npc {p.Id}: unknown or unsupported components"); continue; }
+            if (!p.FromRoom && conn.Layout.Walkable is { } w && !w(p.X, p.Y)) Console.WriteLine($"[gateway] {remote} npc {npc.Name}: ({p.X}, {p.Y}) is not walkable");
             await SpawnNpc(remote, stream, ciphers, conn, npc, p.X, p.Y, p.Rotation);
         }
     }
 
     // A click on an NPC (C→S 0x24 on its object): the client walks to it first; follow it and answer once the player is there.
     static async Task TalkToNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use, SpawnedNpc npc)
+        InstanceTransfer.UseSkillOnObject use, SpawnedNpc npc, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.WalkUpTo(npc.X, npc.Y, ClientState.NpcBlockerSize, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, npc.X, npc.Y, ClientState.NpcBlockerSize, out var objectWalk)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 npc {npc.Npc} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action) return;
+        if (!PlayerActionCurrent(conn, action)) return;
         uint id;
         lock (conn.Npcs) id = conn.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
         conn.TalkingTo = id;
@@ -53,7 +58,8 @@ partial class Program
             await TalkToWoundedExile(remote, stream, ciphers, conn, id, npc);
             return;
         }
-        await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}");
+        await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
+            still: () => PlayerActionCurrent(conn, action));
     }
 
     // C→S 0x85: the dialogue window was closed or, while a talk plays, Continue was pressed. The client stays in its dialogue
@@ -99,6 +105,7 @@ partial class Program
             (talk is null ? "no NPCTalk row" : $"NPCTalk row {talk.Row} \"{talk.Option}\" ({talk.Category}), text audio [{string.Join(", ", talk.TextAudio)}]"));
         if (talk is null) return;
         if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return;
+        if (!await HandInQuestItems(remote, stream, ciphers, conn, talk)) return;   // a1q5: Nessa takes the Medicine Chest
         if (talk.StartFlag is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
         conn.NpcFinishFlag = talk.FinishFlag;
         switch (talk.Category)
@@ -111,7 +118,7 @@ partial class Program
                     talk.OpensGuildHideouts ? 1u : 0u), $"0x007b open hideout selection ({(talk.OpensGuildHideouts ? "guild" : "character")})");
                 break;
             case "QuestReward" when talk.RewardOffer is { } offer:
-                if (offer is not (0 or 8)) break; // Hillock and Nessa's prison preparation; other reward scripts need auditing.
+                if (!QuestRewardCatalog.Implemented(offer)) break;
                 var rewardCatalog = QuestRewardCatalog.Load();
                 var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
                     .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, Items))).Where(c => c.Item is not null).ToArray();
@@ -357,24 +364,47 @@ partial class Program
         await SendSaleReward(remote, stream, ciphers, conn, sale);
     }
 
-    // The NPC's offer: one Scroll Fragment (each its own stack of 1) per offered item, replacing what it offered before.
+    // Quote once on each offer change. The same immutable outputs are displayed and paid at acceptance.
     static async Task SendSaleReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale)
     {
         var items = ItemsOf(conn);
-        int count = items.Offered().Count;
-        var fragment = Items.Find(NpcShops.SellReward);
+        var offered = items.Offered().OrderBy(i => i.Id).ToList();
+        sale.QuoteError = null;
+        VendorRecipes.Quote quote;
+        try { quote = VendorSales.Value.Evaluate(offered); }
+        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+        {
+            sale.QuoteError = ex.Message;
+            quote = new([], []);
+            Console.WriteLine($"[gateway] {remote} vendor quote refused: {ex.Message}");
+        }
         var reward = new List<InventoryItem>();
-        if (fragment is not null)
-            for (int i = 0; i < Math.Min(count, NpcShops.Offer.Width * NpcShops.Offer.Height); i++)
-                reward.Add(new InventoryItem(items.NewItemId(), (byte)(i % NpcShops.Offer.Width), (byte)(i / NpcShops.Offer.Width), ItemCatalog.Create(fragment)));
+        bool[,] occupied = new bool[NpcShops.Offer.Width, NpcShops.Offer.Height];
+        foreach (var item in quote.Rewards)
+        {
+            var shape = ShapeOf(item) ?? new PlayerInventories.Shape(1, 1, "");
+            (byte X, byte Y)? spot = null;
+            for (byte y = 0; y + shape.Height <= NpcShops.Offer.Height && spot is null; y++)
+                for (byte x = 0; x + shape.Width <= NpcShops.Offer.Width && spot is null; x++)
+                    if (!Enumerable.Range(x, shape.Width).Any(cx => Enumerable.Range(y, shape.Height).Any(cy => occupied[cx, cy]))) spot = (x, y);
+            if (spot is not { } cell) { sale.QuoteError = "The vendor reward does not fit in the offer window. Sell fewer items at once."; break; }
+            for (int x = cell.X; x < cell.X + shape.Width; x++)
+                for (int y = cell.Y; y < cell.Y + shape.Height; y++) occupied[x, y] = true;
+            // Random recipe outputs are hidden until acceptance, matching the native vendor UI behavior since 3.13.
+            var preview = item.Rarity != ItemRarity.Normal ? item with { Identified = false } : item;
+            reward.Add(new(items.NewItemId(), cell.X, cell.Y, preview));
+        }
+        if (sale.QuoteError is not null) { reward.Clear(); await conn.Commands!.Reply(sale.QuoteError); }
         List<uint> before;
         lock (conn.Npcs)
         {
             before = [.. sale.Reward.Select(r => r.Id)];
             sale.Reward = reward;
+            sale.QuotedItems = offered;
+            sale.QuotedRewards = quote.Rewards;
         }
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(sale.Theirs, ++sale.TheirsRevision, before, reward, NpcShops.Manager),
-            $"0x00bf {sale.Npc.Npc.Name}'s offer: {reward.Count} x {NpcShops.SellReward}");
+            $"0x00bf {sale.Npc.Npc.Name}'s offer: {reward.Count} reward stack(s); {string.Join(", ", quote.Recipes)}");
     }
 
     // C→S 0xb1: Cancel (u8 0). The offered items go back to the inventory and S→C 0xb9 closes the window.
@@ -413,20 +443,20 @@ partial class Program
         var items = ItemsOf(conn);
         if (accepted)
         {
-            int count = items.Offered().Count;
-            var fragment = Items.Find(NpcShops.SellReward);
+            var offered = items.Offered().OrderBy(i => i.Id).ToList();
+            if (offered.Count == 0) { await CloseSale(remote, stream, ciphers, conn, accepted: false); return; }
+            bool sameQuote = sale!.QuotedItems.Select(i => (i.Id, i.Item)).SequenceEqual(offered.Select(i => (i.Id, i.Item)));
             PlayerInventories.Stacking? added = null;
-            string? refused = count == 0 ? null
-                : fragment is null ? $"{NpcShops.SellReward} is not in the game data"
-                : (added = items.Sell(ItemCatalog.Create(fragment) with { StackSize = (ushort)count }, ShapeOf)) is null ? "not enough room in the inventory for the offer"
-                : null;
+            string? refused = sale.QuoteError ?? (!sameQuote ? "The offer has changed. Review the vendor's new offer before accepting." : null);
+            if (refused is null && (added = items.Sell(sale.QuotedRewards, ShapeOf)) is null)
+                refused = "Not enough room in your inventory for the complete vendor reward.";
             if (refused is not null)
             {
-                Console.WriteLine($"[gateway] {remote} sale accepted: refused ({refused}); the window stays open");
-                await conn.Commands!.Reply(fragment is null ? "This sale can't be made: the game data is missing." : "Not enough room in your inventory.");
+                Console.WriteLine($"[gateway] {remote} sale refused: {refused}");
+                await conn.Commands!.Reply(refused);
                 return;
             }
-            Console.WriteLine($"[gateway] {remote} sale accepted: {count} item(s) sold for {count} × {NpcShops.SellReward}");
+            Console.WriteLine($"[gateway] {remote} sale accepted: {offered.Count} item(s), {sale.QuotedRewards.Count} reward stack(s)");
             // Offered items were already removed from the client's inventory view.
             if (added is { Any: true })
                 await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),

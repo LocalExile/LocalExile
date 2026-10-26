@@ -268,17 +268,21 @@ static class AreaPopulation
     /// <see cref="FitTolerance"/> cells of a captured doodad of the same model. The points go through the same placement.
     /// Without either file: none (notes say why).
     /// </summary>
-    public static List<RoomPoint> LoadPoints(string areaId, uint seed, List<string> notes) => FitRooms(areaId, seed, notes).Points;
+    public static List<RoomPoint> LoadPoints(string areaId, uint seed, List<string> notes) => FitRooms(areaId, seed, notes, "data").Points;
 
     /// <summary>The server objects of the rooms placed in this (area, seed), found like <see cref="LoadPoints"/>.</summary>
-    public static List<RoomObject> LoadObjects(string areaId, uint seed, List<string> notes) => FitRooms(areaId, seed, notes).Objects;
+    public static List<RoomObject> LoadObjects(string areaId, uint seed, List<string> notes) => FitRooms(areaId, seed, notes, "data").Objects;
 
-    static (List<RoomPoint> Points, List<RoomObject> Objects) FitRooms(string areaId, uint seed, List<string> notes)
+    /// <summary>The fit of <see cref="LoadPoints"/> over a data folder (its room-points.json and walkability/), and the
+    /// rooms that took their captured placement instead (only <see cref="MercyMission.BoatRooms"/>).</summary>
+    internal static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
+        string folder)
     {
-        string capture = $"data/walkability/{areaId}_seed{seed}.doodads.json";
-        if (RoomFits.Value is not { } rooms) { notes.Add("no data/room-points.json (dotnet run --project scripts/re/atlas -- Client/Content.ggpk room-points)"); return ([], []); }
-        if (!rooms.Areas.TryGetValue(areaId, out var candidates)) return ([], []);
-        if (!File.Exists(capture)) { notes.Add($"no {capture} (live.ps1 -Walkmaps, then enter the area): no room points"); return ([], []); }
+        string walkability = Path.Combine(folder, "walkability");
+        string capture = Path.Combine(walkability, $"{areaId}_seed{seed}.doodads.json");
+        if ((folder == "data" ? RoomFits.Value : LoadRoomIndex(Path.Combine(folder, "room-points.json"))) is not { } rooms) { notes.Add("no data/room-points.json (dotnet run --project scripts/re/atlas -- Client/Content.ggpk room-points)"); return ([], [], []); }
+        if (!rooms.Areas.TryGetValue(areaId, out var candidates)) return ([], [], []);
+        if (!File.Exists(capture)) { notes.Add($"no {capture} (live.ps1 -Walkmaps, then enter the area): no room points"); return ([], [], []); }
         var placed = new HashSet<(string, int, int)>();
         var byModel = new Dictionary<string, List<(int X, int Y)>>(StringComparer.OrdinalIgnoreCase);
         try
@@ -297,7 +301,7 @@ static class AreaPopulation
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException)
         {
             notes.Add($"{capture}: {ex.Message}");
-            return ([], []);
+            return ([], [], []);
         }
         bool Near(string model, int x, int y)
         {
@@ -308,12 +312,13 @@ static class AreaPopulation
         }
         var points = new List<RoomPoint>();
         var objects = new List<RoomObject>();
+        var capturedRooms = new List<string>();
         foreach (var path in candidates)
         {
             if (!rooms.Rooms.TryGetValue(path, out var room)) continue;
             // Named tutorial spawn points have no ordinary room doodads to fit. Use their actual captured .arm
             // placement. Existing monster-room fitting remains unchanged.
-            if (room.Points.Any(p=>p.Name==TutorialObjects.Chest) && TutorialObjects.RoomPlacements(areaId,seed,path) is { Count:>0 } captured)
+            if (room.Points.Any(p=>p.Name==TutorialObjects.Chest) && TutorialObjects.RoomPlacements(areaId,seed,path,walkability) is { Count:>0 } captured)
             {
                 foreach(var placement in captured)
                     foreach(var point in room.Points)
@@ -322,15 +327,13 @@ static class AreaPopulation
             }
             // Only the client's own doodads are in the capture: a room's server objects (an NPC, a quest blocker) are not.
             var plain = room.Doodads.Where(d => d.Type is null).ToList();
-            if (plain.Count == 0) continue;
             var seen = plain.Where(d => byModel.ContainsKey(d.Model)).ToList();
-            if (seen.Count == 0) continue;
-            var anchor = seen.MinBy(d => byModel[d.Model].Count);
             var origins = new List<(int X, int Y)>();
-            foreach (var c in byModel[anchor.Model])
+            foreach (var c in seen.Count == 0 ? [] : byModel[seen.MinBy(d => byModel[d.Model].Count).Model])
                 foreach (var (a, b, cc, dd) in Turns)
                 {
                     // grid = origin + M · local, M = [[a, b], [cc, dd]]
+                    var anchor = seen.MinBy(d => byModel[d.Model].Count);
                     int ox = c.X - (int)Math.Round(a * anchor.X + b * anchor.Y), oy = c.Y - (int)Math.Round(cc * anchor.X + dd * anchor.Y);
                     (int X, int Y) At(float lx, float ly) => (ox + (int)Math.Round(a * lx + b * ly), oy + (int)Math.Round(cc * lx + dd * ly));
                     int hits = plain.Count(d => At(d.X, d.Y) is var g && Near(d.Model, g.X, g.Y));
@@ -346,13 +349,28 @@ static class AreaPopulation
                     notes.Add($"room {path.Split('/')[^1]} at ({ox}, {oy}) turn [{a} {b}; {cc} {dd}]: {hits}/{plain.Count} doodads match; " +
                         string.Join(", ", room.Points.Select(p => $"{p.Name} at {At(p.X, p.Y)}")));
                 }
+            // The Tidal Island's medicine_boat rooms have only two snowfall emitters around Hailrake's "mapboss", too few for
+            // the fit: they take their actual placement, when the recorder captured it (<area>_seed<seed>.rooms.json). Only
+            // these rooms: in other areas this would add points the fit never placed (e.g. The Mud Flats' miniboss and
+            // nest packs around a1q4's Rhoa Nests) and change start points; that needs its own review.
+            if (origins.Count == 0 && MercyMission.BoatRooms.Contains(path)
+                && TutorialObjects.RoomPlacements(areaId, seed, path, walkability) is { Count: > 0 } placements)
+                foreach (var placement in placements)
+                {
+                    points.AddRange(room.Points.Select(placement.Place));
+                    capturedRooms.Add(path);
+                    notes.Add($"room {path.Split('/')[^1]} at its captured placement ({placement.X}, {placement.Y}) code {placement.Code}: " +
+                        string.Join(", ", room.Points.Select(p => $"{p.Name} at ({placement.Place(p).X}, {placement.Place(p).Y})")));
+                }
         }
-        return (points, objects);
+        return (points, objects, capturedRooms);
     }
 
     /// <summary>A room angle through a turn/flip [[a, b], [c, d]] (grid = M · room): a turn adds its own angle, a flip
     /// mirrors the angle first. Only the identity is checked live (The Twilight Strand's town_entrance_exclude.arm,
-    /// whose captured doodads keep the room's angles mod 2π).</summary>
+    /// whose captured doodads keep the room's angles mod 2π). For a flip this gives π − θ where
+    /// TutorialObjects.RoomPlacement.Place (and #236's town rooms, checked against the client) give 2π − θ; the flips'
+    /// matrices and codes are not matched here yet, so no mirrored room is relied on.</summary>
     public static float TurnAngle(int a, int b, int c, int d, float angle)
     {
         float turn = MathF.Atan2(c, a);
@@ -372,9 +390,10 @@ static class AreaPopulation
     sealed record RoomIndex(Dictionary<string, List<string>> Areas, Dictionary<string, RoomData> Rooms);
 
     // data/room-points.json (scripts/re/atlas room-points): the rooms with monster or start points per area. Game data: stays in data/.
-    static readonly Lazy<RoomIndex?> RoomFits = new(() =>
+    static readonly Lazy<RoomIndex?> RoomFits = new(() => LoadRoomIndex("data/room-points.json"));
+
+    static RoomIndex? LoadRoomIndex(string file)
     {
-        const string file = "data/room-points.json";
         if (!File.Exists(file)) return null;
         using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
         var areas = doc.RootElement.GetProperty("areas").EnumerateObject()
@@ -389,5 +408,5 @@ static class AreaPopulation
                 d.TryGetProperty("angle", out var an) ? (float)an.GetDouble() : 0f,
                 d.TryGetProperty("scale", out var sc) ? (float)sc.GetDouble() : 1f))]), StringComparer.OrdinalIgnoreCase);
         return new RoomIndex(areas, rooms);
-    });
+    }
 }

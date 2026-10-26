@@ -20,7 +20,7 @@ static class ProjectileSpeed
 
         long increased = (long)playerFinal("projectile_speed_+%") + skillRaw("base_projectile_speed_+%");
         double speed = Math.Max(0, worldUnitsPerSecond) / (250.0 / 23.0) * Math.Max(0, 1 + increased / 100.0);
-        return (float)speed;
+        return (float)(speed * Math.Max(0, 1 + skillRaw("support_slower_projectiles_projectile_speed_+%_final") / 100.0));
     }
 
     /// <summary>Keep the longest possible flight within Task.Delay's numeric limit before predicting collisions.

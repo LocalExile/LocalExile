@@ -117,7 +117,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
                     Program.PlayerId, State.Walk.Position(State.Clock.Elapsed.TotalSeconds));
             else
                 await ProgramValue<Task>("OnUseObject", "timing-preflight", stream, cipher, State,
-                    new InstanceTransfer.UseSkillOnObject(route == "self" ? Program.PlayerId : monster, skill, 0, 0x401));
+                    new InstanceTransfer.UseSkillOnObject(route == "self" ? Program.PlayerId : monster, skill, 0, 0x401),
+                    State.Clock.Elapsed.TotalSeconds);
             return null;
         });
     }

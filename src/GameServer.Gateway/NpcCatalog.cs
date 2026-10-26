@@ -3,8 +3,8 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// NPCs (Agents/docs/protocol/17-npcs.md): NPCs.dat rows from the extracted tables with their object type's deserialized
-/// components (data/object-types.json), and where each town's NPCs stand. The client files do not place town NPCs (the
-/// town room has only its entrance points and the tiles only the waypoint and area transition), so the cells are ours.
+/// components (data/object-types.json), and where each town's NPCs stand: the NPC lines of the town's room (.arm) through
+/// the client's room placement (TownNpcs, 17-npcs.md §2).
 /// </summary>
 sealed class NpcCatalog
 {
@@ -12,6 +12,11 @@ sealed class NpcCatalog
     public sealed record Npc(int Row, string Id, string Name, IReadOnlyList<string>? Components, StateMachineData? StateMachine,
         byte TransitionState, int ShopRow = -1)
     {
+        /// <summary>The model to send instead of the type's: a town room's line (<see cref="Placement.Model"/>), else the
+        /// model a town room gives this NPC (TownNpcs.ModelOf), so /npc shows Irasha, whose type Metadata/NPC/NPC has none.</summary>
+        public string? Model { get; init; }
+        /// <summary>A fixed world z (a town room's line, <see cref="Placement.Height"/>).</summary>
+        public float? Height { get; init; }
         public bool Supported => Components is { } c && NpcObject.CanSerialize(c, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
@@ -32,20 +37,18 @@ sealed class NpcCatalog
         public bool Available(IReadOnlySet<string> flags) => RequiredFlags.All(flags.Contains) && !ExcludedFlags.Any(flags.Contains);
     }
 
-    /// <summary>An NPC standing in a town: its NPCs.dat Id, cell and facing (radians).</summary>
-    public sealed record Placement(string Id, int X, int Y, float Rotation);
+    /// <summary>An NPC standing in a town: its NPCs.dat Id, cell and facing (radians); optionally the model and fixed
+    /// height its town room gives it and a Transitionable state other than the type's.</summary>
+    public sealed record Placement(string Id, int X, int Y, float Rotation, string? Model = null, float? Height = null,
+        byte? TransitionState = null)
+    {
+        /// <summary>A town room's own line (TownNpcs): it may stand on a cell the walk map blocks (a stall, a pier).</summary>
+        public bool FromRoom { get; init; }
+    }
 
-    // Lioneye's Watch (spawn (197, 261), waypoint (256, 169), gate to The Coast (388, 231)): where they stand in the real
-    // game, measured on its minimap (17-npcs.md §2: the minimap's projection fitted on known cells, under one cell of
-    // error). Facing in radians (Positioned +0x29c), set live with /npc_face.
+    // The campaign towns are TownNpcs (their rooms' NPC lines); other towns here. Facing in radians (Positioned +0x29c).
     static readonly Dictionary<ushort, Placement[]> Towns = new()
     {
-        [AreaLayouts.LioneyesWatch] =
-        [
-            new("Metadata/NPC/Act1/Tarkleigh", 388, 182, 4.0f),
-            new("Metadata/NPC/Act1/Nessa", 346, 271, 4.0f),
-            new("Metadata/NPC/Act1/Bestel", 361, 246, 4.0f),
-        ],
         // The Azurite Mine Encampment (Delve_Hub, HASH16 0x8b9b): Niko by the waypoint (333, 402) and the arrival
         // (330, 420); our own cell (2026-10-21). The hideout Niko's row: the hub's own (DelveMinerHub) lists no Sell Items.
         [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHideout", 342, 410, 4.0f)],
@@ -98,8 +101,16 @@ sealed class NpcCatalog
 
     public static IReadOnlyList<Placement> HideoutNpcs => Hideout;
 
-    public static IReadOnlyList<Placement> In(ushort areaHash) =>
-        Towns.GetValueOrDefault(areaHash) ?? (HideoutCatalog.ByArea(areaHash) is not null ? Hideout : []);
+    /// <summary>The NPCs of an area instance of <paramref name="seed"/>: a campaign town's (the notes say which room's are
+    /// left out for another seed), another town's, a hideout's, or none.</summary>
+    public static IReadOnlyList<Placement> In(ushort areaHash, uint seed, List<string>? notes = null) =>
+        TownNpcs.Of(areaHash) is { } town ? town.Placements(seed, notes)
+        : Towns.GetValueOrDefault(areaHash) ?? (HideoutCatalog.ByArea(areaHash) is not null ? Hideout : []);
+
+    /// <summary>The NPC a placement stands for, with the placement's model, height and state.</summary>
+    public Npc? Place(Placement p) => Find(p.Id) is { } npc
+        ? npc with { Model = p.Model ?? npc.Model, Height = p.Height, TransitionState = p.TransitionState ?? npc.TransitionState }
+        : null;
 
     /// <summary>An NPC by row, Id or name (exact name first, then the first Id or name containing the text).</summary>
     public Npc? Find(string query)
@@ -143,12 +154,17 @@ sealed class NpcCatalog
             foreach (var r in doc.RootElement.EnumerateArray())
             {
                 string id = r.GetProperty("Id").GetString() ?? "";
+                // The client files every NPCs.dat row under its Id on the row's Metadata .ot (the register's 0xac-byte
+                // table, base at row +0x10; 04-player-entity.md §1): an Id without an .ot of its own (Act 6's Tarkleigh on
+                // Act 1's) has its Metadata's components.
+                string meta = r.TryGetProperty("Metadata", out var m) ? m.GetString() ?? "" : "";
+                string type = components.ContainsKey(id) || !components.ContainsKey(meta) ? id : meta;
                 // Without object-types.json, assume the base NPC list.
-                IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(id);
+                IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(type);
                 int set = r.GetProperty("ShopSet").ValueKind == JsonValueKind.Number ? r.GetProperty("ShopSet").GetInt32() : -1;
                 rows.Add(new Npc(rows.Count, id, r.GetProperty("Name").GetString() ?? "", list,
-                    stateMachines.GetValueOrDefault(id), transitionStates.GetValueOrDefault(id, (byte)1),
-                    set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1));
+                    stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
+                    set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1) { Model = TownNpcs.ModelOf(id) });
             }
         return new(rows, null, ReadTalk(folder));
     }

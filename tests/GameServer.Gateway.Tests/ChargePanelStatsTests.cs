@@ -51,6 +51,19 @@ public class ChargePanelStatsTests
     }
 
     [Fact]
+    public void The_all_three_maximum_mod_counts_for_every_row()
+    {
+        // "+1 to Maximum Endurance, Frenzy and Power Charges" (maximum_frenzy_power_endurance_charges, four mods).
+        Assert.NotNull(Stats.Value.Key("maximum_frenzy_power_endurance_charges"));
+        var rows = Compute(("maximum_frenzy_power_endurance_charges", 1), ("max_power_charges", 1));
+        Assert.Equal(4, rows["virtual_maximum_endurance_charges"]);
+        Assert.Equal(4, rows["virtual_maximum_frenzy_charges"]);
+        Assert.Equal(5, rows["virtual_maximum_power_charges"]);
+        // The gameplay maximum is the same number.
+        Assert.Equal(4, Charges.LimitsOf(ChargeType.Frenzy, n => n == "maximum_frenzy_power_endurance_charges" ? 1 : 0).Maximum);
+    }
+
+    [Fact]
     public void Combined_maximum_charge_mods_count_for_both_rows()
     {
         // Warstaff base implicit: +1 to Maximum Power and Endurance Charges; "there is more": +1 to Maximum Power and

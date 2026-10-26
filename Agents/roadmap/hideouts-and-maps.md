@@ -37,8 +37,12 @@ bench.
 - **Known:** the Lush Hideout works: travel, waypoint, stash, Nessa, the Edit button and the map device: slots,
   Activate and six portals into the map ([21](../docs/protocol/21-hideouts.md) §5).
   Its decoration (`data/hideouts.json`) lists every doodad with its type and model.
+  The Heist Locker is placed and opens its native storage window; contract/blueprint transfers need separate work.
+  Moving/rotating installed furniture and NPCs now saves per character/template through C→S 0x5b.
+  The map device, Nessa and stash were checked live, including restored positions after reconnect.
+  Other installed objects use the same handler; their individual editor interactions need manual verification.
 - **Start:** create the decorations (`HideoutObject`, each type's components from data/object-types.json);
-  the Edit mode's client messages (move, place, remove, save);
+  the Edit mode's placement/removal and appearance messages;
   maps: the arrival point, a return portal, fragments and device recipes and map mods.
   Personal template selection and login to the selected home are implemented (see Status).
 - **Done when:** the hideout looks like the real one, can be edited and saved, and maps can be run from its device.

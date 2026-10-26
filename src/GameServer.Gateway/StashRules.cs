@@ -16,6 +16,7 @@ sealed class StashRules
     /// <summary>How many of an item one slot of a slotted tab (currency, essence, fragment, delve, blight) holds: our own
     /// number for every such tab (2026-10-22).</summary>
     public const ushort SlotStack = 5000;
+    public const ushort LifeforceStack = ushort.MaxValue;
 
     // Affinity rows (StashTabAffinityId).
     const int CurrencyItems = 3, Maps = 5, DivinationCards = 6, Essences = 8, Fragments = 9, DelveItems = 12, BlightItems = 13,
@@ -117,7 +118,7 @@ sealed class StashRules
             {
                 int slot = r.GetProperty("FirstSlotIndex").GetInt32();
                 string id = r.GetProperty("Id").GetString() ?? "";
-                if (id == "CraftingSlot")
+                if (id == "CraftingSlot" || (tabType == Delve && id.StartsWith("GenericSlot", StringComparison.Ordinal)))
                 {
                     (rules._anySlots.TryGetValue(tabType, out var any) ? any : rules._anySlots[tabType] = []).Add(slot);
                     continue;
@@ -138,6 +139,9 @@ sealed class StashRules
                 foreach (uint hash in types)
                 {
                     slots.TryAdd(hash, slot);
+                    if (tabType == Currency && rows.Any(t => t.Hash == hash
+                        && t.Id.StartsWith("Metadata/Items/Currency/HarvestSeed", StringComparison.Ordinal)))
+                        rules._currencyTabStack[hash] = LifeforceStack;
                     Give(hash, affinity);
                 }
             }

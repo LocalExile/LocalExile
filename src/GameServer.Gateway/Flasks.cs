@@ -2,8 +2,8 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Life and mana flasks (Agents/docs/protocol/13-items.md §8): a use (C→S 0x70) spends ComponentCharges PerCharge and
-/// recovers Flasks.dat LifePerUse / ManaPerUse evenly over RecoveryTime. Charges come back in full on every kill
-/// (<see cref="KillCharges"/>), in towns and hideouts and on resurrection.
+/// recovers Flasks.dat LifePerUse / ManaPerUse evenly over RecoveryTime (with its mods: FlaskRecovery). Charges come back
+/// from kills and other sources (FlaskCharges), and in full in towns and hideouts and on resurrection.
 /// </summary>
 static class Flasks
 {
@@ -14,65 +14,143 @@ static class Flasks
     /// <summary>The flask after a use, or null when it has fewer charges than a use needs.</summary>
     public static Item? Spend(Item flask, Flask f) => flask.Charges < f.ChargesPerUse ? null : flask with { Charges = flask.Charges - f.ChargesPerUse };
 
+    /// <summary>Gives each flask in the flask bar (life, mana and utility: <see cref="ItemCatalog.FlaskChargesOf"/>) up to
+    /// <paramref name="charges"/> charges, up to its maximum with its mods (<see cref="FlaskCharges.Of"/>), saved now or, with <paramref name="saveNow"/> false, with the next save
+    /// (PlayerInventories.ChangeUnsaved): the flasks that changed.</summary>
+    public static List<InventoryItem> Fill(PlayerInventories items, ItemCatalog catalog, int charges, bool saveNow = true)
+    {
+        List<InventoryItem> changed = [];
+        foreach (var flask in items.Items(PlayerInventories.Flask))
+            if (catalog.ByHash(flask.Item.TypeHash) is { } type && catalog.FlaskChargesOf(type) is { } baseUse
+                && FlaskCharges.Of(baseUse, ItemModStats.Local(flask.Item, catalog.Mods)) is var use && flask.Item.Charges < use.MaxCharges &&
+                (saveNow ? items.Change(PlayerInventories.Flask, flask.Id, i => Gain(i, use, charges)) : items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Gain(i, use, charges))) is { } done)
+                changed.Add(done);
+        return changed;
+    }
+
     /// <summary>The flask with <paramref name="charges"/> more, up to its maximum.</summary>
     public static Item Gain(Item flask, Flask f, int charges) =>
         flask with { Charges = (int)Math.Min(f.MaxCharges, (long)flask.Charges + charges) };
 
-    // shortcut: the real game's charges per kill are not known yet; "rarity" grows with rarity.
-    /// <summary>Charges every flask gains when the player kills a monster: all it holds (int.MaxValue, the default), or
-    /// with <paramref name="mode"/> "rarity" (Game_FLASK_KILL_CHARGES) 1 normal, 2 magic, 5 rare, 10 unique.</summary>
-    public static int KillCharges(MonsterRarity rarity, string? mode = null) => mode != "rarity" ? int.MaxValue : rarity switch
+    /// <summary>A flask's buff on the player (S→C 0x1c1): its duration in flags bit1's field, which the client reads as an
+    /// f32 in seconds (+0x68, reader 0x141fdf870; without it +infinity), and the flask-bar cell as the source skill (+0x60):
+    /// the client draws the effect's draining timer bar under that flask (live 2026-10-25). <paramref name="values"/>: the
+    /// IsRecovery rows' one u32 per GrantedStats entry.</summary>
+    public static byte[] Buff(uint player, ushort buff, ushort row, byte slot, double? seconds, IReadOnlyList<uint>? values = null) =>
+        InstanceEntities.AddBuff(player, buff, row, player, slot, values,
+            u68: seconds is double s ? BitConverter.SingleToUInt32Bits((float)s) : null);
+
+    /// <summary>A flask's recovery under way: the flask-bar cell it came from, its buff (S→C 0x1c1; 0: none, the extra life
+    /// of a life flask's suffix) and how much life and mana it gives per second for <paramref name="Ends"/> −
+    /// <paramref name="Started"/> seconds of recovery from <paramref name="Started"/> (connection clock seconds; a queued
+    /// effect waits, so it may end later); mana that comes all at once when it runs out (<paramref name="ManaAtEnd"/>),
+    /// whether it stays on a full pool, and whether it does not queue (FlaskRecovery.Use).</summary>
+    public sealed record Effect(byte Slot, ushort Buff, ushort BuffRow, double LifePerSecond, double ManaPerSecond, double Started, double Ends,
+        double ManaAtEnd = 0, bool LifeStays = false, bool ManaStays = false, bool NoQueue = false)
     {
-        MonsterRarity.Magic => 2, MonsterRarity.Rare => 5, MonsterRarity.Unique => 10, _ => 1,
-    };
+        /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when
+        /// both are), unless it stays at full.</summary>
+        public bool EndsWhenFull(bool lifeFull, bool manaFull) =>
+            (LifePerSecond == 0 || lifeFull && !LifeStays) && (ManaPerSecond == 0 && ManaAtEnd == 0 || manaFull && !ManaStays);
 
-    /// <summary>A flask's recovery under way: the flask-bar cell it came from, its buff (S→C 0x1c1) and how much life
-    /// and mana it gives per second from <paramref name="Started"/> to <paramref name="Ends"/> (connection clock seconds).</summary>
-    public sealed record Effect(byte Slot, ushort Buff, ushort BuffRow, double LifePerSecond, double ManaPerSecond, double Started, double Ends);
+        /// <summary>The queue it waits in (poewiki: "Recovery flasks queue up if multiple flasks are active. The effect with
+        /// the highest regeneration rate is always applied first"): life (a life or hybrid flask), mana, or none (the extra
+        /// life of a suffix, "Effect does not Queue").</summary>
+        public int Queue => NoQueue || Buff == 0 ? 0 : LifePerSecond > 0 ? 1 : 2;
 
-    /// <summary>The flasks recovering on one connection, at most one per flask-bar cell.</summary>
+        /// <summary>Its regeneration rate in its queue.</summary>
+        public double Rate => Queue == 1 ? LifePerSecond : ManaPerSecond + (Ends > Started ? ManaAtEnd / (Ends - Started) : 0);
+    }
+
+    /// <summary>The flasks recovering on one connection. Life flask effects queue, the one with the highest rate recovering
+    /// while the others wait with the rest of their time; mana flask effects likewise; a use of a flask whose effect still
+    /// runs queues another.</summary>
     public sealed class Effects
     {
-        readonly Dictionary<byte, Effect> _bySlot = [];
+        sealed class Running(Effect effect)
+        {
+            public Effect Effect { get; } = effect;
+            public double Remaining = Math.Max(0, effect.Ends - effect.Started);
+        }
+
+        readonly List<Running> _running = [];
+        readonly List<Running> _lastEnded = [];
         readonly Lock _lock = new();
+        const double Done = 1e-9;
 
         /// <summary>Whether any flask is recovering.</summary>
         public bool Any
         {
-            get { lock (_lock) return _bySlot.Count > 0; }
+            get { lock (_lock) return _running.Count > 0; }
         }
 
-        /// <summary>Starts an effect; a use of a flask whose effect is still running replaces it (the rest of the old one is
-        /// lost): the replaced effect, whose buff ends, or null.</summary>
+        /// <summary>Starts an effect: it recovers at once, or waits in its queue. Nothing is replaced (null).</summary>
         public Effect? Start(Effect effect)
         {
-            lock (_lock)
-            {
-                _bySlot.Remove(effect.Slot, out var old);
-                _bySlot[effect.Slot] = effect;
-                return old;
-            }
+            lock (_lock) _running.Add(new Running(effect));
+            return null;
+        }
+
+        /// <summary>The seconds of recovery an effect has left (0 when it is not running).</summary>
+        public double Remaining(Effect effect)
+        {
+            lock (_lock) return _running.FirstOrDefault(r => ReferenceEquals(r.Effect, effect))?.Remaining ?? 0;
         }
 
         /// <summary>The life and mana recovered between <paramref name="from"/> and <paramref name="to"/>, and the effects
-        /// that ended by <paramref name="to"/> (removed).</summary>
+        /// that ran out by <paramref name="to"/> (removed; one with mana at the end gives it then).</summary>
         public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to)
         {
             double life = 0, mana = 0;
             List<Effect> ended = [];
+            void Run(Running r, double seconds)
+            {
+                life += r.Effect.LifePerSecond * seconds;
+                mana += r.Effect.ManaPerSecond * seconds;
+                r.Remaining -= seconds;
+                if (r.Remaining > Done) return;
+                mana += r.Effect.ManaAtEnd;
+                _running.Remove(r);
+                ended.Add(r.Effect);
+            }
             lock (_lock)
-                foreach (var e in _bySlot.Values.ToList())
-                {
-                    double seconds = Math.Max(0, Math.Min(to, e.Ends) - Math.Max(from, e.Started));
-                    life += e.LifePerSecond * seconds;
-                    mana += e.ManaPerSecond * seconds;
-                    if (e.Ends <= to)
+            {
+                foreach (var r in _running.Where(r => r.Effect.Queue == 0).ToList())
+                    Run(r, Math.Min(r.Remaining, Math.Max(0, to - Math.Max(from, r.Effect.Started))));
+                foreach (int queue in new[] { 1, 2 })
+                    for (double t = from; t < to - Done;)
                     {
-                        _bySlot.Remove(e.Slot);
-                        ended.Add(e);
+                        var waiting = _running.Where(r => r.Effect.Queue == queue).ToList();
+                        var now = waiting.Where(r => r.Effect.Started <= t + Done).ToList();
+                        double nextStart = waiting.Where(r => r.Effect.Started > t + Done).Select(r => r.Effect.Started).DefaultIfEmpty(to).Min();
+                        if (now.Count == 0)
+                        {
+                            if (nextStart >= to) break;
+                            t = nextStart;
+                            continue;
+                        }
+                        // The highest rate first; of equal ones the earlier.
+                        var first = now.OrderByDescending(r => r.Effect.Rate).ThenBy(r => r.Effect.Started).First();
+                        double seconds = Math.Min(first.Remaining, Math.Min(nextStart, to) - t);
+                        Run(first, seconds);
+                        t += seconds;
                     }
-                }
+            }
             return (life, mana, ended);
+        }
+
+        /// <summary>Of the effects a full pool ended (<paramref name="ended"/>, from <see cref="End"/>), the ones that stay at
+        /// a full pool or still owe their mana at the end (<see cref="Effect.EndsWhenFull"/>) and have time left go back:
+        /// the rest, which end. (<paramref name="now"/>: unused, the time left decides.)</summary>
+        public List<Effect> KeepRunning(List<Effect> ended, bool lifeFull, bool manaFull, double now)
+        {
+            lock (_lock)
+            {
+                var back = _lastEnded.Where(r => r.Remaining > Done && !r.Effect.EndsWhenFull(lifeFull, manaFull)
+                    && ended.Any(e => ReferenceEquals(e, r.Effect)) && !_running.Contains(r)).ToList();
+                _running.AddRange(back);
+                return [.. ended.Where(e => !back.Any(r => ReferenceEquals(r.Effect, e)))];
+            }
         }
 
         /// <summary>Ends the effects <paramref name="which"/> picks (a full pool, death): them, removed.</summary>
@@ -80,9 +158,11 @@ static class Flasks
         {
             lock (_lock)
             {
-                List<Effect> ended = [.. _bySlot.Values.Where(which)];
-                foreach (var e in ended) _bySlot.Remove(e.Slot);
-                return ended;
+                var ended = _running.Where(r => which(r.Effect)).ToList();
+                foreach (var r in ended) _running.Remove(r);
+                _lastEnded.Clear();
+                _lastEnded.AddRange(ended);
+                return [.. ended.Select(r => r.Effect)];
             }
         }
     }

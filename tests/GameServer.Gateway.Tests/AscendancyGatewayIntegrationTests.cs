@@ -1369,7 +1369,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         var pay = typeof(Program).GetMethod("PaySkillCost", BindingFlags.Static | BindingFlags.NonPublic)!;
         bool Pay()
         {
-            object?[] args = [game.State, gem.Effect, gem.Level, gem.Quality, null];
+            object?[] args = [game.State, gem.Effect, gem.Level, gem.Quality, null, (ushort)0];
             return (bool)pay.Invoke(null, args)!;
         }
         game.State.PlayerMana = 0;
@@ -1394,8 +1394,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
         RageState.For(game.Character).Clear();
     }
 
-    [Fact]
-    public async Task Penetration_and_critical_ignore_compose_with_inversion_and_nearby_elemental_damage_taken()
+    [Theory]
+    [InlineData(0, 225, 175)]
+    [InlineData(20, 250, 200)]
+    public async Task Penetration_and_critical_ignore_compose_with_inversion_and_nearby_elemental_damage_taken(
+        int modResistance, int expectedDamage, int expectedWithoutPenetration)
     {
         if (!DataAvailable()) return;
         using var game = new GatewayCharacter(choice: "Paladin", refundPoints: 60);
@@ -1403,7 +1406,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Null((await game.Change(PathTo(definition, 13763), allocate: true)).Error);
         var variety = Program.Monsters.Find("Metadata/Monsters/ZombieBoss/MapZombieBossHillock")!;
         var target = new SpawnedMonster("combined resistance", new WalkEstimator(32, 32, 0), 0, 0, 1000)
-            { Variety = variety, Level = 68, Hostile = true };
+            {
+                Variety = variety, Level = 68, Hostile = true,
+                Mods = new([], [], new(new Dictionary<string, int> { ["base_fire_damage_resistance_%"] = modResistance })),
+            };
         var player = new Dictionary<uint, int> { [Program.Stats.Key("base_reduce_enemy_fire_resistance_%")!.Value] = 20 };
         var own = new Dictionary<uint, int>(player);
         var inverse = new GamblerModifiers(InvertElementalResistanceChance: 100);
@@ -1414,11 +1420,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
             var hit = inverse.MitigateOutgoingHit(fire, resistance, new Random(1));
             return ProgramValue<DamagePacket>("ApplyPassiveDamageTaken", game.State, target, hit).MinTotal;
         }
-        Assert.Equal(225, Damage(false), 6); // (40 inverted - 20 player - 20 skill) => -80; then +25% taken.
+        Assert.Equal(expectedDamage, Damage(false), 6); // Variety + mod, inversion, both penetration inputs, +25% taken.
         player[Program.Stats.Key("critical_strikes_ignore_elemental_resistances")!.Value] = 1;
         Assert.Equal(125, Damage(true), 6); // Ignore resolves to zero, including inversion and penetration.
         player[Program.Stats.Key("cannot_penetrate_or_ignore_elemental_resistances")!.Value] = 1;
-        Assert.Equal(175, Damage(true), 6); // Pen/ignore blocked; the separate inversion rule still applies.
+        Assert.Equal(expectedWithoutPenetration, Damage(true), 6); // Pen/ignore blocked; inversion still applies.
     }
 
     [Fact]
@@ -2083,7 +2089,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             {
                 await (Task)FlyProjectileMethod.Invoke(null, ["ascendancy-integration", stream, cipher, State,
                     ("Metadata/Projectiles/Fireball", 100_000f), (80, 100), (100, 100), damage,
-                    State.ProjectileEpoch, false, "none", radius, null, null])!;
+                    State.ProjectileEpoch, false, "none", radius, null, null, null])!;
                 return null;
             });
 
@@ -2097,7 +2103,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
                 if (!Program.TryBeginCooldownUse(State, gem.Effect, plan, false, () => { }, out var ticket, skillId: gem.Id))
                     return null;
                 accepted = await (Task<bool>)CastMethod.Invoke(null,
-                    ["ascendancy-integration", stream, cipher, State, gem.Id, (32, 32), (48, 32), 0u, (ushort)0, null, ticket])!;
+                    ["ascendancy-integration", stream, cipher, State, gem.Id, (32, 32), (48, 32), 0u, (ushort)0, null, ticket, false])!;
                 return null;
             });
             return (accepted, result.Bytes);

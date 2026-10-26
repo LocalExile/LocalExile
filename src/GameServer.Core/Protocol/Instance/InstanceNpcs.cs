@@ -227,9 +227,12 @@ public static class InstanceNpcs
 /// <c>Metadata/NPC/NPC</c> deserializes Positioned, Animated, BaseEvents, InteractionAction, NPC and MinimapIcon (client
 /// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable and StateMachine.
 /// <para>NPC (slot 17 0x141e75050) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents reads nothing.</para>
+/// <para><paramref name="Model"/>: an .ao for Animated when the type's own is missing or not the one the town room places
+/// (Irasha's type is <c>Metadata/NPC/NPC</c>); <paramref name="Height"/>: a fixed world z (Positioned flags0 bit2), as the
+/// room's record gives it.</para>
 /// </summary>
 public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Components, float Rotation = 0,
-    StateMachineData? StateMachine = null, byte TransitionState = 1)
+    StateMachineData? StateMachine = null, byte TransitionState = 1, string? Model = null, float? Height = null)
 {
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
@@ -251,8 +254,15 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
             switch (c)
             {
                 // As a monster's: x, y, rotation (+0x29c), u16 team (0: friendly), flags0, flags1 0x02 + shown.
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1); break;
-                case "Animated": w.U8(0); break;              // the type supplies the model
+                // flags0 bit2: a fixed height before flags1 0x02's two bytes: i32 −z / 7.8125 and f32 z (world z points
+                // down), the live server's convention (ProjectileObject; 11-skills.md "Sign").
+                case "Positioned":
+                    w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
+                    if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
+                    w.U8(0).U8(1);
+                    break;
+                // 0: the type supplies the model; bit0: a u32-counted UTF-16 .ao path.
+                case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "InteractionAction": w.U8(0); break;
                 // +0x20: has dialogue (0x141e76d40 offers NPCTalk rows only when set); +0x21: index of a component that
                 // must be alive (its +0x1a8 > 0) for the NPC to talk, 0xff = none.

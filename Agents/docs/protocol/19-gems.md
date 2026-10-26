@@ -214,5 +214,5 @@ level's bar is not checked, and the server only ever leaves a gem one point belo
   2026-10-23 (`/set_stat intelligence 200`, then 130, under a level 20 Fireball); the "+", the level-up and the lock
   (§4).
 - A gem in the inventory (not socketed): its "+" and lock messages were not seen; the client may level it locally.
-- A disabled gem's supports still apply, and its aura still runs: supports are not modelled yet (Roadmap "Gems 3").
-- The support list's layout in the skill record, and supports in the 0x20 update.
+- Verify disabled-gem aura transitions with changing attributes and links.
+- Linked support resolution and the complete skill-record layout are documented in [25](25-gem-supports.md).

@@ -4,6 +4,73 @@ namespace GameServer.Gateway.Tests;
 
 public class ProjectileFlightTests
 {
+    [Fact]
+    public void An_evaded_near_contact_does_not_hide_a_later_hit_in_the_same_swept_interval()
+    {
+        var targets = Observe(0, (9, Walker(80, 10)), (2, Walker(40, 10)));
+        var attempted = new List<uint>();
+        var step = Flight(targets).Advance(10, targets, id => { attempted.Add(id); return id == 9; });
+        Assert.Equal(new uint[] { 2, 9 }, attempted);
+        Assert.Equal(9u, step.TargetId);
+        Assert.Equal(6.9, step.At, 6);
+        Assert.Equal(79, step.Position.X, 6);
+    }
+
+    [Fact]
+    public void An_evaded_overlapping_target_is_not_rolled_again_on_following_polls()
+    {
+        var targets = Observe(0, (1, Walker(40, 10)));
+        var flight = Flight(targets);
+        int attempts = 0;
+        bool Miss(uint _) { attempts++; return false; }
+        Assert.False(flight.Advance(3, targets, Miss).Finished);
+        Assert.False(flight.Advance(3.05, targets, Miss).Finished);
+        var end = flight.Advance(10, targets, Miss);
+        Assert.Equal(1, attempts);
+        Assert.Equal(0u, end.TargetId);
+        Assert.Equal((110.0, 10.0), end.Position);
+        Assert.Equal(end, flight.Advance(20, targets, _ => throw new Exception("Terminal flight cannot hit twice")));
+    }
+
+    [Fact]
+    public void Missed_contacts_continue_to_the_wall_without_testing_targets_behind_it()
+    {
+        var targets = Observe(0, (1, Walker(30, 10)), (2, Walker(80, 10)));
+        var flight = new ProjectileFlight((10, 10), (60, 10), 10, 0, 1, wall: true, targets);
+        var attempted = new List<uint>();
+        var end = flight.Advance(10, targets, id => { attempted.Add(id); return false; });
+        Assert.Equal(new uint[] { 1 }, attempted);
+        Assert.True(end.Wall);
+        Assert.Equal(0u, end.TargetId);
+        Assert.Equal((60.0, 10.0), end.Position);
+    }
+
+    [Fact]
+    public void An_accepted_contact_still_stops_and_never_checks_more_distant_targets()
+    {
+        var targets = Observe(0, (3, Walker(80, 10)), (2, Walker(40, 10)), (1, Walker(40, 10)));
+        var attempted = new List<uint>();
+        var end = Flight(targets).Advance(10, targets, id => { attempted.Add(id); return true; });
+        Assert.Equal(new uint[] { 1 }, attempted);
+        Assert.Equal(1u, end.TargetId);
+        Assert.Equal(2.9, end.At, 6);
+    }
+
+    [Fact]
+    public void A_moving_crossing_can_be_evaded_before_a_later_contact_in_one_delayed_poll()
+    {
+        var crossing = Walker(40, 0, 10);
+        crossing.Order(40, 30, 0);
+        var far = Walker(80, 10);
+        var initial = Observe(0, (1, crossing), (2, far));
+        var flight = Flight(initial, speed: 30);
+        var attempted = new List<uint>();
+        var end = flight.Advance(3, Observe(3, (1, crossing), (2, far)), id => { attempted.Add(id); return id == 2; });
+        // Observed motion over this interval crosses the projectile's sweep before the farther stationary enemy.
+        Assert.Equal(new uint[] { 1, 2 }, attempted);
+        Assert.Equal(2u, end.TargetId);
+    }
+
     static WalkEstimator Walker(int x, int y, double speed = 10) => new(x, y, speed, width: 300, height: 300);
     static ProjectileFlight.Target[] Observe(double at, params (uint Id, WalkEstimator Walk)[] monsters) =>
         [.. monsters.Select(m => new ProjectileFlight.Target(m.Id, m.Walk.Position(at), m.Walk))];

@@ -345,6 +345,11 @@ sealed class PlayerInventories
     /// <summary><see cref="SocketedGems"/> with the id of the item each gem is in.</summary>
     public IReadOnlyList<(uint ItemId, Item Gem)> SocketedGemsByItem() => [.. SocketedGemPlaces().Select(g => (g.ItemId, g.Gem))];
 
+    public Item? SocketHost(uint id)
+    {
+        lock (_lock) return _items.Values.SelectMany(v => v).FirstOrDefault(i => i.Id == id)?.Item;
+    }
+
     /// <summary><see cref="SocketedGems"/> with the row and id of the item each gem is in and its socket.</summary>
     public IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> SocketedGemPlaces()
     {
@@ -856,7 +861,8 @@ sealed class PlayerInventories
         bool moved = false;
         lock (_lock)
         {
-            if (_offered.ContainsKey(itemId) || ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } it) return null;
+            if (_offered.ContainsKey(itemId) || ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } it
+                || it.Item.Sockets.Any(s => s.Gem is not null)) return null;
             if (row == Cursor)
             {
                 var shape = shapeOf(it.Item) ?? new(1, 1, "");
@@ -914,17 +920,27 @@ sealed class PlayerInventories
     /// The sale accepted: every offered item is gone and <paramref name="reward"/> (one stack of it) goes into the main
     /// inventory, in one save. Null (nothing changes) when the reward doesn't all fit: the sale stays open.
     /// </summary>
-    public Stacking? Sell(Item reward, Func<Item, Shape?> shapeOf)
+    public Stacking? Sell(Item reward, Func<Item, Shape?> shapeOf) => Sell([reward], shapeOf);
+
+    /// <summary>Stage the entire multi-item reward before consuming any offered item; persist once.</summary>
+    public Stacking? Sell(IReadOnlyList<Item> rewards, Func<Item, Shape?> shapeOf)
     {
         Stacking result;
         lock (_lock)
         {
+            if (_offered.Count == 0) return null;
             uint probe = _nextItemId;
-            var mainAfter = ItemsIn(MainInventory).Where(i => !_offered.ContainsKey(i.Id)).ToList();
-            if (reward.StackSize > 0 && StackInto(MainInventory, mainAfter, reward, shapeOf, ref probe).Left > 0) return null;
+            var before = ItemsIn(MainInventory).Where(i => !_offered.ContainsKey(i.Id)).ToList();
+            var after = before.ToList();
+            foreach (var reward in rewards)
+                if (reward.StackSize > 0 && StackInto(MainInventory, after, reward, shapeOf, ref probe).Left > 0) return null;
             foreach (var items in _items.Values) items.RemoveAll(i => _offered.ContainsKey(i.Id));
             _offered.Clear();
-            result = reward.StackSize > 0 ? StackInto(MainInventory, ItemsIn(MainInventory), reward, shapeOf, ref _nextItemId) : new([], [], 0);
+            _items[MainInventory] = after;
+            _nextItemId = probe;
+            var old = before.ToDictionary(i => i.Id);
+            result = new([.. after.Where(i => old.TryGetValue(i.Id, out var previous) && previous != i)],
+                [.. after.Where(i => !old.ContainsKey(i.Id))], 0);
         }
         Persist();
         return result;

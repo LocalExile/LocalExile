@@ -4,10 +4,13 @@ using GameServer.Core.Protocol.Login;
 
 partial class Program
 {
-    static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality) =>
-        Skills.CooldownMs(effect, level) <= 0 || GemSkillEffects(conn).Count(g => g.Effect == effect) != 1 ? null :
-            SingleUseCooldown.ForSkill(Skills, Stats, effect, level, CharacterPlayerStats(conn),
-                Skills.EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
+    static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality)
+    {
+        var matches = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
+        if (Skills.CooldownMs(effect, level) <= 0 || matches.Length != 1) return null;
+        var gem = SupportedSkill(conn, matches[0].Id);
+        return SingleUseCooldown.ForSkill(Skills, Stats, effect, gem.Level, CharacterPlayerStats(conn), gem.Stats);
+    }
 
     static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
     {
@@ -26,7 +29,8 @@ partial class Program
     // Readiness, reservation and action side effects are one short critical section, before any echo/await.
     // An approach checks readiness without spending; arrival must reserve under its original action token.
     internal static bool TryBeginCooldownUse(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
-        Action sideEffects, out CooldownUseTicket? ticket, int? actionToken = null, bool reserve = true, ushort skillId = 0)
+        Action sideEffects, out CooldownUseTicket? ticket, int? actionToken = null, bool reserve = true, ushort skillId = 0,
+        double? requestedAt = null)
     {
         ticket = null;
         if (skillId != 0 && GemDisabled(conn, effect, skillId) is not null) return false;
@@ -35,6 +39,7 @@ partial class Program
             ticket = null;
             SingleUseCooldownState? state = null;
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
+                || requestedAt is double asked && conn.HitRecovery.BlocksInput(asked, conn.Clock.Elapsed.TotalSeconds)
                 || actionToken is int original && conn.ActionCount != original) return false;
             if (plan is { } cooldown)
             {
@@ -55,8 +60,11 @@ partial class Program
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
         var player = CharacterPlayerStats(conn);
         var plans = GemSkillEffects(conn).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
-            g.Count() != 1 ? null : SingleUseCooldown.ForSkill(Skills, Stats, g.Key, g.First().Level, player,
-                Skills.EffectStats(g.Key, g.First().Level, g.First().Quality).ToDictionary(s => s.Item1, s => s.Item2)));
+        {
+            if (g.Count() != 1) return null;
+            var gem = SupportedSkill(conn, g.First().Id);
+            return SingleUseCooldown.ForSkill(Skills, Stats, g.Key, gem.Level, player, gem.Stats);
+        });
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;

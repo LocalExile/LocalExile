@@ -15,7 +15,8 @@ static class SpellDamage
     public static (double Min, double Max) Hit(Func<string, int> get, double addedEffectiveness = 1)
     {
         double common = DerivedDamageIncreases.From(get).GenericPercent + get("damage_+%") + get("spell_damage_+%")
-            + (get("base_is_projectile") != 0 ? get("projectile_damage_+%") : 0);
+            + (get("base_is_projectile") != 0 ? get("projectile_damage_+%") : 0)
+            + (get("is_area_damage") != 0 ? get("area_damage_+%") : 0);
         double min = 0, max = 0;
         foreach (string type in Types)
         {
@@ -37,7 +38,8 @@ static class SpellDamage
     {
         hit = DamageStats.Added(hit, get, spell: true, melee: false, effectiveness: addedEffectiveness);
         double common = DerivedDamageIncreases.From(get).GenericPercent + get("damage_+%") + get("spell_damage_+%")
-            + (get("base_is_projectile") != 0 ? get("projectile_damage_+%") : 0);
+            + (get("base_is_projectile") != 0 ? get("projectile_damage_+%") : 0)
+            + (get("is_area_damage") != 0 ? get("area_damage_+%") : 0);
         return hit.Select((type, range) =>
         {
             string slug = type switch

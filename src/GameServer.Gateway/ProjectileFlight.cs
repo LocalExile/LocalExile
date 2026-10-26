@@ -7,6 +7,7 @@ sealed class ProjectileFlight
     readonly (int X, int Y) start, end;
     readonly double launched, duration, radius;
     readonly bool wall;
+    readonly HashSet<uint> rejected = [];
     Dictionary<uint, Target> previous;
     double sampledAt;
     Step step;
@@ -28,7 +29,9 @@ sealed class ProjectileFlight
         return (start.X + ((double)end.X - start.X) * f, start.Y + ((double)end.Y - start.Y) * f);
     }
 
-    public Step Advance(double now, IReadOnlyList<Target> targets)
+    // An optional attack accuracy check may reject contact without terminating flight. Each rejected object is tested
+    // only once for this straight flight; accepted contact retains the ordinary terminal result. Spells omit it.
+    public Step Advance(double now, IReadOnlyList<Target> targets, Func<uint, bool>? accept = null)
     {
         if (step.Finished || now <= sampledAt) return step; // A stopped game clock cannot hit or expire anything.
         if (duration == 0 && wall) return step = new(end, launched, true, Wall: true);
@@ -38,8 +41,10 @@ sealed class ProjectileFlight
         double fraction = 1;
         uint hit = 0;
         bool atEnd = until >= launched + duration;
+        List<(double Fraction, uint Id)>? contacts = accept is null ? null : [];
         foreach (var target in targets)
         {
+            if (rejected.Contains(target.Id)) continue;
             double? contact;
             if (previous.TryGetValue(target.Id, out var observed) && ReferenceEquals(observed.Motion, target.Motion))
             {
@@ -57,9 +62,22 @@ sealed class ProjectileFlight
                 double x = to.X - target.Position.X, y = to.Y - target.Position.Y;
                 contact = until == now && x * x + y * y <= radius * radius ? 1 : null;
             }
-            if (contact is double c && c <= fraction && !(wall && atEnd && c == 1)
-                && (c < fraction || hit == 0 || target.Id < hit))
-                (fraction, hit) = (c, target.Id);
+            if (contact is double c && !(wall && atEnd && c == 1))
+            {
+                if (contacts is not null) contacts.Add((c, target.Id));
+                else if (c <= fraction && (c < fraction || hit == 0 || target.Id < hit))
+                    (fraction, hit) = (c, target.Id);
+            }
+        }
+        if (contacts is not null)
+        {
+            // Evaluate in swept contact order, not dictionary order; an evaded nearer monster must not hide a later
+            // contact within the very same scheduler interval. Stable ids break coincident-contact ties.
+            foreach (var candidate in contacts.OrderBy(c => c.Fraction).ThenBy(c => c.Id))
+            {
+                if (accept!(candidate.Id)) { (fraction, hit) = candidate; break; }
+                rejected.Add(candidate.Id);
+            }
         }
         double at = sampledAt + (until - sampledAt) * fraction;
         step = new(Position(at), at, hit != 0 || atEnd, hit, hit == 0 && atEnd && wall);

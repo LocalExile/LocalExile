@@ -41,6 +41,47 @@ public class InstanceChatTests
     }
 
     [Fact]
+    public void Channel_joins_are_read_from_the_bytes_the_client_sent()
+    {
+        // Live 2026-10-25: the automatic global join after entering an area, then /global 821 and /trade 822.
+        Assert.Equal(new InstanceChat.JoinChannelRequest(ChatChannelKind.Global, InstanceChat.AnyChannel, true, 0),
+            InstanceChat.ReadJoinChannel(Convert.FromHexString("0134FFFF000100")));
+        Assert.Equal(new InstanceChat.JoinChannelRequest(ChatChannelKind.Global, 821, false, 0),
+            InstanceChat.ReadJoinChannel(Convert.FromHexString("01340335000000")));
+        Assert.Equal(new InstanceChat.JoinChannelRequest(ChatChannelKind.Trade, 822, false, 0),
+            InstanceChat.ReadJoinChannel(Convert.FromHexString("01340336010000")));
+        Assert.Null(InstanceChat.ReadJoinChannel(Convert.FromHexString("01340336020000")));
+        Assert.Equal(InstanceChat.JoinChannelLength, InstanceProtocol.KnownClientLength(InstanceChat.JoinChannelId));
+    }
+
+    [Fact]
+    public void Channel_joined_is_the_bytes_the_client_accepted()
+    {
+        // Sent live with /raw 2026-10-25: the client set global and trade channel 820 and stopped waiting.
+        Assert.Equal("013503340000", Convert.ToHexString(InstanceChat.ChannelJoined(ChatChannelKind.Global, 820, 0)));
+        Assert.Equal("013503340100", Convert.ToHexString(InstanceChat.ChannelJoined(ChatChannelKind.Trade, 820, 0)));
+    }
+
+    [Theory]
+    [InlineData("hello", TypedChannel.Local, "hello")]
+    [InlineData("#hello global", TypedChannel.Global, "hello global")]
+    [InlineData("$WTB map", TypedChannel.Trade, "WTB map")]
+    [InlineData("%party", TypedChannel.Party, "party")]
+    [InlineData("&guild", TypedChannel.Guild, "guild")]
+    [InlineData("@Someone hi", TypedChannel.Whisper, "Someone hi")]
+    [InlineData("", TypedChannel.Local, "")]
+    public void Typed_lines_are_split_by_their_channel_prefix(string typed, TypedChannel channel, string text) =>
+        Assert.Equal((channel, text), InstanceChat.SplitChannel(typed));
+
+    [Fact]
+    public void Own_lines_name_the_character_with_the_channel_prefix()
+    {
+        Assert.Equal("OfflineWitch", InstanceChat.Sender(TypedChannel.Local, "OfflineWitch"));
+        Assert.Equal("#OfflineWitch", InstanceChat.Sender(TypedChannel.Global, "OfflineWitch"));
+        Assert.Equal("$OfflineWitch", InstanceChat.Sender(TypedChannel.Trade, "OfflineWitch"));
+    }
+
+    [Fact]
     public void Stats_update_uses_compact_keys_and_values()
     {
         // Key 244 (0x80F4 as a 2-byte compact) = 100, and a negative value.

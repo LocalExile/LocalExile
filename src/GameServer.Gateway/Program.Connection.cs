@@ -177,7 +177,7 @@ partial class Program
             }
             // The instance keeps its monsters as they are now, for the next connection (#12).
             if (left.MonstersPlaced)
-                lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Values, left.Clock.Elapsed.TotalSeconds);
+                lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Values, left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
             Instances.Leave(left.Instance);
         }
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
@@ -195,7 +195,7 @@ partial class Program
         var messages = InstanceProtocol.SplitClientMessages(all, out conn.Carry, out byte[] unknown);
         if (MoveTrace)
             foreach (var (id, bytes) in messages)
-                if (id is 0x0024 or 0x0025 or 0x0191)
+                if (id is 0x0024 or 0x0025 or 0x0190 or 0x0191)
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {

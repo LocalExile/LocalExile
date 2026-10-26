@@ -102,14 +102,16 @@ be refunded while ordinary allocations still spend those points.
 
 **The 19 choices are not 19 fully implemented sets of mechanics.** Forwarding a raw stat to the character panel is
 not an implementation of its effect. Current numerical support is strongest for Aristocrat and Gambler; even those
-classes still have limitations. Support-gem execution and incoming ailments/stuns are absent, so Gem-lined Cap,
-conditional ailment immunities and Risk Aversion are not complete.
+classes still have limitations. Linked support metadata and ordinary stat consumers now execute, while
+Gem-lined Cap's special support enhancement remains unfinished and owned separately.
+Incoming ailments and the remaining conditional stun rules still leave conditional immunities and Risk Aversion incomplete.
 Owned wolf combat now exists; other minion families, warcries/totems, shrines/wisps and several shared subsystems remain.
 Rage has a functioning resource/damage path, but its Vaal costs and other conditional mechanics remain unfinished.
 
 The [all-19 dependency map](phrecia-ascendancies.md#dependencies-of-all-19-classes) names the remaining systems and
 implementation waves. Each class must gain an actual gameplay proof for its signature mechanics before it can be
-described as fully functional. Monster modifier resistance, exposure and curses still require additional sources.
+described as fully functional. Monster modifier resistance now composes with table-backed variety resistance and
+player penetration; exposure and curses still require their own sources and runtime rules.
 
 Ordinary tree connectivity is enforced on allocation, mastery selection, refunds, family changes and restoration.
 Ascendant's Path nodes supply their additional class starts; refunding one requires first removing ordinary branches
@@ -134,7 +136,7 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Harbinger | Extra ES/bypass, three actual companions, Arcane effects, Time action speed and Focus damage reduction | Ally-wide buffs and remaining time effects |
 | Herald | Shared choice-node allocation, Apocalypse's Herald-gem levels and supported generic modifiers | Actual Herald effects/minions and Herald-specific reservation rules |
 | Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |
-| Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Support-gem execution and conditional ailment immunity |
+| Aristocrat | Ordinary points, active-gem level/quality, attributes/requirements and lowest-attribute damage | Gem-lined Cap support enhancement and conditional ailment immunity |
 | Gambler | Hit/critical/block luck, triple damage and hit resistance rules | Ailment/stun avoidance and further enemy resistance sources |
 | Paladin | Granted auras, Deep Connections's Link-gem levels and Light of Divinity's nearby elemental damage taken | Ground, Links, Relics and party sharing |
 | Architect of Chaos | Equipped corruption conditions, Chaos Reigns's Vaal-gem levels, life reservation and life cost | Dissolution, sacrifices and Vaal souls |

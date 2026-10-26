@@ -8,17 +8,21 @@ static class GameDataFiles
     public static readonly (string File, string Feature)[] All =
     [
         ("data/tables/WorldAreas.json", "the game tables (stats, areas, waypoints, items, monsters, NPCs)"),
+        ("data/tables/ModType.json", "vendor affix sale-price categories"),
         ("data/tables/Essences.json", "essence crafting and class-specific guaranteed modifiers"),
         ("data/tables/CraftingBenchOptions.json", "crafting bench recipes, unlocks and costs"),
         ("data/tables/CraftingItemClassCategories.json", "crafting bench item compatibility"),
         ("data/tables/AddBuffToTargetVarieties.json", "Harbinger recipient buff-stat bindings"),
-        ("data/object-types.json", "monsters, NPCs, area transitions"),
+        ("data/tables/UniqueMaps.json", "unique map shop identities"),
+        ("data/tables/Words.json", "item names"),
+        ("data/tables/ItemVisualIdentity.json", "unique map artwork"),
+        ("data/object-types.json", "monsters (and which of them rise from the ground), NPCs, area transitions"),
         ("data/item-types.json", "items"),
         ("data/area-transitions.json", "area transitions of fixed layouts"),
         ("data/room-points.json", "unique bosses, The Twilight Strand's encounters and support-gem chest"),
         ("data/hideouts.json", "hideouts"),
         ("data/animation-contacts.json", "class spell timing (the Witch's is used)"),
-        ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
+        ("data/monster-takehit.json", "monster hit reactions and emergence animation lengths"),
         ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership and connections"),
         ("data/phrecia-passive-skillgraph.psg", "client Phrecia graph with the current ordinary passive tree preserved"),
     ];

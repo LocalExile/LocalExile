@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Instance;
 /// unique 4–6. Each item is currency (45%: the common orbs and scrolls, weighted), a life or mana flask (10%) or a piece
 /// of equipment (45%: any weapon, armour or jewellery base whose DropLevel is at most the monster's level) at the
 /// monster's level as its item level. Equipment is magic or rare by <see cref="EquipmentRarity"/> (our own chances),
-/// with affixes from <see cref="ItemRolls"/>.
+/// raised by the player's increased item rarity (<see cref="WithIncreasedRarity"/>), with affixes from <see cref="ItemRolls"/>.
 /// </summary>
 sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null)
 {
@@ -19,6 +19,16 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null)
         MonsterRarity.Unique => (0.30, 0.50),
         _ => (0.25, 0.05),
     };
+
+    /// <summary>The (magic, rare) chances with the player's increased rarity of items found (Gold Flask's 30%, gear and
+    /// passives: base_item_found_rarity_+% and item_found_rarity_+%): each chance × (1 + increased / 100), as "increased
+    /// rarity" raises the chance of a better rarity in the game, scaled down together if they would pass 100%.</summary>
+    public static (double Magic, double Rare) WithIncreasedRarity((double Magic, double Rare) chances, int increased)
+    {
+        double factor = Math.Max(0, 100 + increased) / 100.0;
+        double magic = chances.Magic * factor, rare = chances.Rare * factor;
+        return magic + rare <= 1 ? (magic, rare) : (magic / (magic + rare), rare / (magic + rare));
+    }
 
     // (BaseItemTypes Id, weight): Scroll of Wisdom and Portal Scroll most, then shards' worth of basic orbs.
     static readonly (string Id, int Weight)[] Currency =
@@ -51,7 +61,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null)
     public sealed record Drop(Item Item, ItemCatalog.BaseType Type);
 
     /// <summary>The items a monster of this level and rarity drops (possibly none).</summary>
-    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng)
+    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity = 0)
     {
         int count = rarity switch
         {
@@ -62,7 +72,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null)
         };
         var drops = new List<Drop>();
         for (int i = 0; i < count; i++)
-            if (RollOne(monsterLevel, rarity, rng) is { } d) drops.Add(d);
+            if (RollOne(monsterLevel, rarity, rng, increasedRarity) is { } d) drops.Add(d);
         return drops;
     }
 
@@ -85,7 +95,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null)
         GoldAmount(monsterLevel, rarity, rng) is int amount and > 0 && catalog.Find(GoldId) is { Supported: true } type
             ? new Drop(ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(amount, ushort.MaxValue) }, type) : null;
 
-    Drop? RollOne(int level, MonsterRarity monster, Random rng)
+    Drop? RollOne(int level, MonsterRarity monster, Random rng, int increasedRarity = 0)
     {
         var (currency, equipment, flasks) = _pools.Value;
         double kind = rng.NextDouble();
@@ -104,7 +114,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null)
         var item = ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(level, 1, 100) };
         if (rolls is not null && EquipmentClasses.Contains(type.Class))
         {
-            var (magic, rare) = EquipmentRarity(monster);
+            var (magic, rare) = WithIncreasedRarity(EquipmentRarity(monster), increasedRarity);
             double r = rng.NextDouble();
             // Magic and rare items drop unidentified (a Scroll of Wisdom identifies them, C→S 0x71).
             if (r < rare) item = rolls.Roll(item, ItemRarity.Rare, rng) with { Identified = false };

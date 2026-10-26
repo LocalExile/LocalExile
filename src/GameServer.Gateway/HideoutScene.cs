@@ -4,6 +4,8 @@ using GameServer.Core.Protocol.Instance;
 sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Guild,
     HideoutCatalog.Doodad Bench, HideoutCatalog.Doodad Harvest, HideoutCatalog.Doodad Device, IReadOnlyList<NpcCatalog.Placement> Npcs)
 {
+    public HideoutCatalog.Doodad? Heist { get; init; }
+
     public static HideoutScene Build(HideoutCatalog.Hideout hideout, HideoutCatalog.Hideout fallback, Func<int, int, bool>? walkable)
     {
         var waypoint = hideout.First(WaypointObject.MetadataPath) ?? fallback.First(WaypointObject.MetadataPath)!;
@@ -55,6 +57,10 @@ sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Guild,
             var (x, y) = Place(waypoint.X + npc.X - origin.X, waypoint.Y + npc.Y - origin.Y, 4);
             npcs.Add(npc with { X = x, Y = y });
         }
-        return new(stash, guild, bench, harvest, device, npcs);
+        var (lx, ly) = Place(sx + 16, sy + 16, 4);
+        return new(stash, guild, bench, harvest, device, npcs)
+        {
+            Heist = new("Heist Locker", 0, HideoutCatalog.HeistLockerType, null, lx, ly, 0, 0)
+        };
     }
 }

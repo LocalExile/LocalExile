@@ -33,12 +33,26 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   Initial Dash recovery, early raw rejection, pause and native mid-cooldown rate changes pass live alongside
   layout/send-gate checks; remaining base progress is retained without consuming another use.
   Remaining cooldown work includes multi-use recharge, shared groups, bypass, typed/conditional/more recovery,
-  official tick boundaries and the separate location-instant C→S 0x190 contribution.
+  official tick boundaries.
   See [11](../docs/protocol/11-skills.md) §9.
   Action speed, active Tailwind effect and Toughened Skin's action/movement floors now have production consumers.
   Impossible-cast eligibility now precedes handler side effects and composes with shared cooldown preflight.
   Native casts, floor flags, fractional Tailwind effect and paid refunds pass; elapsed animation timing remains open.
   Cooldown recovery is separate.
+- **Spell cast timing (#192):** native base milliseconds are preserved and cast speed adjusts server waits and
+  displayed rate once. Automated checks and real-client -80%/+100%/zero clip durations pass.
+  Projectile release/contact alignment was not separately measured.
+  Further special native timing mechanics remain open.
+  Attack gems now share level-aware inherent speed with server pacing/contact and native total-duration/APS stats.
+  Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s; automated checks also pass.
+- **Spell hit panel (#188):** selected-spell ranges now share combat's converted packet and hitless spells clear
+  inherited weapon hit damage. Automated checks pass; verify selection, equipment updates and relog in the client.
+  DPS remains a pre-crit/pre-mitigation average; crit weighting, integer-roll expectation, cooldowns and DoT/beam
+  displays remain separate work. Quality conversion and existing modifier precedence are unchanged.
+  Selected attack-gem main-hand ranges and pre-crit averages now share the existing converted combat packet.
+  Native selection, added-damage refresh/clearing, server hit and relog checks pass alongside automated tests.
+  Equipment UI refresh remains to be checked separately.
+  Off-hand alternation, conditional damage, special support mechanics and modifier-scope corrections remain separate work.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
   The overcapped resistances' derived evasion and critical increases now follow that rule and are native-verified.
@@ -70,6 +84,8 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   ([20](../docs/protocol/20-damage.md)).
   The player's real life, resistances, armour and evasion are computed from level, passives and base equipment, and
   armour/evasion mitigate monster hits (Status: Armour and Evasion).
+  Ordinary physical monster melee can now trigger native player hit recovery with matching server cancellation.
+  Copied-save live checks verified walking, pending cast cancellation, released flight and a stun-immune control.
 - **Known:** both sides still have flat damage ranges ([11](../docs/protocol/11-skills.md) 5, 6);
   ordinary player ES absorption, regeneration and interrupted recharge are implemented and live-checked.
   Added damage has its first stat: the attack's added lightning gets
@@ -86,8 +102,20 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   modifiers remain open.
   Standard current-charge hooks/effects now have production integration coverage; finish combined native checks,
   then Enduring Cry's distinct timing/cooldown/buff execution, charge sharing and remaining gain/consumption rules.
+  Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
+  Its hovered stationary-monster 0x191 path now uses the native size-aware object aim and object-bound confirmation.
+  Automated acceptance/queued rejection checks and manual native endpoint experiments pass.
+  Actual hovered Q reached native/server `(317,220)` with one object confirmation and one 12-mana cost.
+  A framed early ground retry was refused without extra cost or confirmation.
+  Production framed off-axis/far controls matched native/server endpoints.
+  Framed moving-target, partial-terrain, missing-target and noninstant controls were refused without spending.
+  Moving targets, coincident random aim and partial object-candidate terrain fallback remain outside this path.
+  Production use during an active walk still needs measurement; native manual walk-stop experiments passed.
+  Its departure/arrival damage, chilled ground, enemy-dependent recovery and shared Blink groups remain open.
+  Extend terrain and movement restrictions from native evidence before accepting other instant movement skills.
 - **Start:** special ES mechanics, exposure and the remaining conditional critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
+  Extend player stun rules to ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.
   Native skill switching, combined bonuses, no-crit, relog and hitless-spell controls are verified.
   The pure base overrides are in as a generic stat consumer (`override_weapon_base_critical_strike_chance` and the
@@ -120,10 +148,17 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   Ordinary player and skill projectile-speed bonuses affect flight and predicted arrival together; baseline/+100%/-50%
   Fireball casts were checked live, while conditional/more/less speed and support application remain open.
   Swept relative-motion checks run throughout flight to the first monster or wall contact, with pause, transfer
-  and disconnect handling through the game clock and flight lifetime. Default-attack arrows are visual only.
+  and disconnect handling through the game clock and flight lifetime. Ordinary ground/object bow arrows now
+  share delayed release and collision damage, with release snapshots and original-action guards through creation
+  (#203, automated and native ground/object, wall/interceptor, cancellation and pause checks pass).
+  The separate object-use melee contact hit is removed.
+  Accuracy misses continue past the evading object under a current-wiki-supported bounded policy; official-server
+  continuation and snapshot parity still need evidence. Combined-only Frostblink controls preserve a released
+  arrow and resample the origin after a framed pre-release blink; they do not add standalone Frostblink support.
   Automated checks pass, including nearer interceptors, dead targets and lifetime invalidation.
   Live moving-away misses, later-entry hits, wall impact, native glide stop and pause/resume passed before the
-  bow packet/height update; merged bow/collision integration needs a live recheck. Integer monster walk estimates,
+  bow packet/height update; ordinary bows were rechecked above, while attack-gem composition remains open.
+  Integer monster walk estimates,
   a shared collision radius and straight movement between samples still limit accuracy.
 - **Start:** a server-side surface-height/world model for platforms and doodads (#182), height grids for more areas
   (or in the walk-map recorder), and collision with doodads and objects that have their own colliders.

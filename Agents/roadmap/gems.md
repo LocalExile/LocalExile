@@ -57,11 +57,11 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   granting a support as a skill crashes the client ([13](../docs/protocol/13-items.md) §6).
   GrantedEffects holds each support's compatible skill types and its skill-bar letter;
   GrantedEffectsPerLevel its cost multiplier.
-- **Start:** the supports of each link group on their compatible skills, the support list in the skill record, cost
-  multipliers, the higher-level-duplicate rule and the skill-bar letters.
-  Then the effects the server's combat already models (added damage, more or less damage, cast and attack speed,
-  critical strike, accuracy); every other support is listed in the docs as "linked, no effect yet".
-  The rest of the combat effects are split with Qblolz on #64.
+- **Implemented:** linked native compatibility, complete support references, duplicate resolution and ordinary
+  damage, area, speed, critical, cost and reservation calculations ([25](../docs/protocol/25-gem-supports.md)).
+  Cyclone with Increased Area of Effect was checked with the real client.
+- **Next:** implement special execution mechanics separately: triggers, repeats, projectile branching,
+  totems, mines, minions, leech and conditional effects; verify each against native data and live behaviour.
 - **Done when:** Fireball linked with Arcane Surge shows the support's letter and pays the multiplied cost, a modelled
   support such as Faster Casting changes the skill, and the support crash is gone.
 

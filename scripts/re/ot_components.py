@@ -169,7 +169,8 @@ def parse(text):
     """-> {extends: [...], abstract, sections: [names], client: [names], server: [names]}"""
     toks = TOKEN.findall(re.sub(r"//[^\n]*", "", text))
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
-         "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": []}
+         "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
+         "client_transitionable": {}, "client_targetable": None}
     i = 0
 
     def block(i):  # i at '{' -> index after matching '}', plus the names of sections directly inside
@@ -198,12 +199,18 @@ def parse(text):
             j, inner = block(i + 1)
             if t in ("client", "server"):
                 r[t] += inner
+                if t == "client":
+                    client_sections(toks[i + 2:j - 1], r)
             elif t != "GEAL":
                 r["sections"].append(t)
                 if t == "StateMachine":
                     state_machine(toks[i + 2:j - 1], r)
                 elif t == "Transitionable":
                     top_level_keys(toks[i + 2:j - 1], r["transitionable"], ("num_states", "no_serialise"))
+                elif t == "Actor":  # basic actions (ActionTypes Ids): basic_action = "Emerge"
+                    body = toks[i + 2:j - 1]
+                    r["basic_actions"] += [body[k + 2].strip("\"'") for k in range(len(body) - 2)
+                                           if body[k] == "basic_action" and body[k + 1] == "="]
                 elif t == "Base":  # item tags (Tags.dat Ids) for mod spawn weights: tag = "wand"
                     body = toks[i + 2:j - 1]
                     r["tags"] += [body[k + 2].strip("\"'") for k in range(len(body) - 2) if body[k] == "tag" and body[k + 1] == "="]
@@ -235,6 +242,36 @@ def state_machine(toks, r):
                     except ValueError:
                         v = 0
                     r["shared_states"].append([name, v])
+
+
+def client_sections(toks, r):
+    """The client block's Transitionable events (create_untransitioned, create_transitioned, on_transition: their script
+    as one line of tokens) and Targetable's `targetable` key. Emerge monsters pause their emerge animation in
+    create_untransitioned and are untargetable until on_transition (Gateway MonsterEmerge.cs)."""
+    k = 0
+    while k + 1 < len(toks):
+        if toks[k] in ("Transitionable", "Targetable") and toks[k + 1] == "{":
+            depth, j = 1, k + 2
+            while j < len(toks) and depth:
+                depth += {"{": 1, "}": -1}.get(toks[j], 0)
+                j += 1
+            body = toks[k + 2:j - 1]
+            if toks[k] == "Targetable":
+                keys = {}
+                top_level_keys(body, keys, ("targetable",))
+                if "targetable" in keys:
+                    r["client_targetable"] = keys["targetable"].lower() != "false"
+            else:
+                for e in range(len(body) - 2):
+                    if body[e] in ("create_untransitioned", "create_transitioned", "on_transition") and body[e + 1] == "="                             and body[e + 2] == "{":
+                        depth, f = 1, e + 3
+                        while f < len(body) and depth:
+                            depth += {"{": 1, "}": -1}.get(body[f], 0)
+                            f += 1
+                        r["client_transitionable"][body[e]] = " ".join(body[e + 3:f - 1])
+            k = j
+        else:
+            k += 1
 
 
 def top_level_keys(toks, out, keys):
@@ -283,8 +320,9 @@ def merge(type_path, files, otc, first=("Positioned",)):
         for name in (f or {}).get("shared_timers", []):
             if name not in timers:
                 timers.append(name)
-    # Transitionable (type +0xb0 = num_states, default 1; states run 1..num_states, num_states = fully transitioned):
-    # later files in the chain override.
+    # Transitionable (type +0xb0 = num_states; states run 1..num_states, num_states = fully transitioned): later files
+    # in the chain override. Without the key the type's constructor (0x141e42d50) sets 2, and the key itself only takes
+    # 2..127 (0x141e42a80), so 1 below means "not given": state 1 is then the untransitioned state, 2 the transitioned.
     trans = {}
     for _, f in ch:
         trans.update((f or {}).get("transitionable", {}))
@@ -295,6 +333,14 @@ def merge(type_path, files, otc, first=("Positioned",)):
     return {"type": type_path, "chain": [p for p, _ in ch], "missing": [p for p, f in ch if f is None],
             "abstract": bool(files.get(type_path, {}).get("abstract")), "components": comps, "read": read,
             "shared_states": [[k, v] for k, v in states.items()], "shared_timers": timers,
+            # The Actor's basic actions (ClientActor ctor 0x142192860 adds one skill per name, id = HASH16 & 0x3fff),
+            # parents first: e.g. Monster.ot's Move, and "Emerge" for monsters that rise from the ground.
+            "basic_actions": list(dict.fromkeys(a for _, f in ch for a in (f or {}).get("basic_actions", []))),
+            # The client scripts of Transitionable (later files override each event) and Targetable's `targetable`
+            # (null: not set, the component's default: targetable).
+            "client_transitionable": {k: v for _, f in ch for k, v in (f or {}).get("client_transitionable", {}).items()},
+            "client_targetable": next((f["client_targetable"] for _, f in reversed(ch)
+                                       if f and f.get("client_targetable") is not None), None),
             "transitionable": {"num_states": num_states,
                                "no_serialise": str(trans.get("no_serialise", "false")).lower() == "true"}}
 

@@ -133,13 +133,15 @@ partial class Program
         var aura = AuraCatalog.Bonus(auras, bonus.AuraEffectPct, Skills, Stats);
         // A dev input replaces that complete passive/equipment/aura input, as in CharacterPlayerStats. Sum only
         // the critical dependencies here; rebuilding every passive bonus would repeat equipment and defence work.
+        var flaskStats = conn.UtilityFlaskEffects.Stats().ToList();
+        long FlaskStat(string name) => flaskStats.Where(s => s.Stat == name).Sum(s => (long)s.Value);
         Dictionary<uint, int> devStats;
         lock (conn.Monsters) devStats = new(conn.PlayerStats);
         long RawCriticalIncrease(string name)
         {
             if (Stats.Key(name) is not uint key) return 0;
             if (devStats.TryGetValue(key, out int value)) return value;
-            return (long)sources.GetValueOrDefault(key) + (name switch
+            return (long)sources.GetValueOrDefault(key) + FlaskStat(name) + (name switch
             {
                 "critical_strike_chance_+%" => aura.CriticalStrikeChancePct,
                 "spell_critical_strike_chance_+%" => aura.SpellCriticalStrikeChancePct - aura.CriticalStrikeChancePct,
@@ -168,6 +170,11 @@ partial class Program
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct,
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct
         };
+        bonus = UtilityFlasks.Apply(bonus, flaskStats) with
+        {
+            CriticalStrikeChancePct = AttackBaseCriticalStrike.IncreasedSum(activeWeapon, RawCriticalIncrease),
+            SpellCriticalStrikeChancePct = RawCriticalIncrease("critical_strike_chance_+%") + RawCriticalIncrease("spell_critical_strike_chance_+%")
+        };
         if (conn.God)
             bonus = bonus with { Strength = bonus.Strength + 1000, Dexterity = bonus.Dexterity + 1000, Intelligence = bonus.Intelligence + 1000,
                 Life = bonus.Life + 10_000, AttackSpeedPct = bonus.AttackSpeedPct + 1000 };
@@ -175,7 +182,11 @@ partial class Program
         // raw inputs: the resistances after the Kitava penalty and the per-type maxima, with an explicit dev stat
         // (/set_stat) replacing its own contribution. Pools stores the derived increases, so the pools, the panel and
         // the spell consumers read them from one place and nothing counts them twice.
-        bonus = ResistanceOvercap.Applied(bonus, sources, devStats, ResistancePenalty(conn), Stats);
+        var completeSources = new Dictionary<uint, int>(sources);
+        foreach (var (name, value) in flaskStats)
+            if (ResistanceOvercap.IsInput(name) && Stats.Key(name) is uint key)
+                completeSources[key] = completeSources.GetValueOrDefault(key) + value;
+        bonus = ResistanceOvercap.Applied(bonus, completeSources, devStats, ResistancePenalty(conn), Stats);
         var pools = CharacterStats.For(Skills.ClassFor(conn.ClassRow), level, bonus);
         // The pure base critical stats replace the weapon/unarmed base before increases; overcap is included once.
         pools = pools with

@@ -30,6 +30,7 @@ sealed class ItemCatalog
         _weaponCrits = new(() => LoadWeaponCrits(folder));
         _defences = new(() => LoadDefences(folder));
         _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows));
+        _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows));
         _visualsById = new(() => LoadVisualsById(folder));
     }
 
@@ -279,6 +280,14 @@ sealed class ItemCatalog
     /// <summary>A life or mana flask's use (Flasks.dat and ComponentCharges), or null for other types, utility flasks
     /// included.</summary>
     public Flasks.Flask? FlaskOf(BaseType t) => _flasks.Value.GetValueOrDefault(t.Row);
+
+    private readonly Lazy<Dictionary<int, UtilityFlasks.Utility>> _utilityFlasks;
+
+    /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
+    public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.Value.GetValueOrDefault(t.Row);
+
+    /// <summary>Any flask's charges (life, mana or utility, usable or not), for refills; null for other types.</summary>
+    public Flasks.Flask? FlaskChargesOf(BaseType t) => FlaskOf(t) ?? UtilityFlaskOf(t)?.Charges;
 
     private static Dictionary<int, Flasks.Flask> LoadFlasks(string folder, IReadOnlyList<BaseType> rows)
     {

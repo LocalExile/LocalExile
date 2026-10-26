@@ -30,7 +30,7 @@ features.
   [12](../docs/protocol/12-quests.md)).
 - **Start:** other currency through C→S 0x71 (13 §4: Orb of Transmutation, Alteration, Augmentation, Regal, Alchemy,
   Chaos, Scouring can reuse `ItemRolls`); items' base weapon damage and armour / evasion / energy shield (then their
-  local mods, 13 §2c); flask charges after use.
+  local mods, 13 §2c).
 - **Socket colours (3.29 rules):** any gem goes into any socket, whatever the colours, and a gem in a red, green or
   blue socket of its own colour gets +10% quality.
   Sockets are white by default; each has a small chance to be red, green or blue instead, in proportion to the item's

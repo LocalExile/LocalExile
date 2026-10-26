@@ -7,15 +7,15 @@ partial class Program
     // A click on the map device (C→S 0x24): walk there, then S→C 0x7b kind 5 opens the map device window (21-hideouts.md §4).
     // Its slots and the activation are not served yet.
     static async Task UseMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use, HideoutCatalog.Doodad device)
+        InstanceTransfer.UseSkillOnObject use, HideoutCatalog.Doodad device, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.Approach(device.X, device.Y, StashReach, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, device.X, device.Y, StashReach, out var objectWalk, centreRange: true)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 {device.Name} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action) return;
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the map device window");
+        if (!PlayerActionCurrent(conn, action)) return;
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId),
+            "0x007b open the map device window", still: () => PlayerActionCurrent(conn, action));
     }
 
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): every slot must hold a map or a map fragment, and
@@ -178,14 +178,13 @@ partial class Program
     // A click on a map portal (C→S 0x24): walk there, then the portal is used up and the player goes into the open map, a new
     // instance for the first portal and that same instance for the others.
     static async Task UseMapPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use, (int X, int Y, int Index) at)
+        InstanceTransfer.UseSkillOnObject use, (int X, int Y, int Index) at, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.WalkUpTo(at.X, at.Y, AreaTransitionObjectSize, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, AreaTransitionObjectSize, out var objectWalk)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 map portal 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action || conn.PendingTransfer is not null) return;
+        if (!PlayerActionCurrent(conn, action) || conn.PendingTransfer is not null) return;
         lock (conn.MapPortals) if (!conn.MapPortals.Remove(use.TargetId)) return;
         string character = CharacterName(conn);
         uint deviceId;
@@ -263,14 +262,13 @@ partial class Program
     // A click on the portal back (C→S 0x24, the map's own or a Portal Scroll's): walk there, then to the hideout next to its
     // waypoint, or to the town the scroll's portal leads to (ReturnPortalTo), at its spawn.
     static async Task UseMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use, (int X, int Y) at)
+        InstanceTransfer.UseSkillOnObject use, (int X, int Y) at, double requestedAt)
     {
-        int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var (here, stop, arrive) = conn.Walk.WalkUpTo(at.X, at.Y, AreaTransitionObjectSize, now);
+        if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, AreaTransitionObjectSize, out var objectWalk)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 portal back 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.ActionCount != action) return;
+        if (!PlayerActionCurrent(conn, action)) return;
         if (conn.ReturnPortalTo is ushort town and not 0)
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(town, 0, false, AtSpawn: true), "portal to town");
         else

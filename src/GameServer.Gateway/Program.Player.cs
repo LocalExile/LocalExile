@@ -64,9 +64,9 @@ partial class Program
             if (Skills.EffectId(gem.Effect) is { } effect && wanted.Contains(effect) && AuraCatalog.Supported(effect)
                 && SkillRestrictionReason(conn, gem.Effect) is null
                 && !conn.Auras.Values.Any(a => a.EffectId == effect)
-                && ReservationFor(conn, gem.Effect, gem.Level) is { } reservation)
+                && SupportedReservation(conn, gem.Id) is { } reservation)
                 candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.AllocateBuff(), AuraCatalog.BuffRow(effect),
-                    reservation.Flat, reservation.Percent, gem.Level, gem.Quality, SourceBuff: conn.AllocateBuff(), ReserveLife: ReservesLife(conn)));
+                    reservation.Flat, reservation.Percent, SupportedSkill(conn, gem.Id).Level, SupportedSkill(conn, gem.Id).Quality, SourceBuff: conn.AllocateBuff(), ReserveLife: ReservesLife(conn)));
         var restored = AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn));
         var accepted = new List<AuraCatalog.Aura>();
         foreach (var aura in restored)
@@ -177,18 +177,20 @@ partial class Program
         return currentRevision;
     }
 
-    static SkillCost CostFor(ClientState conn, int effect, int level, int quality)
+    static SkillCost CostFor(ClientState conn, int effect, int level, int quality, ushort skillId = 0)
     {
-        var own = Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        var supported = skillId == 0 ? null : SupportedSkill(conn, skillId);
+        var own = supported?.Stats ?? Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var player = CharacterPlayerStats(conn);
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
-        return SkillCost.Calculate(Own("base_mana_cost"), Own("base_life_cost"), Get);
+        int Cost(string name) => (int)Math.Clamp(Math.Floor(Own(name) * (supported?.CostMultiplier ?? 1)), 0, int.MaxValue);
+        return SkillCost.Calculate(Cost("base_mana_cost"), Cost("base_life_cost"), Get);
     }
 
-    static bool PaySkillCost(ClientState conn, int effect, int level, int quality, out SkillCost cost)
+    static bool PaySkillCost(ClientState conn, int effect, int level, int quality, out SkillCost cost, ushort skillId = 0)
     {
-        cost = CostFor(conn, effect, level, quality);
+        cost = CostFor(conn, effect, level, quality, skillId);
         lock (conn.Monsters)
         {
             uint mana = conn.PlayerMana, life = conn.PlayerLife;
@@ -200,8 +202,13 @@ partial class Program
     }
 
     // A cast's time in ms: the same level, effective quality and character modifiers as the client skill record.
-    static int? CastMs(ClientState conn, int effect, int level, int quality) =>
-        Skills.CastTimeMs(effect, level, quality, CharacterPlayerStats(conn));
+    static int? CastMs(ClientState conn, int effect, int level, int quality, ushort skillId = 0)
+    {
+        if (skillId == 0) return Skills.CastTimeMs(effect, level, quality, CharacterPlayerStats(conn));
+        var stats = SupportedStatsFor(conn, skillId, CharacterPlayerStats(conn));
+        int speed = Stats.Key("cast_speed_+%") is uint key ? stats.GetValueOrDefault(key) : 0;
+        return SpellCastTiming.ForSkill(Skills, effect, speed, ActionSpeed.Multiplier(stats, Stats.Key))?.DurationMilliseconds;
+    }
 
     // Righteous Fire (GrantedEffects RighteousFire): casting it puts the righteous_fire buff (BuffDefinitions row 12: the
     // flames around the player, BuffVisuals 15) on the player with S→C 0x1c1. While it lasts the player burns for 90% of
@@ -269,8 +276,7 @@ partial class Program
             await EndRighteousFire(remote, stream, ciphers, conn, restriction);
             return;
         }
-        var stats = Skills.EffectStatsFor(gem.Effect, gem.Level, gem.Quality,
-            FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
+        var stats = SupportedStatsFor(conn, gem.Id, FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
         int Get(string name, int fallback = 0) => Stats.Key(name) is uint key && stats.TryGetValue(key, out int value) ? value : fallback;
         int radius = SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18), name => Get(name), spell: true, combined: true);
         await rf.RingGate.WaitAsync();
@@ -314,8 +320,7 @@ partial class Program
         ushort? buffVisual = Art.BuffVisual("righteous_fire_buff_visual", variation), auraVisual = Art.BuffVisual("righteous_fire_aura_visual", variation);
         string? ringAo = Art.Animated("righteous_fire_ring", variation) ?? (variation == 0 ? RighteousFireRingAo : null);
         // The radius takes the player's area of effect stats (passives, items, gem quality) under the skill's own (SkillArea).
-        var stats = Skills.EffectStatsFor(effect, level, quality,
-            FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
+        var stats = SupportedStatsFor(conn, skillId, FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2));
         int Get(string name, int fallback) => Stats.Key(name) is uint k && stats.TryGetValue(k, out int v) ? v : fallback;
         int radius = SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18), name => Get(name, 0), spell: true, combined: true);
         (int X, int Y) at;
@@ -439,6 +444,16 @@ partial class Program
                         && Dist(m.Walk.Position(now), at) <= Quests.SightRange).Select(m => m.Variety!.Id).Distinct()];
                 foreach (string variety in seen) await SetQuestFlags(remote, stream, ciphers, conn, Quests.OnMonsterSeen(conn.Layout.Id, variety));
             }
+            // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
+            if (conn.Glyphs?.Wall is { } glyphWall && !conn.HasQuestFlag(GlyphQuest.SeenGlyphWall)
+                && Dist(at, (glyphWall.X, glyphWall.Y)) <= Quests.SightRange)
+                await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.SeenGlyphWall]);
+            // a1q4: the HaveGlyph flags follow the glyphs carried (dropped, sold, stashed ones too), about once a second.
+            if (conn.Clock.Elapsed.TotalSeconds >= conn.GlyphSyncAt)
+            {
+                conn.GlyphSyncAt = conn.Clock.Elapsed.TotalSeconds + 1;
+                await SyncGlyphs(remote, stream, ciphers, conn);
+            }
         }
     }
 
@@ -514,6 +529,7 @@ partial class Program
             if (manaAfter != manaBefore) await SendPlayerMana(remote, stream, ciphers, conn, null);
             bool lifeFull = lifeAfter == UnreservedLife(conn), manaFull = manaAfter == manaCap;
             ended.AddRange(conn.FlaskEffects.End(e => (e.LifePerSecond == 0 || lifeFull) && (e.ManaPerSecond == 0 || manaFull)));
+            ended = conn.FlaskEffects.KeepRunning(ended, lifeFull, manaFull, now);
             if (ended.Count > 0)
                 await EndFlaskEffects(remote, stream, ciphers, conn, ended, $"life {lifeAfter}/{conn.PlayerMaxLife}, mana {manaAfter}/{manaCap}");
         }
@@ -523,7 +539,7 @@ partial class Program
     static async Task EndFlaskEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<Flasks.Effect> ended, string why)
     {
         foreach (var e in ended)
-            if (FlaskBuffs) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
+            if (FlaskBuffs && e.Buff != 0) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
             else Console.WriteLine($"[gateway] {remote} flask {e.Slot} effect ends ({why})");
     }
 
@@ -562,7 +578,7 @@ partial class Program
                 var resistedDot = damageOverTime with
                 {
                     DamagePerSecond = DamageModel.Mitigate(damageOverTime.DamagePerSecond, resistance.Value, resistance.Maximum)
-                        * PassiveDamageTakenFactor(conn, m, DamageType.Fire)
+                        * m.Mods.Effects.DamageTaken(spell: false) * PassiveDamageTakenFactor(conn, m, DamageType.Fire)
                 };
                 var (damage, carry) = resistedDot.Tick(seconds, m.Burn);
                 m.Burn = carry;
@@ -692,6 +708,7 @@ partial class Program
             conn.PlayerLife = UnreservedLife(conn);
             conn.Ward.Restore();
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
+            conn.HitRecovery.Clear();
             conn.AuraDeathHandled = false;
             conn.PlayerMana = (uint)UnreservedMana(conn);
             foreach (var m in conn.Monsters.Values) m.Aggro = false;
@@ -727,6 +744,7 @@ partial class Program
     // (AOFile), class byte (IntegerId), attributes and unarmed attack; the name is the character's.
     static async Task SendPlayer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        PrepareHideoutWaypoint(conn);
         var (layout, name, classRow, pools) = (conn.Layout, conn.Character, conn.ClassRow, conn.Pools);
         var cls = Skills.ClassFor(classRow);
         var stats = CharacterPlayerStats(conn);

@@ -69,6 +69,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Automated controls cover positive/negative deltas, unequal factors, missing identity and true zero.
   Integrated native selected Burning Arrow reads damage per use 25.20, APS 10.78/14.35 and DPS 271.66/361.62.
   These are received action stats; automated tests also check the shared combat packet.
+  Ordinary bow ground/object attacks now share contact-time release and damage at the actual flight collision
+  (#203, automated and native collision/release/pause checks pass).
+  Object uses no longer also deal a melee contact hit.
   Projectiles spawn at the captured terrain height + `Game_PROJECTILE_HEIGHT` (5 steps = torso) on natural ground;
   without a capture they use the bare offset.
   Code: `SkillCatalog.cs`, Gateway (`CastOn`, `LaunchProjectile`, `AreaSkillHit`), `ProjectileObject`.
@@ -151,7 +154,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: Gateway (`ActivateRighteousFire`, `RunPlayerTick`), `SkillArea.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Spells are released at the cast animation's contact keyframe (Witch 599 of 1066 ms;
-  every class's from its rig .amd), sped up by cast speed.
+  every class's from its rig .amd), with the server duration adjusted once for cast speed.
   Code: `AnimationContacts.cs`, `scripts/re/anim_contacts.py`.
   Docs: [11](../docs/protocol/11-skills.md) §9.
 
@@ -231,7 +234,32 @@ Part of [Status](../Status.md); what to build next in this area is in
   Wire, active/expired/zero-rate and queued encrypted-send checks also pass.
   Multi-use, duplicate same-effect gems, shared groups, extra uses, bypass, typed/conditional/more recovery and official
   tick equivalence remain outside this slice.
-  Frostblink's location-instant 0x190 input is a separate contribution and is not implemented in this slice.
+  Skill records carry the GEPL Cooldown and the stats the cooldown count, and the server refuses a skill until its
+  cooldown is over.
+  Ground-target C→S 0x190 now frames its 12 bytes and routes ordinary Frostblink through mana/cooldown acceptance.
+  The ground 0x1ce uses the raw aim; the server mirrors native 32/42-cell distance limits and ends the old walk.
+  Placement requires a captured grid and clear terrain, barriers and endpoint clearance.
+  Action tokens and pending releases remain unchanged; other location instant movement is withheld.
+  Actual Q input and a cooldown retry matched native/server positions, with two 12-mana costs and two confirmations.
+  Early retry, noninstant Fireball and unsigned-invalid coordinate requests changed no position or mana.
+  Manual native experiments separately verified near/far clamps and the old predicted walk ending after a blink.
+  Hovered-monster Frostblink sends 0x191 and now shares movement acceptance, with an object-bound 0x1ce.
+  Its size-aware object candidate trace precedes the distance clamp;
+  it does not reuse the monster centre as a ground aim.
+  Both preflight and the send gate require a living known-size monster with no active walk, and recheck placement.
+  Invalid preflight changes no mana/cooldown; later invalidation withholds confirmation under the existing cost policy.
+  Automated actual-send tests cover current target/player sampling, target death/walk, pause, transfer, barriers and unequip.
+  Four manual native object confirmations verified clear near/far/diagonal/off-axis endpoints.
+  A reflected terrain fallback is deliberately rejected.
+  Actual hovered Q on a stationary monster emitted 0x191 and one object-bound 0x1ce with flags 0x20.
+  From `(280,220)` against `(300,220)`, native/server position became `(317,220)` for one 12-mana cost.
+  A framed ground retry at 0.5 seconds changed no mana or position and sent no extra confirmation.
+  Combined #197 synchronization retained base 3000 ms, total 3 seconds and rate 1.
+  Production framed off-axis/far object requests matched native/server endpoints with one 12-mana cost each.
+  Framed moving-target, reflected-terrain, missing-target and noninstant requests changed no mana or position.
+  They sent no confirmation, and the invalid-combination control kept native cooldown entries empty.
+  Production movement during an active walk has not been measured.
+  Frostblink damage, chilled ground, enemy-dependent recovery and shared Blink cooldown groups remain unsupported.
   The skill bar keeps its slots when skills are re-sent or a gem is socketed again (the saved bar goes out as 0x53)
   ([11](../docs/protocol/11-skills.md) §9, §11).
 - **Auras (the simple set is verified live).** Reservation is read from GrantedEffectsPerLevel (`ManaReservationFlat`
@@ -243,7 +271,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The skill-bar active frame and rotating circle now receive the buff's skill id/action hash association (0x1c1 bit3),
   including area-entry restoration; automated checks pass, live icon verification pending.
   Not modelled: Pride's enemy debuff, Heralds, banners, curse auras,
-  Purity ailment immunity, Reservation masteries 1/2/6, supports and party/minion auras.
+  Purity ailment immunity, Reservation masteries 1/2/6, special support execution and party/minion auras.
   Life reservation and passive-granted auras use the same pool/effect lifecycle
   ([11](../docs/protocol/11-skills.md) 13).
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
@@ -259,6 +287,22 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Attack speed passives.** Generic, melee, one-/two-handed, weapon-family, shield and dual-wield passive attack
   speed is summed into the client's `main_hand_attack_speed_+%`;
   dual wielding adds PoB's 10% more and the server's unarmed attack uses the same final value.
+  Attack gems now apply their extracted inherent speed multiplier to total base duration separately from player speed.
+  Pacing, contact/release timing, channel intervals and selected APS share the same rounded native base duration.
+  Actual native bow input verified ordinary duration 0.714 s and Burning Arrow 1.02 s, with stored APS 1.40 and 0.98.
+  Original weapon base 714 ms and player speed 0% stayed unchanged; release/contact timing was not separately measured.
+  Catalog, modifier-order, native-field and spell-exclusion tests pass.
+  Supports, conditional/per-charge speed, special time overrides and attack-gem damage/DPS remain separate work.
+  Selected attack-gem main-hand ranges now share the converted combat packet, including skill effectiveness.
+  All twelve ranges clear absent types; pre-crit averages retain fractions and DPS uses the emitted APS value.
+  Creation and refresh pass raw character stats and the actual weapon separately from inherited display values.
+  Native Burning Arrow showed 9-23 fire/total, physical zero, per-use 16.52 and DPS 16.19 at APS 0.98.
+  Added cold damage showed 9-9 cold and 18-32 total; clearing it removed the cold rows.
+  Relog retained the base result.
+  A noncritical server hit dealt 24 damage, while ordinary attack retained its original ranges and averages.
+  Packet, catalog, conversion, source-isolation and native row-format tests also pass.
+  Ordinary attacks, spells and off-hand display paths are unchanged.
+  Conditional effects, special support execution, crit weighting and broader weapon modifier scope remain separate work.
   The default attack also sends the panel's `hundred_times_damage_per_second` and
   `display_hundred_times_damage_per_skill_use`.
   Live verified: the dual-wield character's APS follows the passives (2.93 → 2.98 after a node).
@@ -266,6 +310,32 @@ Part of [Status](../Status.md); what to build next in this area is in
   the character panel's APS stays cached after a passive allocation (reopening the panel or switching its tab does not
   refresh it; only a relog does).
   ([11](../docs/protocol/11-skills.md) §4)
+- **Spell cast timing (#192).** Catalog base/virtual cast milliseconds now stay unchanged for native spell actions,
+  which apply cast speed themselves.
+  Server waits and displayed casts per second share `SpellCastTiming`; attacks keep their existing path.
+  The old -80% Fireball recovery capture lasted 18.75 seconds instead of 3.75 due to two divisions by 0.2.
+  Automated 0/+100/-80 timing, instant/channel classification, invalid-rate and existing aura/sum checks pass.
+  Real-client Q Fireball clips measured 3.750000157 s at -80%, 0.375 s at +100%, and 0.75 s at zero.
+  Native virtual base stayed 750 ms; emitted cast rates were 0.27, 2.67 and 1.33 casts/s respectively.
+  Projectile release/contact alignment was not separately measured.
+  Instant casts remain instant; channel damage cadence and conditional action-speed mechanics are unchanged.
+  Numeric server durations below 1 ms are floored, and invalid factors/unrepresentable waits produce no spell effect.
+  Code: `SpellCastTiming.cs`, Gateway (`GemSkills`, `CastMs`, `CastGemSkill`, `LaunchProjectile`, `AreaSkillHit`).
+  Docs: [11](../docs/protocol/11-skills.md) section 9.
+- **Selected spell hit damage panel (#188).** Spell total/per-type ranges and pre-crit average damage/DPS
+  now use the same converted packet as projectile and area combat.
+  All range fields are explicit, including zeros for absent types; hitless spells clear inherited weapon DPS/per-use.
+  Initial player creation and later skill refresh both pass separate character conversion inputs.
+  Attack displays, modifier precedence and the existing level-only conversion rule are preserved.
+  Automated mixed conversion/gain, added-damage effectiveness, hitless, attack and native row-format checks pass.
+  Native selection/getter checks show Fireball 10-15 fire and Freezing Pulse 10-15 cold with a +12% spell-damage wand.
+  A conversion/gain control split Fireball into fire and chaos rows and dealt a noncritical 14-damage server hit.
+  Scorching Ray cleared inherited hit ranges and weapon DPS, including after added spell damage refreshed its record.
+  Ranges use server floors; averages retain packet fractions and exclude crit weighting, target mitigation,
+  per-type integer-roll expectation and cooldown/downtime.
+  Beam/DoT displays, conditional damage rules and broader conversion semantics remain outside this slice.
+  Code: `SpellHit.cs`, `SpellPanelStats.cs`, Gateway (`GemSkills`, `LaunchProjectile`, `AreaSkillHit`).
+  Docs: [11](../docs/protocol/11-skills.md) sections 9 and 14.
 - **Critical strikes.** The server rolls unconditional crit passives: the equipped main hand's `WeaponTypes.dat`
   critical chance (permyriad) raised by generic/attack/melee/weapon-shape increased crit chance for attacks,
   each spell's extracted base chance, and 150% plus `base_critical_strike_multiplier_+`;
@@ -338,15 +408,36 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [11](../docs/protocol/11-skills.md) §4, §5 and §12.
 - **Projectiles.** Moving targets are checked throughout flight by sweeping observed relative movement.
   A monster can change course away from a hit, enter the path later, or intercept before a farther target.
-  The client glide is stopped at the contact cell before impact with a height-preserving 0x1b7.
+  The client glide is stopped at the contact cell before impact with the creation marker/world-z pair in 0x1b7.
   Cast release, flight and explosion cleanup use game time and wait through pause.
   Area changes remove outstanding visuals before handoff and invalidate flights even if the transfer fails.
   Disconnects cancel outstanding flight tasks.
+  Ordinary bows snapshot current position, weapon and offensive inputs after their release wait, retaining the
+  original aim; target evasion and impales resolve at the accepted collision's actual send gate.
+  An evaded target is skipped once per straight flight, including a later hit within the same swept interval.
+  This is a current-wiki-supported policy; official-server evasion continuation and snapshot equivalence remain
+  unverified. Already-paused uses are rejected; accepted queued confirmations run outside
+  ground input dispatch and can wait for resume or original-token cancellation.
+  Actual queued-send tests cover pause, action replacement, death and transfer, plus released arrows surviving
+  later actions/player death. Ordinary hits use ranged notifications, preserve existing damage/crit/impale
+  approximations and clear impales on death. Native before-controls confirmed the old visual-only ground arrow
+  and independent melee contact hit on object use. On the combined runtime, native ground/object right-clicks
+  each dealt one hit only at the arrow stop (13 at (296,221), 6 at (296,220)), without melee `0x1af 0x4201`.
+  Creation now occurs in the bow clip near contact; frame/server scheduling delay remains visible.
+  Native wall-before-object, nearer interceptor, moving-away miss, framed Move before/after release, flight pause,
+  release pause and paused raw ground/object dispatch controls passed. Added cold removed after release stayed
+  in the arrow's 112-damage killing hit, with one 4-XP award (loot unmeasured).
+  Combined-only Frostblink checks passed: actual Q after release preserved the old hit; a timed framed `0x190`
+  before release changed the sampled origin while retaining the original aim. Combined recovery controls
+  cancelled a pending release, denied recovery-time input and accepted fresh input after expiry; an already
+  released arrow still stopped/removed. These checks compose separate Frostblink/recovery contributions.
   Automated trajectory, wall, lifecycle and packet checks pass.
   Live checks verified a moving-away miss, a later-entry hit, first-wall contact, pause/resume and native glide stop.
   Raw fixed-height and terrain-sentinel stop packets preserved their fields and cleared native movement duration.
-  These live collision and raw-stop checks preceded the bow packet/height update; merged bow/collision
-  integration still needs a live recheck. Fixed-height stops preserve the new creation marker/world-z pair.
+  Earlier Fireball/raw-stop checks preceded the bow packet/height update; the ordinary bow controls above cover
+  its combined path on natural ground. Attack-gem height/collision composition still needs a live recheck.
+  Creation, glide endpoint and stop now share one signed marker; packet tests cover positive, negative and zero height.
+  Corrected normal launches retained marker 5/world z -39.0625 at creation, paused mid-flight and both contact stops.
   Broader surface-height accuracy remains open (#182).
   Positions remain integer server walk estimates sampled about every 16 ms, with a shared collision radius
   and straight movement between samples.
@@ -359,8 +450,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The player's computed total is counted once; the skill's own level/quality bonus is added separately.
   The development speed override retains priority.
   Live Fireball casts over the same 116-cell path took 1.212 seconds at baseline, 0.606 at +100% and 2.425 at -50%.
-  Conditional/more/less speed and support-gem application remain open.
-  Code: `ProjectileSpeed.cs`, `ProjectileFlight.cs`, `Program.Combat.cs` (`LaunchProjectile`, `FlyProjectile`), `ClientState.cs`,
+  Conditional/more/less speed and special projectile support mechanics remain open.
+  Code: `ProjectileSpeed.cs`, `ProjectileFlight.cs`, `OrdinaryBowShot.cs`, `Program.Bows.cs`,
+  `Program.Combat.cs` (`LaunchProjectile`, `FlyProjectile`), `ClientState.cs`,
   `InstanceProtocol.Teleport`.
   Docs: [11](../docs/protocol/11-skills.md) §10 and [22](../docs/protocol/22-pause.md).
 - **Combat.** The player's default attack kills monsters with server-side damage and table-backed monster resistances.
@@ -368,10 +460,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   The player's hit lands at the attack animation's contact keyframe, a monster's still at half its attack time.
   Monsters use their first granted effect and swing back; their attacks roll player evasion and then go through armour
   and block.
+  Ordinary physical melee hits can trigger native player TakeHit recovery through 0x1d1.
+  Native proof stopped predictive walking and casting, blocked new actions, and cleared the recovery flag afterward.
+  Server recovery cancels pending actions and channel hits and stops the walk estimate for the same interval.
+  Actual physical monster hits stopped walking and cancelled a slow cast before release in copied-save live checks.
+  Released Fireball flight continued, and a stun-immune control took damage without recovery.
+  With a bow equipped, a hit cancelled pending Burning Arrow, blocked an ordinary arrow during recovery,
+  and allowed a fresh arrow afterward; an already released Burning Arrow kept flying.
+  Chance, avoidance, immunity, recovery and delayed object walk-ups have automated checks.
+  ES builds, substituted thresholds and unsupported conditional stun defences are skipped conservatively.
+  See [11](../docs/protocol/11-skills.md), player hit recovery, for scope and protocol evidence.
   The player's life comes from the class/level/passive pools.
   The server has no simulation loop: hits use timers, attacks are bounded by a 30/s tick (`TickRate`), the AI runs
   every 500 ms.
-  Item mods count through the global item stats; "emerge" monsters stay hidden;
+  Item mods count through the global item stats;
   346 varieties with NPC / ControlZone / ... components are refused.
 - **Damage model (foundation, with armour/evasion).** A hit is a per-type `DamagePacket`;
   `DamageConversion` handles the game's physical, lightning, cold, fire, chaos order, chained conversion, skill/global
@@ -404,6 +506,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Cyclone area of effect (2026-10-25).** `/set_aoe` now resends Cyclone's calculated final radius in the skill
   record, using the same radius calculation for server hits.
   Cyclone/CycloneAltX use a 16-cell base when their exported stat set has none.
+  The player's increased area counts once for every area skill (`AreaPlayerStats`); it counted twice before.
   Spell-only area does not affect the attack.
   Tested calculations; live visual check pending.
   The first live check found that direct radius alone did not scale the channelled visual;
@@ -416,6 +519,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Complete damage/critical/mitigation paths, exact-ticket travel and queued-expiry publication have regression checks.
   Combined native verification remains pending; Enduring Cry, sharing, consumption and replacement rules remain open.
   See [skills](../docs/protocol/11-skills.md).
+  Upstream native checks verified counted/timed charge icons, refresh/expiry, death and sample damage/speed effects.
+  Those captures establish the original protocol; combined verification of this guarded runtime remains pending.
 
 ## Not working yet
 
