@@ -1338,7 +1338,18 @@ The 50 ms observer settles expiry at the actual encrypted-send gate too.
 Changed charge revisions or pool references discard stale stats/Actor/cooldown/ES/RF publications without consuming
 their clears, removals, buff IDs or dirty progress; a fresh retry publishes the current state.
 Catalog and pool construction stays outside the broad combat lock.
-Native icons, duration/transfer/death behaviour and combined effects still require the integrated client pass.
+Twenty-three integrated native checks pass at source `a959224`, using new synthetic accounts and one client.
+Actual Polytheist/Whisperer paths publish minimum3/4, retain them on ordinary travel and reconnect, and remove them
+on paid refund; clearing removable charges cannot remove those minima.
+The native Buff component installs endurance/frenzy/power definitions and removes every instance on refund.
+An accepted player hit and killing blow grant one Frenzy/Power respectively, without a second death award.
+Power3 plus45 lightning overcap gives the armed830 base2449 and the spell500 reference1475.
+Endurance3 changes an unresisted100 fire hit into88 actual native life lost.
+One transferred charge expires10.01 seconds after its original grant, rather than restarting on destination entry.
+A two-second pause preserves a controlled one-second charge; resume consumes only remaining active time.
+Actual death clears all three types, and normal reconnect does not restore transient charges.
+Evidence: ignored `logs/phrecia-completion/resume-native/rootcharges-results.json`, `rootcharge-buffs-results.json`
+and `charge-native-buffs.jsonl`.
 Enduring Cry execution, charge sharing, charge consumption/replacement and unsupported event conditions remain open.
 
 ### Aura lifecycle: town suppression and death

@@ -414,7 +414,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   minimum/maximum limits, per-charge effects and native buff publication.
   Real Whisperer/Polytheist allocation, reload and refund paths have production integration tests.
   Complete damage/critical/mitigation paths, exact-ticket travel and queued-expiry publication have regression checks.
-  Combined native verification remains pending; Enduring Cry, sharing, consumption and replacement rules remain open.
+  Twenty-three real-client checks cover both Phrecia paths, native buffs, accepted hit/kill gains, combined critical
+  and incoming damage, original transfer deadline, pause, death and reconnect.
+  Enduring Cry, sharing, consumption and replacement rules remain open.
   See [skills](../docs/protocol/11-skills.md).
 
 ## Not working yet
