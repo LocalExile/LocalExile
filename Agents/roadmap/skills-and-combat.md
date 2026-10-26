@@ -70,6 +70,8 @@ validate town/combat/character-switch round trips in the real client (protocol/1
   `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` percent of the maximum mana pool
   (Whisperer "we know all", [20](../docs/protocol/20-damage.md) §2b).
   General/attack penetration and critical elemental ignore now execute with native damage and combined-effect checks.
+  Spell-to-attack and minion-to-owner transfers plus final-defence attack scaling have production-path coverage.
+  Validate their real-client allocation/refund and damage behavior before moving them out of partial status.
   Special ES mechanics, exposure, ailment application, conditional added-damage stats and support
   modifiers remain open.
 - **Start:** special ES mechanics, exposure and the remaining conditional critical strike stats

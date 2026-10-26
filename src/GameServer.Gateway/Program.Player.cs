@@ -517,16 +517,9 @@ partial class Program
     static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
-        double perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
-        var playerStats = CharacterPlayerStats(conn);
-        if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
-            perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
-        int Get(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
-        if (!SkillRestrictions.From(Get).DealsDamage(spell: true)) perSecond = 0;
         // These modifiers affect damage, including RF's burning. Hit-only luck, triple damage and inverted resistance
         // never apply to a damage-over-time tick or to RF's self burn.
-        perSecond *= Math.Max(0, 1 + (Get("damage_+%") + Get("fire_damage_+%") + Get("elemental_damage_+%")
-            + Get("burn_damage_+%") + Get("damage_over_time_+%")) / 100.0) * GamblerFor(playerStats).DamageFactor;
+        double perSecond = RighteousFireDamagePerSecond(conn, rf);
         var damageOverTime = new DamageOverTime(DamageType.Fire, perSecond, seconds);
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var stages = new List<(uint Id, SpawnedMonster M)>();

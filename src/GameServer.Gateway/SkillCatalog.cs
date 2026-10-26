@@ -540,7 +540,8 @@ sealed class SkillCatalog(string folder = "data")
         public IReadOnlyList<(uint, int)> OffStats(IReadOnlyDictionary<uint, int>? player, DamagePacket? totalHit = null,
             int mainHandLocalAttackSpeedPct = 0)
         {
-            var (min, max) = Damage(player);
+            var (min, max) = totalHit is null ? Damage(player)
+                : ((int)Math.Floor(totalHit[DamageType.Physical].Min), (int)Math.Floor(totalHit[DamageType.Physical].Max));
             return
             [
                 (StatKeys.OffHandMinPhysical, min), (StatKeys.OffHandMaxPhysical, max),
@@ -586,9 +587,9 @@ sealed class SkillCatalog(string folder = "data")
         }
 
         /// <summary>The physical hit packet: Characters.dat MinDamage..MaxDamage × (1 + increased / 100).</summary>
-        public DamagePacket HitDamage(IReadOnlyDictionary<uint, int>? player, bool melee = true)
+        public DamagePacket HitDamage(IReadOnlyDictionary<uint, int>? player, bool melee = true, double additionalIncreasedPct = 0)
         {
-            double scale = Math.Max(0, 100 + IncreasedDamage(player, melee)) / 100.0;
+            double scale = Math.Max(0, 100 + IncreasedDamage(player, melee) + additionalIncreasedPct) / 100.0;
             return DamagePacket.Of(DamageType.Physical, new DamageRange(MinDamage * scale, MaxDamage * scale));
         }
 
@@ -615,7 +616,8 @@ sealed class SkillCatalog(string folder = "data")
         /// </summary>
         public IReadOnlyList<(uint, int)> Stats(IReadOnlyDictionary<uint, int>? player = null, DamagePacket? totalHit = null)
         {
-            var (min, max) = Damage(player);
+            var (min, max) = totalHit is null ? Damage(player)
+                : ((int)Math.Floor(totalHit[DamageType.Physical].Min), (int)Math.Floor(totalHit[DamageType.Physical].Max));
             double attacksPerSecond = 1 / AttackSeconds(player);
             double averageHit = totalHit?.AverageTotal ?? (min + max) / 2.0;
             return

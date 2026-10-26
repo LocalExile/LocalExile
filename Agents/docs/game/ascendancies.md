@@ -111,11 +111,11 @@ charges, and a skill's table entry does not grant or execute that skill.
 | Phrecia class | Executed effect examples | Important missing mechanics |
 |---|---|---|
 | Ancestral Commander | Life/armour modifiers; Born under Fire's nearby enemy conversion | Ancestors, totems, echoes and warcries |
-| Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance; chaos armour | Fortification, Rampage, Vaal Rage costs and remaining conditional bonuses |
+| Behemoth | Strength-derived mana; Power of Purpose; unarmed critical base; Rage maximum/chance; chaos armour; final-armour attack increase (native pending) | Double-armour hit chance, Fortification, Rampage, Vaal Rage costs and remaining conditional bonuses |
 | Antiquarian | Attributes/defences, Ward, Adrenaline and Strength-derived skill duration | Far Shot, special stun and ranged/shield rules |
-| Wildspeaker | Suppression and Dexterity | Wolves, Aspects, Tailwind and minion/charge sharing |
-| Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage | Recoup, mana damage absorption, blind and projectile forks |
-| Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences | Wisps, Shrines, Vines and Spellslinger |
+| Wildspeaker | Suppression and Dexterity; 150% minion increases/reductions to owner damage, including per-Dexterity damage (native pending) | Wolves, Aspects, Tailwind and minion/charge sharing |
+| Whisperer | Mana per Dexterity; no Intelligence mana bonus; mana-derived attack lightning/free costs; Rage; 150% spell increases/reductions to attacks (native pending) | Recoup, mana damage absorption, blind and projectile forks |
+| Daughter of Oshabi | Oath of the Maji's equipment conditions and body defences; final-evasion attack increase (native pending) | Forest Tracking's tracker, Wisps, Shrines, Vines and Spellslinger |
 | Harbinger | Extra ES from life/mana and non-chaos ES bypass | Granted Harbingers, ally AI and time effects |
 | Herald | Shared choice-node allocation, Apocalypse's Herald-gem levels and supported generic modifiers | Actual Herald effects/minions and Herald-specific reservation rules |
 | Bog Shaman | Sanguine Power, Nightblood's life cost and Fell Fen's chaos override | Cost-derived damage/self-hits, self-poison, Pacify and Malediction |

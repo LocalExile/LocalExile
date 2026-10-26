@@ -138,9 +138,14 @@ partial class Program
 
     // Conversion for one hit: the player's stats plus the skill's own stats (base/skill conversion). Player stats win on
     // a key collision; the normal case is that the skill adds stats the player does not have.
-    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
-        DamageStats.Added(weapon.HitDamage(stats, melee), name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell: false, melee)
-            .Scale(Math.Max(0, 1 + (Stats.Key("attack_damage_+%_final_from_rage") is uint rage ? stats.GetValueOrDefault(rage) : 0) / 100.0));
+    internal static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var derived = DerivedDamageIncreases.From(Get);
+        return DamageStats.Added(weapon.HitDamage(stats, melee, derived.AttackPercent), Get, spell: false, melee,
+                additionalIncreasedPct: derived.AttackPercent)
+            .Scale(Math.Max(0, 1 + Get("attack_damage_+%_final_from_rage") / 100.0));
+    }
 
     static GamblerModifiers GamblerFor(IReadOnlyDictionary<uint, int> stats) =>
         GamblerModifiers.From(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
