@@ -321,6 +321,7 @@ static class PathOfBuildingItems
             Mods = [.. mods.Where(m => m.Fractured).Concat(mods.Where(m => !m.Fractured)).Select(m => m.Mod)],
             FracturedCount = checked((byte)mods.Count(m => m.Fractured && m.Mod.Section == ModSection.Explicit)),
         };
+        item = WithHiddenDefenceMod(item, type, title, catalog.Mods);
         if (exportedLevelRequirement is int required && required != ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods))
             throw new ArgumentException($"exported level requirement {required} does not match this client's base and modifier requirements");
         if (percentile.Count > 0)
@@ -333,28 +334,11 @@ static class PathOfBuildingItems
         {
             if (catalog.Defences(type) is not { } defences)
                 throw new ArgumentException($"{type.Name} exports defences but its native armour data is unavailable");
-            var local = ItemModStats.Local(item, catalog.Mods);
-            int Rating(int basis, int added, int increase)
-            {
-                decimal quality = local.GetValueOrDefault("local_quality_does_not_increase_defences") != 0 ? 0
-                    : Math.Max(0, item.Quality + local.GetValueOrDefault("local_item_quality_+"));
-                return checked((int)Math.Round(Math.Max(0L, (long)basis + added) * Math.Max(0m, 1 + increase / 100m)
-                    * (1 + quality / 100m), 0, MidpointRounding.AwayFromZero));
-            }
             bool Matches(byte roll)
             {
-                var basis = defences.AtRoll(roll);
-                int Get(string stat) => local.GetValueOrDefault(stat);
-                int shared = Get("local_armour_and_evasion_+%") + Get("local_armour_and_evasion_and_energy_shield_+%");
-                int armour = Rating(basis.Armour, Get("local_base_physical_damage_reduction_rating"),
-                    Get("local_physical_damage_reduction_rating_+%") + Get("local_armour_and_energy_shield_+%") + shared);
-                int evasion = Rating(basis.Evasion, Get("local_base_evasion_rating") + Get("local_evasion_rating_and_energy_shield"),
-                    Get("local_evasion_rating_+%") + Get("local_evasion_and_energy_shield_+%") + shared);
-                int es = Get("local_no_energy_shield") != 0 ? 0 : Rating(basis.EnergyShield,
-                    Get("local_energy_shield") + Get("local_evasion_rating_and_energy_shield"),
-                    Get("local_energy_shield_+%") + Get("local_armour_and_energy_shield_+%")
-                    + Get("local_evasion_and_energy_shield_+%") + Get("local_armour_and_evasion_and_energy_shield_+%"));
-                return defenceDisplay.All(kv => kv.Value == (kv.Key == "Armour" ? armour : kv.Key == "Evasion" ? evasion : es));
+                var values = ItemDefences.Calculate(item, defences, catalog.Mods, roll);
+                return defenceDisplay.All(kv => kv.Value == (kv.Key == "Armour" ? values.Armour
+                    : kv.Key == "Evasion" ? values.Evasion : values.EnergyShield));
             }
             var possible = Enumerable.Range(0, Item.MaximumDefenceBaseRoll + 1).Select(n => (byte)n).Where(Matches)
                 .OrderBy(n => Math.Abs(n - item.DefenceBaseRoll)).ToArray();
@@ -391,6 +375,30 @@ static class PathOfBuildingItems
     static int Number(string value, string field, int min, int max) =>
         int.TryParse(value, NumberStyles.Integer, Invariant, out int n) && n >= min && n <= max
             ? n : throw new ArgumentException($"{field} must be {min}..{max}, got '{value}'");
+
+    // PoB omits hidden zero-ES modifiers and zero-valued defence lines from these unique exports.
+    // Restore only verified native identities, before matching displayed defences or level requirements.
+    static Item WithHiddenDefenceMod(Item item, ItemCatalog.BaseType type, string? title, ModCatalog mods)
+    {
+        if (item.Rarity != ItemRarity.Unique) return item;
+        var identity = title switch
+        {
+            "Tabula Rasa" => (Base: "BodyInt1", Mod: "RemoveStatsFromTabulaRasa"),
+            "Skin of the Loyal" or "Skin of the Lords" => (Base: "BodyInt1", Mod: "RemoveStatsUnique__1"),
+            "The Apostate" => (Base: "BodyInt7", Mod: "RemoveStatsUnique__2"),
+            _ => default,
+        };
+        if (identity.Mod is null) return item;
+        if (type.Id != "Metadata/Items/Armours/BodyArmours/" + identity.Base)
+            throw new ArgumentException($"unique '{title}' does not match this native base");
+        var mod = mods.ById(identity.Mod);
+        if (mod is null || mod.Stats.Count != 1
+            || mod.Stats[0].Id != "local_unique_tabula_rasa_no_requirement_or_energy_shield"
+            || mod.Stats[0].Min != 1 || mod.Stats[0].Max != 1)
+            throw new ArgumentException($"the hidden defence modifier for '{title}' is unavailable in this client's data");
+        return item.Mods.Any(m => m.Hash == mod.Hash) ? item
+            : item with { Mods = [.. item.Mods, new(ModSection.Hidden, mod.Hash, [1])] };
+    }
 
     static Item WithName(Item item, string title, string folder, List<string> warnings)
     {
@@ -451,6 +459,14 @@ static class PathOfBuildingItems
         bool flask = type.Components.Contains("Flask");
         Match Match(string pattern) => Regex.Match(text, "^" + pattern + "$", RegexOptions.CultureInvariant);
         IReadOnlyList<StatValue> One(string key, Match m) => [new(key, int.Parse(m.Groups[1].Value, Invariant))];
+        if (armour && text.Equals("Has no Energy Shield", StringComparison.OrdinalIgnoreCase))
+            return [new("local_no_energy_shield", 1)];
+        if (Match(@"(?i:(\d+)% increased maximum Energy Shield if Corrupted)") is { Success: true } conditionalES)
+            return One("local_maximum_energy_shield_+%_if_item_corrupted", conditionalES);
+        if (text.Equals("Gain Maximum Life instead of Maximum Energy Shield from Equipped Armour Items", StringComparison.OrdinalIgnoreCase))
+            return [new("gain_maximum_life_instead_of_maximum_es_from_armour", 1)];
+        if (Match(@"(?i:Gain Maximum Life instead of Maximum Energy Shield from Equipped Armour Items at (\d+)% of (?:the|its) value)") is { Success: true } conversion)
+            return One("gain_maximum_life_instead_of_maximum_es_from_armour_at_x%_of_the_value", conversion);
         var flat = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["maximum Life"] = "base_maximum_life", ["maximum Mana"] = "base_maximum_mana",
