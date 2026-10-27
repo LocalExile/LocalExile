@@ -24,6 +24,9 @@ PathOfExile*.exe
 /artifacts/
 /captures/
 
+# Active receiver configuration is local; commit the reusable example, never account tokens or server settings.
+/config/pob-server.json
+
 # --- Secrets ---
 *.pfx
 *.p12

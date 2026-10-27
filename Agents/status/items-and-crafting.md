@@ -90,6 +90,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- PoB import: offline XML/export-code preview and atomic creation of a new native character with supported tree,
+  equipment, flasks, sockets, links and gems.
+  The separate authenticated receiver serves evryBuild's Preview and Forge Character actions.
+  Existing characters are never replaced; unsupported inputs are refused before saving.
+  Imported modifiers do not implement missing gameplay systems or provide PoB calculation parity.
+  Automated coverage passes; fresh in-game validation of this branch remains open.
+  Code: Core `Imports/PathOfBuilding.cs`, Gateway `PathOfBuilding*.cs`.
+  Setup and limits: [PoB import and evryBuild](../docs/dev/pob-import.md).
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` curates each definition.
   `/item Mageblood` creates the Heavy Belt unique with its name, artwork and fixed mods (the Strength is the base

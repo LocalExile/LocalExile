@@ -27,6 +27,8 @@ using DamageOverTime = GameServer.Core.World.DamageOverTime;
 // Offline imports share the Gateway's actual item/save implementation, without starting servers or creating keys.
 if (args.Length > 0 && args[0] == "--import-pob")
     return PathOfBuildingCommand.Run(args[1..], Console.In, Console.Out, Console.Error);
+if (args.Length > 0 && args[0] is "--pob-server" or "--pob-token")
+    return await PathOfBuildingServerCommand.RunAsync(args[1..], args[0] == "--pob-token", Console.Out, Console.Error);
 
 int port = int.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var p) ? p : 6112;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
