@@ -33,6 +33,18 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
 {
     public byte ItemLevel { get; init; } = 1;
     public byte Quality { get; init; }
+    public const byte MaximumDefenceBaseRoll = 31;
+    public const byte SpecialDefenceBaseRoll = 32;
+    byte defenceBaseRoll;
+
+    /// <summary>The Armour component's shared base-defence roll: 0..31 interpolates each defence's native range.
+    /// Wire value 32 preserves the client's special minimum-base flag; it is not the maximum roll.</summary>
+    public byte DefenceBaseRoll
+    {
+        get => defenceBaseRoll;
+        init => defenceBaseRoll = value <= SpecialDefenceBaseRoll ? value
+            : throw new ArgumentOutOfRangeException(nameof(DefenceBaseRoll), value, "Defence base roll must be 0..32.");
+    }
     public int Charges { get; init; }
     public ushort StackSize { get; init; } = 1;
     public IReadOnlyList<ItemSocket> Sockets { get; init; } = [];
@@ -135,9 +147,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     }
                     break;
                 // Armour 0x1424affc0 reads u8 (0..0x20); it is stored in +0x28 (0x1424afc90 clamps to 0x1f,
-                // 0x20 sets +0x2a). 0 is the normal value for our items.
+                // 0x20 sets +0x2a and uses minimum bases instead of a percentile).
                 case "Armour":
-                    w.U8(0);
+                    w.U8(DefenceBaseRoll);
                     break;
                 // 0x1421df6e0: u8 +0x2b8 (item level), u8 +0x2bc (level requirement, kept as sent), u16 flags (bit 6
                 // incubator, bit 4 → u8, bit 15 a 0x1c8 record), the base magic properties 0x142201d70 (MagicProperties), u8, u8.

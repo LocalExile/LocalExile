@@ -4,36 +4,30 @@ using GameServer.Core.Protocol.Login;
 
 partial class Program
 {
-    // Until the ES pool integration owns stun avoidance, exclude any known source, including raw aura/item ES and
-    // active armour/shield bases which the standalone server does not yet fold into maximum_energy_shield.
-    static bool PlayerHasEnergyShieldForRecovery(ClientState conn, Func<string, int> get)
-    {
-        if (PlayerHitRecovery.EnergyShieldPresent(get)) return true;
-        return ItemModStats.EquipmentRows.SelectMany(ItemsOf(conn).Items)
-            .Where(i => !IsInactive(conn, i.Id)).Any(i =>
-                Items.ByHash(i.Item.TypeHash) is { } type && Items.Defences(type) is { EnergyShieldMin: > 0 }
-                || ItemModStats.Local(i.Item, Items.Mods).GetValueOrDefault("local_energy_shield") > 0);
-    }
+    // Effective pools already include local prohibitions; a suppressed raw ES base cannot bypass hit recovery.
+    static bool PlayerHasEnergyShieldForRecovery(ClientState conn, Func<string, int> get) =>
+        conn.Pools.EnergyShield > 0 || PlayerHitRecovery.EnergyShieldPresent(get);
 
     static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, Items);
 
     // The local armour, evasion and energy shield of the equipped body armour, helmet, gloves, boots and shield: the base
-    // type's ArmourTypes roll (its minimum, matching the item's zero base percentile) plus the item's local flat/increased
+    // type's saved ArmourTypes roll plus the item's local flat/increased
     // defence mods and quality (ItemDefences). Inactive items (requirements not met) give none.
     static (int Armour, int Evasion, int EnergyShield) EquippedBaseDefences(ClientState conn)
     {
         var items = ItemsOf(conn);
-        int armour = 0, evasion = 0, energyShield = 0;
+        long armour = 0, evasion = 0, energyShield = 0;
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
                 && Items.ByHash(equipped.Item.TypeHash) is { } type && Items.Defences(type) is { } d)
             {
-                var (a, e, s) = ItemDefences.Of(d, ItemModStats.Local(equipped.Item, Items.Mods), equipped.Item.Quality);
+                var (a, e, s) = ItemDefences.Calculate(equipped.Item, d, Items.Mods);
                 armour += a;
                 evasion += e;
                 energyShield += s;
             }
-        return (armour, evasion, energyShield);
+        return ((int)Math.Min(int.MaxValue, armour), (int)Math.Min(int.MaxValue, evasion),
+            (int)Math.Min(int.MaxValue, energyShield));
     }
 
     // The equipped main/off hands in both weapon sets. Rows 2/3 are Weapon1 and rows 14/15 Weapon2.

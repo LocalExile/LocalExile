@@ -59,12 +59,22 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 Minimal item the server sends: flags 0, Base with only the visual identity, Mods identified and normal with no mods.
 
 **Base defences:** an `ArmourTypes.dat` row is keyed by `BaseItemTypesKey` (the BaseItemTypes row) and gives
-`ArmourMin`/`ArmourMax` and `EvasionMin`/`EvasionMax`. The client interpolates between them with the item's base
-percentile; our items send the Armour component's default `0`, so the server uses the minimum. The equipped body
+`ArmourMin`/`ArmourMax`, `EvasionMin`/`EvasionMax` and `EnergyShieldMin`/`EnergyShieldMax`.
+The saved Armour component byte selects one shared roll from 0 through 31 for all three ranges.
+Each base is `round(minimum + (maximum - minimum) * roll / 31)`, halfway up before local modifiers.
+Raw 32 is the native special minimum-base state; values above 32 are refused.
+Ordinary item creation and legacy saves still default to zero; loading and crafting preserve explicit saved rolls.
+This foundation supports imported item state without changing ordinary item generation or adding Sacred Orb handling.
+The equipped body
 armour, helmet, gloves, boots and shield count, and each piece adds its own local flat/increased defence mods and item
 quality (`ItemDefences`: `local_base_physical_damage_reduction_rating`, `local_base_evasion_rating`,
 `local_energy_shield`, `local_evasion_rating_and_energy_shield`, their `+%` forms and the combined ones; +1% per
 quality on armour, evasion and energy shield).
+The complete local result rounds halfway up once after local increases and multiplicative quality.
+Additional local quality and its defence prohibition are respected.
+Both native zero-ES flags override only that item's ES; the hidden no-requirements flag retains the level gate.
+The shared calculation is pinned to PoB commit `16de4b82d57f1c0de6eb40f37143c32d4da36a02`
+([Item.lua](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b8/src/Classes/Item.lua#L2345)).
 
 ## 2a. Mods: rarity and mod lists
 

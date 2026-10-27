@@ -238,7 +238,19 @@ sealed class ItemCatalog
     /// <summary>A base's defence range from ArmourTypes.dat (the values the client interpolates with the item's base
     /// percentile). Body armour, helmets, gloves, boots and shields have them; most other bases are zero.</summary>
     public readonly record struct BaseDefences(int ArmourMin, int ArmourMax, int EvasionMin, int EvasionMax,
-        int EnergyShieldMin = 0, int EnergyShieldMax = 0);
+        int EnergyShieldMin = 0, int EnergyShieldMax = 0)
+    {
+        /// <summary>Resolve the saved native roll before local modifiers; wire 32 selects the minimum base.</summary>
+        public (int Armour, int Evasion, int EnergyShield) AtRoll(byte roll)
+        {
+            if (roll > Item.SpecialDefenceBaseRoll)
+                throw new ArgumentOutOfRangeException(nameof(roll), roll, "Defence base roll must be 0..32.");
+            int effective = roll == Item.SpecialDefenceBaseRoll ? 0 : roll;
+            int At(int minimum, int maximum) =>
+                (int)(minimum + (((long)maximum - minimum) * effective + 15) / Item.MaximumDefenceBaseRoll);
+            return (At(ArmourMin, ArmourMax), At(EvasionMin, EvasionMax), At(EnergyShieldMin, EnergyShieldMax));
+        }
+    }
 
     private Lazy<Dictionary<int, BaseDefences>> _defences = null!;
 
@@ -417,9 +429,11 @@ sealed class ItemCatalog
     }
 
     /// <summary>A new item of this type: item level 1, normal, flasks full, its BaseItemTypes implicits rolled.</summary>
-    public static Item Create(BaseType t, IReadOnlyList<ItemSocket>? sockets = null, IReadOnlyList<byte>? links = null) =>
+    public static Item Create(BaseType t, IReadOnlyList<ItemSocket>? sockets = null, IReadOnlyList<byte>? links = null,
+        byte? defenceBaseRoll = null) =>
         new(t.Hash, t.Components, t.VisualIdentity)
         {
+            DefenceBaseRoll = defenceBaseRoll ?? 0,
             Charges = t.MaxCharges, Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t) : sockets ?? [],
             Links = ResonatorSockets(t) > 0 ? null : links,
             Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, Random.Shared))] : [],

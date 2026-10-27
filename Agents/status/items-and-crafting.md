@@ -69,7 +69,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   damage …), the main hand's local crit, attack speed and accuracy, its local physical damage and quality and its local
   added elemental/chaos damage (`ItemWeapons`), and the armour pieces' and shield's local flat/increased armour,
   evasion and energy shield mods and quality (`ItemDefences`, [13](../docs/protocol/13-items.md) §2c).
-  Not yet: uniques and special mods (#60).
+  Saved armour base rolls survive wire/save round trips and feed the shared local defence calculation.
+  Ordinary new items and legacy saves retain zero/minimum bases; ordinary generation policy is unchanged.
+  Local defence rounding, quality rules and native zero-ES/attribute-requirement flags have regression coverage.
+  Broader unique and special gameplay mechanics remain separate (#60).
   Code: `InstanceItems.cs`, Gateway (`ModCatalog.cs`, `ItemRolls.cs`, `ItemDrops.cs`, `ItemModStats.cs`,
   `ItemCatalog.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2a-§2c.

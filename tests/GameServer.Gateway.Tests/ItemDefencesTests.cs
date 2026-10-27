@@ -16,8 +16,8 @@ public class ItemDefencesTests
         var (armour, _, _) = ItemDefences.Of(Base(armour: 19),
             Local(("local_base_physical_damage_reduction_rating", 20), ("local_physical_damage_reduction_rating_+%", 50)), 20);
 
-        // (19 + 20) * 150% = 58, then 20% quality = 69.
-        Assert.Equal(69, armour);
+        // Native local defence rounds the complete (19 + 20) * 1.5 * 1.2 = 70.2 once, to 70.
+        Assert.Equal(70, armour);
     }
 
     [Fact]
@@ -36,9 +36,9 @@ public class ItemDefencesTests
         var (armour, evasion, energyShield) = ItemDefences.Of(Base(10, 10, 10),
             Local(("local_armour_and_evasion_and_energy_shield_+%", 50)), 10);
 
-        Assert.Equal(16, armour);         // 10 * 150% = 15, then 10% quality = 16
-        Assert.Equal(16, evasion);
-        Assert.Equal(16, energyShield);
+        Assert.Equal(17, armour);         // 10 * 1.5 * 1.1 = 16.5, native half-up final rounding.
+        Assert.Equal(17, evasion);
+        Assert.Equal(17, energyShield);
     }
 
     [Fact]

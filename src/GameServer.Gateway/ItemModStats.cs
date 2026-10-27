@@ -81,13 +81,20 @@ static class ItemModStats
             var raw = RawAttributes(active.Select(w => w.Item), mods);
             return AttributeModifiers.FromWide(name => raw.GetValueOrDefault(name))
                 .Apply(baseAttributes.Str, baseAttributes.Dex, baseAttributes.Int);
-        }, previous);
+        }, previous, mods);
 
     /// <summary>Resolve the same staged policy with final attributes recalculated from the active raw sources.</summary>
     public static (HashSet<uint> Inactive, IReadOnlyList<Item> Active) ResolveEquipment(
         IReadOnlyList<Worn> worn, int level, Func<IReadOnlyList<Worn>, (int Str, int Dex, int Int)> finalAttributes,
-        IReadOnlySet<uint>? previous = null)
+        IReadOnlySet<uint>? previous = null, ModCatalog? mods = null)
     {
+        if (mods is not null) worn = worn.Select(w =>
+        {
+            var local = Local(w.Item, mods);
+            return local.GetValueOrDefault("local_no_attribute_requirements") != 0
+                || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0
+                ? w with { Strength = 0, Dexterity = 0, Intelligence = 0 } : w;
+        }).ToArray();
         var inactive = Inactive(worn, level, finalAttributes, previous);
         return (inactive, worn.Where(w => !inactive.Contains(w.Id)).Select(w => w.Item).ToArray());
     }

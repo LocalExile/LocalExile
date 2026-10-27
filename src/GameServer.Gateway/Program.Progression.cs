@@ -119,7 +119,7 @@ partial class Program
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
         var (inactive, active) = ItemModStats.ResolveEquipment(worn, level ?? conn.Pools.Level,
             active => AttributeInputs(RawAttributes(active.Select(w => w.Item)), dev)
-                .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god), before);
+                .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god), before, mods: Items.Mods);
         // Item activation depends on the item, not on socketed gems. Checking gems here used the previous
         // connection's/initial pools and disabled the entire item's stats and unrelated gems before pools existed.
         // Individual gem requirements are checked against the completed pools when socketing or casting.
