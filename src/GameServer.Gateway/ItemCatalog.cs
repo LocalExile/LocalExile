@@ -83,6 +83,9 @@ sealed class ItemCatalog
 
     public string? Error => _rows.Value.Error;
 
+    /// <summary>All extracted bases, for importers which must reject ambiguous names instead of using fuzzy lookup.</summary>
+    public IReadOnlyList<BaseType> All => _rows.Value.Rows;
+
     /// <summary>The type of an item (its BaseItemTypes HASH32).</summary>
     public BaseType? ByHash(uint hash) => _byHash.Value.GetValueOrDefault(hash);
 
@@ -129,7 +132,11 @@ sealed class ItemCatalog
     /// <summary>A gem's variant (SkillGems GemVariants → GemEffects; the SkillGem component's u32 +0x3c is its index): its
     /// name, the GrantedEffects rows it grants (a Vaal gem's Vaal skill, then its base skill; -1 for none), and whether
     /// it may be created.</summary>
-    public sealed record GemVariant(int Index, string Name, int Effect, int Effect2, bool Creatable);
+    public sealed record GemVariant(int Index, string Name, int Effect, int Effect2, bool Creatable)
+    {
+        /// <summary>Stable GemEffects.dat Id used by build export tools (it can differ from GrantedEffects Id).</summary>
+        public string Id { get; init; } = "";
+    }
 
     /// <summary>A gem type (a SkillGems row): its variants (the first is the normal gem) and its experience thresholds,
     /// ItemExperiencePerLevel's Experience for levels 1, 2, … of its experience type; the last level is the cap.</summary>
@@ -140,6 +147,9 @@ sealed class ItemCatalog
 
         /// <summary>A Vaal gem's own row (IsVaalVariant) or an awakened one (RegularVariant set).</summary>
         public bool IsVaalOrAwakened { get; init; }
+
+        /// <summary>Vaal gems are intrinsically corrupted, independently of their level and quality.</summary>
+        public bool IsVaal { get; init; }
 
         /// <summary>SkillGems MtxSlotTypes: the MicrotransactionSkillGemEffectSlotTypes rows its Cosmetics tab skill slots
         /// take (0 the skill's effect, 1 a totem skin).</summary>
@@ -381,12 +391,13 @@ sealed class ItemCatalog
                     creatable &= regular.TryGetValue(effect2, out var baseSkill);
                     if (i > 0 && baseSkill is not null) name = "Vaal " + baseSkill;
                 }
-                variants.Add(new GemVariant(i, name, effect, effect2, creatable));
+                variants.Add(new GemVariant(i, name, effect, effect2, creatable)
+                { Id = effects[v].TryGetProperty("Id", out var variantId) ? variantId.GetString() ?? "" : "" });
             }
             result.TryAdd(baseRow, new GemType(baseRow, r.GetProperty("IsSupport").GetBoolean(), variants,
                 thresholds.GetValueOrDefault(expType) ?? [])
             {
-                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || Row(r, "RegularVariant") >= 0,
+                Colour = Row(r, "GemColour"), IsVaal = vaal, IsVaalOrAwakened = vaal || Row(r, "RegularVariant") >= 0,
                 MtxSlotTypes = r.TryGetProperty("MtxSlotTypes", out var st) ? [.. st.EnumerateArray().Select(t => t.GetInt32())] : [],
                 StrengthPercent = Row(r, "StrengthRequirementPercent"), DexterityPercent = Row(r, "DexterityRequirementPercent"),
                 IntelligencePercent = Row(r, "IntelligenceRequirementPercent"),

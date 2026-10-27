@@ -24,6 +24,10 @@ using DamageOverTime = GameServer.Core.World.DamageOverTime;
 // Port: Game_GATEWAY_PORT (default 6112). Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET), shared with
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
 
+// Offline imports share the Gateway's actual item/save implementation, without starting servers or creating keys.
+if (args.Length > 0 && args[0] == "--import-pob")
+    return PathOfBuildingCommand.Run(args[1..], Console.In, Console.Out, Console.Error);
+
 int port = int.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var p) ? p : 6112;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
