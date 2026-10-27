@@ -16,6 +16,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Dev account service: register, log in, create characters (JSON-lines over TCP).
   Code: `GameServer.Host`, `GameServer.DevClient`.
   Docs: [dev-server.md](../docs/dev-server.md).
+- Local item builder (2026-10-27): `Tools/ItemBuilder` is a Windows app (started by `scripts/dev/item-builder.ps1`)
+  backed by the Gateway's loopback API. It searches buildable bases and modifiers by stat/ModType, builds
+  Normal/Magic/Rare items with chosen tiers and values and adds them to the active character's inventory without chat
+  commands. Copied item text can be imported (base, rarity, quality, item level, explicit lines, fractured/crafted)
+  and created as a local copy, with unmatched lines listed for manual selection. `Game_ITEM_TOOL=0` disables the API;
+  a browser fallback is also served at <http://127.0.0.1:6113/>.
+  Code: `Tools/ItemBuilder`, `ItemTool.cs`, `ItemToolPage.html`;
+  docs: [dev/item-builder.md](../docs/dev/item-builder.md).
+  Automated coverage validates the builder's mod/range/rarity rules; live creation and the client update were checked.
 
 ## Partly working
 

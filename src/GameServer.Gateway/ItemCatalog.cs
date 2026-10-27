@@ -83,6 +83,9 @@ sealed class ItemCatalog
 
     public string? Error => _rows.Value.Error;
 
+    /// <summary>Every BaseItemTypes row, in row order (the dev item tool searches these).</summary>
+    public IReadOnlyList<BaseType> All => _rows.Value.Rows;
+
     /// <summary>The type of an item (its BaseItemTypes HASH32).</summary>
     public BaseType? ByHash(uint hash) => _byHash.Value.GetValueOrDefault(hash);
 

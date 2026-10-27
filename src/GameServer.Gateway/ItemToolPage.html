@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocalExile item builder</title>
+<style>
+:root { color-scheme: dark; --bg:#111416; --panel:#1a1f22; --line:#333c40; --text:#e3e7e4; --muted:#8f9b98; --accent:#c8a86a; --ok:#7fc08a; --bad:#e17979; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding:14px 20px; border-bottom:1px solid var(--line); }
+h1 { margin:0; font-size:18px; font-weight:600; letter-spacing:.02em; }
+h1 span { color:var(--accent); }
+#sessions { color:var(--muted); font-size:12px; }
+main { display:grid; grid-template-columns: minmax(300px, 1fr) minmax(420px, 1.35fr); gap:0; min-height:calc(100vh - 55px); }
+section { padding:18px 20px; border-right:1px solid var(--line); min-width:0; }
+section:last-child { border-right:0; }
+h2 { margin:0 0 12px; font-size:13px; color:var(--accent); text-transform:uppercase; letter-spacing:.08em; }
+label { display:block; color:var(--muted); font-size:12px; margin:10px 0 4px; }
+input, select, button { font:inherit; color:var(--text); background:#0f1214; border:1px solid var(--line); border-radius:5px; padding:7px 9px; }
+input:focus, select:focus { outline:1px solid var(--accent); border-color:var(--accent); }
+button { cursor:pointer; background:#252c30; }
+button:hover:not(:disabled) { border-color:var(--accent); }
+button:disabled { color:#5d6668; cursor:not-allowed; }
+.wide { width:100%; }
+.row { display:flex; gap:10px; }
+.row > div { flex:1; }
+.list { margin-top:10px; max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:5px; }
+.list:empty { display:none; }
+.entry { padding:7px 9px; border-bottom:1px solid #252c30; cursor:pointer; display:flex; justify-content:space-between; gap:10px; align-items:center; }
+.entry:last-child { border-bottom:0; }
+.entry:hover, .entry.sel { background:#242b2e; }
+.entry .meta { color:var(--muted); font-size:11px; text-align:right; white-space:nowrap; }
+.entry .name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip { display:inline-block; color:var(--muted); font-size:11px; margin-right:6px; }
+#baseInfo { margin-top:12px; padding:10px 12px; border:1px solid var(--line); border-radius:5px; background:var(--panel); min-height:42px; }
+#baseInfo b { color:var(--accent); font-weight:500; }
+.selected { margin-top:12px; border:1px solid var(--line); border-radius:5px; overflow:hidden; }
+.selected .none { padding:10px 12px; color:var(--muted); font-size:12px; }
+.mod { padding:9px 10px; border-bottom:1px solid #252c30; background:var(--panel); }
+.mod:last-child { border-bottom:0; }
+.mod-head { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.mod-head .kill { color:var(--bad); background:none; border:0; padding:0 3px; font-size:16px; line-height:1; }
+.mod-id { color:var(--muted); font-size:11px; }
+.values { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+.values label { margin:0; font-size:10px; }
+.values input { width:78px; padding:4px 6px; }
+#create { margin-top:16px; width:100%; padding:10px; background:#2a3128; border-color:#50634c; color:#dbe6d6; font-weight:600; }
+#status { margin-top:10px; min-height:20px; font-size:12px; white-space:pre-wrap; }
+.ok { color:var(--ok); } .bad { color:var(--bad); }
+.hint { color:var(--muted); font-size:11px; margin-top:6px; }
+@media (max-width: 900px) { main { grid-template-columns:1fr; } section { border-right:0; border-bottom:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>LocalExile <span>item builder</span></h1>
+  <div id="sessions">connecting to Gateway…</div>
+</header>
+<main>
+  <section>
+    <h2>1. Base item</h2>
+    <label for="session">Game session</label>
+    <select id="session" class="wide"></select>
+    <label for="baseSearch">Search a base (name or metadata id)</label>
+    <input id="baseSearch" class="wide" placeholder="e.g. Two-Stone Ring, Vaal Regalia, Claw" autocomplete="off">
+    <div id="baseResults" class="list"></div>
+    <div id="baseInfo">No base selected.</div>
+  </section>
+  <section>
+    <h2>2. Properties</h2>
+    <div class="row">
+      <div><label for="rarity">Rarity</label><select id="rarity" class="wide"><option>Normal</option><option>Magic</option><option selected>Rare</option></select></div>
+      <div><label for="itemLevel">Item level</label><input id="itemLevel" class="wide" type="number" min="1" max="100" value="100"></div>
+    </div>
+    <div class="row">
+      <div><label for="quality">Quality</label><input id="quality" class="wide" type="number" min="0" max="30" value="0"></div>
+      <div><label for="count">Copies</label><input id="count" class="wide" type="number" min="1" max="20" value="1"></div>
+    </div>
+    <h2 style="margin-top:22px">3. Explicit modifiers</h2>
+    <label for="modSearch">Search modifiers for the selected base</label>
+    <input id="modSearch" class="wide" placeholder="e.g. fire resistance, life, attack speed" autocomplete="off" disabled>
+    <div id="modResults" class="list"></div>
+    <div id="selectedMods" class="selected"><div class="none">No modifiers selected. A Magic or Rare item with none is rolled automatically.</div></div>
+    <button id="create" disabled>Create item</button>
+    <div id="status"></div>
+    <div class="hint">Prefixes and suffixes must not conflict. Values are clamped to the server’s validation; leaving none selected lets the server roll the item.</div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const state = { ticket: null, base: null, mods: [], sessions: [] };
+let baseTimer = 0, modTimer = 0;
+
+async function api(url, options) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let body;
+  try { body = text ? JSON.parse(text) : {}; } catch { body = { error: text }; }
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function sessions() {
+  try {
+    const list = await api('/api/sessions');
+    state.sessions = list;
+    const el = $('session'), old = state.ticket;
+    el.innerHTML = list.length ? list.map(s =>
+      `<option value="${s.ticket}">${esc(s.character)} — level ${s.level}${s.ready ? '' : ' (loading)'}</option>`).join('')
+      : '<option value="">no game session</option>';
+    if (old && list.some(s => s.ticket == old)) el.value = old;
+    state.ticket = el.value ? Number(el.value) : null;
+    $('sessions').textContent = list.length ? `${list.length} session(s) connected` : 'waiting for a character in game';
+  } catch (e) {
+    $('sessions').textContent = 'Gateway unavailable';
+  }
+}
+
+async function searchBases() {
+  if (!state.base && $('baseSearch').value.trim().length < 2) { $('baseResults').innerHTML = ''; return; }
+  const q = $('baseSearch').value.trim();
+  if (q.length < 2) { $('baseResults').innerHTML = ''; return; }
+  try {
+    const list = await api('/api/bases?q=' + encodeURIComponent(q) + '&limit=60');
+    $('baseResults').innerHTML = list.map(b => `<div class="entry" data-hash="${b.hash}">
+      <div class="name">${esc(b.name || b.id)}<br><span class="chip">${esc(b.class || 'item')}</span></div>
+      <div class="meta">${esc(b.id.split('/').pop())}<br>domain ${b.domain}${b.sockets ? ' · sockets' : ''}</div></div>`).join('');
+    for (const row of $('baseResults').querySelectorAll('.entry'))
+      row.onclick = () => selectBase(list.find(x => x.hash == row.dataset.hash));
+  } catch (e) { $('status').textContent = e.message; $('status').className = 'bad'; }
+}
+
+function selectBase(b) {
+  if (!b) return;
+  state.base = b;
+  state.mods = [];
+  $('baseSearch').value = b.name || b.id;
+  $('baseResults').innerHTML = '';
+  $('baseInfo').innerHTML = `<b>${esc(b.name || b.id)}</b><br>
+    <span class="chip">${esc(b.class || 'item')}</span><span class="chip">${b.width}×${b.height}</span>
+    <span class="chip">domain ${b.domain}</span><span class="chip">${b.id}</span>`;
+  $('modSearch').disabled = false;
+  $('modSearch').value = '';
+  $('modResults').innerHTML = '';
+  $('create').disabled = false;
+  renderMods();
+}
+
+function modLabel(m) { return m.name || m.modType || m.id; }
+function modRange(m) { return m.stats.map(s => `${s.id} ${s.min}–${s.max}`).join(' · '); }
+
+async function searchMods() {
+  if (!state.base) return;
+  const q = $('modSearch').value.trim();
+  if (q.length < 2) { $('modResults').innerHTML = ''; return; }
+  try {
+    const list = await api(`/api/mods?q=${encodeURIComponent(q)}&type=${state.base.hash}&limit=100`);
+    $('modResults').innerHTML = list.map(m => `<div class="entry" data-hash="${m.hash}">
+      <div class="name">${esc(modLabel(m))} <span class="chip">${esc(m.id)}</span><br><span class="chip">${esc(modRange(m))}</span></div>
+      <div class="meta">${m.generation} · level ${m.level}<br>+</div></div>`).join('');
+    for (const row of $('modResults').querySelectorAll('.entry'))
+      row.onclick = () => addMod(list.find(x => x.hash == row.dataset.hash));
+  } catch (e) { $('status').textContent = e.message; $('status').className = 'bad'; }
+}
+
+function addMod(m) {
+  if (!m) return;
+  if (state.mods.some(x => x.hash === m.hash)) return;
+  state.mods.push({ ...m, values: m.stats.map(s => s.max) });
+  $('modSearch').value = '';
+  $('modResults').innerHTML = '';
+  renderMods();
+}
+
+function renderMods() {
+  const box = $('selectedMods');
+  if (!state.mods.length) {
+    box.innerHTML = '<div class="none">No modifiers selected. A Magic or Rare item with none is rolled automatically.</div>';
+    return;
+  }
+  box.innerHTML = state.mods.map((m, i) => `<div class="mod">
+    <div class="mod-head"><div><b>${esc(modLabel(m))}</b><div class="mod-id">${esc(m.id)} · ${m.generation} · level ${m.level}</div></div>
+      <button class="kill" data-i="${i}" title="remove">×</button></div>
+    <div class="values">${m.stats.map((s, j) => `<label>${esc(s.id)} (${s.min}–${s.max})
+      <input type="number" data-mod="${i}" data-stat="${j}" min="${Math.min(s.min,s.max)}" max="${Math.max(s.min,s.max)}" value="${m.values[j]}"></label>`).join('')}</div>
+  </div>`).join('');
+  for (const b of box.querySelectorAll('.kill')) b.onclick = () => { state.mods.splice(Number(b.dataset.i), 1); renderMods(); };
+  for (const input of box.querySelectorAll('input')) input.oninput = () => {
+    state.mods[Number(input.dataset.mod)].values[Number(input.dataset.stat)] = Number(input.value);
+  };
+}
+
+async function create() {
+  if (!state.ticket) return show('Select a connected game session first.', false);
+  if (!state.base) return show('Select a base item first.', false);
+  $('create').disabled = true;
+  try {
+    const body = {
+      ticket: state.ticket, typeHash: state.base.hash, rarity: $('rarity').value,
+      itemLevel: Number($('itemLevel').value), quality: Number($('quality').value), count: Number($('count').value),
+      mods: state.mods.map(m => ({ hash: m.hash, values: m.values })),
+    };
+    const r = await api('/api/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    show(`Created ${r.count} × ${r.name} (${r.type}); item id ${r.first}.`, true);
+  } catch (e) { show(e.message, false); }
+  finally { $('create').disabled = !state.base || !state.ticket; }
+}
+
+function show(text, ok) {
+  $('status').textContent = text;
+  $('status').className = ok ? 'ok' : 'bad';
+}
+
+$('session').onchange = () => { state.ticket = $('session').value ? Number($('session').value) : null; $('create').disabled = !state.base || !state.ticket; };
+$('baseSearch').oninput = () => { clearTimeout(baseTimer); baseTimer = setTimeout(searchBases, 180); };
+$('modSearch').oninput = () => { clearTimeout(modTimer); modTimer = setTimeout(searchMods, 220); };
+$('rarity').onchange = () => {
+  if ($('rarity').value === 'Normal' && state.mods.length) { state.mods = []; renderMods(); }
+};
+$('create').onclick = create;
+sessions();
+setInterval(sessions, 4000);
+</script>
+</body>
+</html>

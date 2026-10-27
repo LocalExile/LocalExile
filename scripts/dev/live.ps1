@@ -9,6 +9,8 @@
 #               area the client generates into data/walkability/
 #   -Only Gateway[,Auth,Patch]   rebuild and restart only these servers; the others and the client keep running (implies
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
+#   The Gateway also starts the loopback item builder (Game_ITEM_TOOL=1, http://127.0.0.1:6113/) unless that
+#   environment variable is set to 0.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +64,8 @@ if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
 
 # Without this the Gateway stops after creating the player and the client never enters the area.
 if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
+# The local item builder (ItemTool.cs); set Game_ITEM_TOOL=0 to keep it off.
+if (-not $env:Game_ITEM_TOOL) { $env:Game_ITEM_TOOL = '1' }
 
 $servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
 if ($Only) { $NoClient = $true }
@@ -147,3 +151,4 @@ if (-not $NoClient) {
     Write-Output "client pid $($p.Id)"
 }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')" } else { 'servers up' })
+if ($env:Game_ITEM_TOOL -ne '0' -and ($servers -contains 'Gateway')) { Write-Output 'item builder: .\scripts\dev\item-builder.ps1 (API http://127.0.0.1:6113/)' }

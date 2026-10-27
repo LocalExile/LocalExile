@@ -23,6 +23,8 @@ sealed class ModCatalog(string folder = "data")
         public IReadOnlyList<(string Tag, int Weight)> SpawnWeights { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> GenerationWeights { get; init; } = [];
         public bool EssenceOnly { get; init; }
+        /// <summary>ModType.dat's Name for ModTypeKey (ColdResistance, FireDamage, ...); used by the item tool's stat search.</summary>
+        public string ModType { get; init; } = "";
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
         /// <summary>What a mod does beyond its stats (monster mods: MonsterModCatalog): its BuffTemplates row (an aura or
         /// buff, BuffTemplate1), the monster it leaves on death (MonsterOnDeath) and its granted skills
@@ -86,12 +88,16 @@ sealed class ModCatalog(string folder = "data")
     private static (List<Mod>, Dictionary<ushort, Mod>, Dictionary<string, Mod>) Load(string folder)
     {
         string path = Path.Combine(folder, "tables", "Mods.json"), statsPath = Path.Combine(folder, "tables", "Stats.json"),
-            tagsPath = Path.Combine(folder, "tables", "Tags.json");
+            tagsPath = Path.Combine(folder, "tables", "Tags.json"), modTypePath = Path.Combine(folder, "tables", "ModType.json");
         var rows = new List<Mod>();
         if (!File.Exists(path) || !File.Exists(statsPath)) return (rows, [], []);
         List<(string Id, bool Local)> stats;
         using (var s = JsonDocument.Parse(File.ReadAllBytes(statsPath)))
             stats = [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("Id").GetString() ?? "", r.GetProperty("IsLocal").GetBoolean()))];
+        List<string> modTypes = [];
+        if (File.Exists(modTypePath))
+            using (var t = JsonDocument.Parse(File.ReadAllBytes(modTypePath)))
+                modTypes = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Name").GetString() ?? "")];
         List<string> tags = [];
         if (File.Exists(tagsPath))
             using (var t = JsonDocument.Parse(File.ReadAllBytes(tagsPath)))
@@ -119,6 +125,8 @@ sealed class ModCatalog(string folder = "data")
                 SpawnWeights = Weights(r, "SpawnWeight_TagsKeys", "SpawnWeight_Values"),
                 GenerationWeights = Weights(r, "GenerationWeight_TagsKeys", "GenerationWeight_Values"),
                 EssenceOnly = r.GetProperty("IsEssenceOnlyModifier").GetBoolean(),
+                ModType = r.TryGetProperty("ModTypeKey", out var modType) && modType.ValueKind == JsonValueKind.Number &&
+                    modType.GetInt32() is int mt && mt >= 0 && mt < modTypes.Count ? modTypes[mt] : "",
                 BuffTemplate = r.TryGetProperty("BuffTemplate1", out var buff) && buff.ValueKind == JsonValueKind.Number ? buff.GetInt32() : null,
                 MonsterOnDeath = r.TryGetProperty("MonsterOnDeath", out var death) ? death.GetString() ?? "" : "",
                 GrantedEffects = r.TryGetProperty("GrantedEffectsPerLevelKeys", out var granted) ? granted.GetArrayLength() : 0,

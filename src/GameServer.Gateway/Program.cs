@@ -69,6 +69,10 @@ Console.WriteLine($"[gateway] listening on {bind}:{port}");
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+// The item builder is opt-in and loopback-only; scripts/dev/live.ps1 enables it for the normal dev session.
+Microsoft.AspNetCore.Builder.WebApplication? itemTool = null;
+if (Environment.GetEnvironmentVariable("Game_ITEM_TOOL") is "1" or "true")
+    itemTool = await ItemTool.StartAsync(cts.Token);
 // What waits in memory to be saved (experience, flask charges from kills) is saved every few seconds, and at the end.
 var saving = SaveUnsavedProgress(cts.Token);
 AppDomain.CurrentDomain.ProcessExit += (_, _) => SaveUnsavedProgressNow("the Gateway stops");
@@ -89,6 +93,7 @@ while (!cts.IsCancellationRequested)
 }
 
 listener.Stop();
+if (itemTool is not null) { using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2)); await itemTool.StopAsync(stop.Token); }
 await saving;
 SaveUnsavedProgressNow("the Gateway stopped");
 Console.WriteLine("[gateway] stopped");

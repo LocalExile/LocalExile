@@ -1,8 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\GameServer.Core\GameServer.Core.csproj" />
     <ProjectReference Include="..\GameServer.Storage\GameServer.Storage.csproj" />
+  </ItemGroup>
+
+  <!-- The local item builder's loopback HTTP endpoint (ItemTool.cs); Game_ITEM_TOOL=1 enables it. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <EmbeddedResource Include="ItemToolPage.html" LogicalName="ItemToolPage.html" />
   </ItemGroup>
 
   <!-- The Gateway's types are internal (top-level program); its tests reach them. -->

@@ -314,6 +314,9 @@ In game:
 - **The Coast:** click "The Coast" on the east side of town. Ctrl+click it to open the Instance Manager instead (pick
   an instance or create a new one).
 - **Commands:** type in chat with Enter, for example `/commands` (or `/com`), `/set_speed 200`.
+- **Items:** run `.\scripts\dev\item-builder.ps1` for the Windows item builder. It searches bases/stats, can import a
+  copied item (Ctrl+C on an item in game then **Import clipboard**) and creates items through the running Gateway
+  (API on `http://127.0.0.1:6113/`). See [docs/dev/item-builder.md](docs/dev/item-builder.md).
 
 Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and `walkmaps.log`), plus the client's own
 `Client\logs\Client.txt`.
