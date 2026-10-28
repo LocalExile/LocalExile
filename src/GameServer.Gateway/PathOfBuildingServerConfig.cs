@@ -1,49 +1,59 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GameServer.Core.Accounts;
+using GameServer.Storage;
 
-/// <summary>Administrator-owned configuration. Clients may submit builds, never server filesystem paths.</summary>
+/// <summary>Only listener policy is separate. Storage, client and leagues follow normal server startup.</summary>
 sealed record PathOfBuildingServerConfig
 {
+    public const string DefaultPath = "config/pob-server.json";
+    public bool Enabled { get; init; }
     public string ListenUrl { get; init; } = "http://127.0.0.1:20496";
-    public string RepositoryRoot { get; init; } = "..";
-    public string DataFolder { get; init; } = "data";
-    public string DatabasePath { get; init; } = "data/saves.db";
-    public string ClientGgpk { get; init; } = "Client/Content.ggpk";
-    public string OozWorker { get; init; } = "Tools/ooz/ooz_worker.mjs";
-    public string NodeExecutable { get; init; } = "node";
-    public string[] Leagues { get; init; } = ["Standard"];
+    public string[]? AllowedLeagues { get; init; }
     public string? CertificatePath { get; init; }
     public string? CertificatePasswordEnvironment { get; init; }
 
-    public static PathOfBuildingServerConfig Load(string path)
+    // Internal overrides allow isolated test fixtures. JSON cannot select another database or game-data tree.
+    internal string RepositoryRoot { get; init; } = Directory.GetCurrentDirectory();
+    internal string DataFolder { get; init; } = "data";
+    internal string DatabasePath { get; init; } = SaveDatabase.DefaultPath;
+    internal string ClientGgpk { get; init; } = Environment.GetEnvironmentVariable("Game_GGPK")
+        ?? Path.Combine(Path.GetDirectoryName(Environment.GetEnvironmentVariable("Game_CLIENT_EXE") ?? "Client/Game.exe")!, "Content.ggpk");
+    internal string OozWorker { get; init; } = "Tools/ooz/ooz_worker.mjs";
+    internal string NodeExecutable { get; init; } = "node";
+    internal LeagueCatalog Leagues { get; init; } = LeagueCatalog.FromEnvironment();
+
+    public static PathOfBuildingServerConfig Load(string path, bool optional = false)
     {
-        string fullPath = Path.GetFullPath(path);
-        var config = JsonSerializer.Deserialize<PathOfBuildingServerConfig>(File.ReadAllBytes(fullPath),
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true,
-                UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow })
-            ?? throw new ArgumentException("The PoB server configuration must be a JSON object.");
-        if (!Uri.TryCreate(config.ListenUrl, UriKind.Absolute, out var listen)
+        var config = optional && !File.Exists(path) ? new() :
+            JsonSerializer.Deserialize<PathOfBuildingServerConfig>(File.ReadAllBytes(path),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true,
+                    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow })
+                ?? throw new ArgumentException("The PoB server configuration must be a JSON object.");
+        return config.Validate();
+    }
+
+    internal PathOfBuildingServerConfig Validate()
+    {
+        if (!Uri.TryCreate(ListenUrl, UriKind.Absolute, out var listen)
             || listen.Scheme is not ("http" or "https") || listen.UserInfo.Length != 0
             || listen.AbsolutePath != "/" || listen.Query.Length != 0 || listen.Fragment.Length != 0)
             throw new ArgumentException("listenUrl must be an HTTP(S) origin, for example http://127.0.0.1:20496.");
-        string root = Resolve(Path.GetDirectoryName(fullPath)!, config.RepositoryRoot);
-        string node = config.NodeExecutable;
-        if (string.IsNullOrWhiteSpace(node)) throw new ArgumentException("nodeExecutable cannot be empty.");
-        if (node.Contains('/') || node.Contains('\\')) node = Resolve(root, node);
-        if (config.Leagues is null || config.Leagues.Length == 0 || config.Leagues.Any(string.IsNullOrWhiteSpace))
-            throw new ArgumentException("leagues must contain at least one nonempty local league name.");
-        string? certificate = config.CertificatePath is null ? null : Resolve(root, config.CertificatePath);
-        if (listen.Scheme == "https" && certificate is null)
-            throw new ArgumentException("Direct HTTPS requires certificatePath. A TLS reverse proxy can instead forward to a loopback HTTP listener.");
-        return config with { ListenUrl = listen.GetLeftPart(UriPartial.Authority), RepositoryRoot = root,
-            DataFolder = Resolve(root, config.DataFolder), DatabasePath = Resolve(root, config.DatabasePath),
-            ClientGgpk = Resolve(root, config.ClientGgpk), OozWorker = Resolve(root, config.OozWorker),
-            NodeExecutable = node, CertificatePath = certificate };
+        if (AllowedLeagues is { } allowed && (allowed.Length == 0
+            || allowed.Any(n => string.IsNullOrWhiteSpace(n) || Leagues.Find(n) is null)))
+            throw new ArgumentException("allowedLeagues must list full league names offered by Game_LEAGUES.");
+        if (listen.Scheme == "https" && string.IsNullOrWhiteSpace(CertificatePath))
+            throw new ArgumentException("Direct HTTPS requires certificatePath. A TLS reverse proxy can instead forward to loopback HTTP.");
+        return this with { ListenUrl = listen.GetLeftPart(UriPartial.Authority),
+            CertificatePath = CertificatePath is null ? null : Path.GetFullPath(CertificatePath, RepositoryRoot) };
     }
 
-    static string Resolve(string root, string path)
+    internal League SelectLeague(string name)
     {
-        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Configured folders and file paths cannot be empty.");
-        return Path.GetFullPath(path, root);
+        var league = Leagues.Find(name) ?? throw new ArgumentException("The selected league is not offered by this server.");
+        if (AllowedLeagues is { } allowed && !allowed.Contains(league.Name, StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException("PoB import is disabled for the selected league.");
+        if (league.Ruthless) throw new ArgumentException("Ruthless build import is not supported.");
+        return league;
     }
 }

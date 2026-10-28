@@ -13,8 +13,10 @@ public readonly record struct Result<T>(T? Value, AuthError Error)
 }
 
 /// <summary>Registration, login (session tokens) and character management. Transport-agnostic.</summary>
-public sealed class AccountService(IAccountStore store, TimeProvider? clock = null, int maxCharacters = 24, string league = "Standard")
+public sealed class AccountService(IAccountStore store, TimeProvider? clock = null, int maxCharacters = AccountService.DefaultMaxCharacters, string league = "Standard")
 {
+    public const int DefaultMaxCharacters = 24;
+    public static bool IsValidCharacterName(string? name) => ValidName(name, 3, 23);
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly Dictionary<string, Session> _sessions = new();
     private readonly object _gate = new();
@@ -132,7 +134,7 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
     /// <summary>Creates a level 1 character in <paramref name="inLeague"/> (default: the service's league).</summary>
     public Result<Character> CreateCharacter(Guid accountId, string name, CharacterClass cls, string? inLeague = null)
     {
-        if (!ValidName(name, 3, 23)) return Result<Character>.Fail(AuthError.InvalidCharacterName);
+        if (!IsValidCharacterName(name)) return Result<Character>.Fail(AuthError.InvalidCharacterName);
         if (!Enum.IsDefined(cls)) return Result<Character>.Fail(AuthError.InvalidClass);
         lock (_gate)
         {

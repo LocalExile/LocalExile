@@ -13,14 +13,16 @@ static class PathOfBuildingServerCommand
                     --pob-token --config config/pob-server.json --account ACCOUNT
                     --pob-token --config config/pob-server.json --account ACCOUNT --revoke
 
-                    The server is a separate receiver for evryBuild's Forge Character button.
+                    Gateway normally hosts this listener when config/pob-server.json has enabled=true.
+                    --pob-server runs only the listener for advanced administration; do not run both.
                     Folder paths belong to its administrator configuration; builds cannot choose server files.
                     Issuing a token rotates the account's previous PoB token. The new secret is printed once.
                     Tokens authorize only new-character imports for that account; game login passwords are unchanged.
                     """);
                 return 0;
             }
-            string path = "config/pob-server.json";
+            string path = PathOfBuildingServerConfig.DefaultPath;
+            bool explicitConfig = false;
             string? account = null;
             bool revoke = false;
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -33,9 +35,9 @@ static class PathOfBuildingServerCommand
                     throw new ArgumentException($"Unknown receiver option '{option}'. Use --help.");
                 if (++i == args.Length || string.IsNullOrWhiteSpace(args[i]) || args[i].StartsWith("--", StringComparison.Ordinal))
                     throw new ArgumentException($"{option} needs a value.");
-                if (option == "--config") path = args[i]; else account = args[i];
+                if (option == "--config") { path = args[i]; explicitConfig = true; } else account = args[i];
             }
-            var config = PathOfBuildingServerConfig.Load(path);
+            var config = PathOfBuildingServerConfig.Load(path, optional: !explicitConfig);
             if (tokenCommand)
             {
                 if (string.IsNullOrWhiteSpace(account)) throw new ArgumentException("--account is required to issue or revoke a PoB token.");

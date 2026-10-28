@@ -1,10 +1,4 @@
 {
-  "listenUrl": "http://127.0.0.1:20496",
-  "repositoryRoot": "..",
-  "dataFolder": "data",
-  "databasePath": "data/saves.db",
-  "clientGgpk": "Client/Content.ggpk",
-  "oozWorker": "Tools/ooz/ooz_worker.mjs",
-  "nodeExecutable": "node",
-  "leagues": ["Standard"]
+  "enabled": true,
+  "listenUrl": "http://127.0.0.1:20496"
 }

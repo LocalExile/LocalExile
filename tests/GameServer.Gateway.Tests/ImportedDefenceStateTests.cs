@@ -18,13 +18,19 @@ public sealed class ImportedDefenceStateTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0, 34)]
-    [InlineData(16, 41)]
-    [InlineData(31, 49)]
-    [InlineData(32, 34)]
-    public void Explicit_saved_roll_reaches_the_equipped_local_defence_calculation(byte roll, int expectedArmour)
+    [InlineData(0, 34, false)]
+    [InlineData(16, 41, false)]
+    [InlineData(31, 49, false)]
+    [InlineData(32, 34, false)]
+    [InlineData(0, 34, true)]
+    [InlineData(16, 41, true)]
+    [InlineData(31, 49, true)]
+    [InlineData(32, 34, true)]
+    public void Explicit_saved_roll_reaches_the_equipped_local_defence_calculation(byte roll, int expectedArmour, bool ruthless)
     {
-        var catalog = Program.Items;
+        var conn = new ClientState(new(0, "ImportedDefence", 128, 128, 32, 32, null, []), 0, 1)
+            { Character = character, ClassRow = 4, Ruthless = ruthless };
+        var catalog = Program.ItemsFor(conn);
         var mod = catalog.Mods.All.First(m => m.Stats.Any(s => s.Id == "local_physical_damage_reduction_rating_+%"));
         var item = ItemCatalog.Create(catalog.Find("Plate Vest")!, defenceBaseRoll: roll) with
         {
@@ -33,8 +39,6 @@ public sealed class ImportedDefenceStateTests : IDisposable
                 mod.Stats.Select(s => s.Id == "local_physical_damage_reduction_rating_+%" ? 50 : 0).ToArray())],
         };
         var restored = CharacterSaves.FromSaved(CharacterSaves.ToSaved(item, catalog.Mods), catalog);
-        var conn = new ClientState(new(0, "ImportedDefence", 128, 128, 32, 32, null, []), 0, 1)
-            { Character = character, ClassRow = 4 };
         PlayerInventories.For(character, catalog).Add(PlayerInventories.BodyArmour, 0, 0, restored);
 
         var equipped = ((decimal Armour, decimal Evasion, int EnergyShield, decimal Ward))typeof(Program)

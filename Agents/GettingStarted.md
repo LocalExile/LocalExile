@@ -339,6 +339,12 @@ Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and 
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
 
+## Optional PoB character import
+
+Gateway can serve evryBuild's Preview and Forge Character interface on a separate local HTTP port (`20496`).
+It is disabled until configured; normal game startup then owns the listener as well.
+See [PoB import and evryBuild](docs/dev/pob-import.md) for the one-time config, account-token command and import limits.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

@@ -10,14 +10,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-/// <summary>A separate, bounded receiver for the PoB button. It never runs the game server or accepts filesystem paths.</summary>
+/// <summary>A bounded HTTP listener hosted by Gateway (or explicitly started alone for administration).</summary>
 sealed class PathOfBuildingServer : IAsyncDisposable
 {
     public const int MaximumBodyBytes = 3 * 1024 * 1024;
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
     readonly PathOfBuildingServerConfig config;
-    readonly LeagueCatalog leagues;
+    readonly TextWriter diagnostics;
     readonly SemaphoreSlim importing = new(1, 1);
     readonly Lazy<IReadOnlyDictionary<uint, uint[]>> graph;
     WebApplication? application;
@@ -25,10 +25,10 @@ sealed class PathOfBuildingServer : IAsyncDisposable
     public sealed record Request(string Account, string Code, string? Name = null, string? League = null);
     public string Address => application?.Urls.Single() ?? throw new InvalidOperationException("The receiver has not started.");
 
-    public PathOfBuildingServer(PathOfBuildingServerConfig config)
+    public PathOfBuildingServer(PathOfBuildingServerConfig config, TextWriter? diagnostics = null)
     {
-        this.config = config;
-        leagues = new(config.Leagues);
+        this.config = config.Validate();
+        this.diagnostics = TextWriter.Synchronized(diagnostics ?? Console.Error);
         graph = new(() => PathOfBuildingPassiveGraph.Load(config.ClientGgpk, config.OozWorker, config.NodeExecutable));
     }
 
@@ -65,6 +65,8 @@ sealed class PathOfBuildingServer : IAsyncDisposable
     public Task WaitForShutdownAsync() => application?.WaitForShutdownAsync()
         ?? throw new InvalidOperationException("The receiver has not started.");
 
+    public CancellationToken Stopping => application?.Lifetime.ApplicationStopping ?? CancellationToken.None;
+
     async Task HandleAsync(HttpContext context)
     {
         context.Response.Headers.CacheControl = "no-store";
@@ -84,6 +86,7 @@ sealed class PathOfBuildingServer : IAsyncDisposable
         string authorization = context.Request.Headers.Authorization.ToString();
         if (authorization.Length != 71 || !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         { await Fail(context, 401, "The account or PoB token is invalid."); return; }
+        string phase = "authenticate";
         try
         {
             var request = await ReadRequest(context);
@@ -93,52 +96,77 @@ sealed class PathOfBuildingServer : IAsyncDisposable
             { await Fail(context, 429, "Another build is being imported. Please try again shortly."); return; }
             try
             {
-                var league = leagues.Find(request.League ?? LeagueCatalog.Standard)
-                    ?? throw new ArgumentException("The selected league is not offered by this server.");
-                if (league.Ruthless) throw new ArgumentException("Ruthless build import is not supported.");
-                var build = PathOfBuilding.Parse(request.Code);
-                var progress = PathOfBuildingCharacters.Prepare(build, config.DataFolder, () => graph.Value);
-                var items = PathOfBuildingItems.Materialize(build, new ItemCatalog(config.DataFolder), config.DataFolder);
-                context.RequestAborted.ThrowIfCancellationRequested();
-                Character? character = null;
+                using var stopping = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, Stopping);
+                var league = config.SelectLeague(request.League ?? LeagueCatalog.Standard);
+                if (create && string.IsNullOrWhiteSpace(request.Name)) throw new ArgumentException("Enter a new character name.");
+                ValidateDestination(account, request.Name);
+                phase = "prepare";
+                // Extraction/catalog preparation is bounded by the export limits and runs outside the gameplay loop.
+                var prepared = await Task.Run(() => PathOfBuildingImport.Prepare(request.Code, config, () => graph.Value), stopping.Token);
+                var progress = prepared.Progress;
+                var items = prepared.Equipment;
+                phase = "serialize";
+                byte[] response = JsonSerializer.SerializeToUtf8Bytes(prepared.Response(!create, request.Name, league.Name));
+                if (response.Length > 64 * 1024) throw new InvalidOperationException("PoB response exceeded its server bound.");
+                stopping.Token.ThrowIfCancellationRequested();
                 if (create)
                 {
-                    if (string.IsNullOrWhiteSpace(request.Name)) throw new ArgumentException("Enter a new character name.");
+                    phase = "save";
                     using var db = new SaveDatabase(config.DatabasePath);
-                    character = db.Atomically(() =>
+                    db.Atomically(() =>
                     {
                         // A deleted/recreated account cannot inherit the identity authenticated earlier in the request.
                         if (new SqliteAccountStore(db).FindAccount(account.Name)?.Id != account.Id)
                             throw new ArgumentException("The account changed while importing. Request a new PoB token.");
-                        return PathOfBuildingCharacters.Create(db, account.Name, request.Name, progress,
-                            progress.ToSave(items), league.Name, leagues, config.DataFolder);
+                        return PathOfBuildingCharacters.Create(db, account.Name, request.Name!, progress,
+                            progress.ToSave(items), league.Name, config.Leagues, config.DataFolder);
                     });
                 }
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    ok = true, preview = !create, character = character?.Name ?? request.Name,
-                    @class = build.Class.ToString(), level = build.Level, league = league.Name,
-                    passives = progress.Passives.Count, masteries = progress.MasteryEffects.Count,
-                    items = items.Inventories.Values.Sum(p => p.Count),
-                    gems = items.Inventories.Values.SelectMany(p => p).Sum(p => p.Item.Sockets?.Count(s => s.Gem is not null) ?? 0),
-                    warnings = progress.Warnings.Concat(items.Warnings).Distinct().ToArray(),
-                    next = create ? "Log out to the login screen and log in again, then select this character and Play."
-                        : "Preview passed. Forge Character will save a new character under this account."
-                }, context.RequestAborted);
+                phase = create ? "send-created-response" : "send-preview-response";
+                context.Response.ContentType = "application/json; charset=utf-8";
+                context.Response.ContentLength = response.Length;
+                await context.Response.Body.WriteAsync(response, context.RequestAborted);
             }
             finally { importing.Release(); }
         }
         catch (Microsoft.AspNetCore.Http.BadHttpRequestException e) when (e.StatusCode == 413)
         { await Fail(context, 413, "The build request exceeds the 3 MiB limit."); }
         catch (RequestTooLargeException) { await Fail(context, 413, "The build request exceeds the 3 MiB limit."); }
-        catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested && !Stopping.IsCancellationRequested)
         { await Fail(context, 408, "The build request timed out."); }
         catch (OperationCanceledException) { }
         catch (Exception e) when (e is FormatException or ArgumentException or JsonException or OverflowException)
         { await Fail(context, 400, e.Message); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException
             or KeyNotFoundException or InvalidOperationException)
-        { await Fail(context, 500, "The server could not read its configured game data or save the character. Ask the server owner to check the configuration and database."); }
+        {
+            string id = Guid.NewGuid().ToString("N");
+            // Exception messages can contain submitted XML/mod text, credentials or paths. Log structural diagnostics
+            // only, with a reference that the owner can match to the client error.
+            string code = e is Microsoft.Data.Sqlite.SqliteException sql ? $" sqlite={sql.SqliteErrorCode}/{sql.SqliteExtendedErrorCode}" : "";
+            var frames = new System.Diagnostics.StackTrace(e).GetFrames();
+            string stack = string.Join(" <- ", frames.Take(8).Select(f => f.GetMethod()).OfType<System.Reflection.MethodBase>()
+                .Select(m => $"{m.DeclaringType?.Name}.{m.Name}"));
+            diagnostics.WriteLine($"[pob] failure {id} phase={phase} type={e.GetType().Name} hresult={e.HResult}{code} at {stack}");
+            await Fail(context, 500, $"The server could not prepare or save this build. Ask the server owner to check the Gateway log (reference {id}).");
+        }
+    }
+
+    void ValidateDestination(Account account, string? name)
+    {
+        if (!string.IsNullOrEmpty(name) && !AccountService.IsValidCharacterName(name))
+            throw new ArgumentException("Choose a new character name: 3-23 letters, digits, underscores or hyphens.");
+        using var db = PathOfBuildingServerTokens.OpenReadOnly(config.DatabasePath);
+        using var check = db.CreateCommand();
+        check.CommandText = "SELECT count(*) FROM account_characters WHERE account_id=$account";
+        check.Parameters.AddWithValue("$account", account.Id.ToString());
+        if (Convert.ToInt32(check.ExecuteScalar()) >= AccountService.DefaultMaxCharacters)
+            throw new ArgumentException("This account has reached its character limit. Free a slot before importing.");
+        if (string.IsNullOrEmpty(name)) return;
+        check.CommandText = "SELECT 1 FROM account_characters WHERE name=$name UNION ALL SELECT 1 FROM characters WHERE name=$name LIMIT 1";
+        check.Parameters.AddWithValue("$name", name);
+        if (check.ExecuteScalar() is not null) throw new ArgumentException("That character name or save already exists. Choose a new name.");
+        PathOfBuildingCharacters.RequireNoLegacySave(config.DatabasePath, name, config.DataFolder);
     }
 
     static async Task<Request> ReadRequest(HttpContext context)

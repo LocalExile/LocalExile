@@ -66,6 +66,29 @@ Item.LevelRequirementOf = item => !item.Components.Contains("SkillGem") && Items
 // Local play only by default; Game_BIND=0.0.0.0 to accept other machines (then also set Game_GATEWAY_HOST).
 var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
 var listener = new TcpListener(bind, port);
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+PathOfBuildingServer? pob = null;
+try
+{
+    var config = PathOfBuildingServerConfig.Load(PathOfBuildingServerConfig.DefaultPath, optional: true);
+    if (config.Enabled)
+    {
+        pob = new PathOfBuildingServer(config);
+        await pob.StartAsync(cts.Token);
+        Console.WriteLine($"[pob] listening on {pob.Address}; saves: {Saves.Db.Path}");
+    }
+}
+catch (Exception e) when (e is IOException or ArgumentException or JsonException or InvalidOperationException
+    or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException or System.Security.Cryptography.CryptographicException)
+{
+    if (pob is not null) await pob.DisposeAsync();
+    Console.Error.WriteLine($"[pob] startup failed ({e.GetType().Name}). Check config/pob-server.json, its certificate and listen port; stop any old standalone PoB receiver.");
+    if (e is ArgumentException or JsonException) Console.Error.WriteLine($"[pob] configuration: {e.Message}");
+    return 1;
+}
+await using var pobLifetime = pob;
+using var pobStopping = pob?.Stopping.Register(cts.Cancel);
 // Before any client connects: Auth forgets the players of this Gateway's last run, which may have stopped without
 // sending "leave" for them (their instances would never expire).
 var started = await InstanceControl.CallAsync(new ControlRequest { Op = "gateway_started" });
@@ -73,8 +96,6 @@ if (!started.Ok) Console.WriteLine($"[gateway] Auth did not take gateway_started
 listener.Start();
 Console.WriteLine($"[gateway] listening on {bind}:{port}");
 
-using var cts = new CancellationTokenSource();
-Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 // What waits in memory to be saved (experience, flask charges from kills) is saved every few seconds, and at the end.
 var saving = SaveUnsavedProgress(cts.Token);
 AppDomain.CurrentDomain.ProcessExit += (_, _) => SaveUnsavedProgressNow("the Gateway stops");

@@ -103,14 +103,17 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - PoB import: offline XML/export-code preview and atomic creation of a new native character with supported tree,
   equipment, flasks, sockets, links and gems.
-  The separate authenticated receiver serves evryBuild's Preview and Forge Character actions.
+  Gateway hosts the optional authenticated listener on dedicated port 20496, using normal storage/client/league settings.
+  It starts and stops with Gateway; evryBuild Preview checks names/capacity and distinguishes active/swap gear and omissions.
+  Bounded replies are rendered before saving; unexpected errors include a sanitized Gateway log reference.
   Existing characters are never replaced; unsupported build features are skipped with explicit warnings.
   Ascended builds create unascended characters; omitted tree branches, items, modifiers and gems are reported.
   Ordinary saved ModRange records retain equipment instead of discarding it as legacy data.
   Separate PoB defence rolls use one native roll with a warning; unsupported catalyst/influence metadata is omitted.
   Malformed input, invalid native layouts, authentication failures and unsupported rule sets remain errors.
   Imported modifiers do not implement missing gameplay systems or provide PoB calculation parity.
-  Automated coverage passes; fresh in-game validation of this branch remains open.
+  Automated coverage passes. A saved level-99 Community build restored 16 items, 30 gems, 100 passives and 9 masteries;
+  live client validation confirmed the equipment/gems appear and movement works.
   Code: Core `Imports/PathOfBuilding.cs`, Gateway `PathOfBuilding*.cs`.
   Setup and limits: [PoB import and evryBuild](../docs/dev/pob-import.md).
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)

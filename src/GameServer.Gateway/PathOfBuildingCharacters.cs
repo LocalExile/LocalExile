@@ -154,11 +154,7 @@ static class PathOfBuildingCharacters
                 ?? throw new ArgumentException($"Account '{accountName}' does not exist. Create it before importing a character.");
             if (db.Get(SaveDatabase.Table.Characters, characterName) is not null)
                 throw new ArgumentException($"A save already exists for '{characterName}'; import will not overwrite it.");
-            foreach (string legacyFolder in new[] { Path.Combine(Path.GetDirectoryName(Path.GetFullPath(db.Path))!, "saves"),
-                         Path.GetFullPath(Path.Combine(legacyDataFolder ?? "data", "saves")) }.Distinct(StringComparer.OrdinalIgnoreCase))
-                if (Directory.Exists(legacyFolder) && Directory.EnumerateFiles(legacyFolder, "*.json")
-                    .Any(file => Path.GetFileNameWithoutExtension(file).Equals(characterName, StringComparison.OrdinalIgnoreCase)))
-                    throw new ArgumentException($"A legacy save already exists for '{characterName}'; start the Gateway to migrate saves before importing.");
+            RequireNoLegacySave(db.Path, characterName, legacyDataFolder ?? "data");
             var accounts = new AccountService(store);
             var result = accounts.CreateCharacter(account.Id, characterName, progress.Class, selectedLeague.Name);
             if (!result.Ok) throw new ArgumentException($"Cannot create '{characterName}': {result.Error}.");
@@ -167,6 +163,15 @@ static class PathOfBuildingCharacters
             db.Put(SaveDatabase.Table.Characters, characterName, json);
             return character;
         });
+    }
+
+    internal static void RequireNoLegacySave(string database, string characterName, string dataFolder)
+    {
+        foreach (string folder in new[] { Path.Combine(Path.GetDirectoryName(Path.GetFullPath(database))!, "saves"),
+                     Path.GetFullPath(Path.Combine(dataFolder, "saves")) }.Distinct(StringComparer.OrdinalIgnoreCase))
+            if (Directory.Exists(folder) && Directory.EnumerateFiles(folder, "*.json")
+                .Any(file => Path.GetFileNameWithoutExtension(file).Equals(characterName, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException($"A legacy save already exists for '{characterName}'; start the Gateway to migrate saves before importing.");
     }
 
     static JsonDocument ReadTable(string folder, string table)

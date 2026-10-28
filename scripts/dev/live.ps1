@@ -1,5 +1,6 @@
 # One run against the official client (see Agents/GettingStarted.md):
 #   checks the one-time setup, stops anything on the dev ports and the patched client, builds Auth, Patch and Gateway,
+#   Gateway also owns the optional PoB listener (config/pob-server.json, port 20496 by default).
 #   starts all three (logs in logs/live-*.log) and launches Client/Game.patched.exe through the local patching server.
 #   -NoClient   keep a running client (it drops to the login screen; log in again)
 #   -NoBuild    skip the builds
@@ -131,6 +132,16 @@ if ($servers -contains 'Patch') {
     }
 }
 Start-Sleep -Seconds 1
+if ($servers -contains 'Gateway') {
+    # Gateway announces readiness only after the optional PoB listener has bound successfully.
+    $gatewayLog = Join-Path $out 'live-gateway.log'
+    $deadline = (Get-Date).AddSeconds(30)
+    while (-not ((Test-Path $gatewayLog) -and (Select-String -Path $gatewayLog -Pattern '\[gateway\] listening on' -Quiet))) {
+        $err = Get-Content (Join-Path $out 'live-gateway.err') -Raw -ErrorAction SilentlyContinue
+        if ($err -or (Get-Date) -gt $deadline) { throw "Gateway did not start (logs\live-gateway.err):`n$err" }
+        Start-Sleep -Milliseconds 300
+    }
+}
 foreach ($name in ($servers | Where-Object { $_ -ne 'Patch' } | ForEach-Object { $_.ToLower() })) {
     $err = Get-Content (Join-Path $out "live-$name.err") -Raw -ErrorAction SilentlyContinue
     if ($err) { throw "$name failed to start (logs\live-$name.err):`n$err" }

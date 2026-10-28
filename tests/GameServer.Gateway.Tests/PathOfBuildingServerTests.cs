@@ -8,7 +8,7 @@ using GameServer.Storage;
 
 namespace GameServer.Gateway.Tests;
 
-public class PathOfBuildingServerTests
+public partial class PathOfBuildingServerTests
 {
     const string Build = """
         <PathOfBuilding><Build level="20" className="Witch" ascendClassName="None"/>
@@ -165,6 +165,13 @@ public class PathOfBuildingServerTests
         string body = await response.Content.ReadAsStringAsync();
         Assert.DoesNotContain("intentional test failure", body);
         Assert.DoesNotContain(fixture.Database, body);
+        string diagnostic = fixture.Diagnostics.ToString();
+        Assert.Contains("phase=save", diagnostic);
+        Assert.Contains("sqlite=", diagnostic);
+        Assert.Contains("reference", body);
+        Assert.DoesNotContain(fixture.Token, diagnostic);
+        Assert.DoesNotContain("intentional test failure", diagnostic);
+        Assert.DoesNotContain(fixture.Database, diagnostic);
         using var db = new SaveDatabase(fixture.Database);
         Assert.Null(new SqliteAccountStore(db).FindCharacter("FromPoB"));
         Assert.Null(db.Get(SaveDatabase.Table.Characters, "FromPoB"));
@@ -190,28 +197,6 @@ public class PathOfBuildingServerTests
     }
 
     [Fact]
-    public void Config_resolves_folders_relative_to_config_and_rejects_unknown_fields()
-    {
-        string folder = Directory.CreateTempSubdirectory("pob-config-").FullName;
-        try
-        {
-            Directory.CreateDirectory(Path.Combine(folder, "config"));
-            string path = Path.Combine(folder, "config", "receiver.json");
-            File.WriteAllText(path, "{\"repositoryRoot\":\"..\",\"dataFolder\":\"custom-data\",\"databasePath\":\"private/accounts.db\"}");
-            var config = PathOfBuildingServerConfig.Load(path);
-            Assert.Equal(folder, config.RepositoryRoot);
-            Assert.Equal(Path.Combine(folder, "custom-data"), config.DataFolder);
-            Assert.Equal(Path.Combine(folder, "private", "accounts.db"), config.DatabasePath);
-            Assert.Equal("http://127.0.0.1:20496", config.ListenUrl);
-            File.WriteAllText(path, "{\"unknownSetting\":true}");
-            Assert.Throws<JsonException>(() => PathOfBuildingServerConfig.Load(path));
-            File.WriteAllText(path, "{\"listenUrl\":\"http://localhost:20496/path\"}");
-            Assert.Throws<ArgumentException>(() => PathOfBuildingServerConfig.Load(path));
-        }
-        finally { Directory.Delete(folder, recursive: true); }
-    }
-
-    [Fact]
     public void Issuing_tokens_requires_an_existing_account_and_database()
     {
         string folder = Directory.CreateTempSubdirectory("pob-token-").FullName;
@@ -233,8 +218,9 @@ public class PathOfBuildingServerTests
         public PathOfBuildingServer Server { get; private set; } = null!;
         public HttpClient Client { get; private set; } = null!;
         public string Token { get; private set; } = "";
+        public StringWriter Diagnostics { get; } = new();
 
-        public static async Task<Fixture> Start()
+        public static async Task<Fixture> Start(bool realData = false)
         {
             var fixture = new Fixture();
             string data = Path.Combine(fixture.Folder, "custom-game-data");
@@ -254,8 +240,8 @@ public class PathOfBuildingServerTests
             }
             fixture.Token = PathOfBuildingServerTokens.Issue(fixture.Database, "alice_import");
             fixture.Server = new(new PathOfBuildingServerConfig { ListenUrl = "http://127.0.0.1:0", RepositoryRoot = fixture.Folder,
-                DataFolder = data, DatabasePath = fixture.Database, ClientGgpk = Path.Combine(fixture.Folder, "absent.ggpk"),
-                OozWorker = Path.Combine(fixture.Folder, "absent.mjs") });
+                DataFolder = realData ? "data" : data, DatabasePath = fixture.Database, ClientGgpk = Path.Combine(fixture.Folder, "absent.ggpk"),
+                OozWorker = Path.Combine(fixture.Folder, "absent.mjs") }, fixture.Diagnostics);
             try
             {
                 await fixture.Server.StartAsync();
@@ -265,10 +251,10 @@ public class PathOfBuildingServerTests
             catch { await fixture.DisposeAsync(); throw; }
         }
 
-        public Task<HttpResponseMessage> Send(string path, string account, string? token, string code = Build)
+        public Task<HttpResponseMessage> Send(string path, string account, string? token, string code = Build, string name = "FromPoB")
         {
             var request = new HttpRequestMessage(HttpMethod.Post, path)
-                { Content = JsonContent.Create(new { account, code, name = "FromPoB", league = "Standard" }) };
+                { Content = JsonContent.Create(new { account, code, name, league = "Standard" }) };
             if (!string.IsNullOrEmpty(token)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             return Client.SendAsync(request);
         }

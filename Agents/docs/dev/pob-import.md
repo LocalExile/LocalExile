@@ -1,6 +1,6 @@
 # PoB import and evryBuild
 
-[evryBuild - POB for LocalExile](https://github.com/evrydayjunglist/evryBuild) adds Preview and Forge Character to PoB.
+[evryBuild - POB for LocalExile](https://github.com/evrydayjunglist/evryBuild/tree/feature/localexile-integration) adds Preview and Forge Character to PoB.
 This server provides the importer and its optional authenticated HTTP receiver.
 Ordinary Community Fork XML/export codes also work through the offline command.
 Sharing URLs are not fetched.
@@ -71,39 +71,81 @@ After success, log out to the login screen and log in again to refresh the chara
 ## Connect evryBuild
 
 Use the evryBuild source/package instructions in its
-[LocalExile guide](https://github.com/evrydayjunglist/evryBuild/blob/master/docs/LocalExile.md).
+[LocalExile guide](https://github.com/evrydayjunglist/evryBuild/blob/feature/localexile-integration/docs/LocalExile.md).
 Its source and the server remain separate repositories, typically in sibling `evryBuild` and `evryPath` folders.
 
-The receiver runs separately from normal game services and needs an existing local account/save database.
-In PowerShell at the server root, issue an account-bound import token:
+Gateway hosts the optional HTTP listener on its own port, `20496`; game traffic stays on `6112`.
+It builds, starts, stops and restarts with Gateway. No fourth game service or extra receiver window is needed.
+First complete the normal [Getting Started](../../GettingStarted.md) setup and create a local account.
+Open PowerShell in the server checkout's root (the folder containing `src`, `scripts`, `Client` and `data`), then run:
+
+```powershell
+if (-not (Test-Path -LiteralPath 'config\pob-server.json')) {
+    Copy-Item -LiteralPath 'config\pob-server.example.json' -Destination 'config\pob-server.json'
+}
+.\scripts\dev\live.ps1 -NoClient
+```
+
+The example enables imports on `http://127.0.0.1:20496`.
+Success appears in `logs/live-gateway.log` as `[pob] listening on http://127.0.0.1:20496`.
+A missing config file, or `"enabled": false`, leaves imports disabled.
+Gateway fails startup if an enabled listener cannot bind; check `logs/live-gateway.err` and stop any old standalone receiver.
+After changing the config, rebuild/restart Gateway with `.\scripts\dev\live.ps1 -Only Gateway`.
+
+The listener uses `data/` and the same `Game_SAVES_DB` and `Game_LEAGUES` environment settings as the game services.
+The defaults are `data/saves.db` and the Standard/Allflame league families.
+`Game_GGPK` selects the copied client archive; otherwise it is beside `Game_CLIENT_EXE`, or `Client/Content.ggpk`.
+Node.js and `Tools/ooz` use the normal extraction setup from Getting Started; no extra data directory is required.
+Set any `Game_*` overrides in the PowerShell window **before** starting the services and issuing tokens.
+They must point to the same installation for every service; the receiver cannot select a separate database in JSON.
+
+Only listener policy belongs in `config/pob-server.json`:
+
+| Setting | Meaning |
+|---|---|
+| `enabled` | Opt into the listener during normal Gateway startup; default false |
+| `listenUrl` | Dedicated HTTP(S) origin; default `http://127.0.0.1:20496`, independent of `Game_BIND` |
+| `allowedLeagues` | Optional array of full offered league names, such as `["Standard", "SSF Standard"]`; omitted permits all active non-Ruthless leagues |
+| `certificatePath` | Certificate for direct HTTPS, relative to the repository root or absolute |
+| `certificatePasswordEnvironment` | Environment variable holding the certificate password |
+
+Ruthless imports remain unsupported even when that league is active in the game.
+For a remotely managed server, use HTTPS with a valid certificate or a TLS proxy forwarding to loopback.
+The proxy must remove any public path prefix before forwarding `/api/pob/...`.
+`Game_BIND=0.0.0.0` alone does not expose the import API.
+Build submissions cannot select filesystem paths or database locations.
+
+**Migrating the old separate receiver:** stop its PowerShell window with Ctrl+C.
+Replace its old config with the small example above, then enable any desired listener policy.
+The obsolete `repositoryRoot`, `dataFolder`, `databasePath`, `clientGgpk`, `oozWorker`, `nodeExecutable` and `leagues`
+JSON fields are rejected instead of silently importing into a different installation.
+Move database/client/league overrides into the normal `Game_*` environment before starting all services.
+Existing account-bound tokens keep working when the same database is used.
+
+Issue an import token in that same PowerShell window:
 
 ```powershell
 $accountName = Read-Host 'Existing LocalExile account name'
-.\scripts\dev\pob-server.ps1 -IssueToken -Account $accountName
+.\scripts\dev\pob-server.ps1 -IssueToken -Account $accountName -NoBuild
 ```
 
-The first invocation creates local `config/pob-server.json` from its tracked example and builds the receiver.
 Success prints `"ok":true` and a token; copy only its value into evryBuild, without quotation marks.
 The token is a separate import credential, not the game login password.
 Issuing another token replaces the previous one; only its digest is stored in the database.
 Do not commit tokens, active configuration, accounts or saves.
-
-Start the receiver in the same server-root PowerShell window:
-
-```powershell
-.\scripts\dev\pob-server.ps1 -NoBuild
-```
-
-Keep that window running; Ctrl+C stops the receiver.
-It listens at `http://127.0.0.1:20496` by default and permits Standard imports.
-To configure other offered league names or server paths, open `config/pob-server.json` in a text editor first.
-Its relative paths resolve against `repositoryRoot`; defaults use this checkout's `data` and client archive.
-Build submissions cannot supply filesystem paths or database locations.
+Token commands work without a running Gateway and reuse its standard build output when present; a missing build is compiled automatically.
+For advanced administration only, `pob-server.ps1 -NoBuild` still runs the HTTP listener alone.
+Do not run that mode alongside an enabled Gateway listener on the same address.
 
 In evryBuild, open the build, then select **Import/Export Build**, **Forge Character** below Build Sharing.
 Enter the Server URL above, local account, Account API token, Standard league and a new character name.
 Select **Preview**, read the result, then select **Forge Character** if the supported build is correct.
-Preview and Forge report the omitted features in their warnings.
+Preview checks the entered name, offered league and account capacity without writing or reserving a character slot.
+It reports active equipment separately from the inactive weapon set, plus omitted item/enabled-gem counts and warnings.
+“Ready with omissions” means a partial import: inspect what will be missing before forging.
+Changing the build, name or connection details requires another preview in evryBuild.
+Warning details are shortened when necessary, with the full distinct-warning count and a truncation flag;
+summary counts still cover the entire import. Success JSON is capped below 64 KiB and serialized before any commit.
 An ascended PoB build can therefore pass Preview while producing an unascended character with fewer effects or items.
 The dialog clears its token after creation or closing; saved connection preferences contain no token.
 Log out to the game's login screen and log in again to see the new character.
@@ -122,11 +164,15 @@ $accountName = Read-Host 'Existing LocalExile account name'
 Both accept JSON `{ "code": "...", "account": "...", "name": "...", "league": "Standard" }`
 with `Authorization: Bearer TOKEN`; the token must belong to the requested existing account.
 There is no browser CORS interface, arbitrary URL fetching or account registration in this receiver.
+Unexpected server errors return a log reference; Gateway records the phase, exception type, stack methods and SQLite codes,
+without submitted builds, exception messages or tokens.
 Requests, XML and decompression are bounded; XML DTDs/entities, duplicate JSON fields and unknown fields are refused.
 The default listener is local; remotely managed receivers need administrator-configured HTTPS or a TLS proxy.
 
 Parser, materializer, character-save, token and HTTP regression tests cover accepted and refused inputs.
 Cross-project testing also covers the actual evryBuild Lua HTTP path and real zlib/base64 exports against an isolated
 receiver: read-only preview, creation, duplicate refusal, account-bound tokens and token-free saved preferences.
-Those checks use synthetic build fields and a temporary database; native GUI and in-game validation remain separate.
+Automated checks use temporary databases. A full saved Community build also passed the actual evryBuild Lua/curl path
+into Gateway, restoring level 99, 16 items, 30 gems, 100 passives and 9 masteries.
+The owner confirmed the imported equipment/gems appear in the native client and movement works.
 The issue #75 character-stat branch remains independent; this branch includes only item-state prerequisites.

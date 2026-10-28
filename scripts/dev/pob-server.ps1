@@ -12,21 +12,18 @@ if ((Get-Location).Path -ne $repo) { throw "Run this command from $repo." }
 if ($IssueToken -and $RevokeToken) { throw 'Choose -IssueToken or -RevokeToken.' }
 if (($IssueToken -or $RevokeToken) -and -not $Account) { throw '-Account is required for token commands.' }
 if ($Account -and -not ($IssueToken -or $RevokeToken)) { throw 'Use -IssueToken or -RevokeToken with -Account.' }
-if (-not (Test-Path -LiteralPath $Config -PathType Leaf)) {
-    if ($PSBoundParameters.ContainsKey('Config')) { throw "Configuration file not found: $Config" }
-    Copy-Item -LiteralPath (Join-Path $repo 'config\pob-server.example.json') -Destination (Join-Path $repo $Config)
-    Write-Host 'Created config\pob-server.json with local defaults. Server paths and listen address can be edited there.'
-}
-$configPath = (Resolve-Path -LiteralPath $Config).Path
-$buildPath = Join-Path $repo 'artifacts\pob-receiver'
-$dll = Join-Path $buildPath 'bin\GameServer.Gateway\debug\GameServer.Gateway.dll'
-if (-not $NoBuild) {
-    & dotnet build src/GameServer.Gateway --artifacts-path $buildPath --verbosity quiet
+# Normal receiver startup belongs to Gateway. This wrapper issues tokens or explicitly starts a standalone listener.
+# Token commands need no config file: database/client/league settings come from the normal Game_* environment.
+$dll = Join-Path $repo 'src\GameServer.Gateway\bin\Debug\net10.0\GameServer.Gateway.dll'
+# A token operation can use the running Gateway's build. Rebuilding its loaded DLL would fail on Windows.
+if (-not $NoBuild -and (-not ($IssueToken -or $RevokeToken) -or -not (Test-Path -LiteralPath $dll))) {
+    & dotnet build src/GameServer.Gateway --verbosity quiet
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
-if (-not (Test-Path -LiteralPath $dll)) { throw 'Receiver is not built. Run this command again without -NoBuild.' }
+if (-not (Test-Path -LiteralPath $dll)) { throw 'Gateway is not built. Run this command again without -NoBuild.' }
 $operation = if ($IssueToken -or $RevokeToken) { '--pob-token' } else { '--pob-server' }
-$arguments = @($dll, $operation, '--config', $configPath)
+$arguments = @($dll, $operation)
+if ($PSBoundParameters.ContainsKey('Config')) { $arguments += @('--config', $Config) }
 if ($Account) { $arguments += @('--account', $Account) }
 if ($RevokeToken) { $arguments += '--revoke' }
 & dotnet @arguments

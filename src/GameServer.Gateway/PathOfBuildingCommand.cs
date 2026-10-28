@@ -44,39 +44,18 @@ static class PathOfBuildingCommand
                 using var file = new StreamReader(options.File!, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
                 text = ReadBounded(file);
             }
-            var build = PathOfBuilding.Parse(text);
-            var progress = PathOfBuildingCharacters.Prepare(build);
-            var league = LeagueCatalog.FromEnvironment().Find(options.League)
-                ?? throw new ArgumentException($"Unknown league '{options.League}'. Use a league offered by this server.");
-            // PoB uses ordinary rules. Importing an ordinary build under Ruthless's different data would change it.
-            if (league.Ruthless) throw new ArgumentException("Ruthless build imports are not supported: ordinary PoB stats differ from Ruthless rules.");
-            var items = PathOfBuildingItems.Materialize(build, new ItemCatalog());
-            var save = progress.ToSave(items);
-            var warnings = progress.Warnings.Concat(items.Warnings).Distinct().ToArray();
-            Character? character = null;
+            var config = new PathOfBuildingServerConfig();
+            var league = config.SelectLeague(options.League);
+            var prepared = PathOfBuildingImport.Prepare(text, config);
+            // Render before committing, using the same bounded result contract as HTTP.
+            string response = JsonSerializer.Serialize(prepared.Response(options.Preview, options.Name, league.Name), JsonOptions);
             if (!options.Preview)
             {
-                using var db = new SaveDatabase(SaveDatabase.DefaultPath);
-                character = PathOfBuildingCharacters.Create(db, options.Account!, options.Name!, progress, save, league.Name);
+                using var db = new SaveDatabase(config.DatabasePath);
+                PathOfBuildingCharacters.Create(db, options.Account!, options.Name!, prepared.Progress,
+                    prepared.Progress.ToSave(prepared.Equipment), league.Name, config.Leagues, config.DataFolder);
             }
-            output.WriteLine(JsonSerializer.Serialize(new
-            {
-                ok = true,
-                preview = options.Preview,
-                character = character?.Name ?? options.Name,
-                account = character is null ? null : options.Account,
-                @class = build.Class.ToString(),
-                level = build.Level,
-                league = league.Name,
-                passives = progress.Passives.Count,
-                masteries = progress.MasteryEffects.Count,
-                items = items.Inventories.Values.Sum(placements => placements.Count),
-                gems = items.Inventories.Values.SelectMany(placements => placements)
-                    .Sum(placement => placement.Item.Sockets?.Count(socket => socket.Gem is not null) ?? 0),
-                warnings,
-                next = options.Preview ? "Validation passed. Remove --preview and provide --account and --name to create the character."
-                    : "Log out to the login screen and log in again to refresh the character list, then select this character and Play."
-            }, JsonOptions));
+            output.WriteLine(response);
             return 0;
         }
         catch (Exception ex) when (ex is ArgumentException or FormatException or IOException or JsonException or OverflowException
