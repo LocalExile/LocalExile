@@ -10,6 +10,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
   Code: `scripts/dev/extract-data.ps1`, `GameDataFiles.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 7.
+  Launcher, extraction and native client control also accept an external installation through ignored
+  `client.local.json` or `Game_CLIENT_DIR`; the default remains repository `Client/`.
+  Relative paths use the repository root, while generated data stays under `data/`.
+  Native validation reached the login screen from the external folder with the dedicated profile selected.
+  Read-only graph and item-type extraction succeeded against the relocated archive.
+  Automated controls cover default/external paths, spaces, invalid configuration, override precedence,
+  launch arguments/working directory and archive propagation to .NET/Python extraction.
+  See [external client folder](../GettingStarted.md#optional-external-client-folder) for configuration and limits.
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.

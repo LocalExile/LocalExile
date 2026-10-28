@@ -30,9 +30,10 @@ import sys
 import time
 
 import frida
+from client_paths import client_directory
 
 ROOT = Path(__file__).resolve().parents[2]
-CLIENT = ROOT / "Client" / "Game.patched.exe"
+CLIENT = client_directory(ROOT) / "Game.patched.exe"
 AGENT = Path(__file__).with_name("client-control.js")
 
 
@@ -214,7 +215,7 @@ class ClientControl:
         try:
             identity = self.script.exports_sync.identity()
             if Path(identity["path"]).resolve() != CLIENT.resolve():
-                raise RuntimeError("Refusing a client outside this checkout's Client directory")
+                raise RuntimeError("Refusing a client outside this checkout's configured client directory")
         except Exception:
             self.close()
             if errors:

@@ -13,27 +13,34 @@ param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+. (Join-Path $PSScriptRoot 'client-path.ps1')
+$clientPaths = Get-ClientPaths -RepositoryRoot $repo
+$client = $clientPaths.Directory
+$savedClientEnv = @{ Game_CLIENT_EXE = $env:Game_CLIENT_EXE; Game_GGPK = $env:Game_GGPK }
+try {
+$env:Game_CLIENT_EXE = $clientPaths.Executable
+$env:Game_GGPK = $clientPaths.Archive
 $out = Join-Path $repo 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
 function Select-LocalGateway {
     # The client can use a cached gateway list even when the patch welcome needs no download.
-    & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') gateway (Join-Path $repo 'Client\Content.ggpk') --login '127.0.0.1:20493' | Out-Null
+    & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') gateway $clientPaths.Archive --login '127.0.0.1:20493' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'could not select local login server; close all clients and retry' }
 }
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
-Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'
-Need (Test-Path (Join-Path $repo 'Client\Game.patched.exe')) 'Client\Game.patched.exe missing: run GameServer.Auth patch'
-Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+Need (Test-Path $clientPaths.Executable) "$($clientPaths.Executable) missing: copy the client and its PathOfExile.exe"
+Need (Test-Path $clientPaths.PatchedExecutable) "$($clientPaths.PatchedExecutable) missing: run GameServer.Auth patch"
+Need (Test-Path $clientPaths.Archive) "$($clientPaths.Archive) missing: this needs the standalone client layout"
 
 # The control bridge can open a closed client without restarting the servers or touching an existing game.
 if ($ClientOnly) {
     if ($NoClient -or $Only -or $Walkmaps) { throw '-ClientOnly cannot be combined with -NoClient, -Only or -Walkmaps' }
     $existing = @(Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue)
     if ($existing.Count) {
-        Need ($existing.Count -eq 1 -and $existing[0].Path -eq (Join-Path $repo 'Client\Game.patched.exe')) 'another patched client is running'
+        Need ($existing.Count -eq 1 -and $existing[0].Path -eq $clientPaths.PatchedExecutable) 'another patched client is running'
         Write-Output "client already running: $($existing[0].Id)"
         return
     }
@@ -41,7 +48,7 @@ if ($ClientOnly) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
     Select-LocalGateway
-    $p = Start-Process (Join-Path $repo 'Client\Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory (Join-Path $repo 'Client') -PassThru
+    $p = Start-Process $clientPaths.PatchedExecutable -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory $client -PassThru
     Write-Output "client pid $($p.Id)"
     return
 }
@@ -142,8 +149,14 @@ if ($Walkmaps) {
 }
 
 if (-not $NoClient) {
-    $client = Join-Path $repo 'Client'
     $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory $client -PassThru
     Write-Output "client pid $($p.Id)"
 }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')" } else { 'servers up' })
+
+} finally {
+    foreach ($key in $savedClientEnv.Keys) {
+        if ($null -eq $savedClientEnv[$key]) { Remove-Item -LiteralPath "Env:$key" -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($key, $savedClientEnv[$key]) }
+    }
+}

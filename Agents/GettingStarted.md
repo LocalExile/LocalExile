@@ -129,6 +129,45 @@ Success: `Client\Game.exe` (about 79 MB) and `Client\Content.ggpk` exist.
   minutes.
 - Close the client before copying. A running client locks `Content.ggpk`.
 
+### Optional external client folder
+
+The default remains `<repository>\Client`. To use another installation, create `client.local.json` in the repository
+root (beside `GameServer.slnx`). This file is ignored by Git. For example:
+
+```json
+{
+  "clientDirectory": "F:\\evry\\evryPath\\Client"
+}
+```
+
+Move the whole client directory, including `config.json`, while the game and local servers are closed.
+The configured directory must contain `Game.exe`, `Game.patched.exe` and `Content.ggpk`.
+Relative paths resolve from the repository root. An optional `Game_CLIENT_DIR` environment variable takes precedence
+over the JSON file. Without either setting, the tools continue to use the repository's `Client` folder.
+Malformed local configuration stops the tools with an error rather than silently selecting another client.
+
+`live.ps1`, `extract-data.ps1` and the native client-control bridge use this location. The launcher passes resolved
+`Game_CLIENT_EXE` and `Game_GGPK` paths to its servers and restores the caller's environment when it exits.
+Existing explicit `Game_CLIENT_EXE` and `Game_GGPK` overrides retain precedence for their individual files.
+Extraction passes the same archive to .NET and Python generators; generated server data stays under repository `data/`.
+Standalone server commands do not read `client.local.json`; use the existing file environment overrides for those.
+Other manual RE commands in this guide still need explicit external paths where their examples say `Client/...`.
+
+The client is launched with its own directory as its working directory, so its `config.json` continues to select
+its existing Documents profile. Moving the game directory does not move or replace that profile.
+Start it normally from a PowerShell terminal in the repository root:
+
+```powershell
+.\scripts\dev\live.ps1
+```
+
+To inspect extraction freshness, or rerun just the read-only graph analysis:
+
+```powershell
+.\scripts\dev\extract-data.ps1 -List
+.\scripts\dev\extract-data.ps1 -Only passive-graphs
+```
+
 ## 4. Generate your own login keys
 
 ```powershell

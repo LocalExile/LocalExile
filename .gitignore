@@ -72,3 +72,6 @@ desktop.ini
 
 # --- Local agent handoff notes ---
 /HANDOFF.md
+
+# Per-checkout client installation path
+/client.local.json

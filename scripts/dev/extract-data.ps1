@@ -12,12 +12,14 @@ $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+. (Join-Path $PSScriptRoot 'client-path.ps1')
+$clientPaths = Get-ClientPaths -RepositoryRoot $repo
 
 # Name, outputs (the first is checked for presence and freshness), runner (dotnet | python), arguments, version, needs,
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
 $manifest = @(
     @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\ItemVisualIdentity.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 1; Needs = @()
+       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', $clientPaths.Archive); Version = 1; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 4; Needs = @('tables')
@@ -26,13 +28,13 @@ $manifest = @(
        Args = @('scripts/re/ot_components.py', '--items', '--json', 'data/item-types.json'); Version = 1; Needs = @('tables')
        UsedBy = 'items: starting items, /item, drops, affix rolls (tags)' }
     @{ Name = 'area-transitions'; Outputs = @('data\area-transitions.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'data/area-transitions.json'); Version = 1; Needs = @('tables')
+       Args = @('run', '--project', 'scripts/re/atlas', '--', $clientPaths.Archive, 'data/area-transitions.json'); Version = 1; Needs = @('tables')
        UsedBy = 'area transitions of fixed layouts (08-area-transitions.md)' }
     @{ Name = 'room-points'; Outputs = @('data\room-points.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'room-points'); Version = 3; Needs = @('tables')
+       Args = @('run', '--project', 'scripts/re/atlas', '--', $clientPaths.Archive, 'room-points'); Version = 3; Needs = @('tables')
        UsedBy = 'unique bosses and named packs (14-monster-packs.md), quest room objects (12-quests.md)' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
+       Args = @('run', '--project', 'scripts/re/atlas', '--', $clientPaths.Archive, 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
        Args = @('scripts/re/anim_contacts.py'); Version = 1; Needs = @('tables')
@@ -42,7 +44,7 @@ $manifest = @(
        Args = @('scripts/re/monster_takehit.py'); Version = 3; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 3; Needs = @('tables')
+       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', $clientPaths.Archive, 'data/passive-skill-graphs.json'); Version = 3; Needs = @('tables')
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
 )
 
@@ -88,7 +90,7 @@ foreach ($e in $manifest) {
 }
 if ($todo.Count -eq 0) { Write-Output 'game data up to date'; return }
 
-Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+Need (Test-Path $clientPaths.Archive) "$($clientPaths.Archive) missing: this needs the standalone client layout"
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Get-Command node -ErrorAction SilentlyContinue) 'Node.js not found (node): it decompresses the game bundles'
 Need (Test-Path (Join-Path $repo 'Tools\ooz\node_modules\ooz-wasm')) 'Tools\ooz\node_modules missing: cd Tools\ooz; npm install'
@@ -122,7 +124,7 @@ function Invoke-Logged($exe, $exeArgs, $log) {
 function Tail($log) { (Get-Content $log, "$log.err" -Tail 15 -ErrorAction SilentlyContinue) -join "`n" }
 
 $savedEnv = @{}
-foreach ($kv in @{ MSBUILDDISABLENODEREUSE = '1'; DOTNET_CLI_USE_MSBUILD_SERVER = '0' }.GetEnumerator()) {
+foreach ($kv in @{ MSBUILDDISABLENODEREUSE = '1'; DOTNET_CLI_USE_MSBUILD_SERVER = '0'; Game_GGPK = $clientPaths.Archive }.GetEnumerator()) {
     $savedEnv[$kv.Key] = [Environment]::GetEnvironmentVariable($kv.Key)
     [Environment]::SetEnvironmentVariable($kv.Key, $kv.Value)
 }
@@ -152,5 +154,10 @@ try {
         Write-Output "  done in $([int]((Get-Date) - $started).TotalSeconds) s"
     }
 }
-finally { foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k]) } }
+finally {
+    foreach ($k in $savedEnv.Keys) {
+        if ($null -eq $savedEnv[$k]) { Remove-Item -LiteralPath "Env:$k" -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k]) }
+    }
+}
 Write-Output "game data extracted: $(($todo | ForEach-Object { $_.Name }) -join ', ')"

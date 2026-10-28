@@ -18,7 +18,11 @@ $branch = $ast.Find({ param($node)
 }, $false)
 if (-not $branch) { throw 'missing ClientOnly branch' }
 $launch = [scriptblock]::Create($branch.Extent.Text)
+. (Join-Path $PSScriptRoot 'client-path.ps1')
+foreach ($clientFolder in @('C:\LocalExile-test\Client', 'F:\External client with spaces')) {
 $repo = 'C:\LocalExile-test'
+$clientPaths = [pscustomobject]@{ Directory=$clientFolder; Executable=(Join-Path $clientFolder 'Game.exe'); PatchedExecutable=(Join-Path $clientFolder 'Game.patched.exe'); Archive=(Join-Path $clientFolder 'Content.ggpk') }
+$client = $clientPaths.Directory
 $ClientOnly = $true
 $NoClient = $false
 $Only = @()
@@ -39,6 +43,10 @@ function dotnet {
     $global:LASTEXITCODE = $script:gatewayExit
 }
 function Start-Process {
+    param($FilePath, $ArgumentList, $WorkingDirectory, [switch]$PassThru)
+    Assert ($FilePath -eq $clientPaths.PatchedExecutable) 'wrong launch executable'
+    Assert ($WorkingDirectory -eq $client) 'wrong client working directory'
+    Assert (($ArgumentList -join '|') -eq '--patching-server|127.0.0.1:12995') 'wrong patching server'
     $script:events.Add('launch')
     [pscustomobject]@{ Id = 123 }
 }
@@ -53,10 +61,10 @@ function Expect-Failure($pattern) {
 & $launch | Out-Null
 Assert (($script:events -join ',') -eq 'gateway,launch') 'gateway must reset before a closed client launches'
 Assert ($script:gatewayArgs[0] -eq (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll')) 'wrong patch executable'
-Assert (($script:gatewayArgs[1..4] -join '|') -eq ('gateway|' + (Join-Path $repo 'Client\Content.ggpk') + '|--login|127.0.0.1:20493')) 'gateway must target this checkout and local Auth'
+Assert (($script:gatewayArgs[1..4] -join '|') -eq ('gateway|' + $clientPaths.Archive + '|--login|127.0.0.1:20493')) 'gateway must target this checkout and local Auth'
 
 $script:events.Clear()
-$script:existing = @([pscustomobject]@{ Id = 42; Path = (Join-Path $repo 'Client\Game.patched.exe') })
+$script:existing = @([pscustomobject]@{ Id = 42; Path = $clientPaths.PatchedExecutable })
 & $launch | Out-Null
 Assert ($script:events.Count -eq 0) 'existing client must return without writes or launch'
 $script:existing = @([pscustomobject]@{ Id = 42; Path = 'C:\Other\Game.patched.exe' })
@@ -77,3 +85,5 @@ $NoClient = $true
 Expect-Failure '-ClientOnly cannot be combined'
 Assert ($script:events.Count -eq 0) 'invalid options must return before gateway write'
 Write-Output 'ClientOnly launch checks passed (mocked; no client or GGPK touched).'
+
+}

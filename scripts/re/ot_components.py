@@ -22,7 +22,7 @@ import json, os, re, subprocess, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = REPO
-GGPK = os.path.join(ROOT, r"Client\Content.ggpk")
+GGPK = os.environ.get("Game_GGPK") or os.path.join(ROOT, "Client", "Content.ggpk")
 CACHE = os.path.join(ROOT, r"Tools\re\out\ot")
 REGISTRY = os.path.join(REPO, "Agents", "docs", "re", "components.json")
 RAW_DATS = ["Data/MonsterVarieties.datc64", "Data/Chests.datc64"]
