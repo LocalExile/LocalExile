@@ -98,7 +98,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - PoB import: offline XML/export-code preview and atomic creation of a new native character with supported tree,
   equipment, flasks, sockets, links and gems.
   The separate authenticated receiver serves evryBuild's Preview and Forge Character actions.
-  Existing characters are never replaced; unsupported inputs are refused before saving.
+  Existing characters are never replaced; unsupported build features are skipped with explicit warnings.
+  Ascended builds create unascended characters; omitted tree branches, items, modifiers and gems are reported.
+  Malformed input, invalid native layouts, authentication failures and unsupported rule sets remain errors.
   Imported modifiers do not implement missing gameplay systems or provide PoB calculation parity.
   Automated coverage passes; fresh in-game validation of this branch remains open.
   Code: Core `Imports/PathOfBuilding.cs`, Gateway `PathOfBuilding*.cs`.

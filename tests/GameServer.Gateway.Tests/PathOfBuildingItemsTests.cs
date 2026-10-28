@@ -63,16 +63,17 @@ public class PathOfBuildingItemsTests
     }
 
     [Theory]
-    [InlineData("+99999 to maximum Life", "no native modifier")]
-    [InlineData("Gain a random superpower", "unsupported explicit modifier")]
-    [InlineData("{mystery}17% increased Spell Damage", "unsupported modifier flags")]
-    public void Unsupported_mods_fail_instead_of_creating_substitute_items(string mod, string reason)
+    [InlineData("+99999 to maximum Life", "no native modifier", false)]
+    [InlineData("Gain a random superpower", "unsupported explicit modifier", false)]
+    [InlineData("{mystery}17% increased Spell Damage", "unsupported modifier flags", true)]
+    public void Unsupported_modifiers_or_items_are_omitted_with_reasons(string mod, string reason, bool omittedItem)
     {
         using var data = new Fixture();
         var build = Build("Ring 1", "Rarity: NORMAL\nPractice Ring\nItem Level: 50\nImplicits: 0\n" + mod);
-        var error = Assert.Throws<ArgumentException>(() => PathOfBuildingItems.Materialize(build, data.Items, data.Folder));
-        Assert.Contains(reason, error.Message);
-        Assert.Contains("Ring 1", error.Message);
+        var result = PathOfBuildingItems.Materialize(build, data.Items, data.Folder);
+        Assert.Contains(result.Warnings, w => w.Contains(reason));
+        if (omittedItem) Assert.Empty(result.Inventories);
+        else Assert.Empty(Assert.Single(result.Inventories[6]).Item.Mods!);
     }
 
     [Fact]
@@ -130,9 +131,9 @@ public class PathOfBuildingItemsTests
         { GemId = "Metadata/Items/Gems/Fireball", VariantId = "FireballVariant", SkillId = "FireballAlt" };
         var item = PathOfBuildingItems.CreateGem(gem, data.Items, data.Folder);
         Assert.Equal((1, -1, (byte)23, true), (item.GemVariant, item.GemExperience, item.Quality, item.Corrupted));
-        Assert.Throws<ArgumentException>(() => PathOfBuildingItems.CreateGem(gem with { VariantId = "Fireball" }, data.Items, data.Folder));
-        Assert.Throws<ArgumentException>(() => PathOfBuildingItems.CreateGem(gem with { SkillId = "DifferentSkill" }, data.Items, data.Folder));
-        Assert.Throws<ArgumentException>(() => PathOfBuildingItems.CreateGem(gem with { GemId = "Metadata/Items/Gems/Missing" }, data.Items, data.Folder));
+        Assert.Throws<PathOfBuildingUnsupportedException>(() => PathOfBuildingItems.CreateGem(gem with { VariantId = "Fireball" }, data.Items, data.Folder));
+        Assert.Throws<PathOfBuildingUnsupportedException>(() => PathOfBuildingItems.CreateGem(gem with { SkillId = "DifferentSkill" }, data.Items, data.Folder));
+        Assert.Throws<PathOfBuildingUnsupportedException>(() => PathOfBuildingItems.CreateGem(gem with { GemId = "Metadata/Items/Gems/Missing" }, data.Items, data.Folder));
     }
 
     [Theory]
@@ -233,12 +234,77 @@ public class PathOfBuildingItemsTests
     }
 
     [Fact]
-    public void Undefined_rarity_and_unsupported_percentiles_are_refused()
+    public void Undefined_rarity_is_refused_and_unsupported_percentiles_omit_the_item()
     {
         using var data = new Fixture();
         Assert.Throws<ArgumentException>(() => PathOfBuildingItems.Materialize(Build("Weapon 1", Wand.Replace("NORMAL", "99")), data.Items, data.Folder));
-        Assert.Throws<ArgumentException>(() => PathOfBuildingItems.Materialize(Build("Body Armour",
-            "Rarity: NORMAL\nPractice Vest\nWardBasePercentile: 0.5\nImplicits: 0"), data.Items, data.Folder));
+        var result = PathOfBuildingItems.Materialize(Build("Body Armour",
+            "Rarity: NORMAL\nPractice Vest\nWardBasePercentile: 0.5\nImplicits: 0"), data.Items, data.Folder);
+        Assert.Empty(result.Inventories);
+        Assert.Contains(result.Warnings, w => w.Contains("Skipped item in Body Armour") && w.Contains("WardBasePercentile"));
+    }
+
+    [Fact]
+    public void Unsupported_gems_leave_their_socket_empty_and_keep_other_gems_in_place()
+    {
+        using var data = new Fixture();
+        var group = new PathOfBuildingSkillGroup("Weapon 1", true, [Gem("Unavailable Skill"), Gem()], null);
+        var result = PathOfBuildingItems.Materialize(Build("Weapon 1", Wand, group), data.Items, data.Folder);
+        var sockets = Assert.Single(result.Inventories[2]).Item.Sockets!;
+        Assert.Null(sockets[0].Gem);
+        Assert.NotNull(sockets[1].Gem);
+        Assert.Null(sockets[2].Gem);
+        Assert.Equal("Fireball", result.SkillBar[1]);
+        Assert.Contains(result.Warnings, w => w.Contains("Skipped gem 'Unavailable Skill' in Weapon 1"));
+    }
+
+    [Fact]
+    public void Unsupported_equipment_and_its_skill_groups_do_not_discard_other_items_or_modifiers()
+    {
+        using var data = new Fixture();
+        var build = Build("Weapon 1", Wand, new PathOfBuildingSkillGroup("Weapon 1", true, [Gem()], null)) with
+        {
+            Items = [new(1, Wand.Replace("Practice Wand", "Unknown Wand"), null),
+                new(2, "Rarity: NORMAL\nPractice Ring\nItem Level: 50\nImplicits: 0\n+17 to maximum Life\nGain a random superpower", null)],
+            Slots = [new("Weapon 1", 1), new("Ring 1", 2)],
+        };
+        var result = PathOfBuildingItems.Materialize(build, data.Items, data.Folder);
+        Assert.False(result.Inventories.ContainsKey(2));
+        Assert.Equal(17, Assert.Single(Assert.Single(Assert.Single(result.Inventories[6]).Item.Mods!).Values));
+        Assert.Equal("Action/Move", Assert.Single(result.SkillBar).Value);
+        Assert.Contains(result.Warnings, w => w.Contains("Skipped item in Weapon 1"));
+        Assert.Contains(result.Warnings, w => w.Contains("Skipped skill group in Weapon 1"));
+        Assert.Contains(result.Warnings, w => w.Contains("Skipped modifier on Practice Ring"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Unsupported_skill_sources_are_skipped_without_repacking_later_socket_groups(bool itemSource)
+    {
+        using var data = new Fixture();
+        var unsupported = new PathOfBuildingSkillGroup("Weapon 1", true, [Gem()],
+            itemSource ? "ItemGrantedSkill" : null, itemSource ? null : "Faster Casting");
+        var supported = new PathOfBuildingSkillGroup("Weapon 1", true, [Gem()], null);
+        var result = PathOfBuildingItems.Materialize(Build("Weapon 1", Wand.Replace("R-G-B", "R G B"),
+            unsupported, supported), data.Items, data.Folder);
+        var sockets = Assert.Single(result.Inventories[2]).Item.Sockets!;
+        Assert.Null(sockets[0].Gem);
+        Assert.NotNull(sockets[1].Gem);
+        Assert.Contains(result.Warnings, w => w.Contains("Skipped skill group"));
+    }
+
+    [Fact]
+    public void Omitted_modifiers_do_not_force_exported_defence_or_level_totals_into_native_items()
+    {
+        using var data = new Fixture();
+        var result = PathOfBuildingItems.Materialize(Build("Body Armour",
+            "Rarity: NORMAL\nPractice Vest\nArmour: 999\nLevelReq: 99\nImplicits: 0\nGain a random superpower"), data.Items, data.Folder);
+        var item = Assert.Single(result.Inventories[1]).Item;
+        Assert.Empty(item.Mods!);
+        Assert.Equal(31, item.DefenceBaseRoll);
+        Assert.Contains(result.Warnings, w => w.Contains("using native defences"));
+        Assert.Contains(result.Warnings, w => w.Contains("using the native level requirement"));
     }
 
     [Fact]

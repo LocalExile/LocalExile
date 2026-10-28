@@ -32,28 +32,68 @@ public class PathOfBuildingCharacterTests
     }
 
     [Fact]
-    public void Unsupported_or_invalid_tree_choices_are_refused_before_any_save()
+    public void Invalid_tree_choices_are_refused_before_any_save()
     {
         using var data = new Data();
         var ordinary = Build();
         var invalid = new[]
         {
             ordinary with { Tree = ordinary.Tree with { ClassId = 1 } },
-            ordinary with { Tree = ordinary.Tree with { AscendancyId = 1 } },
-            ordinary with { Ascendancy = "Elementalist" },
-            ordinary with { Tree = ordinary.Tree with { SecondaryAscendancyId = 1 } },
-            ordinary with { Tree = ordinary.Tree with { HasOverrides = true } },
-            ordinary with { Tree = ordinary.Tree with { Jewels = [new(11, 1)] } },
-            ordinary with { Bandit = "Alira" }, ordinary with { PantheonMajor = "Lunaris" },
-            ordinary with { PantheonMinor = "Ryslatha" },
-            Build(nodes: [11, 11]), Build(nodes: [65536]), Build(nodes: [999]),
-            Build(nodes: [13]), Build(nodes: [14]), Build(nodes: [15]), Build(nodes: [16]),
-            Build(nodes: [12]),
+            Build(nodes: [11, 11]), Build(nodes: [16]),
             Build(nodes: [11], masteries: new Dictionary<ushort, ushort> { [11] = 500 }),
-            Build(nodes: [12], masteries: new Dictionary<ushort, ushort> { [12] = 501 }),
         };
         foreach (var build in invalid)
             Assert.Throws<ArgumentException>(() => Prepare(build, data.Folder));
+    }
+
+    [Fact]
+    public void Unsupported_features_are_omitted_while_supported_tree_and_mastery_survive()
+    {
+        using var data = new Data();
+        var build = Build(nodes: [10, 11, 12, 13, 14, 15, 65536, 999],
+            masteries: new Dictionary<ushort, ushort> { [12] = 500, [14] = 501 }) with
+        {
+            Ascendancy = "Elementalist", Bandit = "Alira", PantheonMajor = "Lunaris", PantheonMinor = "Ryslatha",
+            Tree = Build(nodes: [10, 11, 12, 13, 14, 15, 65536, 999],
+                masteries: new Dictionary<ushort, ushort> { [12] = 500, [14] = 501 }).Tree with
+                { AscendancyId = 1, SecondaryAscendancyId = 1, HasOverrides = true, Jewels = [new(14, 1)] },
+        };
+        var progress = Prepare(build, data.Folder);
+        Assert.Equal(new ushort[] { 11, 12 }, progress.Passives);
+        Assert.Equal((ushort)500, Assert.Single(progress.MasteryEffects).Value);
+        foreach (string feature in new[] { "Elementalist", "secondary ascendancy", "jewel", "overrides", "Alira",
+            "Lunaris", "Ryslatha", "ascendancy passive 13", "special passive 14", "special passive 15", "65536", "999", "mastery 501" })
+            Assert.Contains(progress.Warnings, w => w.Contains(feature));
+        Assert.Null(progress.ToSave(new([], [], [])).MainAscendancy);
+    }
+
+    [Fact]
+    public void Omitted_bridge_nodes_remove_disconnected_descendants_and_their_masteries()
+    {
+        using var data = new Data();
+        var progress = PathOfBuildingCharacters.Prepare(Build(nodes: [11, 14, 100, 12],
+            masteries: new Dictionary<ushort, ushort> { [12] = 500 }), data.Folder,
+            () => new Dictionary<uint, uint[]> { [10] = [11], [11] = [10, 14], [14] = [11, 100],
+                [100] = [14, 12], [12] = [100] });
+        Assert.Equal(new ushort[] { 11 }, progress.Passives);
+        Assert.Empty(progress.MasteryEffects);
+        Assert.Equal(0, progress.ExtraPassivePoints);
+        Assert.Contains(progress.Warnings, w => w.Contains("disconnected passive 100"));
+        Assert.Contains(progress.Warnings, w => w.Contains("disconnected passive 12"));
+    }
+
+    [Fact]
+    public void Missing_or_unsupported_masteries_are_omitted_without_invalid_allocations()
+    {
+        using var data = new Data();
+        foreach (var build in new[] { Build(nodes: [11, 12]),
+            Build(nodes: [11, 12], masteries: new Dictionary<ushort, ushort> { [12] = 501 }) })
+        {
+            var progress = Prepare(build, data.Folder);
+            Assert.Equal(new ushort[] { 11 }, progress.Passives);
+            Assert.Empty(progress.MasteryEffects);
+            Assert.Contains(progress.Warnings, w => w.Contains("Skipped mastery passive 12"));
+        }
     }
 
     [Fact]

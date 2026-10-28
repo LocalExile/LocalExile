@@ -127,13 +127,14 @@ public sealed class PathOfBuildingSpecialDefenceTests
     }
 
     [Fact]
-    public void A_conversion_percentage_absent_from_native_mod_data_is_refused()
+    public void A_conversion_percentage_absent_from_native_mod_data_is_omitted_without_substitution()
     {
-        var error = Assert.Throws<ArgumentException>(() => Import(
+        var item = Import(
             "Rarity: UNIQUE\nThe Apostate\nCabalist Regalia\nItem Level: 85\nImplicits: 0\n"
-            + "Gain Maximum Life instead of Maximum Energy Shield from Equipped Armour Items at 60% of the value"));
+            + "Gain Maximum Life instead of Maximum Energy Shield from Equipped Armour Items at 60% of the value");
 
-        Assert.Contains("no native modifier with matching stats and rolls", error.Message);
+        Assert.DoesNotContain(item.Mods, m => m.Section == ModSection.Explicit);
+        Assert.Single(item.Mods, m => m.Section == ModSection.Hidden);
     }
 
     [Theory]

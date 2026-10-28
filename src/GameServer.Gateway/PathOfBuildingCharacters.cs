@@ -22,19 +22,21 @@ static class PathOfBuildingCharacters
         if (!Enum.IsDefined(build.Class) || build.Level is < 1 or > 100)
             throw new ArgumentException("The build must use a supported character class and a level from 1 to 100.");
         var tree = build.Tree;
+        var warnings = new List<string>();
         if (tree.ClassId != (int)build.Class)
             throw new ArgumentException("The build's class does not match its selected passive tree.");
         if (tree.Version is { Length: > 0 } version && version is not "3_29" and not "3.29")
             throw new ArgumentException($"The selected passive tree targets {version}; this server requires 3_29.");
         if (tree.AscendancyId != 0 || tree.SecondaryAscendancyId != 0
             || !string.IsNullOrEmpty(build.Ascendancy) && !build.Ascendancy.Equals("None", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Ascendancy import is not supported by this server's ascendancy lifecycle. " +
-                "Select an unascended build; no character was created.");
-        if (tree.Jewels.Count > 0 || tree.HasOverrides)
-            throw new ArgumentException("Passive-tree jewels and overrides cannot be imported faithfully by this server.");
-        if (NonDefault(build.Bandit) || NonDefault(build.PantheonMajor) || NonDefault(build.PantheonMinor))
-            throw new ArgumentException("Named bandit and Pantheon rewards are not implemented by this server. " +
-                "Choose None before importing; those build stat sources cannot be silently omitted.");
+            warnings.Add($"Skipped ascendancy selection '{build.Ascendancy ?? tree.AscendancyId.ToString()}' and secondary ascendancy; the character will be unascended.");
+        if (tree.Jewels.Count > 0)
+            warnings.Add($"Skipped {tree.Jewels.Count} passive-tree jewel(s), including their modifiers and cluster expansions.");
+        if (tree.HasOverrides)
+            warnings.Add("Skipped passive-tree overrides; retained nodes use this client's ordinary passive effects.");
+        foreach (var (label, value) in new[] { ("bandit reward", build.Bandit),
+            ("major Pantheon", build.PantheonMajor), ("minor Pantheon", build.PantheonMinor) })
+            if (NonDefault(value)) warnings.Add($"Skipped unsupported {label} '{value}'.");
 
         // Character integer IDs are the PoB class IDs, whereas PassiveSkills.Characters stores data-table rows.
         using var characters = ReadTable(folder, "Characters");
@@ -56,7 +58,6 @@ static class PathOfBuildingCharacters
 
         var passives = new List<ushort>();
         var masteries = new Dictionary<ushort, ushort>();
-        var warnings = new List<string>();
         if (tree.Version is null or "")
             warnings.Add("The build does not identify its passive-tree version; all selected node and mastery IDs were checked against 3.29 data.");
         var passiveTree = new PassiveTree(folder);
@@ -72,13 +73,13 @@ static class PathOfBuildingCharacters
             if (!seen.Add(id)) throw new ArgumentException($"Passive {id} occurs more than once in the selected tree.");
             if (id > ushort.MaxValue || !metadata.TryGetValue(id, out var raw)
                 || passiveTree.Find((ushort)id) is not { } node)
-                throw new ArgumentException($"Passive {id} does not exist in the extracted 3.29 passive tree.");
+            { warnings.Add($"Skipped passive {id}: unavailable in this client's ordinary tree (including generated cluster nodes)."); continue; }
             if (node.IsAscendancy)
-                throw new ArgumentException($"Passive {id} ({node.Name}) requires the unsupported ascendancy lifecycle.");
+            { warnings.Add($"Skipped ascendancy passive {id} ({node.Name})."); continue; }
             if (Flag(raw, "IsExpansion") || Flag(raw, "IsProxyPassive") || Flag(raw, "IsAnointmentOnly")
                 || raw.TryGetProperty("SkillType", out var skillType) && skillType.GetInt32() != 0
                 || raw.TryGetProperty("DescendancyKey", out var descendancy) && descendancy.ValueKind == JsonValueKind.Number)
-                throw new ArgumentException($"Passive {id} ({node.Name}) is a special tree node that cannot be imported faithfully.");
+            { warnings.Add($"Skipped unsupported special passive {id} ({node.Name})."); continue; }
             if (node.IsStart)
             {
                 if (!raw.GetProperty("Characters").EnumerateArray().Any(c => c.GetInt32() == classRow))
@@ -90,16 +91,24 @@ static class PathOfBuildingCharacters
         }
         foreach (var (nodeId, effectId) in tree.Masteries)
         {
-            if (!passives.Contains(nodeId) || passiveTree.FindEffect(effectId) is not { } effect
-                || effect.Hash != effectId || !passiveTree.IsEffectFor(nodeId, effect))
+            if (!passives.Contains(nodeId))
+            { warnings.Add($"Skipped mastery {effectId} on omitted passive {nodeId}."); continue; }
+            if (passiveTree.Find(nodeId) is not { MasteryGroup: >= 0 })
                 throw new ArgumentException($"Mastery effect {effectId} is not valid for allocated passive {nodeId} in 3.29.");
+            if (passiveTree.FindEffect(effectId) is not { } effect
+                || effect.Hash != effectId || !passiveTree.IsEffectFor(nodeId, effect)
+                || masteries.ContainsValue(effectId))
+            {
+                passives.Remove(nodeId);
+                warnings.Add($"Skipped mastery passive {nodeId}: effect {effectId} is unavailable, incompatible or already selected.");
+                continue;
+            }
             masteries.Add(nodeId, effectId);
         }
         foreach (ushort nodeId in passives)
             if (passiveTree.Find(nodeId) is { MasteryGroup: >= 0 } && !masteries.ContainsKey(nodeId))
-                throw new ArgumentException($"Allocated mastery {nodeId} has no selected mastery effect.");
-        if (masteries.Values.Distinct().Count() != masteries.Count)
-            throw new ArgumentException("The same mastery effect cannot be selected more than once.");
+                warnings.Add($"Skipped mastery passive {nodeId}: no supported mastery effect was selected.");
+        passives.RemoveAll(id => passiveTree.Find(id) is { MasteryGroup: >= 0 } && !masteries.ContainsKey(id));
 
         if (passives.Count > 0)
         {
@@ -107,8 +116,15 @@ static class PathOfBuildingCharacters
                 .Any(c => c.GetInt32() == classRow)) is { ValueKind: JsonValueKind.Object } start
                 ? start.GetProperty("PassiveSkillGraphId").GetUInt32() : null;
             if (classStart is null) throw new ArgumentException("The extracted passive tree has no starting node for this class.");
-            PathOfBuildingPassiveGraph.Validate(classStart.Value, passives,
-                id => passiveTree.Find(id) is { MasteryGroup: >= 0 }, (graphProvider ?? PathOfBuildingPassiveGraph.Load)());
+            var graph = (graphProvider ?? PathOfBuildingPassiveGraph.Load)();
+            if (!graph.ContainsKey(classStart.Value))
+                throw new ArgumentException("The copied client's passive graph has no starting node for this class.");
+            var connected = PathOfBuildingPassiveGraph.Connected(classStart.Value, passives,
+                id => passiveTree.Find(id) is { MasteryGroup: >= 0 }, graph);
+            foreach (ushort id in passives.Where(id => !connected.Contains(id)))
+                warnings.Add($"Skipped disconnected passive {id} ({passiveTree.Find(id)?.Name}); it has no retained path to the class start.");
+            passives.RemoveAll(id => !connected.Contains(id));
+            foreach (ushort id in masteries.Keys.Where(id => !connected.Contains(id)).ToArray()) masteries.Remove(id);
         }
 
         int requiredQuestPoints = Math.Max(0, passives.Count - (build.Level - 1) - passiveTree.PointsGranted(passives));

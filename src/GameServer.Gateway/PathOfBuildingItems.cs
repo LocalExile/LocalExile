@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Builds real, serializable items from the selected PoB set. Every modifier is resolved to this client's Mods.dat
-/// and exact values; an unsupported item is an error, never a request to generate a superficially similar item.
+/// and exact values. Unsupported features are omitted with warnings; invalid native records are never saved.
 /// </summary>
 static class PathOfBuildingItems
 {
@@ -43,13 +43,14 @@ static class PathOfBuildingItems
                 if (Equipment.TryGetValue(slot.Name, out byte equipment)) row = equipment;
                 else if (Regex.Match(slot.Name, @"^Flask ([1-5])$", RegexOptions.IgnoreCase) is { Success: true } flask)
                 { row = PlayerInventories.Flask; x = (byte)(flask.Groups[1].Value[0] - '1'); }
-                else throw new ArgumentException("this equipment slot is not implemented by the server");
+                else throw new PathOfBuildingUnsupportedException("this equipment slot is not implemented by the server");
                 var (type, item) = ParseItem(definition, catalog, folder, warnings);
                 if (!PlayerInventories.Accepts(row, type.Class))
                     throw new ArgumentException($"{type.Name} ({type.Class}) cannot be equipped in this slot");
                 if (!equipped.TryAdd(slot.Name, new(row, x, type, item, slot.Name)))
                     throw new ArgumentException("the selected item set repeats this slot");
             }
+            catch (PathOfBuildingUnsupportedException e) { warnings.Add($"Skipped item in {slot.Name}: {e.Message}."); }
             catch (ArgumentException e) { errors.Add($"{slot.Name}: {e.Message}"); }
         }
         ValidateHands(equipped, errors);
@@ -76,12 +77,19 @@ static class PathOfBuildingItems
             try
             {
                 if (!string.IsNullOrWhiteSpace(group.Source))
-                    throw new ArgumentException($"item-granted skill source '{group.Source}' cannot be imported as socketed gems");
+                    throw new PathOfBuildingUnsupportedException($"item-granted skill source '{group.Source}' cannot be imported as socketed gems");
                 if (!string.IsNullOrWhiteSpace(group.ImbuedSupport))
-                    throw new ArgumentException("imbued support gems are not implemented");
+                    throw new PathOfBuildingUnsupportedException("imbued support gems are not implemented");
                 if (group.Slot is not { Length: > 0 } slotName || !equipped.TryGetValue(slotName, out var host))
-                    throw new ArgumentException("an enabled skill group must name an equipped item slot");
-                var gems = group.Gems.Select(g => g.Enabled ? CreateGem(g, catalog, folder) : null).ToArray();
+                    throw new PathOfBuildingUnsupportedException("its equipment slot is unspecified, unsupported or was omitted");
+                var gems = group.Gems.Select(g =>
+                {
+                    if (!g.Enabled) return null;
+                    try { return CreateGem(g, catalog, folder); }
+                    catch (PathOfBuildingUnsupportedException e)
+                    { warnings.Add($"Skipped gem '{g.Name}' in {slotName}: {e.Message}."); return null; }
+                }).ToArray();
+                if (gems.All(g => g is null)) continue;
                 var sockets = host.Item.Sockets.ToArray();
                 var links = host.Item.Links ?? [.. Enumerable.Repeat((byte)1, sockets.Length)];
                 int at = 0, linkStart = -1;
@@ -109,10 +117,11 @@ static class PathOfBuildingItems
                             if (key <= 12 && effect >= 0 && effect < effectIds.Length && effectIds[effect] is { Length: > 0 } id
                                 && !skillBar.ContainsValue(id)) skillBar[key++] = id;
             }
+            catch (PathOfBuildingUnsupportedException e) { warnings.Add($"Skipped skill group in {group.Slot ?? "unspecified slot"}: {e.Message}."); }
             catch (ArgumentException e) { errors.Add($"Skills ({group.Slot ?? "unspecified slot"}): {e.Message}"); }
         }
         if (errors.Count > 0)
-            throw new ArgumentException("PoB import cannot represent the selected build exactly:\n" + string.Join("\n", errors.Select(e => "- " + e)));
+            throw new ArgumentException("PoB import contains invalid item or gem data:\n" + string.Join("\n", errors.Select(e => "- " + e)));
 
         var inventories = new Dictionary<byte, List<CharacterSaves.SavedPlacement>>();
         uint next = 1;
@@ -158,7 +167,7 @@ static class PathOfBuildingItems
         if (gem.GemId is { Length: > 0 } id)
         {
             var byId = matches.Where(x => string.Equals(x.Type.Id, id, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (byId.Length == 0) throw new ArgumentException($"gem '{gem.Name}' does not match '{id}' in this client's obtainable gem catalogue");
+            if (byId.Length == 0) throw new PathOfBuildingUnsupportedException($"gem '{gem.Name}' does not match '{id}' in this client's obtainable gem catalogue");
             matches = byId;
         }
         if (gem.VariantId is { Length: > 0 } variantId) matches = matches.Where(x => x.Variant.Id == variantId).ToArray();
@@ -166,12 +175,14 @@ static class PathOfBuildingItems
         if (gem.SkillId is { Length: > 0 } requiredSkill)
             matches = matches.Where(x => new[] { x.Variant.Effect, x.Variant.Effect2 }
                 .Any(e => e >= 0 && e < effects.Length && effects[e] == requiredSkill)).ToArray();
-        if (matches.Length != 1)
-            throw new ArgumentException($"gem '{gem.Name}' is {(matches.Length == 0 ? "unavailable" : "ambiguous")} in this client's obtainable gem catalogue");
+        if (matches.Length == 0)
+            throw new PathOfBuildingUnsupportedException($"gem '{gem.Name}' is unavailable in this client's obtainable gem catalogue");
+        if (matches.Length > 1)
+            throw new ArgumentException($"gem '{gem.Name}' is ambiguous in this client's obtainable gem catalogue");
         var match = matches[0];
         var type = catalog.Gem(match.Type)!;
         if (gem.QualityId is { Length: > 0 } qualityId && qualityId != "Default")
-            throw new ArgumentException($"{gem.Name} uses unsupported historical quality '{qualityId}'");
+            throw new PathOfBuildingUnsupportedException($"{gem.Name} uses unsupported historical quality '{qualityId}'");
         if (gem.Level < 1 || gem.Level > type.MaxLevel + 1)
             throw new ArgumentException($"{gem.Name} level {gem.Level} is outside the representable range 1..{type.MaxLevel + 1}");
         if (gem.Quality is < 0 or > 23)
@@ -186,8 +197,8 @@ static class PathOfBuildingItems
     internal static (ItemCatalog.BaseType Type, Item Item) ParseItem(PathOfBuildingItem definition,
         ItemCatalog catalog, string folder, List<string> warnings)
     {
-        if (definition.HasAlternateVariants) throw new ArgumentException("alternate item variants are not implemented");
-        if (definition.HasLegacyModRanges) throw new ArgumentException("legacy per-mod roll overrides must be re-saved in current PoB before importing");
+        if (definition.HasAlternateVariants) throw new PathOfBuildingUnsupportedException("alternate item variants are not implemented");
+        if (definition.HasLegacyModRanges) throw new PathOfBuildingUnsupportedException("legacy per-mod roll overrides must be re-saved in current PoB before importing");
         var lines = definition.Text.Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => l != "--------").ToArray();
         int pos = lines.FirstOrDefault()?.StartsWith("Item Class:", StringComparison.Ordinal) == true ? 1 : 0;
@@ -208,8 +219,10 @@ static class PathOfBuildingItems
                 || baseName.EndsWith(" " + t.Name, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (bases.Length > 0) bases = bases.Where(t => t.Name.Length == bases.Max(b => b.Name.Length)).ToArray();
         }
-        if (bases.Length != 1)
-            throw new ArgumentException($"base '{baseName}' is {(bases.Length == 0 ? "unknown or unsupported" : "ambiguous")} in this client's data");
+        if (bases.Length == 0)
+            throw new PathOfBuildingUnsupportedException($"base '{baseName}' is unknown or unsupported in this client's data");
+        if (bases.Length > 1)
+            throw new ArgumentException($"base '{baseName}' is ambiguous in this client's data");
         var type = bases[0];
         var item = ItemCatalog.Create(type, defenceBaseRoll: Item.MaximumDefenceBaseRoll) with { Rarity = rarity, Mods = [] };
         var rawMods = new List<ParsedMod>();
@@ -270,9 +283,9 @@ static class PathOfBuildingItems
                 var (text, flags, ranges) = ReadTags(value, selectedVariant);
                 if (flags.Contains("excluded")) continue;
                 if (flags.Any(f => f != "fractured"))
-                    throw new ArgumentException($"unsupported affix flags in '{raw}'");
+                    throw new PathOfBuildingUnsupportedException($"unsupported affix flags in '{raw}'");
                 if (text == "None") continue;
-                var mod = catalog.Mods.ById(text) ?? throw new ArgumentException($"modifier '{text}' is absent from this client");
+                var mod = catalog.Mods.ById(text) ?? throw new PathOfBuildingUnsupportedException($"modifier '{text}' is absent from this client");
                 if (mod.GenerationType != (field == "Prefix" ? 1 : 2)) throw new ArgumentException($"{text} is not a {field.ToLowerInvariant()}");
                 if (mod.Domain != type.ModDomain && mod.Domain != 9)
                     throw new ArgumentException($"{text} is not an item modifier for {type.Name}");
@@ -291,14 +304,14 @@ static class PathOfBuildingItems
             if (field is "Ward" or "WardBasePercentile" or "Catalyst" or "CatalystQuality" or "Version" or "Selected Version"
                 or "Cluster Jewel Skill" or "Cluster Jewel Node Count" or "Radius" or "Limited to" or "Unreleased"
                 || raw.Contains(" Alt Variant", StringComparison.Ordinal) || raw.StartsWith("Selected Variant Group", StringComparison.Ordinal))
-                throw new ArgumentException($"unsupported item property '{raw}'");
+                throw new PathOfBuildingUnsupportedException($"unsupported item property '{raw}'");
 
             var (line, tags, rangeValues) = ReadTags(raw, selectedVariant);
             // Implicits counts physical text lines, including lines from inactive variants.
             bool implicitSection = implicitLines-- > 0;
             if (tags.Contains("excluded")) continue;
             if (tags.Any(t => t is not ("crafted" or "fractured" or "implicit" or "enchant" or "scourge" or "prefix" or "suffix")))
-                throw new ArgumentException($"unsupported modifier flags in '{raw}'");
+                throw new PathOfBuildingUnsupportedException($"unsupported modifier flags in '{raw}'");
             if (rangeValues.Length > 1) throw new ArgumentException($"multiple independent ranges in '{raw}'");
             double lineRange = rangeValues.Length == 0 ? 1 : rangeValues[0];
             line = Ranges.Replace(line, m => Math.Floor(double.Parse(m.Groups[1].Value, Invariant)
@@ -309,10 +322,13 @@ static class PathOfBuildingItems
         }
         if (implicitLines > 0) throw new ArgumentException("the Implicits count exceeds the modifier lines");
         var mods = new List<(ItemMod Mod, bool Fractured)>(directMods);
+        bool omittedModifiers = false;
         foreach (var line in rawMods)
         {
             if (line.Derived && directMods.Count > 0) continue; // These lines are generated from the exact Prefix/Suffix ids.
-            mods.Add((ResolveMod(line, type, item, catalog), line.Fractured));
+            try { mods.Add((ResolveMod(line, type, item, catalog), line.Fractured)); }
+            catch (PathOfBuildingUnsupportedException e)
+            { omittedModifiers = true; warnings.Add($"Skipped modifier on {type.Name}: {e.Message}."); }
         }
         if (!hasImplicitMarker && type.Implicits is { Count: > 0 })
             throw new ArgumentException("the export omits its implicit modifier values; re-save the item in PoB");
@@ -323,7 +339,11 @@ static class PathOfBuildingItems
         };
         item = WithHiddenDefenceMod(item, type, title, catalog.Mods);
         if (exportedLevelRequirement is int required && required != ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods))
-            throw new ArgumentException($"exported level requirement {required} does not match this client's base and modifier requirements");
+        {
+            if (!omittedModifiers)
+                throw new ArgumentException($"exported level requirement {required} does not match this client's base and modifier requirements");
+            warnings.Add($"{type.Name}: using the native level requirement from retained modifiers instead of exported level {required}.");
+        }
         if (percentile.Count > 0)
         {
             var rolls = percentile.Select(p => (byte)Math.Floor(p * Item.MaximumDefenceBaseRoll + 0.5)).Distinct().ToArray();
@@ -343,8 +363,12 @@ static class PathOfBuildingItems
             var possible = Enumerable.Range(0, Item.MaximumDefenceBaseRoll + 1).Select(n => (byte)n).Where(Matches)
                 .OrderBy(n => Math.Abs(n - item.DefenceBaseRoll)).ToArray();
             if (possible.Length == 0)
-                throw new ArgumentException("the exported defence values cannot be represented by this client's native base roll and modifiers");
-            item = item with { DefenceBaseRoll = possible[0] };
+            {
+                if (!omittedModifiers)
+                    throw new ArgumentException("the exported defence values cannot be represented by this client's native base roll and modifiers");
+                warnings.Add($"{type.Name}: using native defences from retained modifiers; exported defence totals include omitted modifiers.");
+            }
+            else item = item with { DefenceBaseRoll = possible[0] };
         }
         if (title is not null) item = WithName(item, title, folder, warnings);
         return (type, item);
@@ -410,7 +434,7 @@ static class PathOfBuildingItems
         if (item.Rarity == ItemRarity.Unique)
         {
             var names = words.Where(w => w.List == 6 && w.Text == title).ToArray();
-            if (names.Length != 1) throw new ArgumentException($"unique name '{title}' cannot be identified in this client");
+            if (names.Length != 1) throw new PathOfBuildingUnsupportedException($"unique name '{title}' cannot be identified in this client");
             string uniquePath = Path.Combine(folder, "tables", "UniqueStashLayout.json"), visualPath = Path.Combine(folder, "tables", "ItemVisualIdentity.json");
             if (!File.Exists(uniquePath)) throw new ArgumentException("tables/UniqueStashLayout.json is required for unique item artwork");
             int index = Array.IndexOf(words, names[0]);
@@ -418,7 +442,7 @@ static class PathOfBuildingItems
             var visuals = uniques.RootElement.EnumerateArray().Where(r => r.GetProperty("WordsKey").GetInt32() == index
                 && (!r.TryGetProperty("IsAlternateArt", out var alternate) || !alternate.GetBoolean()))
                 .Select(r => r.GetProperty("ItemVisualIdentityKey").GetInt32()).Distinct().ToArray();
-            if (visuals.Length != 1) throw new ArgumentException($"unique artwork for '{title}' is unavailable or ambiguous");
+            if (visuals.Length != 1) throw new PathOfBuildingUnsupportedException($"unique artwork for '{title}' is unavailable or ambiguous");
             using var identities = JsonDocument.Parse(File.ReadAllBytes(visualPath));
             return item with { NameWords = [names[0].Hash], VisualIdentity = (ushort)identities.RootElement[visuals[0]].GetProperty("HASH16").GetInt32() };
         }
@@ -432,7 +456,7 @@ static class PathOfBuildingItems
     static ItemMod ResolveMod(ParsedMod line, ItemCatalog.BaseType type, Item item, ItemCatalog catalog)
     {
         var values = Translate(line.Text, type);
-        if (values is null) throw new ArgumentException($"unsupported {line.Section.ToString().ToLowerInvariant()} modifier '{line.Text}'");
+        if (values is null) throw new PathOfBuildingUnsupportedException($"unsupported {line.Section.ToString().ToLowerInvariant()} modifier '{line.Text}'");
         IEnumerable<ModCatalog.Mod> pool;
         if (line.Section == ModSection.Implicit && type.Implicits is { Count: > 0 }) pool = type.Implicits;
         else pool = catalog.Mods.All.Where(m =>
@@ -445,7 +469,7 @@ static class PathOfBuildingItems
             && m.Stats.All(s => values.Any(v => v.Id == s.Id && v.Value >= Math.Min(s.Min, s.Max) && v.Value <= Math.Max(s.Min, s.Max))))
             .OrderBy(m => m.Stats.Sum(s => (long)Math.Abs(s.Max - s.Min))).ThenByDescending(m => m.Level).ThenBy(m => m.Id, StringComparer.Ordinal).ToArray();
         if (candidates.Length == 0)
-            throw new ArgumentException($"no native modifier with matching stats and rolls for '{line.Text}' on {type.Name} at item level {item.ItemLevel}");
+            throw new PathOfBuildingUnsupportedException($"no native modifier with matching stats and rolls for '{line.Text}' on {type.Name} at item level {item.ItemLevel}");
         var chosen = candidates[0];
         return new(line.Section, chosen.Hash, [.. chosen.Stats.Select(s => values.Single(v => v.Id == s.Id).Value)]);
     }

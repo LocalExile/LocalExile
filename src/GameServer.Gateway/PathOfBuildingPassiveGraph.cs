@@ -75,6 +75,13 @@ static class PathOfBuildingPassiveGraph
     {
         if (!adjacency.ContainsKey(start) || allocated.Any(id => !adjacency.ContainsKey(id)))
             throw new ArgumentException("The selected passive tree contains a node absent from the copied client's graph.");
+        if (!allocated.All(Connected(start, allocated, isMastery, adjacency).Contains))
+            throw new ArgumentException("Every selected passive must connect to the character's class start through allocated ordinary nodes.");
+    }
+
+    public static HashSet<ushort> Connected(uint start, IReadOnlyCollection<ushort> allocated,
+        Func<ushort, bool> isMastery, IReadOnlyDictionary<uint, uint[]> adjacency)
+    {
         var requested = allocated.Select(id => (uint)id).ToHashSet();
         var reached = new HashSet<uint> { start };
         var queue = new Queue<uint>();
@@ -83,11 +90,10 @@ static class PathOfBuildingPassiveGraph
         {
             // Masteries are leaves. Reaching one never connects otherwise disconnected ordinary branches.
             if (current <= ushort.MaxValue && isMastery((ushort)current)) continue;
-            foreach (uint next in adjacency[current])
-                if (requested.Contains(next) && reached.Add(next)) queue.Enqueue(next);
+            foreach (uint next in adjacency.GetValueOrDefault(current) ?? [])
+                if (requested.Contains(next) && adjacency.ContainsKey(next) && reached.Add(next)) queue.Enqueue(next);
         }
-        if (!requested.IsSubsetOf(reached))
-            throw new ArgumentException("Every selected passive must connect to the character's class start through allocated ordinary nodes.");
+        return reached.Where(id => id <= ushort.MaxValue && requested.Contains(id)).Select(id => (ushort)id).ToHashSet();
     }
 
     static int Count(BinaryReader reader, int minimumBytes)

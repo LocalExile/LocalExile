@@ -126,17 +126,27 @@ public class PathOfBuildingServerTests
     }
 
     [Fact]
-    public async Task Unsupported_build_refuses_creation_with_actionable_error()
+    public async Task Ascended_build_previews_without_writes_and_creates_an_unascended_character_with_warnings()
     {
         await using var fixture = await Fixture.Start();
-        using var response = await fixture.Send("/api/pob/characters", "alice_import", fixture.Token,
-            Build.Replace("ascendClassName=\"None\"", "ascendClassName=\"Elementalist\""));
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        string build = Build.Replace("ascendClassName=\"None\"", "ascendClassName=\"Elementalist\"")
+            .Replace("ascendClassId=\"0\"", "ascendClassId=\"1\"");
+        byte[] before = File.ReadAllBytes(fixture.Database);
+        using var preview = await fixture.Send("/api/pob/preview", "alice_import", fixture.Token, build);
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        var prepared = await preview.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(prepared.GetProperty("preview").GetBoolean());
+        Assert.Contains(prepared.GetProperty("warnings").EnumerateArray(), w => w.GetString()!.Contains("Elementalist"));
+        Assert.Equal(before, File.ReadAllBytes(fixture.Database));
+        using var response = await fixture.Send("/api/pob/characters", "alice_import", fixture.Token, build);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.False(result.GetProperty("ok").GetBoolean());
-        Assert.Contains("Ascendancy", result.GetProperty("error").GetString());
+        Assert.True(result.GetProperty("ok").GetBoolean());
+        Assert.Equal(prepared.GetProperty("warnings").GetRawText(), result.GetProperty("warnings").GetRawText());
         using var db = new SaveDatabase(fixture.Database);
-        Assert.Null(new SqliteAccountStore(db).FindCharacter("FromPoB"));
+        Assert.NotNull(new SqliteAccountStore(db).FindCharacter("FromPoB"));
+        var save = JsonSerializer.Deserialize<CharacterSaves.Save>(db.Get(SaveDatabase.Table.Characters, "FromPoB")!)!;
+        Assert.Null(save.MainAscendancy);
     }
 
     [Fact]

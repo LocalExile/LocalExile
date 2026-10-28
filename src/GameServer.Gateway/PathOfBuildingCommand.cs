@@ -32,7 +32,7 @@ static class PathOfBuildingCommand
                     --help         Show this help.
 
                     Honors the build's active tree, item set and skill set. Unsupported build features are
-                    reported as errors before saving. No remote links are fetched; export the code in PoB.
+                    skipped with warnings. Review Preview before creating. No remote links are fetched.
                     """);
                 return 0;
             }

@@ -8,17 +8,29 @@ Sharing URLs are not fetched.
 ## Supported builds
 
 The importer reads the active tree, item set and skill set from a PoE 1 Community Fork build.
-It supports unascended classes, levels 1 through 100 and the extracted 3.29 passive tree/masteries, equipment,
-flasks, sockets, links and obtainable gems that the native item model can represent.
-Item modifiers must resolve to exact native rows and values; unsupported properties are refused.
+It creates unascended characters at levels 1 through 100, using compatible extracted 3.29 passives/masteries,
+equipment, flasks, sockets, links and obtainable gems that the native item model can represent.
+Retained item modifiers resolve to exact native rows and values; unsupported modifiers are omitted with warnings.
+Items with unsupported bases, properties, variants or native unique identities are omitted as a whole.
+Their skill groups are also omitted; no substitute equipment is generated.
 Armour bases keep their matched saved defence roll rather than receiving a random replacement.
 Equipped armour uses that roll and its local modifiers before body-armour conversion into Ward.
 Equipment requirement exemptions also apply to current gem checks without publishing inactive-item state.
 Verified hidden modifiers are restored only for matching supported unique/base identities.
 
-Ascendancies, tree jewels/overrides, unsupported special nodes, named bandit/Pantheon rewards, Ruthless imports,
-item-granted skill sources, imbued supports and incompatible gem/link layouts are refused.
+Ascendancy selections and nodes, tree jewels/overrides, unsupported special nodes and named bandit/Pantheon rewards
+are skipped with warnings.
+The character keeps its base class and has no ascendancy allocation.
+Passive nodes without a retained path to that class's start are omitted, along with their mastery selections.
+Unsupported mastery effects omit their mastery node; extra passive points are computed from the retained tree.
+Unavailable gems leave their sockets empty without shifting other gems or changing links.
+Item-granted skill sources and imbued-support groups are omitted with warnings.
 Disabled groups/gems are excluded with warnings.
+Malformed exports, class/tree mismatches, incompatible tree versions, invalid socket/link layouts, invalid native
+item or gem values, excessive passive point budgets and Ruthless imports still fail before creation.
+Missing required server data, authentication failures and existing character names also remain errors.
+If modifiers were omitted, exported defence/level totals are not forced onto the native item;
+its remaining modifiers and saved base roll determine its native values, with a warning when totals differ.
 PoB configuration, calculations and campaign progress are not imported.
 Characters start in Lioneye's Watch; required supported extra passive points are granted with a warning.
 Importing a native modifier does not implement missing gameplay mechanics, including special ES conversion systems.
@@ -84,6 +96,8 @@ Build submissions cannot supply filesystem paths or database locations.
 In evryBuild, open the build, then select **Import/Export Build**, **Forge Character** below Build Sharing.
 Enter the Server URL above, local account, Account API token, Standard league and a new character name.
 Select **Preview**, read the result, then select **Forge Character** if the supported build is correct.
+Preview and Forge report the omitted features in their warnings.
+An ascended PoB build can therefore pass Preview while producing an unascended character with fewer effects or items.
 The dialog clears its token after creation or closing; saved connection preferences contain no token.
 Log out to the game's login screen and log in again to see the new character.
 
