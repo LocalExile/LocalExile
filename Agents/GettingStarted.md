@@ -136,7 +136,7 @@ root (beside `GameServer.slnx`). This file is ignored by Git. For example:
 
 ```json
 {
-  "clientDirectory": "F:\\evry\\evryPath\\Client"
+  "clientDirectory": "F:\\poe\\Client"
 }
 ```
 
