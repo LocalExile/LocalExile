@@ -207,9 +207,28 @@ public class PathOfBuildingTests
         Assert.Equal(0, Assert.Single(Assert.Single(build.Skills).Gems).Quality);
         Assert.Equal("Alternate1", build.Skills[0].Gems[0].QualityId);
         Assert.True(Assert.Single(build.Items).HasLegacyModRanges);
+        Assert.Equal(0.25, Assert.Single(build.Items).ModRanges[1]);
         Assert.Equal("Alira", build.Bandit);
         Assert.Equal("BrineKing", build.PantheonMajor);
         Assert.Equal("Ralakesh", build.PantheonMinor);
+    }
+
+    [Theory]
+    [InlineData("-0.1")]
+    [InlineData("1.1")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    public void Invalid_saved_modifier_ranges_are_rejected(string range)
+    {
+        string xml = $"<PathOfBuilding><Build className=\"Witch\"/><Items><Item id=\"1\">Rarity: NORMAL\nDriftwood Wand<ModRange id=\"1\" range=\"{range}\"/></Item></Items></PathOfBuilding>";
+        Assert.Contains("ModRange", Assert.Throws<FormatException>(() => PathOfBuilding.Parse(xml)).Message);
+    }
+
+    [Fact]
+    public void Duplicate_saved_modifier_range_indices_are_rejected()
+    {
+        string xml = "<PathOfBuilding><Build className=\"Witch\"/><Items><Item id=\"1\">Rarity: NORMAL\nDriftwood Wand<ModRange id=\"1\" range=\"0.5\"/><ModRange id=\"1\" range=\"0.2\"/></Item></Items></PathOfBuilding>";
+        Assert.Contains("repeats ModRange", Assert.Throws<FormatException>(() => PathOfBuilding.Parse(xml)).Message);
     }
 
     [Fact]

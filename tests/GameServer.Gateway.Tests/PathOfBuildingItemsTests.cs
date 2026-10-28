@@ -43,6 +43,92 @@ public class PathOfBuildingItemsTests
     }
 
     [Fact]
+    public void Normal_saved_ModRange_records_do_not_discard_items_with_fixed_modifier_values()
+    {
+        using var data = new Fixture();
+        var build = PathOfBuilding.Parse("<PathOfBuilding><Build className=\"Witch\"/><Items><Item id=\"1\">Rarity: NORMAL\nPractice Ring\nItem Level: 50\nImplicits: 0\n+17 to maximum Life<ModRange id=\"1\" range=\"0.5\"/></Item><Slot name=\"Ring 1\" itemId=\"1\"/></Items></PathOfBuilding>");
+        var result = PathOfBuildingItems.Materialize(build, data.Items, data.Folder);
+        Assert.Equal(17, Assert.Single(Assert.Single(Assert.Single(result.Inventories[6]).Item.Mods!).Values));
+        Assert.Empty(result.Warnings);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Saved_roll_overrides_keep_native_modifier_order_and_inactive_variant_offsets(bool inactiveVariant)
+    {
+        using var data = new Fixture();
+        string text = "Rarity: NORMAL\nPractice Ring\nItem Level: 50\nSelected Variant: 2\nImplicits: 0\n"
+            + (inactiveVariant ? "{variant:1}+(10-24) to maximum Life\n" : "")
+            + "{variant:2}{range:0.8}+(10-24) to maximum Life";
+        var build = Build("Ring 1", text) with
+        {
+            Items = [new(1, text, null, HasLegacyModRanges: true)
+                { ModRanges = new Dictionary<int, double> { [inactiveVariant ? 2 : 1] = .25 } }],
+        };
+        var result = PathOfBuildingItems.Materialize(build, data.Items, data.Folder);
+        Assert.Equal(14, Assert.Single(Assert.Single(Assert.Single(result.Inventories[6]).Item.Mods!).Values));
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Unsupported_catalyst_metadata_retains_native_item_and_supported_modifier_values()
+    {
+        using var data = new Fixture();
+        var result = PathOfBuildingItems.Materialize(Build("Ring 1",
+            "Rarity: NORMAL\nPractice Ring\nCatalyst: Intrinsic\nCatalystQuality: 20\nItem Level: 50\nImplicits: 0\n+17 to maximum Life"),
+            data.Items, data.Folder);
+        Assert.Equal(17, Assert.Single(Assert.Single(Assert.Single(result.Inventories[6]).Item.Mods!).Values));
+        Assert.Contains(result.Warnings, w => w.Contains("Catalyst 'Intrinsic'"));
+        Assert.Contains(result.Warnings, w => w.Contains("CatalystQuality '20'"));
+    }
+
+    [Fact]
+    public void Independent_defence_percentiles_use_a_shared_native_roll_with_a_warning()
+    {
+        using var data = new Fixture();
+        var result = PathOfBuildingItems.Materialize(Build("Body Armour",
+            "Rarity: NORMAL\nPractice Vest\nArmourBasePercentile: 0.2\nEnergyShieldBasePercentile: 0.8\nArmour: 999\nImplicits: 0"),
+            data.Items, data.Folder);
+        Assert.Equal(16, Assert.Single(result.Inventories[1]).Item.DefenceBaseRoll);
+        Assert.Contains(result.Warnings, w => w.Contains("one averaged native base roll"));
+        Assert.Contains(result.Warnings, w => w.Contains("using native defences"));
+    }
+
+    [Fact]
+    public void Unsupported_special_accessory_sockets_omit_only_that_item()
+    {
+        using var data = new Fixture();
+        var result = PathOfBuildingItems.Materialize(Build("Ring 1",
+            "Rarity: NORMAL\nPractice Ring\nSockets: W-W\nImplicits: 0"), data.Items, data.Folder);
+        Assert.Empty(result.Inventories);
+        Assert.Contains(result.Warnings, w => w.Contains("special sockets on Practice Ring"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Utility_flask_rolls_use_inline_values_or_omit_unmappable_legacy_modifier(bool inlineRange)
+    {
+        using var data = new Fixture(utilityFlask: true);
+        string text = "Rarity: MAGIC\nPractice Flask\nItem Level: 50\nImplicits: 0\n"
+            + (inlineRange ? "{range:0.25}" : "") + "(20-40)% increased Charge Recovery";
+        var build = Build("Flask 1", text) with
+        {
+            Items = [new(1, text, null, HasLegacyModRanges: true)
+                { ModRanges = new Dictionary<int, double> { [1] = .9, [2] = .8 } }],
+        };
+        var result = PathOfBuildingItems.Materialize(build, data.Items, data.Folder);
+        var mods = Assert.Single(result.Inventories[11]).Item.Mods!;
+        if (inlineRange) Assert.Equal(25, Assert.Single(Assert.Single(mods).Values));
+        else
+        {
+            Assert.Empty(mods);
+            Assert.Contains(result.Warnings, w => w.Contains("legacy utility-flask roll"));
+        }
+    }
+
+    [Fact]
     public void Direct_affix_ids_preserve_tiers_and_do_not_duplicate_their_derived_text()
     {
         using var data = new Fixture();
@@ -330,7 +416,8 @@ public class PathOfBuildingItemsTests
         public ItemCatalog Items { get; }
         void Write(string file, object data) => File.WriteAllText(Path.Combine(Folder, file), JsonSerializer.Serialize(data));
 
-        public Fixture(bool duplicateRing = false, bool royaleRing = false, bool implicitRing = false)
+        public Fixture(bool duplicateRing = false, bool royaleRing = false, bool implicitRing = false,
+            bool utilityFlask = false)
         {
             Directory.CreateDirectory(Path.Combine(Folder, "tables"));
             var names = new List<(string Id, string Name, string Class, string[] Components, int Width, int Height)>
@@ -338,7 +425,7 @@ public class PathOfBuildingItemsTests
                 ("Metadata/Items/Rings/Practice", "Practice Ring", "Ring", ["Base", "Mods"], 1, 1),
                 ("Metadata/Items/Weapons/Practice", "Practice Wand", "Wand", ["Base", "Mods", "Weapon", "Sockets"], 1, 3),
                 ("Metadata/Items/Gems/Fireball", "Fireball", "Active Skill Gem", ["Base", "Quality", "SkillGem"], 1, 1),
-                ("Metadata/Items/Flasks/Practice", "Practice Flask", "LifeFlask", ["Base", "Mods", "Charges", "Flask"], 1, 2),
+                ("Metadata/Items/Flasks/Practice", "Practice Flask", utilityFlask ? "UtilityFlask" : "LifeFlask", ["Base", "Mods", "Charges", "Flask"], 1, 2),
                 ("Metadata/Items/Armours/Practice", "Practice Vest", "Body Armour", ["Base", "Mods", "Armour", "Quality", "Sockets"], 2, 3),
                 ("Metadata/Items/Gems/VaalFireball", "Vaal Fireball", "Active Skill Gem", ["Base", "Quality", "SkillGem"], 1, 1),
             };

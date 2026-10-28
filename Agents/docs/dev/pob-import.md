@@ -11,9 +11,16 @@ The importer reads the active tree, item set and skill set from a PoE 1 Communit
 It creates unascended characters at levels 1 through 100, using compatible extracted 3.29 passives/masteries,
 equipment, flasks, sockets, links and obtainable gems that the native item model can represent.
 Retained item modifiers resolve to exact native rows and values; unsupported modifiers are omitted with warnings.
+Normal saved `ModRange` records are accepted, including redundant records on fixed-value modifiers.
+Saved rolls follow PoB's modifier-list ordering and inactive variant offsets.
+Utility-flask rolls use their explicit range tags; unresolved legacy utility-flask rolls omit only that modifier.
 Items with unsupported bases, properties, variants or native unique identities are omitted as a whole.
+Influence and catalyst metadata can be omitted while retaining the base item and representable modifier values.
 Their skill groups are also omitted; no substitute equipment is generated.
 Armour bases keep their matched saved defence roll rather than receiving a random replacement.
+When PoB's independent defence percentiles require different native rolls, their average selects the one native roll,
+and the importer warns that the resulting defences may differ.
+Special sockets on accessories/quivers that the server cannot represent omit that item and its skill groups.
 Equipped armour uses that roll and its local modifiers before body-armour conversion into Ward.
 Equipment requirement exemptions also apply to current gem checks without publishing inactive-item state.
 Verified hidden modifiers are restored only for matching supported unique/base identities.

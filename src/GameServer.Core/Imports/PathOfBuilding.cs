@@ -19,7 +19,11 @@ public sealed record PathOfBuildingTree(int ClassId, int AscendancyId, string? V
     bool HasOverrides, int SecondaryAscendancyId = 0);
 public sealed record PathOfBuildingJewelSocket(uint NodeId, int ItemId);
 public sealed record PathOfBuildingItem(int Id, string Text, int? Variant, bool HasAlternateVariants = false,
-    bool HasLegacyModRanges = false);
+    bool HasLegacyModRanges = false)
+{
+    /// <summary>PoB's saved per-modifier roll settings, ordered enchant/scourge/implicit/explicit.</summary>
+    public IReadOnlyDictionary<int, double> ModRanges { get; init; } = new ReadOnlyDictionary<int, double>(new Dictionary<int, double>());
+}
 public sealed record PathOfBuildingSlot(string Name, int ItemId);
 public sealed record PathOfBuildingSkillGroup(string? Slot, bool Enabled, IReadOnlyList<PathOfBuildingGem> Gems,
     string? Source, string? ImbuedSupport = null);
@@ -249,9 +253,18 @@ public static class PathOfBuilding
             string text = string.Concat(item.Nodes().OfType<XText>().Select(t => t.Value)).Trim();
             if (text.Length == 0) throw Error($"Item {id} has no item text.");
             int? variant = item.Attribute("variant") is not null ? Number(item, "variant", null, 1, int.MaxValue) : null;
+            var ranges = new Dictionary<int, double>();
+            foreach (var range in item.Elements("ModRange"))
+            {
+                int index = Number(range, "id", null, 1, int.MaxValue);
+                if (!double.TryParse(Required(range, "range"), NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+                    || !double.IsFinite(value) || value < 0 || value > 1)
+                    throw Error($"Item {id} has an invalid ModRange roll.");
+                if (!ranges.TryAdd(index, value)) throw Error($"Item {id} repeats ModRange {index}.");
+            }
             result.Add(new(id, text, variant,
                 item.Attributes().Any(a => a.Name.LocalName.StartsWith("variantAlt", StringComparison.Ordinal)),
-                item.Elements("ModRange").Any()));
+                ranges.Count > 0) { ModRanges = new ReadOnlyDictionary<int, double>(ranges) });
         }
         if (result.Count != result.Select(i => i.Id).Distinct().Count()) throw Error("Duplicate item IDs in the build.");
         return result;

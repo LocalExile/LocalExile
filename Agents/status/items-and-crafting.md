@@ -100,6 +100,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The separate authenticated receiver serves evryBuild's Preview and Forge Character actions.
   Existing characters are never replaced; unsupported build features are skipped with explicit warnings.
   Ascended builds create unascended characters; omitted tree branches, items, modifiers and gems are reported.
+  Ordinary saved ModRange records retain equipment instead of discarding it as legacy data.
+  Separate PoB defence rolls use one native roll with a warning; unsupported catalyst/influence metadata is omitted.
   Malformed input, invalid native layouts, authentication failures and unsupported rule sets remain errors.
   Imported modifiers do not implement missing gameplay systems or provide PoB calculation parity.
   Automated coverage passes; fresh in-game validation of this branch remains open.

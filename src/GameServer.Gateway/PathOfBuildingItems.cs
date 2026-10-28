@@ -14,7 +14,8 @@ static class PathOfBuildingItems
         IReadOnlyList<string> Warnings, Dictionary<int, string> SkillBar);
 
     sealed record Equipped(byte Row, byte X, ItemCatalog.BaseType Type, Item Item, string Slot);
-    sealed record ParsedMod(string Text, ModSection Section, bool Fractured, bool Crafted, bool Derived);
+    sealed record ParsedMod(string Text, ModSection Section, bool Fractured, bool Crafted, bool Derived, double Range,
+        bool Enabled = true, bool HasInlineRange = false);
     sealed record StatValue(string Id, int Value);
     static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
     static readonly Regex Tags = new(@"\{([^}:]+)(?::([^}]+))?\}", RegexOptions.CultureInvariant);
@@ -198,7 +199,6 @@ static class PathOfBuildingItems
         ItemCatalog catalog, string folder, List<string> warnings)
     {
         if (definition.HasAlternateVariants) throw new PathOfBuildingUnsupportedException("alternate item variants are not implemented");
-        if (definition.HasLegacyModRanges) throw new PathOfBuildingUnsupportedException("legacy per-mod roll overrides must be re-saved in current PoB before importing");
         var lines = definition.Text.Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => l != "--------").ToArray();
         int pos = lines.FirstOrDefault()?.StartsWith("Item Class:", StringComparison.Ordinal) == true ? 1 : 0;
@@ -267,7 +267,11 @@ static class PathOfBuildingItems
                     if (n > 0) links.Add((byte)n);
                 }
                 if (colours.Count > CurrencyEffects.SocketCapacity(item, type))
+                {
+                    if (type.Class is "Quiver" or "Ring" or "Amulet" or "Belt")
+                        throw new PathOfBuildingUnsupportedException($"special sockets on {type.Name} are not implemented");
                     throw new ArgumentException($"{type.Name} cannot hold the exported {colours.Count} sockets");
+                }
                 item = item with { Sockets = [.. colours.Select(c => new ItemSocket(c))], Links = links };
                 continue;
             }
@@ -298,10 +302,15 @@ static class PathOfBuildingItems
             }
             if (field is "Unique ID" or "League" or "Crafted" or "Variant" or "Selected Variant" or "Source" or "Upgrade"
                 or "Requirements" or "Item Class") continue;
+            if (raw is "Shaper Item" or "Elder Item" or "Crusader Item" or "Redeemer Item" or "Hunter Item" or "Warlord Item")
+            { warnings.Add($"{type.Name}: skipped influence identity '{raw}'; supported modifier effects are retained."); continue; }
+            if (field is "Catalyst" or "CatalystQuality")
+            { warnings.Add($"{type.Name}: skipped unsupported {field} '{value}'; retained modifiers must still match native values."); continue; }
+            if (field == "Intangibility" && !hasImplicitMarker) continue;
             // Numeric armour lines are final display values. Native base percentiles, when exported, carry their state.
             if (field is "Armour" or "Evasion" or "Energy Shield" or "EnergyShield")
             { defenceDisplay[field.Replace(" ", "")] = Number(value, field, 0, int.MaxValue); continue; }
-            if (field is "Ward" or "WardBasePercentile" or "Catalyst" or "CatalystQuality" or "Version" or "Selected Version"
+            if (field is "Ward" or "WardBasePercentile" or "Version" or "Selected Version"
                 or "Cluster Jewel Skill" or "Cluster Jewel Node Count" or "Radius" or "Limited to" or "Unreleased"
                 || raw.Contains(" Alt Variant", StringComparison.Ordinal) || raw.StartsWith("Selected Variant Group", StringComparison.Ordinal))
                 throw new PathOfBuildingUnsupportedException($"unsupported item property '{raw}'");
@@ -309,22 +318,47 @@ static class PathOfBuildingItems
             var (line, tags, rangeValues) = ReadTags(raw, selectedVariant);
             // Implicits counts physical text lines, including lines from inactive variants.
             bool implicitSection = implicitLines-- > 0;
-            if (tags.Contains("excluded")) continue;
+            if (tags.Contains("excluded"))
+            {
+                var excludedSection = tags.Contains("enchant") ? ModSection.Enchant : tags.Contains("scourge") ? ModSection.Scourge
+                    : implicitSection || tags.Contains("implicit") ? ModSection.Implicit : ModSection.Explicit;
+                rawMods.Add(new("", excludedSection, false, false, false, 1, false));
+                continue;
+            }
             if (tags.Any(t => t is not ("crafted" or "fractured" or "implicit" or "enchant" or "scourge" or "prefix" or "suffix")))
                 throw new PathOfBuildingUnsupportedException($"unsupported modifier flags in '{raw}'");
             if (rangeValues.Length > 1) throw new ArgumentException($"multiple independent ranges in '{raw}'");
             double lineRange = rangeValues.Length == 0 ? 1 : rangeValues[0];
-            line = Ranges.Replace(line, m => Math.Floor(double.Parse(m.Groups[1].Value, Invariant)
-                + (double.Parse(m.Groups[2].Value, Invariant) - double.Parse(m.Groups[1].Value, Invariant)) * lineRange + 0.5).ToString(Invariant));
             ModSection section = tags.Contains("enchant") ? ModSection.Enchant : tags.Contains("scourge") ? ModSection.Scourge
                 : implicitSection || tags.Contains("implicit") ? ModSection.Implicit : ModSection.Explicit;
-            rawMods.Add(new(line, section, tags.Contains("fractured"), tags.Contains("crafted"), tags.Contains("prefix") || tags.Contains("suffix")));
+            rawMods.Add(new(line, section, tags.Contains("fractured"), tags.Contains("crafted"),
+                tags.Contains("prefix") || tags.Contains("suffix"), lineRange, HasInlineRange: rangeValues.Length > 0));
         }
         if (implicitLines > 0) throw new ArgumentException("the Implicits count exceeds the modifier lines");
         var mods = new List<(ItemMod Mod, bool Fractured)>(directMods);
         bool omittedModifiers = false;
-        foreach (var line in rawMods)
+        int modIndex = 0;
+        // PoB ItemsTab:Load numbers the separate modifier lists, including inactive variant lines.
+        foreach (var rawMod in rawMods.OrderBy(m => m.Section switch
+            { ModSection.Enchant => 0, ModSection.Scourge => 1, ModSection.Implicit => 2, _ => 3 }))
         {
+            double roll = definition.ModRanges.GetValueOrDefault(++modIndex, rawMod.Range);
+            if (!rawMod.Enabled) continue;
+            // Utility flasks prepend PoB-only buff lines to ModRange indices. Current exports carry explicit rolls;
+            // legacy ranged text without those tags cannot be mapped safely without that separate PoB buff catalog.
+            if (type.Components.Contains("Flask") && type.Class is not ("LifeFlask" or "ManaFlask" or "HybridFlask")
+                && definition.ModRanges.Count > 0 && Ranges.IsMatch(rawMod.Text))
+            {
+                if (!rawMod.HasInlineRange)
+                {
+                    omittedModifiers = true;
+                    warnings.Add($"Skipped modifier on {type.Name}: legacy utility-flask roll needs an explicit range tag in its export.");
+                    continue;
+                }
+                roll = rawMod.Range;
+            }
+            var line = rawMod with { Text = Ranges.Replace(rawMod.Text, m => Math.Floor(double.Parse(m.Groups[1].Value, Invariant)
+                + (double.Parse(m.Groups[2].Value, Invariant) - double.Parse(m.Groups[1].Value, Invariant)) * roll + 0.5).ToString(Invariant)) };
             if (line.Derived && directMods.Count > 0) continue; // These lines are generated from the exact Prefix/Suffix ids.
             try { mods.Add((ResolveMod(line, type, item, catalog), line.Fractured)); }
             catch (PathOfBuildingUnsupportedException e)
@@ -344,11 +378,14 @@ static class PathOfBuildingItems
                 throw new ArgumentException($"exported level requirement {required} does not match this client's base and modifier requirements");
             warnings.Add($"{type.Name}: using the native level requirement from retained modifiers instead of exported level {required}.");
         }
+        bool approximatedBaseRoll = false;
         if (percentile.Count > 0)
         {
             var rolls = percentile.Select(p => (byte)Math.Floor(p * Item.MaximumDefenceBaseRoll + 0.5)).Distinct().ToArray();
-            if (rolls.Length != 1) throw new ArgumentException("the exported armour percentiles require different native base rolls");
-            item = item with { DefenceBaseRoll = rolls[0] };
+            approximatedBaseRoll = rolls.Length > 1;
+            item = item with { DefenceBaseRoll = (byte)Math.Floor(percentile.Average() * Item.MaximumDefenceBaseRoll + 0.5) };
+            if (approximatedBaseRoll)
+                warnings.Add($"{type.Name}: independent PoB defence percentiles use one averaged native base roll ({item.DefenceBaseRoll}/31).");
         }
         if (defenceDisplay.Count > 0)
         {
@@ -364,9 +401,9 @@ static class PathOfBuildingItems
                 .OrderBy(n => Math.Abs(n - item.DefenceBaseRoll)).ToArray();
             if (possible.Length == 0)
             {
-                if (!omittedModifiers)
+                if (!omittedModifiers && !approximatedBaseRoll)
                     throw new ArgumentException("the exported defence values cannot be represented by this client's native base roll and modifiers");
-                warnings.Add($"{type.Name}: using native defences from retained modifiers; exported defence totals include omitted modifiers.");
+                warnings.Add($"{type.Name}: using native defences from retained modifiers and the shared base roll; exported defence totals cannot be retained exactly.");
             }
             else item = item with { DefenceBaseRoll = possible[0] };
         }
