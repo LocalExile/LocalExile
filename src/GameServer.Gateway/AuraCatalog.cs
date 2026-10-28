@@ -50,16 +50,21 @@ static class AuraCatalog
         ["Envy"] = 828,
     };
 
-    public static bool Supported(string effectId) => BuffRows.ContainsKey(effectId);
+    public static string Family(string effectId) => effectId switch
+    {
+        "GraceHardMode" => "Grace", "DeterminationHardMode" => "Determination", _ => effectId,
+    };
 
-    public static ushort BuffRow(string effectId) => BuffRows[effectId];
+    public static bool Supported(string effectId) => BuffRows.ContainsKey(Family(effectId));
+
+    public static ushort BuffRow(string effectId) => BuffRows[Family(effectId)];
 
     public static IReadOnlyList<Aura> Restore(IEnumerable<string> saved, IEnumerable<Aura> available, CharacterStats.Pools pools, bool inTown = false)
     {
         if (inTown) return [];
-        var gems = available.Where(a => Supported(a.EffectId)).GroupBy(a => a.EffectId).ToDictionary(g => g.Key, g => g.First());
+        var gems = available.Where(a => Supported(a.EffectId)).GroupBy(a => Family(a.EffectId)).ToDictionary(g => g.Key, g => g.First());
         var restored = new List<Aura>();
-        foreach (string effect in saved.Distinct())
+        foreach (string effect in saved.Select(Family).Distinct())
             if (gems.TryGetValue(effect, out var aura))
                 restored.Add(aura);
         return restored;
@@ -100,7 +105,7 @@ static class AuraCatalog
         int armour = 0, evasion = 0, armourMore = 0, evasionMore = 0, spellCrit = 0;
         foreach (var aura in auras)
         {
-            switch (aura.EffectId)
+            switch (Family(aura.EffectId))
             {
                 case "Determination":
                     armour += Value(skills, stats, aura, "base_physical_damage_reduction_rating", auraEffectPct);

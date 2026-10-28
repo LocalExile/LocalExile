@@ -22,7 +22,10 @@ partial class Program
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
-            bool blocked = block && DamageModel.Blocks(blockChance, conn.IncomingHitRandom.NextDouble() * 100, luckyBlock);
+            bool unluckyBlock = spell ? conn.Pools.SpellBlockUnlucky : conn.Pools.AttackBlockUnlucky;
+            bool blocked = block && DamageModel.Blocks(blockChance, conn.IncomingHitRandom.NextDouble() * 100, luckyBlock, unluckyBlock);
+            if (!blocked && DamageTypes.IsElemental(type) && GamblerFor(stats).UsesNinetyResistance(conn.IncomingHitRandom))
+                resistance = maximum = 90;
             bool immune = PlayerImmunities(conn).Contains(type);
             bool armourRelevant = type == DamageType.Physical ? amount > 0
                 : type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage
@@ -53,6 +56,7 @@ partial class Program
             conn.RecentEnemyHits.Record(now);
             if (block) ChargesWhenHit(conn, blocked, spell);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+            RecordHardcoreDeath(conn);
             hit = new(dealt, mitigation, conn.PlayerLife, conn.PlayerMana, manaBefore,
                 blocked, blockChance, suppressed, suppression);
             return true;

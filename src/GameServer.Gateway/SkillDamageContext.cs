@@ -6,9 +6,11 @@ readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDictionary
     public bool Suppressed => Kind == SkillHitKind.Spell
         && ActualCaster.GetValueOrDefault(StatKeys.SpellSkillsDealNoDamage) != 0;
 
-    public DamagePacket Hit(DamagePacket packet) => Suppressed ? DamagePacket.Empty : packet;
+    public DamagePacket Hit(DamagePacket packet) => Suppressed ? DamagePacket.Empty : DamageFactor == 1 ? packet : packet.Scale(DamageFactor);
 
     // This is outgoing spell damage only. RF's independent self-burn must not pass through this context.
     public DamageOverTime OverTime(DamageOverTime damage) =>
-        Suppressed ? damage with { DamagePerSecond = 0 } : damage;
+        damage with { DamagePerSecond = Suppressed ? 0 : damage.DamagePerSecond * DamageFactor };
+
+    double DamageFactor => Program.GamblerFor(ActualCaster).DamageFactor;
 }

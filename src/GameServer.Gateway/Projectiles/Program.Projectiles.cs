@@ -212,19 +212,20 @@ partial class Program
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack,
                 CharacterPlayerStats(Conn)).Hit(baseHit).Scale(more);
+            var gambler = GamblerFor(CharacterPlayerStats(Conn));
+            var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random);
             if (!shot.Spell)
             {
                 double stored = target.Impale.Bonus;
                 target.Impale.AfterHit();
-                if (stored > 0) packet = packet.Add(DamageType.Physical, new DamageRange(stored, stored));
+                if (stored > 0) rolled = rolled.Add(DamageType.Physical, new DamageRange(stored, stored));
                 if (shot.ImpaleChance > 0 && random.Next(100) < shot.ImpaleChance)
                     target.Impale.Apply(baseHit[DamageType.Physical].Max * more);
             }
-            var rolled = packet.Roll(random);
             int chance = contact.Projectile.Form > 0 ? shot.SecondFormCriticalChance ?? shot.CriticalChance : shot.CriticalChance;
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell);
-            var (damage, _) = MonsterDamage(target, rolled, critical, !shot.Spell, shot.ResistanceMods, shot.Penetration);
+            var (damage, _) = MonsterDamage(target, rolled, critical, !shot.Spell, shot.ResistanceMods, shot.Penetration, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
             var hit = ApplyMonsterHitLocked(Conn, target, damage);
             if (hit is null) return ProjectileHitResult.Miss;

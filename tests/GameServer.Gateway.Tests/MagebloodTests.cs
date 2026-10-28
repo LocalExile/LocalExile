@@ -111,4 +111,38 @@ public class MagebloodTests
         }
         finally { PlayerInventories.Forget(name); }
     }
+
+    [Theory]
+    [InlineData(false, 20, 60)]
+    [InlineData(true, 0, 40)]
+    public void Permanent_silver_and_quicksilver_effects_use_the_characters_native_mode(
+        bool ruthless, int silverMovement, int combinedMovement)
+    {
+        TestSaves.Ensure();
+        string name = "MageMode" + Guid.NewGuid().ToString("N")[..12];
+        var conn = new ClientState(new AreaLayout(0, "test", 100, 100, 30, 30, null, []), 0, 1)
+            { Character = name, Ruthless = ruthless };
+        var catalog = Program.ItemsFor(conn);
+        var inventory = PlayerInventories.For(name, catalog);
+        try
+        {
+            inventory.Add(PlayerInventories.Belt, 0, 0, new UniqueCatalog(catalog, Data()).Create("Mageblood", new Random(1))!);
+            var silver = inventory.Add(PlayerInventories.Flask, 0, 0,
+                ItemCatalog.Create(catalog.Find("Silver Flask")!) with { Rarity = ItemRarity.Magic });
+            int Value(string stat) => Program.UtilityStats(conn, _ => 0).Where(s => s.Stat == stat).Sum(s => s.Value);
+
+            // Ruthless Onslaught retains attack/cast speed but has no movement bonus, including with Mageblood.
+            Assert.Equal(20, Value("attack_speed_+%"));
+            Assert.Equal(20, Value("base_cast_speed_+%"));
+            Assert.Equal(silverMovement, Value("base_movement_velocity_+%"));
+            Assert.True(Program.MagebloodBlocksFlaskUse(conn, silver.Item));
+
+            // Quicksilver is a separate permanent effect and retains its native 40% in both modes.
+            inventory.Add(PlayerInventories.Flask, 1, 0,
+                ItemCatalog.Create(catalog.Find("Quicksilver Flask")!) with { Rarity = ItemRarity.Magic });
+            Assert.Equal(combinedMovement, Value("base_movement_velocity_+%"));
+            Assert.Empty(conn.UtilityFlaskEffects.Sources());
+        }
+        finally { PlayerInventories.Forget(name); }
+    }
 }

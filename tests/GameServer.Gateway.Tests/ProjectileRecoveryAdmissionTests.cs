@@ -51,6 +51,55 @@ public partial class OwnAuraGatewayTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Paid_KB_windup_stays_cancelled_after_freeze_ends_even_when_catching_up(bool catchUp)
+    {
+        using var f = new Fixture("KineticBlast");
+        f.Conn.PlayerStats[Program.Stats.Key("attack_speed_+%")!.Value] = -50;
+        f.Conn.PlayerStats[Program.Stats.Key("stun_recovery_+%")!.Value] = 10000;
+        f.Conn.Pools = Program.PoolsFor(f.Conn, 100) with { Accuracy = int.MaxValue };
+        var target = new SpawnedMonster("cancelled attack target", new(60, 32, 0), 0, 2, 10000);
+        f.Conn.Monsters.Add(42, target);
+        var session = new Program.ProjectileSession("paid-recovery", f.Stream, f.Ciphers, f.Conn);
+        f.Conn.ProjectileRuntime = session;
+        await f.Gate.WaitAsync();
+        try
+        {
+            uint mana = f.Conn.PlayerMana;
+            double duration = (double)Call("SupportedAttackSeconds", f.Conn, f.Skill())!;
+            double delay = (double)Call("AttackContactDelay", f.Conn, duration, false)!;
+            double admittedAt = f.Conn.Clock.Elapsed.TotalSeconds;
+            using (Program.ProjectileMutation(f.Conn, advance: false))
+            {
+                Assert.True(f.Use("ground").IsCompletedSuccessfully);
+                Assert.True(f.Conn.PlayerMana < mana);
+                Assert.Empty(session.Runtime.Projectiles);
+            }
+            double freezeAt = f.Conn.Clock.Elapsed.TotalSeconds;
+            using (Program.ProjectileMutation(f.Conn, advance: false))
+                Program.ApplyPlayerAilmentsLocked(f.Conn, GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Cold, 100, 100),
+                    GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Cold,
+                        f.Conn.PlayerMaxLife * .051, f.Conn.PlayerMaxLife * .051), true, false, freezeAt,
+                    Program.CharacterPlayerStats(f.Conn));
+            double freezeUntil = freezeAt + 6 * .051;
+            Assert.True(freezeUntil < admittedAt + delay);
+            Assert.True(Program.PlayerActionBlocked(f.Conn, freezeAt, freezeAt));
+            await Until(() => f.Conn.Clock.Elapsed.TotalSeconds >= freezeUntil);
+            Assert.False(Program.PlayerActionBlocked(f.Conn, freezeUntil, f.Conn.Clock.Elapsed.TotalSeconds));
+            if (!catchUp) session.AdvanceTo(ProjectileRuntime.Time(freezeUntil));
+            session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(admittedAt + delay + 2)));
+            Assert.Equal(10000u, target.Life);
+            Assert.Empty(session.Runtime.Projectiles);
+        }
+        finally
+        {
+            f.Conn.Closed = true; session.Invalidate(); f.Gate.Release();
+            await session.OutputCompleted.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
     [Fact]
     public async Task Recovery_keeps_an_already_released_KB_projectile_alive()
     {

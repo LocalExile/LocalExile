@@ -77,7 +77,7 @@ partial class Program
             if (conn.Monsters.TryGetValue(id, out var current) && ReferenceEquals(current, monster))
             { conn.Monsters.Remove(id); session.Packet(InstanceProtocol.RemoveObject(id)); }
         });
-        if (monster.Variety is not { } variety || !monster.Hostile) return;
+        if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         ChargesOnKill(conn, monster);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
             && CharacterSaves.Load(CharacterName(conn))?.Tutorial is { ZombieKilled: false })
@@ -123,11 +123,13 @@ partial class Program
             }
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
-            : FlaskCharges.KillCharges(monster.Rarity, Items.Mods));
+            : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
         if (Environment.GetEnvironmentVariable("Game_DROPS") != "0")
         {
-            List<ItemDrops.Drop> drops = [.. Drops.Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn))];
-            if (Drops.Gold(monster.Level, monster.Rarity, random) is { } gold) drops.Add(gold);
+            var balance = conn.Ruthless ? RuthlessSettings.Current : null;
+            List<ItemDrops.Drop> drops = [.. DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
+                balance?.ItemDropMultiplier ?? 1, balance?.EquipmentRarityMultiplier ?? 1)];
+            if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance?.GoldMultiplier ?? 1) is { } gold) drops.Add(gold);
             foreach (var drop in drops)
             {
                 double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;
@@ -151,14 +153,16 @@ partial class Program
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)
     {
         var conn = session.Conn;
+        if (HardcoreProgressBlocked(conn)) return;
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         var items = ItemsOf(conn);
         var changed = new List<InventoryItem>();
         foreach (var flask in items.Items(PlayerInventories.Flask))
         {
-            if (Items.ByHash(flask.Item.TypeHash) is not { } type || Items.FlaskChargesOf(type) is not { } basis) continue;
-            var local = ItemModStats.Local(flask.Item, Items.Mods); var charges = FlaskCharges.Of(basis, local);
+            if (!CanGainFlaskCharges(conn, flask)) continue;
+            if (ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } basis) continue;
+            var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods); var charges = FlaskCharges.Of(basis, local);
             if (flask.Item.Charges >= charges.MaxCharges) continue;
             int whole = conn.FlaskChargeCarry.Take(flask.Id, gain(flask, local) * FlaskCharges.GainMultiplier(local, Get));
             if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, value => Flasks.Gain(value, charges, whole)) is { } item)
@@ -174,9 +178,9 @@ partial class Program
         var conn = session.Conn;
         if (!conn.FlaskChargeCarry.CritReady(at)) return;
         var bar = ItemsOf(conn).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, Items.Mods).GetValueOrDefault("local_recharge_on_crit_%"),
-            Full: Items.ByHash(f.Item.TypeHash) is not { } type || Items.FlaskChargesOf(type) is not { } basis
-                || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, Items.Mods)).MaxCharges)).ToList();
+            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_recharge_on_crit_%"),
+            Full: ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } basis
+                || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         bool precision = conn.Auras.Values.Any(a => a.EffectId == "Precision");

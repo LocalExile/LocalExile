@@ -234,6 +234,44 @@ public class AccountStashTests : IDisposable
     }
 
     [Fact]
+    public void Guild_storage_is_partitioned_by_league_and_preserves_standard_legacy_data()
+    {
+        var catalog = new ItemCatalog(_folder);
+        var legacy = AccountStash.ForGuild(_account, catalog);
+        legacy.Place(0, 0, 0, new InventoryItem(7, 0, 0, Wand()), Shape, out _);
+        var standard = AccountStash.ForGuild(_account, catalog, "Standard");
+        var allflame = AccountStash.ForGuild(_account, catalog, "Allflame");
+        var hardcore = AccountStash.ForGuild(_account, catalog, "Hardcore Allflame");
+        var ruthless = AccountStash.ForGuild(_account, catalog, "Ruthless Allflame");
+        Assert.Same(legacy, standard);
+        Assert.Single(standard.Inventory(0).Items);
+        Assert.Empty(allflame.Inventory(0).Items);
+        Assert.Empty(hardcore.Inventory(0).Items);
+        Assert.Empty(ruthless.Inventory(0).Items);
+        allflame.Place(0, 0, 0, new InventoryItem(8, 0, 0, Wand()), Shape, out _);
+        AccountStash.Forget("guild:" + AccountStash.Key(_account, "Allflame"));
+        Assert.Single(AccountStash.ForGuild(_account, catalog, "Allflame").Inventory(0).Items);
+        Assert.Empty(hardcore.Inventory(0).Items);
+    }
+
+    [Fact]
+    public void Ssf_cannot_open_guild_storage_even_if_legacy_storage_already_exists()
+    {
+        var catalog = new ItemCatalog(_folder);
+        var legacy = AccountStash.ForGuild(_account, catalog);
+        legacy.Place(0, 0, 0, new InventoryItem(7, 0, 0, Wand()), Shape, out _);
+        Assert.Throws<InvalidOperationException>(() => AccountStash.ForGuild(_account, catalog, "SSF Standard", solo: true));
+        Assert.Throws<InvalidOperationException>(() => AccountStash.ForGuild(_account, catalog, "SSF Allflame", solo: true));
+        Assert.Null(Saves.Get(SaveDatabase.Table.Stashes, "guild:" + AccountStash.Key(_account, "SSF Allflame")));
+        Assert.Single(legacy.Inventory(0).Items);
+        var personal = AccountStash.For(AccountStash.Key(_account, "SSF Allflame"), catalog);
+        personal.Place(0, 0, 0, new InventoryItem(8, 0, 0, Wand()), Shape, out _);
+        Assert.Same(personal, AccountStash.For(AccountStash.Key(_account, "SSF Allflame"), catalog));
+        Assert.Single(personal.Inventory(0).Items);
+        Assert.Empty(AccountStash.For(AccountStash.Key(_account, "Allflame"), catalog).Inventory(0).Items);
+    }
+
+    [Fact]
     public void Stash_inventory_ids_map_back_to_their_tab()
     {
         var stash = Open();

@@ -16,6 +16,10 @@ public enum CharacterClass { Scion, Marauder, Ranger, Witch, Duelist, Templar, S
 public sealed record Character(
     Guid Id, Guid AccountId, string Name, CharacterClass Class, int Level,
     string League, string AreaId, DateTimeOffset CreatedUtc, DateTimeOffset LastPlayedUtc, string? LastTown = null,
-    ushort Portrait = 0);
+    ushort Portrait = 0, HardcoreDeathRecord? HardcoreDeath = null);
+
+/// <summary>A committed Hardcore death. The source league is retained after migration; Ruthless deaths are terminal.
+/// Stored with the account's character record, separately from mutable inventory/progress saves.</summary>
+public sealed record HardcoreDeathRecord(string SourceLeague, DateTimeOffset AtUtc, bool PermanentlyDead);
 
 public sealed record Session(string Token, Guid AccountId, DateTimeOffset IssuedUtc, DateTimeOffset ExpiresUtc);

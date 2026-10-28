@@ -138,14 +138,14 @@ public static class DamageModel
 
     /// <summary>Whether a block roll succeeds; <paramref name="roll"/> is 0..100. Lucky block rolls twice and keeps the
     /// better roll, so its effective chance is <c>1 - (1 - p)^2</c> (PoB CalcDefence's lucky block branch).</summary>
-    public static bool Blocks(int chance, double roll, bool lucky = false) =>
-        roll < EffectiveBlockChance(chance, lucky);
+    public static bool Blocks(int chance, double roll, bool lucky = false, bool unlucky = false) =>
+        roll < EffectiveBlockChance(chance, lucky, unlucky);
 
     /// <summary>The chance after lucky/unlucky block (one extra roll each); capped by <see cref="BlockChanceCap"/>.</summary>
-    public static double EffectiveBlockChance(int chance, bool lucky = false)
+    public static double EffectiveBlockChance(int chance, bool lucky = false, bool unlucky = false)
     {
         double p = Math.Clamp(chance, 0, BlockChanceCap) / 100.0;
-        return lucky ? (1 - (1 - p) * (1 - p)) * 100 : p * 100;
+        return lucky == unlucky ? p * 100 : lucky ? (1 - (1 - p) * (1 - p)) * 100 : p * p * 100;
     }
 
     /// <summary>

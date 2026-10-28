@@ -4,11 +4,11 @@ using GameServer.Core.Protocol.Login;
 
 partial class Program
 {
-    // Effective pools already include local prohibitions; a suppressed raw ES base cannot bypass hit recovery.
+    // Effective pools include local prohibitions; a suppressed raw ES base cannot bypass hit recovery.
     static bool PlayerHasEnergyShieldForRecovery(ClientState conn, Func<string, int> get) =>
         conn.Pools.EnergyShield > 0 || PlayerHitRecovery.EnergyShieldPresent(get);
 
-    static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, Items);
+    static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
 
     // The local armour, evasion and energy shield of the equipped body armour, helmet, gloves, boots and shield: the base
     // type's saved ArmourTypes roll plus the item's local flat/increased
@@ -20,14 +20,14 @@ partial class Program
         long energyShield = 0;
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
-                && Items.ByHash(equipped.Item.TypeHash) is { } type && Items.Defences(type) is { } d)
+                && ItemsFor(conn).ByHash(equipped.Item.TypeHash) is { } type && ItemsFor(conn).Defences(type) is { } d)
             {
-                var (a, e, s) = ItemDefences.Calculate(equipped.Item, d, Items.Mods);
+                var (a, e, s) = ItemDefences.Calculate(equipped.Item, d, ItemsFor(conn).Mods);
                 int percent = row == PlayerInventories.BodyArmour ? Math.Clamp(get("ward_instead_of_%_body_armour_and_evasion"), 0, 100) : 0;
                 decimal armourWard = (decimal)a * percent / 100, evasionWard = (decimal)e * percent / 100;
                 armour += a - armourWard;
                 evasion += e - evasionWard;
-                var local = ItemModStats.Local(equipped.Item, Items.Mods);
+                var local = ItemModStats.Local(equipped.Item, ItemsFor(conn).Mods);
                 ward += armourWard + evasionWard
                     + (long)WardState.Max(d.WardMin + local.GetValueOrDefault("local_ward"), local.GetValueOrDefault("local_ward_+%"))
                         * (100 + Math.Clamp((int)equipped.Item.Quality, 0, 100)) / 100;
@@ -48,7 +48,7 @@ partial class Program
 
     static (Item Item, ItemCatalog.BaseType? Type)? ActiveHand(ClientState conn, byte row) =>
         ItemsOf(conn).Items(row).Where(i => !IsInactive(conn, i.Id))
-            .Select(i => ((Item, ItemCatalog.BaseType?)?)(i.Item, Items.ByHash(i.Item.TypeHash))).FirstOrDefault();
+            .Select(i => ((Item, ItemCatalog.BaseType?)?)(i.Item, ItemsFor(conn).ByHash(i.Item.TypeHash))).FirstOrDefault();
 
     // The main hand's attack (2026-10-23): the weapon in the hand (row 2, the active set) by its WeaponTypes row, with the
     // item's local stats (ItemWeapons: physical damage and quality, attack speed, local added elemental/chaos damage); no
@@ -56,14 +56,14 @@ partial class Program
     static SkillCatalog.Unarmed WeaponFor(ClientState conn) => WeaponOf(conn, ActiveMainHand(conn));
 
     static SkillCatalog.Unarmed WeaponOf(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? mainHand) =>
-        WeaponIn(conn, mainHand) ?? Skills.UnarmedFor(conn.ClassRow);
+        WeaponIn(conn, mainHand) ?? SkillsFor(conn).UnarmedFor(conn.ClassRow);
 
     // A hand's weapon attack (WeaponOf); null when the hand holds no weapon (empty, a shield, a quiver).
     static SkillCatalog.Unarmed? WeaponIn(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? hand)
     {
-        var unarmed = Skills.UnarmedFor(conn.ClassRow);
-        if (hand is not var (item, type) || type is null || Skills.WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
-        return ItemWeapons.Of(ms, min, max, Math.Max(range, unarmed.Range), ItemModStats.Local(item, Items.Mods), item.Quality);
+        var unarmed = SkillsFor(conn).UnarmedFor(conn.ClassRow);
+        if (hand is not var (item, type) || type is null || SkillsFor(conn).WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
+        return ItemWeapons.Of(ms, min, max, Math.Max(range, unarmed.Range), ItemModStats.Local(item, ItemsFor(conn).Mods), item.Quality);
     }
 
     // The off-hand weapon of a dual-wielded attack (the active set's Offhand1), with the same values WeaponIn gives the main
@@ -76,7 +76,7 @@ partial class Program
         var items = ItemsOf(conn);
         Dictionary<string, int> Local(byte row, byte swap) =>
             items.Items(row).Concat(items.Items(swap)).Where(i => !IsInactive(conn, i.Id)).Select(i => i.Item).FirstOrDefault() is { } item
-                ? ItemModStats.Local(item, Items.Mods) : [];
+                ? ItemModStats.Local(item, ItemsFor(conn).Mods) : [];
         return (Local(2, 14), Local(3, 15));
     }
 
@@ -88,7 +88,7 @@ partial class Program
         // An inactive weapon (requirements not met) is not there at all: the class is unarmed, as the default attack's
         // unarmed fallback (WeaponFor) is.
         ItemCatalog.BaseType? At(byte row) => items.Items(row).Where(i => !IsInactive(conn, i.Id))
-            .Select(i => Items.ByHash(i.Item.TypeHash)).FirstOrDefault(t => t is not null);
+            .Select(i => ItemsFor(conn).ByHash(i.Item.TypeHash)).FirstOrDefault(t => t is not null);
         static bool OneHandMelee(ItemCatalog.BaseType t) => t.Class is "Claw" or "Dagger" or "Rune Dagger"
             or "One Hand Sword" or "Thrusting One Hand Sword" or "One Hand Axe" or "One Hand Mace" or "Sceptre";
         static bool OneHand(ItemCatalog.BaseType t) => OneHandMelee(t) || t.Class == "Wand";
@@ -105,7 +105,7 @@ partial class Program
         var claws = (main1?.Class == "Claw" && off1?.Class == "Claw") || (main2?.Class == "Claw" && off2?.Class == "Claw");
         var unarmed = main1 is null && main2 is null;
         var mainItem = items.Items(2).Concat(activeSet ? [] : items.Items(14)).Where(i => !IsInactive(conn, i.Id)).Select(i => i.Item).FirstOrDefault();
-        var local = mainItem is null ? [] : ItemModStats.Local(mainItem, Items.Mods);
+        var local = mainItem is null ? [] : ItemModStats.Local(mainItem, ItemsFor(conn).Mods);
         return new WeaponProfile(
             Shield: activeSet ? off1?.Class == "Shield" : HasShield(conn),
             DualWield: dual,
@@ -126,7 +126,7 @@ partial class Program
             Wand: all.Any(t => t.Class == "Wand"),
             // The main hand's local mods: increased critical strike chance scales its base, attack speed and accuracy go
             // into PassiveBonus.
-            Critical: (main1 ?? main2) is { } main ? Items.WeaponCritical(main) * (100 + local.GetValueOrDefault("local_critical_strike_chance_+%")) / 100 : 0,
+            Critical: (main1 ?? main2) is { } main ? ItemsFor(conn).WeaponCritical(main) * (100 + local.GetValueOrDefault("local_critical_strike_chance_+%")) / 100 : 0,
             LocalAttackSpeedPct: local.GetValueOrDefault("local_attack_speed_+%"),
             LocalAccuracy: local.GetValueOrDefault("local_accuracy_rating"));
     }
@@ -135,14 +135,14 @@ partial class Program
     static bool HasShield(ClientState conn) => OffhandTypes(conn).Any(t => t.Class == "Shield");
 
     static int ShieldBaseBlock(ClientState conn) => OffhandTypes(conn).Where(t => t.Class == "Shield")
-        .Select(Items.ShieldBlock).DefaultIfEmpty(0).Max();
+        .Select(ItemsFor(conn).ShieldBlock).DefaultIfEmpty(0).Max();
 
     static IEnumerable<ItemCatalog.BaseType> OffhandTypes(ClientState conn)
     {
         var items = ItemsOf(conn);
         foreach (byte row in new byte[] { PlayerInventories.Offhand1, 15 })
             foreach (var item in items.Items(row))
-                if (Items.ByHash(item.Item.TypeHash) is { } type) yield return type;
+                if (ItemsFor(conn).ByHash(item.Item.TypeHash) is { } type) yield return type;
     }
 
     static PlayerInventories.Shape? ShapeOf(Item i) => Items.ByHash(i.TypeHash) is { } t
@@ -153,7 +153,7 @@ partial class Program
     // The weapon type of an equipment row's item (its BaseItemTypes row), or null: the active (not inactive) item.
     static ItemCatalog.BaseType? HandType(ClientState conn, byte row) =>
         ItemsOf(conn).Items(row).Where(i => !IsInactive(conn, i.Id))
-            .Select(i => Items.ByHash(i.Item.TypeHash)).FirstOrDefault();
+            .Select(i => ItemsFor(conn).ByHash(i.Item.TypeHash)).FirstOrDefault();
 
     // The record's type is the item's ItemClasses row + 1: the client checks skills' weapon restrictions against it.
     static VisibleItem? LookOf(Item i) => Items.ByHash(i.TypeHash) is { } t
@@ -171,9 +171,9 @@ partial class Program
         if (HandType(conn, PlayerInventories.Weapon1) is { Class: "Bow" } bow)
         {
             int quiver = looks.FindIndex(l => l.Slot == 1 && l.VisualIdentity != 0);
-            ushort quiverArt = quiver >= 0 ? looks[quiver].VisualIdentity : Items.Visual("DefaultQuiver") ?? 0x328b;
+            ushort quiverArt = quiver >= 0 ? looks[quiver].VisualIdentity : ItemsFor(conn).Visual("DefaultQuiver") ?? 0x328b;
             looks.RemoveAll(l => l.Slot is 0 or 1 or 7);
-            looks.AddRange(BowSetup.Entries(bow, Items.Visual("DefaultArrow") ?? 0xb2f6, quiverArt));
+            looks.AddRange(BowSetup.Entries(bow, ItemsFor(conn).Visual("DefaultArrow") ?? 0xb2f6, quiverArt));
         }
         var cosmeticSlots = CosmeticEffects.CosmeticOnlySlots.ToDictionary(s => s, VisibleItem.Empty);
         foreach (var worn in WornCosmetics(conn))
@@ -233,7 +233,7 @@ partial class Program
     {
         var items = ItemsOf(conn);
         if (items.Items(PlayerInventories.Cursor) is not [var held, ..]) { await conn.Commands!.Reply("Hold an item first"); return; }
-        if (!held.Item.Components.Contains(component)) { await conn.Commands!.Reply($"{Items.ByHash(held.Item.TypeHash)?.Name} has no {component} component"); return; }
+        if (!held.Item.Components.Contains(component)) { await conn.Commands!.Reply($"{ItemsFor(conn).ByHash(held.Item.TypeHash)?.Name} has no {component} component"); return; }
         if (items.Change(PlayerInventories.Cursor, held.Id, change) is not { } changed) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [held.Id], [changed]), $"0x00bf cursor: item {held.Id} {what}");

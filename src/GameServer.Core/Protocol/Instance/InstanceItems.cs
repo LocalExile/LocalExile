@@ -414,6 +414,14 @@ public static class InstanceItems
     /// </summary>
     public static uint ReadUseFlask(ReadOnlySpan<byte> m) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
 
+    /// <summary>
+    /// S→C 0x263: item-use result. Reader 0x1421aded0: u32 type HASH32, inventory id, item id, string, u32 result.
+    /// The empty string and zero result let the native callback play the base item's use sound; 0x4e2 refuses a full
+    /// recovery pool without that sound. The result occupies four wire bytes despite its u16 client field.
+    /// </summary>
+    public static byte[] ItemUsed(uint typeHash, uint inventoryId, uint itemId, ushort result = 0) =>
+        new LoginWriter().U16(0x263).U32(typeHash).U32(inventoryId).U32(itemId).U16(0).U32(result).ToArray();
+
     public const ushort UseItemTypeOnId = 0x72;
     public const int UseItemTypeOnLength = 23;
 

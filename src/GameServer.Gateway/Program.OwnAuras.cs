@@ -54,7 +54,7 @@ partial class Program
         // Dirty runtime or presented instances are owned by this lifecycle; pure unpresented pool inputs are not adds.
         if (conn.Auras.Count > 0 && (validateSkills || conn.AuraStatsDirty || conn.PresentedAuras.Count > 0))
         {
-            var available = GemSkillEffects(conn.Character).ToDictionary(g => g.Id, g => g.Effect);
+            var available = GemSkillEffects(conn).ToDictionary(g => g.Id, g => g.Effect);
             var gone = conn.Auras.Values.Where(a => InTown(conn)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect).ToArray();
             foreach (var aura in gone) conn.Auras.Remove(aura.SkillId);

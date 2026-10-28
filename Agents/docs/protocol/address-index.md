@@ -224,6 +224,9 @@ G = global / static data.
 | `0x1421f5680` | Fn | inventory item entry read (u32 id, u8 x, u8 y, item) |
 | `0x1435dbd28` (ctor `0x1421a37b0`, write `0x1421a37f0`, read `0x1421a3880`) | Cls | S→C 0xbf inventory change (`0x1425079a0` / `0x142507bf0`) |
 | `0x141d62550` → `0x1421f5160` | Fn | 0xbf handler → apply removals, additions, revision |
+| `0x1435dca20` (read `0x1421aded0`, write `0x1421addf0`) | Cls | S→C 0x263 item-use result; successful flask use triggers the drinking sound ([13](13-items.md) §8) |
+| `0x14215391b` → `0x142171890` | Fn | 0x263 dispatch (case 0xc6) → instance +0x3c78 item-use listeners |
+| `0x140d95a70` / `0x140ddcd60` → `0x140ff6320` | Fn | item-use UI callbacks → native audio submission (BaseItemTypes use sound when override is empty) |
 | `0x1435c0898`, `0x1435dc660` | Cls | S→C 0xc1 remove inventory, 0xc2 inventory permissions |
 | `0x1435bf5f0` (write `0x141fa0d00`, sender `0x14215f300`) | Cls | C→S 0x28 pick up item |
 | `0x1435bf710` (write `0x141f8feb0`, sender `0x14215f400`) | Cls | C→S 0x2a place held item |

@@ -21,10 +21,13 @@ partial class Program
     static async Task MoveHideoutObject(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, InstanceHideoutEditing.Move move)
     {
-        if (!conn.PlayerSent || conn.PendingTransfer is not null || HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash)
+        if (!conn.PlayerSent || conn.PendingTransfer is not null) return;
+        if (HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash)
+        {
+            Console.WriteLine($"[gateway] {remote} refused hideout move 0x{move.ObjectId:x}: {conn.Layout.Id} is not the character's selected hideout");
             return;
-        if (!conn.HideoutEditor.TryMove(move, (x, y) => x < conn.Layout.GridW && y < conn.Layout.GridH
-            && conn.Layout.Walkable?.Invoke(x, y) != false,
+        }
+        if (!conn.HideoutEditor.TryMove(move, HideoutEditing.Cells(conn.Layout),
             (key, p) => CharacterSaves.SetHideoutPlacement(CharacterName(conn), conn.Layout.Id, key, p), out var entry))
         {
             Console.WriteLine($"[gateway] {remote} refused hideout move 0x{move.ObjectId:x} to ({move.X},{move.Y})");

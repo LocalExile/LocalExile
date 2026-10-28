@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Instance;
 /// (Agents/docs/protocol/13-items.md §2a). The client identifies a mod by its HASH16 and counts its stats itself
 /// (StatsKey1..8 up to the first empty one), so every <see cref="ItemMod"/> is built here with exactly that many values.
 /// </summary>
-sealed class ModCatalog(string folder = "data")
+sealed class ModCatalog(string folder = "data", bool ruthless = false)
 {
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
@@ -61,7 +61,7 @@ sealed class ModCatalog(string folder = "data")
         public override string ToString() => $"{Id} (row {Row})";
     }
 
-    private readonly Lazy<(List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById)> _mods = new(() => Load(folder));
+    private readonly Lazy<(List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById)> _mods = new(() => Load(folder, ruthless));
 
     public bool Loaded => _mods.Value.Rows.Count > 0;
 
@@ -85,7 +85,7 @@ sealed class ModCatalog(string folder = "data")
         ? $"{mod.Id} {m.Section.ToString().ToLowerInvariant()}: " + string.Join(", ", mod.Stats.Select((s, i) => $"{s.Id} {(i < m.Values.Count ? m.Values[i] : 0)}"))
         : $"0x{m.Hash:x4} {m.Section.ToString().ToLowerInvariant()}: {string.Join(", ", m.Values)}";
 
-    private static (List<Mod>, Dictionary<ushort, Mod>, Dictionary<string, Mod>) Load(string folder)
+    private static (List<Mod>, Dictionary<ushort, Mod>, Dictionary<string, Mod>) Load(string folder, bool ruthless)
     {
         string path = Path.Combine(folder, "tables", "Mods.json"), statsPath = Path.Combine(folder, "tables", "Stats.json"),
             tagsPath = Path.Combine(folder, "tables", "Tags.json"), modTypePath = Path.Combine(folder, "tables", "ModType.json");
@@ -108,6 +108,8 @@ sealed class ModCatalog(string folder = "data")
         using var d = JsonDocument.Parse(File.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
         {
+            bool alternate = ruthless && r.TryGetProperty("HasHardmodeStatValues", out var hardmode) && hardmode.GetBoolean();
+            string suffix = alternate ? "Hardmode" : "";
             // The client's stat iterator (0x142430710) stops at the first empty key, so the count does too.
             var modStats = new List<ModStat>();
             for (int i = 1; i <= 8; i++)
@@ -115,7 +117,8 @@ sealed class ModCatalog(string folder = "data")
                 if (r.GetProperty($"StatsKey{i}") is not { ValueKind: JsonValueKind.Number } k) break;
                 int key = k.GetInt32();
                 var (statId, local) = key < stats.Count ? stats[key] : ($"#{key}", false);
-                modStats.Add(new(statId, r.GetProperty($"Stat{i}Min").GetInt32(), r.GetProperty($"Stat{i}Max").GetInt32(), local));
+                // Explicit zero is meaningful (for example disabled boss rarity bonuses); it must not fall back.
+                modStats.Add(new(statId, r.GetProperty($"Stat{i}Min{suffix}").GetInt32(), r.GetProperty($"Stat{i}Max{suffix}").GetInt32(), local));
             }
             rows.Add(new Mod(rows.Count, r.GetProperty("Id").GetString() ?? "", (ushort)r.GetProperty("HASH16").GetInt32(),
                 r.GetProperty("Name").GetString() ?? "", r.GetProperty("Domain").GetInt32(), r.GetProperty("GenerationType").GetInt32(),

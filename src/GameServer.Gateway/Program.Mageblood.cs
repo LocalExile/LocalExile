@@ -23,14 +23,18 @@ partial class Program
 
     /// <summary>Whether the item is a magic utility flask: the flasks Mageblood's mod applies to (not normal or unique
     /// flasks, and not life/mana flasks).</summary>
-    internal static bool IsMagicUtilityFlask(Item item) =>
-        item.Rarity == ItemRarity.Magic && Items.ByHash(item.TypeHash) is { } type && Items.UtilityFlaskOf(type) is not null;
+    internal static bool IsMagicUtilityFlask(Item item) => IsMagicUtilityFlask(item, Items);
+
+    static bool IsMagicUtilityFlask(Item item, ItemCatalog items) =>
+        item.Rarity == ItemRarity.Magic && items.ByHash(item.TypeHash) is { } type && items.UtilityFlaskOf(type) is not null;
 
     /// <summary>How many magic utility flasks Mageblood applies: its mod's value (2-4 in 3.29).</summary>
-    internal static int MagebloodFlaskCount(Item belt)
+    internal static int MagebloodFlaskCount(Item belt) => MagebloodFlaskCount(belt, Items);
+
+    static int MagebloodFlaskCount(Item belt, ItemCatalog items)
     {
         foreach (var mod in belt.Mods)
-            if (Items.Mods.ByHash(mod.Hash) is { Id: MagebloodFlasksMod } && mod.Values.Count > 0)
+            if (items.Mods.ByHash(mod.Hash) is { Id: MagebloodFlasksMod } && mod.Values.Count > 0)
                 return Math.Clamp(mod.Values[0], 0, 5);
         return 0;
     }
@@ -38,19 +42,23 @@ partial class Program
     /// <summary>The flasks Mageblood keeps applied: the leftmost <paramref name="count"/> magic utility flasks of the
     /// flask bar, in bar order.</summary>
     internal static IReadOnlyList<InventoryItem> MagebloodFlasks(IEnumerable<InventoryItem> bar, int count) =>
-        [.. bar.Where(i => IsMagicUtilityFlask(i.Item)).OrderBy(i => i.X).Take(Math.Max(0, count))];
+        MagebloodFlasks(bar, count, Items);
+
+    static IReadOnlyList<InventoryItem> MagebloodFlasks(IEnumerable<InventoryItem> bar, int count, ItemCatalog items) =>
+        [.. bar.Where(i => IsMagicUtilityFlask(i.Item, items)).OrderBy(i => i.X).Take(Math.Max(0, count))];
 
     /// <summary>The sources of the magic utility flasks Mageblood keeps applied, or none when it is not worn. The flasks'
     /// own effect mods count; <paramref name="character"/> is the character's stats for increased flask effect/duration.</summary>
     internal static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(ClientState conn, Func<string, int> character)
     {
         if (MagebloodBelt(conn) is not { } belt) return [];
-        int count = MagebloodFlaskCount(belt);
+        var items = ItemsFor(conn);
+        int count = MagebloodFlaskCount(belt, items);
         if (count == 0) return [];
         List<UtilityFlasks.Source> sources = [];
-        foreach (var flask in MagebloodFlasks(ItemsOf(conn).Items(PlayerInventories.Flask), count))
-            if (Items.ByHash(flask.Item.TypeHash) is { } type && Items.UtilityFlaskOf(type) is { } utility)
-                sources.AddRange(UtilityFlasks.For(utility, flask.Item, ItemModStats.Local(flask.Item, Items.Mods), character).Stats);
+        foreach (var flask in MagebloodFlasks(ItemsOf(conn).Items(PlayerInventories.Flask), count, items))
+            if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
+                sources.AddRange(UtilityFlasks.For(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character).Stats);
         return sources;
     }
 
@@ -69,7 +77,7 @@ partial class Program
     /// <summary>Whether Mageblood forbids using this flask: magic utility flasks cannot be used while it is worn (normal and
     /// unique ones still can).</summary>
     internal static bool MagebloodBlocksFlaskUse(ClientState conn, Item flask) =>
-        MagebloodBelt(conn) is not null && IsMagicUtilityFlask(flask);
+        MagebloodBelt(conn) is not null && IsMagicUtilityFlask(flask, ItemsFor(conn));
 
     /// <summary>After the flask bar changed while Mageblood is worn: apply the new permanent flask stats now (the pools, the
     /// walk speed and the client's stats), instead of waiting for an equipment change or a relogin.</summary>

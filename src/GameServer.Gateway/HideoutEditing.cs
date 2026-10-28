@@ -11,6 +11,12 @@ sealed class HideoutEditing
     public void Register(uint id, string key, int x, int y, float rotation, int size, double? collisionRadius = null) =>
         _objects[id] = new(key, new(x, y, rotation), size, collisionRadius);
 
+    /// <summary>The cell check for a drop: inside the captured walk map and walkable. Without a capture
+    /// (live.ps1 -Walkmaps never entered this template) there is no grid to check, so the client's own Edit UI
+    /// placement check decides, instead of refusing every move against a 0 × 0 grid.</summary>
+    public static Func<int, int, bool>? Cells(AreaLayout layout) => layout.Walkable is { } walkable
+        ? (x, y) => x < layout.GridW && y < layout.GridH && walkable(x, y)
+        : null;
 
     public bool TryMove(InstanceHideoutEditing.Move move, Func<int, int, bool>? walkable,
         Action<string, HideoutPlacement> persist, out Entry? moved)

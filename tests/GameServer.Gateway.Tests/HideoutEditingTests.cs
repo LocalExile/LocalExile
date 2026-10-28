@@ -43,6 +43,25 @@ public class HideoutEditingTests
     }
 
     [Fact]
+    public void Hideout_without_a_captured_walk_map_accepts_moves_and_a_captured_one_checks_its_cells()
+    {
+        var editor = new HideoutEditing();
+        editor.Register(7, "map-device", 463, 470, 0, 0);
+        var uncaptured = new AreaLayout(0x34ad, "HideoutSolaris", 0, 0, 197, 261, null, []);
+        Assert.Null(HideoutEditing.Cells(uncaptured));
+        Assert.True(editor.TryMove(new(7, 535, 508, 0, 0), HideoutEditing.Cells(uncaptured), (_, _) => { }, out var moved));
+        Assert.Equal(new HideoutPlacement(535, 508, 0), moved!.Position);
+
+        var captured = new AreaLayout(1, "HideoutForest", 100, 100, 10, 10, (x, _) => x != 50, []);
+        var cells = HideoutEditing.Cells(captured)!;
+        Assert.True(cells(20, 20));
+        Assert.False(cells(50, 20));
+        Assert.False(cells(100, 20));
+        Assert.False(cells(20, 100));
+        Assert.False(editor.TryMove(new(7, 50, 20, 0, 0), cells, (_, _) => Assert.Fail("Blocked cell reached persistence"), out _));
+    }
+
+    [Fact]
     public void Failed_save_preserves_previous_durable_placement()
     {
         TestSaves.Ensure();

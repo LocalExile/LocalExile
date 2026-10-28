@@ -18,19 +18,19 @@ sealed class ItemCatalog
     private StashRules? _stash;
     private readonly string _folder;
 
-    public ItemCatalog(string folder)
+    public ItemCatalog(string folder, bool ruthless = false)
     {
         _folder = folder;
-        Mods = new ModCatalog(folder);
+        Mods = new ModCatalog(folder, ruthless);
         _rows = new(() => Load(folder, Mods));
         _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
-        _gems = new(() => LoadGems(folder));
+        _gems = new(() => LoadGems(folder, ruthless));
         _requirements = new(() => LoadRequirements(folder));
         _shieldBlocks = new(() => LoadShieldBlocks(folder));
         _weaponCrits = new(() => LoadWeaponCrits(folder));
         _defences = new(() => LoadDefences(folder));
-        _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows));
-        _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows));
+        _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows, ruthless));
+        _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, ruthless));
         _visualsById = new(() => LoadVisualsById(folder));
     }
 
@@ -319,7 +319,7 @@ sealed class ItemCatalog
     /// <summary>Any flask's charges (life, mana or utility, usable or not), for refills; null for other types.</summary>
     public Flasks.Flask? FlaskChargesOf(BaseType t) => FlaskOf(t) ?? UtilityFlaskOf(t)?.Charges;
 
-    private static Dictionary<int, Flasks.Flask> LoadFlasks(string folder, IReadOnlyList<BaseType> rows)
+    private static Dictionary<int, Flasks.Flask> LoadFlasks(string folder, IReadOnlyList<BaseType> rows, bool ruthless)
     {
         string flasks = Path.Combine(folder, "tables", "Flasks.json"), charges = Path.Combine(folder, "tables", "ComponentCharges.json");
         var result = new Dictionary<int, Flasks.Flask>();
@@ -334,7 +334,10 @@ sealed class ItemCatalog
                 perUse.TryGetValue(rows[b.GetInt32()].Id, out var use) &&
                 (r.GetProperty("LifePerUse").GetInt32(), r.GetProperty("ManaPerUse").GetInt32()) is var (life, mana) && life + mana > 0)
                 // RecoveryTime is in tenths of a second (Small Life Flask: 30, 3 s).
-                result.TryAdd(b.GetInt32(), new(life, mana, r.GetProperty("RecoveryTime").GetInt32() / 10.0, use.PerCharge, use.Max));
+                result.TryAdd(b.GetInt32(), new(life, mana,
+                    r.GetProperty(ruthless && r.TryGetProperty("RecoveryTime2", out var alternate)
+                        && alternate.ValueKind == JsonValueKind.Number ? "RecoveryTime2" : "RecoveryTime").GetInt32() / 10.0,
+                    use.PerCharge, use.Max));
         return result;
     }
 
@@ -343,7 +346,7 @@ sealed class ItemCatalog
     // Not creatable: the "[DNT]" placeholder variants, the "[UNUSED] …", "[DNT] …" and "WIP …" gem rows, the awakened
     // supports other than Empower, Enhance and Enlighten (disabled since 3.28; theirs is GemProgressionExceptionalPlus),
     // and a Vaal variant whose base skill is only a placeholder's. A Vaal variant is named "Vaal " + its base variant.
-    private static Dictionary<int, GemType> LoadGems(string folder)
+    private static Dictionary<int, GemType> LoadGems(string folder, bool ruthless)
     {
         string Table(string n) => Path.Combine(folder, "tables", n + ".json");
         var result = new Dictionary<int, GemType>();
@@ -355,6 +358,9 @@ sealed class ItemCatalog
         using var x = JsonDocument.Parse(File.ReadAllBytes(Table("ItemExperiencePerLevel")));
         using var xt = JsonDocument.Parse(File.ReadAllBytes(Table("ItemExperienceTypes")));
         static int Row(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
+        // Null or absent means no alternate; row zero remains a real effect, and must not be treated as missing.
+        int Effect(JsonElement r, string name) => ruthless && Row(r, name + "Hardmode") is int alternate and >= 0
+            ? alternate : Row(r, name);
         var thresholds = x.RootElement.EnumerateArray().GroupBy(r => Row(r, "ItemExperienceType")).ToDictionary(t => t.Key,
             t => (IReadOnlyList<int>)[.. t.OrderBy(r => Row(r, "ItemCurrentLevel")).Select(r => Row(r, "Experience"))]);
         var effects = e.RootElement;
@@ -372,7 +378,7 @@ sealed class ItemCatalog
             rows.Add((baseRow, r, baseName));
             if (r.GetProperty("IsVaalVariant").GetBoolean() || baseName.StartsWith('[')) continue;
             foreach (var (v, i) in Variants(r))
-                if (Row(effects[v], "GrantedEffect") is int ge and >= 0 && !Name(v).StartsWith("[DNT]"))
+                if (Effect(effects[v], "GrantedEffect") is int ge and >= 0 && !Name(v).StartsWith("[DNT]"))
                     regular.TryAdd(ge, i == 0 ? baseName : Name(v));
         }
         foreach (var (baseRow, r, baseName) in rows)
@@ -385,7 +391,7 @@ sealed class ItemCatalog
             var variants = new List<GemVariant>();
             foreach (var (v, i) in Variants(r))
             {
-                int effect = Row(effects[v], "GrantedEffect"), effect2 = Row(effects[v], "GrantedEffect2");
+                int effect = Effect(effects[v], "GrantedEffect"), effect2 = Effect(effects[v], "GrantedEffect2");
                 string name = i == 0 ? baseName : Name(v);
                 bool creatable = rowCreatable && !name.StartsWith("[DNT]");
                 if (vaal && effect2 >= 0)

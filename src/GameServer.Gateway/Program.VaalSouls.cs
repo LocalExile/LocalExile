@@ -39,11 +39,11 @@ partial class Program
             var player = CharacterPlayerStats(conn);
             var requirements = CurrentGemRequirements(conn);
             var sources = new List<(uint, uint)>();
-            foreach (var gem in GemSkillEffectsAt(conn.Character, requirements.Places, requirements.Inactive))
+            foreach (var gem in GemSkillEffectsAt(conn.Character, requirements.Places, requirements.Inactive, conn.Ruthless))
             {
-                if (Skills.VaalBudget(gem.Effect, gem.Level) is null) continue;
+                if (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null) continue;
                 var supported = SupportedSkillAt(conn, gem.Id, requirements);
-                if (!supported.RequirementsMet || Skills.VaalBudget(gem.Effect, supported.Level) is not { } definition) continue;
+                if (!supported.RequirementsMet || SkillsFor(conn).VaalBudget(gem.Effect, supported.Level) is not { } definition) continue;
                 var own = supported.Stats;
                 int required = VaalSoulCost.Required(definition.BaseCost,
                     name => VaalSoulInput(conn, player, own, name));

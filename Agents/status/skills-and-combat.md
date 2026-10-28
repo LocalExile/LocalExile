@@ -208,6 +208,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Object uses no longer also deal a melee contact hit.
   Projectiles spawn at the captured terrain height + `Game_PROJECTILE_HEIGHT` (5 steps = torso) on natural ground;
   without a capture they use the bare offset.
+  An attack gem at the ground swings (and pays its mana) when the point is within the weapon's reach, and only walks
+  (attack-move, no mana) beyond it; the client spends the mana itself on either use, so the Gateway answers an
+  attack-move with the authoritative mana.
   Code: `SkillCatalog.cs`, Gateway (`CastOn`, `LaunchProjectile`, `AreaSkillHit`), `ProjectileObject`.
   Docs: [11](../docs/protocol/11-skills.md) §9–10.
 - Resistances: the passive `base_resist_all_elements_%` / per-element `base_*_damage_resistance_%` are summed from the
@@ -331,7 +334,15 @@ The generic [projectile framework](../docs/game/projectile-framework.md) owns pr
 the sole 30 Hz runtime. Catalog fallback provides basic flight; registered skill definitions supply special rules
 and can require explicit recipes.
 
-
+- Ruthless resolves native skill/gem, passive and mod alternatives per connection, including zero-valued overrides.
+  Ordinary characters in the same Gateway keep ordinary catalogs.
+  Hardcore death is terminal for the old connection; a queued level-up cannot revive it.
+  Hardcore migration and permanent Ruthless death have automated lifecycle coverage.
+  Earlier native checks were against the original fork; native checks on the current integration are recorded separately.
+  Native skill/passive/mod alternatives and late-action guards have automated coverage.
+  Main's projectile kill path retains Ruthless rewards, gem XP and active utility-flask restrictions.
+  Synchronous quest/gem commits retain the Hardcore terminal-progress guard; composed regressions pass.
+  See [league modes](../docs/game/league-modes.md).
 - Grace Period grants 60 seconds of entry protection outside towns and hideouts.
   First movement, a skill, a flask or expiry ends it; incoming damage, hostile targeting and RF damage are suppressed.
   The native buff uses floating-point seconds for its countdown; the icon was checked live, timer retest is pending.
@@ -666,7 +677,12 @@ and can require explicit recipes.
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
   Maximum-mana added lightning has original-head native checks and resolved automated checks.
   Not yet: exposure, aura-dependent penetration, other added damage,
-  increased/more support modifiers, ailment application/duration ([20](../docs/protocol/20-damage.md)).
+  increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
+  Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
+  critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
+  Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
+  Alternative ailments and hostile spell/projectile adapters remain unimplemented.
+  See [Gambler](../docs/game/gambler.md) for the exact bounded scope.
   Unconditional penetration works on the player's outgoing hits (general per-element and elemental stats, the
   attack-only variants, the cannot-penetrate flag; DoT and physical take none).
   Player and skill contributions to the same raw penetration stat add without overwriting either source.
@@ -701,4 +717,3 @@ and can require explicit recipes.
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
   an effect object follows the player only by 0x1ba glides.
   Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.
-  Ruthless and SSF change nothing in game; towns are shared across leagues.

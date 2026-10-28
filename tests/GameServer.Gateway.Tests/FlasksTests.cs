@@ -45,6 +45,28 @@ public class FlasksTests
         Assert.Null(Flasks.Spend(LifeFlask(6), SmallLife));
     }
 
+    [Theory]
+    [InlineData(70, 0, 85u, 85u, 63u, 63u, false)]
+    [InlineData(70, 0, 85u, 85u, 0u, 63u, false)]
+    [InlineData(70, 0, 84u, 85u, 63u, 63u, true)]
+    [InlineData(70, 0, 86u, 85u, 63u, 63u, false)]
+    [InlineData(0, 50, 85u, 85u, 63u, 63u, false)]
+    [InlineData(0, 50, 1u, 85u, 63u, 63u, false)]
+    [InlineData(0, 50, 85u, 85u, 62u, 63u, true)]
+    [InlineData(0, 50, 85u, 85u, 31u, 31u, false)] // Full unreserved mana, not the total pool.
+    [InlineData(0, 50, 85u, 85u, 30u, 31u, true)]
+    [InlineData(0, 50, 85u, 85u, 0u, 0u, false)] // All mana reserved.
+    [InlineData(70, 50, 85u, 85u, 63u, 63u, false)]
+    [InlineData(70, 50, 84u, 85u, 63u, 63u, true)]
+    [InlineData(70, 50, 85u, 85u, 62u, 63u, true)]
+    [InlineData(70, 50, 84u, 85u, 62u, 63u, true)]
+    public void Recovery_flasks_require_a_missing_resource_they_can_restore(int lifePerUse, int manaPerUse,
+        uint life, uint maxLife, uint mana, uint unreservedMana, bool expected)
+    {
+        var flask = new Flasks.Flask(lifePerUse, manaPerUse, 3, 7, 21);
+        Assert.Equal(expected, Flasks.CanRecover(flask, life, maxLife, mana, unreservedMana));
+    }
+
     [Fact]
     public void Charges_come_back_up_to_the_maximum()
     {

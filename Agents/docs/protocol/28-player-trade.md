@@ -62,6 +62,11 @@ player's offer grid (the window copies the struct at `0x140c32800`; `0x140c37140
 
 ## 4. The Gateway (`Program.Social.cs`)
 
+Trade requires living, connected players in the same instance presence and full league, with matching modes.
+Either SSF flag refuses the request and acceptance, including forged packets in a shared SSF town.
+Offers and final acceptance recheck eligibility; completion holds both combat locks through one transaction
+containing both inventory saves. Failed settlement leaves both durable inventories unchanged.
+
 1. **0xba:** both sides get 0xa7 about the other and the two offer inventories; the requester gets 0xb8 flags 0x01
    (waiting), the other player 0xb8 flags 0x02 with the requester's name.
 2. **0xb0:** the pending request becomes a `PlayerTrade`; both get 0xb8 flags 0x13 (the window).

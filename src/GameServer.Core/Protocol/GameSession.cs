@@ -110,18 +110,29 @@ public sealed class GameSession(AccountService accounts, InstanceManager instanc
         var c = accounts.Characters(_session.AccountId)
             .FirstOrDefault(x => x.Name.Equals(Str(r, "name"), StringComparison.OrdinalIgnoreCase));
         if (c is null) return Err(AuthError.NotFound);
+        c = accounts.FindCharacter(c.Name);
+        if (c is null || c.AccountId != _session.AccountId) return Err(AuthError.NotFound);
+        if (!HardcoreDeathRules.CanEnter(c)) return Err("character_permanently_dead");
         Disconnect();
         _active = c;
-        var inst = instances.Enter(c.Id, c.AreaId);
+        var inst = instances.Enter(c.Id, c.AreaId, league: c.League);
         return Ok(("instance", Describe(inst)));
     }
 
     private string EnterArea(JsonObject r)
     {
         if (_active is null || _session is null) return Err("not_in_world");
+        if (accounts.FindCharacter(_active.Name) is not { } current || current.Id != _active.Id
+            || current.AccountId != _session.AccountId || !HardcoreDeathRules.CanEnter(current)
+            || !string.Equals(current.League, _active.League, StringComparison.OrdinalIgnoreCase))
+        {
+            Disconnect();
+            return Err("not_in_world");
+        }
+        _active = current;
         string area = Str(r, "area");
         if (area.Length is 0 or > 64) return Err("bad_area");
-        var inst = instances.Enter(_active.Id, area, r["monster_level"]?.GetValue<int>() ?? 1);
+        var inst = instances.Enter(_active.Id, area, r["monster_level"]?.GetValue<int>() ?? 1, _active.League);
         var upd = accounts.Touch(_session.AccountId, _active.Id, area);
         if (upd.Ok) _active = upd.Value;
         return Ok(("instance", Describe(inst)));

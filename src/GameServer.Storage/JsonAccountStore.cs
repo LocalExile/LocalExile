@@ -37,6 +37,6 @@ public sealed class JsonAccountStore : IAccountStore
     public Character? FindCharacter(string n) { lock (_gate) return _s.Characters.FirstOrDefault(c => c.Name.Equals(n, StringComparison.OrdinalIgnoreCase)); }
     public Character? GetCharacter(Guid id) { lock (_gate) return _s.Characters.FirstOrDefault(c => c.Id == id); }
     public void AddCharacter(Character c) { lock (_gate) { _s.Characters.Add(c); Save(); } }
-    public void UpdateCharacter(Character c) { lock (_gate) { var i = _s.Characters.FindIndex(x => x.Id == c.Id); if (i >= 0) { _s.Characters[i] = c; Save(); } } }
+    public void UpdateCharacter(Character c) { lock (_gate) { var i = _s.Characters.FindIndex(x => x.Id == c.Id); if (i >= 0) { _s.Characters[i] = HardcoreDeathRules.PreserveCommittedDeath(c, _s.Characters[i]); Save(); } } }
     public void DeleteCharacter(Guid id) { lock (_gate) { _s.Characters.RemoveAll(c => c.Id == id); Save(); } }
 }

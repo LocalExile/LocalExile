@@ -483,3 +483,12 @@ instead of the previous 22-point steps. OfflineWitch's selected Energy Shield ma
 second (3.7 at 185 ES); that regeneration correctly continues while recharge is interrupted. A temporary zero-regen
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and
 measurement limits. Recovery-cadence PR #159 is merged; this change extends its existing recovery loop.
+
+## Incoming ordinary elemental ailments
+
+The Gateway's supported monster melee contact now calls `ApplyPlayerAilmentsLocked` after hit mitigation/block.
+`PlayerElementalAilments` owns ordinary ignite/chill/freeze/shock on the pauseable connection clock.
+Risk Aversion's final avoidance stats are consumed independently per eligible ailment, with no lucky avoidance.
+The resource writer integrates strongest ignite with live resistance, ES and lethal Life damage; RF remains nonlethal.
+Chill changes action timing/movement, freeze cancels/gates actions, and shock increases subsequent damage taken.
+See [Gambler's exact source, threshold, formula and presentation limits](../game/gambler.md).

@@ -20,10 +20,9 @@ public class GemRewardTests
         var items = new ItemCatalog(data);
 
         // Witch (Characters row 1): the six a1q4 Glyph gems and each act's later gem offers. Some offers also carry items
-        // that are not modelled yet (offer 15's magic belts, offer 24's Uncarved Gemstone), so the constructible count is
-        // lower than the table's choice count; the client's window only gets the constructible ones.
-        var choices = new Dictionary<int, int> { [3] = 6, [4] = 1, [7] = 6, [10] = 9, [13] = 9, [15] = 17, [18] = 13, [23] = 16, [24] = 16, [29] = 14, [30] = 10 };
-        var constructible = new Dictionary<int, int> { [3] = 6, [4] = 1, [7] = 6, [10] = 9, [13] = 9, [15] = 13, [18] = 13, [23] = 16, [24] = 16, [29] = 14, [30] = 10 };
+        // that are Ruthless-only (offer 15's magic belts, offer 24's Uncarved Gemstone), which stay out of regular mode.
+        var choices = new Dictionary<int, int> { [3] = 6, [4] = 1, [7] = 6, [10] = 9, [13] = 9, [15] = 13, [18] = 13, [23] = 16, [24] = 15, [29] = 10, [30] = 10 };
+        var constructible = new Dictionary<int, int>(choices);
         foreach (var (offer, count) in choices)
         {
             var all = catalog.Choices(offer, 1);

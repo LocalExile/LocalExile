@@ -50,10 +50,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary Juggernaut selection after a full refund restores the Default graph.
   Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
 
+- Gambler: every node in its installed graph has a gameplay consumer, including both Block Luck choices and drawbacks.
+  Legal eight-point builds, exclusive choices, paid refunds, failed-save rollback and reload have Gateway coverage.
+  Incoming ordinary monster ailments give Risk Aversion an actual avoidance consumer, alongside bounded stun recovery.
+  Native checks cover legal builds, both choices, outgoing/incoming resistance outcomes, damage, real ignite avoidance,
+  lethal death-panel/checkpoint behavior, refunds, relog and restart.
+  Current-base build/tests and exact related-head composition preserve the documented shared merge resolutions.
+  Default Phrecia admission is gated; the explicit Gambler opt-in verifies installed graph bytes read-only.
+  Docs: [Gambler checklist, scope and verification](../docs/game/gambler.md).
+
 ## Partly working
 
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
-  Phrecia game connections/selection are gated by default; Antiquarian's verified-graph opt-in is accepted above.
+  Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
   The native Labyrinth/Altar flow is separate (#151); other Phrecia class gameplay remains separate work.
   Native ordinary command checks do not establish an expanded chooser or special class gameplay.
@@ -66,6 +75,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Twenty-eight native checks cover effective family levels, unrelated sources, removal, unchanged storage and relog.
   Family-specific execution and Phrecia native admission remain separate.
   Docs: [scope and compatibility gate](../docs/game/ascendancies.md).
+- Ruthless applies a configurable compounding XP multiplier from level 68 by default.
+  The numeric rate is LocalExile tuning because the retail server formula is not public.
+  Native Ruthless passive stat/point alternatives are selected for each Ruthless connection.
+  Automated configuration tests cover valid live edits and retaining the last valid snapshot after invalid input.
+  Native passive alternatives and the compounding level formula have automated coverage.
+  See [league modes](../docs/game/league-modes.md).
 
 ## Not working yet
 

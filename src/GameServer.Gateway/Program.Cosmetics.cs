@@ -58,9 +58,9 @@ partial class Program
     // holds it (the panel finds the gem item there). Keys start at 50, past the fixed slots, and identify target lifetimes,
     // not positions in this list. Refresh only at the send gate: queued work must not publish an obsolete binding.
     static List<(byte Row, byte Socket, uint Gem, byte SlotType)> SkillCosmeticPlaces(ClientState conn) =>
-        PlayerInventories.For(CharacterName(conn), Items).SocketedGemPlaces()
-            .Where(g => Items.GemEffects(g.Gem).Any()).DistinctBy(g => g.Gem.TypeHash)
-            .SelectMany(g => (Items.ByHash(g.Gem.TypeHash) is { } t && Items.Gem(t) is { MtxSlotTypes.Count: > 0 } gem ? gem.MtxSlotTypes : [0])
+        PlayerInventories.For(CharacterName(conn), ItemsFor(conn)).SocketedGemPlaces()
+            .Where(g => ItemsFor(conn).GemEffects(g.Gem).Any()).DistinctBy(g => g.Gem.TypeHash)
+            .SelectMany(g => (ItemsFor(conn).ByHash(g.Gem.TypeHash) is { } t && ItemsFor(conn).Gem(t) is { MtxSlotTypes.Count: > 0 } gem ? gem.MtxSlotTypes : [0])
                 .Select(slotType => (g.Row, (byte)g.Socket, Gem: g.Gem.TypeHash, SlotType: (byte)slotType)))
             .Take(byte.MaxValue).ToList();
 
@@ -91,7 +91,7 @@ partial class Program
         var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
         if (!conn.SkillSlots.TryGetValue(pick.Key, out var slot)
             || !SkillCosmeticPlaces(conn).Contains((slot.Inventory, slot.Socket, slot.GemHash, slot.SlotType))
-            || (pick.RecordId != 0 && (record is null || Items.ByHash(slot.GemHash) is not { } gem
+            || (pick.RecordId != 0 && (record is null || ItemsFor(conn).ByHash(slot.GemHash) is not { } gem
                 || !MtxEffects.FitsSkill(record.MtxTypeHash, gem, slot.SlotType))))
         {
             Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
@@ -111,7 +111,7 @@ partial class Program
     // change of art or ring size shows at once. False when none burns.
     static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why, uint? gem = null)
     {
-        if (conn.RighteousFire is not { } rf || GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == rf.Skill) is not { Name: not null } skill
+        if (conn.RighteousFire is not { } rf || GemSkillEffects(conn).FirstOrDefault(g => g.Id == rf.Skill) is not { Name: not null } skill
             || (gem is uint type && skill.Gem != type)) return false;
         await EndRighteousFire(remote, stream, ciphers, conn, why);
         await ActivateRighteousFire(remote, stream, ciphers, conn, skill.Id, skill.Effect, skill.Level, skill.Quality, skill.Gem);

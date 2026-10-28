@@ -98,4 +98,97 @@ public class InstanceRegistryTests
         clock.Now += TimeSpan.FromMinutes(6);
         Assert.Empty(reg.List(Coast));
     }
+
+    [Theory]
+    [InlineData("Hardcore")]
+    [InlineData("SSF Standard")]
+    [InlineData("Ruthless")]
+    [InlineData("Allflame")]
+    [InlineData("HC SSF R Allflame")]
+    public void Towns_lists_and_explicit_entries_are_partitioned_by_full_league(string league)
+    {
+        var reg = new InstanceRegistry();
+        var standard = reg.Enter(Town, "StandardPlayer", "Standard");
+        var other = reg.Enter(Town, "OtherPlayer", league);
+        Assert.NotSame(standard, other);
+        Assert.Same(other, reg.Enter(Town, "ThirdPlayer", league.ToLowerInvariant()));
+        Assert.Equal(other, Assert.Single(reg.List(Town, "OtherPlayer", league)));
+        Assert.Null(reg.EnterExisting(standard.Id, "OtherPlayer", league));
+        Assert.DoesNotContain("OtherPlayer", standard.Players);
+        Assert.Contains("OtherPlayer", other.Players);
+    }
+
+    [Fact]
+    public void A_character_changing_leagues_cannot_reuse_its_previous_instances()
+    {
+        var reg = new InstanceRegistry();
+        var hardcore = reg.Enter(Coast, "Hero", "Hardcore Allflame");
+        var normal = reg.Enter(Coast, "Hero", "Allflame");
+        Assert.NotSame(hardcore, normal);
+        Assert.Empty(hardcore.Players);
+        Assert.Null(reg.EnterExisting(hardcore.Id, "Hero", "Allflame"));
+        Assert.Same(normal, reg.Enter(Coast, "Hero", "Allflame"));
+    }
+
+    [Theory]
+    [InlineData(Coast)]
+    [InlineData((ushort)0xabcd)] // Hideouts and map areas use the same non-town ownership boundary.
+    public void Ssf_non_town_instances_are_private_even_between_characters_in_the_same_league(ushort area)
+    {
+        const string league = "SSF Allflame";
+        var reg = new InstanceRegistry();
+        var a = reg.Enter(area, "A", league, solo: true);
+        var b = reg.Enter(area, "B", league, solo: true);
+        Assert.NotSame(a, b);
+        Assert.Equal(a, Assert.Single(reg.List(area, "A", league, solo: true)));
+        Assert.Null(reg.EnterExisting(a.Id, "B", league, solo: true));
+        Assert.Null(reg.EnterExisting(a.Id, "B", league, solo: false));
+        reg.Leave(a.Id, "A");
+        Assert.Same(a, reg.Enter(area, "a", league, solo: true));
+        Assert.Same(a, reg.EnterExisting(a.Id, "A", league, solo: true));
+    }
+
+    [Fact]
+    public void Ssf_towns_can_be_shared_but_not_with_trade_characters()
+    {
+        var reg = new InstanceRegistry();
+        var a = reg.Enter(Town, "A", "SSF Standard", solo: true);
+        Assert.Same(a, reg.Enter(Town, "B", "SSF Standard", solo: true));
+        Assert.NotSame(a, reg.Enter(Town, "C", "Standard"));
+    }
+
+    [Fact]
+    public void Reusing_a_deleted_ssf_name_does_not_inherit_the_old_characters_instance()
+    {
+        var reg = new InstanceRegistry();
+        const string league = "SSF Allflame", firstId = "original-id", replacementId = "new-id";
+        var old = reg.Enter(Coast, "ReusableName", league, solo: true, soloIdentity: firstId);
+        reg.Leave(old.Id, "ReusableName");
+        var replacement = reg.Enter(Coast, "ReusableName", league, solo: true, soloIdentity: replacementId);
+        Assert.NotSame(old, replacement);
+        Assert.Null(reg.EnterExisting(old.Id, "ReusableName", league, solo: true, soloIdentity: replacementId));
+        Assert.Equal(replacement, Assert.Single(reg.List(Coast, "ReusableName", league, solo: true,
+            soloIdentity: replacementId)));
+    }
+
+    [Fact]
+    public void An_explicit_instance_must_match_the_requested_area_without_moving_the_character()
+    {
+        var reg = new InstanceRegistry();
+        var town = reg.Enter(Town, "A");
+        var coast = reg.Enter(Coast, "B");
+        Assert.Null(reg.EnterExisting(coast.Id, "A", expectedArea: Town));
+        Assert.Contains("A", town.Players);
+        Assert.DoesNotContain("A", coast.Players);
+    }
+
+    [Fact]
+    public void The_dev_protocol_instance_manager_also_partitions_shared_towns_by_full_league()
+    {
+        var manager = new InstanceManager();
+        var normal = manager.Enter(Guid.NewGuid(), "1_1_town", league: "Standard");
+        var hardcore = manager.Enter(Guid.NewGuid(), "1_1_town", league: "Hardcore");
+        Assert.NotSame(normal, hardcore);
+        Assert.Same(hardcore, manager.Enter(Guid.NewGuid(), "1_1_town", league: "hardcore"));
+    }
 }

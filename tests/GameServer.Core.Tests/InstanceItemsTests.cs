@@ -116,6 +116,23 @@ public class InstanceItemsTests
         Assert.Equal(1u, InstanceItems.ReadUseFlask(key2));
     }
 
+    [Theory]
+    [InlineData(0x403b9b3bu, 2u, "0263403B9B3B0000000C00000002000000000000")]
+    [InlineData(0x93c8c37fu, 4u, "026393C8C37F0000000C00000004000000000000")]
+    public void Successful_flask_use_matches_the_official_sound_confirmation(uint typeHash, uint itemId, string capture)
+    {
+        // Official 3.28 captures; field order and widths verified against the 3.29.3b reader 0x1421aded0.
+        Assert.Equal(capture, Convert.ToHexString(InstanceItems.ItemUsed(typeHash, 12, itemId)));
+    }
+
+    [Fact]
+    public void Full_pool_flask_refusal_matches_the_current_official_capture()
+    {
+        // Official 3.29.3b Steam client: the refused Small Life Flask use, before the successful use.
+        Assert.Equal("0263403B9B3B0000000C000000030000000004E2",
+            Convert.ToHexString(InstanceItems.ItemUsed(0x403b9b3b, 12, 3, result: 0x4e2)));
+    }
+
     [Fact]
     public void Unidentified_items_send_no_explicit_mods()
     {

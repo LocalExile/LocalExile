@@ -9,7 +9,7 @@ public partial class OwnAuraGatewayTests
     static ProjectileUse CapturePresentation(Fixture f, ProjectileRuntimeFixture runtime, string effect)
     {
         var gem = ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
-            Call("GemSkillEffects", f.Conn.Character!)!).Single(g => g.Effect == f.Effect(effect));
+            Call("GemSkillEffects", f.Conn)!).Single(g => g.Effect == f.Effect(effect));
         return (ProjectileUse)Call("CaptureGemProjectile", f.Conn, runtime.Session, gem.Id, gem, (110, 32))!;
     }
 

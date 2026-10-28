@@ -18,7 +18,7 @@ public partial class SpellNoDamageTests
         f.Set("base_skill_area_of_effect_+%", 300);
         f.Set("area_damage_+%", 100);
         var gems = (IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
-            Method("GemSkillEffects").Invoke(null, [f.Conn.Character])!;
+            Method("GemSkillEffects").Invoke(null, [f.Conn])!;
         var use = (ProjectileUse)Method("CaptureGemProjectile").Invoke(null,
             [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32)])!;
         var area = use.Profile.ContactArea!;

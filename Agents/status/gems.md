@@ -9,6 +9,15 @@ Nothing yet.
 
 ## Partly working
 
+- Ruthless gems use native primary/companion effect alternatives, requirements and skill rows.
+  Deterministic support rewards are disabled; eligible active gems use Siosa's Uncarved Gemstone exchange.
+  Gem XP receives the configured Ruthless multiplier.
+  Ruthless availability excludes the 13 original movement gems, Venom Gyre and Item Rarity Support.
+  Drops, vendor stock and runtime use enforce those exclusions; Quickstep remains permitted.
+  An alternate Frostblink hardmode row does not make that unavailable gem playable.
+  Automated mode catalog, acquisition and runtime checks pass.
+  Ruthless Nessa, Siosa and unavailable-gem cases have automated coverage.
+  See [league modes](../docs/game/league-modes.md).
 - **Gem quest rewards (verified live 2026-10-26).** Every `QuestRewardOffers` row whose items the server can build is
   offered by the NPC's QuestReward dialogue row, with the `Characters` class filter and the offer's taken flag;
   unbuildable rows (level-8 magic armours, magic belts) are skipped instead of an allow list excluding whole offers.

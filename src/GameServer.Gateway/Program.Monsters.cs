@@ -49,13 +49,13 @@ partial class Program
             Ranged = MonsterAttackIsRanged(variety)
         };
         var skill = variety.GrantedEffects is [int effect, ..]
-            ? Skills.FindByRow(attack.SkillId, effect, level, attack.SkillStats()) : null;
+            ? SkillsFor(conn).FindByRow(attack.SkillId, effect, level, attack.SkillStats()) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights).
         var stage = BossFights.For(variety.Id);
         // Its stats as the attack's (skill_is_non_pathing above all, and the stage's own time): without them the client sent
         // the action through its pathing step, played nothing and kept the monster in it (live 2026-10-21).
         var stageSkill = skill is not null && stage is not null
-            ? Skills.FindByRow(StageSkillId, stage.SkillEffect, level, (attack with { SkillId = StageSkillId, Seconds = stage.CastSeconds }).SkillStats())
+            ? SkillsFor(conn).FindByRow(StageSkillId, stage.SkillEffect, level, (attack with { SkillId = StageSkillId, Seconds = stage.CastSeconds }).SkillStats())
             : null;
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
@@ -308,21 +308,24 @@ partial class Program
                     return;
                 }
                 // Roll the whole monster-mod packet, then mitigate each component with this hit's one armour decision.
-                var rolled = a.Damage.Roll(conn.IncomingHitRandom);
+                var gambler = GamblerFor(stats);
+                var rolled = gambler.RollIncomingHit(a.Damage, conn.IncomingHitRandom);
                 rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out monsterCritical,
                     () => SelfCriticalReduction(conn));   // its crit, Executioner's
-                var mitigated = DamageModel.Mitigate(rolled, type =>
-                    new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)));
+                var mitigated = gambler.MitigateIncomingHit(rolled, type =>
+                    new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
                 var immune = PlayerImmunities(conn);
                 // This remains the original next RNG draw when the feature is absent. Blocking never
                 // consumes an armour draw; one lazy decision is shared by the whole rolled packet.
-                blocked = DamageModel.Blocks(conn.Pools.BlockChance, conn.IncomingHitRandom.NextDouble() * 100, conn.Pools.AttackBlockLucky);
+                blocked = DamageModel.Blocks(conn.Pools.BlockChance, conn.IncomingHitRandom.NextDouble() * 100, conn.Pools.AttackBlockLucky, conn.Pools.AttackBlockUnlucky);
                 bool armourRelevant = mitigated.Components.Any(c => !immune.Contains(c.Type)
                     && Math.Round(c.Range.Min) > 0 && (c.Type == DamageType.Physical
                         || c.Type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage));
                 armour = IncomingArmourLocked(conn, !blocked && armourRelevant, priorContacts, stats);
                 rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
                 damage = 0;
+                var ailmentTaken = DamagePacket.Empty;
+                double shockFactor = conn.ElementalAilments.DamageTakenFactor(now);
                 foreach (var (type, range) in mitigated.Components)
                 {
                     int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
@@ -331,6 +334,8 @@ partial class Program
                     if (type == DamageType.Physical)
                         value = AntiquarianEffects.RangedPhysical(value, a.Ranged,
                             name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+                    value = (int)Math.Round(value * shockFactor);
+                    ailmentTaken = ailmentTaken.Add(type, new(value, value));
                     if (type == DamageType.Chaos) chaosDamage += value;
                     damage += value;
                 }
@@ -342,9 +347,13 @@ partial class Program
                 int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
                 conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats) + gainedLife));
                 conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
+                ApplyPlayerAilmentsLocked(conn, a.Damage, ailmentTaken.Select((_, r) =>
+                    new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
+                    monsterCritical, blocked, now, stats);
                 conn.RecentEnemyHits.Record(now);
                 ChargesWhenHit(conn, blocked);
                 if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+                RecordHardcoreDeath(conn);
                 life = conn.PlayerLife;
                 mana = conn.PlayerMana;
                 if (!blocked && !a.Ranged && life > 0 && a.Damage.Components.All(c => c.Type == DamageType.Physical))

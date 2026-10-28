@@ -627,7 +627,7 @@ Title "You have died!" (ClientStrings ids are row + 1). Live 2026-10-17:
 |---|---|
 | 0x0c (standard league) | "Resurrect in Town", "Resurrect at Checkpoint" |
 | 0x00 | "Resurrect" |
-| 0x01 (hardcore) | "Exit" ("Exit to the character selection screen": sends C→S 0x153, not implemented yet) |
+| 0x01 (hardcore) | "Exit" ("Exit to the character selection screen": sends C→S 0x153) |
 | 0x02 | hides the screen |
 
 bit3 turns the left button into "Resurrect in Town", bit2 adds the checkpoint button (not with bit0); a third
@@ -640,6 +640,11 @@ object has full life); at the checkpoint → 0x1b1 full life first (a teleport s
 dead was ignored), then 0x1b7 next to the area's waypoint if the character has activated it, else to the area's arrival point
 (`AreaLayout.Checkpoint`). `Game_LEAGUE=hardcore` sends 0x01;
 `/death_screen [flags]` previews any variant.
+
+Actual Hardcore deaths commit migration to the matching softcore league, preserving SSF.
+Hardcore Ruthless deaths are permanent and remain stored in Void.
+Resurrection packets are refused for the old Hardcore connection, including forged packets.
+See [league modes](../game/league-modes.md) for persistence, stale-ticket checks and storage-failure retry.
 
 ## 8. Stat keys
 
@@ -673,11 +678,17 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   message's flags, the client's **"Always Attack Without Moving"** setting (live 2026-10-25: 0x400 with it off, 0x401
   with it on; the setting itself also arrives as C→S 0x16 command 8):
   - bit 0 set: the player swings from where it stands; the server echoes 0x1ab there and pays at the swing.
-  - bit 0 clear: the client is **attack-moving** — it walks to the aimed point itself and sends no C→S 0x25 Move for
-    that walk. The server walks its estimate after it (`Walk.Order`) and answers 0x1ab from that estimate, like a
-    move's echo. A point with a living monster on it within the skill's hit radius is a swing (the client aims at the
-    cell, not at the object: Holy Strike on a monster sends 0x25, live 2026-10-25): the server walks into the
-    weapon's reach and only then pays and hits. An empty point never swings, so running costs no mana.
+  - bit 0 clear: a point **within the weapon's reach** is a swing at the ground, even with nothing standing there (live
+    2026-10-26: standing and swinging at empty ground must cost the skill's mana, as it does on the client); the server
+    echoes 0x1ab in place, pays the cost and runs the skill's area hit. A point **beyond** the reach is an
+    **attack-move** — the client walks to the aimed point itself and sends no C→S 0x25 Move for that walk, so the server
+    walks its estimate after it (`Walk.Order`) and answers 0x1ab from that estimate, like a move's echo; it costs no
+    mana. A monster inside the skill's hit radius adds nothing to the decision: within reach the point is a swing (the
+    hit still covers every monster within the skill's radius of it, the client aiming at the cell rather than the
+    object: Holy Strike on a monster sends 0x25, live 2026-10-25), beyond reach it is an attack-move.
+    The client spends the skill's mana on every use it starts, including an attack-move it only walks for, so the
+    Gateway answers an attack-move with the authoritative mana (S→C 0x1b1, at most four a second); otherwise the orb
+    falls behind the server's and recovery flasks are refused as "full" ([13](13-items.md) §8).
   On a monster: C→S 0x24; an attack walks into the weapon's reach first (`Walk.Approach`, the swing is echoed on
   arrival, unlike a spell) and a spell casts from where it stands. An attack with "Always Attack Without Moving" on
   casts in place. On the player itself (Righteous Fire): C→S 0x24 with the player's id as the target; the server
@@ -1947,7 +1958,7 @@ Automated parsed-dispatch coverage does not constitute native verification.
 - A 30 Hz server loop: `TickRate` only bounds the attack time; hits use timers and the monster AI runs every 500 ms.
 - Monsters use only their first granted effect; no ranged or spell skills, no monster skill choice.
 - A damage model: armour, evasion, resistances, crits; the player's real life from level and stats.
-- The death screen's bit4 and trailing fields (Sanctum and other modes); exit to character selection (0x153).
+- The death screen's bit4 and trailing fields (Sanctum and other modes).
 - Skill record fields +0xc0/+0xc4 still have unproved semantic names.
 - Projectiles: their height above the ground and model orientation (§10), collision, the explosion, the real
   skill → projectile link; damage for ground casts.

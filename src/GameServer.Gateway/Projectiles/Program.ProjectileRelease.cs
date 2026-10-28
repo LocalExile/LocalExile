@@ -17,8 +17,8 @@ partial class Program
         {
             var definition = ResolveProjectileDefinition(effect)
                 ?? throw new InvalidOperationException("no available projectile recipe/metadata");
-            var gem = GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == skillId);
-            if (gem.Name is null || !SkillHitPlan.ForSkill(Skills, effect, gem.Level, gem.Quality).CanHit)
+            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+            if (gem.Name is null || !SkillHitPlan.ForSkill(SkillsFor(conn), effect, gem.Level, gem.Quality).CanHit)
                 throw new InvalidOperationException("no supported projectile damage plan");
             var resolved = MergeSkillStats(CharacterPlayerStats(conn), SupportedSkill(conn, skillId).Stats);
             int Get(string name) => Stats.Key(name) is uint key ? resolved.GetValueOrDefault(key) : 0;
@@ -30,7 +30,7 @@ partial class Program
         }
         catch (InvalidOperationException ex)
         {
-            Console.WriteLine($"[gateway] {remote} {Skills.EffectId(effect)} unavailable: {ex.Message}");
+            Console.WriteLine($"[gateway] {remote} {SkillsFor(conn).EffectId(effect)} unavailable: {ex.Message}");
             return false;
         }
     }
@@ -41,22 +41,22 @@ partial class Program
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
-        bool attack = Skills.IsAttack(gem.Effect);
+        bool attack = SkillsFor(conn).IsAttack(gem.Effect);
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
         int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
         double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
         double delay = attack ? AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false)
-            : cast.Value / 1000d * Animations.SpellRelease(Skills.ClassFor(conn.ClassRow).AnimatedObject);
+            : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
         int epoch = conn.ProjectileEpoch;
         session.Schedule(ProjectileRuntime.Time(acceptedAt + delay),
             // Paid attacks survive Move unless their recipe opts into cancellable windup (e.g. release-time costs).
             // Spells and cooldown tickets retain action cancellation.
             // Epoch, death and hit recovery still cancel unreleased attacks.
-            () => conn.ProjectileActive(epoch) && conn.HitRecovery.Generation == recoveryGeneration
+            () => conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
                 && (ticket?.Current(conn) ?? (cancelOnNewAction
                 ? PlayerActionCurrent(conn, action)
-                : conn.PlayerLife > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
+                : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
                 && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null,
             () => CaptureGemProjectile(conn, session, skillId, gem, aim));
         return Task.CompletedTask;
@@ -74,7 +74,7 @@ partial class Program
         var definition = ResolveProjectileDefinition(gem.Effect)
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
-        int baseSpeed = Skills.Projectile(metadata)?.Speed ?? 1000;
+        int baseSpeed = SkillsFor(conn).Projectile(metadata)?.Speed ?? 1000;
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
@@ -89,7 +89,7 @@ partial class Program
         origin += direction * Math.Min(1.5, (target - origin).Length / 2);
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
-        bool spell = !Skills.IsAttack(gem.Effect);
+        bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
         var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, conn.Pools.Accuracy,
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {

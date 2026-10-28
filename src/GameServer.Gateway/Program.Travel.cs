@@ -15,7 +15,7 @@ partial class Program
         using (ProjectileMutation(conn))
         {
             double now = ProjectileWorldTime(conn);
-            if (conn.Closed || conn.PlayerLife == 0 || conn.HitRecovery.BlocksInput(requestedAt, now)) return false;
+            if (conn.Closed || conn.PlayerLife == 0 || PlayerActionBlocked(conn, requestedAt, now)) return false;
             int action = Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
             var (here, stop, arrive) = centreRange ? conn.Walk.Approach(x, y, reach, now) : conn.Walk.WalkUpTo(x, y, (int)reach, now);
@@ -30,9 +30,9 @@ partial class Program
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         lock (conn.Monsters)
-            if (conn.HitRecovery.BlocksInput(requestedAt, conn.Clock.Elapsed.TotalSeconds)) return;
-        if (InTown(conn) && (Skills.IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)) return;
-        if (Skills.IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)
+            if (PlayerActionBlocked(conn, requestedAt, conn.Clock.Elapsed.TotalSeconds)) return;
+        if (InTown(conn) && (SkillsFor(conn).IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)) return;
+        if (SkillsFor(conn).IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)
             await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         SpawnedMonster? target;
         lock (conn.Monsters) target = conn.Monsters.GetValueOrDefault(use.TargetId);
@@ -43,9 +43,9 @@ partial class Program
             return;
         }
         // A self-cast skill (Righteous Fire) targets the player itself: echo it in place, then cast.
-        if (use.TargetId == PlayerId && Skills.IsGemSkill(use.SkillId))
+        if (use.TargetId == PlayerId && SkillsFor(conn).IsGemSkill(use.SkillId))
         {
-            var gem = GemSkillEffects(conn.Character).FirstOrDefault(g => g.Id == use.SkillId);
+            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
             double at = conn.Clock.Elapsed.TotalSeconds;
             (int X, int Y) self = default;
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
@@ -240,8 +240,12 @@ partial class Program
     static async Task ActivateWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is not { } entry) return;
-        lock (conn.Waypoints) if (!conn.Waypoints.Add(entry.Id)) return;
-        CharacterSaves.AddWaypoints(CharacterName(conn), [entry.Id]);
+        lock (conn.Monsters)
+        {
+            if (HardcoreProgressBlocked(conn)) return;
+            lock (conn.Waypoints) if (!conn.Waypoints.Add(entry.Id)) return;
+            CharacterSaves.AddWaypoints(CharacterName(conn), [entry.Id]);
+        }
         await SendWaypointList(remote, stream, ciphers, conn, $"waypoint of {entry.Name} ({entry.Id}) activated: {why}");
     }
 
@@ -251,9 +255,13 @@ partial class Program
         if (WaypointCatalog.Areas.Entries.Count == 0) return;
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } town)
         {
-            bool added;
-            lock (conn.Waypoints) added = conn.Waypoints.Add(town.Id);
-            if (added) CharacterSaves.AddWaypoints(CharacterName(conn), [town.Id]);
+            lock (conn.Monsters)
+            {
+                if (HardcoreProgressBlocked(conn)) return;
+                bool added;
+                lock (conn.Waypoints) added = conn.Waypoints.Add(town.Id);
+                if (added) CharacterSaves.AddWaypoints(CharacterName(conn), [town.Id]);
+            }
         }
         await SendWaypointList(remote, stream, ciphers, conn, "the character's waypoints");
     }
@@ -296,8 +304,12 @@ partial class Program
     static void RecordVisit(ClientState conn)
     {
         if (WaypointCatalog.Visits.For(conn.Layout.Id).Count == 0) return;
-        lock (conn.Waypoints) if (!conn.Visited.Add(conn.Layout.Id)) return;
-        CharacterSaves.AddVisited(CharacterName(conn), [conn.Layout.Id]);
+        lock (conn.Monsters)
+        {
+            if (HardcoreProgressBlocked(conn)) return;
+            lock (conn.Waypoints) if (!conn.Visited.Add(conn.Layout.Id)) return;
+            CharacterSaves.AddVisited(CharacterName(conn), [conn.Layout.Id]);
+        }
     }
 
     // C→S 0x4d: a waypoint picked on the World panel. An activated waypoint changes area (the player arrives next to its
@@ -365,20 +377,28 @@ partial class Program
     }
 
     // Auth moves the player and issues the destination ticket; 0x27 sends the client there (it reconnects to this Gateway).
-    static async Task Transfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t)
+    internal static async Task Transfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        PendingTransfer t, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         lock (conn.Monsters)
         {
             if (!ReferenceEquals(conn.PendingTransfer, t)) return; // the acknowledgement and fallback timer can race
             conn.PendingTransfer = null;
         }
-        var r = await InstanceControl.CallAsync(new ControlRequest
+        if (!RetireRuthlessVitalsForTransfer(conn))
+        {
+            conn.ResumeAfterFailedTransfer();
+            Console.WriteLine($"[gateway] {remote} transfer refused: Ruthless resources belong to a newer connection");
+            return;
+        }
+        var r = await (control ?? (request => InstanceControl.CallAsync(request)))(new ControlRequest
         {
             Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = t.Instance, New = t.New,
         });
         t.Done?.Invoke(r);
         if (!r.Ok)
         {
+            ResumeRuthlessVitalsAfterFailedTransfer(conn);
             conn.ResumeAfterFailedTransfer();
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
             return;

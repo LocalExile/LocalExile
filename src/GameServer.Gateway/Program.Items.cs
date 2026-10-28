@@ -67,9 +67,9 @@ partial class Program
         if (PlayerInventories.Row(s.InventoryId) is not byte row) return;
         if (items.Items(row).FirstOrDefault(i => i.Id == s.ItemId) is not { Item: { } worn } ||
             s.Socket >= worn.Sockets.Count || worn.Sockets[(int)s.Socket].Gem is not { } gem) return;
-        if (Items.ByHash(gem.TypeHash) is not { } baseType || Items.Gem(baseType) is not { } type) return;
-        if ((gem.GemFlags & 4) != 0) { await conn.Commands!.Reply($"{Items.GemName(gem)}'s level is locked"); return; }
-        int level = Items.GemLevel(gem);
+        if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return;
+        if ((gem.GemFlags & 4) != 0) { await conn.Commands!.Reply($"{ItemsFor(conn).GemName(gem)}'s level is locked"); return; }
+        int level = ItemsFor(conn).GemLevel(gem);
         // The character's level can fall below the next level's requirement after the experience was gained (/set_level, or a
         // save from before the stall): the "+" is still there, so say what is missing rather than that the gem is at its last
         // level. The next level is only computed while the gem is under its type's cap (ExperienceFor clamps).
@@ -78,8 +78,8 @@ partial class Program
             await conn.Commands!.Reply(missing);
             return;
         }
-        int max = Math.Min(Skills.MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
-        if (level >= max) { await conn.Commands!.Reply($"{Items.GemName(gem)} is at its highest level ({max})"); return; }
+        int max = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
+        if (level >= max) { await conn.Commands!.Reply($"{ItemsFor(conn).GemName(gem)} is at its highest level ({max})"); return; }
         var next = gem with { GemExperience = type.ExperienceFor(level + 1) };
         var after = items.Change(row, s.ItemId, it =>
         {
@@ -91,7 +91,7 @@ partial class Program
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(remote, stream, ciphers, conn);
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {Items.GemName(next)} levels to {level + 1}");
+        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(next)} levels to {level + 1}");
     }
 
     // C→S 0xd7: a right-click on a socketed gem toggles its level lock (SkillGem +0x10 bit 2); the item is replaced with the
@@ -112,7 +112,7 @@ partial class Program
         if (after is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem {(s.Locked ? "locked" : "unlocked")}");
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {Items.GemName(gem)} in item {after.Id} socket {s.Socket}: {(s.Locked ? "level locked" : "level unlocked")}");
+        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(gem)} in item {after.Id} socket {s.Socket}: {(s.Locked ? "level locked" : "level unlocked")}");
     }
 
     // C→S 0x2f: a socketed gem goes onto the cursor; the item is replaced in its inventory.
@@ -154,31 +154,54 @@ partial class Program
     // C→S 0x70: a flask key. The flask in that cell of the flask bar spends its charges (S→C 0xbf with the changed item) and
     // its life or mana comes back, instantly or over its recovery time, under the flask_effect_life / _mana buff
     // (13-items.md §8): its quality, its mods and the character's flask stats count (FlaskCharges, FlaskRecovery). Without
-    // enough charges, or while dead, nothing happens. A utility flask goes to UseUtilityFlask.
+    // enough charges, while dead, or when its recovery pools are full, nothing happens. A utility flask goes to UseUtilityFlask.
     static async Task UseFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot)
     {
         var items = ItemsOf(conn);
         var flask = items.Items(PlayerInventories.Flask).FirstOrDefault(i => i.X == slot);
-        if (flask is not null && Items.ByHash(flask.Item.TypeHash) is { } utilityType && Items.UtilityFlaskOf(utilityType) is { } utility)
+        if (flask is not null && ItemsFor(conn).ByHash(flask.Item.TypeHash) is { } utilityType && ItemsFor(conn).UtilityFlaskOf(utilityType) is { } utility)
         {
             await UseUtilityFlask(remote, stream, ciphers, conn, slot, flask, utilityType, utility);
             return;
         }
-        if (flask is null || Items.ByHash(flask.Item.TypeHash) is not { } type || Items.FlaskOf(type) is not { } use)
+        if (flask is null || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskOf(type) is not { } use)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot}: {(flask is null ? "no flask there" : "not a flask (not handled)")}");
             return;
         }
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-        var local = ItemModStats.Local(flask.Item, Items.Mods);
+        var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(use, local, Get);
         if (conn.PlayerLife == 0 || Flasks.Spend(flask.Item, charges) is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {(conn.PlayerLife == 0 ? "dead" : $"{flask.Item.Charges}/{charges.MaxCharges} charges, a use needs {charges.ChargesPerUse}")}");
             return;
         }
-        if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is null) return;
+        bool canRecover;
+        lock (conn.Monsters)
+            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerMaxLife, conn.PlayerMana, (uint)UnreservedMana(conn));
+        if (!canRecover)
+        {
+            await Send(remote, stream, ciphers, InstanceItems.ItemUsed(flask.Item.TypeHash,
+                PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id, result: 0x4e2),
+                $"0x0263 flask {slot} ({type.Name}) refused: recovery pools full (0x4e2), charges unchanged");
+            // The client can hold a lower pool than the server (a use it started but the server did not pay for): the
+            // refusal carries the authoritative value, so the orb and the next press agree.
+            if (use.LifePerUse > 0)
+            {
+                uint life;
+                lock (conn.Monsters) life = conn.PlayerLife;
+                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+                    $"0x01b1 player life {life} (full pool, flask refused)");
+            }
+            if (use.ManaPerUse > 0)
+                await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (full pool, flask refused)");
+            return;
+        }
+        if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is not { } spent) return;
+        await Send(remote, stream, ciphers, InstanceItems.ItemUsed(spent.Item.TypeHash,
+            PlayerInventories.InventoryId(PlayerInventories.Flask), spent.Id), $"0x0263 flask {slot} used (native use sound)");
         var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife);
         Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {r.Life:0.#} life, {r.Mana:0.#} mana over {r.Seconds:0.##} s, " +
             $"instantly {r.InstantLife:0.#} life, {r.InstantMana:0.#} mana{(r.ManaAtEnd > 0 ? $", {r.ManaAtEnd:0.#} mana at the end" : "")}" +
@@ -226,12 +249,13 @@ partial class Program
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
     // the refills of kills and the like, lets them wait for the next save: PlayerInventories.ChangeUnsaved): the
     // flasks that changed.
-    static List<InventoryItem> FillFlasks(PlayerInventories items, int charges, bool saveNow = true) =>
-        Flasks.Fill(items, Items, charges, saveNow);
+    static List<InventoryItem> FillFlasks(PlayerInventories items, int charges, bool saveNow = true, ItemCatalog? catalog = null) =>
+        Flasks.Fill(items, catalog ?? Items, charges, saveNow);
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
     static Task GainFlaskCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int charges, string why) =>
-        ChangeFlaskBar(remote, stream, ciphers, conn, items => FillFlasks(items, charges, saveNow: false) is { Count: > 0 } changed
+        ChangeFlaskBar(remote, stream, ciphers, conn, items => Flasks.Fill(items, ItemsFor(conn), charges, saveNow: false,
+                canGain: flask => CanGainFlaskCharges(conn, flask)) is { Count: > 0 } changed
                 ? ([.. changed.Select(c => c.Id)], changed) : null,
             changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
 
@@ -245,7 +269,7 @@ partial class Program
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
         if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-            $"0x02b9 create world item 0x{id:x} start weapon {Items.ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
+            $"0x02b9 create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
     }
 
@@ -272,7 +296,13 @@ partial class Program
         // a1q4: a glyph is not needed once the glyphs are placed (a copy left in another instance): it goes, unpicked.
         if (GlyphIndex(ground.Item) is not null && ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs))
         {
-            if (conn.Instance.Ground.Take(id) is not null)
+            bool removed;
+            lock (conn.Monsters)
+            {
+                if (HardcoreProgressBlocked(conn)) return;
+                removed = conn.Instance.Ground.Take(id) is not null;
+            }
+            if (removed)
                 await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove glyph 0x{id:x}: the glyphs are placed");
             return;
         }
@@ -300,18 +330,28 @@ partial class Program
         {
             // A stack goes onto the inventory's stacks of its type first, then into free cells; all of it or nothing. Nothing
             // awaits between the check, the take and the add, and only this connection changes the character's items.
-            if (!items.Fits(PlayerInventories.MainInventory, ground.Item, ShapeOf))
+            PlayerInventories.Stacking stacked;
+            WorldItemObject? rest = null;
+            uint restId = 0;
+            lock (conn.Monsters)
             {
-                Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: no room in the inventory for {ground.Item.StackSize}");
-                return;
+                if (HardcoreProgressBlocked(conn)) return;
+                if (!items.Fits(PlayerInventories.MainInventory, ground.Item, ShapeOf))
+                {
+                    Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: no room in the inventory for {ground.Item.StackSize}");
+                    return;
+                }
+                if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
+                stacked = KeepOnGroundIfNotSaved(conn, ground, () => items.AddStacked(PlayerInventories.MainInventory, ground.Item, ShapeOf));
+                if (stacked.Left > 0)
+                {
+                    // Fits said yes, so this is not expected; the rest goes back on the ground rather than vanish.
+                    rest = new WorldItemObject(ground.GridX, ground.GridY, ground.Item with { StackSize = (ushort)stacked.Left });
+                    restId = conn.Instance.Ground.Add(rest);
+                }
             }
-            if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
-            var stacked = KeepOnGroundIfNotSaved(conn, ground, () => items.AddStacked(PlayerInventories.MainInventory, ground.Item, ShapeOf));
-            if (stacked.Left > 0)
+            if (rest is not null)
             {
-                // Fits said yes, so this is not expected; the rest goes back on the ground rather than vanish.
-                var rest = new WorldItemObject(ground.GridX, ground.GridY, ground.Item with { StackSize = (ushort)stacked.Left });
-                uint restId = conn.Instance.Ground.Add(rest);
                 Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: {stacked.Left} didn't fit, back on the ground as 0x{restId:x}");
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(restId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
                     $"0x02b9 create world item 0x{restId:x} (the rest of 0x{id:x})");
@@ -321,32 +361,38 @@ partial class Program
                 $"0x00bf inventory 1: {ground.Item.StackSize} picked up ({stacked.Changed.Count} stack(s) grown, {stacked.Added.Count} new)");
             return;
         }
+        InventoryItem? placed;
+        int? glyph;
         (byte X, byte Y) cell = (0, 0);
-        if (!toCursor)
+        lock (conn.Monsters)
         {
-            if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } free)
+            if (HardcoreProgressBlocked(conn)) return;
+            if (!toCursor)
             {
-                Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: no room in the inventory");
-                return;
+                if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } free)
+                {
+                    Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: no room in the inventory");
+                    return;
+                }
+                cell = free;
             }
-            cell = free;
-        }
-        if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
-        // The start weapon stops waiting; the Put below saves both changes at once.
-        if (conn.Instance.IsStartWeapon(CharacterName(conn), id) && items.ClaimStartWeapon())
-            Console.WriteLine($"[gateway] {remote} start weapon picked up");
+            if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
+            // The start weapon stops waiting; the Put below saves both changes at once.
+            if (conn.Instance.IsStartWeapon(CharacterName(conn), id) && items.ClaimStartWeapon())
+                Console.WriteLine($"[gateway] {remote} start weapon picked up");
 
-        // A glyph (a1q4) sets its quest flags with the pickup, in the same save.
-        int? glyph = GlyphIndex(ground.Item);
-        var placed = KeepOnGroundIfNotSaved(conn, ground, () =>
-        {
-            InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
-            if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is { } tutorial)
-                foreach (bool support in new[] { false, true })
-                    if (conn.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(conn), tutorial, support), id))
-                        return TutorialObjects.Claim(CharacterName(conn), support, ground.Item, Put);
-            return glyph is int g ? GlyphQuest.Claim(CharacterName(conn), g, Put) : Put();
-        }, id);
+            // A glyph (a1q4) sets its quest flags with the pickup, in the same save.
+            glyph = GlyphIndex(ground.Item);
+            placed = KeepOnGroundIfNotSaved(conn, ground, () =>
+            {
+                InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
+                if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is { } tutorial)
+                    foreach (bool support in new[] { false, true })
+                        if (conn.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(conn), tutorial, support), id))
+                            return TutorialObjects.Claim(CharacterName(conn), support, ground.Item, Put);
+                return glyph is int g ? GlyphQuest.Claim(CharacterName(conn), g, Put) : Put();
+            }, id);
+        }
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
@@ -359,8 +405,14 @@ partial class Program
     // Gold goes to the stash's gold of the character's league (S→C 0x2a9), not into the inventory.
     static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
     {
-        if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
-        uint total = PersonalStashOf(conn).AddGold(ground.Item.StackSize);
+        uint total;
+        lock (conn.Monsters)
+        {
+            // A tick can resume from an earlier notification after the lethal contact committed migration.
+            if (HardcoreProgressBlocked(conn)) return;
+            if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
+            total = PersonalStashOf(conn).AddGold(ground.Item.StackSize);
+        }
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove world item 0x{id:x} (gold {how})");
         await Send(remote, stream, ciphers, InstanceEntities.Gold(total), $"0x02a9 gold: {total} (+{ground.Item.StackSize} {how})");
     }
@@ -432,7 +484,7 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: no such item: {hex}");
             return;
         }
-        if (Items.ByHash(item.Item.TypeHash) is not { } type)
+        if (ItemsFor(conn).ByHash(item.Item.TypeHash) is not { } type)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: unknown type 0x{item.Item.TypeHash:x8}: {hex}");
             return;
@@ -533,8 +585,8 @@ partial class Program
                 + (targetTab is int tt ? $" (target in stash tab {tt})" : "") + $": {hex}");
             return;
         }
-        var type = Items.ByHash(used.Item.TypeHash);
-        bool isEssence = type is not null && Essences.Contains(type.Hash);
+        var type = ItemsFor(conn).ByHash(used.Item.TypeHash);
+        bool isEssence = type is not null && EssencesFor(conn).Contains(type.Hash);
         if (type?.Id == CurrencyEffects.MirrorOfKalandra)
         {
             if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
@@ -546,37 +598,37 @@ partial class Program
         Item? result = (target.Item.Corrupted || target.Item.Mirrored) && type?.Id != Wisdom ? null : type?.Id switch
         {
             Wisdom => target.Item.Identified || !target.Item.Components.Contains("Mods") ? null : target.Item with { Identified = true },
-            CurrencyEffects.ChromaticOrb => Items.ByHash(target.Item.TypeHash) is { } targetType
-                ? CurrencyEffects.Chromatic(target.Item, Items.Requirements(targetType), Random.Shared) : null,
-            CurrencyEffects.JewellersOrb => Items.ByHash(target.Item.TypeHash) is { } socketType
+            CurrencyEffects.ChromaticOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } targetType
+                ? CurrencyEffects.Chromatic(target.Item, ItemsFor(conn).Requirements(targetType), Random.Shared) : null,
+            CurrencyEffects.JewellersOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } socketType
                 ? CurrencyEffects.Jewellers(target.Item, socketType, Random.Shared) : null,
-            CurrencyEffects.OrbOfFusing => Items.ByHash(target.Item.TypeHash) is { } linkType
+            CurrencyEffects.OrbOfFusing => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } linkType
                 ? CurrencyEffects.Fusing(target.Item, linkType, Random.Shared) : null,
-            CurrencyEffects.OrbOfAlchemy => CurrencyEffects.Alchemy(target.Item, Rolls, Random.Shared),
-            CurrencyEffects.ChaosOrb => CurrencyEffects.Chaos(target.Item, Rolls, Random.Shared),
-            CurrencyEffects.DivineOrb => Rolls.Reforge(target.Item, Random.Shared),
-            CurrencyEffects.BlessedOrb => Rolls.Bless(target.Item, Random.Shared),
-            CurrencyEffects.OrbOfScouring => CurrencyEffects.Scouring(target.Item, Rolls),
-            CurrencyEffects.OrbOfTransmutation => CurrencyEffects.Transmutation(target.Item, Rolls, Random.Shared),
-            CurrencyEffects.OrbOfAlteration => CurrencyEffects.Alteration(target.Item, Rolls, Random.Shared),
-            CurrencyEffects.OrbOfAugmentation => CurrencyEffects.Augmentation(target.Item, Rolls, Random.Shared),
-            CurrencyEffects.RegalOrb => CurrencyEffects.Regal(target.Item, Rolls, Random.Shared),
-            CurrencyEffects.ExaltedOrb => CurrencyEffects.Exalted(target.Item, Rolls, Random.Shared),
-            CurrencyEffects.OrbOfAnnulment => CurrencyEffects.Annulment(target.Item, Rolls, Random.Shared),
+            CurrencyEffects.OrbOfAlchemy => CurrencyEffects.Alchemy(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.ChaosOrb => CurrencyEffects.Chaos(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.DivineOrb => RollsFor(conn).Reforge(target.Item, Random.Shared),
+            CurrencyEffects.BlessedOrb => RollsFor(conn).Bless(target.Item, Random.Shared),
+            CurrencyEffects.OrbOfScouring => CurrencyEffects.Scouring(target.Item, RollsFor(conn)),
+            CurrencyEffects.OrbOfTransmutation => CurrencyEffects.Transmutation(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.OrbOfAlteration => CurrencyEffects.Alteration(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.OrbOfAugmentation => CurrencyEffects.Augmentation(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.RegalOrb => CurrencyEffects.Regal(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.ExaltedOrb => CurrencyEffects.Exalted(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.OrbOfAnnulment => CurrencyEffects.Annulment(target.Item, RollsFor(conn), Random.Shared),
             CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target.Item),
             CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target.Item),
-            CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target.Item, Rolls, Random.Shared),
+            CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target.Item, RollsFor(conn), Random.Shared),
             CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target.Item),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target.Item),
             CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target.Item, Random.Shared),
-            CurrencyEffects.VaalOrb => Items.ByHash(target.Item.TypeHash) is { } vaalType
-                ? CurrencyEffects.Vaal(target.Item, vaalType, Items.Requirements(vaalType), Rolls, Random.Shared) : null,
-            _ when isEssence => Essences.Apply(type!.Hash, target.Item, Random.Shared),
+            CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } vaalType
+                ? CurrencyEffects.Vaal(target.Item, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), Random.Shared) : null,
+            _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target.Item, Random.Shared),
             _ => null,
         };
         if (result is null)
         {
-            if (type?.Id == CurrencyEffects.JewellersOrb && Items.ByHash(target.Item.TypeHash) is { } refusedType)
+            if (type?.Id == CurrencyEffects.JewellersOrb && ItemsFor(conn).ByHash(target.Item.TypeHash) is { } refusedType)
                 Console.WriteLine($"[gateway] Jeweller target {target.Id}: {refusedType.Id}, class {refusedType.Class}, ilvl {target.Item.ItemLevel}, " +
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
@@ -630,7 +682,7 @@ partial class Program
             }
         }
         Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (isEssence || type.Id is Wisdom or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb
-            ? string.Join("; ", identified.Item.Mods.Select(Items.Mods.Describe))
+            ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))
             : $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"));
     }
 

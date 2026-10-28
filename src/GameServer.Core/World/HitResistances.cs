@@ -62,6 +62,16 @@ public static class HitResistances
     /// negated CriticalStrike. A non-elemental part or a damage-over-time tick passes the target through untouched,
     /// keeping its own penetration path.
     /// </summary>
+    public static double FinalValue(DamageType type, DamageModel.ResistanceValue target,
+        in Strike strike, in Mods mods, bool invertElemental = false)
+    {
+        var effective = Effective(type, target, strike, mods);
+        double resistance = DamageModel.Capped(effective.Value, effective.Maximum);
+        if (invertElemental && !strike.OverTime && DamageTypes.IsElemental(type)
+            && !(mods.CannotPenetrateOrIgnore == 0 && Ignored(strike, mods))) resistance = -resistance;
+        return resistance - effective.Penetration;
+    }
+
     public static DamageModel.ResistanceValue Effective(DamageType type, DamageModel.ResistanceValue target,
         in Strike strike, in Mods mods)
     {

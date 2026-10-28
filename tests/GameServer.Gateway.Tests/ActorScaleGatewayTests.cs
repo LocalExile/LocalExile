@@ -21,12 +21,13 @@ public sealed class ActorScaleGatewayTests : IDisposable
     static int Scale(ClientState conn) => Program.CharacterPlayerStats(conn)[1973];
     static List<(uint, int)> Refresh(ClientState conn) => Call<List<(uint, int)>>("PlayerStatsWithCleared", conn);
 
-    ClientState Character(InstanceState? instance = null)
+    ClientState Character(InstanceState? instance = null, bool solo = false, Guid? characterId = null)
     {
         TestSaves.Ensure();
         string name = "Scale" + Guid.NewGuid().ToString("N"); names.Add(name);
         var conn = new ClientState(new(ushort.MaxValue, "ScaleTest", 128, 128, 32, 32, null, []), 0, 1)
-        { Character = name, ClassRow = 1, Instance = instance ?? new(), PlayerLife = 100, PlayerSent = true,
+        { Character = name, CharacterId = characterId, Ssf = solo, League = solo ? "SSF Standard" : null,
+            ClassRow = 1, Instance = instance ?? new(), PlayerLife = 100, PlayerSent = true,
             WornCosmetics = [] };
         conn.Pools = Program.PoolsFor(conn, 100);
         return conn;
@@ -347,6 +348,59 @@ public sealed class ActorScaleGatewayTests : IDisposable
         owner.LeavingArea = true; wire.Gate.Release(); await leaving; // No pose tick needed to reject a departed owner.
         Assert.Equal(InstanceProtocol.RemoveObject(owner.PeerId), await wire.Read());
         Assert.False(observer.SeenPlayers.ContainsKey(owner.PeerId));
+    }
+
+    [Fact]
+    public async Task Ssf_town_players_see_each_other_move_and_leave_without_sharing_dropped_items()
+    {
+        var registry = new GameServer.Core.World.InstanceRegistry();
+        Guid firstId = Guid.NewGuid(), secondId = Guid.NewGuid();
+        var first = registry.Enter(0x235c, "First", "SSF Standard", solo: true, soloIdentity: firstId.ToString("N"));
+        var second = registry.Enter(0x235c, "Second", "SSF Standard", solo: true, soloIdentity: secondId.ToString("N"));
+        Assert.Same(first, second);
+        var store = new InstanceStore(TimeProvider.System, TimeSpan.FromMinutes(6));
+        long created = first.Created.ToUnixTimeMilliseconds();
+        var ownerState = store.Enter(first.Id, created, firstId.ToString("N"));
+        var observerState = store.Enter(second.Id, created, secondId.ToString("N"));
+        Assert.NotSame(ownerState, observerState);
+        var owner = Character(ownerState, solo: true, characterId: firstId);
+        var observer = Character(observerState, solo: true, characterId: secondId);
+        owner.PeerType = observer.PeerType = 123;
+        owner.PeerTemplate = Call<PlayerObject>("PlayerForCreation", owner);
+        observer.PeerTemplate = Call<PlayerObject>("PlayerForCreation", observer);
+        Publish(owner); Publish(observer);
+        using var ownerWire = await Wire.Open();
+        using var observerWire = await Wire.Open();
+        await observerWire.Invoke("SyncInstancePlayers", observer);
+        AssertCreate(await observerWire.Read(), owner.PeerId, 0);
+        await ownerWire.Invoke("SyncInstancePlayers", owner);
+        AssertCreate(await ownerWire.Read(), observer.PeerId, 0);
+
+        uint drop = ownerState.Ground.Add(new(32, 32, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)));
+        Assert.Empty(observerState.Ground.All());
+        Assert.Null(observerState.Ground.Take(drop));
+        Assert.NotNull(ownerState.Ground.Get(drop));
+
+        owner.Walk.Teleport(40, 41, owner.Clock.Elapsed.TotalSeconds);
+        owner.PlayerLife = 77;
+        Publish(owner);
+        await observerWire.Invoke("SyncInstancePlayers", observer);
+        Assert.NotEmpty(await observerWire.Read());
+        Assert.Equal((40, 41, 77u), (observer.SeenPlayers[owner.PeerId].X,
+            observer.SeenPlayers[owner.PeerId].Y, observer.SeenPlayers[owner.PeerId].Life));
+
+        owner.Closed = true;
+        ownerState.RemovePlayer(owner.PeerId);
+        store.Leave(ownerState);
+        await observerWire.Invoke("SyncInstancePlayers", observer);
+        Assert.Equal(InstanceProtocol.RemoveObject(owner.PeerId), await observerWire.Read());
+        Assert.False(observer.SeenPlayers.ContainsKey(owner.PeerId));
+        var returned = store.Enter(first.Id, created, firstId.ToString("N"));
+        Assert.NotNull(returned.Ground.Get(drop));
+        Assert.NotNull(returned.Player(observer.PeerId));
+        store.Leave(returned);
+        observerState.RemovePlayer(observer.PeerId);
+        store.Leave(observerState);
     }
 
     [Theory]

@@ -16,6 +16,10 @@ public class RageGatewayTests
     static RageState.Inputs Input(ClientState conn) => RageStats.Inputs(name =>
         Program.Stats.Key(name) is uint key ? Program.CharacterPlayerStats(conn).GetValueOrDefault(key) : 0);
     static DamagePacket Hit(ClientState conn, ushort skill) => (DamagePacket)Call("SupportedHit", conn, skill);
+    static (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) ActiveGem(ClientState conn) =>
+        ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)typeof(Program)
+            .GetMethod("GemSkillEffects", BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null, types: [typeof(ClientState)], modifiers: null)!.Invoke(null, [conn])!).Single();
 
     [Theory]
     [InlineData(15)]
@@ -182,8 +186,7 @@ public class RageGatewayTests
 
         public Task Sweep()
         {
-            var gem = ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
-                Call("GemSkillEffects", Conn.Character!)).Single();
+            var gem = ActiveGem(Conn);
             return (Task)typeof(Program).GetMethod("AreaSkillHit", BindingFlags.Static | BindingFlags.NonPublic)!
                 .Invoke(null, ["rage-sweep-test", Stream, Ciphers, Conn, Skill, gem,
                     (100, 100), (105, 100), true, (ushort)1, Conn.ActionCount, null])!;
@@ -521,8 +524,7 @@ public class RageGatewayTests
     {
         using var f = new Fixture("Metadata/Items/Gems/SkillGemGroundSlam");
         Set(f.Conn, "gain_x_rage_on_attack_hit", 5);
-        var gem = ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
-            Call("GemSkillEffects", f.Conn.Character!)).Single();
+        var gem = ActiveGem(f.Conn);
         await f.Gate.WaitAsync();
         var hit = (Task)typeof(Program).GetMethod("AreaSkillHit", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, ["rage-commit-test", f.Stream, f.Ciphers, f.Conn, f.Skill, gem,

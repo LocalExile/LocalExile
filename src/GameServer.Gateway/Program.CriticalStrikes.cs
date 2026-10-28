@@ -73,6 +73,6 @@ partial class Program
         long extra = key is uint k ? (long)player.GetValueOrDefault(k) + (own?.GetValueOrDefault(k) ?? 0) : 0;
         return CriticalStrikePolicy.Multiplier(conn.Pools.CriticalStrikeMultiplier, extra,
             WeaponProfileFor(conn, activeSet: true).Unarmed, MeleeAttack(conn, effect),
-            effect >= 0 && Skills.IsSpell(effect));
+            effect >= 0 && SkillsFor(conn).IsSpell(effect));
     }
 }

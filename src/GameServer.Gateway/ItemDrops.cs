@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Instance;
 /// monster's level as its item level. Equipment is magic or rare by <see cref="EquipmentRarity"/> (our own chances),
 /// raised by the player's increased item rarity (<see cref="WithIncreasedRarity"/>), with affixes from <see cref="ItemRolls"/>.
 /// </summary>
-sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data")
+sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool ruthless = false)
 {
     /// <summary>Chances (magic, rare) of a dropped piece of equipment by the monster's rarity: our own numbers until the
     /// game's are known.</summary>
@@ -57,12 +57,13 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         "Expedition", "Heist", "Relic", "Basilisk", "Crusader", "Eyrie", "Elder", "Shaper", "Necropolis", "Sanctum", "Ultimatum", "Legion"];
 
     private readonly Lazy<(List<(ItemCatalog.BaseType Type, int Weight)> Currency, List<(ItemCatalog.BaseType Type, int DropLevel)> Equipment,
-        List<(ItemCatalog.BaseType Type, int DropLevel)> Flasks, List<(ItemCatalog.BaseType Type, int DropLevel)> Gems)> _pools = new(() => Build(catalog, folder));
+        List<(ItemCatalog.BaseType Type, int DropLevel)> Flasks, List<(ItemCatalog.BaseType Type, int DropLevel)> Gems)> _pools = new(() => Build(catalog, folder, ruthless));
 
     public sealed record Drop(Item Item, ItemCatalog.BaseType Type);
 
     /// <summary>The items a monster of this level and rarity drops (possibly none).</summary>
-    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity = 0)
+    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity = 0,
+        double quantityMultiplier = 1, double rarityMultiplier = 1)
     {
         int count = rarity switch
         {
@@ -73,7 +74,8 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         };
         var drops = new List<Drop>();
         for (int i = 0; i < count; i++)
-            if (RollOne(monsterLevel, rarity, rng, increasedRarity) is { } d) drops.Add(d);
+            if ((quantityMultiplier >= 1 || rng.NextDouble() < Math.Clamp(quantityMultiplier, 0, 1))
+                && RollOne(monsterLevel, rarity, rng, increasedRarity, rarityMultiplier) is { } d) drops.Add(d);
         return drops;
     }
 
@@ -92,11 +94,11 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     }
 
     /// <summary>A pile of gold for a dying monster (<see cref="GoldAmount"/>), or null for none.</summary>
-    public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng) =>
-        GoldAmount(monsterLevel, rarity, rng) is int amount and > 0 && catalog.Find(GoldId) is { Supported: true } type
+    public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng, double multiplier = 1) =>
+        (int)Math.Floor(GoldAmount(monsterLevel, rarity, rng) * Math.Clamp(multiplier, 0, 1)) is int amount and > 0 && catalog.Find(GoldId) is { Supported: true } type
             ? new Drop(ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(amount, ushort.MaxValue) }, type) : null;
 
-    Drop? RollOne(int level, MonsterRarity monster, Random rng, int increasedRarity = 0)
+    Drop? RollOne(int level, MonsterRarity monster, Random rng, int increasedRarity = 0, double rarityMultiplier = 1)
     {
         var (currency, equipment, flasks, gems) = _pools.Value;
         double kind = rng.NextDouble();
@@ -122,7 +124,8 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         };
         if (rolls is not null && EquipmentClasses.Contains(type.Class))
         {
-            var (magic, rare) = WithIncreasedRarity(EquipmentRarity(monster), increasedRarity);
+            var chances = EquipmentRarity(monster);
+            var (magic, rare) = WithIncreasedRarity((chances.Magic * rarityMultiplier, chances.Rare * rarityMultiplier), increasedRarity);
             double r = rng.NextDouble();
             // Magic and rare items drop unidentified (a Scroll of Wisdom identifies them, C→S 0x71).
             if (r < rare) item = rolls.Roll(item, ItemRarity.Rare, rng) with { Identified = false };
@@ -132,7 +135,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     }
 
     private static (List<(ItemCatalog.BaseType, int)>, List<(ItemCatalog.BaseType, int)>, List<(ItemCatalog.BaseType, int)>,
-        List<(ItemCatalog.BaseType, int)>) Build(ItemCatalog catalog, string folder)
+        List<(ItemCatalog.BaseType, int)>) Build(ItemCatalog catalog, string folder, bool ruthless)
     {
         var currency = new List<(ItemCatalog.BaseType, int)>();
         foreach (var (id, weight) in Currency)
@@ -149,7 +152,8 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         var pool = GemSources.DropPool(catalog, folder);
         var gems = new List<(ItemCatalog.BaseType, int)>();
         foreach (int row in pool)
-            if (catalog.Row(row) is { DropLevel: >= 1 } type) gems.Add((type, type.DropLevel));
+            if (catalog.Row(row) is { DropLevel: >= 1 } type && (!ruthless || RuthlessGemRules.AllowsBase(type.Id)))
+                gems.Add((type, type.DropLevel));
         return (currency, equipment, flasks, gems);
     }
 }

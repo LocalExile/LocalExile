@@ -178,6 +178,12 @@ chain (SSF Hardcore's SSF parent is Hardcore; SSF Hardcore Ruthless's Ruthless p
 `LeagueCatalog` builds Standard and Allflame (3.29, "Curse of the Allflame") with their seven variants each, named
 like the official ones; `Game_LEAGUES` sets the base leagues. Any league name works without a client change.
 
+Play resolves the selected character's full league and passes authoritative Hardcore, SSF and Ruthless flags to
+the Gateway together with its stable character ID.
+Permanently dead Hardcore Ruthless characters remain listed in Void with `B49 = 1`; Auth also rejects a forced
+Play request, and stale tickets cannot reactivate a character in its former Hardcore league.
+See [league modes](../game/league-modes.md) for death persistence, migration and mode isolation.
+
 **C→S 0x12, create character** (sender 0x142140490, called by 0x140cf5ef0): wstr name, wstr league, u32, u32 (both 0
 live), wstr **start state**, the CharacterStartStates.dat Id of the chosen class (`DexDefault` for a Ranger), then the
 SHA-256 of a private league's password (zeros). The class follows from the start state's attribute prefix.

@@ -6,6 +6,12 @@ static class AscendancyClientCompatibility
 {
     public static void RequirePlayable(AscendancyIdentity? selection)
     {
+        if (selection is { Family: AscendancyFamily.Phrecia, Id: "Gladiator", Revision: "3.29.3b" }
+            && Environment.GetEnvironmentVariable("Game_VERIFIED_GAMBLER") == "1")
+        {
+            VerifiedGamblerGraph.RequireInstalled();
+            return;
+        }
         if (selection is { Family: AscendancyFamily.Phrecia, Id: "Chieftain", Revision: "3.29.3b" }
             && Environment.GetEnvironmentVariable("Game_VERIFIED_ANTIQUARIAN") == "1")
         {

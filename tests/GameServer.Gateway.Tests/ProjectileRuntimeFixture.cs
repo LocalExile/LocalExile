@@ -49,6 +49,11 @@ sealed class ProjectileRuntimeFixture : IAsyncDisposable
         var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Session.Enqueue(() => { drained.SetResult(); return Task.CompletedTask; });
         await drained.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        return await ReadWire();
+    }
+    // Direct gateway writes can still be read after a Hardcore death has retired the projectile session.
+    public async Task<byte[]> ReadWire()
+    {
         byte[] sentinel = new LoginWriter().U16(0x7ffe).U32(0x12345678).ToArray();
         await Program.Send("runtime-fixture", Stream, Ciphers, sentinel.ToArray(), null);
         var result = new List<byte>(); var buffer = new byte[4096];

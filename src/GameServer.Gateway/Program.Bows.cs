@@ -7,7 +7,7 @@ partial class Program
     internal static bool OrdinaryBowReleaseCurrent(ClientState conn, int action, int epoch)
     {
         lock (conn.Monsters) return conn.ProjectileActive(epoch) && conn.PlayerLife > 0
-            && conn.ActionCount == action && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds);
+            && conn.ActionCount == action && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds);
     }
 
     // A pause can win the send gate after an action was accepted. Keep its echo pending rather than releasing an

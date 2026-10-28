@@ -23,7 +23,7 @@ partial class Program
         {
             equipment ??= ItemsOf(conn).EquipmentSnapshot();
             var (_, attributes, inactive, _) = EquipmentStatSources(conn, equipment);
-            var cls = Skills.ClassFor(conn.ClassRow);
+            var cls = SkillsFor(conn).ClassFor(conn.ClassRow);
             int god = conn.God ? 1000 : 0;
             var (str, dex, intel) = attributes.Apply(cls.Strength + god, cls.Dexterity + god, cls.Intelligence + god);
             return new(conn.Pools.Level, RequirementAttribute(conn, "strength", str),

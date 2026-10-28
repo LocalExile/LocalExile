@@ -18,6 +18,7 @@ partial class Program
             string message;
             lock (conn.Monsters)
             {
+                if (HardcoreProgressBlocked(conn)) return;
                 var items = ItemsOf(conn);
                 if (change(items) is not { } done || done.Changed.Count == 0) return;
                 packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
@@ -70,8 +71,8 @@ partial class Program
         var gaining = new List<(InventoryItem Flask, IReadOnlyDictionary<string, int> Local, Flasks.Flask Charges, double Gain)>();
         foreach (var flask in ItemsOf(conn).Items(PlayerInventories.Flask))
         {
-            if (Items.ByHash(flask.Item.TypeHash) is not { } type || Items.FlaskChargesOf(type) is not { } baseCharges) continue;
-            var local = ItemModStats.Local(flask.Item, Items.Mods);
+            if (ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } baseCharges) continue;
+            var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
             var charges = FlaskCharges.Of(baseCharges, local);
             double gain = chargesFor(flask, local);
             if (gain > 0 && flask.Item.Charges < charges.MaxCharges) gaining.Add((flask, local, charges, gain));
@@ -84,6 +85,7 @@ partial class Program
             List<InventoryItem> changed = [];
             foreach (var (flask, local, charges, gain) in gaining)
             {
+                if (!CanGainFlaskCharges(conn, flask)) continue;
                 int whole = conn.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get));
                 if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, charges, whole)) is { } done)
                     changed.Add(done);
@@ -92,11 +94,22 @@ partial class Program
         }, changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
     }
 
+    internal static bool CanGainFlaskCharges(ClientState conn, InventoryItem flask)
+    {
+        if (!conn.Ruthless || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
+            || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
+        var active = conn.UtilityFlaskEffects.Of(flask.Id);
+        bool running = active is not null && active.Ends > conn.Clock.Elapsed.TotalSeconds;
+        bool exception = Stats.Key("hard_mode_utility_flask_gain_charges_while_active") is uint key
+            && CharacterPlayerStats(conn).GetValueOrDefault(key) > 0;
+        return RuthlessGameplay.CanGainUtilityCharges(conn.Ruthless, running, exception);
+    }
+
     // A kill: 1 / 3.5 / 6 / 11 charges to every flask by the monster's rarity (FlaskCharges.KillCharges), or with
     // Game_FLASK_CHARGES=full every flask full.
     static Task GainKillCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterRarity rarity, string why) =>
         FlaskCharges.FullShortcut ? GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, why)
-            : GainFlaskCharges(remote, stream, ciphers, conn, (_, _) => FlaskCharges.KillCharges(rarity, Items.Mods), why);
+            : GainFlaskCharges(remote, stream, ciphers, conn, (_, _) => FlaskCharges.KillCharges(rarity, ItemsFor(conn).Mods), why);
 
     // A critical strike the player dealt (a hit that landed): each flask with "#% chance to gain a Flask Charge when you deal
     // a Critical Strike" (local_recharge_on_crit_%) rolls for one charge, and the character's chance and sure charges
@@ -107,9 +120,9 @@ partial class Program
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.FlaskChargeCarry.CritReady(now)) return;
         var bar = ItemsOf(conn).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, Items.Mods).GetValueOrDefault("local_recharge_on_crit_%"),
-            Full: Items.ByHash(f.Item.TypeHash) is not { } t || Items.FlaskChargesOf(t) is not { } c
-                || f.Item.Charges >= FlaskCharges.Of(c, ItemModStats.Local(f.Item, Items.Mods)).MaxCharges)).ToList();
+            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_recharge_on_crit_%"),
+            Full: ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t || ItemsFor(conn).FlaskChargesOf(t) is not { } c
+                || f.Item.Charges >= FlaskCharges.Of(c, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
         if (bar.All(f => f.Full)) return;
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
@@ -139,9 +152,9 @@ partial class Program
                 var character = CharacterPlayerStats(conn);
                 int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
                 bool lowLife = FlaskRecovery.LowLife(conn.PlayerLife, conn.PlayerMaxLife);
-                await GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => Items.ByHash(f.Item.TypeHash) is not { } t ? 0
-                    : FlaskCharges.PerThreeSeconds(Get, life: Items.FlaskOf(t)?.LifePerUse > 0, mana: Items.FlaskOf(t)?.ManaPerUse > 0,
-                        utility: Items.UtilityFlaskOf(t) is not null, lowLife),
+                await GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t ? 0
+                    : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(conn).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(conn).FlaskOf(t)?.ManaPerUse > 0,
+                        utility: ItemsFor(conn).UtilityFlaskOf(t) is not null, lowLife),
                     "every 3 seconds");
             }
         }

@@ -48,7 +48,7 @@ public partial class OwnAuraGatewayTests
         void AssertPanel(int expectedPrimary, int expectedExplosions)
         {
             var gem = ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
-                Call("GemSkillEffects", f.Conn.Character!)!).Single(g => g.Effect == f.Effect(effect));
+                Call("GemSkillEffects", f.Conn)!).Single(g => g.Effect == f.Effect(effect));
             var skill = Skills(f.Conn).Single(s => s.Id == gem.Id);
             Assert.Equal(expectedPrimary, ProjectilePanelValue(skill, "total_number_of_projectiles_to_fire"));
             Assert.Equal(expectedExplosions, ProjectilePanelValue(skill, "virtual_kinectic_blast_number_of_clusters"));

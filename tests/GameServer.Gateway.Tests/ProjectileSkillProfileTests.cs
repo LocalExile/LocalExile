@@ -349,7 +349,7 @@ public partial class OwnAuraGatewayTests
         }
         // Replacing a gem's effect deliberately retires its old skill id. Use the newly assigned native id.
         var active = ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
-            Call("GemSkillEffects", f.Conn.Character!)!).Single(g => g.Effect == f.Effect(effect));
+            Call("GemSkillEffects", f.Conn)!).Single(g => g.Effect == f.Effect(effect));
         int skillIndex = Program.GemSkillIdPool.Value.ToList().IndexOf(active.Id);
         Assert.True(skillIndex >= 0);
         f.Conn.PlayerStats[Program.Stats.Key("global_cannot_crit")!.Value] = 1;

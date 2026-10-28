@@ -193,6 +193,13 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Do not inherit an owner's spell-damage restriction onto independent minions or daemons without a skill rule.
 - **Done when:** damage numbers match the character panel and the monsters' levels.
 
+### Incoming elemental ailment extensions
+
+- Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.
+  Finish dedicated native buff icons and source/threshold/conditional-immunity parity before claiming a general ailment engine.
+  Hostile projectile/spell adapters and alternative-ailment sources remain separate work.
+  See [Gambler](../docs/game/gambler.md).
+
 ### Rage extensions
 
 - Generic Rage generation, limits, installed buff/count, actual damage, decay, pause and lifecycle are native-verified.
@@ -221,7 +228,9 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 
 - **Known:** S→C 0x55 flags bit0/2/3 are mapped ([11](../docs/protocol/11-skills.md) §7);
   bit4 and the trailing u32 / u8 / u16 are not.
-- **Done when:** Sanctum and other modes show their own options; hardcore's "Exit" works (with Esc → Exit, C→S 0x153).
+- **Done when:** Sanctum and other modes show their own options.
+  Hardcore Exit (C→S 0x153) is implemented; death migration and permanent Ruthless death are tracked in
+  [league modes](../docs/game/league-modes.md).
 
 ### Skill projectiles
 

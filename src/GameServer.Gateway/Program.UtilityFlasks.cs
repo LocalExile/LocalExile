@@ -22,7 +22,7 @@ partial class Program
         // flask's own mods.
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-        var local = ItemModStats.Local(flask.Item, Items.Mods);
+        var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(utility.Charges, local, Get);
         if (UtilityFlasks.Refusal(conn.PlayerLife == 0, conn.UtilityFlaskEffects.Of(flask.Id), flask.Item, charges,
                 conn.Clock.Elapsed.TotalSeconds) is { } refused)
@@ -76,6 +76,8 @@ partial class Program
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
+        conn.ElementalAilments.Reconcile(Get);
+        conn.ApplyMovementSpeed();
     }
 
     // Ends the utility flask effects whose time is up (by the connection clock: a pause holds them), whose flask left its

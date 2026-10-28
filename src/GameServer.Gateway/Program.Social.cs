@@ -38,6 +38,15 @@ partial class Program
 
     static Task SendTo(ClientState c, byte[] bytes, string? log) => c.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
 
+    // Presence is shared even when SSF world state is private. Check the authoritative modes at each trade boundary.
+    internal static bool PlayerTradeAllowed(ClientState a, ClientState b) =>
+        !ReferenceEquals(a, b) && !a.Ssf && !b.Ssf
+        && a.Hardcore == b.Hardcore && a.Ruthless == b.Ruthless
+        && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase)
+        && ReferenceEquals(a.Instance.Presence, b.Instance.Presence)
+        && !a.Closed && !b.Closed && !a.LeavingArea && !b.LeavingArea
+        && a.PlayerLife > 0 && b.PlayerLife > 0 && !a.HardcoreDeathRecorded && !b.HardcoreDeathRecorded;
+
     // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table.
     static async Task Introduce(ClientState to, ClientState about) =>
         await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Pools.Level),
@@ -56,7 +65,8 @@ partial class Program
     // flags) and the other player the request (0xb8 with TradeRequestFlag and the requester's name), answered by 0xb0.
     static async Task RequestTrade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint target)
     {
-        if (conn.Instance.Player(target) is not { Owner: { Outbox: not null } other } || other.Trade is not null || conn.Trade is not null)
+        if (conn.Instance.Player(target) is not { Owner: { Outbox: not null } other } || !PlayerTradeAllowed(conn, other)
+            || other.Trade is not null || conn.Trade is not null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x00ba trade request to 0x{target:x}: not available");
             return;
@@ -97,7 +107,7 @@ partial class Program
     static async Task AcceptTradeRequest(string remote, ClientState conn, uint requester)
     {
         if (conn.Instance.Player(requester) is not { Owner: { } other } || other.TradeRequestTo != conn.PeerId
-            || other.Trade is not null || conn.Trade is not null)
+            || !PlayerTradeAllowed(conn, other) || other.Trade is not null || conn.Trade is not null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x00b0 trade accept from 0x{requester:x}: no pending request");
             return;
@@ -121,6 +131,11 @@ partial class Program
     // click into the first free cell), or an offered item taken back.
     static async Task PlayerTradeOffer(string remote, ClientState conn, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
     {
+        if (!PlayerTradeAllowed(conn, trade.Other(conn)))
+        {
+            await CancelPlayerTrade(conn, "player or game mode no longer permits trading");
+            return;
+        }
         var items = ItemsOf(conn);
         if (items.Offered().Any(i => i.Id == itemId)) { await PlayerTradeTakeBack(remote, conn, trade, itemId); return; }
         byte? row = PlayerInventories.Row(inventory);
@@ -189,6 +204,11 @@ partial class Program
     // completes the trade; any later change clears both acceptances.
     static async Task PlayerTradeAccept(string remote, ClientState conn, PlayerTrade trade, uint revision)
     {
+        if (!PlayerTradeAllowed(conn, trade.Other(conn)))
+        {
+            await CancelPlayerTrade(conn, "player or game mode no longer permits trading");
+            return;
+        }
         bool complete;
         lock (trade.Lock)
         {
@@ -233,28 +253,52 @@ partial class Program
         }
     }
 
-    // Both accepted: each side's offered items go to the other, in one save per side, after checking that both fit.
+    // Both accepted: eligibility and both saves commit before either player can die or leave during the exchange.
     static async Task CompletePlayerTrade(PlayerTrade trade)
     {
-        var a = ItemsOf(trade.A);
-        var b = ItemsOf(trade.B);
-        List<Item> fromA = [.. a.Offered().Select(i => i.Item)], fromB = [.. b.Offered().Select(i => i.Item)];
-        if (!a.CanExchange(fromB, ShapeOf) || !b.CanExchange(fromA, ShapeOf))
+        PlayerInventories.Stacking? gotA = null, gotB = null;
+        bool prohibited = false, noRoom = false;
+        int countA = 0, countB = 0;
+        var first = trade.A.PeerId < trade.B.PeerId ? trade.A : trade.B;
+        var second = trade.Other(first);
+        lock (first.Monsters)
+        lock (second.Monsters)
+        lock (trade.Lock)
         {
-            lock (trade.Lock) trade.Accepted[trade.A] = trade.Accepted[trade.B] = null;
+            if (trade.Over) return;
+            prohibited = !PlayerTradeAllowed(trade.A, trade.B);
+            if (!prohibited)
+            {
+                var a = ItemsOf(trade.A);
+                var b = ItemsOf(trade.B);
+                List<Item> fromA = [.. a.Offered().Select(i => i.Item)], fromB = [.. b.Offered().Select(i => i.Item)];
+                noRoom = !a.CanExchange(fromB, ShapeOf) || !b.CanExchange(fromA, ShapeOf);
+                if (noRoom) trade.Accepted[trade.A] = trade.Accepted[trade.B] = null;
+                else
+                {
+                    Saves.Atomically(() =>
+                    {
+                        gotA = a.Exchange(fromB, ShapeOf) ?? throw new InvalidOperationException("First trade inventory changed during exchange");
+                        gotB = b.Exchange(fromA, ShapeOf) ?? throw new InvalidOperationException("Second trade inventory changed during exchange");
+                    });
+                    trade.Over = true;
+                    (countA, countB) = (fromA.Count, fromB.Count);
+                }
+            }
+        }
+        if (prohibited)
+        {
+            await CancelPlayerTrade(trade.A, "player or game mode no longer permits trading");
+            return;
+        }
+        if (noRoom)
+        {
             foreach (var c in new[] { trade.A, trade.B })
                 await (c.Commands?.Reply("Not enough room in an inventory for the traded items.") ?? Task.CompletedTask);
             await SendTradeState(trade);
             return;
         }
-        lock (trade.Lock)
-        {
-            if (trade.Over) return;
-            trade.Over = true;
-        }
-        var gotA = a.Exchange(fromB, ShapeOf);
-        var gotB = b.Exchange(fromA, ShapeOf);
-        Console.WriteLine($"[gateway] trade completed: {CharacterName(trade.A)} gave {fromA.Count}, {CharacterName(trade.B)} gave {fromB.Count}");
+        Console.WriteLine($"[gateway] trade completed: {CharacterName(trade.A)} gave {countA}, {CharacterName(trade.B)} gave {countB}");
         foreach (var (c, got) in new[] { (trade.A, gotA), (trade.B, gotB) })
         try
         {

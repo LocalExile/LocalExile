@@ -5,7 +5,7 @@ using GameServer.Core.World;
 static class InstantLocationSkill
 {
     public static bool Supported(SkillCatalog skills, int effect) =>
-        skills.EffectId(effect) == "Frostblink" && skills.IsInstant(effect) && skills.IsMovement(effect);
+        skills.EffectId(effect) is "Frostblink" or "FrostblinkHardMode" && skills.IsInstant(effect) && skills.IsMovement(effect);
 
     public static bool ObjectTargetSupported(SkillCatalog skills, int effect) =>
         Supported(skills, effect) || skills.IsInstant(effect) && !skills.IsMovement(effect);

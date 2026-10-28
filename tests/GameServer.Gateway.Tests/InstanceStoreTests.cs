@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
@@ -29,6 +30,88 @@ public class InstanceStoreTests
         var (gotId, item) = Assert.Single(again.Ground.All());
         Assert.Equal(id, gotId);
         Assert.Equal(10, item.GridX);
+    }
+
+    [Fact]
+    public void Ssf_dropped_items_cannot_be_transferred_through_a_shared_town_even_after_relogin()
+    {
+        var store = NewStore();
+        var first = store.Enter(4, Created, "FirstSSF");
+        uint id = first.Ground.Add(Sword());
+        store.Leave(first);
+        var other = store.Enter(4, Created, "OtherSSF");
+        Assert.Empty(other.Ground.All());
+        Assert.Null(other.Ground.Take(id));
+        Assert.Empty(store.Enter(4, Created).Ground.All());
+        var again = store.Enter(4, Created, "firstssf");
+        Assert.Same(first, again);
+        Assert.Equal(id, Assert.Single(again.Ground.All()).Id);
+    }
+
+    [Fact]
+    public void Ssf_private_combat_instances_share_neither_players_nor_ground()
+    {
+        var registry = new InstanceRegistry(_clock);
+        var first = registry.Enter(0xabcd, "First", "SSF Standard", solo: true, soloIdentity: "first-id");
+        var other = registry.Enter(0xabcd, "Other", "SSF Standard", solo: true, soloIdentity: "other-id");
+        Assert.NotEqual(first.Id, other.Id);
+        var store = NewStore();
+        var a = store.Enter(first.Id, Created, "first-id");
+        var b = store.Enter(other.Id, Created, "other-id");
+        a.PublishPlayer(new(1, 7, new("First", 0, 10, 20, 100, 100), 10, 20, 100));
+        uint drop = a.Ground.Add(Sword());
+
+        Assert.Empty(b.PlayersExcept(2));
+        Assert.Null(b.Player(1));
+        Assert.Empty(b.Ground.All());
+        Assert.Null(b.Ground.Take(drop));
+    }
+
+    [Fact]
+    public void Expiring_one_ssf_world_retains_the_other_town_players_and_ordinary_sharing_is_unchanged()
+    {
+        var store = NewStore();
+        var a = store.Enter(4, Created, "FirstSSF");
+        var b = store.Enter(4, Created, "OtherSSF");
+        var peer = new InstancePlayer(2, 7, new("Other", 0, 25, 20, 100, 100), 25, 20, 100);
+        b.PublishPlayer(peer);
+        a.Ground.Add(Sword());
+        store.Leave(a);
+        _clock.Now += TimeSpan.FromMinutes(6);
+
+        var returned = store.Enter(4, Created, "FirstSSF");
+        Assert.NotSame(a, returned);
+        Assert.Empty(returned.Ground.All());
+        Assert.Same(peer, returned.Player(2));
+        returned.RemovePlayer(2);
+        Assert.Null(b.Player(2));
+
+        var ordinary = store.Enter(9, Created);
+        ordinary.Ground.Add(Sword());
+        ordinary.PublishPlayer(peer);
+        var ordinaryAgain = store.Enter(9, Created);
+        Assert.Same(ordinary, ordinaryAgain);
+        Assert.Single(ordinaryAgain.Ground.All());
+        Assert.Same(peer, ordinaryAgain.Player(2));
+    }
+
+    [Fact]
+    public void Shared_presence_cannot_survive_full_expiry_or_an_auth_instance_id_reuse()
+    {
+        var store = NewStore();
+        var a = store.Enter(4, Created, "FirstSSF");
+        var b = store.Enter(4, Created, "OtherSSF");
+        a.PublishPlayer(new(1, 7, new("First", 0, 10, 20, 100, 100), 10, 20, 100));
+        Assert.Single(b.PlayersExcept(2));
+        Assert.Empty(store.Enter(4, Created + 1, "OtherSSF").PlayersExcept(2));
+        Assert.Empty(store.Enter(5, Created, "OtherSSF").PlayersExcept(2));
+
+        store.Leave(a);
+        store.Leave(b);
+        _clock.Now += TimeSpan.FromMinutes(6);
+        var fresh = store.Enter(4, Created, "FirstSSF");
+        Assert.NotSame(a, fresh);
+        Assert.Empty(fresh.PlayersExcept(2));
     }
 
     [Fact]

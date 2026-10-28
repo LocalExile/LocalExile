@@ -62,6 +62,8 @@ public sealed class SqliteAccountStore(SaveDatabase db) : IAccountStore
 
     void Upsert(Character ch, bool onlyIfThere = false) => db.Atomically(() =>
     {
+        if (onlyIfThere && GetCharacter(ch.Id) is { } current)
+            ch = HardcoreDeathRules.PreserveCommittedDeath(ch, current);
         using var c = db.Command(onlyIfThere
             ? "UPDATE account_characters SET name = $name, account_id = $account, character = $json WHERE id = $id"
             : "INSERT INTO account_characters (id, account_id, name, created_utc, character) VALUES ($id, $account, $name, $created, $json)",

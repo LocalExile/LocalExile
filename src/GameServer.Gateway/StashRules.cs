@@ -11,7 +11,7 @@ using System.Text.Json;
 sealed class StashRules
 {
     public const byte Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Delve = 12, Blight = 13,
-        Ultimatum = 14, Delirium = 15, Breach = 22;
+        Ultimatum = 14, Delirium = 15, Flask = 17, Gem = 18, Breach = 22;
 
     /// <summary>Fallback limit for slotted tabs without an item-specific currency-tab limit.</summary>
     public const ushort SlotStack = 5000;
@@ -65,6 +65,11 @@ sealed class StashRules
 
     /// <summary>Whether the tab type gives each item type its own slot.</summary>
     public bool Slotted(byte tabType) => _slots.ContainsKey(tabType);
+
+    /// <summary>The item types that have a slot of their own in a slotted tab type, with their slot (empty for other types).</summary>
+    public IReadOnlyDictionary<uint, int> Slots(byte tabType) => _slots.TryGetValue(tabType, out var s) ? s : NoSlots;
+
+    static readonly Dictionary<uint, int> NoSlots = [];
 
     /// <summary>The item type's slot in a slotted tab type, or null.</summary>
     public int? SlotOf(byte tabType, uint itemType) =>

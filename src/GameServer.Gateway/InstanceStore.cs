@@ -8,17 +8,26 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 {
-    readonly Dictionary<(ulong Id, long Created), InstanceState> _instances = [];
+    readonly Dictionary<(ulong Id, long Created, string? SoloOwner), InstanceState> _instances = [];
 
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
-    public InstanceState Enter(ulong id, long created)
+    public InstanceState Enter(ulong id, long created, string? soloOwner = null)
     {
         lock (_instances)
         {
             var now = clock.GetUtcNow();
             foreach (var (key, _) in _instances.Where(e => e.Value.EmptySince is { } t && now - t >= lifetime).ToList())
                 _instances.Remove(key);
-            if (!_instances.TryGetValue((id, created), out var state)) _instances[(id, created)] = state = new InstanceState();
+            // SSF towns may share their social instance, but never their dropped items or other mutable world state.
+            var instanceKey = (id, created, soloOwner?.ToUpperInvariant());
+            if (!_instances.TryGetValue(instanceKey, out var state))
+            {
+                // Auth assigns distinct instance IDs to private non-town areas. A shared ID/creation pair is the
+                // social boundary; only player presence crosses the per-character world-state boundary in towns.
+                var presence = _instances.Where(e => e.Key.Id == id && e.Key.Created == created)
+                    .Select(e => e.Value.Presence).FirstOrDefault();
+                _instances[instanceKey] = state = new InstanceState(presence);
+            }
             state.Connections++;
             state.EmptySince = null;
             return state;

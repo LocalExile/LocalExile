@@ -20,30 +20,33 @@ partial class Program
     // Gameplay and persistence commit before any notification. Caller holds the combat lock when used by simulation.
     static QuestFlagCommit? CommitQuestFlags(ClientState conn, IEnumerable<string> flags, bool on = true)
     {
-        var wanted = flags.Distinct().ToList();
-        var clientBefore = PlayerQuestFlags(conn);
-        var ownBefore = conn.QuestFlagsSnapshot();
-        var had = wanted.ToDictionary(f => f, f => Quests.ClientHas(f, ownBefore, clientBefore));
-        var changed = new List<string>();
-        lock (conn.Monsters)
-            foreach (string flag in wanted)
-                if (on ? conn.QuestFlags.Add(flag) : conn.QuestFlags.Remove(flag)) changed.Add(flag);
-        if (changed.Count == 0) return null;
-        CharacterSaves.ChangeQuestFlags(CharacterName(conn), changed, on);
-        if (ChangesResistancePenalty(changed))
-            lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
-        var all = PlayerQuestFlags(conn);
-        var own = conn.QuestFlagsSnapshot();
-        bool Has(string flag) => Quests.ClientHas(flag, own, all);
-        var effective = Quests.EffectiveChanges(changed, f => had[f], Has);
-        List<uint> gone;
         lock (conn.Monsters)
         {
-            gone = [.. conn.QuestRoomObjects.Where(o => effective.Contains(o.Value.Flag) && Has(o.Value.Flag)).Select(o => o.Key)];
+            // Queued work cannot mutate progress after a committed Hardcore death.
+            if (HardcoreProgressBlocked(conn)) return null;
+            var wanted = flags.Distinct().ToList();
+            var clientBefore = PlayerQuestFlags(conn);
+            var ownBefore = conn.QuestFlagsSnapshot();
+            var had = wanted.ToDictionary(f => f, f => Quests.ClientHas(f, ownBefore, clientBefore));
+            var changed = new List<string>();
+            foreach (string flag in wanted)
+                if (on ? conn.QuestFlags.Add(flag) : conn.QuestFlags.Remove(flag)) changed.Add(flag);
+            if (changed.Count == 0) return null;
+            CharacterSaves.ChangeQuestFlags(CharacterName(conn), changed, on);
+            if (ChangesResistancePenalty(changed))
+            {
+                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                conn.ApplyMovementSpeed();
+            }
+            var all = PlayerQuestFlags(conn);
+            var own = conn.QuestFlagsSnapshot();
+            bool Has(string flag) => Quests.ClientHas(flag, own, all);
+            var effective = Quests.EffectiveChanges(changed, f => had[f], Has);
+            List<uint> gone = [.. conn.QuestRoomObjects.Where(o => effective.Contains(o.Value.Flag) && Has(o.Value.Flag)).Select(o => o.Key)];
             foreach (uint id in gone) conn.QuestRoomObjects.Remove(id);
             conn.UpdateBarrier();
+            return new(changed, all, effective, gone);
         }
-        return new(changed, all, effective, gone);
     }
 
     static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -159,6 +162,7 @@ partial class Program
 
     static async Task TrySpawnTutorialChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (conn.Ruthless) return;
         try
         {
             for (int retry=0; retry<20 && !conn.Closed; retry++)
@@ -226,6 +230,7 @@ partial class Program
 
     static async Task DropTutorialGem(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,bool support,int x,int y)
     {
+        if (conn.Ruthless && support) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial || (support ? tutorial.SupportClaimed : tutorial.SkillClaimed)) return;
         var item=CharacterSaves.FromSaved(support?tutorial.SupportGem:tutorial.SkillGem,Items);
         var ground=new WorldItemObject(x,y,item);
@@ -237,6 +242,7 @@ partial class Program
 
     static async Task OpenTutorialChest(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
     {
+        if (conn.Ruthless) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return;
         if (!TryBeginObjectWalk(conn, requestedAt, chest.X, chest.Y, 1, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
@@ -352,8 +358,11 @@ partial class Program
     // the flag). Cleared (dev): the other way.
     static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
     {
-        if (conn.Glyphs is null) return;
-        SetPassageBlockers(conn, !open);
+        lock (conn.Monsters)
+        {
+            if (HardcoreProgressBlocked(conn) || conn.Glyphs is null) return;
+            SetPassageBlockers(conn, !open);
+        }
         byte state = open ? GlyphQuest.Transitioned : GlyphQuest.Untransitioned;
         foreach (var (id, what) in new[] { (conn.GlyphWallId, "Glyph Wall"), (conn.GlyphWaterId, "waterfall") })
             if (id != 0)
@@ -388,7 +397,12 @@ partial class Program
         if (carried.Count == 0 || !ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs)) return;
         foreach (var row in carried.GroupBy(c => c.Row))
         {
-            var gone = row.Where(c => items.Remove(row.Key, c.Item.Id) is not null).Select(c => c.Item.Id).ToList();
+            List<uint> gone;
+            lock (conn.Monsters)
+            {
+                if (HardcoreProgressBlocked(conn)) return;
+                gone = row.Where(c => items.Remove(row.Key, c.Item.Id) is not null).Select(c => c.Item.Id).ToList();
+            }
             if (gone.Count > 0)
                 await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key), gone, []),
                     $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: glyphs {string.Join(", ", gone)} removed, the glyphs are placed");
@@ -475,7 +489,12 @@ partial class Program
     static async Task PlaceGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var items = ItemsOf(conn);
-        var removed = GlyphQuest.Place(CharacterName(conn), items, GlyphIndex);
+        List<(byte Row, InventoryItem Item)>? removed;
+        lock (conn.Monsters)
+        {
+            if (HardcoreProgressBlocked(conn)) return;
+            removed = GlyphQuest.Place(CharacterName(conn), items, GlyphIndex);
+        }
         if (removed is null)
         {
             Console.WriteLine($"[gateway] {remote} Glyph Wall: needs all three glyphs");

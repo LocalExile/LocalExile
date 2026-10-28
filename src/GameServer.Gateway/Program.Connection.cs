@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Accounts;
+using GameServer.Storage;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
@@ -10,6 +12,7 @@ partial class Program
     {
         try
         {
+            HardcoreDeathPersistence.RetryPending(Saves.Db);
             CharacterSaves.SaveExperience();
             PlayerInventories.SaveAllUnsaved();
             if (why is not null) Console.WriteLine($"[gateway] unsaved progress saved ({why})");
@@ -39,8 +42,8 @@ partial class Program
         var startItems = ItemsOf(conn);
         level = LoadProgress(conn, level);
         // Towns and hideouts refill the flasks, before the inventories go to the client.
-        if ((WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
-            && FillFlasks(startItems, int.MaxValue).Count > 0)
+        if (!conn.Ruthless && (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
+            && FillFlasks(startItems, int.MaxValue, catalog: ItemsFor(conn)).Count > 0)
             Console.WriteLine($"[gateway] {remote} flasks refilled in town");
         // A sale still open when the last connection ended (a disconnect, a crash) ended as a cancel: every offered
         // item is in its cell (it never left it).
@@ -87,6 +90,16 @@ partial class Program
                     Console.WriteLine($"[gateway] {remote} resolve failed ({resolved.Error ?? "no character"}); connection refused");
                     return;
                 }
+                // A prior lethal write may have failed while Auth still saw the source HC league. Retry it before any
+                // world state is sent, then independently reject that now-stale ticket. Normal saves never revive HC.
+                HardcoreDeathPersistence.RetryPendingCharacter(Saves.Db, resolved.CharacterId);
+                var canonicalCharacter = new SqliteAccountStore(Saves.Db).FindCharacter(resolved.Character);
+                if (canonicalCharacter is null ||
+                    !HardcoreDeathRules.TicketMatches(canonicalCharacter, resolved.CharacterId, resolved.League))
+                {
+                    Console.WriteLine($"[gateway] {remote} character is dead or its league changed; connection refused");
+                    return;
+                }
                 ushort areaHash = resolved.Area;
                 uint seed = resolved.Seed;
                 ulong instanceId = resolved.Instance;
@@ -99,14 +112,17 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, Ruthless = resolved.Ruthless, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 left = conn;
+                RegisterRuthlessVitalsAdmission(conn);
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Commands = Commands(remote, stream, ciphers, conn);
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = PrepareCharacterForArea(remote, conn, resolved.Level);
+                // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
+                InitializeCharacterVitals(conn);
                 prepared = true;
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: 0,
                     Text: resolved.League ?? "", LeagueStats: LeagueStatsFor(conn.MainAscendancy));
@@ -118,11 +134,7 @@ partial class Program
                     Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {level} from the saved experience (the account had {resolved.Level})" +
                         (fixedLevel.Ok ? "" : $"; not saved to the account: {fixedLevel.Error}"));
                 }
-                conn.PlayerLife = conn.PlayerMaxLife;
-                conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
-                conn.AuraDeathHandled = false;
-                conn.PlayerMana = (uint)UnreservedMana(conn);
-                Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: {Skills.ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
+                Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: {SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
                 // The read loop answers ticks; everything else runs in order on the handler task (ClientInbox, issue #46).
                 var inbox = new ClientInbox();
                 using var reading = new CancellationTokenSource();
@@ -173,12 +185,14 @@ partial class Program
                 {
                     CharacterSaves.SaveExperience(CharacterName(left));
                     ItemsOf(left).SaveUnsaved();
+                    PersistRuthlessVitals(left);
                 }
             }
             catch (Exception e)
             {
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {e.GetType().Name}: {e.Message}");
             }
+            ForgetRuthlessVitalsAdmission(left);
             // The instance keeps its monsters as they are now, for the next connection (#12).
             if (left.MonstersPlaced)
                 lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Values, left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));

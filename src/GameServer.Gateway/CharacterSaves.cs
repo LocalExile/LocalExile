@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Saves;
 using GameServer.Core.World;
@@ -52,7 +53,8 @@ static class CharacterSaves
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null,
         OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
-        Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null)
+        Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
+        uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -94,12 +96,54 @@ static class CharacterSaves
 
     public static void SetSelectedHideout(string character, string area) => Update(character, s => s with { SelectedHideout = area });
 
+    /// <summary>A Ruthless resource writer. Retired transfer owners retain their token so only that exact failed
+    /// transfer can resume; a newer area's token can never be reclaimed by the old connection.</summary>
+    public sealed record VitalsSession(Guid CharacterId, Guid SessionId, bool Retired = false);
+
+    public static (uint Life, uint Mana) BeginVitalsSession(string character, Guid characterId, Guid sessionId,
+        string? league, Func<Save?, (uint Life, uint Mana)> initialize) => Saves.Atomically(() =>
+    {
+        if (!VitalsCharacterMatches(character, characterId, league))
+            throw new InvalidOperationException("The resource owner is no longer the admitted character");
+        var save = Load(character);
+        // A reused name must not inherit a prior identity's pools, even if an older server retained that save.
+        var initial = initialize(save?.VitalsOwner is { } owner && owner.CharacterId != characterId ? null : save);
+        Write(character, (save ?? new Save([])) with
+        {
+            Life = initial.Life, Mana = initial.Mana, VitalsOwner = new(characterId, sessionId),
+        });
+        return initial;
+    });
+
+    /// <summary>Only the currently admitted UUID/session may save pools, including its ordinary logout save.</summary>
+    public static bool SaveVitals(string character, Guid characterId, Guid sessionId, string? league,
+        uint life, uint mana, bool retire = false) => ChangeVitalsSession(character, characterId, sessionId, league,
+            life, mana, wasRetired: false, retired: retire);
+
+    public static bool ResumeVitalsSession(string character, Guid characterId, Guid sessionId, string? league,
+        uint life, uint mana) => ChangeVitalsSession(character, characterId, sessionId, league,
+            life, mana, wasRetired: true, retired: false);
+
+    static bool ChangeVitalsSession(string character, Guid characterId, Guid sessionId, string? league,
+        uint life, uint mana, bool wasRetired, bool retired) => Saves.Atomically(() =>
+    {
+        if (!VitalsCharacterMatches(character, characterId, league) || Load(character) is not { } save
+            || save.VitalsOwner != new VitalsSession(characterId, sessionId, wasRetired)) return false;
+        Write(character, save with { Life = life, Mana = mana, VitalsOwner = new(characterId, sessionId, retired) });
+        return true;
+    });
+
+    static bool VitalsCharacterMatches(string character, Guid characterId, string? league) =>
+        new SqliteAccountStore(Saves.Db).FindCharacter(character) is { } current
+        && HardcoreDeathRules.TicketMatches(current, characterId, league);
+
     public static void ClearActiveAuras(string character) => Update(character, save => save with { ActiveAuras = [] });
 
-    /// <summary>Persist aura intent by stable GrantedEffects Id, never by a connection's skill or buff id.</summary>
+    /// <summary>Persist aura intent by stable GrantedEffects Id, replacing any alias of the same aura family.</summary>
     public static void SetAuraActive(string character, string effect, bool active) => Update(character, save =>
     {
-        var auras = (save.ActiveAuras ?? []).Where(id => id != effect).ToList();
+        string family = AuraCatalog.Family(effect);
+        var auras = (save.ActiveAuras ?? []).Where(id => AuraCatalog.Family(id) != family).ToList();
         if (active) auras.Add(effect);
         return save with { ActiveAuras = auras };
     });

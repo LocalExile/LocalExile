@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <InternalsVisibleTo Include="GameServer.Core.Tests" />
     <ProjectReference Include="..\GameServer.Core\GameServer.Core.csproj" />
     <ProjectReference Include="..\GameServer.Storage\GameServer.Storage.csproj" />
   </ItemGroup>
