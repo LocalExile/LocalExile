@@ -1,5 +1,5 @@
 # Run from the source checkout. Normal startup initializes folders; -Migrate preserves an existing local installation.
-param([switch]$Migrate, [switch]$Dependencies)
+param([switch]$Migrate, [switch]$Dependencies, [switch]$PythonTools)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'client-path.ps1')
@@ -171,5 +171,23 @@ if ($Dependencies) {
     if (-not (Test-Path -LiteralPath (Join-Path $packages 'node_modules\ooz-wasm'))) {
         & npm.cmd ci --prefix $packages --ignore-scripts --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw "Cannot initialize extraction dependencies in $packages" }
+    }
+}
+if ($PythonTools) {
+    $environment = Join-Path $runtime '.venv'
+    Assert-OrdinaryPath $environment -Tree
+    $python = Join-Path $environment 'Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python)) {
+        $basePython = (Get-Command python -ErrorAction Stop).Source
+        & $basePython -m venv $environment
+        if ($LASTEXITCODE -ne 0) { throw "Cannot create Python environment in $environment" }
+    }
+    $requirements = Join-Path $PSScriptRoot 'requirements-control.txt'
+    $version = ((Get-Content -LiteralPath $requirements | Where-Object { $_ -like 'frida==*' }) -split '==')[1]
+    & $python -B -c 'import importlib,importlib.util,sys; spec=importlib.util.find_spec(sys.argv[1]); sys.exit(0 if spec and importlib.import_module(sys.argv[1]).__version__ == sys.argv[2] else 1)' frida $version
+    if ($LASTEXITCODE -ne 0) {
+        & $python -m pip --disable-pip-version-check install --no-input --cache-dir (Join-Path $runtime '.cache\pip') `
+            -r $requirements
+        if ($LASTEXITCODE -ne 0) { throw "Cannot initialize client-control dependencies in $environment" }
     }
 }

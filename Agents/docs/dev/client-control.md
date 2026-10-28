@@ -5,8 +5,10 @@ client. It calls existing client functions through [Frida RPC](https://frida.re/
 game thread. It uses the normal local authentication, character list, Play, instance connection, and Gateway command
 handlers. No screenshots, keyboard/mouse events, HTTP listener, save editing, or server authentication bypass are used.
 
-Start the local servers normally through `scripts/dev/live.ps1`. Python needs `frida` (the walk-map recorder's `.venv`
-already has it). Run from the repository root:
+Start the local servers normally through `scripts/dev/live.ps1`.
+`control.ps1` creates a Python environment in the configured runtime folder and installs the pinned `frida` package
+on first use; the walk-map recorder shares that environment.
+Run from the repository root:
 
 ```powershell
 .\scripts\dev\control.ps1 game:open

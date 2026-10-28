@@ -76,7 +76,8 @@ if ($NoBuild) { foreach ($s in $servers) { Need-ServerAssembly $s } }
 
 $python = $null
 if ($Walkmaps) {
-    # A virtual environment in the repository (.venv) wins over the python on PATH.
+    & (Join-Path $PSScriptRoot 'setup-runtime.ps1') -PythonTools
+    # Native helpers share a managed environment in the selected runtime directory.
     $venv = Join-Path $runtime '.venv\Scripts\python.exe'
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }

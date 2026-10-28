@@ -219,6 +219,8 @@ selects another build folder.
 Without a runtime setting, the original repository-relative layout is unchanged.
 The launcher creates runtime `data/`, `logs/` and extraction-cache folders on startup.
 Extraction installs its pinned Node dependency there if missing, while its worker and schema stay in the source tree.
+The first `control.ps1` or `live.ps1 -Walkmaps` call creates runtime `.venv/` and installs its pinned Frida package.
+Later calls reuse that environment; package downloads happen only when a required dependency is missing.
 Python helper processes suppress bytecode files in the source tree.
 The runtime folder must be separate from the checkout and must not belong to another checkout.
 
