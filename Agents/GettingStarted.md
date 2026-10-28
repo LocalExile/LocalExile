@@ -161,6 +161,45 @@ Start it normally from a PowerShell terminal in the repository root:
 .\scripts\dev\live.ps1
 ```
 
+### Optional separate build folder
+
+Add `buildDirectory` to the same ignored `client.local.json` to keep compiled programs and intermediate files
+outside the source checkout.
+For example, this layout puts the client and build output beside the repository:
+
+```json
+{
+  "clientDirectory": "../Client",
+  "buildDirectory": "../build"
+}
+```
+
+Both settings are optional and resolve relative to the repository root, including paths containing spaces.
+`Game_BUILD_DIR` overrides `buildDirectory`, just as `Game_CLIENT_DIR` overrides `clientDirectory`.
+Without a build setting, the usual per-project `bin/Debug/net10.0` and `obj/` directories remain in use.
+The launcher and extraction tools build Debug with .NET's `--artifacts-path` option when configured.
+They execute the matching `bin/<project>/debug/<project>.dll`, including the gateway selector and Python's GGPK helper.
+They never fall back to an older DLL in the source tree.
+
+Run the launcher from the source repository as above.
+Servers and extractors keep the repository as their working directory: `data/` and `logs/` stay there.
+The native client keeps its own working directory and Documents profile.
+`-Only Gateway` rebuilds and restarts only Gateway; `-NoBuild` uses existing DLLs in the selected layout.
+A missing DLL with `-NoBuild` stops startup before the launcher stops servers or clears their logs.
+`-ClientOnly` requires an already-built Patch DLL in the same layout and running local servers.
+
+Manual `dotnet` commands do not read the JSON file.
+For a full build and tests using the example layout, open PowerShell in the repository root and run:
+
+```powershell
+dotnet build GameServer.slnx --artifacts-path ../build
+dotnet test tests/GameServer.Core.Tests --artifacts-path ../build
+dotnet test tests/GameServer.Data.Tests --artifacts-path ../build
+dotnet test tests/GameServer.Gateway.Tests --artifacts-path ../build
+```
+
+Build output is disposable; do not point `buildDirectory` at the client, server data, or another project's build folder.
+
 To inspect extraction freshness, or rerun just the read-only graph analysis:
 
 ```powershell

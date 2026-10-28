@@ -5,7 +5,7 @@ $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'live.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-foreach ($name in @('Need', 'Select-LocalGateway')) {
+foreach ($name in @('Need', 'Server-Assembly', 'Need-ServerAssembly', 'Select-LocalGateway')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $false)
@@ -20,6 +20,7 @@ if (-not $branch) { throw 'missing ClientOnly branch' }
 $launch = [scriptblock]::Create($branch.Extent.Text)
 . (Join-Path $PSScriptRoot 'client-path.ps1')
 foreach ($clientFolder in @('C:\LocalExile-test\Client', 'F:\External client with spaces')) {
+foreach ($buildDirectory in @($null, 'F:\External build with spaces')) {
 $repo = 'C:\LocalExile-test'
 $clientPaths = [pscustomobject]@{ Directory=$clientFolder; Executable=(Join-Path $clientFolder 'Game.exe'); PatchedExecutable=(Join-Path $clientFolder 'Game.patched.exe'); Archive=(Join-Path $clientFolder 'Content.ggpk') }
 $client = $clientPaths.Directory
@@ -32,6 +33,8 @@ $script:existing = @()
 $script:missingPort = 0
 $script:gatewayExit = 0
 $script:gatewayArgs = @()
+$script:assemblyMissing = $false
+function Test-Path { -not $script:assemblyMissing }
 function Get-Process { $script:existing }
 function Get-NetTCPConnection {
     param($LocalPort, $State, $ErrorAction)
@@ -60,7 +63,9 @@ function Expect-Failure($pattern) {
 
 & $launch | Out-Null
 Assert (($script:events -join ',') -eq 'gateway,launch') 'gateway must reset before a closed client launches'
-Assert ($script:gatewayArgs[0] -eq (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll')) 'wrong patch executable'
+$wanted = if ($buildDirectory) { Join-Path $buildDirectory 'bin\GameServer.Patch\debug\GameServer.Patch.dll' }
+    else { Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll' }
+Assert ($script:gatewayArgs[0] -eq $wanted) 'wrong patch executable'
 Assert (($script:gatewayArgs[1..4] -join '|') -eq ('gateway|' + $clientPaths.Archive + '|--login|127.0.0.1:20493')) 'gateway must target this checkout and local Auth'
 
 $script:events.Clear()
@@ -76,6 +81,10 @@ $script:missingPort = 20493
 Expect-Failure 'missing port 20493'
 Assert ($script:events.Count -eq 0) 'missing server must return before gateway write'
 $script:missingPort = 0
+$script:assemblyMissing = $true
+Expect-Failure 'missing: run live.ps1 without -NoBuild'
+Assert ($script:events.Count -eq 0) 'missing configured DLL must return before gateway write'
+$script:assemblyMissing = $false
 $script:gatewayExit = 1
 Expect-Failure 'could not select local login server'
 Assert (($script:events -join ',') -eq 'gateway') 'failed gateway reset must prevent launch'
@@ -86,4 +95,5 @@ Expect-Failure '-ClientOnly cannot be combined'
 Assert ($script:events.Count -eq 0) 'invalid options must return before gateway write'
 Write-Output 'ClientOnly launch checks passed (mocked; no client or GGPK touched).'
 
+}
 }

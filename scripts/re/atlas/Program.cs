@@ -7,10 +7,10 @@ using GgDump;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-string root = AppContext.BaseDirectory;
-while (!File.Exists(Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs")))
-    root = Path.GetDirectoryName(root.TrimEnd(Path.DirectorySeparatorChar))
-        ?? throw new InvalidOperationException("Tools/ooz/ooz_worker.mjs not found above the build output");
+// The launcher runs tools from the source checkout even when binaries live elsewhere.
+string root = Directory.GetCurrentDirectory();
+if (!File.Exists(Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs")))
+    throw new InvalidOperationException("Run atlas from the repository root (Tools/ooz/ooz_worker.mjs missing).");
 string ggpk = args.Length > 0 ? args[0] : Path.Combine(root, "Client", "Content.ggpk");
 string output = args.Length > 1 ? args[1] : Path.Combine(root, "data", "area-transitions.json");
 

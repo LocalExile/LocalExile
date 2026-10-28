@@ -28,7 +28,7 @@ public class GameDataFilesTests
     [Fact]
     public void Every_file_the_Gateway_checks_has_an_entry_in_the_extract_data_manifest()
     {
-        string? root = AppContext.BaseDirectory;
+        string? root = TestEnvironment.RepositoryRoot;
         while (root is not null && !File.Exists(Path.Combine(root, "scripts", "dev", "extract-data.ps1"))) root = Path.GetDirectoryName(root);
         Assert.NotNull(root);
         string script = File.ReadAllText(Path.Combine(root, "scripts", "dev", "extract-data.ps1"));

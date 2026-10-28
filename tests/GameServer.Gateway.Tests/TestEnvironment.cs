@@ -4,6 +4,8 @@ namespace GameServer.Gateway.Tests;
 
 static class TestEnvironment
 {
+    internal static string RepositoryRoot { get; private set; } = null!;
+
     // Real dispatch tests use Program's production catalogs, whose paths are relative to the repository root.
     // Set this once before parallel tests or lazy catalogs initialize, rather than changing process CWD in a test.
     [ModuleInitializer]
@@ -16,6 +18,7 @@ static class TestEnvironment
                     && File.Exists(Path.Combine(dir.FullName, "src", "GameServer.Gateway", "GameServer.Gateway.csproj"))
                     && Directory.Exists(Path.Combine(dir.FullName, "data", "tables")))
                 {
+                    RepositoryRoot = dir.FullName;
                     Directory.SetCurrentDirectory(dir.FullName);
                     return;
                 }

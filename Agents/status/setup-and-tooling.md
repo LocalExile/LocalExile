@@ -17,7 +17,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Read-only graph and item-type extraction succeeded against the relocated archive.
   Automated controls cover default/external paths, spaces, invalid configuration, override precedence,
   launch arguments/working directory and archive propagation to .NET/Python extraction.
+  Optional `buildDirectory` or `Game_BUILD_DIR` also separates Debug binaries and intermediate files using
+  .NET's artifacts layout; servers, gateway selection and all extraction helpers execute that same build.
+  Data and logs remain in the source checkout; omitted settings retain the original layout.
+  Automated controls exercise full startup, `-Only Gateway`, `-NoBuild`, `-ClientOnly` and missing-DLL preflight.
+  Gateway test data helpers use the shared test environment's repository root, allowing sibling build output
+  without moving data or changing production catalog paths.
+  Native validation reached the login screen with external server DLLs and verified the actual server/client
+  working directories; read-only atlas and Python-to-GGPK extraction also ran from external DLLs.
   See [external client folder](../GettingStarted.md#optional-external-client-folder) for configuration and limits.
+  See [separate build folder](../GettingStarted.md#optional-separate-build-folder) for build and test commands.
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.

@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'client-path.ps1')
 $clientPaths = Get-ClientPaths -RepositoryRoot $repo
+$buildDirectory = Get-BuildDirectory $repo
 
 # Name, outputs (the first is checked for presence and freshness), runner (dotnet | python), arguments, version, needs,
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
@@ -129,20 +130,25 @@ foreach ($kv in @{ MSBUILDDISABLENODEREUSE = '1'; DOTNET_CLI_USE_MSBUILD_SERVER 
     [Environment]::SetEnvironmentVariable($kv.Key, $kv.Value)
 }
 try {
-    # Build each dotnet project once, then run it with --no-build: the atlas entries share one project.
+    # Build each dotnet project once, then execute its DLL from that same layout.
     $projects = @($todo | Where-Object { $_.Runner -eq 'dotnet' } | ForEach-Object { $_.Args[2] } | Select-Object -Unique)
     foreach ($proj in $projects) {
         $log = Join-Path $logs "extract-build-$(Split-Path $proj -Leaf).log"
         Write-Output "building $proj ..."
-        $code = Invoke-Logged 'dotnet' @('build', $proj) $log
+        $code = Invoke-Logged 'dotnet' @(Get-DotnetBuildArguments $proj $buildDirectory) $log
         if ($code -ne 0) { throw "extract-data: building $proj failed (exit $code; logs\$(Split-Path $log -Leaf)):`n$(Tail $log)" }
     }
     foreach ($e in $todo) {
         $log = Join-Path $logs "extract-$($e.Name).log"
         Write-Output "extracting $($e.Name) ($($reason[$e.Name])) ..."
         $started = Get-Date
-        $exe = 'dotnet'; $exeArgs = @('run', '--no-build') + $e.Args[1..($e.Args.Count - 1)]
+        $exe = 'dotnet'
         if ($e.Runner -eq 'python') { $exe = $python; $exeArgs = @('-I') + $e.Args }
+        else {
+            $assembly = Get-ProjectAssembly $repo $e.Args[2] $buildDirectory
+            Need (Test-Path -LiteralPath $assembly -PathType Leaf) "$assembly missing after build"
+            $exeArgs = @($assembly) + $e.Args[4..($e.Args.Count - 1)]
+        }
         $code = Invoke-Logged $exe $exeArgs $log
         $output = Join-Path $repo $e.Outputs[0]
         $fresh = (Test-Path $output) -and (Get-Item $output).LastWriteTime -ge $started.AddSeconds(-2)

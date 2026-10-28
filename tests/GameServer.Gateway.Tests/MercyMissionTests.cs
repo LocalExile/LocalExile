@@ -22,7 +22,7 @@ public class MercyMissionTests : IDisposable
     // The repository's extracted game data, or null where it is missing (CI).
     static string? RealData()
     {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        for (var dir = new DirectoryInfo(TestEnvironment.RepositoryRoot); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, "data", "tables", "WorldAreas.json"))) return Path.Combine(dir.FullName, "data");
         return null;
     }

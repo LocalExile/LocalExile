@@ -15,6 +15,7 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'client-path.ps1')
 $clientPaths = Get-ClientPaths -RepositoryRoot $repo
+$buildDirectory = Get-BuildDirectory $repo
 $client = $clientPaths.Directory
 $savedClientEnv = @{ Game_CLIENT_EXE = $env:Game_CLIENT_EXE; Game_GGPK = $env:Game_GGPK }
 try {
@@ -24,9 +25,17 @@ $out = Join-Path $repo 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
+function Server-Assembly([string]$Name) {
+    Get-ProjectAssembly $repo "src\GameServer.$Name" $buildDirectory
+}
+function Need-ServerAssembly([string]$Name) {
+    $assembly = Server-Assembly $Name
+    Need (Test-Path -LiteralPath $assembly -PathType Leaf) "$assembly missing: run live.ps1 without -NoBuild first"
+}
 function Select-LocalGateway {
     # The client can use a cached gateway list even when the patch welcome needs no download.
-    & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') gateway $clientPaths.Archive --login '127.0.0.1:20493' | Out-Null
+    Need-ServerAssembly 'Patch'
+    & dotnet (Server-Assembly 'Patch') gateway $clientPaths.Archive --login '127.0.0.1:20493' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'could not select local login server; close all clients and retry' }
 }
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
@@ -53,6 +62,11 @@ if ($ClientOnly) {
     return
 }
 
+$servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
+if ($Only) { $NoClient = $true }
+# Fail before extraction or stopping a session when the selected layout has not been built.
+if ($NoBuild) { foreach ($s in $servers) { Need-ServerAssembly $s } }
+
 $python = $null
 if ($Walkmaps) {
     # A virtual environment in the repository (.venv) wins over the python on PATH.
@@ -70,8 +84,6 @@ if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
 # Without this the Gateway stops after creating the player and the client never enters the area.
 if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
 
-$servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
-if ($Only) { $NoClient = $true }
 $ports = @{ Auth = @(20493); Patch = @(12995, 8080); Gateway = @(6112) }
 
 if (-not $NoClient) { Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force }
@@ -95,8 +107,9 @@ if (-not $Only) { Remove-Item (Join-Path $out 'walkmaps.*') -ErrorAction Silentl
 
 if (-not $NoBuild) {
     foreach ($s in $servers) {
-        dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
+        $buildArgs = @(Get-DotnetBuildArguments (Join-Path $repo "src\GameServer.$s") $buildDirectory) + @('-v', 'q', '-nologo')
+        $buildOutput = & dotnet @buildArgs 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s`n$($buildOutput -join "`n")" }
     }
 }
 
@@ -109,7 +122,6 @@ function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [strin
     Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden
 }
 
-$bin = 'bin\Debug\net10.0'
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
 # Select the local Auth explicitly before the patch server or client opens the GGPK.
@@ -119,7 +131,8 @@ if (-not $NoClient) {
 
 foreach ($s in 'Patch', 'Gateway', 'Auth') {
     if ($servers -notcontains $s) { continue }
-    Start-Detached 'dotnet' (@("src\GameServer.$s\$bin\GameServer.$s.dll") + $serverArgs[$s]) `
+    Need-ServerAssembly $s
+    Start-Detached 'dotnet' (@((Server-Assembly $s)) + $serverArgs[$s]) `
         (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
 }
 

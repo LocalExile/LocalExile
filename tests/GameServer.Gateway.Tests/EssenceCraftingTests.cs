@@ -7,7 +7,7 @@ public class EssenceCraftingTests
 {
     static string Data()
     {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        for (var dir = new DirectoryInfo(TestEnvironment.RepositoryRoot); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, "data/tables/Essences.json"))) return Path.Combine(dir.FullName, "data");
         throw new DirectoryNotFoundException("data/tables/Essences.json");
     }
