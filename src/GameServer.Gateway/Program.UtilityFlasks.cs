@@ -44,6 +44,10 @@ partial class Program
         }
         var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, buff, extra, stats, now, now + seconds);
         var ticker = UtilityFlasks.Start(conn, effect, () => RecomputePoolsAndSpeed(conn));
+        lock (conn.Monsters)
+            if (!conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
+                && UtilityFlasks.RestoreWardAfterPaidUse(conn.Ward, name => local.GetValueOrDefault(name), conn.Clock.Elapsed.TotalSeconds))
+                Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {conn.Ward.Current}/{conn.Ward.Maximum}");
         // The ticker starts before anything is sent: a failed send must not leave an effect without one to end it.
         if (ticker is int ticket) _ = RunUtilityFlasks(remote, stream, ciphers, conn, ticket);
         Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +

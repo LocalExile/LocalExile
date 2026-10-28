@@ -62,7 +62,7 @@ static class InstantLocationSkill
     {
         lock (conn.Monsters)
         {
-            from = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            from = conn.Walk.Position(Program.ProjectileWorldTime(conn));
             return TryResolveFrom(conn, epoch, from, aim, inTown, stat, out to);
         }
     }
@@ -101,7 +101,7 @@ static class InstantLocationSkill
     {
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = Program.ProjectileWorldTime(conn);
             from = conn.Walk.Position(now); to = aim = default;
             if (!conn.Monsters.TryGetValue(targetId, out var target) || target.Dead || target.Life == 0
                 || target.Variety is not { ObjectSize: >= 1 and <= 128 } variety || target.Walk.ArrivesAt > now) return false;
@@ -121,10 +121,10 @@ static class InstantLocationSkill
     public static bool TryCommitObject(ClientState conn, int epoch, uint targetId, bool inTown,
         Func<string, int> stat, out (int X, int Y) aim, out (int X, int Y) to)
     {
-        lock (conn.Monsters)
+        using (Program.ProjectileMutation(conn))
         {
             if (!TryResolveObject(conn, epoch, targetId, inTown, stat, out _, out to, out aim)) return false;
-            conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
+            conn.Walk.Teleport(to.X, to.Y, Program.ProjectileWorldTime(conn));
             return true;
         }
     }
@@ -134,10 +134,10 @@ static class InstantLocationSkill
     public static bool TryCommit(ClientState conn, int epoch, (uint X, uint Y) aim, bool inTown,
         Func<string, int> stat, out (int X, int Y) to)
     {
-        lock (conn.Monsters)
+        using (Program.ProjectileMutation(conn))
         {
             if (!TryResolve(conn, epoch, aim, inTown, stat, out _, out to)) return false;
-            conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
+            conn.Walk.Teleport(to.X, to.Y, Program.ProjectileWorldTime(conn));
             return true;
         }
     }

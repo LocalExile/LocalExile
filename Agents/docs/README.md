@@ -24,6 +24,8 @@ Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3b c
 | [protocol/16-waypoints.md](protocol/16-waypoints.md) | waypoints: the object, activated waypoints (0x4c), the World panel (0x7b), travel (0x4d), quest flags in the Player component, what reveals pins |
 | [protocol/24-vendor-recipes.md](protocol/24-vendor-recipes.md) | vendor sale quotes, common recipes, priorities, atomic payment and remaining parity gaps |
 | [protocol/25-gem-supports.md](protocol/25-gem-supports.md) | linked supports, native badges, shared combat calculations and execution gaps |
+| [Vaal souls](protocol/27-vaal-souls.md) | Actor budgets, collection policy and pending native acceptance |
+| [protocol/28-player-trade.md](protocol/28-player-trade.md) | trade between players: requests (0xba, 0xb0), known players (0xa7), the window's 0xb8 flags and acceptance, party/friend requests read |
 | [protocol/17-npcs.md](protocol/17-npcs.md) | NPCs: the object, town placements, talking (0x24 → 0x84), dialogue closed (0x85) |
 | [protocol/21-hideouts.md](protocol/21-hideouts.md) | hideouts: unlock flags and league quest flags, the Hideouts keys, `.hideout` decorations, /hideout (0x16 command 45) and the Hideout button (0x17a), HideoutDoodad data, the map device and its window (0x7b kind 5) |
 | [protocol/18-stash.md](protocol/18-stash.md) | the stash: the object, tab lists (0x21, 0x136), opening (0x7b kind 1), tab contents (0xc7 → 0xc0 + 0xc8), the account's stash |
@@ -45,6 +47,9 @@ Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3b c
 How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 
 ## How-to
+
+[Projectile framework](game/projectile-framework.md): sole production simulator and skill-provider boundary.
+[Projectile skills](game/projectile-skills.md): Fireball, Kinetic Blast, catalog policies, evidence and client checks.
 | Doc | Content |
 |---|---|
 | [../GettingStarted.md](../GettingStarted.md) | setup from a fresh clone, third-party tools, troubleshooting |
@@ -57,6 +62,7 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 | [game/fortification.md](game/fortification.md) | melee-hit protection and the explicit server model |
 | [game/maps.md](game/maps.md) | 3.29 maps and the Atlas: the 20 generic map bases, tiers, drops, Voidstones (rules to build to) |
 | [game/ascendancies.md](game/ascendancies.md) | selection, points, saves and the Phrecia play gate |
+| [game/antiquarian.md](game/antiquarian.md) | all nine node consumers, verified-graph admission, legal builds and native acceptance |
 | [re/ascendancy-client-3.29.3b.md](re/ascendancy-client-3.29.3b.md) | native identity and point evidence |
 
 ## Working notes (history)

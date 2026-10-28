@@ -37,9 +37,9 @@ public sealed class ImportedDefenceStateTests : IDisposable
             { Character = character, ClassRow = 4 };
         PlayerInventories.For(character, catalog).Add(PlayerInventories.BodyArmour, 0, 0, restored);
 
-        var equipped = ((int Armour, int Evasion, int EnergyShield))typeof(Program)
+        var equipped = ((decimal Armour, decimal Evasion, int EnergyShield, decimal Ward))typeof(Program)
             .GetMethod("EquippedBaseDefences", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, [conn])!;
+            .Invoke(null, [conn, (Func<string, int>)(_ => 0)])!;
 
         Assert.Equal(roll, restored.DefenceBaseRoll);
         Assert.Equal(expectedArmour, equipped.Armour);
@@ -66,5 +66,43 @@ public sealed class ImportedDefenceStateTests : IDisposable
         Assert.Empty(meetsLevel.Inactive);
     }
 
-    public void Dispose() => PlayerInventories.Forget(character);
+    [Theory]
+    [InlineData("local_no_attribute_requirements")]
+    [InlineData("local_unique_tabula_rasa_no_requirement_or_energy_shield")]
+    public void Current_gem_snapshot_honours_equipment_exemptions_without_publishing_inactive_items(string stat)
+    {
+        var catalog = Program.Items;
+        var conn = new ClientState(new(0, "ImportedDefence", 128, 128, 32, 32, null, []), 0, 1)
+            { Character = character, ClassRow = SkillCatalog.WitchRow };
+        conn.PlayerStats[Program.Stats.Key("intelligence_is_0")!.Value] = 1;
+        var inventory = PlayerInventories.For(character, catalog);
+        var robe = inventory.Add(PlayerInventories.BodyArmour, 0, 0,
+            ItemCatalog.Create(catalog.Find("Simple Robe")!));
+        conn.Pools = Program.PoolsFor(conn, 100);
+        var pools = conn.Pools;
+        var published = Program.InactiveItems[character];
+        Assert.Contains(robe.Id, published);
+
+        var mod = catalog.Mods.All.First(m => m.Stats.Any(s => s.Id == stat));
+        Assert.NotNull(inventory.Change(PlayerInventories.BodyArmour, robe.Id, item => item with
+        {
+            Mods = [new(ModSection.Hidden, mod.Hash, mod.Stats.Select(s => s.Id == stat ? 1 : 0).ToArray())],
+        }));
+        var snapshot = typeof(Program).GetMethod("CurrentGemRequirements", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [conn, null])!;
+        var inactive = (IReadOnlySet<uint>)snapshot.GetType().GetProperty("Inactive")!.GetValue(snapshot)!;
+
+        Assert.DoesNotContain(robe.Id, inactive);
+        Assert.Same(pools, conn.Pools);
+        Assert.Same(published, Program.InactiveItems[character]);
+        Assert.Contains(robe.Id, published);
+        conn.Pools = Program.PoolsFor(conn, 100);
+        Assert.DoesNotContain(robe.Id, Program.InactiveItems[character]);
+    }
+
+    public void Dispose()
+    {
+        PlayerInventories.Forget(character);
+        Program.InactiveItems.TryRemove(character, out _);
+    }
 }

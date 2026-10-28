@@ -13,6 +13,7 @@ public sealed class PlayerWalk
 {
     private readonly Func<int, int, bool> _walkable;
     private readonly Func<IReadOnlyList<ClientPathfinder.Blocker>> _blockers;
+    private readonly Func<IReadOnlyList<ClientPathfinder.Blocker>>? _stationary;
     private readonly int _w, _h, _size;
     private double _speed;
     private List<Segment> _segments = [];
@@ -28,11 +29,15 @@ public sealed class PlayerWalk
     /// <param name="speed">Walking speed in cells per second (Pathfinding base_speed 37 × movement speed).</param>
     /// <param name="blockers">The blocking objects now standing (NPCs, the stash).</param>
     /// <param name="size">The mover's Positioned size (object_size − 1: the player is 1).</param>
+    /// <param name="stationary">The blockers that never move (NPCs, the stash), without the living bodies: used when the
+    /// living bodies leave no path at all (see Walk).</param>
     public PlayerWalk(int x, int y, double speed, Func<int, int, bool>? walkable = null, int width = 4096, int height = 4096,
-        Func<IReadOnlyList<ClientPathfinder.Blocker>>? blockers = null, int size = 1)
+        Func<IReadOnlyList<ClientPathfinder.Blocker>>? blockers = null, int size = 1,
+        Func<IReadOnlyList<ClientPathfinder.Blocker>>? stationary = null)
     {
         _walkable = walkable ?? ((_, _) => true);
         _blockers = blockers ?? (() => []);
+        _stationary = stationary;
         (_w, _h, _size) = (width, height, size);
         _speed = speed;
         _rest = (x, y);
@@ -128,7 +133,14 @@ public sealed class PlayerWalk
     private (int X, int Y) Walk((int X, int Y) target, int maxRange, int tolerance, double now)
     {
         var here = At(now, out double fraction);
-        var path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _blockers(), _size, 0, maxRange, tolerance);
+        var path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _blockers(), _size, 0, maxRange, tolerance,
+            ClientPathfinder.SearchLimit.Player, out bool reached);
+        // Monster positions here are the server's estimates, and a crowd around the player can leave no gap in them while
+        // the client, which sees the bodies where they really are, walks out. Standing still would pull the player back
+        // into the crowd on every click: follow the client through the bodies instead, still around walls and objects.
+        if (!reached && _stationary is not null && ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _stationary(), _size,
+                0, maxRange, tolerance, ClientPathfinder.SearchLimit.Player, out bool reachedPast) is var past && reachedPast)
+            path = past;
         _segments = [];
         _rest = here;
         _restSince = now;

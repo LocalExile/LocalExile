@@ -37,7 +37,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Mana per complete group of final Strength now has native raw-source/gear controls and automated pool coverage.
   Raw-source reservation refresh and clamping have decrypted wire coverage; recheck active auras natively.
   See [Status](../status/skills-and-combat.md) and [11](../docs/protocol/11-skills.md) section 4.
-  Mental Conditioning's other flags, mana-to-armour conversion and Phrecia selection remain separate work.
+  Mental Conditioning now combines mana per Strength with mana-to-armour conversion in current-main tests.
+  Historical joint native conversion controls passed at `c9cd1864`; Phrecia selection stays separate.
   Ordinary one-use cooldown recovery now shares the native base/rate and a server base-time budget, with atomic
   preflight before action side effects.
   Initial Dash recovery, early raw rejection, pause and native mid-cooldown rate changes pass live alongside
@@ -73,7 +74,12 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Remaining native composition includes own-item percentage retention, cascading equipment, passive refunds and swaps.
   The fractional algorithm remains a documented PoB server model; official-server parity is not established.
   See [Status](../status/skills-and-combat.md) and [the calculation model](../docs/protocol/11-skills.md) section 4.
-  Mana-to-armour conversion and Phrecia play compatibility remain separate prerequisites.
+  Phrecia play compatibility remains a separate prerequisite.
+  Power of Purpose has historical original-head raw-source, armour/mana, actual attack-consumer and relog controls.
+  Native idle reservation, Iron Reflexes and MORE compositions remain; their model and automated tests are in
+  [the calculation notes](../docs/game/power-of-purpose.md).
+  Combined increased attributes, mana-per-Strength and conversion have regressions on base `939b44fe`.
+  Joint native controls at `c9cd1864` remain historical; the rebased candidate needs separate native acceptance.
 
 ### Auras: reservation and effects
 
@@ -95,6 +101,13 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 - **Done when:** the standard auras reserve correctly, their effects match PoB, and the character panel and HUD show
   the same reserved and unreserved values.
 
+### Area-entry protection verification
+
+- **Known:** Grace Period protection and the native timed buff are implemented outside towns and hideouts.
+- **Start:** verify the 60-second countdown, first-step removal and damage prevention in the real client.
+  The icon is visible; its corrected floating-point timer needs a live recheck after the upstream integration.
+- **Done when:** the timer counts down and protection ends on movement, actions or expiry.
+
 ### Damage model (foundation done, deeper defence next)
 
 - **Done:** hits are per-type `DamagePacket`s; conversion follows physical, lightning, cold, fire, chaos, including
@@ -112,6 +125,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   armour/evasion mitigate monster hits (Status: Armour and Evasion).
   Ordinary physical monster melee can now trigger native player hit recovery with matching server cancellation.
   Copied-save live checks verified walking, pending cast cancellation, released flight and a stun-immune control.
+  Selected Antiquarian now has native Ward/Adrenaline, Turtle Shell, always-hit/Far Shot and shield controls.
+  Whaletooth extends actual Enduring Cry recovery; see [its model and evidence](../docs/game/antiquarian.md).
 - **Known:** both sides still have flat damage ranges ([11](../docs/protocol/11-skills.md) 5, 6);
   ordinary player ES absorption, regeneration and interrupted recharge are implemented and live-checked.
   Added damage has its first stat: the attack's added lightning gets
@@ -188,6 +203,20 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Measure official capped-attempt refresh behavior and area-loading timer parity before replacing policy v1.
   See [26-rage.md](../docs/protocol/26-rage.md); Vaal costs and whole-class selection remain separate mechanics.
 
+### Vaal execution and remaining soul checks
+
+- Collection, bounded shared budgets and the proved Actor payloads (#308) pass automated and bounded native checks.
+  Source checks on base `939b44fe` cover attribute/mana composition, supports, payment and current publication.
+  The proved missing skill-record bit1 is implemented from raw Vaal metadata, with parsed and socketed regressions.
+  Forty-two pinned 3.29.3b checks cover real-kill charging, the cap, cost changes, zero cost and prevention.
+  They also cover nonlethal/friendly controls and unsupported input without action echo or resource loss.
+  Remaining native acceptance covers duplicates, removal/readd, cooldown refresh and transient lifecycle.
+  Verify held death notifications, Vaal Haste/Grace aura costs, death/resurrection and slow destination loading.
+  Include attribute gear removal before inventory notifications; current automated coverage is not native proof.
+  See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md) and Status for the explicit LocalExile policies.
+  Vaal executors, payment, official distribution/capacity parity and the SGP countdown require separate work.
+  Unsupported Vaal casts remain refused; Behemoth and whole-class enablement remain separate.
+
 ### Death screen variants
 
 - **Known:** S→C 0x55 flags bit0/2/3 are mapped ([11](../docs/protocol/11-skills.md) §7);
@@ -196,25 +225,21 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 
 ### Skill projectiles
 
-- **Known:** Fireball and a bow's `DefaultArrow`/attack-gem projectiles are server-made objects
-  ([11](../docs/protocol/11-skills.md) §9–10); attack gems use the `attack1_bow` contact and the weapon's
-  damage; on natural ground the spawn height is the captured terrain height + 5 steps.
-  Ordinary player and skill projectile-speed bonuses affect flight and predicted arrival together; baseline/+100%/-50%
-  Fireball casts were checked live, while conditional/more/less speed and support application remain open.
-  Swept relative-motion checks run throughout flight to the first monster or wall contact, with pause, transfer
-  and disconnect handling through the game clock and flight lifetime. Ordinary ground/object bow arrows now
-  share delayed release and collision damage, with release snapshots and original-action guards through creation
-  (#203, automated and native ground/object, wall/interceptor, cancellation and pause checks pass).
-  The separate object-use melee contact hit is removed.
-  Accuracy misses continue past the evading object under a current-wiki-supported bounded policy; official-server
-  continuation and snapshot parity still need evidence. Combined-only Frostblink controls preserve a released
-  arrow and resample the origin after a framed pre-release blink; they do not add standalone Frostblink support.
-  Automated checks pass, including nearer interceptors, dead targets and lifetime invalidation.
-  Live moving-away misses, later-entry hits, wall impact, native glide stop and pause/resume passed before the
-  bow packet/height update; ordinary bows were rechecked above, while attack-gem composition remains open.
-  Integer monster walk estimates,
-  a shared collision radius and straight movement between samples still limit accuracy.
-- **Start:** a server-side surface-height/world model for platforms and doodads (#182), height grids for more areas
+- **Known:** the [framework](../docs/game/projectile-framework.md) owns production projectile routing and the
+  only Core simulator. Catalog-known gems and ordinary bows have basic straight flight and resolved modifiers;
+  [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB clusters.
+  Clustering converts quantity to explosions and forbids Split; the internal AltY row is a compatibility alias.
+  Direct admission, independent explosion overlap and supported area scaling have automated runtime/input coverage.
+  Chronological contacts, hit quotas, pause/transfer, release snapshots and held-output independence have automated
+  production-input coverage, including raw item modifiers, scoped area damage and continuation/lifetime boundaries.
+  Basic catalog flight does not implement all special skill behavior; unknown metadata is refused before costs.
+  Earlier native packet/collision controls need retesting on the new path; actor positions still use integer walk
+  estimates and shared projectile radii; Gateway actor radii are zero, making area coverage center-based even
+  for large monsters. Calibrate combat body geometry against the available movement `ObjectSize` data.
+  Live hostile projectile adapters remain future work.
+- **Start:** user-run Fireball/KB checks from the skill guide, including return, terrain and overlapping explosions.
+  Calibrate cluster radial distribution, counter-clockwise sequence timing and native art against client evidence.
+  Build a server-side surface-height/world model for platforms and doodads (#182), height grids for more areas
   (or in the walk-map recorder), and collision with doodads and objects that have their own colliders.
 - **Done when:** Fireball and bow arrows look like the real ones in every area: at the caster's torso on terrain and
   platforms, stopping at walls and objects.

@@ -12,6 +12,8 @@ It supports unascended classes, levels 1 through 100 and the extracted 3.29 pass
 flasks, sockets, links and obtainable gems that the native item model can represent.
 Item modifiers must resolve to exact native rows and values; unsupported properties are refused.
 Armour bases keep their matched saved defence roll rather than receiving a random replacement.
+Equipped armour uses that roll and its local modifiers before body-armour conversion into Ward.
+Equipment requirement exemptions also apply to current gem checks without publishing inactive-item state.
 Verified hidden modifiers are restored only for matching supported unique/base identities.
 
 Ascendancies, tree jewels/overrides, unsupported special nodes, named bandit/Pantheon rewards, Ruthless imports,

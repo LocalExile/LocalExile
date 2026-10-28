@@ -65,8 +65,12 @@ Nothing yet.
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
-  transfigured and Trarthan gems grant their own skill, Vaal gems their Vaal skill and their base skill (refused
-  without Vaal souls, which are not gathered yet); the variant is sent in the SkillGem data and saved;
+  transfigured and Trarthan gems grant their own skill; Vaal gems grant their Vaal skill and base skill.
+  Vaal soul collection/native budget payloads are implemented, pending native acceptance.
+  Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
+  The variant is sent in the SkillGem data and saved.
+  Item serialization also derives the native variant flag for standalone and socketed gems, preserving level-lock
+  and saved flags. Wire regressions cover the flag; transfigured item names still need a native retest;
   `/gem <name> [level] [quality]` (`ItemCatalog.cs`, `SkillCatalog.cs`; [19](../docs/protocol/19-gems.md) §1, §3).
   Not yet: corruption.
 - **Gem requirements (tested, checked with the real client).** A gem's level requirement is the character level of its

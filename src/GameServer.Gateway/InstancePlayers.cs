@@ -24,4 +24,9 @@ sealed partial class ClientState
     public PlayerObject? PeerTemplate;
     public uint PeerType;
     public readonly Dictionary<uint, InstancePlayer> SeenPlayers = [];
+    /// <summary>Sends to this connection's client, for another connection (Program.Social).</summary>
+    public Func<byte[], string?, Task>? Outbox;
+    /// <summary>The open player trade (Program.Social), and the player this one asked to trade with (its PeerId).</summary>
+    public PlayerTrade? Trade;
+    public uint TradeRequestTo;
 }

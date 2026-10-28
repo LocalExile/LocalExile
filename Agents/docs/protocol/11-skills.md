@@ -51,9 +51,8 @@ byte f0:
   a × skill record (0x1421981d0, as in the list: add or replace)
   b × u16 skill id (0x142198560: binary search of the manager's skills at +0x158 by id (+0x40), the manager's
                     vtable +0x40 runs for it, then it is erased; an unknown id is skipped)
-  u8 c, c × (u32, u32)        → manager +0x188 (ActiveSkills row → Vaal souls: FUN_141eea5b0 compares the souls a
-                                use needs with the entry's count)
-  u8 d, d × (u32, u32, u32)
+  u8 c, c × (u32 ActiveSkills row, u32 capacity)                 → soul seeds, current = 0
+  u8 d, d × (u32 ActiveSkills row, u32 current, u32 NEW capacity) → soul updates, OLD-capacity clamp
   ```
   After login the Gateway sends every skill change this way (`SendSkills`): all the player's skills as records and the
   ids that left. It remembers the ids the client has per connection (`ClientSkillIds`, from the player object and every
@@ -62,9 +61,14 @@ byte f0:
 `0x142197b10`:
 ```
 u8 n,  n × skill record (0x142196ce0, through 0x1421981d0: insert sorted by id, replacing an equal id, then slot 7)
-u8 m,  m × (u32 ActiveSkills row (0x101-byte rows), u32, u32) → manager +0x188, the Vaal souls (not used)
+u8 m,  m × (u32 ActiveSkills row (0x101-byte rows), u32 capacity, u32 current) → manager +0x188
 u32 k, k × (u16 skill id, u32 c, c × (f32 remaining base s, f32 total base s, f32 rate, u32 flags))
 ```
+
+Both soul readers preserve existing entries when their lists are empty.
+Collection, explicit removal resets, capacity seeding and the native consumers are documented in
+[27-vaal-souls.md](27-vaal-souls.md).
+The implementation has automated coverage; native acceptance is pending and unsupported Vaal casts remain refused.
 
 Skill record (`0x142196ce0`):
 ```
@@ -74,12 +78,22 @@ GEPL reference (0x1424a0dc0):
   u32  GrantedEffectsPerLevel row (0x78-byte rows)
   stat-set reference (0x1424a0990): u8 a, [u8 if a], u32 GrantedEffectStatSetsPerLevel row (0xb8-byte rows)
   one more stat-set reference per entry of the effect's additional stat sets (GrantedEffects row → its list count)
-u8   flags: bit0 → u32 parent object id ("Skill parent object did not exist" if unknown) + u16; bit1, bit2 → instance flags
+u8   flags: bit0 → u32 parent object id ("Skill parent object did not exist" if unknown) + u16
+            bit1 (0x02) → retain native Vaal soul inputs; bit2 → constructor parameter13 bit1
 u8   n supports, n × (GEPL reference, u32)
 u32, u32, u32 cooldown ms, u8                       → skill +0xc0, +0xc4, +0xc8, +0xcc (0x141ee73d0)
 compact n × (compact stat key, compact value)      the skill's own stats
 per additional stat set: the same stats list
 ```
+At `0x1421975f0..0x142197610`, clear wire bit1 and nonzero raw GEPL +0x2c stored uses set `dil = 1`.
+At `0x1421976e8..0x1421976f6`, constructor parameter13 is `(wireBit2 * 2) | dil`.
+Constructor `0x141ee7571..0x141ee75ba` zeros soul inputs +0xe8/+0xec/+0xf0 when parameter13 bit0 is set.
+Otherwise it retains GEPL +0x28 base souls, +0x2c stored uses and the selected soul multiplier.
+`GrantedSkill.VaalResourcesEnabled` defaults false and emits only wire bit1 for catalog Vaal resource definitions.
+Both catalog lookup paths derive it from raw stored uses, independently of effective cost, capacity or current souls.
+Ordinary partners, attacks and supports keep their existing layout; parent bit0 and third bit2 remain clear.
+The literal primary constructor regression is source evidence; native Vaal acceptance is still pending.
+
 The additional stat sets are the GrantedEffects row's `StatSet2` list (Volcanic Fissure has one). Each needs its
 reference after the first and its stat list after the skill's own: a record without them made the client misread the
 rest and crash when Volcanic Fissure was socketed (live 2026-10-23). `GrantedSkill.ExtraStatSets` carries them
@@ -249,8 +263,12 @@ Decrypted command-wire tests cover a 50% aura with regeneration disabled, unchan
 An explicit zero suppresses the source; repeated builds cannot compound it, and fresh connections clear dev inputs.
 Final native `strength` overrides remain presentation/requirement inputs and do not change this pool calculation.
 Reservation, native `maximum_mana` and maximum-mana attack lightning all read the resulting pool.
-Mental Conditioning (graph node 38080) supplies raw value 8, but its keys 9548 and 21159 are separate, unimplemented
-mechanics; mana-to-armour conversion and Phrecia selection remain separate work.
+Mental Conditioning (graph node 38080) supplies raw value 8 and conversion key 9548.
+With conversion active, `StrengthMana.Flat` joins the unrounded flat bucket once before mana/armour increases.
+Both Strength and Intelligence use final scaled attributes; odd Intelligence retains half mana until final rounding.
+The ordinary decimal/`Rating` bounds and every raw-attribute `/set_stat` rebuild remain in place.
+The full node gives a fresh Witch 16 mana and 128 Armour; display key 21159 alone enables neither consumer.
+The consumer does not enable Phrecia selection or claim the full class.
 Automated arithmetic, production-source and actual command/reload checks pass.
 Thirteen native checks use a fresh unascended Witch, raw key 4993 and synthetic Plate Vest modifiers.
 Fourteen and fifteen Strength grant three groups: maximum mana rises from 56 to 80 at raw value 8.
@@ -294,6 +312,10 @@ and boots ([13](13-items.md) §1): `base_physical_damage_reduction_rating` / `ba
 (Cloth and Chain and similar nodes), `global_defences_+%` and the combined armour/evasion increase are additive
 increased modifiers. The overcapped cold resistance's increase is one of them (§12); it applies before the conversion,
 so Iron Reflexes' converted evasion keeps it, and monster attacks roll against the boosted rating.
+Power of Purpose's raw `keystone_mental_conditioning` flag converts 80% of flat mana to twice as much armour.
+Mana and armour increases add on that branch, and its unrounded contribution joins ordinary armour before rounding.
+The remaining maximum mana drives reservation and maximum-mana added lightning; Steel Willed reads final armour once.
+See [the calculation boundaries and pending native checks](../game/power-of-purpose.md).
 **Iron Reflexes**
 (`keystone_iron_reflexes`) converts all evasion rating, including the base 15 and
 passive/item flat evasion, to armour and removes dexterity's 1% per 5 evasion; the converted part keeps the armour,
@@ -571,7 +593,7 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   which drops a server-driven monster's queued attack in the same frame (traced: created, queued, both checks passed,
   then neither current nor queued). The server walks the monster itself, so the skill is non-pathing. Only on the
   skill: on the monster's Stats component it also stops its Move action from pathing (the monsters stood still).
-- **AI** (`RunMonsterAi`, 500 ms): a hostile, chasing monster within reach stops and swings: 0x1ab with its skill, flags
+- **AI** (`RunMonsterAi`, 100 ms): a hostile, chasing monster within reach stops and swings: 0x1ab with its skill, flags
   0x0408 | 0x80, target = the player, sequence 0xffff. At half the attack time the hit lands if the monster lives and
   the player is still within reach + 2: 0x1b1 on the player.
 - **Defence.** The monster's accuracy is `DefaultMonsterStats.Accuracy` at its level (raised by its mods); the server
@@ -1026,10 +1048,26 @@ player back there (live 2026-10-23).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
-(read from live captures 2026-10-23). The Gateway moves the player there and, once per attack time, runs
-`AreaSkillHit` around it at once (`ClientState.ChannelSkill`, `NextChannelHitAt`).
+(read from live captures 2026-10-23). The Gateway only moves the player there: 0x197 does not come at the attack rate.
+The hits run on the server's own timer (`RunChannel`, started with the channel): the first sweep lands as the channel
+starts, then one sweep around the player's current cell every `SupportedAttackSeconds` (the skill's own speed, its
+supports and the player's attack speed, as the tooltip shows), paying the cost each time, until 0x199, any other action,
+running out of mana, death or travel, or when the 0x197 updates stop for a second (the client sends them all the
+time while the button is held, so a lost 0x199 cannot keep the channel going: `LastChannelUpdateAt`;
+`ClientState.ChannelSkill`, `NextChannelHitAt`). One sweep resolves its damage
+and multiplier once and rolls them per monster; every monster gets its hit, life update and death packet before the
+sweep's deaths run their loot, experience and quest work (`AreaSkillHit`). Before, a sweep recalculated the whole skill
+per monster and handled each death inline, spreading one sweep over up to 1.4 s in a crowd.
 
 ## 10. Projectiles (experimental)
+
+**Current implementation:** the [framework](../game/projectile-framework.md) owns gem/bow production routing and
+the sole 30 Hz Core simulator. Without skill coverage, catalog-recognized projectiles use basic straight-flight
+recipes; missing metadata is refused before costs. Coverage replaces recipes and presentation, never the engine.
+The old callback flight, observed-motion estimator, fixed-gap spread and named return-policy helpers are removed.
+The older native evidence below records packet discoveries and the replaced implementation: its 16 ms polling,
+send-gate damage commits, return overshoot/debug flags and fixed-gap controls are not current runtime behavior.
+Revalidate native gameplay against the current runtime; packet-layout evidence remains applicable.
 
 The server creates and moves the projectile. The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does
 nothing by itself: its slot 17 reads nothing and almost every other slot is a bare `ret`.
@@ -1693,6 +1731,17 @@ ring will require its actual radius rather than this marker. The skill-bar assoc
 
 ## 14. Character panel sums
 
+Whaletooth Bangle's owner duration is projected by `SkillDurationModifiers` in `CharacterPlayerStats`:
+`skill_effect_duration_+%` gains the signed per-ten-Strength value (key 2817) for each complete group of ten final Strength.
+It adds to ordinary raw duration once per rebuild, after attribute resolution; explicit final-stat overrides win.
+The resulting stat reaches the normal player/GrantedSkill stat publication without changing message layouts.
+Enduring Cry consumes that duration in its paid recovery interval, including compatible linked duration supports.
+Its base 2500 ms becomes 3175 ms at 272 final Strength with Whaletooth, retaining the Power-based recovery rate.
+Native paired recovery totals, expiry Life correction, transfer and cleanup are in
+[Antiquarian](../game/antiquarian.md#strength-duration-and-stun).
+Other skill/summon lifetime engines remain separate.
+See [the ascendancy scope and lifecycle checks](../game/ascendancies.md#whaletooth-bangle-duration-stat).
+
 The character panel (CharacterPanelStats.dat, 387 rows) reads mostly virtual stats that the server computes; the client
 derives none of them (§4). Passives and item mods give the base form (`base_stun_recovery_+%`) while the Stun Recovery
 row reads `stun_recovery_+%`. `PanelStats` (issue #75) lists, for about 150 display stats, what each one sums: the display
@@ -1899,7 +1948,7 @@ Automated parsed-dispatch coverage does not constitute native verification.
 - Monsters use only their first granted effect; no ranged or spell skills, no monster skill choice.
 - A damage model: armour, evasion, resistances, crits; the player's real life from level and stats.
 - The death screen's bit4 and trailing fields (Sanctum and other modes); exit to character selection (0x153).
-- f0 0x20 (skill update), the second and third lists of f0 0x40, supports (linked support gems), gem levels.
+- Skill record fields +0xc0/+0xc4 still have unproved semantic names.
 - Projectiles: their height above the ground and model orientation (§10), collision, the explosion, the real
   skill → projectile link; damage for ground casts.
 - The meaning of 0x53's two trailing u16.
@@ -1917,3 +1966,35 @@ Skill removal suspends runtime effects without deleting enabled intent. A skill-
 A real town/hideout round trip restored only Vitality despite saved Precision and Clarity. The log marked the body armour inactive because Precision needed 22 dexterity while initial pools still contained the class base 14. CharacterStatSources was checking socketed gems against stale/uninitialized pools while constructing those very pools, then disabling the entire item's global modifiers and all its gems.
 
 Item activation now uses only the equipment's own requirements. Gem requirements remain enforced individually at socketing/casting against completed pools; an unavailable gem no longer suppresses its host armour, unrelated gems or their attributes. This removes the circular initialization gate on aura candidates. AuraEquipmentRestoreTests reproduces the fresh-connection equipment case and restores all 17 supported self auras, including 34 distinct source/recipient buff packets after town suppression. Restoration has no aura-count limit.
+
+### Grace Period on combat-area entry
+
+Each instance connection grants a fresh 60-second `grace_period` buff after creating the player and before
+spawning monsters. WorldAreas.IsTown and owned hideout templates are excluded by this server's policy.
+BuffDefinitions row 6 is visible, non-recovery, uses BuffVisuals row 8 (`invulnerability.dds`), and has
+base_cannot_be_damaged / is_hidden_monster / in_grace_period and minion protection flags. Send ordinary
+S→C 0x1c1 with a fresh buff instance and u68 holding IEEE-754 f32 **60.0 seconds** (0x42700000); remove once with 0x1c2.
+
+GracePeriod tracks a per-entry deadline and initial cell using the pause-aware connection game clock.
+The first actual grid step (including approach-to-object movement), expiry, skill/attack use or a successful
+flask use ends protection. An idle/blocked move order alone does not remove it. Protection is checked at
+hit time and ends immediately on movement/deadline even before the recovery loop sends the remove packet.
+It cannot reactivate by returning to the starting cell. No state is persisted across connections.
+
+While protected, the server grants immunity to every damage type, suppresses RF self-burning and outgoing
+RF pulses, and prevents hostile AI targeting and pending monster hits. Functional summoned-minion combat
+is not implemented; cosmetic pets have no incoming/outgoing damage to protect.
+GGG's [3.25.0 patch notes](https://www.pathofexile.com/forum/view-thread/3531661) explicitly identify the
+Grace Period buff and protection from enemy targeting. The native buff metadata supplies the icon/name/stats;
+the requested 60-second duration and town/hideout exclusions are server policy. See also the
+[community mechanics reference](https://www.poewiki.net/wiki/Grace_Period) for action cancellation rules.
+Automated coverage includes exact expiry, all exclusion combinations, native metadata/packet, one-step
+movement and action cancellation. Real-client icon/timing verification is pending.
+
+Grace Period countdown correction: packet +0x68 is copied by 0x141e07220 to constructor parameters,
+then by 0x141e06290 to Buff +0x18 (initial duration) and +0x1c (remaining duration).
+0x141e10520 subtracts elapsed seconds multiplied by Buff +0x20 (packet +0x6c, rate default 1).
+The omitted-duration default 0x14015a670 is float positive infinity (0x7f800000).
+An integer 60000 was interpreted as a tiny subnormal float and immediately displayed 0:00.
+The regression independently decodes the BE duration bits and checks float 60, rather than comparing two calls
+to the same packet writer. Native icon was confirmed; corrected countdown awaits live verification.

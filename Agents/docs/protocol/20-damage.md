@@ -170,6 +170,12 @@ Class selection and Phrecia client compatibility are separate work; this does no
 
 ## 2d. Behemoth: attack damage from final armour
 
+Forest Tracking (Daughter of Oshabi node 6281) now shares this increased-attack calculation.
+Client key 2434, `attack_damage_+%_per_450_evasion`, contributes 3 per complete 450 final evasion.
+Both armour and evasion contributions add to the raw attack increase before one signed clamp.
+Final evasion after Iron Reflexes supplies no evasion groups; the resulting armour can still supply Steel Willed groups.
+See [Forest Tracking](../game/ascendancies.md#forest-tracking-attack-damage) for scope and lifecycle checks.
+
 Steel Willed (3.29.3b PassiveSkills graph node 2103) grants
 `attack_damage_+%_per_450_physical_damage_reduction_rating` with value 2, stat key 13019.
 `ArmourAttackDamage` adds `floor(max(0, final armour) / 450) * value` to resolved `attack_damage_+%` once.

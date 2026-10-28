@@ -26,6 +26,7 @@ public class WarcryAdmissionTests
             .Single(s => s.Item1 == Program.Stats.Key("base_mana_cost")).Item2;
         public ChargeSession Charges => (ChargeSession)Method("ChargesOf").Invoke(null, [Conn])!;
         public SemaphoreSlim Gate => Program.SendGates.GetValue(Ciphers, _ => new(1, 1));
+        public bool HasOutput => reader.Available > 0;
 
         public Fixture(string gemId = "EnduringCry")
         {
@@ -221,6 +222,7 @@ public class WarcryAdmissionTests
             Assert.Equal(17, f.Conn.ActionCount);
             await Until(() => f.Conn.SkillReadyAt.Count > 0);
         }
+        await Until(() => f.HasOutput);
         Assert.NotEmpty(await f.Drain());
     }
 

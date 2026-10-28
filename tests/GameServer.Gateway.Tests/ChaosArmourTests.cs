@@ -245,26 +245,28 @@ public class ChaosArmourTests
     public async Task Parsed_raw_source_changes_keep_mana_and_chaos_armour_independent_without_refilling()
     {
         using var game = new IncomingFixture();
-        var ordinary = game.Conn.Pools;
         // Exercise shared raw consumers, without allocating or admitting a Phrecia class.
         game.Conn.MainAscendancy = new(Nodes: [38080, 29437]);
         game.Conn.Pools = Program.PoolsFor(game.Conn, 100);
-        uint combinedMana = ordinary.Mana + (uint)(ordinary.Strength / 4 * 8);
+        uint combinedMana = 135; // Witch: (650 + floor(14/4)*8)*.2, rounded.
+        uint convertedMana = 130; // Removing only mana per Strength leaves conversion active.
         Assert.Equal(combinedMana, game.Conn.Pools.Mana);
+        Assert.Equal(1078, game.Conn.Pools.Armour);
         Assert.True(game.Conn.Pools.ArmourAppliesToChaosDamage);
         game.Conn.PlayerMana = combinedMana;
 
         await game.Command("/set_stat X_mana_per_4_strength 0");
-        Assert.Equal(ordinary.Mana, game.Conn.Pools.Mana);
-        Assert.Equal(ordinary.Mana, game.Conn.PlayerMana);
+        Assert.Equal(convertedMana, game.Conn.Pools.Mana);
+        Assert.Equal(convertedMana, game.Conn.PlayerMana);
+        Assert.Equal(1040, game.Conn.Pools.Armour);
         Assert.True(game.Conn.Pools.ArmourAppliesToChaosDamage);
-        byte[] expectedMana = InstanceProtocol.LifeUpdate(0x1000, ordinary.Mana, 0, pool: 1);
+        byte[] expectedMana = InstanceProtocol.LifeUpdate(0x1000, convertedMana, 0, pool: 1);
         byte[] wire = await game.Received(expectedMana);
         Assert.True(wire.AsSpan().IndexOf(expectedMana) >= 0);
 
         await game.Command("/set_stat X_mana_per_4_strength off");
         Assert.Equal(combinedMana, game.Conn.Pools.Mana);
-        Assert.Equal(ordinary.Mana, game.Conn.PlayerMana); // Restoring a source never refills current Mana.
+        Assert.Equal(convertedMana, game.Conn.PlayerMana); // Restoring a source never refills current Mana.
         Assert.True(game.Conn.Pools.ArmourAppliesToChaosDamage);
         await game.Command("/set_stat base_armour_applies_to_chaos_damage 0");
         Assert.False(game.Conn.Pools.ArmourAppliesToChaosDamage);
@@ -272,7 +274,7 @@ public class ChaosArmourTests
         await game.Command("/set_stat base_armour_applies_to_chaos_damage off");
         Assert.True(game.Conn.Pools.ArmourAppliesToChaosDamage);
         Assert.Equal(combinedMana, game.Conn.Pools.Mana);
-        Assert.Equal(ordinary.Mana, game.Conn.PlayerMana);
+        Assert.Equal(convertedMana, game.Conn.PlayerMana);
         Assert.Null(game.Conn.MainAscendancy.Selection);
     }
 

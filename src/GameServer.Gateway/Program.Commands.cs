@@ -41,7 +41,8 @@ partial class Program
             bool off = args[1].Equals("off", StringComparison.OrdinalIgnoreCase);
             int value = off ? 0 : int.Parse(args[1]);
             bool rawAttribute = AttributeModifiers.IsInput(Stats.Name(stat));
-            bool rebuildMana = stat == Stats.Key(StrengthMana.PerFourStrength);
+            bool rebuildMana = stat == Stats.Key(StrengthMana.PerFourStrength)
+                || stat == Stats.Key(PowerOfPurpose.RawFlag);
             lock (conn.Monsters)
             {
                 if (off) conn.PlayerStats.Remove(stat);
@@ -549,7 +550,8 @@ partial class Program
             if (args.Length < 2) throw new ArgumentException("a damage type and an amount");
             if (ParseDamageType(args[0]) is not { } type) throw new ArgumentException("fire, cold, lightning, chaos or physical");
             if (!int.TryParse(args[1], out int amount) || amount <= 0) throw new ArgumentException("a positive amount");
-            if (!TryDevEnemyHit(conn, type, amount, false, false, false, out var hit))
+            if (!TryDevEnemyHit(conn, type, amount, false, false, false, out var hit,
+                ranged: args.Length > 2 && args[2] == "ranged"))
             {
                 await conn.Commands!.Reply(conn.PlayerLife == 0 ? "You are already dead." : "Enemy test hit rejected while paused or leaving.");
                 return;

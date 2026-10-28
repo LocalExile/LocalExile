@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -202,7 +203,9 @@ public class ConditionalCriticalGatewayTests
             ? "main_hand_critical_strike_multiplier" : "spell_critical_strike_multiplier")!.Value;
         Assert.Contains((multiplierKey, multiplier), panel.Stats!);
         Assert.Contains((Program.Stats.Key("virtual_extra_critical_rolls")!.Value, 1), panel.Stats!);
-        f.Conn.PlayerLife = 51;
+        // The low-life condition is read when the hit resolves: at the contact for a swing or a cast, at once for a
+        // channelled skill (Cyclone's first sweep lands as it starts, RunChannel).
+        f.Conn.PlayerLife = gem == "Cyclone" ? 50u : 51u;
         await f.Use();
         f.Conn.PlayerLife = 50;
         await f.HitLands();
@@ -236,15 +239,28 @@ public class ConditionalCriticalGatewayTests
         using var f = new Contact(random, weaponName: "Crude Bow", distance: 60);
         f.Set(CriticalStrikePolicy.UnarmedMeleeMultiplierStat, 50);
         f.Conn.PlayerLife = 51;
-        uint firstObject = f.Conn.NextObjectId;
-        var use = f.Use();
-        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
-            while (f.Conn.NextObjectId == firstObject) await Task.Delay(5, timeout.Token);
-        Assert.Equal(0, random.Calls);
-        f.Conn.PlayerLife = 50;
-        f.Set("global_cannot_crit", cannotCrit ? 1 : 0);
+        Task use;
+        using (Program.ProjectileMutation(f.Conn, advance: false))
+        {
+            // Accept the real bow action while unpaused, then freeze the pump before it can release or hit.
+            use = f.Use();
+            f.Conn.Clock.Stop();
+            try
+            {
+                var session = Assert.IsType<Program.ProjectileSession>(f.Conn.ProjectileRuntime);
+                long deadline = session.Runtime.Now + ProjectileRuntime.Time(2);
+                while (session.Runtime.Projectiles.Count == 0 && session.Runtime.Now < deadline)
+                    session.AdvanceTo(session.Runtime.Now + ProjectileRuntime.TickQuanta / 10);
+                Assert.Single(session.Runtime.Projectiles);
+                Assert.Equal(0, random.Calls);
+                Assert.Equal(f.Target.MaxLife, f.Target.Life);
+                f.Conn.PlayerLife = 50;
+                f.Set("global_cannot_crit", cannotCrit ? 1 : 0);
+                session.AdvanceTo(session.Runtime.Now + ProjectileRuntime.Time(1));
+            }
+            finally { f.Conn.Clock.Start(); }
+        }
         await use;
-        await f.HitLands();
         Assert.Equal(cannotCrit ? 0 : 2, random.Calls);
         Assert.Equal(cannotCrit ? 1000u : 1500u, f.Target.MaxLife - f.Target.Life);
     }

@@ -39,7 +39,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   phases through monsters, Gold raises the rarity of drops, Silver gives Onslaught.
   Checked live: every flask's use, stats on the client, bars, pause, death, area change; not the client walking faster
   or phasing (the control bridge cannot make it walk).
-  Not yet: Iron Flask's Ward (PR #206), ailments, stun and curses on the player (Aquamarine, Corundum and the ailment
+  Iron Flask now contributes to the authoritative Ward pool and restores broken Ward only after paid use.
+  A native Antiquarian check spent 40 charges, restored 502 Ward immediately and returned to 22 after expiry.
+  See [Ward and native evidence](../docs/game/antiquarian.md).
+  Not yet: ailments, stun and curses on the player (Aquamarine, Corundum and the ailment
   suffixes reach the panel only), Aquamarine's chilled ground, the smoke cloud's art, leech suffixes.
   Code: `UtilityFlasks.cs`, `FlaskGrounds.cs`, Gateway (`UseUtilityFlask`, `RunUtilityFlasks`, `RunFlaskGrounds`).
   Docs: [13](../docs/protocol/13-items.md) §8a.
@@ -72,6 +75,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Saved armour base rolls survive wire/save round trips and feed the shared local defence calculation.
   Ordinary new items and legacy saves retain zero/minimum bases; ordinary generation policy is unchanged.
   Local defence rounding, quality rules and native zero-ES/attribute-requirement flags have regression coverage.
+  Saved rolls and local modifiers feed body-armour conversion into Ward before global defence scaling.
+  Current gem requirement snapshots retain local equipment exemptions without publishing inactive-item state.
   Broader unique and special gameplay mechanics remain separate (#60).
   Code: `InstanceItems.cs`, Gateway (`ModCatalog.cs`, `ItemRolls.cs`, `ItemDrops.cs`, `ItemModStats.cs`,
   `ItemCatalog.cs`, `CharacterSaves.cs`).

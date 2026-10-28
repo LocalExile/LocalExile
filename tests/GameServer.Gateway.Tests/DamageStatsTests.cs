@@ -12,6 +12,42 @@ public class DamageStatsTests
     }
 
     [Fact]
+    public void Skill_spell_increase_transfer_keeps_half_percent_and_does_not_stack_with_global_flag()
+    {
+        int Get(string name) => name switch
+        {
+            "active_skill_additive_spell_damage_modifiers_apply_to_attack_damage_at_%_value" => 150,
+            "spell_damage_+%" => 1,
+            DamageStats.SpellDamageIncreasesApplyToAttacks150 => 1,
+            _ => 0
+        };
+        var hit = SupportedAttackDamage.Hit(new(1000, 200, 200, 10), Get, new HashSet<int> { 0, 2 });
+        Assert.Equal(203, hit[DamageType.Physical].Min);
+        int OnlySkill(string name) => name == DamageStats.SpellDamageIncreasesApplyToAttacks150 ? 0 : Get(name);
+        Assert.Equal(203, SupportedAttackDamage.Hit(new(1000, 200, 200, 10), OnlySkill,
+            new HashSet<int> { 0, 2 })[DamageType.Physical].Min);
+    }
+
+    [Fact]
+    public void Maximum_mana_physical_added_damage_is_attack_only_and_precedes_conversion()
+    {
+        int Get(string name) => name switch
+        {
+            "maximum_mana" => 997,
+            "added_physical_damage_to_attacks_equal_to_%_maximum_mana" => 10,
+            "physical_damage_+%" => 100,
+            _ => 0
+        };
+        var conversion = new DamageConversion(); conversion.AddGlobal(DamageType.Physical, DamageType.Fire, 50);
+        var attack = SupportedAttackDamage.Hit(new(1000, 0, 0, 10), Get, new HashSet<int> { 0, 2 }).Convert(conversion);
+        Assert.Equal(99.7, attack[DamageType.Physical].Min, 6);
+        Assert.Equal(99.7, attack[DamageType.Fire].Min, 6);
+        var added = DamageStats.Added(DamagePacket.Empty, Get, spell: false, melee: false, effectiveness: .5);
+        Assert.Equal(99.7, added[DamageType.Physical].Min, 6);
+        Assert.True(DamageStats.Added(DamagePacket.Empty, Get, spell: true, melee: false).IsZero);
+    }
+
+    [Fact]
     public void Conversion_reads_the_global_and_skill_stats()
     {
         var catalog = new StatCatalog(Data());

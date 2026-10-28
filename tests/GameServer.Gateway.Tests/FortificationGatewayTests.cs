@@ -137,7 +137,7 @@ public sealed class FortificationGatewayTests : IDisposable
         var gate = Program.SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         if (delayedNotifications) await gate.WaitAsync();
         var use = (Task)Method("AreaSkillHit").Invoke(null, ["fortification-area-test", writer.GetStream(),
-            ciphers, conn, id, entry, (32, 32), (34, 32), true, (ushort)0, null, null, null, 1.0, 0u])!;
+            ciphers, conn, id, entry, (32, 32), (34, 32), true, (ushort)0, null, null])!;
         if (delayedNotifications)
         {
             Assert.True(first.Life < first.MaxLife);

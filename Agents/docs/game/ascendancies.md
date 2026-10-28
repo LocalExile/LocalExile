@@ -11,15 +11,17 @@ The server can list the 21 ordinary and 19 Phrecia definitions from the exact 3.
 Each choice is identified by family, stable table Id and revision; two families can share a class number and start node.
 Only one main ascendancy is selected at a time, and it must belong to the character's base class.
 
-**Phrecia play is explicitly gated.**
+**Phrecia play is gated by default.**
 The shipped alternate graph contains older ordinary-tree topology.
 A separately agreed client-compatible graph is required before Phrecia can be enabled in an actual game connection.
-The command rejects a Phrecia choice before saving it, and login refuses an existing Phrecia save before inventory
-loading or passive normalization, retaining its data.
+Antiquarian has an explicit `Game_VERIFIED_ANTIQUARIAN=1` opt-in which verifies exact installed archive bytes read-only.
+Its [whole-class audit](antiquarian.md) records the hashes, all node consumers, legal builds and native acceptance.
+Other Phrecia choices are refused before saving, and their existing saves refuse admission before inventory loading
+or passive normalization, retaining their data.
 There is no automatic graph installation, recovery, archive rewrite, or memory-hook workaround in this slice.
 Ordinary startup and unascended/ordinary characters do not require an alternate-graph match.
 The integration tests use isolated Phrecia lifecycle fixtures; that is not a claim of play on a pristine client.
-The ordinary-client checks below cover the command selection lifecycle; the Phrecia play gate remains in place.
+The earlier ordinary-client checks below cover the command selection lifecycle; Antiquarian has separate evidence.
 
 ## Try ordinary selection
 
@@ -71,8 +73,105 @@ Masteries cannot act as bridges, and proxy/cluster expansion nodes remain unsupp
 A lower development level removes safely removable ordinary leaves only; it retains ascendancy points and nodes.
 
 The existing ordinary passive stat aggregation also sees allocated ascendancy stats.
-No Ward, Rage, charge, minion, granted-skill, passive-buff, presence or other new gameplay engine is imported here.
-Choosing a class is not evidence that its signature gameplay works.
+The selection lifecycle alone does not implement a class's signature gameplay.
+Antiquarian's Ward, Adrenaline, duration, stun and Lioneye consumers are described in its linked class audit.
+
+### Whaletooth Bangle duration stat
+
+Antiquarian node 27339, `Exhibit 39: Whaletooth Bangle`, supplies
+`skill_effect_duration_+%_per_10_strength` = 1 (3.29.3b Stats key 2817).
+`SkillDurationModifiers` adds `floor(max(0, final Strength) / 10) * per-ten value` to the raw
+`skill_effect_duration_+%` in `CharacterPlayerStats`.
+For example, 455 final Strength gives +45%; an ordinary +10% duration passive makes the total +55%.
+The calculation uses the resolved attributes after flat/increased sources, or the explicit final Strength override.
+It runs on a fresh dictionary, never writes back into sources and clamps signed totals after addition.
+An explicit `/set_stat skill_effect_duration_+%` replaces the final result, including zero and negative values.
+Removing that replacement with `off` restores derivation; removing the per-ten source removes its bonus.
+
+The automated lifecycle fixture allocates the real connected Antiquarian path, reloads its saved state,
+refunds the notable for five points, reloads again and reallocates it.
+This fixture does not admit a Phrecia game connection.
+On source `d842288a` over main `0805c0ca`, an unascended synthetic Marauder passed 15 native stat checks.
+The 3.29.3b client received 45% at 455/459 Strength and 46% at 460, plus signed-source and final-override checks.
+Flat/increased attributes produced 455/449 final Strength and 45%/44% duration; repeated rebuilds did not accumulate.
+Source removal and relog cleared the transient derived stats; cleanup returned the single client to character selection.
+Evidence: `logs/whaletooth-native/20261028-120417/` (metadata and results), with Gateway command logs in the checkout.
+Gateway/Core/Host embedded versions, listening Gateway path/CWD and the clean source revision were checked.
+The tested Gateway SHA-256 was `a2f7fb652ec8b6f39aa0d47a9c60b8362468bba26847412b8302d8bf8c35073c`.
+The solution built without warnings; Core 638, Data 18 and Gateway 3500 tests passed with public extracted data.
+The original prerequisite supplied a shared owner stat; the whole-class implementation now executes Enduring Cry recovery.
+Native selected Antiquarian with 272 final Strength recovers for 3.175 seconds rather than 2.5, at the same rate.
+The paired paid-refund control and resource totals are recorded in [Antiquarian](antiquarian.md#native-evidence).
+It does not extend minions' own skills or buffs, charge duration or flask duration.
+Additional skill/summon lifetime engines need their own elapsed-time acceptance.
+A current-main ordinary-client regression also checks duration together with Ward publication, explicit zero
+replacement and clearing developer inputs on relog; this does not replace whole-class native acceptance.
+
+### Family gem levels
+
+The common active-gem calculation consumes four Phrecia family-level sources:
+
+| Node | Source | Bonus |
+|---|---|---|
+| Herald 40058 | `herald_skill_gem_level_+` | +3 |
+| Architect of Chaos 45399 | `vaal_skill_gem_level_+` | +3 |
+| Paladin 34448 | `link_skill_gem_level_+` | +5 |
+| Puppeteer 18817 | `raise_zombie_gem_level_+` | +5 |
+
+`SkillGemFamilies` reads the target client's GemTags stat columns and SkillGems minion-level column.
+Membership belongs to the gem, not its display name or one granted effect.
+The Vaal bonus raises both skills of a Vaal gem; transfigured Raise Zombie retains its family.
+`SkillGemLevel` combines intrinsic level, linked-support level bonus and matching family sources before clamping.
+Explicit family `/set_stat` replacements win over passive/equipment sources; `off` restores the source total.
+Support gems receive no active-family bonus, even when their tags match.
+
+The effective level feeds supported skill stats, cost, reservation, damage and native skill records.
+Repeated reads do not alter gem experience, quality or intrinsic requirement checks.
+The item UI still shows its intrinsic gem level; an inactive host remains inactive.
+Automated checks allocate each real connected class path, reload, pay the notable refund and reallocate it.
+These lifecycle fixtures do not open Phrecia game connections.
+Source `49e804e0` over main `0805c0ca` passed 28 native checks on ordinary synthetic characters in 3.29.3b.
+Herald of Thunder and both Vaal Fireball skills changed from level 1 to 4; Soul Link and Raise Zombie changed to 6.
+Unrelated sources did not affect them; repeated changes, source removal and relog preserved intrinsic gem storage.
+The checks used developer family inputs, not class selection or native refunds.
+Evidence: `logs/family-gem-levels/20261028-123153/`, with Gateway skill-publication logs in the source checkout.
+Gateway/Core/Host embedded revisions, the listening DLL path/CWD and the clean source revision were verified.
+Gateway SHA-256: `2024b41ffac57ffbe12cbb09cb9ad6b1cbc27daf38b49c1e734a2a9437aedc3f`.
+The first observer attempt timed out before feature checks; the accepted run used the existing native skill-list probe.
+The solution built without warnings; Core 638, Data 18 and Gateway 3507 tests passed with public extracted data.
+Family-specific Herald, Link, minion and Vaal execution engines remain separate, as does Phrecia client admission.
+This slice does not implement global active-gem levels/quality, additional support-level bonuses or item-local gem levels.
+
+### Forest Tracking attack damage
+
+Daughter of Oshabi node 6281, Forest Tracking, grants `attack_damage_+%_per_450_evasion` = 3 (client key 2434).
+The common final-stat calculation adds three increased attack-damage points for each complete 450 final evasion.
+449 gives zero, 450/899 gives three, and 900 gives six.
+The source value is a signed coefficient, not a boolean.
+It uses the resolved rating after defence modifiers, Iron Reflexes and explicit final-rating replacements.
+An Iron Reflexes character with zero final evasion receives no Forest Tracking contribution.
+
+`ArmourAttackDamage.Total` preserves the existing Steel Willed entry point and adds optional evasion inputs.
+Both defence contributions and raw increased attack damage sum in wide arithmetic before one final clamp.
+This preserves signed cancellation and avoids turning the new bonus into a final damage multiplier.
+It applies once to weapon and added attack damage through the existing ordinary/supported/attack-gem paths.
+Spells receive no attack-only increase; conversion, support effectiveness and final Rage scaling keep their order.
+Repeated builds and source removal operate on fresh raw inputs without cached increases.
+As with Steel Willed, an explicit attack-damage input remains additive with the derived contribution.
+
+Automated checks cover the real node, complete-group boundaries, signed overflow/cancellation, final defence conversion,
+ordinary and supported damage, spell isolation, allocation, paid refund, reload and reallocation.
+The lifecycle fixture does not open a Phrecia connection.
+Source `018ef238` over main `0805c0ca` passed 17 native controls on a new ordinary unascended Witch.
+Fixed chaos attacks dealt 100 at 449 evasion, 103 at 450/899 and 106 at 900; panel and native monster Life agreed.
+Generic/raw attack increases stayed additive; simultaneous armour/evasion inputs produced 110 damage.
+Removing either source retained the other; maximum-mana lightning and physical weapon panel controls also passed.
+Relog cleared transient derived stats, and cleanup returned the single client to login.
+Evidence: `logs/forest-tracking/native-20261028-124332/`, with Gateway command/hit logs in the source checkout.
+Clean source, embedded Gateway/Core/Host revisions and the live Gateway path/CWD were checked.
+Gateway SHA-256: `4ea9695a9d9e8b2fac257060b97fa5aae81b6a7674fafc7e266bc2362189c826`.
+The solution built without warnings; Core 638, Data 18 and Gateway 3500 tests passed with public extracted data.
+Full Daughter of Oshabi gameplay and Phrecia client admission remain separate work.
 
 ## Validation and limits
 
@@ -110,7 +209,7 @@ The client archive was unchanged, and the accepted normal Gateway was restored a
 To repeat, start the single client through `scripts/dev/live.ps1` and use the ordinary commands above.
 Compare the trace's `ascendancyPassives` and `ascendancyGraph` observations with the Gateway log and saved progress.
 The smoke does not test the native Altar chooser, every ordinary class, or special ascendancy combat mechanics.
-A simultaneous ordinary/Phrecia native-play claim requires separate client agreement and cannot be made by this slice.
+That historical selection-only smoke does not replace the separate Antiquarian gameplay acceptance.
 
 Protocol fields and native evidence: [progression](../protocol/15-progression.md) and
 [3.29.3b identity/graph research](../re/ascendancy-client-3.29.3b.md).

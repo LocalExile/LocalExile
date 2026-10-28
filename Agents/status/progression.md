@@ -42,17 +42,33 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AscendancyCatalog`, `AscendancyProgress`, `OrdinaryPassiveRules`, `CharacterSaves`, Gateway progression.
   Docs: [scope, evidence and beginner steps](../docs/game/ascendancies.md).
 
+- Antiquarian: all nine notables and nine small nodes execute through three legal connected eight-point builds.
+  Native checks cover Ward/Adrenaline, final attributes/requirements, stun recovery, Enduring Cry duration,
+  always-hit attacks, Far Shot arrows and active-shield block/ranged mitigation.
+  Paid full refunds, reallocation, pause, death, area carry, relog and Gateway restart were checked.
+  Selection requires `Game_VERIFIED_ANTIQUARIAN=1` and read-only verification of the exact installed compatible graph.
+  Ordinary Juggernaut selection after a full refund restores the Default graph.
+  Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
+
 ## Partly working
 
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
-  Phrecia game connections/selection remain explicitly gated pending an agreed client-compatible graph.
+  Phrecia game connections/selection are gated by default; Antiquarian's verified-graph opt-in is accepted above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
-  The native Labyrinth/Altar flow is separate (#151); special class gameplay is outside this slice.
+  The native Labyrinth/Altar flow is separate (#151); other Phrecia class gameplay remains separate work.
   Native ordinary command checks do not establish an expanded chooser or special class gameplay.
+  Forest Tracking's attack-damage bonus from final evasion shares the existing Steel Willed calculation.
+  Automated checks cover actual node allocation/refund/reload, final defences, signed composition and attack consumers.
+  Seventeen native raw-input controls cover real damage, armour/evasion composition, added damage and relog.
+  Full Daughter of Oshabi gameplay remains separate.
+  Herald, Architect of Chaos, Paladin and Puppeteer family gem levels reach actual skill records and calculations.
+  Automated checks cover real connected allocation, paid refunds, reload, supported levels and intrinsic requirements.
+  Twenty-eight native checks cover effective family levels, unrelated sources, removal, unchanged storage and relog.
+  Family-specific execution and Phrecia native admission remain separate.
   Docs: [scope and compatibility gate](../docs/game/ascendancies.md).
 
 ## Not working yet
 
 - Saving quest progress.
   Quest passive/refund rewards and native Labyrinth/Altar acquisition (#151) remain missing.
-  Special ascendancy gameplay and Phrecia client compatibility are separate work.
+  Remaining special ascendancy gameplay and broader Phrecia client compatibility are separate work.

@@ -23,7 +23,7 @@ static class GameDataFiles
         ("data/hideouts.json", "hideouts and native stationary model collision radii"),
         ("data/animation-contacts.json", "class spell timing (the Witch's is used)"),
         ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
-        ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership and connections"),
+        ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership/connections (passive-graphs v4)"),
         ("data/phrecia-passive-skillgraph.psg", "merged passive graph analysis artifact (not installed)"),
     ];
 

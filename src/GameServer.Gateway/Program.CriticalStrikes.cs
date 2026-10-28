@@ -1,5 +1,8 @@
 partial class Program
 {
+    static bool IsCriticalProhibition(string name) => name is "global_cannot_crit"
+        or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
+
     static (bool LowLife, bool Focused, int ExtraRolls) CriticalContext(ClientState conn)
     {
         var player = CharacterPlayerStats(conn);

@@ -67,7 +67,7 @@ partial class Program
                     (uint)AuraCatalog.UnreservedMana(conn.Pools, conn.Auras.Values));
             }
         }
-        if (!conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0 && !InTown(conn))
+        if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
             RestoreRememberedAuras(conn, CharacterSaves.Load(CharacterName(conn))?.ActiveAuras ?? []);
     }
 
@@ -111,6 +111,7 @@ partial class Program
         bool replay = false) => Send(remote, stream, ciphers, [], "own aura reconciliation", atGate: () =>
         {
             lock (conn.Monsters)
-                return conn.Closed || conn.LeavingArea ? null : WithOwnAuraChanges(conn, () => [], replay);
+                return conn.Closed || conn.LeavingArea || conn.RageRetired
+                    ? null : WithOwnAuraChanges(conn, () => [], replay);
         });
 }

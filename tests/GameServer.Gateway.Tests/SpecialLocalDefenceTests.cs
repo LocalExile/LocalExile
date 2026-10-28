@@ -26,9 +26,13 @@ public sealed class SpecialLocalDefenceTests : IDisposable
         ItemCatalog.Create(Program.Items.Find(name)!, defenceBaseRoll: roll) with
         { Quality = quality, Mods = mods.Select(m => Mod(m.Stat, m.Value)).ToArray() };
 
-    static (int Armour, int Evasion, int EnergyShield) Equipped(ClientState conn) =>
-        ((int, int, int))typeof(Program).GetMethod("EquippedBaseDefences",
-            BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [conn])!;
+    static (int Armour, int Evasion, int EnergyShield) Equipped(ClientState conn)
+    {
+        var gear = ((decimal Armour, decimal Evasion, int EnergyShield, decimal Ward))typeof(Program)
+            .GetMethod("EquippedBaseDefences", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [conn, (Func<string, int>)(_ => 0)])!;
+        return ((int)gear.Armour, (int)gear.Evasion, gear.EnergyShield);
+    }
 
     static Dictionary<uint, int> Published(ClientState conn) =>
         ((List<(uint, int)>)typeof(Program).GetMethod("PlayerStatsWithCleared",

@@ -1,49 +1,39 @@
-using System.Net;
-using System.Net.Sockets;
-using GameServer.Core.Protocol.Login;
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-// A returning projectile's damage is swept as the client's projectile actually travels back, not applied in a batch
-// when the turn happens at the impact.
 public class ReturningProjectileTests
 {
-    sealed class Wire : IDisposable
+    [Fact]
+    public async Task Return_damage_is_swept_at_contact_time_towards_the_live_anchor()
     {
-        readonly TcpListener listener = new(IPAddress.Loopback, 0);
-        public readonly TcpClient Writer = new(), Reader;
-        public readonly ConnectionCiphers Ciphers = new(new byte[64], isClient: false);
-        public Wire()
-        {
-            listener.Start();
-            var accepting = listener.AcceptTcpClientAsync();
-            Writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
-            Reader = accepting.GetAwaiter().GetResult();
-        }
-        public void Dispose() { Writer.Dispose(); Reader.Dispose(); listener.Stop(); }
+        await using var f = new ProjectileRuntimeFixture();
+        var target = ProjectileRuntimeFixture.Monster(60, 10); f.Conn.Monsters.Add(42, target);
+        var profile = new ProjectileProfile("Metadata/Projectiles/DefaultArrow")
+            { Speed = 50, Range = 100, Radius = 1, Returns = true, Pierce = 2 };
+        var offense = new ProjectileOffense(DamagePacket.Of(DamageType.Physical, 10, 10), true,
+            int.MaxValue, 0, 150, "return") { ReturnMultiplier = .5 };
+        f.Release(f.Shot(profile, offense) with { ReturnAnchor = new(Program.PlayerId, f.Conn.ProjectileEpoch) });
+        f.Advance(1); Assert.Equal(90u, target.Life);
+        f.Advance(2.001); Assert.Equal(1, Assert.Single(f.Session.Runtime.Projectiles).Phase);
+        Assert.Equal(90u, target.Life); // Turning does not batch return damage.
+        f.Advance(2.9); Assert.Equal(90u, target.Life);
+        f.Advance(3.1); Assert.Equal(85u, target.Life);
+        f.Advance(4); Assert.Equal(85u, target.Life); Assert.Empty(f.Session.Runtime.Projectiles);
     }
 
-    static ClientState Connection() => new(new AreaLayout(1, "test", 300, 300, 10, 10, null, []), 1, 1)
-        { PlayerLife = 100, ActionCount = 7 };
-
     [Fact]
-    public async Task Return_damage_waits_until_the_projectile_reaches_a_target_behind_the_caster()
+    public async Task Return_uses_the_casters_position_at_turn_without_overshooting_it()
     {
-        using var wire = new Wire();
-        var conn = Connection();
-        // Behind the player (the caster stands at 10,10) so the outbound leg never touches it.
-        var target = new SpawnedMonster("target", new(0, 10, 10, width: 300, height: 300), 0, 2, 100);
-        conn.Monsters.Add(42, target);
-        double hitAt = -1;
-        var flight = Program.FlyProjectile("return-test", wire.Writer.GetStream(), wire.Ciphers, conn,
-            ("Metadata/Projectiles/DefaultArrow", 50), (10, 10), (210, 10), damageTo: null, conn.ProjectileEpoch,
-            log: false, impact: "none", returning: true,
-            returnDamageTo: _ => { hitAt = conn.Clock.Elapsed.TotalSeconds; return (10, false); });
-        await flight.WaitAsync(TimeSpan.FromSeconds(10));
-        // Outbound ~2.36 s (118 cells) and 130 cells back to the target at 50 cells/s (~2.6 s): not before ~4.9 s.
-        // Only the lower bound is asserted: the upper one depends on wall-clock scheduling under a parallel test run.
-        Assert.True(hitAt >= 4.6, $"return hit at {hitAt:0.00} s, before the projectile travelled back");
-        Assert.Equal(90u, target.Life);
+        await using var f = new ProjectileRuntimeFixture();
+        var behind = ProjectileRuntimeFixture.Monster(0, 10); f.Conn.Monsters.Add(42, behind);
+        var profile = new ProjectileProfile("Metadata/Projectiles/DefaultArrow")
+            { Speed = 50, Range = 100, Radius = 1, Returns = true };
+        f.Release(f.Shot(profile) with { ReturnAnchor = new(Program.PlayerId, f.Conn.ProjectileEpoch) });
+        f.Advance(1); f.Conn.Walk.Teleport(30, 10, 1); f.Advance(2.001);
+        var returning = Assert.Single(f.Session.Runtime.Projectiles);
+        Assert.Equal(1, returning.Phase); Assert.InRange(returning.Remaining, 79.9, 80);
+        f.Advance(3.61); Assert.Empty(f.Session.Runtime.Projectiles); Assert.Equal(100u, behind.Life);
     }
 }

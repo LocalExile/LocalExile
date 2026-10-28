@@ -137,14 +137,14 @@ public class UtilityFlasksTests
     }
 
     [Fact]
-    public void Iron_Flask_Ward_waits_for_ward_and_changes_nothing_yet()
+    public void Iron_Flask_Ward_contributes_to_the_authoritative_pool()
     {
-        // Ward comes with PR #206; UtilityFlasks.Ward is where its Bonus.Ward / WardPct will take these. Until then the
-        // pools are unchanged.
+        // Ward contributes to its own pool, independently of Armour/Evasion and plain native raw stats.
         var iron = UtilityFlasks.For(Of("Iron Flask")!, Flask(), new Dictionary<string, int> { ["local_flask_ward_+%_during_effect"] = 30 }, None).Stats;
         var stats = iron.Select(s => (s.Stat, s.Value)).ToList();
         Assert.Equal((200, 30), UtilityFlasks.Ward(stats));
-        Assert.Equal(CharacterStats.Bonus.None, UtilityFlasks.Apply(CharacterStats.Bonus.None, stats));
+        Assert.Equal(CharacterStats.Bonus.None with { Ward = 200, WardPct = 30 },
+            UtilityFlasks.Apply(CharacterStats.Bonus.None, stats));
         Assert.Empty(UtilityFlasks.RawStats(stats, StatNames.Value));
     }
 

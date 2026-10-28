@@ -10,6 +10,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Elapsed Life regeneration, stopping at expiry, area carry, death and relog were also verified.
   The evidence uses a new unascended character with raw inputs; it does not establish Behemoth selection.
   See [Fortification](../docs/game/fortification.md) for the formula, source coverage and remaining extensions.
+- Antiquarian's real selected nodes now drive Ward absorption/restoration and Runic Tablet's pausable Adrenaline.
+  Goliath's zero Intelligence reaches requirements and pools; Whaletooth extends actual Enduring Cry recovery.
+  Turtle Shell integrates 8% Life over one second after accepted melee stun, with native Life correction at expiry.
+  Lioneye's Hair bypasses supported attack accuracy, Bow scales actual travelled projectiles, and Shield replaces
+  usable-shield base block and reduces physical ranged hits after armour.
+  Three native builds cover all nodes, combat controls, paid refunds and effect/save lifecycles.
+  See [Antiquarian](../docs/game/antiquarian.md) for evidence, exact graph admission and remaining engine boundaries.
 - Conditional critical policy (#242): ordinary, low-life, Focus and Sharp and Brittle sources share a signed clamp.
   Opposing luck cancels, and multiple lucky sources still add at most one critical draw.
   The unarmed multiplier applies only to the active empty-hand melee attack, with matching panel values.
@@ -37,7 +44,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   A fresh Witch's 56 mana becomes 80 at 14/15 Strength, 88 at 16 Strength and 110 with 25% increased mana.
   Maximum-mana attack lightning follows the final pool; display-only Strength overrides cannot feed it back.
   Idle aura reservation and current-mana clamps have decrypted command-wire coverage, including the send gate.
-  Native controls use raw inputs and synthetic gear; the other Mental Conditioning flags and class remain separate.
+  Historical native controls use raw inputs and synthetic gear; Phrecia selection remains gated.
+  The full Mental Conditioning node now composes with Power of Purpose in automated tests; native reruns remain pending.
   See [11](../docs/protocol/11-skills.md) section 4.
 
 - Player Actor scale (#299): passive, active item, aura, flask and cosmetic size inputs share final1973.
@@ -77,6 +85,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   Inactive-weapon, cascading-equipment, passive-refund and active-aura composition remain automated-only.
   The evidence does not establish official-server fractional parity or enable Phrecia class selection.
   See [11](../docs/protocol/11-skills.md) section 4 and [13](../docs/protocol/13-items.md) section 2d.
+
+- Power of Purpose (#291): raw `keystone_mental_conditioning` converts 80% of flat mana to twice as much armour.
+  Mana and armour increases add for the converted contribution, under the documented PoB calculation model.
+  Thirteen historical native controls at original head `7678d60` covered toggles, increases, rounding and relog.
+  Those controls exercised actual Steel Willed attack damage and remaining-mana lightning on an unascended Witch.
+  Current-main tests compose mana per final Strength, active equipment, increases, chaos-armour/CI and Mageblood.
+  The rebase onto `939b44fe` adds increased-attribute and complete command-snapshot regressions.
+  Final scaled Strength/Intelligence, odd half mana, independent zero/off overrides and main's bounds compose there.
+  Reservation, clamps, zero/off/removal, Iron Reflexes, MORE and own-aura send-gate freshness have automated coverage.
+  Historical joint validation at `c9cd1864` passed 28 native controls, including eight final-attribute conversion cases.
+  B=127 gives 25 mana / 222 Armour; 100% mana gives 51 / 425; odd final Intelligence retains its half mana.
+  Remaining native cases include reservation, Iron Reflexes, MORE and the full node's independent consumers.
+  The candidate on `939b44fe` has no new native acceptance; the earlier controls remain historical evidence.
+  Phrecia selection remains gated.
+  See [the model and scope](../docs/game/power-of-purpose.md).
 
 - Skills and combat: the player has the default attack (PlayerMelee, Characters.dat StartingMeleeSkill) in the Actor
   skill list; it goes on the skill bar, walks into range, swings at the unarmed speed (757 ms with dual wielding's
@@ -304,6 +327,33 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+The generic [projectile framework](../docs/game/projectile-framework.md) owns production gem/bow routing and
+the sole 30 Hz runtime. Catalog fallback provides basic flight; registered skill definitions supply special rules
+and can require explicit recipes.
+
+
+- Grace Period grants 60 seconds of entry protection outside towns and hideouts.
+  First movement, a skill, a flask or expiry ends it; incoming damage, hostile targeting and RF damage are suppressed.
+  The native buff uses floating-point seconds for its countdown; the icon was checked live, timer retest is pending.
+  See [11](../docs/protocol/11-skills.md), "Area-entry Grace Period".
+- Vaal souls (#308): genuine owner kills collect into bounded shared ActiveSkills-row budgets.
+  Creation and skill updates publish the proved native Actor lists; automated wire/dispatcher checks pass.
+  Duplicates, source/cost changes, removal/readd, range, prevention, queued sends and transient lifecycle are covered.
+  Eligibility commits with lethal mutations before death notifications, including shared hits and Righteous Fire.
+  Vaal aura costs use per-instance Aura types and accepted supports, with explicit developer replacement precedence.
+  Player soul loss commits at zero Life; delayed death notices preserve actual resurrection earnings.
+  Vaal gem/support requirements use current equipment snapshots while gear notifications are held.
+  Source checks on base `939b44fe` preserve wide raw attributes, mana, pool flags and supported skill payment.
+  Skill-record bit1 (0x02) now retains native Vaal soul inputs using catalog raw stored uses in both lookup paths.
+  Parsed creation/update and real socketed tests cover zero cost/balance, ordinary partners and inactive hosts.
+  A pinned 3.29.3b session passes 42 collection/counter checks: real kills, cap, cost, zero capacity and prevention.
+  Native required-soul and manager consumers agree, including natural gem level-ups and unsupported-input refusal.
+  The build and all three suites pass; exact private composition with PR #294 also passes.
+  Distribution and capacity are documented LocalExile policies, not a claim of official algorithm parity.
+  Native duplicate/removal, death/relog/transfer, aura costs and held-notification composition remain unverified.
+  Unsupported Vaal casts are refused before action echoes or cooldown reservation, including effective zero cost.
+  No executor, Rage payment or SGP countdown is added.
+  See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.
   Equipment contributes attributes before individual gem validation;
@@ -332,55 +382,37 @@ Part of [Status](../Status.md); what to build next in this area is in
   Helena's picker now receives all 103 exported personal hideouts, including MTX templates;
   switching templates now uses the native selection request and persists the chosen home.
   See [11](../docs/protocol/11-skills.md) and [21](../docs/protocol/21-hideouts.md).
-- **Extra projectiles (2026-10-26, awaiting live check).** A projectile skill now fires one projectile object per
-  `number_of_additional_projectiles` from the player's stats (passives, wand mastery, items, auras) plus the skill's
-  supports, evenly spread around the aim (`projectile_spread_radius` when the skill has it in degrees, else 10°;
-  `Game_PROJECTILE_SPREAD=<degrees>` overrides the gap for debugging). The client creates none of them: every
-  projectile is a server object, so before this only the centre one existed.
-  Not modelled: skills' own `total_number_of_projectiles_to_fire`, Barrage-style sequential volleys,
-  `multiple_projectiles_projectile_spread_+%`, pierce/fork/chain and per-projectile accuracy.
-  Code: `ProjectileSpread.cs`, Gateway (`LaunchProjectile`).
-  Docs: [11](../docs/protocol/11-skills.md) §10.
-- **Pierce (2026-10-26, awaiting live check).** Pierce Support's `projectile_base_number_of_targets_to_pierce` (2 at
-  level 1, 4 at level 20) and the other pierce stats give a projectile a hit budget (1 + pierce): it passes through
-  that many monsters, each hit landing as the client's projectile reaches its cell, with the support's more Projectile
-  Damage already in `SupportedHit`. `always_pierce` (Freezing Pulse) is unlimited. The return leg uses the same
-  budget, while Returning Projectiles Support's `returning_projectiles_always_pierce` hits every target. Contacts are
-  observed during the flight (the server's walk estimates), not selected at launch: a target that leaves the line
-  before contact is missed, one that walks into it is hit, and the budget is spent only at real contacts. The return
-  leg is swept the same way as the projectile flies back. Kinetic Blast's explosions are created on every collision,
-  including a pierced one (wiki), but the
-  collision's target is excluded from its own explosions; the projectile's direct hit now lands on it instead.
-  Not modelled: pierce chance, per-skill pierce overrides other than `always_pierce`, forked/chained
-  pierce and piercing projectile visuals beyond the object flying on.
-  Code: Gateway (`LaunchProjectile`, `FlyProjectile`), `GemSupportDamage`.
-  Docs: [11](../docs/protocol/11-skills.md) §10.
-- **Returning projectiles (2026-10-26, awaiting live check; poewiki "Return", "Returning Projectiles Support").** After a
-  collision with a target, with terrain, or at maximum distance a projectile returns when the player's or the skill's
-  stats allow it: `projectiles_return`, `attack_projectiles_return` (attacks only) and `projectile_return_%_chance`;
-  `skill_projectiles_cannot_return` disables it, and `Game_PROJECTILE_RETURN=1/0` forces the decision for a check.
-  The same object flies back to the caster and 15 m (150 cells, `Game_PROJECTILE_RETURN_DISTANCE`) past them, then is
-  removed; `returned_projectile_speed_+%` scales the flight. Only one return per projectile. Wiki exceptions: Spark
-  and the other self-moving/rain/tornado secondary projectiles cannot return, Freezing Pulse returns only from a
-  collision, and Fireball explodes after the return instead of at the first hit. The return leg now deals damage to
-  the monsters along it (not the one it returned from): Returning Projectiles Support's
-  `support_return_returning_projectiles_damage_+%_final` (-70..-66% less, i.e. ×0.3..×0.34) and the game's returning
-  finals multiply the hit, `returning_projectiles_always_pierce` hits every target (without it only the first), and a
-  simultaneous volley's hits are shotgun-limited on the way out and on the way back, and the return's hits land as the
-  returning projectile reaches each cell, not when the turn happens. Not modelled: ailments, pierce/fork/chain priority
-  and repeat returns.
-  Code: `ProjectileReturn.cs`, Gateway (`LaunchProjectile`, `FlyProjectile`, `AreaSkillHit`).
-  Docs: [11](../docs/protocol/11-skills.md) §10.
-- **Kinetic Blast projectile display (2026-10-26, awaiting live check).** The gem's effect is ClusterBurst, and 3.29
-  names no `Projectiles.dat` row for it, so the Gateway now falls back to the wand attack's
-  `Metadata/Projectiles/WandProjectile` (3260) and plays `Metadata/Effects/Spells/cluster_burst/big.ao` where it
-  lands, including a ground cast: the landing runs one area hit of the skill's radius (its secondary explosions are
-  still not modelled). An attack gem's release is not cancelled by the attack-move's later move order any more:
-  holding a move button and firing used to spend the mana and launch nothing (2026-10-26). The burst's effect object
-  is removed 0.35 s after the impact (its animation is 200 ms) so its last frame does not stay on screen, and the
-  projectile goes at once.
-  Code: `SkillCatalog.ProjectileFor`, Gateway (`LaunchProjectile`, `AreaSkillHit`).
-  Docs: [11](../docs/protocol/11-skills.md) §10.
+- **Projectile modifiers.** Generic profiles consume resolved primary counts, speed, pierce/fork/chain/split/return
+  grants and independent prohibitions in the sole staged runtime. Ordinary bows and catalog-known projectile gems
+  work without a skill provider. A basic recipe is straight flight, not complete special-skill behavior.
+  Return opens another hit-admission phase and reads the shared returning-damage multiplier. Partial return chance,
+  return speed, contact budgets, overshoot and terrain behavior are configurable through skill definitions.
+  Boolean fork sources grant one generation, and raw bow always-pierce sources bind to the same common profile.
+  Return retains remaining continuation counts and the original lifetime; return pierce-all requires its own stat.
+  Direct and area snapshots keep area increases/supports scoped to their damage stages.
+  Area effects scale to the committed radius when the selected art exports a native radius; unknown art stays unscaled.
+  Terrain-blocked area centers are omitted without resampling or reserving time; surviving areas keep consecutive intervals.
+  Skill explosions, pulses, children, forms, native art and specialized resources belong to skill definitions.
+  Missing metadata or unsupported damage plans are refused before costs, without generic area-hit fallback.
+  [Named skills](../docs/game/projectile-skills.md) implement terminal Fireball blasts and Kinetic Blast clusters.
+  Direct volleys share admission separately outbound and returning; denied siblings pass through.
+  Fireball waits for exhausted continuation and gives the terminal victim one area-classified hit.
+  Normal KB creates four offset explosions with 40% less area damage; Clustering creates three plus quantity modifiers,
+  keeps one primary and cannot Split.
+  The internal AltY row retains normal-KB compatibility, without establishing a third playable gem.
+  Separate blast/placement radii use supported area stats once; independent explosions can overlap covered victims.
+  Each KB contact group excludes its own triggering enemy, including delayed explosions; other groups may hit it.
+  Automated checks cover large triggering victims, pierced neighbors and wall/range groups. Gateway actor radii
+  remain zero, so live area coverage uses monster centers rather than calibrated body intersections.
+  KB centers use a fixed scaled circle and random sector angles, with separate first-delay/inter-slot parameters:
+  immediate first blast, then 1/30 s between slots. These are user-tuned feel values, not official measurements.
+  Secondary explosions use their own small-burst art and equipped MTX; native art scales to the actual blast radius.
+  Skill-bar explosion totals use the resolved cluster recipe, including quality and Clustering's projectile conversion.
+  Fireball wall-contact damage and default/Stygian packets have regression coverage; visual visibility remains unverified.
+  Flights retain fixed terrain-plus-offset height (bare offset without a grid); explosion effects follow client terrain.
+  Official geometry/timing, surface height and art equivalence still need client validation.
+  Code: Core `Projectiles/`, Gateway `Projectiles/` and `Projectiles/Skills/`; see the
+  [framework guide](../docs/game/projectile-framework.md).
 - **Instant skills and cooldowns (verified live 2026-10-21).** Haste, the Purities and Righteous Fire carry
   `skill_is_instant`, so the client sends them as C→S 0x191 and keeps walking;
   the server applies them and answers S→C 0x1ce, which starts the skill bar's cooldown.
@@ -557,55 +589,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   raised maxima, replacement of global inputs, both Kitava penalties, flag removal and relog.
   Ascendancy allocation remains part of the separate lifecycle change.
   See [11](../docs/protocol/11-skills.md) §4, §5 and §12.
-- **Projectiles.** Moving targets are checked throughout flight by sweeping observed relative movement.
-  A monster can change course away from a hit, enter the path later, or intercept before a farther target.
-  The client glide is stopped at the contact cell before impact with the creation marker/world-z pair in 0x1b7.
-  Cast release, flight and explosion cleanup use game time and wait through pause.
-  Area changes remove outstanding visuals before handoff and invalidate flights even if the transfer fails.
-  Disconnects cancel outstanding flight tasks.
-  Ordinary bows snapshot current position, weapon and offensive inputs after their release wait, retaining the
-  original aim; target evasion and impales resolve at the accepted collision's actual send gate.
-  An evaded target is skipped once per straight flight, including a later hit within the same swept interval.
-  This is a current-wiki-supported policy; official-server evasion continuation and snapshot equivalence remain
-  unverified. Already-paused uses are rejected; accepted queued confirmations run outside
-  ground input dispatch and can wait for resume or original-token cancellation.
-  Actual queued-send tests cover pause, action replacement, death and transfer, plus released arrows surviving
-  later actions/player death. Ordinary hits use ranged notifications, preserve existing damage/crit/impale
-  approximations and clear impales on death. Native before-controls confirmed the old visual-only ground arrow
-  and independent melee contact hit on object use. On the combined runtime, native ground/object right-clicks
-  each dealt one hit only at the arrow stop (13 at (296,221), 6 at (296,220)), without melee `0x1af 0x4201`.
-  Creation now occurs in the bow clip near contact; frame/server scheduling delay remains visible.
-  Native wall-before-object, nearer interceptor, moving-away miss, framed Move before/after release, flight pause,
-  release pause and paused raw ground/object dispatch controls passed. Added cold removed after release stayed
-  in the arrow's 112-damage killing hit, with one 4-XP award (loot unmeasured).
-  Combined-only Frostblink checks passed: actual Q after release preserved the old hit; a timed framed `0x190`
-  before release changed the sampled origin while retaining the original aim. Combined recovery controls
-  cancelled a pending release, denied recovery-time input and accepted fresh input after expiry; an already
-  released arrow still stopped/removed. These checks compose separate Frostblink/recovery contributions.
-  Automated trajectory, wall, lifecycle and packet checks pass.
-  Live checks verified a moving-away miss, a later-entry hit, first-wall contact, pause/resume and native glide stop.
-  Raw fixed-height and terrain-sentinel stop packets preserved their fields and cleared native movement duration.
-  Earlier Fireball/raw-stop checks preceded the bow packet/height update; the ordinary bow controls above cover
-  its combined path on natural ground. Attack-gem height/collision composition still needs a live recheck.
-  Creation, glide endpoint and stop now share one signed marker; packet tests cover positive, negative and zero height.
-  Corrected normal launches retained marker 5/world z -39.0625 at creation, paused mid-flight and both contact stops.
-  Broader surface-height accuracy remains open (#182).
-  Positions remain integer server walk estimates sampled about every 16 ms, with a shared collision radius
-  and straight movement between samples.
-  Sharp turns, scheduling stalls and client interpolation can still differ; official timing equivalence is unverified.
-  Static walls use the captured two-dimensional projectile grid with diagonal-corner traversal and endpoint checks.
-  Without a height grid, flight uses the bare hand offset; platforms and doodads need a surface-height model (#182).
-  Height capture still uses `scripts/re/frida/capture-terrain-tiles.js` and `scripts/walkmaps/heights.py`.
-  Doodad/object colliders, explosion area damage and pierce/chains remain unimplemented.
-  Ordinary player and skill projectile-speed increases/reductions now share the flight and predicted-arrival speed.
-  The player's computed total is counted once; the skill's own level/quality bonus is added separately.
-  The development speed override retains priority.
-  Live Fireball casts over the same 116-cell path took 1.212 seconds at baseline, 0.606 at +100% and 2.425 at -50%.
-  Conditional/more/less speed and support-gem application remain open.
-  Code: `ProjectileSpeed.cs`, `ProjectileFlight.cs`, `OrdinaryBowShot.cs`, `Program.Bows.cs`,
-  `Program.Combat.cs` (`LaunchProjectile`, `FlyProjectile`), `ClientState.cs`,
-  `InstanceProtocol.Teleport`.
-  Docs: [11](../docs/protocol/11-skills.md) §10 and [22](../docs/protocol/22-pause.md).
+- **Projectiles.** One chronological runtime drives production gem/bow flight, contacts and continuation.
+  It runs at 30 Hz boundaries with subtick contacts and commits damage/rewards before network output.
+  Native gem skill records derive projectile count, pierce, chain, fork, split and return from shared parameter rules.
+  These display-only projections respect prohibitions and refresh after support removal without changing release inputs.
+  Missing projectile metadata allows generic panel parameters while executable release remains unavailable.
+  Release captures position and offense; target movement, evasion, defenses and impales resolve on contact.
+  Pause freezes the game horizon, transfer/retirement invalidates epochs, and released shots survive later actions.
+  Real-input held-output, moving-target, wall, evasion, pierce, return, pause, transfer, impale and actor-scale checks
+  exercise this same runtime. Native bow/skill controls and animation alignment still require client validation.
+  Straight flight uses captured ground plus `Game_PROJECTILE_HEIGHT` (default 5); missing captures use the bare offset.
+  Creation, glide and stop retain the same height; independent effects still follow client terrain.
+  Platforms/doodads still need a surface model (#182). Integer walk estimates and shared radius remain approximations.
+  Code: Core `Projectiles/`, Gateway `Projectiles/`, `Program.Bows.cs`, `Program.Combat.cs` and `ClientState.cs`.
+  Docs: [framework](../docs/game/projectile-framework.md), [11](../docs/protocol/11-skills.md) section 10.
 - **Combat.** The player's default attack kills monsters with server-side damage (no monster armour yet; each damage
   type of a hit takes the monster's own base resistance with the hit's penetration subtracted from the capped value,
   `HitMitigation`/`Penetration`; the player's hit lands at the attack animation's contact keyframe, a monster's still

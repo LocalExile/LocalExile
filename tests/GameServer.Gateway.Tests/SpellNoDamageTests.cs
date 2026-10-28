@@ -7,7 +7,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public class SpellNoDamageTests
+public partial class SpellNoDamageTests
 {
     const string Flag = "spell_skills_deal_no_damage";
     static MethodInfo Method(string name) =>
@@ -104,7 +104,7 @@ public class SpellNoDamageTests
 
         public void Dispose()
         {
-            Conn.Closed = true;
+            Conn.Closed = true; Conn.ProjectileRuntime?.Invalidate();
             writer.Dispose(); Reader.Dispose(); listener.Stop(); PlayerInventories.Forget(name);
         }
     }
@@ -209,7 +209,6 @@ public class SpellNoDamageTests
     [InlineData("Fireball", 0)]
     [InlineData("Fireball", 1)]
     [InlineData("Fireball", -1)]
-    [InlineData("EtherealKnives", 1)]
     [InlineData("IceNova", 0)]
     [InlineData("IceNova", 1)]
     [InlineData("IceNova", -1)]
@@ -236,7 +235,16 @@ public class SpellNoDamageTests
         Assert.True(f.Reader.Available > 0); // Action/cost/effect packets still traverse the encrypted send path.
         // Existing zero-damage hits retain accepted-hit callbacks, including noncritical charge gains.
         var charges = (ChargeSession)Method("ChargesOf").Invoke(null, [f.Conn])!;
-        await Until(() => charges.Pending);
+        await Until(() =>
+        {
+            if (charges.Pending)
+            {
+                var current = Program.CharacterPlayerStats(f.Conn);
+                charges.Step(f.Conn.Clock.Elapsed.TotalSeconds, name => Value(current, name),
+                    () => Program.WeaponProfileFor(f.Conn), true, false, false, new Random(1));
+            }
+            return charges.Effective(ChargeType.Power) > 0;
+        });
         var stats = Program.CharacterPlayerStats(f.Conn);
         charges.Step(f.Conn.Clock.Elapsed.TotalSeconds, name => Value(stats, name),
             () => Program.WeaponProfileFor(f.Conn), true, false, false, new Random(1));
@@ -318,6 +326,7 @@ public class SpellNoDamageTests
         var ordinary = Program.PoolsFor(f.Conn, 100);
         // Raw passive fixtures exercise consumers without admitting or allocating a Phrecia class.
         f.Conn.MainAscendancy = new(Nodes: [49937, 38080, 29437]);
+        f.Set(PowerOfPurpose.RawFlag, 0); // Keep this existing control on ordinary mana and Armour.
         f.Conn.Pools = Program.PoolsFor(f.Conn, 100);
         uint combinedMana = ordinary.Mana + (uint)(ordinary.Strength / 4 * 8);
         Assert.Equal(combinedMana, f.Conn.Pools.Mana);
@@ -497,23 +506,24 @@ public class SpellNoDamageTests
     {
         using var f = new Fixture("Fireball", targetX: 100);
         f.Set(Flag, releaseFlag);
-        var launch = f.Invoke("LaunchProjectile", f.Skill, (32, 32), (100, 32), 42u, (ushort)7, null, null);
-        // Read through the actual glide packet before changing the source; the projectile is already in flight.
-        int create = InstanceEntities.CreateObject(0x3000, 0,
-            new ProjectileObject("fireball", 0, 0, Height: 0).Blob()).Length;
-        int wake = InstanceProtocol.EnterWakeZone(0x3000).Length;
-        int glide = InstanceProtocol.MoveTo(0x3000, 0, 0, 1).Length;
-        var bytes = new byte[create + wake + glide];
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await f.Reader.GetStream().ReadExactlyAsync(bytes, timeout.Token);
-        new ConnectionCiphers(new byte[64], isClient: true).Receive.Process(bytes);
-        Assert.Equal(new byte[] { 1, 0xba }, bytes.AsSpan(create + wake, 2).ToArray());
-        Assert.Equal(f.Target.MaxLife, f.Target.Life);
-        if (impactFlag == 0) f.Conn.PlayerStats.Remove(5341);
-        else f.Set(Flag, impactFlag);
+        var launch = f.Invoke("LaunchProjectile", f.Skill, (32, 32), (100, 32), f.Conn.HitRecovery.Generation,
+            42u, (ushort)7, null, null);
+        await Until(() => f.Conn.ProjectileRuntime?.Runtime.Projectiles.Count > 0);
+        using (Program.ProjectileMutation(f.Conn, advance: false))
+        {
+            f.Conn.Clock.Stop();
+            Assert.Equal(f.Target.MaxLife, f.Target.Life);
+            if (impactFlag == 0) f.Conn.PlayerStats.Remove(5341);
+            else f.Set(Flag, impactFlag);
+            f.Conn.ProjectileRuntime!.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(5));
+        }
         await launch.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(impactFlag == 1, f.Target.Life == f.Target.MaxLife);
         Assert.True(double.IsFinite(f.Conn.LastEnemyHitAt));
+        f.Conn.Clock.Start();
+        await Until(() => f.Conn.ProjectileObjects.Count == 0);
+        f.Conn.Closed = true; f.Conn.ProjectileRuntime!.Invalidate();
+        await f.Conn.ProjectileRuntime.OutputCompleted.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(f.Conn.ProjectileObjects);
     }
 

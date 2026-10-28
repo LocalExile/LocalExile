@@ -4,20 +4,28 @@ partial class Program
 {
     internal static readonly GemSupports Supports = new();
     sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
-        Dictionary<uint, int> Stats, Item? SourceGem = null);
+        Dictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true);
 
     static SupportedGem SupportedSkill(ClientState conn, ushort skillId)
     {
+        lock (conn.Monsters) return SupportedSkillAt(conn, skillId, null);
+    }
+
+    static SupportedGem SupportedSkillAt(ClientState conn, ushort skillId, GemRequirementSnapshot? requirements)
+    {
         string name = CharacterName(conn);
-        var inventory = ItemsOf(conn);
-        var places = inventory.SocketedGemPlaces();
+        var equipment = requirements?.Equipment ?? ItemsOf(conn).EquipmentSnapshot();
+        var places = GemRequirementSnapshot.PlacesIn(equipment);
         var active = places.SelectMany(p => Items.GemEffects(p.Gem).Select(e => (Place: p, Effect: e))).ToList();
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds()).Assign(
             [.. active.Select(g => new GemSkillIds.Gem(g.Place.ItemId, g.Place.Socket, g.Effect))], GemSkillIdPool.Value);
         int index = Enumerable.Range(0, ids.Count).FirstOrDefault(i => ids[i] == skillId, -1);
         if (index < 0) return new(-1, 1, 0, [], []);
         var selected = active[index];
-        var host = inventory.SocketHost(selected.Place.ItemId)!;
+        // Vaal source/support eligibility must not inherit an earlier equipment notification's cached pools.
+        if (requirements is null && Skills.VaalBudget(selected.Effect, Items.GemLevel(selected.Place.Gem)) is not null)
+            requirements = CurrentGemRequirements(conn, equipment);
+        var host = equipment.Single(e => e.Item.Id == selected.Place.ItemId).Item.Item;
         int group = GemSupports.LinkGroup(host, selected.Place.Socket);
         int Quality(int socket, Item gem)
         {
@@ -26,18 +34,18 @@ partial class Program
         }
         var candidates = new List<GemSupports.Candidate>();
         foreach (var p in places.Where(p => p.ItemId == selected.Place.ItemId
-            && GemSupports.LinkGroup(host, p.Socket) == group && GemRequirementsUnmet(conn, p.Gem) is null))
+            && GemSupports.LinkGroup(host, p.Socket) == group && GemRequirementsUnmetAt(conn, p.Gem, requirements) is null))
             if (Items.ByHash(p.Gem.TypeHash) is { } type && Items.Gem(type) is { IsSupport: true } gem)
             {
                 var variant = gem.Variant(p.Gem.GemVariant);
                 foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
                     candidates.Add(new(effect, Items.GemLevel(p.Gem), Quality(p.Socket, p.Gem), p.Socket));
             }
-        var weapon = inventory.Items(PlayerInventories.Weapon1).FirstOrDefault();
+        var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
         int? weaponClass = weapon is null ? null : Items.ByHash(weapon.Item.TypeHash)?.ClassRow;
         var supports = Supports.Resolve(selected.Effect, candidates, Skills, weaponClass);
         int Value(string stat) => Stats.Key(stat) is uint k ? supports.Sum(s => s.Stats.Where(v => v.Key == k).Sum(v => v.Value)) : 0;
-        int level = Math.Max(1, Items.GemLevel(selected.Place.Gem) + Value("supported_active_skill_gem_level_+"));
+        int level = EffectiveGemLevel(conn, selected.Place.Gem, Value("supported_active_skill_gem_level_+"));
         int quality = Quality(selected.Place.Socket, selected.Place.Gem) + Value("supported_active_skill_gem_quality_%");
         var own = Skills.EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var support in supports)
@@ -63,7 +71,9 @@ partial class Program
         if (Skills.IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
-        return new(selected.Effect, level, quality, supports, own, selected.Place.Gem);
+        return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
+            requirements?.Inactive.Contains(selected.Place.ItemId) != true
+                && GemRequirementsUnmetAt(conn, selected.Place.Gem, requirements) is null);
     }
 
     static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
@@ -103,13 +113,22 @@ partial class Program
     }
 
     static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)
+        => SupportedHitFor(conn, skillId, suppress: true);
+
+    internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)
+        => SupportedHitFor(conn, skillId, suppress: false, area);
+
+    static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null)
     {
         var gem = SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
+            : Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool attack = Skills.IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        if (area is true) types.Add(7);
+        else if (area is false) types.Remove(7);
         var plan = SkillHitPlan.ForSkill(Skills, gem.Effect, gem.Level, gem.Quality);
         if (!plan.CanHit) return GameServer.Core.World.DamagePacket.Empty;
         var hit = attack
@@ -120,17 +139,24 @@ partial class Program
         hit = hit.Convert(DamageStats.Conversion(stats, Stats, attack));
         hit = GemSupportDamage.Scale(hit, modifiers, types, afterConversion: true);
         if (attack) hit = RageStats.ApplyAttack(hit, Get);
-        return new SkillDamageContext(plan.Kind, caster).Hit(hit);
+        return suppress ? new SkillDamageContext(plan.Kind, caster).Hit(hit) : hit;
     }
 
-    static int SupportedCriticalChance(ClientState conn, ushort skillId)
+    static int SupportedCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, false);
+
+    // A release retains the unprohibited offensive chance; the hit evaluates current owner prohibitions separately.
+    static int SupportedReleaseCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, true);
+
+    static int SupportedCriticalChanceFor(ClientState conn, ushort skillId, bool release)
     {
         var gem = SupportedSkill(conn, skillId);
         var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
-        int Own(string name) => Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
+        int Own(string name) => release && IsCriticalProhibition(name) ? 0
+            : Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
+        int Player(string name) => release && IsCriticalProhibition(name) ? 0
+            : Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         if (Skills.IsAttack(gem.Effect))
         {
-            int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
             if (new[] { "global_cannot_crit", "virtual_global_cannot_crit", "cannot_critical_strike_with_attacks" }
                 .Any(name => Player(name) != 0 || Own(name) != 0)) return 0;
             var weapon = WeaponProfileFor(conn, activeSet: true);
@@ -142,7 +168,7 @@ partial class Program
             return GameServer.Core.World.DamageModel.CriticalStrikeChancePerMyriad(totalBase, increased);
         }
         return SpellCriticalStrike.Chance((Skills.SpellCritChance(gem.Effect, gem.Level) ?? 0)
-            + Own("additional_base_critical_strike_chance"), Stats, player, gem.Stats, conn.Pools.SpellCriticalStrikeChancePct);
+            + Own("additional_base_critical_strike_chance"), Player, Own, conn.Pools.SpellCriticalStrikeChancePct);
     }
 
     static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)

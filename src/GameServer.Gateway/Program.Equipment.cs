@@ -13,21 +13,27 @@ partial class Program
     // The local armour, evasion and energy shield of the equipped body armour, helmet, gloves, boots and shield: the base
     // type's saved ArmourTypes roll plus the item's local flat/increased
     // defence mods and quality (ItemDefences). Inactive items (requirements not met) give none.
-    static (int Armour, int Evasion, int EnergyShield) EquippedBaseDefences(ClientState conn)
+    static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(ClientState conn, Func<string, int> get)
     {
         var items = ItemsOf(conn);
-        long armour = 0, evasion = 0, energyShield = 0;
+        decimal armour = 0, evasion = 0, ward = 0;
+        long energyShield = 0;
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
                 && Items.ByHash(equipped.Item.TypeHash) is { } type && Items.Defences(type) is { } d)
             {
                 var (a, e, s) = ItemDefences.Calculate(equipped.Item, d, Items.Mods);
-                armour += a;
-                evasion += e;
+                int percent = row == PlayerInventories.BodyArmour ? Math.Clamp(get("ward_instead_of_%_body_armour_and_evasion"), 0, 100) : 0;
+                decimal armourWard = (decimal)a * percent / 100, evasionWard = (decimal)e * percent / 100;
+                armour += a - armourWard;
+                evasion += e - evasionWard;
+                var local = ItemModStats.Local(equipped.Item, Items.Mods);
+                ward += armourWard + evasionWard
+                    + (long)WardState.Max(d.WardMin + local.GetValueOrDefault("local_ward"), local.GetValueOrDefault("local_ward_+%"))
+                        * (100 + Math.Clamp((int)equipped.Item.Quality, 0, 100)) / 100;
                 energyShield += s;
             }
-        return ((int)Math.Min(int.MaxValue, armour), (int)Math.Min(int.MaxValue, evasion),
-            (int)Math.Min(int.MaxValue, energyShield));
+        return (armour, evasion, (int)Math.Min(int.MaxValue, energyShield), ward);
     }
 
     // The equipped main/off hands in both weapon sets. Rows 2/3 are Weapon1 and rows 14/15 Weapon2.
@@ -205,6 +211,7 @@ partial class Program
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
     static async Task SendEquipment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items)
     {
+        RefreshVaalSouls(conn);
         var equipped = Looks(conn, items);
         await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
             $"0x02ba player equipment: {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");

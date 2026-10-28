@@ -42,6 +42,11 @@ So the Gateway sends server delay 0xFFFF in every 0x1c (`ClientInbox.ServerDelay
 become 0, so each 0x1c sets the value to 0 and F1 NETWORK reads 0. An overdue tick still raises it through the network
 update, which ignores the delay, so a real stall still shows until the next 0x1c.
 
+The 0x1c takes only the connection's wire gate (`Program.Write`: encryption and the socket write), never the send gate
+whose packets evaluate game state in their `still`/`atGate` callbacks. Those callbacks wait for the combat lock, and in
+a crowd of 148 monsters they held the send gate for up to 4 s, so the answers queued behind them and the meter jumped
+to 0.5–4 s. Measured afterwards: no 0x1c later than 50 ms in a crowded Coast session.
+
 ## 2. HNC, the hidden side channel
 
 The 0x1c u32 is not free data. `0x141fa0720` feeds its bits 9..31 then 0..8 (LSB first) into a byte accumulator on the
@@ -203,10 +208,19 @@ and crawled (~1 cell per 1.5 s), so it is not sent for the local player (`Game_M
 `LivingCollision` uses `MonsterVarieties.ObjectSize - 1` as the positioned footprint, including unique bosses.
 Negative footprints do not block; zero is a valid small body.
 `AreaLayout.WalkableFor` retains the captured terrain clearance values instead of treating every actor as player-sized.
-Monster `WalkEstimator` orders use the bounded native pathfinder with a 1000-expansion budget.
+Monster `WalkEstimator` orders use the bounded native pathfinder with the client's budget: 1000 expansions for a
+unique, 100 for any other monster (`0x141e4d890`).
 Their blockers include stationary objects, other living monsters, the local player and published instance players.
-The 50 ms correction loop checks each traversed cell, stops movement through newly occupied cells and sends
-ActionEnded followed by Teleport when a body must be corrected.
+The 50 ms correction loop checks each traversed cell, stops movement through newly occupied cells and moves only the
+server's estimate (then paths it again to the same target, as the client does when a walk ends short). It used to send
+ActionEnded followed by Teleport: 1,608 corrections in one crowded session, each a visible stop and jump, although the
+client already paths every monster around the other bodies. The client never snaps a non-predicted monster to the
+0x1ab position pair (the ≥ ~92 unit check in `0x1421940a0` runs only for sequence ≥ 0), so the AI's new orders do not
+jump either. The overlap test reads every body's cell once per frame, and `BlockerSet` buckets the blockers by cell so
+`ClientPathfinder.ObjectBlocks` reads only those that can reach the queried cell (same answers as the full scan).
+The player's own path treats estimated monster bodies as blockers too; when they leave no way to the clicked cell but
+the stationary blockers do (`PlayerWalk`'s fallback), the server follows the client through the crowd instead of
+pulling the player back on every click.
 Alive friendly monsters also block; corpses and removed objects do not.
 Phasing removes living bodies from the local player's path checks.
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.

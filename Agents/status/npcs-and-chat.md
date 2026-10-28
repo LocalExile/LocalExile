@@ -39,6 +39,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceNpcs.cs`, `NpcCatalog.cs`, `TownNpcs.cs`, Gateway (`SpawnTownNpcs`, `TalkToNpc`).
   Docs: [17](../docs/protocol/17-npcs.md).
 
+- **Trade between players** in one instance (two clients, 2026-10-28): the request shows the requester's waiting box
+  and the other player's notification, Accept opens the window on both, offered items appear on both sides, Accept
+  greys the accepting side's offer for both players, and both accepting swaps the items in one save per side.
+  Cancel, decline, a disconnect or leaving the area return every offered item. See [28](../docs/protocol/28-player-trade.md).
+
 ## Partly working
 
 - Quest rewards open the native reward inventory for every `QuestRewardOffers` row whose items the server can build,
@@ -51,7 +56,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their original cells/items remain reserved in the durable save;
   take-back/cancel restores the view, disconnect/crash preserves items, and acceptance exchanges items/payment in one
   save.
-  Player-to-player trade remains unimplemented.
   Recipe quotes cover rare sets, gem transformations, socket/quality salvage, upgrades and common equipment recipes.
   Acceptance pays the cached outputs atomically, refuses a full inventory and preserves ingredients on save failure.
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.

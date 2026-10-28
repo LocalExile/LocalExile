@@ -1,106 +1,62 @@
-using System.Net;
-using System.Net.Sockets;
-using GameServer.Core.Protocol.Login;
-using GameServer.Core.World;
+using GameServer.Core.Projectiles;
 
 namespace GameServer.Gateway.Tests;
 
-// Live flights through Program.FlyProjectile: a piercing projectile's contacts are observed during flight, never
-// selected at launch, and pause/transfer still govern the flight.
 public class PiercingProjectileTests
 {
-    sealed class Wire : IDisposable
+    static ProjectileProfile Arrow => new("Metadata/Projectiles/DefaultArrow")
+        { Speed = 50, Range = 200, Radius = 1, Pierce = 2 };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Piercing_contacts_use_current_moving_target_positions_after_launch(bool enters)
     {
-        readonly TcpListener listener = new(IPAddress.Loopback, 0);
-        public readonly TcpClient Writer = new(), Reader;
-        public readonly ConnectionCiphers Ciphers = new(new byte[64], isClient: false);
-        public Wire()
-        {
-            listener.Start();
-            var accepting = listener.AcceptTcpClientAsync();
-            Writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
-            Reader = accepting.GetAwaiter().GetResult();
-        }
-        public void Dispose() { Writer.Dispose(); Reader.Dispose(); listener.Stop(); }
+        await using var f = new ProjectileRuntimeFixture();
+        var target = ProjectileRuntimeFixture.Monster(110, enters ? 150 : 10);
+        f.Conn.Monsters.Add(42, target); f.Release(f.Shot(Arrow)); f.Advance(.3);
+        // Explicit placement is a discontinuity, not a synthetic historical crossing.
+        target.Walk.Teleport(110, enters ? 10 : 150, .3);
+        f.Advance(4.01);
+        Assert.Equal(enters ? 90u : 100u, target.Life);
+        Assert.Empty(f.Session.Runtime.Projectiles);
     }
 
-    static ClientState Connection() => new(new AreaLayout(1, "test", 300, 300, 10, 10, null, []), 1, 1)
-        { PlayerLife = 100, ActionCount = 7 };
-
-    static Task Flight(Wire wire, ClientState conn, Func<SpawnedMonster, (int Damage, bool Critical)> damage,
-        int pierceHits = 2) => Program.FlyProjectile("pierce-test", wire.Writer.GetStream(), wire.Ciphers, conn,
-            ("Metadata/Projectiles/DefaultArrow", 50), (10, 10), (210, 10), damage, conn.ProjectileEpoch,
-            log: false, impact: "none", pierceHits: pierceHits);
-
-    static SpawnedMonster Monster(int x, int y) =>
-        new("target", new(x, y, 10, width: 300, height: 300), 0, 2, 100);
-
     [Fact]
-    public async Task A_piercing_projectile_does_not_hit_a_target_that_leaves_the_route_before_contact()
+    public async Task A_paused_piercing_flight_freezes_its_horizon_then_hits_after_resume()
     {
-        using var wire = new Wire();
-        var conn = Connection();
-        var target = Monster(110, 10);
-        conn.Monsters.Add(42, target);
-        int hits = 0;
-        var flight = Flight(wire, conn, _ => { hits++; return (10, false); });
-        await Task.Delay(300);
-        lock (conn.Monsters) target.Walk.Teleport(110, 150, conn.Clock.Elapsed.TotalSeconds);
-        await flight.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(0, hits);
+        await using var f = new ProjectileRuntimeFixture();
+        var target = ProjectileRuntimeFixture.Monster(60, 10); f.Conn.Monsters.Add(42, target);
+        f.Release(f.Shot(Arrow)); f.Advance(.15); f.Conn.Clock.Stop();
+        long horizon = f.Session.Runtime.Now; var position = Assert.Single(f.Session.Runtime.Projectiles).Position;
+        for (int i = 0; i < 20; i++) f.Session.Advance();
+        Assert.Equal(horizon, f.Session.Runtime.Now);
+        Assert.Equal(position, Assert.Single(f.Session.Runtime.Projectiles).Position);
         Assert.Equal(100u, target.Life);
+        f.Conn.Clock.Start(); f.Advance(4.01); Assert.Equal(90u, target.Life);
     }
 
     [Fact]
-    public async Task A_piercing_projectile_hits_a_target_that_enters_the_route_after_launch()
+    public async Task A_transfer_cancels_a_piercing_flight_before_contact()
     {
-        using var wire = new Wire();
-        var conn = Connection();
-        var target = Monster(110, 150);
-        conn.Monsters.Add(42, target);
-        int hits = 0;
-        var flight = Flight(wire, conn, _ => { hits++; return (10, false); });
-        await Task.Delay(300);
-        lock (conn.Monsters) target.Walk.Teleport(110, 10, conn.Clock.Elapsed.TotalSeconds);
-        await flight.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(1, hits);
-        Assert.Equal(90u, target.Life);
+        await using var f = new ProjectileRuntimeFixture();
+        var target = ProjectileRuntimeFixture.Monster(40, 10); f.Conn.Monsters.Add(42, target);
+        f.Release(f.Shot(Arrow)); f.Advance(.15);
+        Assert.True(f.Conn.TryBeginAreaChange(new(2, 0, false), out _));
+        f.Advance(4.01);
+        Assert.Equal(100u, target.Life); Assert.Empty(f.Session.Runtime.Projectiles);
+        Assert.Empty(f.Conn.ProjectileObjects);
     }
 
     [Fact]
-    public async Task A_paused_piercing_flight_waits_and_hits_only_after_resume()
+    public async Task Piercing_commits_each_real_hit_once_without_waiting_for_native_output()
     {
-        using var wire = new Wire();
-        var conn = Connection();
-        var target = Monster(60, 10);
-        conn.Monsters.Add(42, target);
-        int hits = 0;
-        var flight = Flight(wire, conn, _ => { hits++; return (10, false); });
-        await Task.Delay(150);
-        conn.Clock.Stop();
-        await Task.Delay(300);
-        Assert.Equal(0, hits);
-        Assert.Equal(100u, target.Life);
-        conn.Clock.Start();
-        await flight.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(1, hits);
-        Assert.Equal(90u, target.Life);
-    }
-
-    [Fact]
-    public async Task A_transfer_cancels_a_piercing_flight_before_its_contact()
-    {
-        using var wire = new Wire();
-        var conn = Connection();
-        var target = Monster(40, 10);
-        conn.Monsters.Add(42, target);
-        int hits = 0;
-        var flight = Flight(wire, conn, _ => { hits++; return (10, false); });
-        await Task.Delay(150);
-        lock (conn.Monsters) Assert.True(conn.TryBeginAreaChange(new PendingTransfer(2, 0, false), out _));
-        await flight.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(0, hits);
-        Assert.Equal(100u, target.Life);
-        Assert.Empty(conn.ProjectileObjects);
+        await using var f = new ProjectileRuntimeFixture();
+        var near = ProjectileRuntimeFixture.Monster(40, 10); var far = ProjectileRuntimeFixture.Monster(110, 10);
+        f.Conn.Monsters.Add(9, far); f.Conn.Monsters.Add(2, near);
+        await f.HoldOutput(); f.Release(f.Shot(Arrow));
+        f.Advance(.7); Assert.Equal(90u, near.Life); Assert.Equal(100u, far.Life);
+        f.Advance(4.01); f.Advance(5);
+        Assert.Equal(90u, near.Life); Assert.Equal(90u, far.Life); Assert.Equal(0, f.Available);
     }
 }

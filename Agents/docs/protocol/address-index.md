@@ -422,11 +422,22 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x142198d40` | Fn | AddSkill(manager, ActionTypes HASH16): basic action |
 | `0x1421932b0` | Fn | Actor slot 20 reader (f0 0x40 skill list, 0x20 skill update, …) |
 | `0x14246f900` | Fn | SkillGem: the level from the experience (thresholds from ItemExperiencePerLevel) |
-| `0x142197b10` | Fn | Actor f0 0x40: skill list |
-| `0x142198800` | Fn | Actor f0 0x20: skill update (add records, remove ids) |
+| `0x142197b10` | Fn | Actor 0x40: skills, soul row/capacity/current, cooldown trailer |
+| `0x142198800` | Fn | Actor 0x20: skills/removes, soul seeds, current/new-capacity updates |
+| `0x142199a80` | Fn | Sorted soul-entry upsert at skill manager +0x188, stride 0x20 |
+| `0x141eea5b0` | Fn | Soul payload lookup through GrantedEffects ActiveSkills pointer |
+| `0x141ee8720` | Fn | Effective required souls: no-souls flag, selected multiplier, final percent |
+| `0x141eea3a0` | Fn | Availability: required souls <= current |
+| `0x141eea350` | Code | Native soul subtraction and dirty flag inside 0x141ee9d30 |
+| `0x140acfbb0` | Fn | Soul icon uses/fill; divisions guarded by nonzero required souls |
+| `0x140ad7fb0` | Fn | Soul current/capacity text |
+| `0x140826070` | Fn | Soul current/capacity text |
 | `0x142198560` | Fn | Actor f0 0x20: remove u16 skill ids from the skill manager |
 | `0x1421981d0` | Fn | read n skill records into the manager |
 | `0x142196ce0` | Fn | skill record reader |
+| `0x1421975f0..0x142197610` | Code | Clear wire bit1 and nonzero raw stored uses set constructor disable bit |
+| `0x1421976e8..0x1421976f6` | Code | Constructor parameter13 = (wire bit2 * 2) or dil |
+| `0x141ee7571..0x141ee75ba` | Code | Parameter13 bit0 zeros soul inputs; otherwise copies GEPL +0x28/+0x2c |
 | `0x1424a0dc0` | Fn | GrantedEffectsPerLevel reference reader |
 | `0x1424a0990` | Fn | GrantedEffectStatSetsPerLevel reference reader |
 | `0x141ee73d0` | Fn | ActiveSkillInstance ctor (action id from GEPL → GrantedEffect → ActiveSkill → ActionType) |

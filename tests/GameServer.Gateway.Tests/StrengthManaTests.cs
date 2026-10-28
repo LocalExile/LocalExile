@@ -79,7 +79,7 @@ public class StrengthManaTests
     }
 
     [Fact]
-    public void The_real_node_supplies_only_the_generic_mana_consumer_in_this_change()
+    public void The_real_node_combines_mana_per_Strength_with_conversion_and_source_removal()
     {
         Assert.Equal(4993u, Program.Stats.Key(StrengthMana.PerFourStrength));
         var node = Program.Passives.Find(38080)!;
@@ -94,12 +94,14 @@ public class StrengthManaTests
             // Exercise production aggregation without claiming Phrecia selection/admission support.
             conn.MainAscendancy = new(Nodes: [38080]);
             conn.Pools = Program.PoolsFor(conn, 1);
-            Assert.Equal(ordinary.Mana + 24u, conn.Pools.Mana); // Witch: 14 Strength, three groups.
+            Assert.Equal(16u, conn.Pools.Mana); // Witch: (56 + three groups * 8) * .2.
+            Assert.Equal(128, conn.Pools.Armour);
             Assert.Equal(conn.Pools, Program.PoolsFor(conn, 1));
             conn.PlayerStats[4993] = 0;
-            Assert.Equal(ordinary.Mana, Program.PoolsFor(conn, 1).Mana);
+            Assert.Equal(11u, Program.PoolsFor(conn, 1).Mana);
+            Assert.Equal(90, Program.PoolsFor(conn, 1).Armour);
             conn.PlayerStats.Remove(4993);
-            Assert.Equal(ordinary.Mana + 24u, Program.PoolsFor(conn, 1).Mana);
+            Assert.Equal(16u, Program.PoolsFor(conn, 1).Mana);
             conn.MainAscendancy = new();
             Assert.Equal(ordinary.Mana, Program.PoolsFor(conn, 1).Mana);
         }
@@ -107,10 +109,10 @@ public class StrengthManaTests
     }
 
     [Theory]
-    [InlineData(3, 238u)]
-    [InlineData(4, 248u)]
-    [InlineData(7, 248u)]
-    [InlineData(8, 259u)]
+    [InlineData(3, 48u)]
+    [InlineData(4, 50u)]
+    [InlineData(7, 50u)]
+    [InlineData(8, 52u)]
     public void Production_sources_add_flat_mana_before_additive_increases_and_feed_shared_consumers(
         int strength, uint expected)
     {
@@ -134,7 +136,7 @@ public class StrengthManaTests
             conn.MainAscendancy = new(Nodes: [38080]);
             conn.Pools = Program.PoolsFor(conn, 20);
             Assert.Equal(strength, conn.Pools.Strength);
-            Assert.Equal(expected, conn.Pools.Mana); // (170 + 9 + floor(Strength / 4) * 8) * 1.33, truncated.
+            Assert.Equal(expected, conn.Pools.Mana); // (170 + 9 + floor(Strength / 4) * 8) * 1.33 * .2, rounded.
             Assert.Equal(conn.Pools, Program.PoolsFor(conn, 20));
             conn.PlayerStats[Program.Stats.Key(DamageStats.MaxManaAddedLightning)!.Value] = 6;
             var player = Program.CharacterPlayerStats(conn);
@@ -174,7 +176,10 @@ public class StrengthManaTests
                 Assert.Equal(mana, conn.Pools.Mana);
                 Assert.Equal((int)mana, Program.CharacterPlayerStats(conn)[Program.Stats.Key("maximum_mana")!.Value]);
             }
-            await Set("9548", 1, 56); // The excluded keystone/display flags alone cannot enable this consumer.
+            await Set("9548", 1, 11); // Conversion alone uses no mana-per-Strength source.
+            Assert.Equal(90, conn.Pools.Armour);
+            Assert.True(await conn.Commands.RunAsync("/set_stat 9548 off").WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(56u, conn.Pools.Mana);
             await Set("21159", 1, 56);
             await Set(StrengthMana.PerFourStrength, 8, 80);
             await Set("4993", -8, 32);

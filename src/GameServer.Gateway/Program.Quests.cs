@@ -14,11 +14,13 @@ partial class Program
         finally { conn.QuestGate.Release(); }
     }
 
-    // SetQuestFlags for a caller that holds conn.QuestGate.
-    static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)
+    sealed record QuestFlagCommit(List<string> Changed, List<int> All,
+        List<string> Effective, List<uint> Removed);
+
+    // Gameplay and persistence commit before any notification. Caller holds the combat lock when used by simulation.
+    static QuestFlagCommit? CommitQuestFlags(ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         var wanted = flags.Distinct().ToList();
-        // What the client had before (ClientHasQuestFlag): objects change only where that changes.
         var clientBefore = PlayerQuestFlags(conn);
         var ownBefore = conn.QuestFlagsSnapshot();
         var had = wanted.ToDictionary(f => f, f => Quests.ClientHas(f, ownBefore, clientBefore));
@@ -26,39 +28,44 @@ partial class Program
         lock (conn.Monsters)
             foreach (string flag in wanted)
                 if (on ? conn.QuestFlags.Add(flag) : conn.QuestFlags.Remove(flag)) changed.Add(flag);
-        if (changed.Count == 0) return;
-        // Only the changed flags: a flag another connection of the character set meanwhile stays in the save.
+        if (changed.Count == 0) return null;
         CharacterSaves.ChangeQuestFlags(CharacterName(conn), changed, on);
-        foreach (string flag in changed) Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: quest flag {flag} {(on ? "set" : "cleared")}");
-        if (!conn.PlayerSent) return;
-        var all = PlayerQuestFlags(conn);
-        await Send(remote, stream, ciphers, InstanceEntities.PlayerQuestFlagsUpdate(PlayerId, all), $"0x02ba player quest flags: {all.Count}");
-        // A Kitava penalty change moves the overcapped-resistance modifiers (ResistanceOvercap reads the penalty):
-        // rebuild the pools and send the stats again, as an aura toggle does.
         if (ChangesResistancePenalty(changed))
-        {
-            while (true)
-            {
-                CharacterStats.Pools before;
-                lock (conn.Monsters) before = conn.Pools;
-                var pools = PoolsFor(conn, before.Level);
-                lock (conn.Monsters)
-                {
-                    if (!ReferenceEquals(conn.Pools, before)) continue;
-                    conn.Pools = pools;
-                    conn.ApplyMovementSpeed();
-                    break;
-                }
-            }
-            await SendCharacterStats(remote, stream, ciphers, conn, "Kitava resistance penalty changed");
-        }
+            lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
+        var all = PlayerQuestFlags(conn);
         var own = conn.QuestFlagsSnapshot();
         bool Has(string flag) => Quests.ClientHas(flag, own, all);
         var effective = Quests.EffectiveChanges(changed, f => had[f], Has);
-        // The exits these flags open appear (or go again when a flag is cleared).
+        List<uint> gone;
+        lock (conn.Monsters)
+        {
+            gone = [.. conn.QuestRoomObjects.Where(o => effective.Contains(o.Value.Flag) && Has(o.Value.Flag)).Select(o => o.Key)];
+            foreach (uint id in gone) conn.QuestRoomObjects.Remove(id);
+            conn.UpdateBarrier();
+        }
+        return new(changed, all, effective, gone);
+    }
+
+    static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, IEnumerable<string> flags, bool on = true)
+    {
+        QuestFlagCommit? committed;
+        lock (conn.Monsters) committed = CommitQuestFlags(conn, flags, on);
+        if (committed is not null) await PublishQuestFlags(remote, stream, ciphers, conn, committed, on);
+    }
+
+    static async Task PublishQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, QuestFlagCommit change, bool on = true)
+    {
+        foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: quest flag {flag} {(on ? "set" : "cleared")}");
+        if (!conn.PlayerSent) return;
+        await Send(remote, stream, ciphers, InstanceEntities.PlayerQuestFlagsUpdate(PlayerId, change.All), $"0x02ba player quest flags: {change.All.Count}");
+        if (ChangesResistancePenalty(change.Changed))
+            await SendCharacterStats(remote, stream, ciphers, conn, "Kitava resistance penalty changed");
+        bool Has(string flag) => ClientHasQuestFlag(conn, flag);
         foreach (var (id, transition) in conn.Layout.AreaTransitions)
         {
-            if (TransitionFlag(conn, transition) is not { } flag || !effective.Contains(flag)) continue;
+            if (TransitionFlag(conn, transition) is not { } flag || !change.Effective.Contains(flag)) continue;
             if (Has(flag))
             {
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
@@ -67,17 +74,9 @@ partial class Program
             }
             else await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove area transition 0x{id:x} (quest flag {flag} cleared)");
         }
-        // a1q4: the glyphs placed (or the dev flag set) open the Submerged Passage.
-        if (effective.Contains(GlyphQuest.PlacedGlyphs)) await ChangeSubmergedPassage(remote, stream, ciphers, conn, Has(GlyphQuest.PlacedGlyphs));
-        // The room objects these flags take away (a1q1: the force wall when Hillock dies).
-        List<uint> gone;
-        lock (conn.Monsters)
-        {
-            gone = [.. conn.QuestRoomObjects.Where(o => effective.Contains(o.Value.Flag) && Has(o.Value.Flag)).Select(o => o.Key)];
-            foreach (uint id in gone) conn.QuestRoomObjects.Remove(id);
-            conn.UpdateBarrier();
-        }
-        foreach (uint id in gone)
+        if (change.Effective.Contains(GlyphQuest.PlacedGlyphs))
+            await ChangeSubmergedPassage(remote, stream, ciphers, conn, Has(GlyphQuest.PlacedGlyphs));
+        foreach (uint id in change.Removed)
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove room object 0x{id:x} (quest flag set)");
     }
 

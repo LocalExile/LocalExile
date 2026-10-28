@@ -9,6 +9,7 @@ using GgDump;
 const string Target = "metadata/alternateskillgraphs/customascendancypassiveskillgraph.psg";
 const string OriginalNormalHash = "82D82CD3CD2DAD81606AF0DA9D18FCD53B2E92CF006550947D65A4F7E102DC32";
 const string OriginalPhreciaHash = "9A6D43A997BE44B53FC13FB6CED2E9F935AA11F8E4C4940CE8ECF9300A2FC1BC";
+const string CombinedHash = "F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A425196CC93D638";
 const string Artifact = "phrecia-passive-skillgraph.psg";
 
 if (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal))
@@ -35,14 +36,18 @@ byte[] normalBytes = fs.ReadFile("metadata/passiveskillgraph.psg");
 if (Convert.ToHexString(SHA256.HashData(normalBytes)) != OriginalNormalHash)
     throw new InvalidDataException("The ordinary PSG is not the pinned original 3.29.3b graph. The client archive was not changed.");
 byte[] phreciaBytes = fs.ReadFile(Target);
-if (Convert.ToHexString(SHA256.HashData(phreciaBytes)) != OriginalPhreciaHash)
-    throw new InvalidDataException("The Phrecia PSG is not the pinned original 3.29.3b graph. Analysis requires original source data; the client archive was not changed.");
+string alternateHash = Convert.ToHexString(SHA256.HashData(phreciaBytes));
+if (alternateHash != OriginalPhreciaHash && alternateHash != CombinedHash)
+    throw new InvalidDataException("The alternate PSG is neither the pinned original nor the pinned compatible 3.29.3b graph. The client archive was not changed.");
 using var passives = JsonDocument.Parse(File.ReadAllBytes("data/tables/PassiveSkills.json"));
 HashSet<uint> ascendancyIds = passives.RootElement.EnumerateArray()
     .Where(r => r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number)
     .Select(r => r.GetProperty("PassiveSkillGraphId").GetUInt32()).ToHashSet();
-var merged = AdditionalAscendancyGraph.Merge(PassiveSkillGraph.Read(normalBytes), PassiveSkillGraph.Read(phreciaBytes), ascendancyIds);
+var merged = alternateHash == CombinedHash ? PassiveSkillGraph.Read(phreciaBytes)
+    : AdditionalAscendancyGraph.Merge(PassiveSkillGraph.Read(normalBytes), PassiveSkillGraph.Read(phreciaBytes), ascendancyIds);
 byte[] mergedBytes = merged.Write();
+if (Convert.ToHexString(SHA256.HashData(mergedBytes)) != CombinedHash)
+    throw new InvalidDataException("The derived graph differs from the pinned compatible 3.29.3b graph.");
 object Extract(string path, byte[] bytes)
 {
     var graph = PassiveSkillGraph.Read(bytes);

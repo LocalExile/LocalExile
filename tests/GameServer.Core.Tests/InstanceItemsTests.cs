@@ -255,7 +255,7 @@ public class InstanceItemsTests
     {
         // SkillGem: i32 experience, u32 variant, u8 flags (+0x10, bit 2 = level locked), u16.
         var gem = new Item(7, ["SkillGem"], 0) { GemExperience = 378, GemVariant = 3, GemFlags = 4 };
-        Assert.Equal("070000000000" + "7A010000" + "03000000" + "04" + "0000", Convert.ToHexString(gem.Payload()));
+        Assert.Equal("070000000000" + "7A010000" + "03000000" + "24" + "0000", Convert.ToHexString(gem.Payload()));
     }
 
     [Fact]

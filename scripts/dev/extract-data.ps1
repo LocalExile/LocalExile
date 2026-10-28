@@ -42,7 +42,7 @@ $manifest = @(
        Args = @('scripts/re/monster_takehit.py'); Version = 3; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 3; Needs = @('tables')
+       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 4; Needs = @('tables')
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
 )
 

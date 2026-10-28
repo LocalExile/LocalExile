@@ -51,7 +51,7 @@ partial class Program
     // Restoring an already enabled aura is not a fresh cast: transient mana availability must not discard its saved intent.
     static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(ClientState conn, IEnumerable<string> saved)
     {
-        if (conn.Closed || conn.LeavingArea || InTown(conn) || OwnAuraRestrictionValue(conn) != 0) return [];
+        if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn) || OwnAuraRestrictionValue(conn) != 0) return [];
         var wanted = saved.ToHashSet(StringComparer.Ordinal);
         var candidates = new List<AuraCatalog.Aura>();
         foreach (var gem in GemSkillEffects(conn.Character))
@@ -75,12 +75,37 @@ partial class Program
         return restored;
     }
 
+    static bool InGracePeriod(ClientState conn)
+    {
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        return conn.EntryProtection.Protects(now, conn.Walk.Position(now));
+    }
+
+    static async Task StartGracePeriod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        ushort buff;
+        lock (conn.Monsters) buff = conn.NextBuff++;
+        bool hideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null;
+        if (conn.EntryProtection.Start(now, conn.Walk.Position(now), buff, InTown(conn), hideout))
+            await Send(remote, stream, ciphers, GracePeriod.BeginPacket(PlayerId, buff), "Grace Period: 60 seconds of entry protection");
+    }
+
+    static async Task EndGracePeriod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool action = false)
+    {
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (conn.EntryProtection.End(now, conn.Walk.Position(now), action) is ushort buff)
+            await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff),
+                "Grace Period ends: movement, action or deadline");
+    }
+
     static bool InTown(ClientState conn) => WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true };
 
     static async Task EndAurasOnDeath(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (conn.PlayerLife != 0 || conn.AuraDeathHandled) return;
         conn.AuraDeathHandled = true;
+        await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         CharacterSaves.ClearActiveAuras(CharacterName(conn));
         List<AuraCatalog.Aura> ended;
         lock (conn.Monsters)
@@ -107,7 +132,9 @@ partial class Program
             conn.InvalidateIncomingHits();
             FortificationOf(conn).Clear();
             ClearRageOnDeath(conn);
+            ClearAntiquarianOnDeath(conn);
         }
+        await SendVaalSouls(remote, stream, ciphers, conn);
         await SendRage(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
         ChargesOnDeath(conn);
@@ -136,7 +163,7 @@ partial class Program
             {
                 // Preserve already-paid cost publication on the existing retired-action path.
                 // Aura restoration/presentation is forbidden on that old connection.
-                if (conn.Closed || conn.LeavingArea)
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired)
                     return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                         (uint)ReservedMana(conn), pool: ManaPool);
                 return WithOwnAuraChanges(conn, () => InstanceProtocol.LifeUpdate(PlayerId,
@@ -302,6 +329,7 @@ partial class Program
         List<(uint Monster, ushort Buff)> auras;
         lock (conn.Monsters)
         {
+            if (ProjectileOutputGuard.Value is { } guard && !guard()) return;
             rf = conn.RighteousFire;
             conn.RighteousFire = null;
             auras = rf is null ? [] : [.. rf.Auras.Select(kv => (kv.Key, kv.Value))];
@@ -337,6 +365,7 @@ partial class Program
                 criticalContext = currentCritical;
                 await SendCharacterStats(remote, stream, ciphers, conn, "critical strike conditions changed");
             }
+            await SendAntiquarian(remote, stream, ciphers, conn);
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
@@ -346,7 +375,7 @@ partial class Program
                 if (rf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "death");
                 continue;
             }
-            if (rf is not null) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
+            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
             // The character panel's Spell Suppression chance again (0x1b3 with only its stats) when a condition changed
             // it: full life lost or regained, a walk started or ended, an enemy hit 4 s ago.
             if (Suppression(conn).Chance is var chance && chance != suppression)
@@ -401,6 +430,7 @@ partial class Program
             double now = conn.Clock.Elapsed.TotalSeconds;
             double seconds = now - last;
             if (seconds <= 0) continue;
+            await EndGracePeriod(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
             // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
             if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
@@ -428,18 +458,20 @@ partial class Program
                     lifeCarry = manaCarry = burnCarry = 0;
                     FortificationOf(conn).Clear();
                     conn.EnergyShield.Empty();
+                    ClearAntiquarianOnDeath(conn);
                     lifeAfter = lifeBefore;
                     manaAfter = manaBefore;
                 }
                 else
                 {
-                    burnCarry += burnPerSecond * seconds;
+                    burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond) * seconds;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
                     int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, conn.PlayerMaxLife,
-                        life + lifeRate * seconds + fortificationLife - lifeBurn, ref lifeCarry, minimum: 1);
+                        life + lifeRate * seconds + fortificationLife + conn.Antiquarian.TakeRecovery(now)
+                            + conn.EnduringCryRecovery.Take(now) - lifeBurn, ref lifeCarry, minimum: 1);
                     conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
                         mana + manaRate * seconds, ref manaCarry);
                 }
@@ -483,11 +515,11 @@ partial class Program
         var damageOverTime = new SkillDamageContext(SkillHitKind.Spell, playerStats)
             .OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds));
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
-        var stages = new List<(uint Id, SpawnedMonster M)>();
         var entered = new List<(uint Id, ushort Buff)>();
         var left = new List<(uint Id, ushort Buff)>();
-        lock (conn.Monsters)
+        using (ProjectileMutation(conn))
         {
+            now = ProjectileWorldTime(conn);
             var here = conn.Walk.Position(now);
             foreach (var (id, m) in conn.Monsters)
             {
@@ -503,9 +535,14 @@ partial class Program
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);
                 m.Aggro = m.Life > 0;
-                if (m.Life == 0) { m.Dead = true; if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b)); }
+                if (m.Life == 0)
+                {
+                    m.Dead = true;
+                    CollectVaalSoulAtDeathLocked(conn, m);
+                    if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
+                }
                 hits.Add((id, m, m.Life, damage));
-                if (stageStarts) stages.Add((id, m));
+                if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
             }
         }
         foreach (var (id, buff) in entered)
@@ -520,7 +557,6 @@ partial class Program
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by Righteous Fire" : null);
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
         }
-        foreach (var (id, m) in stages) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
     }
 
     // The quest flags the permanent Kitava resistance penalty mirrors (ResistancePenalty): the Act 5 pair and the
@@ -575,6 +611,7 @@ partial class Program
     // Damage immunities as the damage model sees them, from the same sources the panel's "Immune to X" rows use.
     static HashSet<DamageType> PlayerImmunities(ClientState conn)
     {
+        if (InGracePeriod(conn)) return [.. Enum.GetValues<DamageType>()];
         var baseStats = new Dictionary<uint, int>();
         foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
         lock (conn.Monsters)
@@ -622,6 +659,7 @@ partial class Program
             conn.PlayerLife = conn.PlayerMaxLife;
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
             conn.HitRecovery.Clear();
+            conn.Ward.SetMaximum(conn.Pools.Ward); conn.Ward.Restore();
             conn.AuraDeathHandled = false;
             conn.PlayerMana = (uint)UnreservedMana(conn);
             foreach (var m in conn.Monsters.Values) m.Aggro = false;
@@ -661,6 +699,10 @@ partial class Program
         var cls = Skills.ClassFor(classRow);
         // Keep the ticket's remaining Rage timers frozen while the destination loads (before 0x7d).
         RestoreRage(conn);
+        RestoreVaalSouls(conn);
+        RestoreAntiquarian(conn);
+        conn.Ward.SetMaximum(conn.Pools.Ward);
+        pools = conn.Pools;
         var stats = CharacterPlayerStats(conn);
         var characterInputs = new Dictionary<uint, int>(stats);
         // The equipped weapon's attack with its own local mods (WeaponFor), as SendSkills sends it after an equipment change:
@@ -681,7 +723,11 @@ partial class Program
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, Items)),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
             Portrait: WornPortrait(conn));
-        return player;
+        lock (conn.Monsters)
+        {
+            RefreshVaalSouls(conn);
+            return player with { Souls = conn.VaalSouls.Read() };
+        }
     }
 
     static async Task SendPlayer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -752,13 +798,16 @@ partial class Program
                 {
                     lock (conn.Monsters)
                     {
-                        if (conn.Closed || conn.LeavingArea) return null;
+                        if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
                         ReconcileOwnAuras(conn, validateSkills: true);
                         var player = PlayerForCreation(conn);
                         conn.PeerTemplate = player;
                         conn.ClientSkillIds = [.. player.Skills!.Select(s => s.Id)];
-                        conn.PresentedAuras.Clear(); // A new object has no installed buff instances.
-                        conn.AuraStatsDirty = false; // Initial pools and stats already include reconciliation.
+                        conn.SentVaalSouls.Clear();
+                        foreach (var budget in player.Souls ?? [])
+                            conn.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
+                        conn.PresentedAuras.Clear();
+                        conn.AuraStatsDirty = false;
                         conn.PlayerObjectCreated = true;
                         return InstanceEntities.CreateObject(PlayerId, conn.PeerType, player.Blob());
                     }

@@ -12,9 +12,9 @@ partial class Program
         bool centreRange = false)
     {
         started = default;
-        lock (conn.Monsters)
+        using (ProjectileMutation(conn))
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = ProjectileWorldTime(conn);
             if (conn.Closed || conn.PlayerLife == 0 || conn.HitRecovery.BlocksInput(requestedAt, now)) return false;
             int action = Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
@@ -32,6 +32,8 @@ partial class Program
         lock (conn.Monsters)
             if (conn.HitRecovery.BlocksInput(requestedAt, conn.Clock.Elapsed.TotalSeconds)) return;
         if (InTown(conn) && (Skills.IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)) return;
+        if (Skills.IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)
+            await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         SpawnedMonster? target;
         lock (conn.Monsters) target = conn.Monsters.GetValueOrDefault(use.TargetId);
         if (target is not null)
@@ -182,10 +184,10 @@ partial class Program
         if (transition.TeleportTo is { } pair)
         {
             var (tx, ty) = conn.Layout.Near(pair);
-            lock (conn.Monsters)
+            using (ProjectileMutation(conn))
             {
                 if (!PlayerActionCurrent(conn, action)) return;
-                conn.Walk.Teleport(tx, ty, conn.Clock.Elapsed.TotalSeconds);
+                conn.Walk.Teleport(tx, ty, ProjectileWorldTime(conn));
             }
             await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, tx, ty),
                 $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), next to its pair at ({pair.X}, {pair.Y})",
@@ -351,6 +353,7 @@ partial class Program
     static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
     {
         if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
+        await CancelPlayerTrade(conn, "left the area");
         // Remove outstanding visuals while the old world still exists, before 0x2b2. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
         foreach (uint id in projectiles)
@@ -382,7 +385,9 @@ partial class Program
         }
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);
+        CarryAntiquarian(conn, r.Ticket);
         CarryRage(conn, r.Ticket);
+        CarryVaalSouls(conn, r.Ticket);
         conn.InvalidateIncomingHits(); // Recent enemy contacts never cross an area connection.
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;

@@ -33,7 +33,11 @@ partial class Program
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> risen;
                 bool watching;
-                lock (conn.Monsters) risen = Emerges.RiseLocked(conn, conn.Walk.Position(now), now, out watching);
+                using (ProjectileMutation(conn))
+                {
+                    now = ProjectileWorldTime(conn);
+                    risen = Emerges.RiseLocked(conn, conn.Walk.Position(now), now, out watching);
+                }
                 foreach (var (id, m, at, seconds) in risen)
                     _ = Emerge(remote, stream, ciphers, conn, id, m, at, seconds);
                 if (!watching) return;

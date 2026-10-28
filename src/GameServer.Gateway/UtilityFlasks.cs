@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// second); ComponentCharges its charges. A use puts the buff on the player for the duration and its stats count on the
 /// character until it ends (<see cref="Apply"/>, <see cref="RawStats"/>), as do the flask's "during effect" mods
 /// (<see cref="DuringEffect"/>). How each stat counts is <see cref="SupportOf"/>: modelled, shown on the character panel
-/// only (ailments, stun and curses on the player, which nothing here inflicts), or waiting for Ward (PR #206).
+/// only (unsupported ailment/curse effects), or consumed by the authoritative Ward pool.
 /// </summary>
 static class UtilityFlasks
 {
@@ -35,7 +35,7 @@ static class UtilityFlasks
         /// <summary>It goes to the client for the character panel only: ailments, stun and curses on the player do not
         /// exist here (monsters only hit), so it changes nothing yet.</summary>
         PanelOnly,
-        /// <summary>Ward, which PR #206 brings (<see cref="Ward"/> is the one place to connect it).</summary>
+        /// <summary>Ward bonuses consumed by the authoritative pool through <see cref="Apply"/>.</summary>
         Ward,
         /// <summary>Not applied.</summary>
         Unsupported,
@@ -321,6 +321,7 @@ static class UtilityFlasks
             LightningMaxResistance = b.LightningMaxResistance + Get("base_maximum_lightning_damage_resistance_%"),
             ChaosMaxResistance = b.ChaosMaxResistance + Get("base_maximum_chaos_damage_resistance_%"),
             Armour = b.Armour + Get("base_physical_damage_reduction_rating"),
+            Ward = b.Ward + Get("base_ward"), WardPct = b.WardPct + Get("ward_+%"),
             Evasion = b.Evasion + Get("base_evasion_rating"),
             ArmourPct = b.ArmourPct + Get("physical_damage_reduction_rating_+%"),
             EvasionPct = b.EvasionPct + Get("evasion_rating_+%"),
@@ -368,10 +369,19 @@ static class UtilityFlasks
     /// (which objects the client's phasing filter lets through is not traced).</summary>
     public static bool Phasing(IEnumerable<(string Stat, int Value)> stats) => stats.Any(s => s.Stat == "phase_through_objects" && s.Value > 0);
 
-    /// <summary>The Ward the running flasks grant (Iron Flask: base_ward; the Ward suffix: ward_+%): the one place to
-    /// connect them to Ward once PR #206 brings it (its Bonus.Ward / WardPct). Until then nothing applies them.</summary>
+    /// <summary>Ward bonuses use the authoritative Ward pool (base_ward and ward_+%).</summary>
     public static (int Flat, int Increased) Ward(IEnumerable<(string Stat, int Value)> stats) =>
         (stats.Where(s => s.Stat == "base_ward").Sum(s => s.Value), stats.Where(s => s.Stat == "ward_+%").Sum(s => s.Value));
+
+    // Call only after the normal flask-use admission/payment and effect start, never from a stat projection.
+    public static bool RestoreWardAfterPaidUse(WardState ward, Func<string, int> local, double now)
+    {
+        if (local("local_flask_restore_ward") <= 0) return false;
+        ward.Advance(now);
+        bool wasBroken = ward.Broken;
+        ward.Restore();
+        return wasBroken;
+    }
 
     /// <summary>Adds the running flasks' <see cref="RawStats"/> to the character's stats (Program.CharacterPlayerStats).</summary>
     public static void AddRawStats(Dictionary<uint, int> stats, IEnumerable<(string Stat, int Value)> running, StatCatalog catalog)

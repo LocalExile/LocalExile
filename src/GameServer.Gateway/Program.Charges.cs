@@ -153,9 +153,14 @@ partial class Program
     // (Path of Building: 60, grown by area of effect; power 1 normal, 2 magic, 10 rare, 20 unique), when its cast is over.
     // True when the skill was one of these.
     static bool UseChargeSkill(ClientState conn, int effect, int level, int quality, (int X, int Y) at)
+        => UseChargeSkillCore(conn, effect, Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2));
+
+    static bool UseChargeSkillInstance(ClientState conn, ushort skillId, int effect, int level, int quality, (int X, int Y) at)
+        => Skills.EffectId(effect) == "EnduringCry" && UseChargeSkillCore(conn, effect, SupportedSkill(conn, skillId).Stats);
+
+    static bool UseChargeSkillCore(ClientState conn, int effect, IReadOnlyDictionary<uint, int> own)
     {
         if (Skills.EffectId(effect) != "EnduringCry") return false;
-        var own = Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         int per = Own("endurance_charge_granted_per_X_monster_power_during_endurance_warcry");
         // The warcry cannot be cancelled before its contact point (cannot_cancel_skill_before_contact_point), so a later
@@ -165,20 +170,31 @@ partial class Program
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         double castSeconds = Skills.CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + (Player("warcry_speed_+%") + Own("warcry_speed_+%")) / 100.0);
         double until = conn.Clock.Elapsed.TotalSeconds + castSeconds;
+        int epoch = conn.ProjectileEpoch;
+        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+        double buffEffect = Math.Max(0, 1 + ((long)Player("warcry_buff_effect_+%") + Own("warcry_buff_effect_+%")) / 100d);
         _ = Task.Run(async () =>
         {
             // The game clock: a pause holds the cry.
             while (!conn.Closed && conn.Clock.Elapsed.TotalSeconds < until) await Task.Delay(16);
-            if (conn.Closed || conn.PlayerLife == 0) return;
+            if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
             foreach (var (k, v) in own) player[k] = v;
             int radius = SkillArea.Radius(EnduringCryRadius, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0, spell: false);
             double now = conn.Clock.Elapsed.TotalSeconds;
             int power;
             lock (conn.Monsters)
             {
+                if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
                 var here = conn.Walk.Position(now);
                 power = conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), here) <= radius)
                     .Sum(m => WarcryPower(m.Rarity));
+                // The target's stat description caps regeneration at 25 Power. Charge generation retains its own rule.
+                double percentPerMinute = Math.Min(25, power) / 5d
+                    * Own("enduring_cry_life_regeneration_rate_per_minute_%_per_5_power_up_to_cap")
+                    * buffEffect;
+                conn.EnduringCryRecovery.Begin(now, duration, conn.PlayerMaxLife * percentPerMinute / 6000d);
+                Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
+                    + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
             }
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s)");
@@ -232,11 +248,17 @@ partial class Program
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 ChargeSession.StepResult step;
                 List<ChargeSession.BuffChange> buffs;
-                lock (conn.Monsters)
+                using (ProjectileMutation(conn))
                 {
+                    now = ProjectileWorldTime(conn);
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: now < conn.Walk.ArrivesAt,
                         inTown: InTown(conn), Random.Shared);
                     buffs = session.Presentation(now, () => conn.NextBuff++);
+                    if (step.CountsChanged)
+                    {
+                        conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                        conn.ApplyMovementSpeed();
+                    }
                 }
                 foreach (string line in step.Log) Console.WriteLine($"[gateway] {remote} {line} (t={now:0.000})");
                 foreach (var change in buffs)
@@ -244,11 +266,6 @@ partial class Program
                         await Send(remote, stream, ciphers, packet, label);
                 if (step.CountsChanged)
                 {
-                    lock (conn.Monsters)
-                    {
-                        conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                        conn.ApplyMovementSpeed();
-                    }
                     await SendChargeStats(remote, stream, ciphers, conn,
                         string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Name(t)}")));
                 }

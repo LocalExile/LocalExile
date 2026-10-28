@@ -152,6 +152,7 @@ public sealed class AttributeResourceTests : IDisposable
     {
         var conn = Character();
         conn.MainAscendancy = new(Nodes: [38080]);
+        conn.PlayerStats[Key(PowerOfPurpose.RawFlag)] = 0; // This control isolates the Strength-mana source.
         conn.Pools = Program.PoolsFor(conn, 100);
         Assert.Equal(674u, conn.Pools.Mana);
         conn.PlayerLife = 100;

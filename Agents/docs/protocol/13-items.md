@@ -239,19 +239,14 @@ Native all-zero requirement values, source clearing and relog are also verified.
 Own-item percentage retention, cascading equipment and weapon-set combinations retain automated coverage.
 See [attribute calculation and rounding model](11-skills.md#4-the-default-attack).
 
-A gem socketed in a worn item whose level or attribute requirement the character no longer meets makes that item
-inactive as well (`CharacterStatSources`: the gem's requirements are checked per socket with `GemRequirementsUnmet`),
-so the item counts for nothing and the Actor skill list leaves its gems out: with no skill, there is nothing for the
-client to cast ([19](19-gems.md) §2 "Requirements"). An inactive main-hand weapon is not there for the attack or for
-the weapon shape either: the default attack falls back to the class's unarmed hit (`WeaponFor`) and the shape passives
-read as unarmed (`WeaponProfileFor`).
-
-Open: the client still draws an inactive item on the character (a red wand stays in hand), and the server leaves it
-where it is. The state is reachable in the real game — a ring's +intelligence makes a gem's requirement met, the gem
-goes in, the ring comes off — the server now reproduces it (attributes included, checked live 2026-10-23 with
-`/set_stat intelligence` above and below a gem's requirement: the client reds the gem and the wand's mods stop
-counting, [19](19-gems.md) §2 "Requirements"). What the official client draws then is still to check there (the gem
-red, the wand still in hand). Moving the item out of its row is the only way to take its visual away (Roadmap "Gems 1").
+Equipment activation depends on the item's own requirements, independently of its socketed gems.
+`EquipmentStatSources` applies local attribute-requirement exemptions while preserving the level gate.
+Current gem checks use the same equipment calculation without publishing inactive-item state or rebuilding pools.
+An unmet gem requirement disables that gem's skill, while the usable item's stats and other gems remain available
+([19](19-gems.md) §2 "Requirements").
+An inactive main-hand weapon is absent from the attack and weapon shape: the default attack falls back to the
+class's unarmed hit (`WeaponFor`), and shape passives read as unarmed (`WeaponProfileFor`).
+The client can still draw inactive equipment; moving it out of its row removes the visual.
 
 **Stale stats:** S→C 0x1b3 only sets the stats it lists, so every full player stats send also sends 0 for each stat
 sent before that is gone now (`PlayerStatsWithCleared`).
@@ -802,14 +797,18 @@ RePoE 3.29.3.3 `base_items.json` give Quicksilver 6 s (duration 60), Ruby 8 s, I
 | Gold | flask_utility_rarity (131) | base_item_found_rarity_+% 30: rarer drops | 5 s, 60 of 80 |
 | Aquamarine | flask_utility_aquamarine (126) | base_frozen_effect_on_self_+% −60: character panel only | 8 s, 20 of 50 |
 | Corundum | flask_utility_stun_protection (1888) | stun_threshold_+% 30: character panel only | 7.5 s, 20 of 50 |
-| Iron | flask_utility_ward (132) | base_ward 200: waits for Ward (PR #206) | 4 s, 40 of 60 |
+| Iron | flask_utility_ward (132) | base_ward 200; paid use restores Ward immediately | 4 s, 40 of 60 |
 
 The Silver Flask's buff has no stats, only the flag `silver_flask_display_onslaught`; the Gateway also puts `onslaught`
 (row 215) on the player with the values of BuffTemplates `MapModPlayerOnslaught` (20, 20, 20). How each buff stat counts
 is `UtilityFlasks.SupportOf`: modelled (the pools, the walk, drops, damage), only the character panel (ailments, stun
-and curses on the player: monsters here only hit physically, so nothing freezes, stuns or curses the player), or Ward,
-which PR #206 brings (`UtilityFlasks.Ward` is where its Bonus.Ward / WardPct take Iron Flask's base_ward and the Ward
-suffix once both are merged). Every utility flask spends its charges and shows its buff and bar.
+and unsupported curse/ailment effects), or Ward.
+Ward flat/increased bonuses feed the authoritative pool through `UtilityFlasks.Apply`.
+After a successful charge payment and effect start, `local_flask_restore_ward` restores broken Ward immediately.
+Stat projection, refused uses and ordinary effect refresh never restore Ward.
+Native selected Antiquarian spent 40 charges and restored 502 Ward, returning to 22 after the four-second effect.
+See [the Ward model and native evidence](../game/antiquarian.md).
+Every utility flask spends its charges and shows its buff and bar.
 
 A use:
 
@@ -853,7 +852,7 @@ stat), each value rounded down (PoB ModStore.ScaleAddMod: to two decimals, then 
 
 The "during effect" suffixes (`UtilityFlasks.DuringEffect`) count while the flask runs, scaled by its effect: increased
 armour (`local_flask_armour_+%_while_healing` → `physical_damage_reduction_rating_+%`), increased evasion, movement
-speed, additional elemental resistances and increased critical strike chance; increased Ward waits for #206; the
+speed, additional elemental resistances, increased critical strike chance and increased Ward; the
 ailment, stun and curse ones (avoid, reduced effect or duration on you, immunities, "chance to Freeze, Shock and
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not
 modelled).
@@ -953,7 +952,7 @@ hit and every 3 seconds (tests only).
 - Flasks: fewer kill charges in acts 6 to 10 and maps (the amount is not in the tables), single monsters' own flask
   charge stats, partial charges across connections (not saved), hybrid flasks' buffs (a hybrid flask recovers both pools
   but shows only the life buff), the effects across an area change (they end), the "during any flask effect" passives.
-  Utility flasks: Ward (Iron Flask, the Ward suffix) until PR #206 is in; ailments, stun and curses on the player
+  Utility flasks: unsupported ailments, stun modifiers and curses on the player
   (Aquamarine's freeze effect, Corundum, the ailment suffixes: panel only); Aquamarine's chilled ground; the smoke
   cloud's art; which objects phasing lets the player through besides monsters; how long the grounds last; whether taking
   a flask off the bar ends its effect (it does here, `UtilityFlasks.EndsWhenFlaskLeavesItsCell`); leech suffixes.

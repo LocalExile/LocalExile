@@ -393,24 +393,27 @@ public sealed class ActorScaleGatewayTests : IDisposable
     public async Task Actual_projectile_route_contact_radius_and_all_height_packets_ignore_actor_scale()
     {
         var conn = Character();
-        conn.Monsters.Add(42, new("scale geometry", new(60, 35, 0), 0, 0, 100));
-        using var wire = await Wire.Open();
+        var target = new SpawnedMonster("scale geometry", new(60, 35, 0), 0, 0, 100);
+        conn.Monsters.Add(42, target);
+        await using var f = new ProjectileRuntimeFixture(conn);
         async Task<byte[]> Flight()
         {
-            conn.NextObjectId = 0x3000;
-            await Program.FlyProjectile("actor-scale-test", wire.Stream, wire.Ciphers, conn,
-                ("Metadata/Projectiles/DefaultArrow", 10000), (32, 32), (100, 32), null,
-                conn.ProjectileEpoch, log: false, impact: "none").WaitAsync(TimeSpan.FromSeconds(5));
-            byte[] bytes = await wire.Read();
-            // Offset three from the route is inside the existing radius four: a real contact produces 0x1b7.
-            Index(bytes, new LoginWriter().U16(0x1b7).U32(0x3000).ToArray());
-            return bytes;
+            conn.NextObjectId = 0x3000; target.Life = 100;
+            double at = f.Session.Runtime.Now / (double)GameServer.Core.Projectiles.ProjectileRuntime.QuantaPerSecond;
+            f.Release(f.Shot(new("Metadata/Projectiles/DefaultArrow") { Speed = 10000, Range = 68, Radius = 4 },
+                origin: new(32, 32), aim: new(100, 32)));
+            byte[] creation = await f.Read(); // Publish the real object before its terminal contact.
+            f.Advance(at + .02);
+            byte[] terminal = await f.Read();
+            // Three cells from the route is inside radius four, independently of actor scale.
+            Index(terminal, new LoginWriter().U16(0x1b7).U32(0x3000).ToArray());
+            Assert.Equal(90u, target.Life);
+            Assert.Empty(f.Session.Runtime.Projectiles);
+            return [.. creation, .. terminal];
         }
         var baseline = await Flight();
         conn.PlayerStats[720] = 100; Assert.Equal(100, Scale(conn));
         Assert.Equal(baseline, await Flight());
-        Assert.Equal(100u, conn.Monsters[42].Life);
     }
-
     public void Dispose() { foreach (string name in names) PlayerInventories.Forget(name); }
 }

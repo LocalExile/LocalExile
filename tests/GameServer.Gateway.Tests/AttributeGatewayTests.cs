@@ -85,6 +85,7 @@ public sealed class AttributeGatewayTests : IDisposable
         Assert.Contains((Key("physical_damage_reduction_rating_+%"), 10), node.Stats);
         // Pure source fixture only: this bypasses neither the real connection admission nor the Phrecia play gate.
         conn.MainAscendancy = new(Nodes: [4561, 38080]);
+        Set(conn, PowerOfPurpose.RawFlag, 0); // Isolate mana per Strength from the node's independent conversion.
         Inventory.Add(6, 0, 0, Gear("Iron Ring", ("additional_strength", 3)));
         Assert.Equal(18, Rebuild(conn).Strength); // Complete 17 * 1.03 rounds up, rather than rounding each source.
         Assert.Equal(682u, conn.Pools.Mana); // Rounded 18 has four complete groups, not flat 17's separate sources.
@@ -102,6 +103,7 @@ public sealed class AttributeGatewayTests : IDisposable
     {
         var conn = Character();
         conn.MainAscendancy = new(Nodes: [38080]); // Raw mana-per-four-Strength source; no Phrecia admission.
+        Set(conn, PowerOfPurpose.RawFlag, 0);
         var ring = Inventory.Add(6, 0, 0, Gear("Iron Ring", ("additional_strength", 1), ("strength_+%", 4)));
         var wand = Inventory.Add(PlayerInventories.Weapon1, 0, 0, Gear("Driftwood Wand", ("additional_strength", 9)));
         var chest = Inventory.Add(PlayerInventories.BodyArmour, 0, 0,

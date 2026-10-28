@@ -186,7 +186,7 @@ public class RageGatewayTests
                 Call("GemSkillEffects", Conn.Character!)).Single();
             return (Task)typeof(Program).GetMethod("AreaSkillHit", BindingFlags.Static | BindingFlags.NonPublic)!
                 .Invoke(null, ["rage-sweep-test", Stream, Ciphers, Conn, Skill, gem,
-                    (100, 100), (105, 100), true, (ushort)1, Conn.ActionCount, null, null, 1.0, 0u])!;
+                    (100, 100), (105, 100), true, (ushort)1, Conn.ActionCount, null])!;
         }
 
         public async Task ObserveLife()
@@ -526,7 +526,7 @@ public class RageGatewayTests
         await f.Gate.WaitAsync();
         var hit = (Task)typeof(Program).GetMethod("AreaSkillHit", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, ["rage-commit-test", f.Stream, f.Ciphers, f.Conn, f.Skill, gem,
-                (100, 100), (105, 100), true, (ushort)1, null, null, null, 1.0, 0u])!;
+                (100, 100), (105, 100), true, (ushort)1, null, null])!;
         Assert.False(hit.IsCompleted);
         Assert.True(f.Target.Life < f.Target.MaxLife);
         Assert.Equal(5, Current(f.Conn)); // No notification has passed the real send gate yet.
