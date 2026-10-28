@@ -22,6 +22,7 @@ $launch = [scriptblock]::Create($branch.Extent.Text)
 foreach ($clientFolder in @('C:\LocalExile-test\Client', 'F:\External client with spaces')) {
 foreach ($buildDirectory in @($null, 'F:\External build with spaces')) {
 $repo = 'C:\LocalExile-test'
+$runtime = if ($buildDirectory) { 'F:\Runtime with spaces' } else { $repo }
 $clientPaths = [pscustomobject]@{ Directory=$clientFolder; Executable=(Join-Path $clientFolder 'Game.exe'); PatchedExecutable=(Join-Path $clientFolder 'Game.patched.exe'); Archive=(Join-Path $clientFolder 'Content.ggpk') }
 $client = $clientPaths.Directory
 $ClientOnly = $true
@@ -35,6 +36,8 @@ $script:gatewayExit = 0
 $script:gatewayArgs = @()
 $script:assemblyMissing = $false
 function Test-Path { -not $script:assemblyMissing }
+function Push-Location { param($Path); Assert ($Path -eq $runtime) 'gateway selector used the wrong data directory' }
+function Pop-Location {}
 function Get-Process { $script:existing }
 function Get-NetTCPConnection {
     param($LocalPort, $State, $ErrorAction)

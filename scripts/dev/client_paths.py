@@ -11,9 +11,9 @@ def _directory(repository, setting, variable, default, environ):
         config_file = Path(repository) / "client.local.json"
         if config_file.exists():
             config = json.loads(config_file.read_text(encoding="utf-8-sig"))
-            names = ("clientDirectory", "buildDirectory")
+            names = ("clientDirectory", "buildDirectory", "runtimeDirectory")
             if not isinstance(config, dict) or not any(name in config for name in names):
-                raise ValueError(f"{config_file} must contain clientDirectory and/or buildDirectory strings")
+                raise ValueError(f"{config_file} must contain clientDirectory, buildDirectory or runtimeDirectory strings")
             for name in names:
                 if name in config and (not isinstance(config[name], str) or not config[name].strip()):
                     raise ValueError(f"{config_file} must contain a nonempty {name} string")
@@ -32,7 +32,15 @@ def client_directory(repository, environ=None):
 
 
 def build_directory(repository, environ=None):
-    return _directory(repository, "buildDirectory", "Game_BUILD_DIR", None, environ)
+    directory = _directory(repository, "buildDirectory", "Game_BUILD_DIR", None, environ)
+    if directory:
+        return directory
+    runtime = runtime_directory(repository, environ)
+    return runtime if runtime != Path(repository).resolve() else None
+
+
+def runtime_directory(repository, environ=None):
+    return _directory(repository, "runtimeDirectory", "Game_RUNTIME_DIR", ".", environ)
 
 
 def build_arguments(project, directory):

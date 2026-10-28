@@ -9,12 +9,13 @@ Console.OutputEncoding = System.Text.Encoding.UTF8;
 
 // The launcher runs tools from the source checkout even when binaries live elsewhere.
 string root = Directory.GetCurrentDirectory();
-if (!File.Exists(Path.Combine(root, "Tools", "ooz", "ooz_worker.mjs")))
-    throw new InvalidOperationException("Run atlas from the repository root (Tools/ooz/ooz_worker.mjs missing).");
+string source = Environment.GetEnvironmentVariable("Game_SOURCE_ROOT") ?? root;
+if (!File.Exists(Path.Combine(source, "Tools", "ooz", "ooz_worker.mjs")))
+    throw new InvalidOperationException("Run through extract-data.ps1 or set Game_SOURCE_ROOT to the source checkout.");
 string ggpk = args.Length > 0 ? args[0] : Path.Combine(root, "Client", "Content.ggpk");
 string output = args.Length > 1 ? args[1] : Path.Combine(root, "data", "area-transitions.json");
 
-using var oodle = new NodeOodleDecoder("node", Path.Combine(root, @"Tools\ooz\ooz_worker.mjs"));
+using var oodle = new NodeOodleDecoder("node", Path.Combine(source, "Tools", "ooz", "ooz_worker.mjs"));
 using var fs = GameFileSystem.Open(ggpk, oodle);
 var files = new GameFiles(fs);
 var (areas, topologies, problems) = WorldAreas.Load(files, root);

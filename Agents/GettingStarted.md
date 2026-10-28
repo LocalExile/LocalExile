@@ -149,7 +149,8 @@ Malformed local configuration stops the tools with an error rather than silently
 `live.ps1`, `extract-data.ps1` and the native client-control bridge use this location. The launcher passes resolved
 `Game_CLIENT_EXE` and `Game_GGPK` paths to its servers and restores the caller's environment when it exits.
 Existing explicit `Game_CLIENT_EXE` and `Game_GGPK` overrides retain precedence for their individual files.
-Extraction passes the same archive to .NET and Python generators; generated server data stays under repository `data/`.
+Extraction passes the same archive to .NET and Python generators.
+Generated server data stays under repository `data/` unless a separate runtime folder is configured below.
 Standalone server commands do not read `client.local.json`; use the existing file environment overrides for those.
 Other manual RE commands in this guide still need explicit external paths where their examples say `Client/...`.
 
@@ -174,7 +175,7 @@ For example, this layout puts the client and build output beside the repository:
 }
 ```
 
-Both settings are optional and resolve relative to the repository root, including paths containing spaces.
+All folder settings are optional and resolve relative to the repository root, including paths containing spaces.
 `Game_BUILD_DIR` overrides `buildDirectory`, just as `Game_CLIENT_DIR` overrides `clientDirectory`.
 Without a build setting, the usual per-project `bin/Debug/net10.0` and `obj/` directories remain in use.
 The launcher and extraction tools build Debug with .NET's `--artifacts-path` option when configured.
@@ -182,7 +183,7 @@ They execute the matching `bin/<project>/debug/<project>.dll`, including the gat
 They never fall back to an older DLL in the source tree.
 
 Run the launcher from the source repository as above.
-Servers and extractors keep the repository as their working directory: `data/` and `logs/` stay there.
+Servers and extractors use the repository as their working directory unless `runtimeDirectory` is configured below.
 The native client keeps its own working directory and Documents profile.
 `-Only Gateway` rebuilds and restarts only Gateway; `-NoBuild` uses existing DLLs in the selected layout.
 A missing DLL with `-NoBuild` stops startup before the launcher stops servers or clears their logs.
@@ -198,7 +199,71 @@ dotnet test tests/GameServer.Data.Tests --artifacts-path ../build
 dotnet test tests/GameServer.Gateway.Tests --artifacts-path ../build
 ```
 
-Build output is disposable; do not point `buildDirectory` at the client, server data, or another project's build folder.
+Only `bin/` and `obj/` are disposable when the build folder also holds runtime data.
+
+### Optional separate runtime folder
+
+Use `runtimeDirectory` to keep the source checkout for code, documentation, and the tracked data schema.
+For example:
+
+```json
+{
+  "clientDirectory": "../Client",
+  "runtimeDirectory": "../build"
+}
+```
+
+The launcher builds into that runtime folder automatically unless an explicit `buildDirectory` or `Game_BUILD_DIR`
+selects another build folder.
+`Game_RUNTIME_DIR` overrides `runtimeDirectory`.
+Without a runtime setting, the original repository-relative layout is unchanged.
+The launcher creates runtime `data/`, `logs/` and extraction-cache folders on startup.
+Extraction installs its pinned Node dependency there if missing, while its worker and schema stay in the source tree.
+Python helper processes suppress bytecode files in the source tree.
+The runtime folder must be separate from the checkout and must not belong to another checkout.
+
+An existing installation needs one migration.
+Close the game window first, then stop this checkout's local services and migrate:
+
+```powershell
+.\scripts\dev\stop.ps1
+.\scripts\dev\setup-runtime.ps1 -Migrate
+.\scripts\dev\live.ps1
+```
+
+Migration refuses running client/server processes and preexisting destination files.
+It copies and verifies every runtime file by SHA256 before moving originals into a separate local backup beside
+the source checkout; the receipt records the backup and verification details.
+Saves, keys, generated tables, walk maps, logs, extraction packages and the active metadata cache are preserved.
+Obsolete per-project build folders are also preserved in the backup.
+Tracked `data/schema/` stays in source, and historical RE installations/artifacts are not moved.
+Later startup is idempotent and never repeats migration.
+If runtime data reappears in the source checkout, startup stops so that two databases cannot silently diverge.
+
+**Keep runtime `data/` when cleaning builds.**
+It contains saves, accounts and login keys.
+Delete or rebuild only `bin/` and `obj/`; do not delete the entire runtime folder.
+
+Use `scripts/dev/run.ps1` for individual server or maintenance commands so they use the configured working directory:
+
+```powershell
+.\scripts\dev\run.ps1 Patch gateway
+.\scripts\dev\run.ps1 Host
+```
+
+Direct `dotnet run` commands do not read the local path configuration.
+For initial key generation and executable patching with a separate runtime, use the configured client paths:
+
+```powershell
+. .\scripts\dev\client-path.ps1
+$client = Get-ClientPaths -RepositoryRoot (Get-Location).Path
+.\scripts\dev\run.ps1 Auth keygen $client.Executable
+.\scripts\dev\run.ps1 Auth patch $client.Executable $client.PatchedExecutable
+```
+
+Gateway tests use the same runtime selection through their shared test initializer.
+Production catalogs continue to read relative `data/` paths from the selected working directory.
+The native client's directory and Documents profile remain separate.
 
 To inspect extraction freshness, or rerun just the read-only graph analysis:
 

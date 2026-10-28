@@ -28,6 +28,8 @@ except ImportError:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+import runpy
+RUNTIME = str(runpy.run_path(os.path.join(REPO, "scripts", "dev", "client_paths.py"))["runtime_directory"](REPO))
 
 
 def log(text):
@@ -37,7 +39,7 @@ def log(text):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--process", default="Game.patched.exe", help="client process name")
-    ap.add_argument("--out", default=os.path.join(REPO, "data", "walkability"), help="output folder")
+    ap.add_argument("--out", default=os.path.join(RUNTIME, "data", "walkability"), help="output folder")
     ap.add_argument("--wait", type=int, default=600, help="seconds to wait for the client to start")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)

@@ -2,9 +2,10 @@
 param([string]$Command = 'game:status', [string]$Text, [switch]$Stdio, [switch]$PasswordStdin)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$python = Join-Path $repo '.venv\Scripts\python.exe'
+. (Join-Path $PSScriptRoot 'client-path.ps1')
+$python = Join-Path (Get-RuntimeDirectory $repo) '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) { $python = (Get-Command python -ErrorAction Stop).Source }
-$arguments = @((Join-Path $PSScriptRoot 'client_control.py'), $Command)
+$arguments = @('-B', (Join-Path $PSScriptRoot 'client_control.py'), $Command)
 if ($PSBoundParameters.ContainsKey('Text')) { $arguments += $Text }
 if ($Stdio) { $arguments += '--stdio' }
 if ($PasswordStdin) { $arguments += '--password-stdin' }

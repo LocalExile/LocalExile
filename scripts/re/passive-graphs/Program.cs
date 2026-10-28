@@ -29,7 +29,8 @@ foreach (string outputPath in new[] { target, target + ".tmp", artifactPath, art
         throw new ArgumentException("Graph analysis output must use ordinary files, not links.");
 }
 
-using var decoder = new NodeOodleDecoder("node", Path.GetFullPath("Tools/ooz/ooz_worker.mjs"));
+string source = Environment.GetEnvironmentVariable("Game_SOURCE_ROOT") ?? Directory.GetCurrentDirectory();
+using var decoder = new NodeOodleDecoder("node", Path.Combine(source, "Tools", "ooz", "ooz_worker.mjs"));
 using var fs = GameFileSystem.Open(ggpkPath, decoder);
 byte[] normalBytes = fs.ReadFile("metadata/passiveskillgraph.psg");
 if (Convert.ToHexString(SHA256.HashData(normalBytes)) != OriginalNormalHash)

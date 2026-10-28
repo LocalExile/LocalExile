@@ -19,14 +19,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   launch arguments/working directory and archive propagation to .NET/Python extraction.
   Optional `buildDirectory` or `Game_BUILD_DIR` also separates Debug binaries and intermediate files using
   .NET's artifacts layout; servers, gateway selection and all extraction helpers execute that same build.
-  Data and logs remain in the source checkout; omitted settings retain the original layout.
+  Optional `runtimeDirectory` or `Game_RUNTIME_DIR` moves the working directory, data, logs and active extraction
+  caches outside source; omitted settings retain the original layout.
+  Startup creates required runtime directories and extraction dependencies.
+  Explicit migration verifies every copy before preserving the originals in a separate backup, refuses collisions
+  and running processes, and leaves the tracked schema in source.
   Automated controls exercise full startup, `-Only Gateway`, `-NoBuild`, `-ClientOnly` and missing-DLL preflight.
-  Gateway test data helpers use the shared test environment's repository root, allowing sibling build output
+  Gateway test data helpers use the shared test environment's runtime root, allowing sibling build output
   without moving data or changing production catalog paths.
   Native validation reached the login screen with external server DLLs and verified the actual server/client
   working directories; read-only atlas and Python-to-GGPK extraction also ran from external DLLs.
   See [external client folder](../GettingStarted.md#optional-external-client-folder) for configuration and limits.
   See [separate build folder](../GettingStarted.md#optional-separate-build-folder) for build and test commands.
+  See [separate runtime folder](../GettingStarted.md#optional-separate-runtime-folder) for setup and migration.
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.

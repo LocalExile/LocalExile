@@ -24,12 +24,17 @@ class BuildPathsTests(unittest.TestCase):
             self.assertIsNone(paths["build_directory"](repo, {}))
             self.assertEqual(repo / "Client", paths["client_directory"](repo, {}))
             for settings in ({"clientDirectory": "../Client"}, {"buildDirectory": "../build with spaces"},
-                             {"clientDirectory": "../Client", "buildDirectory": "../build"}):
+                             {"clientDirectory": "../Client", "buildDirectory": "../build"},
+                             {"runtimeDirectory": "../runtime with spaces"}):
                 config.write_text(json.dumps(settings), encoding="utf-8")
-                expected = (repo / settings["buildDirectory"]).resolve() if "buildDirectory" in settings else None
+                output = settings.get("buildDirectory") or settings.get("runtimeDirectory")
+                expected = (repo / output).resolve() if output else None
                 self.assertEqual(expected, paths["build_directory"](repo, {}))
                 self.assertEqual(repo / "override", paths["build_directory"](repo, {"Game_BUILD_DIR": "override"}))
-            for settings in ([], {}, {"buildDirectory": 42}, {"buildDirectory": None}, {"buildDirectory": " "}):
+                self.assertEqual(repo / "environment runtime", paths["runtime_directory"](
+                    repo, {"Game_RUNTIME_DIR": "environment runtime"}))
+            for settings in ([], {}, {"buildDirectory": 42}, {"buildDirectory": None}, {"buildDirectory": " "},
+                             {"runtimeDirectory": 42}, {"runtimeDirectory": " "}):
                 config.write_text(json.dumps(settings), encoding="utf-8")
                 with self.assertRaises(ValueError):
                     paths["build_directory"](repo, {})

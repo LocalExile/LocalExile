@@ -5,8 +5,15 @@
 //                   status 0 -> decompressed bytes
 //                   status 1 -> UTF-8 error message
 // Loop ends when stdin closes.
-import { decompress } from "ooz-wasm";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import fs from "fs";
+
+// Resolve installed packages in the runtime folder while keeping this worker's source in the checkout.
+const packages = process.env.Game_RUNTIME_DIR
+  ? path.join(process.env.Game_RUNTIME_DIR, "Tools", "ooz", "package.json") : import.meta.url;
+const { decompress } = await import(pathToFileURL(createRequire(packages).resolve("ooz-wasm")).href);
 
 function readExact(n) {
   const buf = Buffer.allocUnsafe(n);

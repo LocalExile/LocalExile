@@ -73,7 +73,7 @@ public class MonsterResistanceCatalogTests
 
     private static string? Data()
     {
-        for (var dir = new DirectoryInfo(TestEnvironment.RepositoryRoot); dir is not null; dir = dir.Parent)
+        for (var dir = new DirectoryInfo(TestEnvironment.RuntimeRoot); dir is not null; dir = dir.Parent)
         {
             string data = Path.Combine(dir.FullName, "data");
             string[] required = ["MonsterVarieties", "MonsterTypes", "MonsterResistances", "DefaultMonsterStats"];

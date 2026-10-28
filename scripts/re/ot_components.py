@@ -22,8 +22,8 @@ import json, os, re, runpy, subprocess, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEV_PATHS = runpy.run_path(os.path.join(REPO, "scripts", "dev", "client_paths.py"))
-ROOT = REPO
-GGPK = os.environ.get("Game_GGPK") or os.path.join(ROOT, "Client", "Content.ggpk")
+ROOT = str(DEV_PATHS["runtime_directory"](REPO))
+GGPK = os.environ.get("Game_GGPK") or str(DEV_PATHS["client_directory"](REPO) / "Content.ggpk")
 CACHE = os.path.join(ROOT, r"Tools\re\out\ot")
 REGISTRY = os.path.join(REPO, "Agents", "docs", "re", "components.json")
 RAW_DATS = ["Data/MonsterVarieties.datc64", "Data/Chests.datc64"]
@@ -54,6 +54,8 @@ def fetch(paths):
     proj = os.path.join(REPO, "scripts", "re", "ggdump")
     directory = DEV_PATHS["build_directory"](REPO)
     assembly = DEV_PATHS["project_assembly"](REPO, proj, directory)
+    runtime = str(DEV_PATHS["runtime_directory"](REPO))
+    child_env = dict(os.environ, Game_SOURCE_ROOT=REPO, Game_RUNTIME_DIR=runtime)
     batches, cur = [], []
     for p in todo:  # Windows limits a command line to 32767 characters
         if cur and sum(len(x) + 3 for x in cur) + len(p) > 24000:
@@ -62,14 +64,14 @@ def fetch(paths):
     if cur:
         batches.append(cur)
     if batches:
-        subprocess.run(["dotnet"] + DEV_PATHS["build_arguments"](proj, directory), cwd=REPO, check=True,
+        subprocess.run(["dotnet"] + DEV_PATHS["build_arguments"](proj, directory), cwd=runtime, env=child_env, check=True,
                        stdout=sys.stderr)
         if not assembly.is_file():
             raise FileNotFoundError(f"{assembly} missing after build")
     n = 0
     for batch in batches:
         cmd = ["dotnet", str(assembly), GGPK, CACHE] + batch
-        out = subprocess.run(cmd, cwd=REPO, check=True, capture_output=True, text=True,
+        out = subprocess.run(cmd, cwd=runtime, env=child_env, check=True, capture_output=True, text=True,
                              encoding="utf-8", errors="replace").stdout
         for line in out.splitlines():
             if line.endswith(": not found"):

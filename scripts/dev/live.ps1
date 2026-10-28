@@ -16,12 +16,17 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'client-path.ps1')
 $clientPaths = Get-ClientPaths -RepositoryRoot $repo
 $buildDirectory = Get-BuildDirectory $repo
+$runtime = Get-RuntimeDirectory $repo
+& (Join-Path $PSScriptRoot 'setup-runtime.ps1')
 $client = $clientPaths.Directory
-$savedClientEnv = @{ Game_CLIENT_EXE = $env:Game_CLIENT_EXE; Game_GGPK = $env:Game_GGPK }
+$savedClientEnv = @{ Game_CLIENT_EXE = $env:Game_CLIENT_EXE; Game_GGPK = $env:Game_GGPK
+    Game_SOURCE_ROOT = $env:Game_SOURCE_ROOT; Game_RUNTIME_DIR = $env:Game_RUNTIME_DIR }
 try {
 $env:Game_CLIENT_EXE = $clientPaths.Executable
 $env:Game_GGPK = $clientPaths.Archive
-$out = Join-Path $repo 'logs'
+$env:Game_SOURCE_ROOT = $repo
+$env:Game_RUNTIME_DIR = $runtime
+$out = Join-Path $runtime 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
@@ -35,11 +40,13 @@ function Need-ServerAssembly([string]$Name) {
 function Select-LocalGateway {
     # The client can use a cached gateway list even when the patch welcome needs no download.
     Need-ServerAssembly 'Patch'
-    & dotnet (Server-Assembly 'Patch') gateway $clientPaths.Archive --login '127.0.0.1:20493' | Out-Null
+    Push-Location $runtime
+    try { & dotnet (Server-Assembly 'Patch') gateway $clientPaths.Archive --login '127.0.0.1:20493' | Out-Null }
+    finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'could not select local login server; close all clients and retry' }
 }
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
-Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
+Need (Test-Path (Join-Path $runtime 'data\login-keys.json')) "$runtime\data\login-keys.json missing: see runtime setup in GettingStarted"
 Need (Test-Path $clientPaths.Executable) "$($clientPaths.Executable) missing: copy the client and its PathOfExile.exe"
 Need (Test-Path $clientPaths.PatchedExecutable) "$($clientPaths.PatchedExecutable) missing: run GameServer.Auth patch"
 Need (Test-Path $clientPaths.Archive) "$($clientPaths.Archive) missing: this needs the standalone client layout"
@@ -70,7 +77,7 @@ if ($NoBuild) { foreach ($s in $servers) { Need-ServerAssembly $s } }
 $python = $null
 if ($Walkmaps) {
     # A virtual environment in the repository (.venv) wins over the python on PATH.
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $venv = Join-Path $runtime '.venv\Scripts\python.exe'
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
     Need $python 'Python not found (needed for -Walkmaps)'
@@ -119,7 +126,7 @@ if (-not $NoBuild) {
 # (ShellExecute) they inherit the environment (the Game_* settings) but no handles.
 function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err) {
     $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-    Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden
+    Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $runtime -WindowStyle Hidden
 }
 
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }

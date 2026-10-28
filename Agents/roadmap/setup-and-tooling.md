@@ -13,7 +13,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - Rebuild the reverse-engineering setup from a fresh clone (Ghidra import, REA, Frida) and fix whatever the guide
   misses.
   Normal launch, native client control and extraction now support a configured external client folder.
-  They also support a separate build folder while retaining source-relative data and logs.
+  They also support a separate runtime folder for build output, data, logs and active extraction caches.
   Remaining manual RE recipes still require explicit file paths; see GettingStarted's external-client section.
 - Unnamed fields: [04](../docs/protocol/04-player-entity.md), [05](../docs/protocol/05-inventories-and-ui.md) and
   [09](../docs/protocol/09-area-change.md) list fields whose meaning is unknown.

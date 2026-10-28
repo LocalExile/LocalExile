@@ -6,11 +6,12 @@ $savedDirectory = $env:Game_CLIENT_DIR
 $savedExe = $env:Game_CLIENT_EXE
 $savedArchive = $env:Game_GGPK
 $savedBuild = $env:Game_BUILD_DIR
+$savedRuntime = $env:Game_RUNTIME_DIR
 function Assert($value, $message) { if (-not $value) { throw $message } }
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     $env:Game_CLIENT_DIR = $null; $env:Game_CLIENT_EXE = $null; $env:Game_GGPK = $null
-    $env:Game_BUILD_DIR = $null
+    $env:Game_BUILD_DIR = $null; $env:Game_RUNTIME_DIR = $null
     $configPath = Join-Path $testRoot 'client.local.json'
     function Check($expected) {
         $paths = Get-ClientPaths -RepositoryRoot $testRoot
@@ -36,6 +37,13 @@ try {
         Assert (($buildArgs -contains '--artifacts-path') -eq [bool]$expected) 'wrong build arguments'
     }
     Check-Build $null
+    '{"runtimeDirectory":"../runtime with spaces"}' | Set-Content -LiteralPath $configPath -Encoding UTF8
+    $expectedRuntime = [IO.Path]::GetFullPath((Join-Path $testRoot '../runtime with spaces'))
+    Assert ((Get-RuntimeDirectory $testRoot) -eq $expectedRuntime) 'wrong runtime directory'
+    Check-Build $expectedRuntime
+    $env:Game_RUNTIME_DIR = 'environment runtime'
+    Assert ((Get-RuntimeDirectory $testRoot) -eq (Join-Path $testRoot 'environment runtime')) 'runtime override lost'
+    $env:Game_RUNTIME_DIR = $null
     '{"buildDirectory":"../build with spaces"}' | Set-Content -LiteralPath $configPath -Encoding UTF8
     Check (Join-Path $testRoot 'Client')
     Check-Build ([IO.Path]::GetFullPath((Join-Path $testRoot '../build with spaces')))
@@ -62,7 +70,8 @@ try {
     Assert ($paths.Archive -eq (Join-Path $testRoot 'separate.ggpk')) 'lost archive override'
     $env:Game_CLIENT_DIR = $null
     foreach ($invalid in @('{bad', '[]', '{}', '{"clientDirectory":42}', '{"clientDirectory":" "}',
-        '{"buildDirectory":42}', '{"buildDirectory":" "}', '{"buildDirectory":null}')) {
+        '{"buildDirectory":42}', '{"buildDirectory":" "}', '{"buildDirectory":null}',
+        '{"runtimeDirectory":42}', '{"runtimeDirectory":" "}')) {
         $invalid | Set-Content -LiteralPath $configPath -Encoding UTF8
         $failed = $false
         try { Get-ClientPaths -RepositoryRoot $testRoot | Out-Null } catch { $failed = $true }
@@ -75,6 +84,7 @@ try {
 } finally {
     $env:Game_CLIENT_DIR=$savedDirectory; $env:Game_CLIENT_EXE=$savedExe; $env:Game_GGPK=$savedArchive
     $env:Game_BUILD_DIR=$savedBuild
+    $env:Game_RUNTIME_DIR=$savedRuntime
     $resolved = [IO.Path]::GetFullPath($testRoot)
     $prefix = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
     if (-not $resolved.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path $resolved -Leaf) -notmatch '^client-paths-[0-9a-f]{32}$') { throw 'Unexpected test cleanup path' }

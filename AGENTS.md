@@ -15,10 +15,11 @@ All agent and contributor documentation is in [Agents/](Agents/). Read these fir
 
 - **Start the client only through `scripts/dev/live.ps1`, and only one at a time.** Any other launch contacts the
   official patch servers and can update the client, which breaks the setup.
-- **Run commands from the repository root.**
-- **Keep production game-data paths relative to the repository root (`data/`).** Do not add parent-directory
+- **Run developer commands from the repository root.** The launcher starts servers and extractors in the configured
+  runtime directory (the repository root by default); client processes run in the client directory.
+- **Keep production game-data paths relative to the selected runtime directory (`data/`).** Do not add parent-directory
   searching, an absolute `DataFolder`, or catalog-path changes to accommodate tests or one machine.
-  Gateway tests use the shared `tests/GameServer.Gateway.Tests/TestEnvironment.cs` module initializer.
+  Gateway tests use the shared `tests/GameServer.Gateway.Tests/TestEnvironment.cs` module initializer and runtime root.
   Do not change the process working directory in individual tests; fix the shared test setup if it fails.
 - **Write all commit messages and pull request titles and descriptions in English.**
 - **Verify the current integration base before declaring a PR ready.** Fetch the latest `main` and update the

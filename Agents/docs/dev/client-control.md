@@ -45,7 +45,8 @@ sent from the chat box meanwhile are mixed in; the bridge does not capture the H
 The control bridge uses the launcher's ignored `client.local.json` settings for an external client and build folder.
 With `buildDirectory` configured, `game:open` uses that folder's existing Debug Patch DLL for gateway selection.
 Build once through `live.ps1` before using `game:open`; the bridge does not rebuild or fall back to source-tree DLLs.
-Servers and extraction helpers still run from the source checkout, keeping `data/` and `logs/` there.
+With `runtimeDirectory` configured, the bridge reads logs there and servers/extractors use its `data/` and `logs/`.
+Client processes continue to use the client folder and existing Documents profile.
 See [separate build folder](../../GettingStarted.md#optional-separate-build-folder) for configuration and commands.
 
 ## Persistent integration

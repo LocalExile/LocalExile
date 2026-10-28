@@ -13,7 +13,7 @@
 import json, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, amd_animations, amd_of  # noqa: E402
+from ot_components import ROOT, amd_animations, amd_of  # noqa: E402
 
 
 def contacts(amd):
@@ -27,8 +27,8 @@ def contacts(amd):
 
 
 def main():
-    dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "animation-contacts.json")
-    chars = json.load(open(os.path.join(REPO, "data", "tables", "Characters.json"), encoding="utf-8"))
+    dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(ROOT, "data", "animation-contacts.json")
+    chars = json.load(open(os.path.join(ROOT, "data", "tables", "Characters.json"), encoding="utf-8"))
     result = {}
     for c in chars:
         ao = c.get("AOFile")
