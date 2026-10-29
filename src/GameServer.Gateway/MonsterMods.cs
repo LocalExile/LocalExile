@@ -113,9 +113,10 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// <summary>Life regenerated per second: life_regeneration_rate_per_minute_% of the maximum.</summary>
     public double LifeRegenPerSecond(uint maxLife) => maxLife * this["life_regeneration_rate_per_minute_%"] / 6000.0;
 
-    /// <summary>The factor on damage the monster takes: base_damage_taken_+% (increased/reduced), and for spells the
-    /// rare mod's rare_monster_mod_spell_damage_taken_+%_final (less).</summary>
-    public double DamageTaken(bool spell) => Math.Max(0, 1 + this["base_damage_taken_+%"] / 100.0)
+    /// <summary>The factor on damage the monster takes: base_damage_taken_+% with <paramref name="increasedPct"/> (its
+    /// shock) added (increased/reduced), and for spells the rare mod's rare_monster_mod_spell_damage_taken_+%_final
+    /// (less).</summary>
+    public double DamageTaken(bool spell, double increasedPct = 0) => Math.Max(0, 1 + (this["base_damage_taken_+%"] + increasedPct) / 100.0)
         * (spell ? Math.Max(0, 1 + this["rare_monster_mod_spell_damage_taken_+%_final"] / 100.0) : 1);
 
     /// <summary>The chance to block an attack (monster_base_block_%), capped at Monster.ot's maximum_block_%.</summary>
@@ -169,17 +170,18 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "evasion_rating_+%", "accuracy_rating_+%", "always_crit",
         "life_regeneration_rate_per_minute_%", "rare_monster_mod_spell_damage_taken_+%_final", "base_damage_taken_+%",
         "monster_base_block_%", "base_cannot_be_stunned", "hit_damage_+%_per_10%_missing_enemy_life",
-        "self_take_no_extra_damage_from_critical_strikes",
+        "self_take_no_extra_damage_from_critical_strikes", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
+        "shocked_effect_on_self_+%", "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
+        "reflect_non_damaging_ailments_%_chance",
     };
 
-    /// <summary>Stats that only stop something the server does not do to monsters yet (ailments on monsters, curses,
-    /// leech, slows): true as they stand. Each needs its effect when that system arrives.</summary>
+    /// <summary>Stats that only stop something the server does not do to monsters yet (ignite on monsters, curses,
+    /// leech, wither): true as they stand. Each needs its effect when that system arrives. The chill, freeze and shock
+    /// ones (of the Ice, of the Tempest, Unstoppable, Mirrored) act through MonsterElementalAilments.</summary>
     public static readonly IReadOnlySet<string> Vacuous = new HashSet<string>
     {
-        "base_self_ignite_duration_-%", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
-        "shocked_effect_on_self_+%", "self_wither_duration_+%", "cannot_have_life_leeched_from", "hexproof",
-        "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
-        "reflect_hexes_chance_%", "reflect_non_damaging_ailments_%_chance",
+        "base_self_ignite_duration_-%", "self_wither_duration_+%", "cannot_have_life_leeched_from", "hexproof",
+        "reflect_hexes_chance_%",
     };
 
     /// <summary>Monster-buff templates whose stats are the mod's own and apply to the monster that has the aura

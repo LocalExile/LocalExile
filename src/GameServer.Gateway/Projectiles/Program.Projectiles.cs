@@ -210,9 +210,10 @@ partial class Program
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
-            var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack,
-                CharacterPlayerStats(Conn)).Hit(baseHit).Scale(more);
-            var gambler = GamblerFor(CharacterPlayerStats(Conn));
+            var player = CharacterPlayerStats(Conn);
+            var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player)
+                .Hit(baseHit).Scale(more);
+            var gambler = GamblerFor(player);
             var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random);
             if (!shot.Spell)
             {
@@ -225,10 +226,16 @@ partial class Program
             int chance = contact.Projectile.Form > 0 ? shot.SecondFormCriticalChance ?? shot.CriticalChance : shot.CriticalChance;
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell);
-            var (damage, _) = MonsterDamage(target, rolled, critical, !shot.Spell, shot.ResistanceMods, shot.Penetration, gambler.InvertsResistance(random));
-            if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
+            double contactAt = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier);
+            var (damage, _, mitigated) = MonsterDamage(target, rolled, critical, !shot.Spell, contactAt, shot.ResistanceMods,
+                shot.Penetration, gambler.InvertsResistance(random));
+            if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             var hit = ApplyMonsterHitLocked(Conn, target, damage);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (hit.Value.Life > 0)
+                AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
+                    contactAt, contact.Projectile.ReactionRandomSource);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);

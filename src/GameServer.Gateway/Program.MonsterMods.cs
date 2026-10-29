@@ -64,15 +64,8 @@ partial class Program
         return factor == 1 ? rolled : rolled.Scale(factor);
     }
 
-    /// <summary>
-    /// The damage a hit of the player deals to a monster, rolled: each type less the resistance the monster's mods give
-    /// (capped at Monster.ot's 75%), the physical part less its physical damage reduction, then its damage taken
-    /// (Berserking's reduction, Spell Resistant's less spell damage). Blocking is rolled before (<see cref="MonsterBlocks"/>).
-    /// Base and mod resistance compose before the cap; penetration subtracts once after that cap.
-    /// </summary>
-    internal static int MonsterTakes(SpawnedMonster m, DamagePacket hit, Random random, bool spell,
-        Penetration.PerType pen = default) => MonsterTakesRolled(m, hit.Roll(random), spell, pen);
-
+    /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
+    /// Monster.ot's 75% cap; penetration subtracts once after that cap.</summary>
     internal static DamageModel.ResistanceValue MonsterHitResistance(SpawnedMonster m, DamageType type,
         Penetration.PerType pen)
     {
@@ -81,16 +74,17 @@ partial class Program
             Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) };
     }
 
-    // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
-    internal static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen)), spell);
-
-    internal static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell)
+    /// <summary>
+    /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
+    /// then its damage taken (Berserking's reduction, Spell Resistant's less spell damage, its shock at
+    /// <paramref name="now"/>). Blocking is rolled before (<see cref="MonsterBlocks"/>).
+    /// </summary>
+    internal static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now)
     {
         var e = m.Mods.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double total = mitigated.MinTotal - physical * e.PhysicalReduction / 100.0;
-        return (int)Math.Round(total * e.DamageTaken(spell));
+        return (int)Math.Round(total * MonsterDamageTaken(m, spell, now));
     }
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
@@ -115,12 +109,13 @@ partial class Program
         m.Mods.Effects.NoExtraCriticalDamage ? 100 : multiplier;
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time): less its fire resistance and its
-    /// damage taken. Spell Resistant counts for hits only: its stat has no description saying it covers damage over
-    /// time.</summary>
-    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds)
+    /// damage taken, shock included. Spell Resistant counts for hits only: its stat has no description saying it covers
+    /// damage over time.</summary>
+    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds, double now)
     {
         var e = m.Mods.Effects;
-        double factor = (100 - DamageModel.Capped(e.Resistance(burn.Type), MonsterModEffects.MaxResistance)) / 100.0 * e.DamageTaken(spell: false);
+        double factor = (100 - DamageModel.Capped(e.Resistance(burn.Type), MonsterModEffects.MaxResistance)) / 100.0
+            * MonsterDamageTaken(m, spell: false, now);
         return (burn with { DamagePerSecond = burn.DamagePerSecond * factor }).Tick(seconds, m.Burn);
     }
 

@@ -605,7 +605,7 @@ partial class Program
                     continue;
                 }
                 if (!rf.Auras.ContainsKey(id)) { rf.Auras[id] = conn.NextBuff; entered.Add((id, conn.NextBuff++)); }
-                var (damage, carry) = MonsterBurn(m, damageOverTime, seconds);   // its mods' fire resistance
+                var (damage, carry) = MonsterBurn(m, damageOverTime, seconds, now);   // its mods' fire resistance, its shock
                 m.Burn = carry;
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);

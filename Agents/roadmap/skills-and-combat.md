@@ -155,7 +155,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, exposure, ailments and further added-damage/support effects remain open.
+  Special ES mechanics, conditional penetration, exposure, damaging and alternative ailments on monsters and further
+  added-damage/support effects remain open.
   Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
   Its hovered stationary-monster 0x191 path now uses the native size-aware object aim and object-bound confirmation.
   Automated acceptance/queued rejection checks and manual native endpoint experiments pass.
@@ -193,8 +194,13 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Do not inherit an owner's spell-damage restriction onto independent minions or daemons without a skill rule.
 - **Done when:** damage numbers match the character panel and the monsters' levels.
 
-### Incoming elemental ailment extensions
+### Elemental ailment extensions
 
+- The player's chill, freeze and shock on monsters are implemented with Gateway coverage.
+  Check the chilled/frozen/shocked buffs, the sent `virtual_action_speed_+%` and the frozen pose with the real client,
+  and find what 0x1c1's +0x82 u16 does.
+  Shatter, unique/boss thresholds and the monster variety's own immunities remain open.
+  See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
 - Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.
   Finish dedicated native buff icons and source/threshold/conditional-immunity parity before claiming a general ailment engine.
   Hostile projectile/spell adapters and alternative-ailment sources remain separate work.

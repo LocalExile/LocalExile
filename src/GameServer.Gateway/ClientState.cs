@@ -100,6 +100,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public double Regen;
     // The impales the player's attacks have left on it (Impale.cs); cleared when it dies.
     public readonly ImpaleState Impale = new();
+    // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
+    public readonly MonsterElementalAilments Ailments = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
     public string Label => label;

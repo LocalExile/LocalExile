@@ -14,11 +14,11 @@ Native acceptance is still open and needs the reviewed combined graph installed 
 | 64012 Screaming Reels | 60% more Cast Speed while holding a Fishing Rod | Works: server cast wait and the native cast clip. |
 | 61696 Sea Legs | +40% to Cold and Lightning Resistances; Evasion Rating and Critical Strike Chance increased by overcapped Cold / Lightning Resistance | Works (`ResistanceOvercap`). |
 | 60505 Stormy Seas | 100% of Lightning Damage Converted to Cold Damage | Works on every hit path (`DamageStats.Conversion`). |
-| | Your Cold Damage can Shock | Not yet: monsters have no outgoing ailment state. |
+| | Your Cold Damage can Shock | Works: a critical strike with cold damage shocks by that damage (`cold_damage_can_shock`). |
 | 52264 Brine Bound | Cannot be Frozen | Works: `cannot_be_frozen` blocks incoming freeze. |
-| | 50% chance to Freeze Enemies for 1 second when they Hit you; Enemies you Freeze remain Frozen for at least 1 second | Not yet: no monster freeze. |
-| 6252 Glacial Wave | Enemies Chilled by your Hits take increased damage and deal less damage by the Chill Effect | Not yet: no monster chill. |
-| 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Not yet: no monster shock. |
+| | 50% chance to Freeze Enemies for 1 second when they Hit you; Enemies you Freeze remain Frozen for at least 1 second | Not yet: monsters freeze, but nothing freezes them when they hit you or holds the 1 s minimum. |
+| 6252 Glacial Wave | Enemies Chilled by your Hits take increased damage and deal less damage by the Chill Effect | Not yet: monsters chill, but the chill adds no damage taken and no less damage. |
+| 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Not yet: monsters shock, but it does not spread. |
 | 52944 Changing Seasons | The Effect of Chill on you is reversed; All Damage Taken from Hits can Chill you | Works: any monster hit chills by its total damage, and the chill raises action speed instead; freeze is unchanged. |
 | 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Works: the Torment Touched buff gives the player all four 23% bonuses and shows its icon. No allies or tormented spirits exist to use the rest. |
 | 48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290 | 4% increased Cast Speed | Works: `base_cast_speed_+%` reaches `cast_speed_+%`. |
@@ -98,6 +98,11 @@ Three legal eight-point builds cover all 18 non-start nodes:
   on chilled ground), network stats run none ([04](../protocol/04-player-entity.md) §4.1a), and its other uses are
   ClientStrings lookups, so the sent action speed carries the reversal.
   Chilled ground is not modelled, so `chill_effect_is_reversed_when_on_chilled_ground` has no source.
+- **Stormy Seas.** The conversion turns the hit's lightning into cold, so without the second line a rod's always-crit
+  hit freezes and chills but cannot shock. `cold_damage_can_shock` lets the shock use the cold damage, on the general
+  monster ailment engine ([20](../protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)): threshold the
+  monster's maximum life, at most 50% increased damage taken for 2 s.
+  The client's `virtual_cold_damage_can_shock` calculator (`0x1426f2660`) is its only reader, so nothing is sent for it.
 - **Sea Legs** already had its consumer (`ResistanceOvercap`, [11-skills](../protocol/11-skills.md) §12); the
   Gateway test compares the node with plain +40% cold and lightning resistance and both flags.
 
@@ -134,6 +139,20 @@ To try the rod with Stormy Seas and Within the Tempest, refund and allocate:
 /add_passive 48926 64012 33031 37082 41643 60505 34767 61246
 ```
 
+Then give the rod's attack some lightning and hit a monster with it:
+
+```text
+/item FishingRod1
+/set_stat attack_minimum_added_lightning_damage 200
+/set_stat attack_maximum_added_lightning_damage 200
+```
+
+Every hit is a critical strike of cold damage. Check that the monster shows the chilled, frozen and shocked icons,
+stands still while frozen and takes more damage while shocked; the log's `0x01c1 monster` lines give the magnitudes.
+
 Coverage: `AscendancyGatewayIntegrationTests.Surfcaster` (Ghost of the Deep against plain stats with its publication,
-reload and refund; Changing Seasons on a physical and a cold hit, a freeze and the unaffected flag) and
+reload and refund; Changing Seasons on a physical and a cold hit, a freeze and the unaffected flag; the monster
+ailment model's floor, caps, freeze threshold and strongest effect; shock against plain increased damage taken; chill
+and freeze in the monster AI with their buffs; Mirrored and Unstoppable; Stormy Seas' cold critical strike shocking
+only with the node), the buff layout in `InstanceEntitiesTests` and
 `VerifiedGamblerGraphTests`.

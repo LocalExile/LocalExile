@@ -10,13 +10,18 @@ partial class Program
         if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type)) && Get("all_damage_taken_can_chill") == 0) return;
         double previousAction = conn.ElementalAilments.ActionFactor(now);
-        bool frozen = previousAction == 0;
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
         int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
         conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom);
-        if (!frozen && conn.ElementalAilments.ActionFactor(now) == 0)
+        PlayerAilmentsChangedLocked(conn, previousAction, now);
+    }
+
+    // A new freeze cancels the player's action, channel and walk; any change of action speed re-times the walk.
+    internal static void PlayerAilmentsChangedLocked(ClientState conn, double previousAction, double now)
+    {
+        if (previousAction != 0 && conn.ElementalAilments.ActionFactor(now) == 0)
         {
             conn.FreezeGeneration++;
             Interlocked.Increment(ref conn.ActionCount);

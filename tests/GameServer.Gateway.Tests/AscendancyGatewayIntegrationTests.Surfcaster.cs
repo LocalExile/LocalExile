@@ -233,4 +233,208 @@ public sealed partial class AscendancyGatewayIntegrationTests
         reversed.Reconcile(name => Reversed(name) | (name == "not_affected_by_action_speed_modifiers" ? 1 : 0));
         Assert.Equal(1, reversed.ActionFactor(1.5));
     }
+
+    // The player's chill, freeze and shock on monsters (MonsterElementalAilments), which Stormy Seas and the later nodes
+    // build on: threshold 1000 throughout.
+    [Fact]
+    public void Surfcaster_monster_ailments_floor_caps_freeze_threshold_and_strongest()
+    {
+        static int None(string _) => 0;
+        static Func<string, int> With(string stat, int value) => name => name == stat ? value : 0;
+        var random = new Random(1);
+        Assert.Equal((0, 5, 30, 50), (MonsterElementalAilments.Effectiveness(3, 1000, 1, 30),
+            MonsterElementalAilments.Effectiveness(3.2, 1000, 1, 30), MonsterElementalAilments.Effectiveness(1000, 1000, 1, 30),
+            MonsterElementalAilments.Effectiveness(2000, 1000, 1, 50)));
+        // A critical cold hit of 20%: chill floor(50 × 0.2^0.4) = 26 for 2 s and a 1.2 s freeze; no lightning, no shock.
+        var a = new MonsterElementalAilments();
+        var added = a.Inflict(200, 0, true, 1000, 0, None, None, random);
+        Assert.Equal([(MonsterElementalAilments.Kind.Chill, 26.0, 2.0), (MonsterElementalAilments.Kind.Freeze, 100.0, 1.2)],
+            added.Select(e => (e.Kind, e.Magnitude, Math.Round(e.Until - e.From, 6))));
+        Assert.Equal(0, a.ActionFactor(1));
+        Assert.Equal(.74, a.ActionFactor(1.5), 6);
+        // A weaker chill that lasts longer applies once the strongest ends; then nothing.
+        a.Inflict(10, 0, false, 1000, 1, None, None, random);
+        Assert.Equal((26, 7, 0), ((int)a.Magnitude(MonsterElementalAilments.Kind.Chill, 1.9),
+            (int)a.Magnitude(MonsterElementalAilments.Kind.Chill, 2.5), (int)a.Magnitude(MonsterElementalAilments.Kind.Chill, 3)));
+        // Freeze: 4% gives 0.24 s, discarded; 50% increased duration makes it 0.36 s; a non-critical hit needs a chance.
+        var b = new MonsterElementalAilments();
+        Assert.DoesNotContain(b.Inflict(40, 0, true, 1000, 0, None, None, random), e => e.Kind == MonsterElementalAilments.Kind.Freeze);
+        Assert.Contains(b.Inflict(40, 0, true, 1000, 0, With("virtual_freeze_duration_+%", 50), None, random),
+            e => e.Kind == MonsterElementalAilments.Kind.Freeze && Math.Abs(e.Until - .36) < 1e-9);
+        Assert.Empty(b.Inflict(0, 1000, false, 1000, 0, None, None, random));
+        Assert.Equal(50, b.Inflict(0, 1000, false, 1000, 0, With("chance_to_shock_%", 100), None, random).Single().Magnitude);
+        // Shock from cold needs cold_damage_can_shock; the monster's own modifiers and immunity count.
+        Assert.DoesNotContain(b.Inflict(102, 0, true, 1000, 0, None, None, random), e => e.Kind == MonsterElementalAilments.Kind.Shock);
+        Assert.Equal(20, b.Inflict(102, 0, true, 1000, 0, With("cold_damage_can_shock", 1), None, random)
+            .Single(e => e.Kind == MonsterElementalAilments.Kind.Shock).Magnitude);
+        Assert.Empty(b.Inflict(0, 102, true, 1000, 0, None, With("shocked_effect_on_self_+%", -80), random)); // 4%
+        Assert.DoesNotContain(b.Inflict(200, 0, true, 1000, 0, None, With("cannot_be_frozen", 1), random),
+            e => e.Kind == MonsterElementalAilments.Kind.Freeze);
+
+        // The client sees a kind again only when its magnitude changes, and its buff goes when the last one ends.
+        var c = new MonsterElementalAilments();
+        ushort next = 7;
+        c.Inflict(200, 0, false, 1000, 0, None, None, random);
+        Assert.Equal([(MonsterElementalAilments.Kind.Chill, (ushort?)null, (ushort?)7, 26)], c.Present(0, () => next++));
+        c.Inflict(200, 0, false, 1000, 1, None, None, random);
+        Assert.Empty(c.Present(1, () => next++));
+        Assert.Equal([(MonsterElementalAilments.Kind.Chill, (ushort?)7, (ushort?)null, 0)], c.Present(3, () => next++));
+        Assert.True(c.Idle);
+    }
+
+    sealed partial class GatewayCharacter
+    {
+        // Runs the actual monster AI loop for a few ticks, then ends it as a closed connection would.
+        public Task<(string? Error, byte[] Bytes)> SurfcasterAiTicks(int milliseconds) => Exchange(async (stream, cipher) =>
+        {
+            var ai = (Task)GatewayMethod("RunMonsterAi").Invoke(null, ["surfcaster-ai", stream, cipher, State])!;
+            await Task.Delay(milliseconds);
+            State.Closed = true;
+            await ai;
+            return null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> SurfcasterAttack(uint target) => Exchange(async (stream, cipher) =>
+        {
+            var use = InstanceTransfer.ReadUseSkillOnObject(new GameServer.Core.Protocol.Login.LoginWriter().U16(0x24)
+                .U32(target).U16(SkillCatalog.FirstSkillId).U16(0).U16(0x409).ToArray());
+            await (Task)GatewayMethod("Attack").Invoke(null, ["surfcaster-attack", stream, cipher, State, use,
+                State.Monsters[target], State.Clock.Elapsed.TotalSeconds])!;
+            return null;
+        });
+    }
+
+    static SpawnedMonster SurfcasterTarget(ClientState state, uint id, int dx, uint life = 10_000, MonsterAttack? attack = null)
+    {
+        var (x, y) = state.Walk.Position(state.Clock.Elapsed.TotalSeconds);
+        var monster = new SpawnedMonster($"target 0x{id:x}", new(x + dx, y, 30), 100, 2, life) { Attack = attack, Aggro = true };
+        lock (state.Monsters) state.Monsters[id] = monster;
+        return monster;
+    }
+
+    // Shock is increased damage taken, added to the mods' own (PoB DamageTaken INC), on hits and burns alike.
+    [Fact]
+    public void Surfcaster_monster_shock_matches_plain_increased_damage_taken()
+    {
+        if (!DataAvailable()) return;
+        var shocked = new SpawnedMonster("shocked", new(0, 0, 30), 0, 2, 1000);
+        var plain = new SpawnedMonster("plain", new(0, 0, 30), 0, 2, 1000)
+            { Mods = new([], [], new(new Dictionary<string, int> { ["base_damage_taken_+%"] = 20 })) };
+        shocked.Ailments.Inflict(0, 102, true, 1000, 0, _ => 0, _ => 0, new Random(1));
+        Assert.Equal(20, shocked.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 1));
+        var hit = DamagePacket.Of(DamageType.Lightning, 100, 100);
+        Assert.Equal(100, Program.MonsterDamage(shocked, hit, false, true, 3, default).Damage); // expired
+        Assert.Equal((120, 120), (Program.MonsterDamage(shocked, hit, false, true, 1, default).Damage,
+            Program.MonsterDamage(plain, hit, false, true, 1, default).Damage));
+        var burn = new DamageOverTime(DamageType.Fire, 100, 10);
+        Assert.Equal((120, 120), (Program.MonsterBurn(shocked, burn, 1, 1).Damage, Program.MonsterBurn(plain, burn, 1, 1).Damage));
+    }
+
+    // Chill slows a monster's swing and walk on the server and, through the sent stats, in the client; a frozen monster
+    // stops and does not swing. The buffs show the ailments.
+    [Fact]
+    public async Task Surfcaster_monster_chill_and_freeze_reach_the_monster_ai()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        var attack = new MonsterAttack(SkillCatalog.FirstSkillId, 10, 20, DamagePacket.Of(DamageType.Physical, 1, 1));
+        var chilled = SurfcasterTarget(game.State, 0x101, 3, attack: attack);
+        var plain = SurfcasterTarget(game.State, 0x102, -3, attack: attack);
+        var frozen = SurfcasterTarget(game.State, 0x103, 0, attack: attack);
+        double now = game.State.Clock.Elapsed.TotalSeconds;
+        chilled.Ailments.Inflict(1000, 0, false, 1000, now, _ => 0, _ => 0, Random.Shared); // 30%
+        frozen.Ailments.Inflict(1000, 0, true, 1000, now, _ => 0, _ => 0, Random.Shared);  // 30% and 3 s frozen
+        frozen.Walk.Order(100, 100, now);
+        ushort firstBuff = game.State.NextBuff;
+
+        var (_, bytes) = await game.SurfcasterAiTicks(250);
+        Assert.True(plain.BusyUntil > now);
+        Assert.Equal(10 / .7 - 10, chilled.BusyUntil - plain.BusyUntil, 6);
+        Assert.Equal(0, frozen.BusyUntil);
+        Assert.True(frozen.Walk.ArrivesAt <= game.State.Clock.Elapsed.TotalSeconds);
+        Assert.Equal(21, chilled.Walk.Speed, 6);
+        Assert.Equal(30, plain.Walk.Speed, 6);
+        bool Sent(byte[] packet) => bytes.AsSpan().IndexOf(packet) >= 0;
+        bool Buff(uint id, MonsterElementalAilments.Kind kind, int magnitude) => Enumerable.Range(firstBuff, 4)
+            .Any(i => Sent(Program.AilmentBuff(id, (ushort)i, kind, magnitude)));
+        Assert.True(Buff(0x101, MonsterElementalAilments.Kind.Chill, 30));
+        Assert.True(Buff(0x103, MonsterElementalAilments.Kind.Freeze, 100));
+        uint speed = Program.Stats.Key("virtual_action_speed_+%")!.Value;
+        Assert.True(Sent(InstanceEntities.StatsUpdate(0x101, [(speed, -30)])));
+        Assert.False(Sent(InstanceEntities.StatsUpdate(0x102, [(speed, -30)])));
+
+        // The rows' layout the buff relies on: chilled and shocked carry their one value, all three the +0xff u16.
+        using var rows = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffDefinitions.json"));
+        foreach (var (row, id, values) in new[] { (1, "chilled", 1), (2, "frozen", 0), (3, "shocked", 1) })
+        {
+            var r = rows.RootElement[row];
+            Assert.Equal(id, r.GetProperty("Id").GetString());
+            Assert.True(r.GetProperty("__col44").GetBoolean());
+            Assert.Equal(values, r.GetProperty("IsRecovery").GetBoolean() ? r.GetProperty("GrantedStats").GetArrayLength() : 0);
+        }
+    }
+
+    // Stormy Seas (60505): with Baited Breath's rod every hit crits, its lightning becomes cold, and only the node's
+    // cold_damage_can_shock lets that cold shock (the magnitude, not the chance); a plain equivalent is the same.
+    [Fact]
+    public async Task Surfcaster_Stormy_Seas_cold_crit_shocks_only_with_the_node()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        using var plain = Surfcaster();
+        using var flagged = Surfcaster();
+        Assert.Null((await game.Change([48926, 64012, 33031, 37082, 41643, 60505], true)).Error);
+        (string, int)[] hit = [("physical_damage_+%", -100), ("attack_minimum_added_lightning_damage", 2000),
+            ("attack_maximum_added_lightning_damage", 2000), ("global_always_hit", 1), ("attack_speed_+%", 300)];
+        (string, int)[] equivalent = [.. hit, ("always_crit_while_holding_fishing_rod", 1),
+            ("base_lightning_damage_%_to_convert_to_cold", 100)];
+        SetDev(game.State, hit);
+        SetDev(plain.State, equivalent);
+        SetDev(flagged.State, [.. equivalent, ("cold_damage_can_shock", 1)]);
+        var results = new List<(uint Life, int Chill, bool Frozen, int Shock)>();
+        foreach (var character in new[] { game, plain, flagged })
+        {
+            character.Items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("FishingRod1")!));
+            SetDev(character.State);
+            var target = SurfcasterTarget(character.State, 0x201, 3);
+            await character.SurfcasterAttack(0x201);
+            double now = character.State.Clock.Elapsed.TotalSeconds;
+            results.Add((target.Life, (int)target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now),
+                target.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0,
+                (int)target.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)));
+        }
+        // One critical cold hit: the same damage, chill and freeze everywhere; the shock needs the flag.
+        Assert.True(results[0].Life < 10_000);
+        Assert.True(results[0] is { Chill: > 0, Frozen: true, Shock: > 0 }, $"{results[0]}");
+        Assert.Equal((results[0].Life, results[0].Chill, results[0].Frozen, 0), results[1]);
+        Assert.Equal(results[0], results[2]);
+    }
+
+    // Mirrored puts the ailments a hit landed on the player too; Unstoppable keeps its own action speed at base.
+    [Fact]
+    public void Surfcaster_Mirrored_reflects_and_Unstoppable_ignores_monster_ailments()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        SpawnedMonster With(params (string, int)[] stats) => new("modded", new(0, 0, 30), 0, 2, 1000)
+            { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };
+        var mirrored = With(("reflect_non_damaging_ailments_%_chance", 100));
+        var unstoppable = With(("action_speed_cannot_be_reduced_below_base", 1), ("movement_speed_cannot_be_reduced_below_base", 1));
+        var cold = DamagePacket.Of(DamageType.Cold, 200, 200);   // 20% of the threshold: a 26% chill, 1.2 s frozen
+        double now = game.State.Clock.Elapsed.TotalSeconds;
+        var player = Program.CharacterPlayerStats(game.State);
+        var ailments = game.State.ElementalAilments;
+        lock (game.State.Monsters)
+        {
+            Program.AilmentsOnHitLocked(game.State, unstoppable, cold, false, true, 100, player, null, now, new Random(1));
+            Assert.Equal(0, ailments.Magnitude(PlayerElementalAilments.Kind.Chill, now));
+            Assert.True(unstoppable.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0);
+            Assert.Equal(1, Program.MonsterActionFactor(unstoppable, now));
+            Program.AilmentsOnHitLocked(game.State, mirrored, cold, false, true, 100, player, null, now, new Random(1));
+            Assert.Equal(0, Program.MonsterActionFactor(mirrored, now));
+            Assert.Equal(26, ailments.Magnitude(PlayerElementalAilments.Kind.Chill, now));
+            Assert.True(ailments.Magnitude(PlayerElementalAilments.Kind.Freeze, now + 1.1) > 0);
+            Assert.Equal(0, ailments.Magnitude(PlayerElementalAilments.Kind.Freeze, now + 1.3));
+        }
+    }
 }

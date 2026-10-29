@@ -61,13 +61,7 @@ sealed class PlayerElementalAilments
         lock (effects)
         {
             Reconcile(get);
-            void Add(Kind kind, double magnitude, double seconds)
-            {
-                seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
-                if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
-                    || RandomRolls.Chance(get($"avoid_{Name(kind)}_%"), 100, random)) return;
-                effects.Add(new(kind, now, now + seconds, magnitude));
-            }
+            void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude, seconds, now, get, random);
             if (critical) Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * MonsterCriticalAilmentMultiplier, 4);
             if (maxLife == 0) return;
             double cold = taken[DamageType.Cold].Min / maxLife;
@@ -82,6 +76,28 @@ sealed class PlayerElementalAilments
             double shock = Math.Min(50, Math.Floor(50 * Math.Pow(lightning, .4)
                 * Math.Max(0, 1 + get("shocked_effect_on_self_+%") / 100.0)));
             if (shock >= 5) Add(Kind.Shock, shock, 2);
+        }
+    }
+
+    void AddLocked(Kind kind, double magnitude, double seconds, double now, Func<string, int> get, Random random)
+    {
+        seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
+        if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
+            || RandomRolls.Chance(get($"avoid_{Name(kind)}_%"), 100, random)) return;
+        effects.Add(new(kind, now, now + seconds, magnitude));
+    }
+
+    // A chill, freeze or shock reflected back onto the player (a Mirrored monster) with the effect and duration it
+    // landed with: then the player's own effect and duration modifiers, caps, immunity and avoidance, as for a hit.
+    public void Inflict(Kind kind, double magnitude, double seconds, double now, Func<string, int> get, Random random)
+    {
+        lock (effects)
+        {
+            Reconcile(get);
+            if (kind is Kind.Chill or Kind.Shock)
+                magnitude = Math.Min(kind == Kind.Chill ? 30 : 50, Math.Floor(magnitude * Math.Max(0, 1 + get(kind == Kind.Chill
+                    ? "chill_effectiveness_on_self_+%" : "shocked_effect_on_self_+%") / 100.0)));
+            if (kind is not (Kind.Chill or Kind.Shock) || magnitude >= 5) AddLocked(kind, magnitude, seconds, now, get, random);
         }
     }
 

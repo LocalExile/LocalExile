@@ -210,6 +210,13 @@ static class PanelStats
         return result;
     }
 
+    /// <summary>One display stat's sum as <see cref="Compute"/> gives it, from raw stats (a skill's own); a stat with no
+    /// row is its own value.</summary>
+    public static int Of(string display, Func<string, int> get) =>
+        Sums.FirstOrDefault(s => s.Display == display && s.Hand == Hand.None && !s.Flag) is { } sum
+            ? (int)Math.Clamp(get(display) + sum.Sources.Sum(s => (long)get(s.Name) * s.Mul / s.Div), int.MinValue, int.MaxValue)
+            : get(display);
+
     /// <summary>
     /// The Offence tab's per-hand damage rows (issue #75): the hit the server actually swings with, per damage type and
     /// in total. The client shows whole numbers, so each range is rounded down. An empty packet adds no rows, which

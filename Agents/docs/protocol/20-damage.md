@@ -366,9 +366,10 @@ The modelled damaging ailments are:
 `Ailments.Ignite/Bleed/Poison` build the effect from a hit packet. Pass the **converted base packet before hit-only
 increased/more modifiers**; the method's `increasedPct`/`more` arguments are the ailment-specific multipliers, so a
 caller cannot double-count hit modifiers. For a specific hit pass its rolled packet; for expected damage pass the
-average range. The caller applies the target's resistance. Non-damaging ailments (chill, freeze, shock), critical
-ailment damage, ailment chance/application and ailment duration stats are not modelled yet. Righteous Fire still uses
-its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
+average range. The caller applies the target's resistance. The player's chill, freeze and shock on monsters are
+modelled ([below](#outgoing-chill-freeze-and-shock-on-monsters)); critical ailment damage and the damaging ailments'
+chance, application and duration on monsters are not modelled yet. Righteous Fire still uses its existing per-tick
+percentage-of-life burn; it is a fire DoT but not an ignite.
 
 ## 4. What the server uses now
 
@@ -441,11 +442,12 @@ also check pause, flasks and RF. The new visual behavior awaits that real-client
 
 ## 6. Not modelled yet
 
-- Energy shield, exposure, shock and other damage-taken modifiers; monster armour (the monsters' base resistances are
-  in, §4, with unconditional penetration).
+- Energy shield, exposure and damage-taken modifiers other than shock and the monster mods'; monster armour (the
+  monsters' base resistances are in, §4, with unconditional penetration).
 - Added flat damage besides the maximum-mana granted lightning stat (supports/items, the other added-damage
   stats), increased/more modifiers on the base damage, and skill-specific added-damage scaling.
-- Ailment application, duration and effect; critical ailments; bleed movement bonus; poison stacking bookkeeping.
+- Damaging-ailment application, duration and effect on monsters; alternative ailments (scorch, brittle, sap); Shatter;
+  critical ailments; bleed movement bonus; poison stacking bookkeeping.
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, leech, life/mana gain on hit, and recoup.
 - Party/minion damage and the full support-gem effect set.
@@ -492,3 +494,54 @@ Risk Aversion's final avoidance stats are consumed independently per eligible ai
 The resource writer integrates strongest ignite with live resistance, ES and lethal Life damage; RF remains nonlethal.
 Chill changes action timing/movement, freeze cancels/gates actions, and shock increases subsequent damage taken.
 See [Gambler's exact source, threshold, formula and presentation limits](../game/gambler.md).
+
+## Outgoing chill, freeze and shock on monsters
+
+Each `SpawnedMonster` has a `MonsterElementalAilments`, changed under the Monsters lock on the connection's pauseable
+clock (`ProjectileWorldTime`). The default attack, area skills and projectiles (ordinary bow shots included) call
+`AilmentsOnHitLocked` (`Program.MonsterAilments.cs`) after a hit's damage when the monster still lives, so a hit does
+not gain from its own shock. The damage per type is the resisted packet × the monster's damage taken × the critical
+multiplier on a critical strike; the threshold is its maximum life (wiki: equal to it for most monsters). The
+attacker's stats are `CharacterPlayerStats` plus the skill's own, summed through the panel rows (`PanelStats.Of`).
+
+| Ailment | Applied by | Effect | Duration |
+|---|---|---|---|
+| Chill | every hit with cold damage | floor(50 × (cold / threshold)^0.4 × modifiers), at most 30%; none under 5% | 2 s |
+| Shock | a critical strike or `chance_to_shock_%`, with lightning damage, or cold damage with `cold_damage_can_shock` | the same formula on that damage, at most 50% | 2 s |
+| Freeze | a critical strike or `chance_to_freeze_%`, with cold damage | the monster cannot act | 0.06 s per 1% of the threshold, at most 3 s; none under 0.3 s |
+
+The effect modifiers are the attacker's `virtual_chill_effect_+%`/`virtual_shock_effect_+%` and the monster's
+`chill_effectiveness_on_self_+%`/`shocked_effect_on_self_+%`, both counted before the cap and the 5% floor. Durations
+take the attacker's `virtual_*_duration_+%` and the monster's `base_self_*_duration_-%` (positive reduces, as on the
+player's jewels). Of the Ice carries −80 of the freeze one in 3.29.3b Mods.dat, so by that sign its freeze lasts 80%
+longer; the game's text for it is not checked. `immune_to_*`, `cannot_be_*` and `base_cannot_be_*` on the monster's
+stats block each kind. The strongest of a kind applies, and each keeps its own duration (wiki); a weaker one that also
+ends sooner is dropped. A monster that dies keeps them; it no longer acts.
+
+- **Shock** adds to the mods' `base_damage_taken_+%` (PoB DamageTaken INC), before a spell's less damage taken, on
+  the player's hits and Righteous Fire's burn (`MonsterDamageTaken`).
+- **Chill** divides the monster's attack time (`BusyUntil`, the swing's contact delay) by 1 − chill and re-times the
+  server's walk by the same factor.
+- **Freeze** stops its walk, chase and swings; a freeze that lands during a swing cancels it at contact.
+- Unstoppable (`action_speed_cannot_be_reduced_below_base`, `movement_speed_cannot_be_reduced_below_base`) keeps both
+  at base, as the player's action floor does (forum bug report 3494363: freeze only interrupts channelling there).
+- **Stormy Seas.** `cold_damage_can_shock` lets the cold damage count for the shock's magnitude; the chance is still
+  a critical strike or `chance_to_shock_%`. The client's calculator `0x1426f2660` makes `virtual_cold_damage_can_shock`
+  (0x1bc6) from keys 0x451a, 0x1bc9 and 0x1b96, and nothing else in the client reads it.
+- **Mirrored** (`reflect_non_damaging_ailments_%_chance`, 100): the ailments a hit added act on the player as well
+  (wiki Reflect: "in addition to its target"), through `PlayerElementalAilments.Inflict` with the player's own effect
+  modifiers, caps and floor. The exact reflected magnitude is not verified.
+
+Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
+effects but sends nothing. A kind is re-sent only when its strongest magnitude changes: S→C 0x1c2 for the old instance,
+then 0x1c1 with BuffDefinitions 1 chilled, 2 frozen or 3 shocked (BuffVisuals 3, 4, 5), the player as source and no
+duration; 0x1c2 removes it at expiry, so a pause cannot desync it. All three rows have the +0xff bool, so 0x1c1
+carries a u16 at +0x82 ([11](11-skills.md) §12); chilled and shocked are `IsRecovery` and carry their one GrantedStats
+value (`action_speed_-%_from_chill`, `base_damage_taken_+%_from_shock`). The magnitude goes in both; what the client
+does with +0x82 is not known. The chill is also sent as 0x1b3 `virtual_action_speed_+%` (−chill), which the native
+walk `0x141e7c0b0` and the action clips read; network stats run no calculators ([04](04-player-entity.md) §4.1a). A
+freeze is not sent there (−100 would divide the native clip by zero); the server stops the monster instead.
+
+Not modelled: Shatter, unique and boss thresholds and their reduced effects, immunities from the monster's variety
+(.ot), Brine Bound's freeze on being hit, Glacial Wave, Within the Tempest, and the client's frozen animation (not
+checked live).

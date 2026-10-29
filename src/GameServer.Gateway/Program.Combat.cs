@@ -230,7 +230,9 @@ partial class Program
                 new DamageRange(Math.Floor(stored), Math.Floor(stored))) : ownRolled;
             critical = RollCriticalStrike(conn, conn.Pools.AttackCriticalStrikeChance, ownPenetration);
             int criticalMultiplier = CriticalMultiplierOn(m, AttackCriticalMultiplier(conn, player));
-            (damage, resistance) = MonsterDamage(m, rolled, critical, attack: true, resistanceMods, pen, gambler.InvertsResistance(Random.Shared));
+            double at = ProjectileWorldTime(conn);
+            (damage, resistance, var mitigated) = MonsterDamage(m, rolled, critical, attack: true, at, resistanceMods, pen,
+                gambler.InvertsResistance(Random.Shared));
             if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
             FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
                 WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration);
@@ -247,6 +249,8 @@ partial class Program
                 m.Aggro = false; m.Dead = true; m.Impale.Clear();
                 CollectVaalSoulAtDeathLocked(conn, m);
             }
+            else AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
+                at, Random.Shared);
             RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
         }
         ChargesOnHit(conn, m, critical, spell: false);
@@ -872,9 +876,13 @@ partial class Program
                 var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(sweepHit, Random.Shared);
                 critical = RollCriticalStrike(conn, criticalChance, skillStats, attack: !spell);
                 int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
-                (damage, resistance) = MonsterDamage(m, rolled, critical, attack: !spell, mods, pen, gambler.InvertsResistance(Random.Shared));
+                double at = ProjectileWorldTime(conn);
+                (damage, resistance, var mitigated) = MonsterDamage(m, rolled, critical, attack: !spell, at, mods, pen,
+                    gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 applied = ApplyMonsterHitLocked(conn, m, damage);
+                if (applied is { Life: > 0 })
+                    AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared);
                 if (applied is { StageStarts: true } staged)
                 {
                     CommitBossStage(remote, stream, ciphers, conn, id, m, ProjectileWorldTime(conn));
@@ -937,15 +945,13 @@ partial class Program
         return hit is not null;
     }
 
-    // The damage a player's outgoing hit deals to its monster: one roll per type, then each type's own base resistance
-    // with the hit's penetration subtracted from the capped value (HitMitigation), summed to the total the critical
-    // multiplier later applies to. Damage over time has neither here and keeps its own path. Internal for the tests.
-    internal static int MonsterDamage(SpawnedMonster m, DamagePacket hit, Random random, Penetration.PerType pen) =>
-        MonsterTakes(m, hit, random, spell: false, pen);
-
-    // Resolve an already-rolled packet using its single critical draw; target damage taken follows mitigation.
-    internal static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
-        bool critical, bool attack, HitResistances.Mods mods, Penetration.PerType pen = default, bool invertElemental = false)
+    // The damage a player's outgoing hit deals to its monster: an already-rolled packet with its single critical draw,
+    // each type's own base resistance with the hit's penetration subtracted from the capped value (HitMitigation), then
+    // the target's damage taken at now, summed to the total the critical multiplier later applies to. The resisted
+    // packet is returned too, for the ailments. Damage over time has neither here and keeps its own path.
+    internal static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
+        bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
+        bool invertElemental = false)
     {
         var described = new List<string>();
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
@@ -956,8 +962,8 @@ partial class Program
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        return (MonsterTakesMitigated(m, mitigated, spell: !attack),
-            described.Count > 0 ? string.Join(", ", described) : null);
+        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now),
+            described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 
     internal static HitResistances.Mods HitResistMods(IReadOnlyDictionary<uint, int> player,

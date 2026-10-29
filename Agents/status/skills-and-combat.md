@@ -683,8 +683,13 @@ and can require explicit recipes.
   Special ES keystones, leech/recoup and conditional substitutions remain unimplemented.
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
   Maximum-mana added lightning has original-head native checks and resolved automated checks.
+  The player's hits chill, freeze and shock monsters: threshold maximum life, strongest effect with its own duration,
+  shock as increased damage taken (hits and Righteous Fire), chill and freeze in the monster AI and walk, the monster
+  mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
+  The buffs, the sent action speed and the frozen pose are not checked with the real client.
+  See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
   Not yet: exposure, aura-dependent penetration, other added damage,
-  increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
+  increased/more support modifiers and damaging ailments on monsters ([20](../docs/protocol/20-damage.md)).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   Reversed chill (`chill_effect_is_reversed`) is increased action speed while freeze still stops the player, and
