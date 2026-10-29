@@ -65,6 +65,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
+- Surfcaster: Baited Breath (every hit crits while holding a Fishing Rod), Screaming Reels (60% more cast speed with a
+  rod, in the server wait and the native clip), Sea Legs, Stormy Seas' conversion, Brine Bound's Cannot be Frozen and
+  the small nodes' cast speed have consumers, with Gateway coverage of legal builds, paid refunds and reload.
+  Not yet: outgoing chill/freeze/shock on monsters, Ghost of the Deep, Changing Seasons and monster flee.
+  Fishing (fish rarity, corrupted fish) has no gameplay in 3.29.3b. `Game_VERIFIED_SURFCASTER=1` opts in.
+  Docs: [Surfcaster checklist](../docs/game/surfcaster.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.

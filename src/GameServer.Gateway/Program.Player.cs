@@ -245,8 +245,10 @@ partial class Program
     static int? CastMs(ClientState conn, int effect, ushort skillId = 0)
     {
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(conn, skillId).Stats;
-        int speed = CastSpeedPct(CharacterPlayerStats(conn));
+        var player = CharacterPlayerStats(conn);
+        int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
+        speed = FinalCastSpeedPct(conn, player, speed);
         return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed)?.DurationMilliseconds is int duration
             ? (int)Math.Min(int.MaxValue, Math.Ceiling(duration / PlayerActionFactor(conn))) : null;
     }
@@ -254,6 +256,18 @@ partial class Program
     // cast_speed_+% is the total (PanelStats: base_cast_speed_+% and attack_and_cast_speed_+% are already in it).
     static int CastSpeedPct(IReadOnlyDictionary<uint, int> stats) =>
         Stats.Key("cast_speed_+%") is uint k ? stats.GetValueOrDefault(k) : 0;
+
+    // Screaming Reels: cast_speed_+%_final_while_holding_fishing_rod is "more" cast speed on the summed increases
+    // (the skill's own included). As the client's cast_speed_+% calculator 0x142709610: round((increased + 100) × final
+    // − 100), at least −99; its combined final (0x142708190) counts the stat only for main_hand_weapon_type 15.
+    // A total of −100% or less keeps its existing refusal.
+    static int FinalCastSpeedPct(ClientState conn, IReadOnlyDictionary<uint, int> stats, int increased)
+    {
+        int more = Stats.Key("cast_speed_+%_final_while_holding_fishing_rod") is uint k ? stats.GetValueOrDefault(k) : 0;
+        if (more == 0 || increased <= -100 || !HoldingFishingRod(conn)) return increased;
+        double total = (100.0 + increased) * Math.Max(0, 100 + more) / 100 - 100;
+        return (int)Math.Clamp(Math.Round(total, MidpointRounding.AwayFromZero), -99, int.MaxValue);
+    }
 
     // Righteous Fire (GrantedEffects RighteousFire): casting it puts the righteous_fire buff (BuffDefinitions row 12: the
     // flames around the player, BuffVisuals 15) on the player with S→C 0x1c1. While it lasts the player burns for 90% of

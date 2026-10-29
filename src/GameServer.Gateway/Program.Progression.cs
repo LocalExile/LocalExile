@@ -299,10 +299,11 @@ partial class Program
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
-            AttackCriticalStrikeChance = AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
-                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical),
-            SpellCriticalStrikeChance = SpellCriticalStrike.Chance(DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
-                RawCritical, playerIncrease: pools.SpellCriticalStrikeChancePct)
+            AttackCriticalStrikeChance = DisplayedCriticalChance(conn, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
+                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
+            SpellCriticalStrikeChance = DisplayedCriticalChance(conn, SpellCriticalStrike.Chance(
+                DamageModel.BaseSpellCriticalStrikeChancePerMyriad, RawCritical,
+                playerIncrease: pools.SpellCriticalStrikeChancePct), RawCritical)
         };
         // Only the active usable shield contributes. The alternate set and unmet requirements cannot grant block.
         int shieldBlock = ActiveOffHand(conn) is { Type.Class: "Shield" } shield

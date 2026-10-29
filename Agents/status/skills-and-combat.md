@@ -518,6 +518,8 @@ and can require explicit recipes.
 - **Spell cast timing (#192).** Catalog base/virtual cast milliseconds now stay unchanged for native spell actions,
   which apply cast speed themselves.
   Server waits and displayed casts per second share `SpellCastTiming`; attacks keep their existing path.
+  Screaming Reels' 60% more cast speed with a Fishing Rod uses the native calculator's formula in the server wait and in
+  the spell record's `cast_speed_+%`, which now also includes a support's own cast speed.
   The old -80% Fireball recovery capture lasted 18.75 seconds instead of 3.75 due to two divisions by 0.2.
   Automated 0/+100/-80 timing, instant/channel classification, invalid-rate and existing aura/sum checks pass.
   Real-client Q Fireball clips measured 3.750000157 s at -80%, 0.375 s at +100%, and 0.75 s at zero.
@@ -576,6 +578,7 @@ and can require explicit recipes.
   Combined generic/spell bonuses add once; the no-crit flag clears the native chance and hides its row.
   A hitless Scorching Ray cast dealt no weapon damage, while the same connection's Fireball dealt a critical hit.
   Catalog, chance, panel gates, aura sources and hit routing also have automated checks.
+  Surfcaster's Baited Breath makes every hit critical while a Fishing Rod is held, a 0% base included; cannot-crit wins.
   Focus skill and curse lifecycles, other enemy-state/more and added-base crit mechanics remain separate work.
   `/crit` shows the attack values and a pooled 5%-base spell reference ([11](../docs/protocol/11-skills.md) §5).
 - **Overcapped-resistance modifiers.** While the flag stat is set, the uncapped resistance above its maximum is a

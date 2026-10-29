@@ -412,9 +412,13 @@ partial class Program
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0;
-            if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, CastSpeedPct(stats) + supportCastSpeed) is { } spellTiming)
+            int castSpeedTotal = FinalCastSpeedPct(conn, stats, CastSpeedPct(stats) + supportCastSpeed);
+            if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, castSpeedTotal) is { } spellTiming)
             {
                 spellTiming.ApplyTo(stats, Stats);
+                // The native action divides by this skill's cast_speed_+% (0x1419e7500): the total the server wait uses.
+                if (Stats.Key("cast_speed_+%") is uint castKey && castSpeedTotal != CastSpeedPct(stats))
+                    stats[castKey] = castSpeedTotal;
             }
             // Preserve the legacy non-spell/attack display path; attack timing is outside this fix.
             else if ((CastSpeedPct(stats) + supportCastSpeed) is int castSpeed and not 0 && SkillsFor(conn).CastMs(effect) is int castMs and > 0)

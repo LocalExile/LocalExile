@@ -526,6 +526,12 @@ The result rounds to integer permyriad, halves away from zero, then caps at 0–
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L3022-L3027).
 `global_cannot_crit` and `virtual_global_cannot_crit` disable the supported spell roll.
 Ordinary increased chance cannot make a known zero-base spell crit.
+Always-crit is separate: while `always_crit_while_holding_fishing_rod` is set (Surfcaster Baited Breath) and the
+active main hand holds a usable Fishing Rod, `RollCriticalStrike` makes every attack and spell hit critical without a
+draw, a 0% base included; a cannot-crit flag still wins.
+The attack, pooled spell and per-skill chances then show 10000 where they were above 0 (wiki: a 0% base still shows
+no chance). Native `virtual_always_crit` (0x2549, calculator `0x14275ba00`) reads the stat only for
+`main_hand_weapon_type` 15; [surfcaster.md](../game/surfcaster.md) has the details.
 The selected skill's spell rows also require `casting_spell = 1` (CharacterPanelStats `Spell_CritChance`);
 the main-hand rows exclude that flag.
 `EffectStats` supplies it only for an actual ActiveSkillType Spell without Attack, and sends zero otherwise.
@@ -889,6 +895,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Captures: `logs/skill-timing-after-fireball-{minus80,plus100,default}-real.json` in the integration checkout.
   These checks establish native clip duration; projectile release/contact alignment was not separately measured.
   Server projectile release, area-spell delay and the Portal spell's cast wait use the adjusted duration once.
+  More cast speed: the native `cast_speed_+%` calculator `0x142709610` is
+  `round((combined_cast_speed_+% + 100) × combined final − 100)`, at least −99; `0x142708190` multiplies the
+  `_final` stats into that combined final. The stat getter `0x1424fc1e0` runs no calculator, so the server sends the
+  result. `FinalCastSpeedPct` applies Screaming Reels' `cast_speed_+%_final_while_holding_fishing_rod` this way (the
+  only `_final` cast speed modelled), and a genuine spell's record carries that total, a support's
+  `base_cast_speed_+%` included, as its `cast_speed_+%`.
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
   A channelled spell's native base is also preserved; this does not implement beam damage or change the existing
   server channel-hit cadence. Attack and non-spell timing paths are unchanged.
