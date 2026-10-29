@@ -135,7 +135,7 @@ static class FlaskGrounds
 
         /// <summary>Marks a monster blinded (with the buff id that shows it) or not: the buff id to add (newly blinded),
         /// or to remove (no longer), or null when nothing changes. <paramref name="nextBuff"/> runs outside this lock (it
-        /// takes the connection's Monsters lock, under which <see cref="Accuracy"/> is read).</summary>
+        /// takes the connection's Monsters lock, under which <see cref="Blinded(uint)"/> is read).</summary>
         public (ushort Buff, bool Added)? SetBlinded(uint monster, bool blinded, Func<ushort> nextBuff)
         {
             lock (_lock)
@@ -157,14 +157,11 @@ static class FlaskGrounds
             lock (_lock) return [.. _blinded.Keys];
         }
 
-        /// <summary>A monster's accuracy (its hits on the player) or evasion (against the player's attacks), Blind applied
-        /// while it stands in smoke.</summary>
-        public int Accuracy(uint monster, int accuracy)
+        /// <summary>Whether the monster stands blinded in smoke (Program.Blinded: one source of the player's Blind).</summary>
+        public bool Blinded(uint monster)
         {
-            lock (_lock) return _blinded.ContainsKey(monster) ? Blinded(accuracy) : accuracy;
+            lock (_lock) return _blinded.ContainsKey(monster);
         }
-
-        public int Evasion(uint monster, int evasion) => Accuracy(monster, evasion);
 
         /// <summary>Marks the player on consecrated ground or not: the buff id to add or to remove, or null.</summary>
         public (ushort Buff, bool Added)? SetConsecrated(bool on, Func<ushort> nextBuff)

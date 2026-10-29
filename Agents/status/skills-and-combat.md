@@ -399,6 +399,14 @@ and can require explicit recipes.
   enemies nothing. Local policy for already-running effects; Gateway coverage only, not checked with the real client.
   Code: Gateway (`SpellsDisabled`, `ActorSkillDisabledCore`, `SuspendRestrictedOwnAuras`).
   Docs: [11](../docs/protocol/11-skills.md) §10d.
+- Passive blind aura (Devout of Solaris, Born in the Shadows: BuffTemplates `SaboteurBlind`): living hostile monsters
+  within 35 cells get the `blinded` buff each player tick, which a death, a refund or leaving the radius takes off.
+  Blind from it or the smoke cloud lowers their accuracy and evasion by 20%, lets
+  `critical_strike_chance_+%_vs_blinded_enemies` raise the player's critical chance against them (default attack, area
+  sweeps, projectiles) and `damage_taken_+%_from_blinded_enemies` lower their hits. Other passive auras do nothing yet.
+  Gateway coverage only, not checked with the real client.
+  Code: Gateway (`PassiveBuffAuras`, `TickPassiveAuras`, `Program.Blinded`, `CriticalChanceOn`).
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - **Projectile modifiers.** Generic profiles consume resolved primary counts, speed, pierce/fork/chain/split/return
   grants and independent prohibitions in the sole staged runtime. Ordinary bows and catalog-known projectile gems
   work without a skill provider. A basic recipe is straight flight, not complete special-skill behavior.

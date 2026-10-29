@@ -1554,6 +1554,20 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then
   × (1 + `active_skill_area_of_effect_radius_+%_final`), from the player's stats under the skill's (`SkillArea`).
   Conditional area stats (per charge, per attribute, "recently") are not modelled.
+- **Passive auras on enemies** (`PassiveBuffAuras.cs`): a passive's PassiveSkills `PassiveSkillBuffs` (`BuffsHardmode`
+  for a Ruthless alternate) name BuffTemplates rows: a BuffDefinitions row, its values (`Buff_StatValues`) and an
+  `AuraRadius` in cells. Only templates whose effect has consumers act. `SaboteurBlind` (Devout of Solaris, Born in the
+  Shadows) is `generic_buff_aura` (1521: invisible, no stats, CancelOnDeath) with radius 35 (3.5 m in the wiki's
+  distance table). Its effect is not in the definition: unnamed column `__col5` of the generic templates starts with an
+  effect code that matches their Ids (1 chilled, 2 shocked, 9 blinded, 12 malediction, 19 taunted), not checked in the
+  client; the server keys on the template Id. Every player tick (250 ms; not while paused, but while the player is
+  dead, so a death clears it) `TickPassiveAuras` puts the `blinded` buff (179) on each living hostile monster within
+  the radius of the living player with 0x1c1 and takes it off with 0x1c2 when it leaves, the player dies or the node
+  is refunded; a vanished monster is forgotten without a message. The invisible aura buff on the player is not sent:
+  nothing on the client reads it that we know of. `Program.Blinded` (smoke cloud or aura) is the one Blind condition
+  the hits read: 20% less monster accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's
+  increased critical chance against the target, `damage_taken_+%_from_blinded_enemies` on its hits
+  ([Polytheist](../game/polytheist.md)).
 - **A worn Righteous Fire effect** (its `skill_art_variation`, [23](23-microtransactions.md) §3) swaps both buffs'
   visuals through 0x1c1's BuffVisuals override and the ring's AO (`SkillArt`), also on the enemies' aura; NoRing
   draws no ring. A pick while the fire burns lights it again with the new art (casting again while it burns does

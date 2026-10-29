@@ -507,4 +507,6 @@ The resource writer integrates strongest ignite with live resistance, ES and let
 Chill changes action timing/movement, freeze cancels/gates actions, and shock increases subsequent damage taken.
 `unaffected_by_shock` keeps the shock (duration, `is_shocked`) but leaves damage taken at 1
 ([Polytheist](../game/polytheist.md)).
+A hit from a monster the player has Blinded adds `damage_taken_+%_from_blinded_enemies` to the shock's increase
+(additive, `DamageTakenFactor(now, increasedPct)`); ignite ticks have no source and keep the shock alone.
 See [Gambler's exact source, threshold, formula and presentation limits](../game/gambler.md).

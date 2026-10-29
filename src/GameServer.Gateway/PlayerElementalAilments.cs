@@ -29,7 +29,9 @@ sealed class PlayerElementalAilments
     public double ActionFactor(double now) => Math.Max(actionFloor,
         1 - Math.Max(Magnitude(Kind.Freeze, now) * freezeEffect, Magnitude(Kind.Chill, now)) / 100);
     // Unaffected by Shock (PoB SelfShockEffect 100% less): the shock stays on the player and in is_shocked, with no effect.
-    public double DamageTakenFactor(double now) => unaffectedByShock ? 1 : 1 + Magnitude(Kind.Shock, now) / 100;
+    // increasedPct: the hit's other increased damage taken (from a Blinded enemy), additive with the shock's.
+    public double DamageTakenFactor(double now, int increasedPct = 0) =>
+        Math.Max(0, 1 + ((unaffectedByShock ? 0 : Magnitude(Kind.Shock, now)) + increasedPct) / 100);
 
     static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
     static bool Immune(Kind kind, Func<string, int> get) => get($"immune_to_{Name(kind)}") != 0

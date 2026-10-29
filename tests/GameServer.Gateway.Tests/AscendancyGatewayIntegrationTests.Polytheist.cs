@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
@@ -12,6 +13,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         [46465, 64171, 51229, 43703, 29846, 1830, 6605, 30769],
         [30769, 5266, 322, 24342, 33835, 23429, 25478, 27664],
     ];
+    // Devout of Solaris through ring A's other side, without Garukhan (so a shock still counts).
+    static readonly ushort[] PolytheistSolaris = [59443, 61900, 21979, 32742];
     static readonly ushort[] PolytheistSmallNodes = [27664, 46465, 6605, 33835, 30769, 29846, 21979, 59443, 322, 51229, 26231, 25478];
 
     static int PolytheistStat(ClientState state, string name) =>
@@ -206,6 +209,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
         {
             State.PlayerLife = 0;
             await ProgramValue<Task>("PlayerDied", "polytheist-integration", stream, cipher, State, "integration death");
+            return null;
+        });
+
+        // One player tick of the passive auras (TickPassiveAuras).
+        public Task<(string? Error, byte[] Bytes)> PolytheistAuraTick() => Exchange(async (stream, cipher) =>
+        {
+            await Program.TickPassiveAuras("polytheist-integration", stream, cipher, State);
             return null;
         });
     }
@@ -432,5 +442,96 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal((int)Math.Floor(baseNova * Math.Floor(100 * Math.Sqrt(1.3)) / 100), Radius(nova, true));
         Assert.Equal(baseNova, plainNova);
         Assert.Equal(plainSlam, Radius(slam, false));
+    }
+
+    [Fact]
+    public async Task Polytheist_Solaris_blinds_nearby_enemies_for_their_hits_and_the_players_crits()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", refundPoints: 40, level: 60);
+        var state = game.State;
+        EquipPolytheistGems(game, "Fireball");
+        var fireball = ProgramValue<IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>>(
+            "GemSkillEffects", state).Single(g => g.Name == "Fireball");
+        // A 5% unarmed attack base and no increased critical strike chance.
+        state.PlayerStats[Program.Stats.Key(AttackBaseCriticalStrike.UnarmedBaseStat)!.Value] = 500;
+        state.Pools = Program.PoolsFor(state, 60);
+        double now = state.Clock.Elapsed.TotalSeconds;
+        var at = state.Walk.Position(now);
+        state.Walk.Teleport(at.X, at.Y, now);
+        SpawnedMonster Enemy(int dx)
+        {
+            var m = new SpawnedMonster("Polytheist blind target", new(at.X + dx, at.Y, 30), 0, 2, 1000)
+            {
+                Hostile = true, Attack = new(SkillCatalog.FirstSkillId, .002, 40, DamagePacket.Of(DamageType.Physical, 100, 100)),
+            };
+            m.Walk.Teleport(at.X + dx, at.Y, now);
+            return m;
+        }
+        var (near, far, attacker) = (Enemy(35), Enemy(36), Enemy(2));
+        (state.Monsters[50], state.Monsters[51]) = (near, far);
+        Task<uint> Hit(bool shocked, int entropy = 99) => game.PolytheistMonsterHit(shocked, entropy: entropy, attacker: attacker);
+
+        // Plain: nothing is blinded and every chance is the ordinary one.
+        Assert.Empty((await game.PolytheistAuraTick()).Bytes);
+        Assert.Equal(500, state.Pools.AttackCriticalStrikeChance);
+        Assert.Null(Program.AttackCriticalChanceVsBlinded(state, Program.CharacterPlayerStats(state)));
+        Assert.Null(Program.SupportedCriticalChanceVsBlinded(state, fireball.Id, release: false));
+        var (plain, shocked) = (await Hit(false), await Hit(true));
+        Assert.Equal(Math.Round(plain * 1.5), shocked);
+
+        Assert.Null((await game.Change(PolytheistSolaris, true)).Error);
+        state.Monsters[43] = attacker;
+        ushort buff = state.NextBuff;
+        // Nearby Enemies are Blinded: the blinded buff (179) on each living hostile monster within 35 cells, once.
+        var tick = (await game.PolytheistAuraTick()).Bytes;
+        Assert.Equal((true, false, true), (Program.Blinded(state, 50), Program.Blinded(state, 51), Program.Blinded(state, 43)));
+        ushort? Added(uint id) => Enumerable.Range(buff, 2).Select(b => (ushort?)b).SingleOrDefault(b => tick.AsSpan()
+            .IndexOf(InstanceEntities.AddBuff(id, b!.Value, FlaskGrounds.BlindedBuffRow, Program.PlayerId)) >= 0);
+        Assert.Equal(buff + 2, state.NextBuff);
+        Assert.NotNull(Added(43));
+        ushort nearBuff = Assert.NotNull(Added(50));
+        Assert.Empty((await game.PolytheistAuraTick()).Bytes);
+        // Blind: 20% less accuracy and evasion. The blinded attacker's hit is evaded at an entropy an ordinary one reaches.
+        Assert.Equal((800, 1000), (Program.UnderBlind(state, 50, 1000), Program.UnderBlind(state, 51, 1000)));
+        int evasion = ProgramValue<int>("PlayerEvasion", state, state.Clock.Elapsed.TotalSeconds);
+        int accuracy = Program.Monsters.BaseAccuracy(attacker.Level)!.Value;
+        int ordinaryChance = DamageModel.AccuracyHitChance(evasion, accuracy);
+        Assert.True(DamageModel.AccuracyHitChance(evasion, FlaskGrounds.Blinded(accuracy)) < ordinaryChance);
+        Assert.Equal(0u, await Hit(false, entropy: 100 - ordinaryChance));
+        // 10% reduced Damage taken from Blinded Enemies, additive with the shock's 50% increase (x1.4, not x1.35).
+        Assert.Equal((Math.Round(plain * .9), Math.Round(plain * 1.4)), (await Hit(false), await Hit(true)));
+        // 100% increased Critical Strike Chance against Blinded Enemies joins the increases, only against a blinded
+        // target: the default attack goes from 5% to 10%, a spell's chance doubles.
+        int? attackVs = Program.AttackCriticalChanceVsBlinded(state, Program.CharacterPlayerStats(state));
+        Assert.Equal((1000, 500), (Program.CriticalChanceOn(state, 50, 500, attackVs), Program.CriticalChanceOn(state, 51, 500, attackVs)));
+        int spell = ProgramValue<int>("SupportedCriticalChance", state, fireball.Id);
+        Assert.True(spell > 0);
+        Assert.Equal(2 * spell, Program.SupportedCriticalChanceVsBlinded(state, fireball.Id, release: false));
+        // Enemies Blinded by you have 100% reduced Critical Strike Chance: monsters only crit through always_crit, which
+        // the client's chance (FUN_14275c050) makes 10000 before any increase is read, so a reduction cannot touch it.
+        Assert.Equal(10_000, new MonsterModEffects(new Dictionary<string, int> { ["always_crit"] = 1 }).CriticalChance);
+
+        // A refund takes the aura's blind off; the smoke cloud's own blind on another monster stays.
+        state.FlaskGrounds.SetBlinded(51, true, () => 999);
+        Assert.Null((await game.Change([.. PolytheistSolaris.Reverse()], false, refundPoints: true)).Error);
+        Assert.True((await game.PolytheistAuraTick()).Bytes.AsSpan().IndexOf(InstanceEntities.RemoveBuff(50, nearBuff)) >= 0);
+        Assert.Equal((false, true), (Program.Blinded(state, 50), Program.Blinded(state, 51)));
+        state.FlaskGrounds.SetBlinded(51, false, () => 0);
+        // A death ends it too (the buff is CancelOnDeath), and the attacker's hits take full damage again.
+        Assert.Null((await game.Change(PolytheistSolaris, true)).Error);
+        state.Monsters[43] = attacker;
+        await game.PolytheistAuraTick();
+        Assert.True(Program.Blinded(state, 43));
+        Assert.Null((await game.PolytheistDeath()).Error);
+        await game.PolytheistAuraTick();
+        Assert.False(Program.Blinded(state, 43) || Program.Blinded(state, 50));
+        state.PlayerLife = state.PlayerMaxLife;
+        Assert.Equal(plain, await Hit(false));
+
+        // A released projectile keeps the chance against a blinded target for its contact (the fixture closes the state).
+        await using var runtime = new ProjectileRuntimeFixture(state);
+        var use = ProgramValue<ProjectileUse>("CaptureGemProjectile", state, runtime.Session, fireball.Id, fireball, (at.X + 50, at.Y));
+        Assert.Equal(2 * spell, Assert.IsType<ProjectileOffense>(use.Payload).VsBlindedCriticalChance);
     }
 }

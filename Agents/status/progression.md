@@ -70,11 +70,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Devout of Garukhan (evasion and regeneration while moving, Unaffected by Shock) and Devout of Ryslatha (more maximum
   attack damage, no regeneration on enemies hit recently) have consumers and Gateway coverage against a plain build.
   So do Devout of Gruthkul (spells disabled and dealing no damage, life, regeneration, enemies that hit you attack
-  slower; whether their swing animation slows is unverified) and Devout of Lunaris (Novas at the target, two more spell
-  projectiles, more spell area).
+  slower; whether their swing animation slows is unverified), Devout of Lunaris (Novas at the target, two more spell
+  projectiles, more spell area) and Devout of Solaris (a blind aura on nearby enemies, more critical chance against and
+  less damage from blinded enemies; their reduced critical chance has nothing to reduce, because monsters crit only
+  through `always_crit`, an override).
   Devout of Yugul, Ralakesh's Corrupted Blood immunity and Garukhan's ground immunity wait for curses, reflected
   damage, Corrupted Blood and hazardous ground.
-  Devout of Solaris and Devout of Abberath are still being built; `Game_VERIFIED_POLYTHEIST=1` opts in.
+  Devout of Abberath is still being built; `Game_VERIFIED_POLYTHEIST=1` opts in.
   Not checked with the real client.
   Docs: [Polytheist checklist](../docs/game/polytheist.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

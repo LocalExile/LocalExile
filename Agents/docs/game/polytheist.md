@@ -44,7 +44,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 33835 small (ring C) | Same as 27664. | Done |
 | 25478 small (ring C) | Same as 27664. | Done |
 | 22056 Devout of Garukhan | Evasion, Life and Mana Regeneration while moving; Unaffected by Shock; ground immunity. | Done; ground immunity: engine gap |
-| 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Pending (group 4) |
+| 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Done; the enemies' reduced crit has nothing to reduce (see below) |
 | 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Pending (group 5) |
 | 64171 Devout of Yugul | Hex Reflection; Hexes affect Hexproof enemies; Immune to Reflected Damage; Unaffected by Curses. | Engine gap (all four) |
 | 43703 Devout of Lunaris | Nova spells at the target; Spells fire 2 additional Projectiles; 30% increased spell area. | Done |
@@ -133,6 +133,42 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   (`MonsterSwingSeconds`); the player's death ends it. The monster's attack stats go to its Stats component again when
   the slow starts and ends (`SendAttackerSlows`); whether the client's swing animation follows them is unverified
   ([11](../protocol/11-skills.md) §6). The client has no literal read of 0x187f, so the effect is the server's.
+- **Devout of Solaris, Nearby Enemies are Blinded** (`local_display_nearby_enemies_are_blinded` is only the tooltip;
+  the effect is the node's PassiveSkillBuffs entry, BuffTemplates 34 `SaboteurBlind`): `PassiveBuffAuras` reads the
+  template, `generic_buff_aura` (BuffDefinitions 1521, invisible, no stats, cancelled on death) with AuraRadius 35.
+  The radius is in cells like every other radius; the wiki's distance table gives this template 3.5 m. Every player tick
+  (250 ms, not while paused) `TickPassiveAuras` blinds each living hostile monster within 35 cells of the living player
+  and shows it with the `blinded` buff (179) on the monster, as the Stibnite smoke cloud does. A monster that leaves the
+  radius, the player's death and a refund take the buff off at the next tick; a new area is a new connection. The
+  invisible aura buff on the player is not sent: it has no stats and no visual, so the client has nothing to show or
+  derive. The Saboteur's Born in the Shadows uses the same template and gets the same aura.
+- **Blind on monsters** (`Program.Blinded`): a monster is Blinded by the player while it stands in their smoke cloud or
+  in the passive aura. Each source keeps its own set and its own buff, so one ending never un-blinds the other. Blind
+  is 20% less accuracy (its hits on the player) and 20% less evasion (the player's default attack and projectile
+  attacks; PoB's Blind). Both sources count as "Enemies Blinded by you".
+- **Devout of Solaris, 100% increased Critical Strike Chance against Blinded Enemies**
+  (`critical_strike_chance_+%_vs_blinded_enemies`; PoB: an increase with ActorCondition enemy Blinded): against a
+  Blinded target the chance is computed again from the base with the extra increase in the increased sum, never the
+  final chance scaled (`CriticalChanceOn`). The default attack (`AttackCriticalChanceVsBlinded`, from the main hand's
+  base and the pooled attack increases), the area sweep (`SupportedCriticalChanceVsBlinded`, once per sweep) and every
+  projectile (captured at release as `ProjectileOffense.VsBlindedCriticalChance`, ordinary bows included; the target is
+  checked at contact) use it. A 5% base goes to 10% with no other increase. The client reads 0xe8d only in stat
+  descriptions, so the effect is the server's.
+- **Devout of Solaris, 10% reduced Damage taken from Blinded Enemies** (`damage_taken_+%_from_blinded_enemies`; PoB:
+  DamageTaken INC from a Blinded enemy): a Blinded monster's hit has the value added to the hit's other increased damage
+  taken, the shock (`DamageTakenFactor(now, increasedPct)`): unshocked ×0.9, 50% shocked ×1.4. Unaffected by Shock still
+  removes only the shock's part. Hits only: an ignite's ticks carry no source monster, so they are unchanged.
+- **Devout of Solaris, Enemies Blinded by you have 100% reduced Critical Strike Chance**
+  (`enemies_you_blind_have_critical_strike_chance_+%`): no monster here has a chance it could reduce. Monster attacks
+  have no base critical chance in the server ([14](../protocol/14-monster-packs.md) §5); they crit only through
+  `always_crit` (of Deadliness), and that is an override. The client's
+  `main_hand_effective_total_chance_permyriad_for_hit_to_be_critical` (0x5ac7, `FUN_14275c050`; the off-hand and spell
+  ones `FUN_14275c6a0` and `FUN_14275ccf0` alike) returns 0 for `virtual_global_cannot_crit`, then 10000 for
+  `virtual_always_crit` (0x2549, derived from `always_crit` by `FUN_14275ba00`) before it reads any chance or increase
+  (checked in capstone: `0x14275c24c` jumps to `0x14275c694: mov eax, 0x2710`). PoB agrees: an always-crit enemy
+  ignores increases (CalcDefence's `AlwaysCrit`). A blinded Deadliness monster therefore still crits. Whether
+  ordinary 3.29 monster attacks carry a base critical chance is unverified; if one is added, this stat joins its
+  increases. The client never reads 0x3099.
 - **Devout of Lunaris, Nova Spells Cast at the targeted location instead of around you**
   (`nova_spells_cast_at_target_location`): a Nova spell (ActiveSkillType Nova) is centred on the caster without it and
   on the aimed point with it (`SpellCentre` in `AreaSkillHit`). The client derives
@@ -200,12 +236,17 @@ The ring B build (`46465 64171 51229 43703 29846 1830 6605 30769`) shows three o
 With Lunaris, Fireball fires three projectiles, Ice Nova goes off at the cursor (it stays around the player once
 refunded; check which point the 0x01ab log line carries), and spell areas are larger.
 
-The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukhan:
+The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukhan and Solaris:
 
 - While walking, the Defence tab's evasion and its Life and Mana Regeneration per second rise (4% of maximum life,
   double the mana rate), and fall back when the walk ends; the orbs fill faster only while walking.
 - A monster made with `/mob_mods <id> of_Deadliness of_Electricity` crits and shocks on every hit. With Garukhan the
   Gateway log still shows the shock ("elemental ailments changed"), but the next hits take the same damage as
   unshocked ones; refunded, they take up to 50% more.
+- Solaris: monsters within 3.5 m show the blind effect ("blinded by the passive aura" in the Gateway log, "out of the
+  blind aura" when they leave or the player dies). Their hits miss more often and deal 10% less (compare the 0x01b1
+  damage with a monster outside the radius); the of_Deadliness monster still crits while blinded. The player's
+  critical strikes ("(critical)" in the hit log) come more often against blinded monsters (twice as often with no
+  other increased critical chance).
 
 Coverage: `AscendancyGatewayIntegrationTests.Polytheist` and `VerifiedGamblerGraphTests`.

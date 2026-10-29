@@ -429,6 +429,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public SemaphoreSlim FlaskBarGate { get; } = new(1, 1);
     /// <summary>The smoke clouds, consecrated ground and taunts of flasks (FlaskGrounds).</summary>
     public FlaskGrounds.State FlaskGrounds { get; } = new();
+    /// <summary>The monsters a passive's blind aura blinds (PassiveBuffAuras).</summary>
+    public PassiveBuffAuras.State PassiveAuras { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
     public ushort NextBuff = 1;

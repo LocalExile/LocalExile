@@ -179,7 +179,7 @@ partial class Program
                     $"for the target ({(unique ? "unique target, " : "")}{(closeRange ? "in close range (20 units) " : "")}accuracy mastery more)");
             evasion = m.Mods.Effects.Evasion(Monsters.BaseEvasion(m.Level) ?? 0);
         }
-        int hitChance = DamageModel.AccuracyHitChance(conn.FlaskGrounds.Evasion(use.TargetId, evasion), accuracy);   // blinded in smoke
+        int hitChance = DamageModel.AccuracyHitChance(UnderBlind(conn, use.TargetId, evasion), accuracy);
         if (!PlayerAlwaysHits(conn) && !DamageModel.Hits(hitChance, Random.Shared.Next(100)))
         {
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} missed: accuracy {accuracy} vs evasion {evasion}, " +
@@ -228,7 +228,8 @@ partial class Program
             // Impale is stored reflected damage, not part of the direct roll which can generate Fortification.
             var rolled = stored > 0 ? ownRolled.Add(DamageType.Physical,
                 new DamageRange(Math.Floor(stored), Math.Floor(stored))) : ownRolled;
-            critical = RollCriticalStrike(conn, conn.Pools.AttackCriticalStrikeChance, ownPenetration);
+            critical = RollCriticalStrike(conn, CriticalChanceOn(conn, use.TargetId, conn.Pools.AttackCriticalStrikeChance,
+                AttackCriticalChanceVsBlinded(conn, player)), ownPenetration);
             int criticalMultiplier = CriticalMultiplierOn(m, AttackCriticalMultiplier(conn, player));
             (damage, resistance) = MonsterDamage(m, rolled, critical, attack: true, resistanceMods, pen, gambler.InvertsResistance(Random.Shared));
             if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
@@ -846,6 +847,7 @@ partial class Program
         HitResistances.Mods mods = default;
         DamagePacket sweepHit = default!;
         int criticalChance = 0, sweepMultiplier = 0;
+        int? blindedCriticalChance = null;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work.
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         foreach (var (id, m) in targets)
@@ -873,11 +875,12 @@ partial class Program
                     mods = HitResistMods(stats, skillStats);
                     sweepHit = SupportedHit(conn, skillId);
                     criticalChance = SupportedCriticalChance(conn, skillId);
+                    blindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: false);
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                 }
                 var gambler = GamblerFor(player);
                 var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(sweepHit, Random.Shared);
-                critical = RollCriticalStrike(conn, criticalChance, skillStats, attack: !spell);
+                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, criticalChance, blindedCriticalChance), skillStats, attack: !spell);
                 int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
                 (damage, resistance) = MonsterDamage(m, rolled, critical, attack: !spell, mods, pen, gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);

@@ -327,7 +327,7 @@ partial class Program
                 // The monster's accuracy comes from DefaultMonsterStats at its level. Evasion uses PoE's shared entropy
                 // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
                 // indefinitely). A new counter starts after 3.33 s without an attack.
-                int monsterAccuracy = conn.FlaskGrounds.Accuracy(id, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0));   // blinded in smoke
+                int monsterAccuracy = UnderBlind(conn, id, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0));
                 int evasion = PlayerEvasion(conn, now);
                 int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
                 if (EvadesLocked(conn, hitChance, now))
@@ -354,7 +354,7 @@ partial class Program
                 rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
                 damage = 0;
                 var ailmentTaken = DamagePacket.Empty;
-                double shockFactor = conn.ElementalAilments.DamageTakenFactor(now);
+                double shockFactor = conn.ElementalAilments.DamageTakenFactor(now, DamageTakenFromBlindedPct(conn, id, stats));
                 foreach (var (type, range) in mitigated.Components)
                 {
                     int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);

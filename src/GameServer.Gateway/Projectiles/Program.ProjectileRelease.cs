@@ -95,6 +95,7 @@ partial class Program
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
             AreaHit = SupportedProjectileHit(conn, skillId, area: true),
+            VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality,
             SkillStats = new Dictionary<uint, int>(own),
             Penetration = Penetration.Of(player, Stats, !spell, own), ResistanceMods = HitResistMods(player, own),
