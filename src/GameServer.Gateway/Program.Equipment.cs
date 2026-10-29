@@ -20,10 +20,14 @@ partial class Program
     // The local armour, evasion and energy shield of the equipped body armour, helmet, gloves, boots and shield: the base
     // type's ArmourTypes roll (its minimum, matching the item's zero base percentile) plus the item's local flat/increased
     // defence mods and quality (ItemDefences). Inactive items (requirements not met) give none.
-    static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(ClientState conn, Func<string, int> get)
+    // "Armour from Equipped Body Armour is doubled" is PoB's Armour MORE 100 for that slot, after the Ward conversion. With
+    // Iron Reflexes the slot's evasion becomes armour under the same modifier, so it doubles too (client 0x142731060).
+    static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(ClientState conn, Func<string, int> get,
+        bool ironReflexes = false)
     {
         var items = ItemsOf(conn);
         decimal armour = 0, evasion = 0, ward = 0; int energyShield = 0;
+        int bodyArmourFactor = get("damage_reduction_rating_from_body_armour_doubled") != 0 ? 2 : 1;
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
                 && ItemsFor(conn).ByHash(equipped.Item.TypeHash) is { } type && ItemsFor(conn).Defences(type) is { } d)
@@ -31,8 +35,9 @@ partial class Program
                 var (a, e, s) = ItemDefences.Of(d, ItemModStats.Local(equipped.Item, ItemsFor(conn).Mods), equipped.Item.Quality);
                 int percent = row == PlayerInventories.BodyArmour ? Math.Clamp(get("ward_instead_of_%_body_armour_and_evasion"), 0, 100) : 0;
                 decimal armourWard = a * percent / 100m, evasionWard = e * percent / 100m;
-                armour += a - armourWard;
-                evasion += e - evasionWard;
+                int factor = row == PlayerInventories.BodyArmour ? bodyArmourFactor : 1;
+                armour += (a - armourWard) * factor;
+                evasion += (e - evasionWard) * (ironReflexes ? factor : 1);
                 var local = ItemModStats.Local(equipped.Item, ItemsFor(conn).Mods);
                 ward += armourWard + evasionWard
                     + (long)WardState.Max(d.WardMin + local.GetValueOrDefault("local_ward"), local.GetValueOrDefault("local_ward_+%"))

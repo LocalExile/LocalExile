@@ -379,6 +379,9 @@ its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignit
   rolls it and sends the life change.
 - Monster melee is a physical packet (`MonsterAttack.Damage`); the server rolls it when the swing lands.
   Each type takes resistance, then shared incoming hit mitigation, including enabled chaos armour (section 2e).
+- `missing_unreserved_life_%_gained_as_life_before_hit` adds that percent of missing Life, rounded down, once an enemy
+  hit is decided not evaded and before it is rolled (`MonsterSwing` and the dev hits), only while alive.
+  A blocked hit counts (blocking does not stop the defender's when-hit effects); Life reservation is not modelled.
 - Player hits on monsters (default attack, gem projectile and area hits) roll each type once and reduce it by the
   monster's base resistance: `MonsterTypes.Resistances` → `MonsterResistances`, the level's
   `DefaultMonsterStats.Difficulty` (1/2/3) picking the Normal/Cruel/Merciless columns (`MonsterResistanceCatalog`,
@@ -491,4 +494,5 @@ The Gateway's supported monster melee contact now calls `ApplyPlayerAilmentsLock
 Risk Aversion's final avoidance stats are consumed independently per eligible ailment, with no lucky avoidance.
 The resource writer integrates strongest ignite with live resistance, ES and lethal Life damage; RF remains nonlethal.
 Chill changes action timing/movement, freeze cancels/gates actions, and shock increases subsequent damage taken.
+`action_speed_cannot_be_reduced_below_base` floors the action factor at 1; a passive change reconciles it at once.
 See [Gambler's exact source, threshold, formula and presentation limits](../game/gambler.md).

@@ -267,6 +267,18 @@ partial class Program
         return false;
     }
 
+    // "Gain X% of Missing Unreserved Life before being Hit by an Enemy" (PoB CalcDefence: only while alive, capped at the
+    // recoverable Life). Life reservation is not modelled, so unreserved Life is maximum Life. A blocked hit still counts:
+    // blocking does not prevent the defender's when-hit effects (wiki Blocking). Call under the Monsters lock.
+    static void GainLifeBeforeEnemyHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (conn.PlayerLife == 0 || conn.PlayerLife >= conn.PlayerMaxLife
+            || Stats.Key("missing_unreserved_life_%_gained_as_life_before_hit") is not uint key
+            || stats.GetValueOrDefault(key) is not (> 0 and var pct)) return;
+        conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,
+            conn.PlayerLife + (long)(conn.PlayerMaxLife - conn.PlayerLife) * pct / 100);
+    }
+
     static async Task MonsterSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, (int X, int Y) from, (int X, int Y) player, int epoch)
     {
@@ -333,6 +345,7 @@ partial class Program
                         $"vs evasion {conn.Pools.Evasion}, {hitChance}% chance to hit, entropy {conn.EvasionEntropy:0}");
                     return;
                 }
+                GainLifeBeforeEnemyHitLocked(conn, stats);
                 // Roll the whole monster-mod packet, then mitigate each component with this hit's one armour decision.
                 var gambler = GamblerFor(stats);
                 var rolled = gambler.RollIncomingHit(a.Damage, conn.IncomingHitRandom);

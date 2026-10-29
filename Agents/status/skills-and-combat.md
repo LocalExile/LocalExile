@@ -187,6 +187,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   entropy counter before damage, and `/defences` shows armour, physical reduction and the chance to evade a reference
   monster.
   Iron Reflexes converts all evasion to armour and drops dexterity's evasion bonus.
+  `damage_reduction_rating_from_body_armour_doubled` doubles the body armour's armour (and, with Iron Reflexes, its
+  converted evasion) before the increases.
+  `missing_unreserved_life_%_gained_as_life_before_hit` gains that share of missing Life before every non-evaded
+  monster swing and dev hit, blocked ones included (Life reservation is not modelled).
   Chaos Inoculation sets maximum life to 1 (after the life modifiers) and grants chaos immunity in the damage model
   and the panel's Immune row; energy shield remains the pool. The pre-CI life used for stun/ailment thresholds and the
   low-life condition are not modelled.
@@ -235,6 +239,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top;
   only unconditional passive increases are modelled (no action speed, more multipliers, gear/buff movement or the 128
   cap yet).
+  `movement_speed_cannot_be_reduced_below_base` bounds the total below by 0, as the client does from the same flag.
   Code: `CharacterStats.cs`, Gateway (`ApplyMovementSpeed`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
@@ -682,6 +687,7 @@ and can require explicit recipes.
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
+  `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
   Alternative ailments and hostile spell/projectile adapters remain unimplemented.
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.

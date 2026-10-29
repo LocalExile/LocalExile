@@ -321,6 +321,9 @@ See [the calculation boundaries and pending native checks](../game/power-of-purp
 passive/item flat evasion, to armour and removes dexterity's 1% per 5 evasion; the converted part keeps the armour,
 evasion and shared defence increases once each. Item mods, quality, local defence rolls, shields and auras are not counted
 yet; the base value is the armour row's minimum, which is the client's default when the item's Armour component is zero.
+`damage_reduction_rating_from_body_armour_doubled` is PoB's `Armour MORE 100` for the Body Armour slot: the body
+armour's local armour after the Ward conversion counts twice, and so does its evasion under Iron Reflexes.
+The client's own `physical_damage_reduction_rating` calculator (`0x142731060`) applies the same `(1 + flag)` factor.
 The final `physical_damage_reduction_rating` and `evasion_rating` (with their `_+%`) go to the client. Armour uses
 PoB's `armour / (armour + damage × 5) × 100`, rounded and capped at 90% (`DamageModel.ArmourReduction`); evasion uses
 the same hit-chance formula as accuracy, so the chance to evade is `100 - AccuracyHitChance(evasion, attacker accuracy)`

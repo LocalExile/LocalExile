@@ -13,7 +13,7 @@ static class VerifiedGamblerGraph
         if (Convert.ToHexString(SHA256.HashData(ordinary)) != Normal
             || Convert.ToHexString(SHA256.HashData(alternate)) != Combined)
             throw new AscendancyRuleException($"{className} needs the separately reviewed 3.29.3b combined passive graph. "
-                + $"Read-only verification failed; see Agents/docs/game/{className.ToLowerInvariant()}.md");
+                + $"Read-only verification failed; see Agents/docs/game/{className.ToLowerInvariant().Replace(' ', '-')}.md");
     }
 
     public static void RequireInstalled(string className = "Gambler")

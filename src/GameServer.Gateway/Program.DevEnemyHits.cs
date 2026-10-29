@@ -19,6 +19,7 @@ partial class Program
             using var defenceTime = FortificationOf(conn).Capture(now);
             // Refresh lazy aura/Fortification pools before reading ANY final defence at the accepted contact.
             var stats = CharacterPlayerStats(conn);
+            GainLifeBeforeEnemyHitLocked(conn, stats);
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;

@@ -65,6 +65,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
+- Ancestral Commander: the defensive nodes have server consumers (Armour and Life, Ancestral Endurance, Toughened
+  Skin's action/movement floors and doubled body armour, Ancestral Defiance), with Gateway coverage of legal builds,
+  the paid Ancestral Spirit choice refund and reload.
+  Not yet: Call of the Ancestors, Deathrattle, Ancestral Reach and Echo, Born under Fire, the five Spirits and Forest
+  of Ancestors (no warcry speed/cooldown rules, corpses, strike targeting, enemy auras, triggered skills or totems).
+  `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in; not yet checked with the real client.
+  Docs: [Ancestral Commander checklist](../docs/game/ancestral-commander.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.

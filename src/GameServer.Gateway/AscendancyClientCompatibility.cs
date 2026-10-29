@@ -24,6 +24,12 @@ static class AscendancyClientCompatibility
             VerifiedGamblerGraph.RequireInstalled("Aristocrat");
             return;
         }
+        if (selection is { Family: AscendancyFamily.Phrecia, Id: "Juggernaut", Revision: "3.29.3b" }
+            && Environment.GetEnvironmentVariable("Game_VERIFIED_ANCESTRAL_COMMANDER") == "1")
+        {
+            VerifiedGamblerGraph.RequireInstalled("Ancestral Commander");
+            return;
+        }
         if (selection?.Family == AscendancyFamily.Phrecia)
             throw new AscendancyRuleException("Phrecia play is gated pending an agreed client-compatible passive graph; " +
                 "the installed client archive is not changed. Ordinary ascendancies remain available. " +
