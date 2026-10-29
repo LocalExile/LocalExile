@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 /// <summary>What the player's debuffs on monsters need from his stats: his passives' enemy auras (PassiveBuffAuras) and
 /// taunted_enemies_damage_taken_+% (Bring the Battle), as last sent to the client (Program.PlayerStatsWithCleared).</summary>
-sealed record EnemyDebuffs(IReadOnlyList<PassiveBuffAuras.EnemyAura> Auras, int TauntedDamageTakenPct)
+sealed record EnemyDebuffs(IReadOnlyList<PassiveBuffAuras.Aura> Auras, int TauntedDamageTakenPct)
 {
     public static readonly EnemyDebuffs None = new([], 0);
 }

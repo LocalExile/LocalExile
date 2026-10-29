@@ -306,7 +306,7 @@ partial class Program
         }
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values];
-        foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, SkillsFor(conn), Stats))
+        foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Add(k, extra.GetValueOrDefault(k), v);
         foreach (var (k, v) in extra) if (seen.Add(k)) yield return (k, v);
     }

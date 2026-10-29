@@ -1723,9 +1723,36 @@ after the socketed gems in `GemSkillEffects` and `SupportedSkill`, keyed in `Gem
 (`0xFFFF0000 | node`, socket 0), so its id is as stable as a gem's. It has the row's level, quality 0, no supports and
 no requirements (gem-level and gem-quality bonuses raise gems only), and it casts, reserves, saves and ends through the
 gem paths above. The skill record carries no item, so the client gets the same record as for a gem of that level.
-Only self auras with an `AuraCatalog` effect are listed for now: a granted triggered, minion or other skill has no
-executor yet, and listing it would offer the player a skill that does nothing. The Paladin's Paladin Aura options use
-it ([Paladin](../game/paladin.md)).
+Only self auras with an `AuraCatalog` effect are listed for now: a granted minion or other skill has no executor yet,
+and listing it would offer the player a skill that does nothing. The Paladin's Paladin Aura options use it
+([Paladin](../game/paladin.md)).
+
+**Triggered passive skills.** A granted triggered skill has no bar use and is never listed, since it runs from its trigger.
+The one with an executor is Summon Elemental Relic (Elemental Valiance).
+Its trigger is the node's ally buff template (`PassiveBuffAuras.AllyAurasFor`, targets `[2]`) carrying
+`can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique`.
+The hit and kill paths (`ApplyMonsterHitLocked`, the default attack, Righteous Fire's burn) call
+`TriggerElementalRelicLocked` under the Monsters lock. It rolls the skill's chance stat, spends the skill's cooldown
+through `SingleUseCooldown` (with cooldown recovery) and queues the summon for the minion step.
+Tests replace `PlayerMinions.Random`.
+
+**Owned minions** (`PlayerMinions`, `Program.PlayerMinions.cs`). A minion is a monster made by `SpawnMonster` with
+`friendly: true` (Positioned team 0) and the stats `is_player_minion` and `is_semantic_minion` 1 on its Stats component.
+The client reads these two to know the player's minion (the link-target filter 0x141bf8490).
+`ClientState.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
+lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
+
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bb) a second later.
+- The owner's death or the loss of the granting passive kills it without an explosion.
+- The queued summons are made.
+- Each minion's aura goes on the owner (0x1c1, the minion as source) while he is within its radius, and comes off
+  (0x1c2) when he leaves it or the minion ends. Its raw stats join the owner's stats (`MinionAuraStats`, unscaled by
+  his aura effect; his own aura of the same family wins when it is at least as strong), and the stats are sent again.
+
+The explosion hits the hostile monsters as the minion's hit (`ApplyMonsterHitLocked` with `allyAt`): the player's
+hit-recently and on-kill charges do not count it, while experience and items do (`MonsterKilled`, `byMinion`).
+The player's area skills and default attack skip friendly monsters. The instance save leaves minions out, so they never
+come back; an area change or a logout ends them with the connection. Monsters do not attack minions.
 
 - **Reservation is in the data.** `GrantedEffectsPerLevel` has `ManaReservationFlat` and
   `ManaReservationPercent` (permyriad: `5000` = 50%); `SkillCatalog.Reservation` reads them. Standard

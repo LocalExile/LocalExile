@@ -2,9 +2,8 @@
 
 Paladin is the Duelist's Phrecia Champion identity (`Champion`, ascendancy row 11, 3.29.3b), start node 24984.
 The start is implicit and free and has no stats; its link to 50986 is the ordinary Duelist start, not a class node.
-The class is not complete yet. The small nodes, Anointed Champion, the Paladin Aura options, Light of Divinity and Bring
-the Battle work; the other notables need engine mechanics that do not exist yet (triggered skills, owned minions, link
-skills).
+The class is not complete yet. The small nodes, Anointed Champion, the Paladin Aura options, Light of Divinity, Bring
+the Battle and Elemental Valiance work; the other notables need link skills, which the engine does not have yet.
 
 ## Node checklist
 
@@ -15,7 +14,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 2134, 49271, 363, 29126, 54067, 43835, 2437, 38874, 11127 | Regenerate 0.5% of Life per second; 5% increased effect of Non-Curse Auras from your Skills | Done. `life_regeneration_rate_per_minute_%` 30 goes into the life regeneration the recovery loop applies (`PanelStats.LifePerMinute`); `non_curse_aura_effect_+%` 5 goes into `Pools.AuraEffectPct`, which scales every running aura's bonuses (`AuraCatalog.Bonus`, `RawStats`, `ResistanceStats`). |
 | 52104 Anointed Champion | Consecrated Ground around you while stationary; its effects linger for 4 seconds; 50% increased effect of Consecrated Ground you create | Done; see below. Curse effect on self has no consumer: nothing in the engine curses the player. |
 | 13763 Light of Divinity | Nearby (6 m) enemies take 25% increased Elemental Damage (BuffTemplate 672) | Done; see below. Augury of Penitence (2551) on the hostile monsters within 60 cells; their hits and burns read its `elemental_damage_taken_+%` (`MonsterTakesMitigated`, `MonsterBurn`). |
-| 40299 Elemental Valiance | 25% chance to trigger level 20 Summon Elemental Relic on your or a nearby ally's kill, or on hitting a Rare or Unique enemy | Not implemented yet: no triggered skills and no owned minions. |
+| 40299 Elemental Valiance | 25% chance to trigger level 20 Summon Elemental Relic on your or a nearby ally's kill, or on hitting a Rare or Unique enemy | Done; see below. The player's kills and hits roll the trigger (`TriggerElementalRelicLocked`); the relic is an owned minion (`PlayerMinions`, `PlayerMinionsTick`) whose aura goes into the player's stats and whose death explosion hits monsters. Party allies' kills have no consumer: there is no party play. |
 | 46492 Bring the Battle | Warcries have infinite Power; enemies taunted by you take 20% increased damage and deal 20% less damage to other targets | Done; see below. Enduring Cry's power is 999999 (`UseWarcry`); the player's taunted monsters take 20% more of every type. The 20% less damage against other targets has no possible consumer: monsters only hit the player, who is the taunter. |
 | 42396 Field Medicine | Magic utility flasks applied to you have 40% increased effect; non-unique utility flasks you use apply to linked targets | Partly: the 40% is read for magic flasks (`UtilityFlasks`); there are no link skills to carry flasks to a target. |
 | 40171 Absolution | 40% increased effect of Non-Curse Auras while you have a linked target; curses go to you instead of linked targets | Not implemented yet: no link skills; no curse source exists for the redirect. |
@@ -124,6 +123,50 @@ granted skill in the skill picker and does not grey it out below level 90.
 Unverified: what BuffTemplates `__col4` means (1 self, 2 allies, 3 enemies is read from the rows only); whether the
 game measures "nearby" to the monster's centre, as here, or to its edge; that the client draws both buffs as sent.
 
+## Elemental Valiance
+
+- **Trigger.** 40299 gives BuffTemplates 546 `GuardianAlliesSpawnRelicsForYouOnKill` (AuraRadius 60, targets `[2]`,
+  `can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique`) and GrantedEffectsPerLevel 78412,
+  Summon Elemental Relic at level 20 (Ruthless: its HardMode row). The skill is triggered and stays off the skill list.
+  Each of these rolls the skill's 25% (`skill_triggered_by_nearby_allies_kill_or_hit_rare_unique_%_chance`): a kill by
+  the player (default attack, gem area hits, projectiles, Righteous Fire), a kill by his relic within 60 cells of him,
+  and a hit with damage on a Rare or Unique monster. A killing hit on a rare rolls twice.
+  A success spends the skill's 300 ms cooldown, with cooldown recovery (`SingleUseCooldown`); while it recovers, no
+  roll is made.
+- **The relic.** A random element, a third each: MonsterVarieties 7185–7187 (`ElementalLivingRelicFire`, `Cold`,
+  `Lightning`). Its level is the character's, up to 85 (Ruthless 80, `minion_actor_level_is_user_level_up_to_maximum`).
+  Its life is the MinionLife column × 400 (`MonsterCatalog.BaseLife`, the client's rule for IsPlayerMinion types).
+  It lives `base_skill_effect_duration` (5 s) with the player's skill duration modifiers. A trigger for an element
+  that already has a relic refreshes its duration instead, so there is at most one relic of each element.
+  It is created on the player's team (Positioned team 0) next to him and follows him (the monster AI's surround).
+- **Its aura.** The Fire Relic casts Anger, the Cold Relic Hatred, the Lightning Relic Wrath (the variety's aura
+  effect), at stats between the two gem levels whose PlayerLevelReq bracket the relic's level, in proportion, rounded
+  down (`PlayerMinions.AuraStatsAt`). GGG's numbers for a level-85 relic (Anger 182–259, Hatred 43%, Wrath 26–415 and
+  23%) are gem levels 27 and 28 halfway; Path of Building takes the lower level.
+  The radius is an aura's base 40 cells plus the level's `active_skill_base_radius_+` (59 at gem level 20).
+  While the living player is within it, he has the received buff (BuffDefinitions 149 Anger, 150 Hatred, 151 Wrath;
+  0x1c1 with the relic as source) and its stats. His own aura effect does not scale it, because it is the relic's skill.
+  Only the strongest of one aura applies: his own Anger replaces the relic's when its stats add up to at least as much.
+- **Its end.** When its duration ends, the relic dies (0x1b1 life 0) and explodes for 100% of its maximum life
+  (`guardian_relic_explode_on_death_for_%_life_as_element_damage`) as its element.
+  The explosion hits every hostile living monster within 22 cells of it and is mitigated as any hit (resistances,
+  Light of Divinity's and the taunt's increased damage taken, `MonsterTakesMitigated`).
+  Its kills give the player their experience and items and count as a nearby ally's kills for the trigger; they give
+  no on-kill charges, which are the player's own. Minions leave no corpse, so the body goes (0x2bb) a second later.
+- **Cleanup.** The player's death, or losing the node, kills the relics without an explosion.
+  An area change or a logout ends them with the connection. The instance never keeps them and nothing saves them.
+
+Client evidence (decompile dump, checked against the disassembly): the client knows a monster as the player's minion
+by its own stats `is_player_minion` (0x48a) and `is_semantic_minion` (0x3cf8); the link-target filter 0x141bf8490 reads
+both. The Gateway sends them on the relic's Stats component.
+
+Unverified: the explosion radius (the data has no explosion skill for the relic; 22 cells is Path of Building's
+Minion Instability radius), the aura base radius (Path of Building's 40 for every aura, not in the data), the
+one-second body removal, and that a death or a refund kills the relics without an explosion.
+Not modelled: the relic's teleport to the player (RelicTeleport; it walks instead), the explosion's art, its aura's
+circle around the relic (only the player's received buff is sent), minion life modifiers, and monsters attacking the
+relic (none do, so it ends only by its duration). The client shows no cooldown for the skill, which it does not list.
+
 ## Admission
 
 The default Phrecia gate stays closed.
@@ -145,6 +188,10 @@ second (four small nodes and 7.5% from the ground). Walk away: the regeneration 
 Walk up to monsters: within 6 m they show Augury of Penitence, and fire, cold and lightning hits deal 25% more (the
 gateway log's hit damage). With an Enduring Cry gem, cry next to one monster: it shows Taunted for 3 seconds, the
 player gets three Endurance Charges, and the monster takes 20% more damage until the taunt ends.
+
+For Elemental Valiance, fight with the same build: about one kill in four makes a relic next to the player.
+The gateway log shows `Fire Relic summoned at level …` with its aura's stats, and the player shows Anger, Hatred or
+Wrath from it. Five seconds later the log shows `Relic … explodes`, and the monsters near it take its life as damage.
 
 For the Paladin Aura, reset and take `/add_passive 38874 44795 58846`: Determination appears on an empty skill-bar slot.
 Cast it: half the mana is reserved and the Defence tab's armour rises. Relog: it is still on. Refund 58846 (refund

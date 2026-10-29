@@ -391,9 +391,20 @@ and can require explicit recipes.
   See [11](../docs/protocol/11-skills.md) section 13.
 - Passive-granted skills: a passive's `GrantedEffectsPerLevel` skill joins the gem skills at the row's fixed level,
   with a stable id, no supports, quality 0 and no requirements; it casts, reserves, saves and ends like a gem's.
-  Only self auras are listed until other granted skills (triggered, minions) have executors.
+  Only self auras are listed until other granted skills (minions, other kinds) have executors.
+  A granted triggered skill is never listed and runs from its trigger.
+  Summon Elemental Relic (Elemental Valiance) rolls on kills and on hits against rares and uniques, behind its cooldown.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
+  They follow him, end by their duration, can cast an aura on him and explode when they end.
+  Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
+  are never saved.
+  Only Summon Elemental Relic's relics exist; no gem or other passive makes minions yet.
+  Not modelled: monsters attacking minions, minion attacks and skills (the relic's teleport), minion stats from the
+  player, and party allies.
+  Automated coverage only, not checked with the real client.
+  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
 - Saved aura toggles (2026-10-25, awaiting client confirmation): active effects persist per character and restore on
   relog, area entry and server restart, subject to usable gems and available reservation.
   Helena's picker now receives all 103 exported personal hideouts, including MTX templates;

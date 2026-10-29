@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Skills that allocated passives grant ("Grants Level 30 Determination Skill"): PassiveSkills.dat
@@ -63,6 +64,60 @@ partial class Program
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
         return [.. (conn.Ruthless ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes)
             .Where(g => AuraCatalog.Supported(g.EffectId))];
+    }
+
+    // A granted triggered skill (InbuiltTrigger) has no bar use: it runs from its trigger and stays out of the skill list.
+    // Summon Elemental Relic (Elemental Valiance, GEPL 78412 at level 20) is the one with an executor (Program.PlayerMinions.cs).
+    static bool IsRelicSkill(string effectId) => effectId is "SummonElementalRelic" or "SummonElementalRelicHardMode";
+
+    /// <summary>The relic skill the player's passives grant and the radius of the buff (BuffTemplates 546, the player
+    /// and his allies within 60 cells) whose can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique
+    /// lets their kills and hits trigger it; null without both.</summary>
+    static (PassiveGrantedSkills.Grant Grant, int AllyRadius)? RelicTriggerOf(ClientState conn)
+    {
+        ushort[] nodes;
+        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        uint? enables = Stats.Key("can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique");
+        if (PassiveBuffAuras.AllyAurasFor(nodes, conn.Ruthless).FirstOrDefault(a => a.Stats.Any(s => s.Key == enables && s.Value != 0))
+            is not { } buff) return null;
+        var grant = (conn.Ruthless ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes).FirstOrDefault(g => IsRelicSkill(g.EffectId));
+        return grant.Node == 0 ? null : (grant, buff.Radius);
+    }
+
+    /// <summary>
+    /// A hit or kill that may trigger Summon Elemental Relic, under the Monsters lock: a kill, and a hit with damage on a
+    /// rare or unique monster, each roll the skill's skill_triggered_by_nearby_allies_kill_or_hit_rare_unique_%_chance (25)
+    /// once, by the living player or by his minion at <paramref name="allyAt"/> within the buff's radius of him. A success
+    /// spends the skill's 0.3 s cooldown (with cooldown recovery; a roll while it recovers is not made) and queues the
+    /// summon for the minion step. True when one was queued.
+    /// </summary>
+    internal static bool TriggerElementalRelicLocked(ClientState conn, SpawnedMonster target, bool hit, bool killed,
+        (int X, int Y)? allyAt = null)
+    {
+        if (!target.Hostile || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return false;
+        bool queued = false;
+        if (hit && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique) queued = Roll();
+        if (killed) queued |= Roll();
+        return queued;
+
+        bool Roll()
+        {
+            if (RelicTriggerOf(conn) is not { } relic) return false;
+            var (grant, radius) = relic;
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            if (allyAt is { } ally && Dist(ally, conn.Walk.Position(now)) > radius) return false;
+            if (now < conn.SkillReadyAt.GetValueOrDefault(grant.Effect) - 1e-9) return false;
+            var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
+            int chance = Stats.Key("skill_triggered_by_nearby_allies_kill_or_hit_rare_unique_%_chance") is uint c ? own.GetValueOrDefault(c) : 0;
+            if (conn.Minions.Random.Next(100) >= chance) return false;
+            if (SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, grant.Effect, grant.Level, CharacterPlayerStats(conn), own)
+                is not { } plan) return false;
+            var state = CooldownStateLocked(conn, grant.Effect, plan, now);
+            if (!state.TryUse(now, plan)) return false;
+            conn.SkillReadyAt[grant.Effect] = now + state.RemainingSeconds;
+            conn.Minions.PendingRelics++;
+            return true;
+        }
     }
 
     // A granted skill resolved like a gem: its own stats at the granted level and the aura markers SupportedSkillAt

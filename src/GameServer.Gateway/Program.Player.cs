@@ -602,6 +602,7 @@ partial class Program
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
                     if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
+                    TriggerElementalRelicLocked(conn, m, hit: false, killed: true);   // a burn is no hit
                 }
                 hits.Add((id, m, m.Life, damage));
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);

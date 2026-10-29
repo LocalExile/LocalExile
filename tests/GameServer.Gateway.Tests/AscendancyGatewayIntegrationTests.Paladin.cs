@@ -320,6 +320,113 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(double.NegativeInfinity, cries[plain].Far.TauntedUntil);
     }
 
+    // Elemental Valiance: a kill or a hit on a rare rolls 25% for Summon Elemental Relic behind its cooldown; the relic is a
+    // friendly minion whose aura reaches the player, refreshes on its element, explodes for its life at the end (×1.25
+    // under Light of Divinity, its kills roll again as an ally's) and goes with the node or the player's death.
+    [Fact]
+    public async Task Elemental_Valiance_triggers_relics_that_aura_explode_and_end()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", level: 70, refundPoints: 100);
+        using var plain = new GatewayCharacter(choice: "Paladin", level: 70);
+        var state = game.State;
+        state.Clock.Stop(); // game time stands still: the cooldown below cannot run out on a slow machine
+        SpawnedMonster rare = new("PaladinRare", new(60, 32, 30), 0, 2, 100_000) { Hostile = true, Rarity = MonsterRarity.Rare };
+        SpawnedMonster normal = PaladinTarget(60);
+        bool Trigger(SpawnedMonster m, bool hit, bool killed) { lock (state.Monsters) return Program.TriggerElementalRelicLocked(state, m, hit, killed); }
+        state.Minions.Random = new ScriptedRandom(); // any roll fails the test
+        Assert.False(Trigger(rare, true, true));
+        Assert.Null((await game.Change([363, 13763, 29126, 40299], true)).Error);
+        Assert.DoesNotContain(ProgramValue<IReadOnlyList<GrantedSkill>>("PlayerSkills", state), s => s.EffectsPerLevelRow == 78412);
+        Assert.False(Trigger(normal, true, false)); // a hit on a normal monster does not roll
+        state.Minions.Random = new ScriptedRandom(25, 24);
+        Assert.True(Trigger(rare, true, true)); // the hit's 25 misses the 25%, the kill's 24 hits
+        Assert.False(Trigger(rare, true, true)); // the 0.3 s cooldown: no roll
+        Assert.Equal(1, state.Minions.PendingRelics);
+
+        // The summon: a level-70 Fire Relic next to the player, a friendly minion with the minion life, its Anger on him.
+        state.Minions.Random = new ScriptedRandom(0);
+        double now = state.Clock.Elapsed.TotalSeconds;
+        await game.MinionsTick(now);
+        var relic = Assert.Single(state.Minions.All);
+        var fire = Program.Monsters.Find("Metadata/Monsters/AnimatedItem/ElementalLivingRelicFire")!;
+        Assert.Equal(("Fire", false, (byte)70, (uint)Program.Monsters.BaseLife(fire, 70)!),
+            (relic.Kind, relic.Monster.Hostile, relic.Monster.Level, relic.Monster.MaxLife));
+        Assert.Same(relic.Monster, state.Monsters[relic.Id]);
+        Assert.Equal(now + 5, relic.Until, 6);
+        Assert.Equal(("Anger", 59), (relic.OwnerAura!.EffectId, relic.OwnerAura.Radius)); // 40 and gem level 20's 19
+        ushort buff = relic.OwnerBuff;
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(Program.PlayerId, buff, 149, relic.Id)));
+        int anger = Program.Skills.EffectRow("Anger");
+        plain.State.Auras[0x103] = new(0x103, anger, "Anger", "Anger", 7, 149, 0, 0, Level: 20); // level 70 meets level 20's 70
+        Assert.Equal(0, plain.State.Pools.AuraEffectPct); // the node's 10% aura effect does not scale the relic's aura
+        foreach (string stat in new[] { "attack_minimum_added_fire_damage", "spell_maximum_added_fire_damage" })
+            Assert.Equal(PaladinStat(plain.State, stat), PaladinStat(state, stat));
+        Assert.True(PaladinStat(state, "attack_minimum_added_fire_damage") > 0);
+        // The strongest Anger applies: the player's own, 10% stronger, replaces the relic's rather than adding to it.
+        state.Auras[0x103] = plain.State.Auras[0x103];
+        Assert.Equal(AuraCatalog.RawStats([state.Auras[0x103]], state.Pools.AuraEffectPct, Program.Skills, Program.Stats)
+            .Single(s => s.Key == Program.Stats.Key("attack_minimum_added_fire_damage")).Value,
+            PaladinStat(state, "attack_minimum_added_fire_damage"));
+        state.Auras.Clear();
+        // A level-85 relic's auras are halfway between the gem levels 27 (84) and 28 (86): GGG's numbers.
+        int At(string effect, int level, string stat) => PlayerMinions.AuraStatsAt(Program.Skills, Program.Stats,
+            Program.Skills.EffectRow(effect), effect, level).Single(s => s.Key == Program.Stats.Key(stat)).Value;
+        Assert.Equal((182, 259, 43, 26, 415, 23), (At("Anger", 85, "attack_minimum_added_fire_damage"),
+            At("Anger", 85, "spell_maximum_added_fire_damage"), At("Hatred", 85, "physical_damage_%_to_add_as_cold"),
+            At("Wrath", 85, "attack_minimum_added_lightning_damage"), At("Wrath", 85, "attack_maximum_added_lightning_damage"),
+            At("Wrath", 85, "wrath_aura_spell_lightning_damage_+%_final")));
+
+        // Fire again refreshes the one Fire Relic instead of making a second.
+        state.Minions.Random = new ScriptedRandom(0);
+        state.Minions.PendingRelics = 1;
+        await game.MinionsTick(now + 1);
+        Assert.Same(relic, Assert.Single(state.Minions.All));
+        Assert.Equal(now + 6, relic.Until, 6);
+
+        // Its end: the explosion, its life as fire to the monsters within 22 cells of it; 25% more on one under Light of
+        // Divinity (the debuff step gives it), and a dying one rolls the trigger as an ally's kill (cooldown long recovered).
+        SpawnedMonster near = PaladinTarget(40), plainNear = PaladinTarget(38), far = PaladinTarget(100);
+        SpawnedMonster dying = new("PaladinDying", new(36, 32, 30), 0, 2, 100_000) { Hostile = true, Life = 1 };
+        (state.Monsters[0x41], state.Monsters[0x42]) = (near, far);
+        await game.DebuffsTick(now + 1);
+        (state.Monsters[0x43], state.Monsters[0x44]) = (plainNear, dying);
+        state.SingleUseCooldowns.Clear(); state.SkillReadyAt.Clear();
+        state.Minions.Random = new ScriptedRandom(24);
+        await game.MinionsTick(now + 6.05);
+        uint blast = relic.Monster.MaxLife;
+        Assert.Equal((100_000 - blast * 5 / 4, 100_000 - blast, 100_000u, 0u), (near.Life, plainNear.Life, far.Life, dying.Life));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(Program.PlayerId, buff)));
+        Assert.Empty(state.Minions.All);
+        Assert.True(relic.Monster.Dead);
+        Assert.Equal(0, PaladinStat(state, "attack_minimum_added_fire_damage"));
+        Assert.Equal(1, state.Minions.PendingRelics);
+
+        // That relic (Cold), then the player's death: it dies without exploding. Then a refund: no more relics or triggers.
+        state.Minions.Random = new ScriptedRandom(1);
+        await game.MinionsTick(now + 7);
+        var cold = Assert.Single(state.Minions.All);
+        Assert.Equal("Cold", cold.Kind);
+        state.PlayerLife = 0;
+        await game.MinionsTick(now + 7.1);
+        Assert.Empty(state.Minions.All);
+        Assert.True(PaladinSent(game.LastBytes, InstanceProtocol.RemoveObject(relic.Id))); // the Fire Relic left no corpse
+        Assert.False(state.Monsters.ContainsKey(relic.Id));
+        Assert.True(state.Monsters[cold.Id].Dead);
+        Assert.Equal(100_000 - blast * 5 / 4, near.Life);
+        state.PlayerLife = state.Pools.Life;
+        state.Minions.PendingRelics = 1;
+        state.Minions.Random = new ScriptedRandom(2);
+        await game.MinionsTick(now + 8);
+        Assert.Equal("Lightning", Assert.Single(state.Minions.All).Kind);
+        Assert.Null((await game.Change([40299], false, refundPoints: true)).Error);
+        state.Minions.Random = new ScriptedRandom();
+        await game.MinionsTick(now + 8.1);
+        Assert.Empty(state.Minions.All);
+        state.SingleUseCooldowns.Clear(); state.SkillReadyAt.Clear();
+        Assert.False(Trigger(rare, true, true));
+    }
+
     static ushort PaladinSkill(ClientState state, string effectId) =>
         ProgramValue<IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>>("GemSkillEffects", state)
             .Single(g => g.Effect == Program.Skills.EffectRow(effectId)).Id;
@@ -356,6 +463,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
         public Task DebuffsTick(double now) => Exchange(async (stream, cipher) =>
         {
             await Program.EnemyDebuffsTick("paladin-integration", stream, cipher, State, now);
+            return null;
+        });
+
+        // One step of the player's minions at a chosen game time (Program.PlayerMinionsTick).
+        public Task MinionsTick(double now) => Exchange(async (stream, cipher) =>
+        {
+            await Program.PlayerMinionsTick("paladin-integration", stream, cipher, State, now);
             return null;
         });
 

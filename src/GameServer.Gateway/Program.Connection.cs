@@ -195,9 +195,10 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {e.GetType().Name}: {e.Message}");
             }
             ForgetRuthlessVitalsAdmission(left);
-            // The instance keeps its monsters as they are now, for the next connection (#12).
+            // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
             if (left.MonstersPlaced)
-                lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Values, left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
+                lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Where(kv => !left.Minions.Owns(kv.Key)).Select(kv => kv.Value),
+                    left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
             left.Instance.RemovePlayer(left.PeerId);
             Instances.Leave(left.Instance);
         }

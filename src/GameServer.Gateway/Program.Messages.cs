@@ -621,6 +621,7 @@ partial class Program
                     _ = RunRage(remote, stream, ciphers, conn);
                     _ = RunFlaskChargeRegen(remote, stream, ciphers, conn);
                     _ = RunEnemyDebuffs(remote, stream, ciphers, conn);
+                    _ = RunPlayerMinions(remote, stream, ciphers, conn);
                 }
             }
         }
