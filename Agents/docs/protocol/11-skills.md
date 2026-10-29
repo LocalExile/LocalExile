@@ -606,6 +606,8 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `base_self_critical_strike_multiplier_-%` (at least 100%; [14](14-monster-packs.md) §5). Live 2026-10-26: a normal
   Hungry Corpse never crit, one with of Deadliness every time. The hit then goes through the player's armour
   (`MitigatePhysical`) and block. `/defences` prints the reference values.
+  During a walk the roll uses the evasion rating with `evasion_rating_+%_while_moving` (`PlayerEvasion`;
+  [Polytheist](../game/polytheist.md)).
 - **Player life** (`ClientState.PlayerLife`, from the level/class/passive pools). At 0 the client plays the death
   animation and blocks moving. `/heal` sends full life: 0x1b1 from 0 runs the client's revive. The overhead life bar is
   hidden at 0 (`hide_mini_life_bar`, as for monsters) and shown again on revive.

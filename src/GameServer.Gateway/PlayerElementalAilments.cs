@@ -12,6 +12,7 @@ sealed class PlayerElementalAilments
     readonly List<Effect> effects = [];
     double carry;
     double actionFloor, freezeEffect = 1;
+    bool unaffectedByShock;
 
     public (bool Ignite, int Chill, bool Freeze, int Shock) Snapshot(double now) =>
         (Magnitude(Kind.Ignite, now) > 0, (int)Magnitude(Kind.Chill, now), Magnitude(Kind.Freeze, now) > 0,
@@ -27,7 +28,8 @@ sealed class PlayerElementalAilments
     }
     public double ActionFactor(double now) => Math.Max(actionFloor,
         1 - Math.Max(Magnitude(Kind.Freeze, now) * freezeEffect, Magnitude(Kind.Chill, now)) / 100);
-    public double DamageTakenFactor(double now) => 1 + Magnitude(Kind.Shock, now) / 100;
+    // Unaffected by Shock (PoB SelfShockEffect 100% less): the shock stays on the player and in is_shocked, with no effect.
+    public double DamageTakenFactor(double now) => unaffectedByShock ? 1 : 1 + Magnitude(Kind.Shock, now) / 100;
 
     static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
     static bool Immune(Kind kind, Func<string, int> get) => get($"immune_to_{Name(kind)}") != 0
@@ -39,6 +41,7 @@ sealed class PlayerElementalAilments
         {
             effects.RemoveAll(e => Immune(e.Kind, get));
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
+            unaffectedByShock = get("unaffected_by_shock") != 0;
             actionFloor = get("action_speed_cannot_be_reduced_below_base") != 0
                 || get("not_affected_by_action_speed_modifiers") != 0 ? 1 : 0;
         }

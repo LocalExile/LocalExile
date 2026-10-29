@@ -180,7 +180,7 @@ cells/s, a normal one every 0.125–0.133 s; the server walks it at the same spe
 | `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%) |
 | `hit_damage_+%_per_10%_missing_enemy_life` | its hit on a wounded player |
 | `self_take_no_extra_damage_from_critical_strikes` | the player's critical hits deal their normal damage |
-| `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1) |
+| `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1); the player's `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` scales it for 4 s after each player hit ([Polytheist](../game/polytheist.md)) |
 | `base_cannot_be_stunned` | no hit reaction (the flinch is the hit's stun) |
 
 **Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the

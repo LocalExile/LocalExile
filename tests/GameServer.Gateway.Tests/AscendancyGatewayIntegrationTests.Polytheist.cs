@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -98,5 +99,203 @@ public sealed partial class AscendancyGatewayIntegrationTests
                 Assert.Equal(minimum, session.Effective(type));
             }
         }
+    }
+
+    sealed record PolytheistRecovery(int Evasion, int EvasionStat, double Life, int LifeStat, double Mana, int ManaStat);
+
+    // The same character standing, then walking: what monster attacks roll against, what the resource writer applies
+    // and the finals the panel and the client's pool stepping read.
+    static (PolytheistRecovery Still, PolytheistRecovery Walking) PolytheistWhileMoving(ClientState state)
+    {
+        PolytheistRecovery Read()
+        {
+            var stats = Program.CharacterPlayerStats(state);
+            int Final(string name) => stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+            return new(ProgramValue<int>("PlayerEvasion", state, state.Clock.Elapsed.TotalSeconds), Final("evasion_rating"),
+                ProgramValue<double>("LifeRegenPerSecond", state), Final("life_recovery_per_minute"),
+                ProgramValue<double>("ManaRegenPerSecond", state), Final("mana_recovery_per_minute"));
+        }
+        double now = state.Clock.Elapsed.TotalSeconds;
+        var at = state.Walk.Position(now);
+        state.Walk.Teleport(at.X, at.Y, now);
+        var still = Read();
+        state.Walk.Order(at.X > 64 ? at.X - 60 : at.X + 60, at.Y, state.Clock.Elapsed.TotalSeconds);
+        var walking = Read();
+        Assert.True(state.Clock.Elapsed.TotalSeconds < state.Walk.ArrivesAt);
+        state.Walk.Teleport(at.X, at.Y, state.Clock.Elapsed.TotalSeconds);
+        return (still, walking);
+    }
+
+    sealed partial class GatewayCharacter
+    {
+        // One monster attack of 100 physical damage through MonsterSwing, optionally while 50% shocked or walking, with
+        // the evasion entropy preset (99: every attack hits); the life it took.
+        public async Task<uint> PolytheistMonsterHit(bool shocked, bool walking = false, int entropy = 99)
+        {
+            uint before = State.PlayerLife;
+            await Exchange(async (stream, cipher) =>
+            {
+                double now = State.Clock.Elapsed.TotalSeconds;
+                var position = State.Walk.Position(now);
+                State.Walk.Teleport(position.X, position.Y, now);
+                if (shocked)
+                {
+                    var lightning = DamagePacket.Of(DamageType.Lightning, State.PlayerMaxLife, State.PlayerMaxLife);
+                    lock (State.Monsters)
+                        Program.ApplyPlayerAilmentsLocked(State, lightning, lightning, true, false, now, Program.CharacterPlayerStats(State));
+                    Assert.Equal(50, State.ElementalAilments.Snapshot(now).Shock);
+                }
+                if (walking) State.Walk.Order(position.X > 64 ? position.X - 60 : position.X + 60, position.Y, now);
+                State.EvasionEntropy = entropy;
+                State.LastEvasionAt = State.Clock.Elapsed.TotalSeconds;
+                var monster = new SpawnedMonster("Polytheist incoming contact", new(position.X + 2, position.Y, 30), 0, 2, 1000)
+                {
+                    Hostile = true, Attack = new(SkillCatalog.FirstSkillId, .002, 20, DamagePacket.Of(DamageType.Physical, 100, 100)),
+                };
+                State.Monsters[43] = monster;
+                await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["polytheist-integration", stream, cipher,
+                    State, 43u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
+                State.Monsters.Remove(43);
+                State.ElementalAilments.Clear();
+                State.Walk.Teleport(position.X, position.Y, State.Clock.Elapsed.TotalSeconds);
+                return null;
+            });
+            uint taken = before - State.PlayerLife;
+            State.PlayerLife = State.PlayerMaxLife;
+            return taken;
+        }
+
+        // The finals the player tick sends again when a walk starts or ends, sent while walking.
+        public Task<(string? Error, byte[] Bytes)> PolytheistWalkingStats() => Exchange(async (stream, cipher) =>
+        {
+            double now = State.Clock.Elapsed.TotalSeconds;
+            var position = State.Walk.Position(now);
+            State.Walk.Order(position.X > 64 ? position.X - 60 : position.X + 60, position.Y, now);
+            await ProgramValue<Task>("SendWhileMovingStats", "polytheist-integration", stream, cipher, State);
+            State.Walk.Teleport(position.X, position.Y, State.Clock.Elapsed.TotalSeconds);
+            return null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> PolytheistDeath() => Exchange(async (stream, cipher) =>
+        {
+            State.PlayerLife = 0;
+            await ProgramValue<Task>("PlayerDied", "polytheist-integration", stream, cipher, State, "integration death");
+            return null;
+        });
+    }
+
+    [Fact]
+    public async Task Polytheist_Garukhan_evasion_and_regeneration_while_moving_and_unaffected_by_shock()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", level: 60);
+        var state = game.State;
+        var plain = PolytheistWhileMoving(state);
+        Assert.Equal(plain.Still, plain.Walking);
+        Assert.Empty((await game.PolytheistWalkingStats()).Bytes);
+        Assert.Equal(150u, await game.PolytheistMonsterHit(shocked: true));
+
+        Assert.Null((await game.Change(PolytheistBuilds[0], true)).Error);
+        var (still, walking) = PolytheistWhileMoving(state);
+        // 100% increased Evasion Rating while moving joins the other increases; standing keeps the ordinary rating.
+        int pct = state.Pools.EvasionPct;
+        Assert.Equal(state.Pools.Evasion, still.Evasion);
+        Assert.Equal((int)(15m * (100 + pct) / 100), still.Evasion);
+        Assert.Equal((int)(15m * (200 + pct) / 100), walking.Evasion);
+        Assert.Equal((still.Evasion, walking.Evasion), (still.EvasionStat, walking.EvasionStat));
+        // Regenerate 4% of Life per second and 100% increased Mana Regeneration Rate while moving, and nothing standing.
+        Assert.Equal(0, PolytheistStat(state, "mana_regeneration_rate_+%"));
+        Assert.Equal((plain.Still.Life, plain.Still.Mana), (still.Life, still.Mana));
+        Assert.Equal(still.Life + state.Pools.Life * .04, walking.Life, 6);
+        Assert.Equal(2 * still.Mana, walking.Mana, 6);
+        Assert.Equal((int)Math.Round(walking.Life * 60), walking.LifeStat);
+        Assert.Equal((int)Math.Round(walking.Mana * 60), walking.ManaStat);
+        Assert.Equal((int)Math.Round(still.Mana * 60), still.ManaStat);
+        // The client steps its pools from those finals and derives none of them, so a walk start or end sends them again.
+        uint Key(string name) => Program.Stats.Key(name)!.Value;
+        var sent = InstanceEntities.StatsUpdate(Program.PlayerId, [(Key("evasion_rating"), walking.Evasion),
+            (Key("life_recovery_per_minute"), walking.LifeStat), (Key("total_life_recovery_per_minute_from_regeneration"), walking.LifeStat),
+            (Key("mana_recovery_per_minute"), walking.ManaStat), (Key("total_mana_recovery_per_minute_from_regeneration"), walking.ManaStat)]);
+        Assert.True((await game.PolytheistWalkingStats()).Bytes.AsSpan().IndexOf(sent) >= 0);
+        // MonsterSwing rolls against the walking rating: an entropy that the standing chance just reaches is evaded.
+        int accuracy = Program.Monsters.BaseAccuracy(1)!.Value;
+        int standing = DamageModel.AccuracyHitChance(still.Evasion, accuracy);
+        Assert.True(DamageModel.AccuracyHitChance(walking.Evasion, accuracy) < standing);
+        Assert.Equal(0u, await game.PolytheistMonsterHit(shocked: false, walking: true, entropy: 100 - standing));
+        Assert.Equal(100u, await game.PolytheistMonsterHit(shocked: false, walking: false, entropy: 100 - standing));
+        // Unaffected by Shock: the shock is still on the player (asserted in the helper), with no extra damage taken.
+        Assert.Equal(100u, await game.PolytheistMonsterHit(shocked: true));
+    }
+
+    [Fact]
+    public async Task Polytheist_Ryslatha_more_maximum_attack_damage_and_no_regeneration_after_a_hit()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", level: 60);
+        var state = game.State;
+        var gem = FamilyGem("Ground Slam");
+        EquipFamilyGem(game, gem);
+        var weapon = ProgramValue<SkillCatalog.Unarmed>("WeaponFor", state);
+        DamagePacket[] Hits()
+        {
+            var stats = Program.CharacterPlayerStats(state);
+            ushort slam = FamilySkills(state).Single(s => s.EffectsPerLevelRow
+                == Program.Skills.FindByRow(0, Program.Items.GemEffects(gem).First(), 1)!.EffectsPerLevelRow).Id;
+            return [Program.AttackHit(weapon, stats, melee: true), AttackSkillHit.Resolve(weapon, stats, [], Program.Stats, 10000, melee: true),
+                OrdinaryBowShot.Capture(weapon, stats, [], Program.Stats, 0, 0, 0).Hit, Program.SupportedProjectileHit(state, slam, area: true)];
+        }
+        (int Min, int Max) NativeBounds()
+        {
+            var final = ProgramValue<IEnumerable<(uint Key, int Value)>>("FinalPlayerStats", state).ToDictionary(s => s.Key, s => s.Value);
+            return (final[Program.Stats.Key("main_hand_minimum_physical_damage")!.Value],
+                final[Program.Stats.Key("main_hand_maximum_physical_damage")!.Value]);
+        }
+        var plain = Hits();
+        var plainBounds = NativeBounds();
+        var monster = new SpawnedMonster("Polytheist regenerating target", new(10, 10, 0), 0, 2, 1000)
+        {
+            Mods = new([], [], new(new Dictionary<string, int> { ["life_regeneration_rate_per_minute_%"] = 600 })),
+        };
+        state.Monsters[44] = monster;
+        uint Regenerated(double after, double seconds = .5)
+        {
+            monster.Life = 500;
+            monster.Regen = 0;
+            Program.RegenerateConnectionMonsters(state, monster.PlayerHitAt + after, seconds);
+            return monster.Life - 500;
+        }
+        void Hit() => typeof(Program).GetMethod("ApplyMonsterHitLocked", System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, [state, monster, 0]);
+        Hit();
+        Assert.Equal(50u, Regenerated(.5));
+
+        Assert.Null((await game.Change(PolytheistBuilds[2], true)).Error);
+        // 30% more Maximum Attack Damage: every attack hit's maxima, minima unchanged, in the default attack (and panel),
+        // the attack gems, the bow and the native physical bounds the client shows.
+        var ryslatha = Hits();
+        Assert.All(plain, p => Assert.True(p.MaxTotal > 0));
+        for (int i = 0; i < plain.Length; i++)
+            foreach (var (type, range) in plain[i].Components)
+            {
+                Assert.Equal(range.Min, ryslatha[i][type].Min, 9);
+                Assert.Equal(range.Max * 1.3, ryslatha[i][type].Max, 9);
+            }
+        Assert.Equal((plainBounds.Min, (int)Math.Floor(weapon.HitDamage(Program.CharacterPlayerStats(state))[DamageType.Physical].Max * 1.3)),
+            NativeBounds());
+        // Enemies you've Hit Recently have 100% reduced Life Regeneration rate: none for 4 s, half of the step that ends
+        // a quarter second after, all of it later; a death ends "recently".
+        Hit();
+        Assert.Equal(0u, Regenerated(.5));
+        Assert.Equal(0u, Regenerated(4));
+        Assert.Equal(25u, Regenerated(4.25));
+        Assert.Equal(50u, Regenerated(4.5));
+        Hit();
+        double hitAt = monster.PlayerHitAt;
+        Assert.Null((await game.PolytheistDeath()).Error);
+        Assert.Equal(double.NegativeInfinity, monster.PlayerHitAt);
+        monster.Life = 500;
+        monster.Regen = 0;
+        Program.RegenerateConnectionMonsters(state, hitAt + .5, .5);
+        Assert.Equal(550u, monster.Life);
     }
 }

@@ -146,7 +146,7 @@ partial class Program
         hit = GemSupportDamage.Scale(hit, modifiers, types, afterConversion: false);
         hit = hit.Convert(DamageStats.Conversion(stats, Stats, attack));
         hit = GemSupportDamage.Scale(hit, modifiers, types, afterConversion: true);
-        if (attack) hit = RageStats.ApplyAttack(hit, Get);
+        if (attack) hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
         return suppress ? new SkillDamageContext(plan.Kind, caster).Hit(hit) : hit;
     }
 

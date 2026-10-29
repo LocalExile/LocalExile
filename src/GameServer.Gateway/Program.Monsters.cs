@@ -326,11 +326,12 @@ partial class Program
                 // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
                 // indefinitely). A new counter starts after 3.33 s without an attack.
                 int monsterAccuracy = conn.FlaskGrounds.Accuracy(id, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0));   // blinded in smoke
-                int hitChance = DamageModel.AccuracyHitChance(conn.Pools.Evasion, monsterAccuracy);
+                int evasion = PlayerEvasion(conn, now);
+                int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
                 if (EvadesLocked(conn, hitChance, now))
                 {
                     Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) evaded: accuracy {monsterAccuracy} " +
-                        $"vs evasion {conn.Pools.Evasion}, {hitChance}% chance to hit, entropy {conn.EvasionEntropy:0}");
+                        $"vs evasion {evasion}, {hitChance}% chance to hit, entropy {conn.EvasionEntropy:0}");
                     return;
                 }
                 // Roll the whole monster-mod packet, then mitigate each component with this hit's one armour decision.

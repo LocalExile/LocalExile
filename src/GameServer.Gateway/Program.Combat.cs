@@ -241,7 +241,7 @@ partial class Program
                 stageStarts = false;
             }
             life = m.Life;
-            conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+            conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
             if (life == 0)
             {
                 m.Aggro = false; m.Dead = true; m.Impale.Clear();
@@ -975,7 +975,7 @@ partial class Program
     {
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeDamageLocked(m, damage);
-        conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+        conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
         if (m.Life == 0)
         {
             m.Aggro = false; m.Dead = true;

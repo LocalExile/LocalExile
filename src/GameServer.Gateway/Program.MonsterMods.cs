@@ -138,8 +138,7 @@ partial class Program
                 double now = conn.Clock.Elapsed.TotalSeconds, seconds = now - last;
                 last = now;
                 if (conn.Paused || seconds <= 0) continue;
-                List<(uint Id, uint Life)> changed;
-                using (ProjectileMutation(conn)) changed = RegenerateMonstersLocked(conn.Monsters, seconds);
+                var changed = RegenerateConnectionMonsters(conn, now, seconds);
                 // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
                 // revive the monster on the client.
                 foreach (var (id, life) in changed)
@@ -157,15 +156,35 @@ partial class Program
     internal static bool RegenStillCurrent(IReadOnlyDictionary<uint, SpawnedMonster> monsters, uint id, uint life) =>
         monsters.TryGetValue(id, out var m) && !m.Dead && m.Life == life;
 
+    internal const string EnemyRegenerationOnHit = "enemy_life_regeneration_rate_+%_for_4_seconds_on_hit";
+
+    /// <summary>The connection's regeneration step ending at <paramref name="now"/>, with the player's
+    /// <see cref="EnemyRegenerationOnHit"/> (Devout of Ryslatha) on the enemies it hit in the last 4 s. The player's stats
+    /// are read only when a hit reaches into the step. The client does not step a monster's life from its regeneration
+    /// stat (no life_recovery_per_minute is sent: re/recovery-timing.md), so the 0x1b1 updates alone show it.</summary>
+    internal static List<(uint Id, uint Life)> RegenerateConnectionMonsters(ClientState conn, double now, double seconds)
+    {
+        int onHit = now - seconds - conn.LastEnemyHitAt <= RecentlySeconds && Stats.Key(EnemyRegenerationOnHit) is uint key
+            ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+        using (ProjectileMutation(conn)) return RegenerateMonstersLocked(conn.Monsters, seconds, now, onHit);
+    }
+
     /// <summary>One regeneration step over the living, damaged monsters (under the Monsters lock): the ones whose life
-    /// changed, with their new life.</summary>
-    internal static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double seconds)
+    /// changed, with their new life. The part of the step within 4 s of the player's last hit on a monster regenerates at
+    /// (1 + <paramref name="onHitPct"/> / 100) of its rate, at least 0.</summary>
+    internal static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double seconds,
+        double now = 0, int onHitPct = 0)
     {
         var changed = new List<(uint, uint)>();
         foreach (var (id, m) in monsters)
         {
             if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; continue; }
             double perSecond = m.Mods.Effects.LifeRegenPerSecond(m.MaxLife);
+            if (onHitPct != 0 && seconds > 0)
+            {
+                double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
+                perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
+            }
             if (perSecond <= 0) continue;
             double total = m.Regen + perSecond * seconds;
             uint whole = (uint)Math.Truncate(total);

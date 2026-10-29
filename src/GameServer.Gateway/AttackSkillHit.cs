@@ -13,7 +13,7 @@ static class AttackSkillHit
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
-        return RageStats.ApplyAttack(SpellDamage.WithEffectiveness(hit, effectiveness)
-            .Convert(DamageStats.Conversion(conversionInputs, catalog, attack: true)), Get);
+        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(SpellDamage.WithEffectiveness(hit, effectiveness)
+            .Convert(DamageStats.Conversion(conversionInputs, catalog, attack: true)), Get), Get);
     }
 }

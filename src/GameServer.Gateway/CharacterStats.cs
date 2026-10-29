@@ -45,7 +45,9 @@ static class CharacterStats
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
         int AuraEffectPct = 0, int AuraAreaPct = 0, uint EnergyShield = 0,
         int ColdOvercapEvasionPct = 0, int LightningOvercapCritPct = 0,
-        bool ArmourAppliesToChaosDamage = false, uint Ward = 0)
+        bool ArmourAppliesToChaosDamage = false, uint Ward = 0,
+        // The rating while the player moves, when a "while moving" increase exists (null: the same as Evasion).
+        int? EvasionWhileMoving = null)
     {
         // Identifies the transient source snapshot used by this immutable pool calculation, including with-clones.
         internal long FortificationRevision { get; init; }
@@ -83,7 +85,8 @@ static class CharacterStats
         // final raw resistances and maxima: +1% per 1% of cold overcap on evasion, lightning overcap on crit chance.
         int ColdOvercapEvasionPct = 0, int LightningOvercapCritPct = 0,
         int ManaPerFourStrength = 0, bool ArmourAppliesToChaosDamage = false,
-        AttributeModifiers Attributes = default, bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0)
+        AttributeModifiers Attributes = default, bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0,
+        int EvasionWhileMovingPct = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -142,6 +145,10 @@ static class CharacterStats
         // Bound ratings before converting to int. Iron Reflexes does not calculate the unused dexterity-based rating.
         int evasion = b.IronReflexes ? 0
             : Rating(evasionBase * (100m + evasionPct) * (100m + b.EvasionMorePct) / 10000m);
+        // "Increased evasion while moving" joins the same increased bucket while the condition holds (PoB Condition Moving).
+        // shortcut: Iron Reflexes' converted armour does not get it; upgrade when armour reads a moving condition.
+        int? evasionWhileMoving = b.EvasionWhileMovingPct == 0 || b.IronReflexes ? null
+            : Rating(evasionBase * (100m + evasionPct + b.EvasionWhileMovingPct) * (100m + b.EvasionMorePct) / 10000m);
         if (b.IronReflexes)
         {
             // Iron Reflexes converts all evasion rating to armour and removes dexterity's evasion bonus. The converted
@@ -217,7 +224,7 @@ static class CharacterStats
             LifeReservationEfficiencyPct: b.LifeReservationEfficiencyPct,
             AuraEffectPct: b.AuraEffectPct, AuraAreaPct: b.AuraAreaPct,
             ColdOvercapEvasionPct: b.ColdOvercapEvasionPct, LightningOvercapCritPct: b.LightningOvercapCritPct,
-            ArmourAppliesToChaosDamage: b.ArmourAppliesToChaosDamage)
+            ArmourAppliesToChaosDamage: b.ArmourAppliesToChaosDamage, EvasionWhileMoving: evasionWhileMoving)
             { AttributesResolved = true };
     }
 

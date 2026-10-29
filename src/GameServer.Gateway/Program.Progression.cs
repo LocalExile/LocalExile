@@ -468,6 +468,7 @@ partial class Program
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
             Armour: Get("base_physical_damage_reduction_rating"), ArmourPct: armourPct,
             Evasion: Get("base_evasion_rating"), EvasionPct: evasionPct,
+            EvasionWhileMovingPct: Get("evasion_rating_+%_while_moving"),
             SharedDefencesPct: defencesPct, IronReflexes: Get("keystone_iron_reflexes") != 0,
             MentalConditioning: Get(PowerOfPurpose.RawFlag) != 0,
             ChaosInoculation: Get("keystone_chaos_inoculation") != 0,

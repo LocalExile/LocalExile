@@ -76,6 +76,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Core helper retains an optional owned guard; corpse identity, final-death registration and consumption remain open.
   Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Program.Monsters.cs`, `ot_components.py`.
   Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+- Player hits on monsters: each one records the time on the monster (`PlayerHitAt`), and the player's death clears it.
+  `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` (Devout of Ryslatha) scales a monster's regeneration for 4 s
+  after a hit.
+  Gateway coverage only; not checked with the real client.
+  Code: `Program.MonsterMods.cs`, `Program.Combat.cs`.
+  Docs: [14](../docs/protocol/14-monster-packs.md) §5, [Polytheist](../docs/game/polytheist.md).
 - Monster mods' accuracy (of the Marksman, of Precision): the monster's accuracy is raised in its swing, but only the
   tests check it; live, the player was never evaded.
   Code: `MonsterMods.cs`.

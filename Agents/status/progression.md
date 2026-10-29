@@ -67,8 +67,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
 - Polytheist: the twelve small nodes (defences; light radius, which the client applies), Devout of the Brine King and
   Ralakesh's minimum charges have consumers, with Gateway coverage of three legal builds, paid refunds and reload.
-  Devout of Yugul and Ralakesh's Corrupted Blood immunity wait for curses, reflected damage and Corrupted Blood.
-  The other six notables are still being built; `Game_VERIFIED_POLYTHEIST=1` opts in.
+  Devout of Garukhan (evasion and regeneration while moving, Unaffected by Shock) and Devout of Ryslatha (more maximum
+  attack damage, no regeneration on enemies hit recently) have consumers and Gateway coverage against a plain build.
+  Devout of Yugul, Ralakesh's Corrupted Blood immunity and Garukhan's ground immunity wait for curses, reflected
+  damage, Corrupted Blood and hazardous ground.
+  The other four notables are still being built; `Game_VERIFIED_POLYTHEIST=1` opts in.
   Not checked with the real client.
   Docs: [Polytheist checklist](../docs/game/polytheist.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

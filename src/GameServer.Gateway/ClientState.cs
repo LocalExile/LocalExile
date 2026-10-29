@@ -98,6 +98,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public double Burn;
     // Life regeneration not yet applied (fractions of a point between ticks; RegenerateMonsters).
     public double Regen;
+    // When the player last hit it (Clock seconds): "enemies you've Hit Recently". Reset at the player's death.
+    public double PlayerHitAt = double.NegativeInfinity;
     // The impales the player's attacks have left on it (Impale.cs); cleared when it dies.
     public readonly ImpaleState Impale = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.

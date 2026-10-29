@@ -43,7 +43,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 322 small (ring C) | Same as 27664. | Done |
 | 33835 small (ring C) | Same as 27664. | Done |
 | 25478 small (ring C) | Same as 27664. | Done |
-| 22056 Devout of Garukhan | Evasion, Life and Mana Regeneration while moving; Unaffected by Shock; ground immunity. | Pending (group 2) |
+| 22056 Devout of Garukhan | Evasion, Life and Mana Regeneration while moving; Unaffected by Shock; ground immunity. | Done; ground immunity: engine gap |
 | 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Pending (group 4) |
 | 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Pending (group 5) |
 | 64171 Devout of Yugul | Hex Reflection; Hexes affect Hexproof enemies; Immune to Reflected Damage; Unaffected by Curses. | Engine gap (all four) |
@@ -51,7 +51,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 1830 Devout of Ralakesh | +3 to Minimum Frenzy, Power and Endurance Charges; Corrupted Blood cannot be inflicted on you. | Charges done; Corrupted Blood: engine gap |
 | 5266 Devout of Gruthkul | Spells deal no damage and are disabled; 8% Life regeneration; +400 Life; enemy attack slow. | Pending (group 3) |
 | 24342 Devout of the Brine King | +10% to maximum Cold Resistance; Cannot be Frozen; Cannot be Chilled. | Done |
-| 23429 Devout of Ryslatha | Enemies you've Hit Recently have 100% reduced Life Regeneration; 30% more Maximum Attack Damage. | Pending (group 2) |
+| 23429 Devout of Ryslatha | Enemies you've Hit Recently have 100% reduced Life Regeneration; 30% more Maximum Attack Damage. | Done |
 
 ## How the effects are applied
 
@@ -71,6 +71,47 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   (PoB: max(charges, min(maximum, minimum))). The character always has three of each, with their usual effects, buffs
   and Charges-tab counts. Gains count from the minimum up to the maximum; when they expire, and at death, the count
   goes back to three.
+- **Devout of Garukhan, while moving** (PoB: Condition Moving; the server's walk lasts until `Walk.ArrivesAt`, as for
+  the while-moving suppression and charge gains):
+  - 100% increased Evasion Rating joins the other evasion increases in one rating, `Pools.EvasionWhileMoving`
+    (`CharacterStats.For`). `PlayerEvasion` gives monster attacks (`MonsterSwing`), the sent `evasion_rating` and
+    `/defences` that rating during a walk. With Iron Reflexes the converted armour does not get it (a `shortcut:` in the
+    code).
+  - Regenerate 4% of Life per second (240 per minute) and 100% increased Mana Regeneration Rate:
+    `PanelStats.WhileMoving` adds them to `life_regeneration_rate_per_minute_%` and `mana_regeneration_rate_+%` for the
+    recovery formulas only. The resource writer (`LifeRegenPerSecond`, `ManaRegenPerSecond`) and the regeneration
+    finals (`life/mana_recovery_per_minute`, `total_*_recovery_per_minute_from_regeneration`) read them; the raw stats
+    the player stats carry stay as they are.
+  - The client derives none of these finals from the raw stats: it steps its pools from `life/mana_recovery_per_minute`
+    ([recovery timing](../re/recovery-timing.md)). So the player tick sends the five finals again (one small 0x1b3,
+    `SendWhileMovingStats`) when a walk starts or ends, for a character with a while-moving stat.
+    The client also has while-moving derivations of its own: `virtual_track_movement` (0x14aa, `FUN_142839330`) is set
+    by any of 0x1af7-0x1af9, and `combined_evasion_rating_+%` (`FUN_142726680`) and `combined_mana_regeneration_rate_+%`
+    (`FUN_14253a170`) add 0x1af7 / 0x1af8 under `virtual_is_moving` (0x4fb8). The server still sends the finals, as
+    for every other stat ([11](../protocol/11-skills.md) §4), and leaves the raw inputs unchanged so nothing can count
+    twice.
+- **Devout of Garukhan, Unaffected by Shock** (PoB: SelfShockEffect 100% less; wiki: you can still be shocked, it has
+  no effect): `PlayerElementalAilments.Reconcile` reads `unaffected_by_shock`, and `DamageTakenFactor` is then 1. The
+  shock itself stays, with its duration and `is_shocked`. Monster hits, ignite ticks, the dev enemy-hit commands and
+  Righteous Fire's self-burn all read that factor.
+  The client derives `virtual_unaffected_by_shock` (0x380e, `FUN_14277f740`), which only stops a shock counting in
+  `num_different_ailments_affecting_you` (`FUN_1428c50f0`).
+- **Devout of Ryslatha, 30% more Maximum Attack Damage** (`maximum_attack_damage_+%_final_from_ascendancy`):
+  `MaximumAttackDamage.Apply` scales the maximum of every final component of an attack hit, after conversion, next to
+  Rage's final multiplier: the default attack and its panel rows (`AttackHitConverted`), the native main/off-hand
+  physical bounds (`WeaponStats`), attack gems (`SupportedHitFor`), `AttackSkillHit` and ordinary bows. Minimum damage,
+  spells and damage over time are unchanged. PoB applies MaxDamage MORE to each type's own maximum and carries it
+  through conversion, which is the same. The client multiplies its three sources
+  (`combined_maximum_attack_damage_+%_final` = Π max(0, 1 + x/100) × 100 − 100, rounded: `FUN_1425d25b0`, checked
+  in capstone at `0x1425d292e`); only the ascendancy source exists on the server.
+- **Devout of Ryslatha, Enemies you've Hit Recently have 100% reduced Life Regeneration rate**
+  (`enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` −100): every player hit on a monster (the default attack and
+  `ApplyMonsterHitLocked`: gems, areas, projectiles; Righteous Fire's burn is not a hit) records `PlayerHitAt`. The
+  regeneration tick (`RegenerateConnectionMonsters`) scales the part of each 0.5 s step within 4 s of that hit by
+  max(0, 1 + value / 100), so a regenerating monster gains nothing. The player's death clears every `PlayerHitAt`
+  (Recently ends at death). The value is the player's current stat, not one stored on the monster at the hit
+  (unverified for a refund within those 4 s). The client does not predict monster regeneration (the monster stats
+  carry no `life_recovery_per_minute`), so the 0x1b1 updates alone show it and nothing snaps back.
 
 ## Engine gaps
 
@@ -84,6 +125,9 @@ These effects are not faked. Each waits for an engine system that does not exist
 - **Immune to Reflected Damage** (Yugul): nothing reflects damage. Monster reflect mods never roll (`SupportOf` None),
   and the map device applies no map modifiers. The client has no literal read of `immune_to_reflected_damage`
   (0x45ac).
+- **Immune to Burning Ground, Shocked Ground and Chilled Ground** (Garukhan): nothing creates hazardous ground. No
+  monster, monster mod, area or map makes burning, shocked or chilled ground, and the player's own ground skills
+  (Frostblink, the Aquamarine flask) do not create it either.
 - **Corrupted Blood cannot be inflicted on you** (Ralakesh): nothing inflicts Corrupted Blood.
   The only related code maps a flask's bleed-and-Corrupted-Blood immunity to `immune_to_bleeding`.
 
@@ -111,7 +155,18 @@ What to check with that build (ring C):
   A cold monster's critical hit never chills or freezes.
 - The player's light is larger.
 - Armour, evasion and energy shield increases are 50% higher than before the allocation.
+- Ryslatha: the Offence tab's maximum attack damage is 30% higher and the minimum unchanged (the panel may need a
+  relog to refresh, [11](../protocol/11-skills.md) §4). A monster with regeneration (`/mob_mods <id> of_the_Hydra`)
+  regains no life for 4 s after each hit, then regenerates again.
 
 The ring B build (`46465 64171 51229 43703 29846 1830 6605 30769`) shows three of each charge at once.
+
+The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukhan:
+
+- While walking, the Defence tab's evasion and its Life and Mana Regeneration per second rise (4% of maximum life,
+  double the mana rate), and fall back when the walk ends; the orbs fill faster only while walking.
+- A monster made with `/mob_mods <id> of_Deadliness of_Electricity` crits and shocks on every hit. With Garukhan the
+  Gateway log still shows the shock ("elemental ailments changed"), but the next hits take the same damage as
+  unshocked ones; refunded, they take up to 50% more.
 
 Coverage: `AscendancyGatewayIntegrationTests.Polytheist` and `VerifiedGamblerGraphTests`.

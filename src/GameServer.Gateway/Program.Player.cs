@@ -50,7 +50,7 @@ partial class Program
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        return PanelStats.ManaPerMinute(Get, conn.Pools.Mana) / 60;
+        return PanelStats.ManaPerMinute(PanelStats.WhileMoving(Get, conn.Clock.Elapsed.TotalSeconds < conn.Walk.ArrivesAt), conn.Pools.Mana) / 60;
     }
 
     // The mana the running auras reserve, and what is left for casting and regeneration.
@@ -149,6 +149,8 @@ partial class Program
             ClearRageOnDeath(conn);
             ChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
+            // Every "Recently" ends at death, the enemies' "hit by you recently" too.
+            foreach (var monster in conn.Monsters.Values) monster.PlayerHitAt = double.NegativeInfinity;
         }
         foreach (var (id, life) in RecoverRuthlessBossesOnDeath(conn))
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"Ruthless campaign boss 0x{id:x} recovers to {life} life after player death");
@@ -385,6 +387,7 @@ partial class Program
         int suppression = Suppression(conn).Chance;
         var criticalContext = CriticalContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
+        bool moving = last < conn.Walk.ArrivesAt;
         while (!conn.Closed)
         {
             await Task.Delay(PlayerTickMs);
@@ -423,6 +426,11 @@ partial class Program
                 suppression = chance;
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [.. SuppressionChanceKeys.Select(k => (k, chance))]),
                     $"0x01b3 player Spell Suppression chance {chance}%");
+            }
+            if (tickNow < conn.Walk.ArrivesAt is var nowMoving && nowMoving != moving)
+            {
+                moving = nowMoving;
+                await SendWhileMovingStats(remote, stream, ciphers, conn);
             }
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
@@ -696,6 +704,32 @@ partial class Program
             Math.Max(0, conn.Pools.SpellSuppressionEffect),
             conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
     }
+
+    // Devout of Garukhan's while-moving evasion and regeneration as finals, again when a walk starts or ends, for a
+    // character with a while-moving stat. The client steps its pools from life/mana_recovery_per_minute and does not
+    // derive them from the raw stats (re/recovery-timing.md), so the panel and that prediction follow the walk.
+    static readonly string[] WhileMovingInputs = ["evasion_rating_+%_while_moving",
+        "life_regeneration_rate_per_minute_%_while_moving", "mana_regeneration_rate_+%_while_moving"];
+    static readonly string[] WhileMovingFinals = ["evasion_rating", "life_recovery_per_minute",
+        "total_life_recovery_per_minute_from_regeneration", "mana_recovery_per_minute", "total_mana_recovery_per_minute_from_regeneration"];
+
+    static Task SendWhileMovingStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
+                var stats = CharacterPlayerStats(conn);
+                if (!WhileMovingInputs.Any(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)) return null;
+                // A row the stationary panel omits (no life regeneration) goes as 0, so the client stops predicting it.
+                return PlayerStatsUpdateAtGate(conn, [.. WhileMovingFinals.Select(n => Stats.Key(n)).OfType<uint>()
+                    .Select(k => (k, stats.GetValueOrDefault(k)))]);
+            }
+        });
+
+    // The evasion rating monster attacks roll against: the while-moving rating during a walk (Devout of Garukhan).
+    static int PlayerEvasion(ClientState conn, double now) =>
+        now < conn.Walk.ArrivesAt && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
 
     static DamageType? ParseDamageType(string text) => text.ToLowerInvariant() switch
     {

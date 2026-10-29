@@ -348,6 +348,17 @@ The real native Life reads and accepted-hit logs agree, with Gateway/Core/Storag
 RF, Ice Nova, relog and selected-panel controls above remain attributed to the original head.
 No native allocation of Rampager, owned-actor execution or whole-class acceptance is claimed.
 
+## 2g. More maximum attack damage
+
+`maximum_attack_damage_+%_final_from_ascendancy` (Devout of Ryslatha's 30%) scales the maximum of every final component
+of an attack hit, after conversion; minima, spells and damage over time are unchanged (`MaximumAttackDamage`).
+PoB CalcOffence applies `MaxDamage` MORE to each type's own maximum and carries it through conversion, which is the same.
+It sits next to Rage's final multiplier at every attack site: the default attack and its panel rows, the native
+physical bounds, attack gems, `AttackSkillHit` and ordinary bows.
+The client multiplies its three sources (volatility support, ascendancy, graft) into
+`combined_maximum_attack_damage_+%_final` (`FUN_1425d25b0`); only the ascendancy one exists on the server.
+See [Polytheist](../game/polytheist.md).
+
 ## 3. Damage over time and ailments
 
 DoT is one damage type, has no hit, cannot critically strike and uses that type's resistance. `DamageOverTime` carries
@@ -432,6 +443,9 @@ points, discards overflow at a full pool and negative carry at RF's one-life flo
 dead life. Only changed whole values generate 0x1b1. The original per-minute rate formulas and
 unreserved mana cap are unchanged. Stat aggregation is refreshed at the old 250 ms cadence, with
 an additional refresh when RF changes, instead of rebuilding the panel about 60 times a second.
+While the player walks, `life_regeneration_rate_per_minute_%_while_moving` and `mana_regeneration_rate_+%_while_moving`
+join the two formulas' inputs (`PanelStats.WhileMoving`); the player tick sends the regeneration finals again when a
+walk starts or ends ([Polytheist](../game/polytheist.md)).
 
 `RunPlayerTick` keeps the 250 ms cadence for RF on monsters, suppression conditions, waypoints,
 auto-loot and quests; its RF duration also uses elapsed game time. Instant damage and instant
@@ -491,4 +505,6 @@ The Gateway's supported monster melee contact now calls `ApplyPlayerAilmentsLock
 Risk Aversion's final avoidance stats are consumed independently per eligible ailment, with no lucky avoidance.
 The resource writer integrates strongest ignite with live resistance, ES and lethal Life damage; RF remains nonlethal.
 Chill changes action timing/movement, freeze cancels/gates actions, and shock increases subsequent damage taken.
+`unaffected_by_shock` keeps the shock (duration, `is_shocked`) but leaves damage taken at 1
+([Polytheist](../game/polytheist.md)).
 See [Gambler's exact source, threshold, formula and presentation limits](../game/gambler.md).

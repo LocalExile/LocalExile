@@ -685,6 +685,9 @@ and can require explicit recipes.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
   Alternative ailments and hostile spell/projectile adapters remain unimplemented.
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.
+  `unaffected_by_shock` keeps the shock and `is_shocked` without the damage-taken increase.
+  "While moving" evasion and regeneration follow the server's walk, and more maximum attack damage scales every attack
+  hit's maxima next to Rage; Gateway coverage only ([Polytheist](../docs/game/polytheist.md)).
   Unconditional penetration works on the player's outgoing hits (general per-element and elemental stats, the
   attack-only variants, the cannot-penetrate flag; DoT and physical take none).
   Player and skill contributions to the same raw penetration stat add without overwriting either source.
