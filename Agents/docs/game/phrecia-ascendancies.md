@@ -9,4 +9,5 @@ Keep unsupported engine behavior explicit and preserve ordinary/unascended play.
 
 [Gambler](gambler.md) records the full node checklist, supported incoming ailment path, verified opt-in prerequisites
 and remaining engine limits for this branch.
+[Paladin](paladin.md) is not complete: its checklist records which nodes have consumers and what each other one needs.
 Other classes require their own acceptance; this change makes no claim about their completion.

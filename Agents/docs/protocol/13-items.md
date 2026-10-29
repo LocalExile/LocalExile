@@ -867,6 +867,12 @@ player stands (radii in cells):
 - Sulphur (`local_consecrate_ground_on_flask_use_radius` 18): consecrated ground. Standing on it the player regenerates
   5% of maximum life per second (`life_regeneration_rate_per_minute_%` 300) and curses are 50% less effective (Path of
   Building; the stat's reminder text), with the `ground_consecration` buff (208) and the stats sent again.
+  `consecrated_ground_effect_+%` raises both (PoB CalcPerform: 50% gives 450 and -75), and
+  `your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area` keeps the buff and stats for that long after
+  the last moment any of the player's grounds covered him (left, or the ground ended); a death ends it.
+- A stationary player with `consecrated_ground_while_stationary_radius` (or its Strength or Crusader variant, the
+  largest as the client's 0x1428d43a0) has one consecrated ground of that radius where he stands: made when his walk
+  ends, removed (0x2bb) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
 - Basalt (`local_flask_taunt_enemies_on_use_radius` 30): `taunted` (408) on the hostile monsters around for 3 s (the
   reminder text); with one player that changes nothing else.
 - Aquamarine's chilled ground (`local_flask_chilled_ground_on_flask_use_radius` 28) is not made: chilling monsters needs

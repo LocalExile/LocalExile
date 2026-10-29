@@ -700,6 +700,11 @@ and can require explicit recipes.
   elapsed-game-time loop, replacing regeneration's 250 ms jumps; pool fractions and caps are preserved.
   Implemented with regression tests; real-client visual verification after Gateway restart is pending.
   See [20](../docs/protocol/20-damage.md), "Continuous resource updates".
+- Consecrated ground while stationary (Paladin's Anointed Champion): a ground of the stationary radius stays where the
+  player stands and goes when he moves, dies or is in a town; the effect of his grounds (the Sulphur Flask's too)
+  lingers after the last moment one covered him, and `consecrated_ground_effect_+%` raises it (5% to 7.5% of life per
+  second). Automated coverage only; the ground art and the linger are not checked with the real client.
+  See [13](../docs/protocol/13-items.md) §8a and [Paladin](../docs/game/paladin.md).
 - **Cyclone area of effect (2026-10-25).** `/set_aoe` now resends Cyclone's calculated final radius in the skill
   record, using the same radius calculation for server hits.
   Cyclone/CycloneAltX use a 16-cell base when their exported stat set has none.
