@@ -118,7 +118,7 @@ partial class Program
             int priorContacts = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
             var stats = CharacterPlayerStats(conn);
             bool relevant = amount > 0 && (type == DamageType.Physical
-                || type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage
+                || PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
                     && DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
             var armour = IncomingArmourLocked(conn, relevant, priorContacts, stats);
             return MitigateTakenWithArmour(conn, type, amount, resistance, maxResistance, armour.EffectiveArmour, stats);
@@ -131,7 +131,8 @@ partial class Program
         var reduction = PlayerDamageReduction(conn, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
         return FortificationDamageTaken(conn, (int)Math.Round(PlayerHitMitigation.AfterResistance(conn.Pools, type, resisted,
-            reduction.Physical, reduction.Elemental, effectiveArmour)
+            reduction.Physical, reduction.Elemental, effectiveArmour,
+            PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0))
             * conn.ElementalAilments.DamageTakenFactor(conn.Clock.Elapsed.TotalSeconds)));
     }
 
@@ -142,9 +143,10 @@ partial class Program
         var (physical, elemental) = PlayerDamageReduction(conn, stats);
         if (type == DamageType.Physical)
             return $"{DamageModel.ArmourReduction(effectiveArmour, amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
+        int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
         return $"{DamageModel.Capped(resistance, maxResistance)}% resistance" +
-            (type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage
-                ? $" + {DamageModel.ArmourReduction(effectiveArmour, DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"
+            (share > 0
+                ? $" + {DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"
                 : "") +
             (DamageTypes.IsElemental(type) && elemental > 0 ? $" + {elemental}% elemental damage reduction" : "");
     }

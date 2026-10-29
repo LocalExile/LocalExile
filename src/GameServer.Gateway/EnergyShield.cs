@@ -23,6 +23,12 @@ sealed class EnergyShield
         return amount - (int)absorbed;
     }
     public void Empty() { Current = 0; fraction = 0; Recharging = false; }
+    /// <summary>Instant recovery (Kiloava's Leadership on block), up to the maximum.</summary>
+    public void Recover(uint amount)
+    {
+        Current = (uint)Math.Min(Maximum, (long)Current + amount);
+        if (Current == Maximum) { fraction = 0; Recharging = false; }
+    }
     public static uint Max(int flat, int increased) =>
         (uint)Math.Clamp((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) / 100, 0, int.MaxValue);
     public static double Delay(Func<string, int> get) => 2 / Math.Max(0.01, 1 + get("energy_shield_delay_-%") / 100.0);

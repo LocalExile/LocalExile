@@ -258,8 +258,17 @@ These controls establish actual player Life loss for the development hit route.
 Mixed monster packets, suppression, block, ES, Fortification and DoT separation retain automated coverage.
 The raw-source controls do not select Incorruptible or establish whole-class gameplay.
 The test records the exact embedded Git versions, DLL hash and process working directory.
-Recent-hit armour composition is covered below; partial armour percentages, other class mechanics and local item
-defences remain separate work.
+Recent-hit armour composition is covered below; other class mechanics and local item defences remain separate work.
+
+A share of armour can apply to non-physical hits too (`PlayerHitMitigation.ArmourPercent`, PoB CalcDefence
+`percentOfArmourApplies`, the BASE sum capped at 100%): `armour_%_applies_to_fire_cold_lightning_damage` for fire, cold
+and lightning, `base_armour_%_applies_to_chaos_damage` for chaos (all of it with the flag above).
+That share of the hit's effective armour rating goes through the same armour formula against the damage after
+resistance, and the reduction adds to the elemental damage reduction under the 90% cap.
+Kahuturoa's Leadership gives 10% of each: 5000 armour against a 100 fire hit after resistance is 500, so the hit loses
+50%.
+The armour decision of a hit counts such a component as armour-relevant.
+`MonsterSwing`, `/hit`, `/spellhit` and `/blockhit` apply it.
 
 ## 2f. Steel Willed: temporary incoming-hit armour
 
@@ -383,6 +392,9 @@ its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignit
   stats (Born under Fire: half the physical as fire; [11](11-skills.md) section 10e).
 - `missing_unreserved_life_%_gained_as_life_before_hit` adds that percent of missing Life, rounded down, once an enemy
   hit is decided not evaded and before it is rolled (`MonsterSwing` and the dev hits), only while alive.
+- A blocked hit recovers `life_gained_on_block` and `mana_gained_on_block`, plus `recover_%_of_maximum_life_on_block`,
+  `mana_%_gained_on_block` and `energy_shield_%_gained_on_block` percent of each maximum, rounded down (PoB
+  LifeOnBlock, ManaOnBlock and EnergyShieldOnBlock; the rounding is unverified), in `MonsterSwing` and `/blockhit`.
   A blocked hit counts (blocking does not stop the defender's when-hit effects); Life reservation is not modelled.
 - Player hits on monsters (default attack, gem projectile and area hits) roll each type once and reduce it by the
   monster's base resistance: `MonsterTypes.Resistances` → `MonsterResistances`, the level's

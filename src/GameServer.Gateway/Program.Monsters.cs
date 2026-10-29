@@ -309,7 +309,7 @@ partial class Program
         await Task.Delay(TimeSpan.FromSeconds(a.Seconds / 2));
         uint life, mana, manaBefore;
         int rawDamage = 0, damage = 0, chaosDamage = 0;
-        bool blocked, monsterCritical = false;
+        bool blocked, monsterCritical = false, spirit = false;
         PlayerRecoveryIntent? recovery = null;
         RecentEnemyHits.Decision armour;
         // Recheck pause under the commit lock too: SetPaused can win after WhilePaused returns.
@@ -327,6 +327,7 @@ partial class Program
                 using var defenceTime = FortificationOf(conn).Capture(now);
                 // Resolve lazy final defences here, never at AI collection or before a queued echo/pause wait.
                 var stats = CharacterPlayerStats(conn);
+                int StatOf(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
                 var reduction = PlayerDamageReduction(conn, stats);
                 var here = conn.Walk.Position(now);
                 if (Dist(here, m.Walk.Position(now)) > a.Range + 2)
@@ -363,8 +364,7 @@ partial class Program
                 // consumes an armour draw; one lazy decision is shared by the whole rolled packet.
                 blocked = DamageModel.Blocks(conn.Pools.BlockChance, conn.IncomingHitRandom.NextDouble() * 100, conn.Pools.AttackBlockLucky, conn.Pools.AttackBlockUnlucky);
                 bool armourRelevant = mitigated.Components.Any(c => !immune.Contains(c.Type)
-                    && Math.Round(c.Range.Min) > 0 && (c.Type == DamageType.Physical
-                        || c.Type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage));
+                    && Math.Round(c.Range.Min) > 0 && PlayerHitMitigation.ArmourPercent(conn.Pools, c.Type, StatOf) > 0);
                 armour = IncomingArmourLocked(conn, !blocked && armourRelevant, priorContacts, stats);
                 rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
                 damage = 0;
@@ -374,10 +374,10 @@ partial class Program
                 {
                     int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
                     value = PlayerHitMitigation.AfterResistance(conn.Pools, type, value,
-                        reduction.Physical, reduction.Elemental, armour.EffectiveArmour);
+                        reduction.Physical, reduction.Elemental, armour.EffectiveArmour,
+                        PlayerHitMitigation.ArmourPercent(conn.Pools, type, StatOf));
                     if (type == DamageType.Physical)
-                        value = AntiquarianEffects.RangedPhysical(value, a.Ranged,
-                            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+                        value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
                     value = (int)Math.Round(value * shockFactor);
                     ailmentTaken = ailmentTaken.Add(type, new(value, value));
                     if (type == DamageType.Chaos) chaosDamage += value;
@@ -387,10 +387,13 @@ partial class Program
                 chaosDamage = FortificationDamageTaken(conn, chaosDamage);
                 if (blocked) { damage = 0; chaosDamage = 0; }
                 manaBefore = conn.PlayerMana;
-                int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
-                int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
-                conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats) + gainedLife));
+                var onBlock = blocked ? BlockRecovery(conn, stats) : default;
+                int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
+                int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
+                long lifeBefore = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats);
+                conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, lifeBefore - lifeDamage + gainedLife));
                 conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
+                conn.EnergyShield.Recover(onBlock.EnergyShield);
                 ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
                     new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
                     monsterCritical, blocked, now, stats);
@@ -398,6 +401,8 @@ partial class Program
                 ChargesWhenHit(conn, blocked);
                 if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                 RecordHardcoreDeath(conn);
+                if (m.Rarity == MonsterRarity.Unique)
+                    spirit = SpiritChieftainsWhenHitLocked(conn, stats, blocked, monsterCritical, Math.Min(lifeBefore, lifeDamage));
                 life = conn.PlayerLife;
                 mana = conn.PlayerMana;
                 if (!blocked && !a.Ranged && life > 0 && baseHit.Components.All(c => c.Type == DamageType.Physical))
@@ -411,6 +416,7 @@ partial class Program
 
         }
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        if (spirit) await SendSpiritChieftain(remote, stream, ciphers, conn);
         if (recovery is not null) await SendPlayerHitRecovery(remote, stream, ciphers, conn, recovery);
         // At 0 the Life tick stops refreshing the overhead life bar (see Attack): hide it.
         if (life == 0)

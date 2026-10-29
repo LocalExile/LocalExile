@@ -1561,6 +1561,22 @@ The others, such as Overwhelm's crit multiplier, the Occultist's resistances and
 does not happen.
 Self and ally auras are not modelled.
 
+## 10f. Skills that passives grant or trigger
+
+A passive's `GrantedEffectsPerLevel` (`GrantedEffectsPerLevelHardmode` in Ruthless) names the skill it grants and its
+level (`PassiveGrantedSkills.cs`).
+A triggered one names its trigger twice: a `has_trigger_on_*` stat on the node and the same `trigger_on_*` flag in its
+GrantedEffectStatSetsPerLevel row's AdditionalFlags; the server reads the node's stat (`TriggeredGrantsLocked`).
+Ancestral Commander's Spirit chieftain skills are the ones with a consumer so far (`SpiritChieftains.cs`): a Unique
+monster's crit, Savage Hit or blocked hit triggers its option's skill, whose shared cooldown and Leadership buff
+[Ancestral Commander](../game/ancestral-commander.md) describes.
+Their summon's buff is the BuffTemplates row whose `StatsKey` (the stats that give its values) the skill's own stats
+hold; each of the row's BuffDefinitions `StatsKeys` takes the matching value.
+The server sends no skill record for them: they have no bar use, and the client shows only the buff.
+The client's cooldown virtual for a skill record (`0x14281dfa0`, checked against the disassembly at `0x14281e084`)
+returns no recovery when the record's stats hold `skill_cooldown_does_not_tick`, the per-skill form of the Leadership
+buff's `ancestral_buff_cooldown_does_not_tick`.
+
 ## 11. The skill bar
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.

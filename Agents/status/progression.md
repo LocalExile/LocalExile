@@ -74,7 +74,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ancestral Reach's spirit strikes hit the monsters the client picks; Ancestral Echo strikes the previous location on
   the server, and whether the client strikes it too needs a live check.
   Born under Fire converts nearby monsters' physical hits and puts its debuff on them.
-  Not yet: the five Spirits and Forest of Ancestors (no triggered skills or totems).
+  Spirits of Kahuturoa, Utula and Kiloava trigger on a Unique's crit, Savage Hit or blocked hit, with the shared
+  cooldown and their Leadership buff (Kahuturoa's armour share and Kiloava's block recovery act; Utula's leech has no
+  leech to act on); the chieftain minions are not summoned (no allied minions).
+  Not yet: Spirit of Rakiata (no Marks), Spirit of Kaom and Forest of Ancestors (no totems).
   `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in; not yet checked with the real client.
   Docs: [Ancestral Commander checklist](../docs/game/ancestral-commander.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

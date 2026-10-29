@@ -2,8 +2,9 @@
 
 Ancestral Commander is the Marauder's Phrecia Juggernaut identity (`Juggernaut`, 3.29.3b), start node 17765.
 No node grants passive points.
-The defensive, warcry, strike and enemy-aura nodes have server consumers with Gateway coverage (Deathrattle only
-partly); the Spirit and totem nodes are still open, as the checklist says.
+The defensive, warcry, strike, enemy-aura and Spirit nodes have server consumers with Gateway coverage (Deathrattle
+and three Spirits only partly: the chieftain minion is not summoned); Spirit of Rakiata and the totem nodes are still
+open, as the checklist says.
 Native acceptance is open: it needs the reviewed combined graph installed (see Admission below).
 
 ## Node checklist
@@ -25,10 +26,10 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 37852 Toughened Skin | Action and Movement Speed cannot be modified to below base; Armour from equipped Body Armour is doubled | Ailment action floor, pool movement floor, body armour defences. |
 | 848 Ancestral Defiance | Gain 10% of missing unreserved Life before being Hit by an Enemy | Monster swings and dev enemy hits. |
 | 47491 Ancestral Spirit | Choice of one Spirit (no stats of its own) | Paid choice parent; its options are free choice effects with a paid refund. |
-| 59500 Spirit of Kahuturoa | Trigger level 20 Summon Spirit of Kahuturoa when you take a Critical Strike from a Unique | Not yet: no passive-granted triggered skills, and no allied minions. |
-| 17511 Spirit of Utula | Trigger on taking a Savage Hit from a Unique | Not yet: as 59500. |
-| 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Not yet: as 59500. |
-| 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: as 59500, and the server has no mark curses. |
+| 59500 Spirit of Kahuturoa | Trigger level 20 Summon Spirit of Kahuturoa when you take a Critical Strike from a Unique | Partial: the trigger, the shared cooldown and Kahuturoa's Leadership (10% of Armour against elemental and chaos hits); no chieftain minion. See below. |
+| 17511 Spirit of Utula | Trigger on taking a Savage Hit from a Unique | Partial: the trigger, cooldown and Utula's Leadership buff; its 50% instant leech has nothing to act on (no leech), and no minion. |
+| 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Partial: the trigger, cooldown and Kiloava's Leadership (5% of Life, Mana and Energy Shield on block); no minion. |
+| 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: the server has no Mark curses, so nothing can trigger it. |
 | 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Not yet: the server has no totems. |
 | 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
 | 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: the warcry release explodes the server's corpses and opens quest chests; see below. |
@@ -124,6 +125,44 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   A monster's hit within 60 cells at contact converts half its physical damage to fire, before mitigation, by the
   player's own conversion rules: fire resistance applies, and the fire can ignite on a critical hit.
   The generic passive enemy-aura path is [11](../protocol/11-skills.md) section 10e.
+- Ancestral Spirit's options: each grants a level 20 Summon Spirit skill (PassiveSkills `GrantedEffectsPerLevel`
+  78491 Kahuturoa, 78485 Utula, 78509 Kiloava, 78494 Rakiata; `PassiveGrantedSkills.cs`), triggered from the node's
+  `has_trigger_on_*` stat, which the level row's AdditionalFlags name too ([11](../protocol/11-skills.md) section 10f).
+  After a Unique monster's hit on the living player (`MonsterSwing`; dev hits have no monster):
+  - Kahuturoa: the hit was a critical strike and was not blocked (an evaded hit never gets here).
+  - Utula: the hit was a Savage Hit, one that removed at least 15% of maximum Life; Energy Shield, Ward and Mana do
+    not count (wiki Savage hit, Module:Keyword).
+  - Kiloava: the hit was blocked.
+  - Rakiata: a critical strike against a Marked Unique; the server has no Marks, so it is never triggered.
+  A trigger spends the five skills' shared cooldown (CooldownGroup 24: 20 s, one use, with the player's cooldown
+  recovery) and gives the player the chieftain's Leadership for the skill's 12 s (`base_skill_effect_duration`, with
+  increased skill effect duration).
+  The Leadership is the BuffTemplates row whose value stats are the skill's `ancestral_buff_*` stats (RongokuraisEmbrace
+  for Kahuturoa, KitavasEmbrace, ValakosEmbrace, TasaliosEmbrace): BuffDefinitions 2273, 2271, 2279 or 2274, each of
+  whose stats takes the skill's value.
+  Its `ancestral_buff_cooldown_does_not_tick` stops the cooldown while it lasts, so the next trigger is 32 s after the
+  last (`SpiritChieftains`).
+  The tattoo scaling (`ancestral_embrace_effect_+%_per_*_tattoo`) stays 0: there are no tattoos.
+  - Kahuturoa's Leadership: `armour_%_applies_to_fire_cold_lightning_damage` and `base_armour_%_applies_to_chaos_damage`
+    10: a tenth of the armour rating reduces fire, cold, lightning and chaos hits after resistance, by the armour
+    formula, added to the elemental damage reduction (PoB CalcDefence `percentOfArmourApplies`;
+    [20](../protocol/20-damage.md) section 2e).
+  - Kiloava's Leadership: `recover_%_of_maximum_life_on_block`, `mana_%_gained_on_block` and
+    `energy_shield_%_gained_on_block` 5: a block recovers 5% of maximum Life, Mana and Energy Shield, rounded down (the
+    rounding is unverified), in monster swings and `/blockhit`.
+    The block that triggers the chieftain comes before its buff, so it recovers nothing.
+  - Utula's Leadership: `leech_%_is_instant` 50; the server has no leech, so it changes nothing yet.
+  The buff goes on the player (S→C 0x1c1 with its remaining seconds) and comes off at its end or at death (0x1c2), with
+  the player's stats each time; its stats act only while the player lives.
+  BuffDefinitions has CancelOnDeath false on these rows: the chieftain minion grants the buff, and the server ends it at
+  death as the minion dies with the player.
+  That the buff lasts as long as the immortal minion, the skill's whole duration, is the reading of the skill
+  description and the buff rows; it is unverified.
+  Not modelled: the chieftain minion that fights beside the player (the server has no allied minions); the Spirit skill
+  in the client's skill list (no record is sent, so the client shows neither the skill nor its cooldown, only the
+  buff; the client's own cooldown virtual at `0x14281dfa0` reads the record's `skill_cooldown_does_not_tick`); and the
+  minion following the player through an area change: an area change ends the buff and starts a fresh cooldown, as
+  every skill cooldown on the server.
 
 ## Admission
 
@@ -151,5 +190,11 @@ the cry plays in a third of its time and its bar cooldown lasts about 11.4 s; ki
 vanish at the release and hurt living ones beside them; in The Mud Flats a cry beside a Rhoa Nest opens it.
 Check the Defence tab's armour with a Plate Vest, the Charges tab's five Endurance Charges, walking speed with a
 reduced-movement body armour, a cold hit's chill, and Life before and after a monster hit at half Life.
+For the Spirits, allocate one option at a time, such as `/add_passive 19258 47491 17511` for Utula, and take hits from
+a `/spawn_mob <variety> unique`: a hit taking 15% of maximum Life shows Utula's Leadership for 12 s, and no new one
+for 32 s.
+Kiloava (`16639`) needs a shield: blocking the unique shows Kiloava's Leadership, and the next block raises Life,
+Mana and Energy Shield by 5% each.
+Kahuturoa (`59500`) needs a unique that crits (a monster mod such as Deadliness); its buff lowers the next fire hit.
 
 Coverage: `AscendancyGatewayIntegrationTests.AncestralCommander` and `VerifiedGamblerGraphTests`.

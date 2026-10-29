@@ -356,6 +356,142 @@ public sealed partial class AscendancyGatewayIntegrationTests
         }
     }
 
+    // Ancestral Spirit's options: the granted skill (level 20) and the Leadership its chieftain gives (BuffDefinitions row, stats).
+    static readonly (ushort Node, string Effect, ushort Row, (string Stat, int Value)[] Stats)[] SpiritLeaderships =
+    [
+        (59500, "TriggerSummonedAncestorKahuturoa", 2273,
+            [("armour_%_applies_to_fire_cold_lightning_damage", 10), ("base_armour_%_applies_to_chaos_damage", 10)]),
+        (17511, "TriggerSummonedAncestorUtula", 2271, [("leech_%_is_instant", 50)]),
+        (16639, "TriggerSummonedAncestorKiloava", 2279,
+            [("recover_%_of_maximum_life_on_block", 5), ("energy_shield_%_gained_on_block", 5), ("mana_%_gained_on_block", 5)]),
+        (62534, "TriggerSummonedAncestorRakiata", 2274, [("action_speed_+%_minimum_value_from_rakiatas_leadership", 10)]),
+    ];
+
+    [Fact]
+    public void Ancestral_Commander_spirit_skills_share_a_cooldown_that_waits_for_their_buff()
+    {
+        if (!DataAvailable()) return;
+        var granted = new PassiveGrantedSkills(Program.Skills);
+        SingleUseCooldown plan = default;
+        (ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats) kiloava = (0, []);
+        foreach (var (node, effect, row, stats) in SpiritLeaderships)
+        {
+            var grant = Assert.Single(granted.For([node]));
+            Assert.Equal((effect, 20), (grant.EffectId, grant.Level));
+            var own = Program.Skills.EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
+            Assert.Equal(12000, own[GamblerKey("base_skill_effect_duration")]);
+            var leadership = SpiritChieftains.LeadershipOf(own)!.Value;
+            Assert.Equal(row, leadership.Row);
+            Assert.Equal(stats.Select(s => (GamblerKey(s.Stat), s.Value)), leadership.Stats);
+            plan = SingleUseCooldown.ForSkill(Program.Skills, Program.Stats, grant.Effect, grant.Level, new Dictionary<uint, int>(), own)!.Value;
+            Assert.Equal(new SingleUseCooldown(20000, 0), plan);
+            if (node == 16639) kiloava = leadership;
+        }
+
+        // 12 s of buff, during which the 20 s cooldown does not recover: the next trigger is 32 s after the first.
+        var spirits = new SpiritChieftains();
+        Assert.True(spirits.TryTrigger(0, plan, kiloava.Row, kiloava.Stats, 12));
+        Assert.NotNull(spirits.Active(11.9));
+        Assert.False(spirits.TryTrigger(5, plan, kiloava.Row, kiloava.Stats, 12));
+        Assert.Null(spirits.Active(12));
+        Assert.False(spirits.TryTrigger(31.5, plan, kiloava.Row, kiloava.Stats, 12));
+        Assert.True(spirits.TryTrigger(32, plan, kiloava.Row, kiloava.Stats, 12));
+        // Death ends the buff, and the cooldown recovers from then, at the player's recovery rate (100% faster: 10 s).
+        spirits.End(35);
+        Assert.Null(spirits.Active(35));
+        var faster = new SingleUseCooldown(20000, 100);
+        Assert.False(spirits.TryTrigger(44.5, faster, kiloava.Row, kiloava.Stats, 12));
+        Assert.True(spirits.TryTrigger(45, faster, kiloava.Row, kiloava.Stats, 12));
+    }
+
+    [Fact]
+    public async Task Ancestral_Commander_spirits_trigger_on_unique_hits_and_match_their_plain_stats()
+    {
+        if (!DataAvailable()) return;
+        GatewayCharacter Spirit(params ushort[] nodes) => new(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: nodes);
+        using var kahuturoa = Spirit(19258, 47491, 59500);
+        using var utula = Spirit(19258, 47491, 17511);
+        using var kiloava = Spirit(19258, 47491, 16639);
+        using var plain = AncestralCommander();
+        using var none = AncestralCommander();
+        foreach (var character in new[] { kahuturoa, utula, kiloava, plain, none })
+        {
+            character.State.Pools = character.State.Pools with { Life = 1000, Mana = 200, EnergyShield = 100, Armour = 5000,
+                FireResistance = 0, ChaosResistance = 0 };
+            (character.State.PlayerLife, character.State.PlayerMana) = (1000, 0);
+        }
+        int Stat(GatewayCharacter c, string name) => GamblerStat(c.State, name);
+        async Task<uint> Loss(GatewayCharacter c, DamagePacket hit)
+        {
+            c.State.PlayerLife = 1000;
+            await c.SpiritHit(hit, MonsterRarity.Normal);
+            return 1000 - c.State.PlayerLife;
+        }
+        var fire = DamagePacket.Of(DamageType.Fire, 100, 100);
+        var chaos = DamagePacket.Of(DamageType.Chaos, 100, 100);
+        string armourShare = PlayerHitMitigation.ArmourPercentToElemental;
+
+        // Spirit of Kahuturoa: a Unique's critical strike, not a Rare's and not a Unique's ordinary hit.
+        await kahuturoa.SpiritHit(fire, MonsterRarity.Rare, critical: true);
+        await kahuturoa.SpiritHit(fire, MonsterRarity.Unique);
+        Assert.Equal(0, Stat(kahuturoa, armourShare));
+        var bytes = (await kahuturoa.SpiritHit(fire, MonsterRarity.Unique, critical: true)).Bytes;
+        ushort buff = kahuturoa.State.SpiritChieftains.SentInstance;
+        Assert.True(buff != 0);
+        Assert.True(bytes.AsSpan().IndexOf(InstanceEntities.AddBuff(Program.PlayerId, buff, 2273, Program.PlayerId).AsSpan(0, 22)) >= 0);
+        Assert.Equal(10, Stat(kahuturoa, armourShare));
+        Assert.Equal(10, Stat(kahuturoa, PlayerHitMitigation.ArmourPercentToChaos));
+        // 10% of 5000 armour against a 100 hit after resistance: 50% less, as with the plain stats; without them, all 100.
+        lock (plain.State.Monsters)
+            foreach (var name in new[] { armourShare, PlayerHitMitigation.ArmourPercentToChaos })
+                plain.State.PlayerStats[GamblerKey(name)] = 10;
+        foreach (var hit in new[] { fire, chaos })
+        {
+            uint taken = await Loss(kahuturoa, hit);
+            Assert.Equal(50u, taken);
+            Assert.Equal(taken, await Loss(plain, hit));
+            Assert.Equal(100u, await Loss(none, hit));
+        }
+        // Death ends it: the stats go, and the player tick's presentation takes the buff off.
+        await kahuturoa.SpiritHit(DamagePacket.Of(DamageType.Chaos, 5000, 5000), MonsterRarity.Normal);
+        Assert.Equal(0u, kahuturoa.State.PlayerLife);
+        Assert.True(Program.SpiritChieftainPresentation(kahuturoa.State)!.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, buff)) >= 0);
+        kahuturoa.State.PlayerLife = 1000;
+        Assert.Equal(0, Stat(kahuturoa, armourShare));
+
+        // Spirit of Utula: a Unique's Savage Hit, one that removes at least 15% of maximum Life.
+        await utula.SpiritHit(DamagePacket.Of(DamageType.Chaos, 149, 149), MonsterRarity.Unique);
+        Assert.Equal(851u, utula.State.PlayerLife);
+        Assert.Equal(0, Stat(utula, "leech_%_is_instant"));
+        await utula.SpiritHit(DamagePacket.Of(DamageType.Chaos, 150, 150), MonsterRarity.Unique);
+        Assert.Equal(50, Stat(utula, "leech_%_is_instant"));
+
+        // Spirit of Kiloava: blocking a Unique. The buff comes with the chieftain after that block; the next block recovers 5%
+        // of maximum Life, Mana and Energy Shield, as the plain stats do, and does not trigger again (the shared cooldown).
+        lock (plain.State.Monsters)
+            foreach (var (stat, value) in SpiritLeaderships.Single(s => s.Node == 16639).Stats)
+                plain.State.PlayerStats[GamblerKey(stat)] = value;
+        kiloava.State.PlayerLife = plain.State.PlayerLife = 500;
+        await kiloava.SpiritHit(chaos, MonsterRarity.Unique, block: true);
+        Assert.Equal((500u, 0u, 0u), (kiloava.State.PlayerLife, kiloava.State.PlayerMana, kiloava.State.EnergyShield.Current));
+        var first = kiloava.State.SpiritChieftains.Sent;
+        Assert.Equal(2279, first!.Row);
+        await kiloava.SpiritHit(chaos, MonsterRarity.Unique, block: true);
+        await plain.SpiritHit(chaos, MonsterRarity.Normal, block: true);
+        foreach (var character in new[] { kiloava, plain })
+            Assert.Equal((550u, 10u, 5u), (character.State.PlayerLife, character.State.PlayerMana, character.State.EnergyShield.Current));
+        Assert.Same(first, kiloava.State.SpiritChieftains.Active(kiloava.State.Clock.Elapsed.TotalSeconds));
+        await none.SpiritHit(chaos, MonsterRarity.Unique, block: true);
+        Assert.Equal(0u, none.State.EnergyShield.Current);
+    }
+
+    sealed class ZeroRandom : Random
+    {
+        public override double NextDouble() => 0;
+        public override int Next(int maxValue) => 0;
+        public override int Next(int minValue, int maxValue) => minValue;
+    }
+
     static Dictionary<uint, int> WarcryOwn(int effect) => Program.Skills.EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
 
     sealed partial class GatewayCharacter
@@ -404,6 +540,27 @@ public sealed partial class AscendancyGatewayIntegrationTests
             lock (State.Monsters) State.Monsters[43] = monster;
             await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["aura-integration", stream, cipher,
                 State, 43u, monster, (position.X + distance, position.Y), position, State.IncomingHitEpoch])!;
+            return null;
+        });
+
+        // A monster's hit of a rarity from 2 cells, landing at once (no evasion; every roll is 0, so 75% block chance blocks).
+        public Task<(string? Error, byte[] Bytes)> SpiritHit(DamagePacket hit, MonsterRarity rarity, bool critical = false,
+            bool block = false) => Exchange(async (stream, cipher) =>
+        {
+            State.EvasionEntropy = 99; State.LastEvasionAt = State.Clock.Elapsed.TotalSeconds;
+            State.IncomingHitRandom = new ZeroRandom();
+            State.Pools = State.Pools with { BlockChance = block ? 75 : 0 };
+            var position = State.Walk.Position(State.Clock.Elapsed.TotalSeconds);
+            var monster = new SpawnedMonster("spirit contact", new(position.X + 2, position.Y, 30), 0, 2, 1000)
+            {
+                Hostile = true,
+                Rarity = rarity,
+                Attack = new(SkillCatalog.FirstSkillId, .002, 20, hit),
+                Mods = critical ? new([], [], new(new Dictionary<string, int> { ["always_crit"] = 1 })) : MonsterModSet.None,
+            };
+            lock (State.Monsters) State.Monsters[44] = monster;
+            await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["spirit-integration", stream, cipher,
+                State, 44u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
             return null;
         });
 

@@ -392,6 +392,15 @@ and can require explicit recipes.
   Gateway coverage; not yet checked with the real client.
   Code: `PassiveBuffAuras.cs`, `MonsterSwing`.
   Docs: [11](../docs/protocol/11-skills.md) section 10e.
+- Passive-triggered skills: Ancestral Commander's Spirit chieftain options trigger on a Unique monster's crit, Savage
+  Hit or blocked hit, spend their shared 20 s cooldown and give the chieftain's Leadership buff for 12 s, during which
+  that cooldown does not recover; death ends the buff.
+  Kahuturoa's share of armour against elemental and chaos hits and Kiloava's Life, Mana and ES on block act.
+  Gateway coverage; not yet checked with the real client.
+  Not modelled: the chieftain minion, the skills' records (the client shows only the buff), Utula's leech and
+  Rakiata's Mark trigger (see "Not working yet"), and carrying the buff or cooldown through an area change.
+  Code: `PassiveGrantedSkills.cs`, `SpiritChieftains.cs`, `MonsterSwing`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10f, [20](../docs/protocol/20-damage.md) section 2e.
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.
   Equipment contributes attributes before individual gem validation;
@@ -747,3 +756,7 @@ and can require explicit recipes.
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
   an effect object follows the player only by 0x1ba glides.
   Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.
+- Leech, Mark curses (curses in general) and allied minions with fighting AI do not exist yet.
+  Spirit of Utula's Leadership (`leech_%_is_instant`) therefore changes nothing, Spirit of Rakiata (a crit against a
+  Marked Unique) is never triggered, and no Spirit chieftain minion is summoned
+  ([Ancestral Commander](../docs/game/ancestral-commander.md)).
