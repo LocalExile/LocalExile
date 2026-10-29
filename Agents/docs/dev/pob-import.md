@@ -70,9 +70,16 @@ After success, log out to the login screen and log in again to refresh the chara
 
 ## Connect evryBuild
 
-Use the evryBuild source/package instructions in its
-[LocalExile guide](https://github.com/evrydayjunglist/evryBuild/blob/feature/localexile-integration/docs/LocalExile.md).
-Its source and the server remain separate repositories, typically in sibling `evryBuild` and `evryPath` folders.
+Download the [Windows x64 portable ZIP](https://github.com/evrydayjunglist/evryBuild/releases/download/evrybuild-localexile-2026.10.28/evryBuild-Portable-Windows-x64.zip).
+The [release page](https://github.com/evrydayjunglist/evryBuild/releases/tag/evrybuild-localexile-2026.10.28)
+includes its notes and SHA-256 checksum; this first portable release is marked as a prerelease.
+Extract the entire ZIP to a writable folder, open its `evryBuild` folder and double-click `evryBuild.exe`.
+Do not run it from inside the ZIP; `evryBuild.cmd` is an alternative launcher.
+No installer, Python, Git or separate PoB installation is needed to run this portable application.
+Its builds and settings stay in the extracted folder; the package contains no personal builds or credentials.
+For source packaging and further setup, see its
+[LocalExile guide](https://github.com/evrydayjunglist/evryBuild/blob/90c919601b19eb1b29f32d59e3822f82a96869ca/docs/LocalExile.md).
+The evryBuild source and server remain separate repositories; the portable application can be extracted anywhere writable.
 
 Gateway hosts the optional HTTP listener on its own port, `20496`; game traffic stays on `6112`.
 It builds, starts, stops and restarts with Gateway. No fourth game service or extra receiver window is needed.
@@ -133,11 +140,12 @@ Success prints `"ok":true` and a token; copy only its value into evryBuild, with
 The token is a separate import credential, not the game login password.
 Issuing another token replaces the previous one; only its digest is stored in the database.
 Do not commit tokens, active configuration, accounts or saves.
-Token commands work without a running Gateway and reuse its standard build output when present; a missing build is compiled automatically.
+Token commands work without a running Gateway and reuse its standard build output when present.
+If no build exists, omit `-NoBuild` to compile Gateway before issuing the token.
 For advanced administration only, `pob-server.ps1 -NoBuild` still runs the HTTP listener alone.
 Do not run that mode alongside an enabled Gateway listener on the same address.
 
-In evryBuild, open the build, then select **Import/Export Build**, **Forge Character** below Build Sharing.
+In evryBuild, open the build, then select **Import/Export Build**, **Forge Character** in Local Build Import / Export.
 Enter the Server URL above, local account, Account API token, Standard league and a new character name.
 Select **Preview**, read the result, then select **Forge Character** if the supported build is correct.
 Preview checks the entered name, offered league and account capacity without writing or reserving a character slot.
@@ -150,7 +158,7 @@ An ascended PoB build can therefore pass Preview while producing an unascended c
 The dialog clears its token after creation or closing; saved connection preferences contain no token.
 Log out to the game's login screen and log in again to see the new character.
 
-To revoke the account's import token, use another PowerShell window at the same server root:
+To revoke the account's import token, use the same PowerShell window and `Game_*` settings as when issuing it:
 
 ```powershell
 $accountName = Read-Host 'Existing LocalExile account name'
