@@ -8,13 +8,26 @@ sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, i
     public bool Current => Owner is null || !Owner.Closed && !Owner.LeavingArea && Owner.PlayerSent;
 }
 
-sealed partial class InstanceState
+/// <summary>Player presence shared by one Auth instance, independently of its characters' private world state.</summary>
+sealed class InstancePresence
 {
     readonly System.Collections.Concurrent.ConcurrentDictionary<uint, InstancePlayer> _players = new();
     public void PublishPlayer(InstancePlayer player) => _players[player.Id] = player;
     public void RemovePlayer(uint id) => _players.TryRemove(id, out _);
     public InstancePlayer[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id)];
     public InstancePlayer? Player(uint id) => _players.TryGetValue(id, out var p) && p.Current ? p : null;
+}
+
+sealed partial class InstanceState
+{
+    public InstanceState() : this(null) { }
+    internal InstanceState(InstancePresence? presence) => Presence = presence ?? new();
+
+    internal InstancePresence Presence { get; }
+    public void PublishPlayer(InstancePlayer player) => Presence.PublishPlayer(player);
+    public void RemovePlayer(uint id) => Presence.RemovePlayer(id);
+    public InstancePlayer[] PlayersExcept(uint id) => Presence.PlayersExcept(id);
+    public InstancePlayer? Player(uint id) => Presence.Player(id);
 }
 
 sealed partial class ClientState
@@ -24,4 +37,9 @@ sealed partial class ClientState
     public PlayerObject? PeerTemplate;
     public uint PeerType;
     public readonly Dictionary<uint, InstancePlayer> SeenPlayers = [];
+    /// <summary>Sends to this connection's client, for another connection (Program.Social).</summary>
+    public Func<byte[], string?, Task>? Outbox;
+    /// <summary>The open player trade (Program.Social), and the player this one asked to trade with (its PeerId).</summary>
+    public PlayerTrade? Trade;
+    public uint TradeRequestTo;
 }

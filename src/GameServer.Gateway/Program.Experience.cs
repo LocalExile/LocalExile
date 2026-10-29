@@ -18,6 +18,10 @@ partial class Program
 
     internal sealed record ExperienceChange(long Revision, uint Before, uint After, bool LevelChanged, bool Reset = false);
 
+    // Call while holding the connection lock; an accepted death must not gain XP or publish a later level-up heal.
+    static bool HardcoreProgressBlocked(ClientState conn) =>
+        conn.Hardcore && (conn.PlayerLife == 0 || conn.HardcoreDeathRecorded);
+
     // All production gains/resets serialize the shared XP ledger before publishing a connection copy.
     // Lock order is character XP -> connection -> database. No monitor is held across network waits.
     internal static ExperienceChange? RecordExperienceGain(ClientState conn, uint gain)
@@ -26,8 +30,12 @@ partial class Program
         lock (updates.Gate)
         lock (conn.Monsters)
         {
+            if (HardcoreProgressBlocked(conn)) return null;
+            var ruthless = conn.Ruthless ? RuthlessSettings.Current : null;
             var (before, after) = CharacterSaves.AddExperience(CharacterName(conn), conn.Experience,
-                xp => Progression.AddExperience(xp, gain, CharacterStats.LevelStarts));
+                // An older area may have stale pools. Scale against the shared ledger's current level, not that copy.
+                xp => Progression.AddExperience(xp, ruthless is null ? gain : RuthlessRules.Scale(gain,
+                    ruthless.ExperienceMultiplier(Progression.LevelFor(xp, CharacterStats.LevelStarts))), CharacterStats.LevelStarts));
             if (after == before) return null;
             bool levelChanged = Progression.LevelFor(after, CharacterStats.LevelStarts) != conn.Pools.Level;
             if (levelChanged) CharacterSaves.SaveExperience(CharacterName(conn));
@@ -42,6 +50,11 @@ partial class Program
         lock (updates.Gate)
         lock (conn.Monsters)
         {
+            if (HardcoreProgressBlocked(conn))
+            {
+                uint held = CurrentExperience(conn);
+                return new(updates.Revision, held, held, false);
+            }
             uint before = CurrentExperience(conn), after = CharacterStats.ExperienceFor(level);
             CharacterSaves.SetExperience(CharacterName(conn), after);
             conn.Experience = after;
@@ -61,6 +74,7 @@ partial class Program
             lock (updates.Gate)
             lock (conn.Monsters)
             {
+                if (HardcoreProgressBlocked(conn)) return null;
                 conn.Experience = CurrentExperience(conn);
                 return InstanceEntities.PlayerExperienceUpdate(PlayerId, conn.Experience);
             }
@@ -69,6 +83,7 @@ partial class Program
         lock (updates.Gate)
         lock (conn.Monsters)
         {
+            if (HardcoreProgressBlocked(conn)) return false;
             // Old-area gains share XP, not runtime pools. Even an obsolete event must reconcile this connection
             // from current XP; rejecting it outright could leave the live connection at an older level.
             conn.Experience = CurrentExperience(conn);
@@ -86,6 +101,8 @@ partial class Program
     {
         bool applied = await PublishExperienceChange(remote, stream, ciphers, conn, change, why);
         if (!change.LevelChanged && !applied) return;
+        lock (conn.Monsters)
+            if (HardcoreProgressBlocked(conn)) return;
         var result = await SynchronizeAccountLevel(conn, control);
         if (!result.Ok) Console.WriteLine($"[gateway] {remote} current level not saved to the account: {result.Error}");
     }

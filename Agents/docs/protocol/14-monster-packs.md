@@ -119,7 +119,7 @@ The Tidal Island seed 1 (live 2026-10-25): `medicine_boat_1` captured at (138, 3
   `monster_rarity_damage_+%_final` (magic 30, rare 50, unique 70) and
   `monster_rarity_attack_cast_speed_+%_and_damage_-%_final` (20, 33, 33: that much faster, that much less damage per
   hit; read from the stat's name, no description exists). Hillock at level 1: 6.6–12.3 every 1.24 s.
-- Kept monsters lose their corpses (a corpse is removed 10 s after death anyway) and a `/spawn_mob` name.
+- Kept monsters lose their corpses (a corpse stays while the player is in the area, but is not saved) and a `/spawn_mob` name.
 - Each new (area, seed) needs a `-Walkmaps` visit for its room points; without the capture there is no unique boss
   (the log says so).
 

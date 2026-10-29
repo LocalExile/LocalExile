@@ -158,6 +158,49 @@ public class LoginServerSessionTests
         Assert.Equal(LeagueEntry.Variant | LeagueEntry.Ruthless, Assert.Single(leagues, l => l.Name == "Ruthless").Flags1);
     }
 
+    [Theory]
+    [InlineData("Allflame", false, false, false)]
+    [InlineData("Hardcore Allflame", true, false, false)]
+    [InlineData("SSF Allflame", false, true, false)]
+    [InlineData("HC SSF Allflame", true, true, false)]
+    [InlineData("Ruthless Allflame", false, false, true)]
+    [InlineData("HC Ruthless Allflame", true, false, true)]
+    [InlineData("SSF Ruthless Allflame", false, true, true)]
+    [InlineData("HC SSF R Allflame", true, true, true)]
+    public void Saved_default_family_modes_resolve_when_the_creation_catalog_is_narrowed(
+        string leagueName, bool hardcore, bool ssf, bool ruthless)
+    {
+        var accounts = new AccountService(new JsonAccountStore());
+        var account = accounts.Register("legacy", "pw1234").Value!;
+        accounts.CreateCharacter(account.Id, "LegacyRanger", CharacterClass.Ranger, leagueName);
+        var session = new LoginServerSession(accounts) { Leagues = new([LeagueCatalog.Standard]) };
+        var offered = Assert.IsType<LeagueList>(session.Handle(Request("legacy", "pw1234"))[1]);
+        Assert.DoesNotContain(offered.Leagues, l => l.Name == leagueName);
+        Assert.Null(session.Leagues.Find(leagueName));
+
+        session.Handle(new U8U32(0, 0));
+        var resolved = Assert.IsType<League>(session.CharacterLeague);
+        Assert.Equal((leagueName, hardcore, ssf, ruthless),
+            (resolved.Name, resolved.Hardcore, resolved.Ssf, resolved.Ruthless));
+        Assert.Equal(leagueName, Assert.Single(accounts.Characters(account.Id)).League);
+
+        var rejected = Assert.IsType<CreateCharacterResult>(Assert.Single(session.Handle(
+            new CreateCharacter("NewLegacyRanger", leagueName, 0, 0, "DexDefault", new byte[32]))));
+        Assert.Equal(LoginServerSession.ResultLeagueDoesNotExist, rejected.Result);
+        Assert.Single(accounts.Characters(account.Id));
+    }
+
+    [Fact]
+    public void Saved_league_resolution_prefers_configured_modes_and_rejects_unknown_names()
+    {
+        var leagues = new LeagueCatalog(["Configured"]);
+        var configured = leagues.Find("HC SSF R Configured")!;
+        Assert.Same(configured, leagues.ResolveSavedLeague("hc ssf r configured"));
+        Assert.Equal((true, true, true), (configured.Hardcore, configured.Ssf, configured.Ruthless));
+        Assert.Null(leagues.ResolveSavedLeague(null));
+        Assert.Null(leagues.ResolveSavedLeague("Unknown"));
+    }
+
     [Fact]
     public void Create_character_stores_it_in_the_league_and_lists_it()
     {

@@ -54,7 +54,7 @@ partial class Program
         // Dirty runtime or presented instances are owned by this lifecycle; pure unpresented pool inputs are not adds.
         if (conn.Auras.Count > 0 && (validateSkills || conn.AuraStatsDirty || conn.PresentedAuras.Count > 0))
         {
-            var available = GemSkillEffects(conn.Character).ToDictionary(g => g.Id, g => g.Effect);
+            var available = GemSkillEffects(conn).ToDictionary(g => g.Id, g => g.Effect);
             var gone = conn.Auras.Values.Where(a => InTown(conn)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect).ToArray();
             foreach (var aura in gone) conn.Auras.Remove(aura.SkillId);
@@ -67,7 +67,7 @@ partial class Program
                     (uint)AuraCatalog.UnreservedMana(conn.Pools, conn.Auras.Values));
             }
         }
-        if (!conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0 && !InTown(conn))
+        if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
             RestoreRememberedAuras(conn, CharacterSaves.Load(CharacterName(conn))?.ActiveAuras ?? []);
     }
 
@@ -111,6 +111,7 @@ partial class Program
         bool replay = false) => Send(remote, stream, ciphers, [], "own aura reconciliation", atGate: () =>
         {
             lock (conn.Monsters)
-                return conn.Closed || conn.LeavingArea ? null : WithOwnAuraChanges(conn, () => [], replay);
+                return conn.Closed || conn.LeavingArea || conn.RageRetired
+                    ? null : WithOwnAuraChanges(conn, () => [], replay);
         });
 }

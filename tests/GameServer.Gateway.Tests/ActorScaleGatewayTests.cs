@@ -21,12 +21,13 @@ public sealed class ActorScaleGatewayTests : IDisposable
     static int Scale(ClientState conn) => Program.CharacterPlayerStats(conn)[1973];
     static List<(uint, int)> Refresh(ClientState conn) => Call<List<(uint, int)>>("PlayerStatsWithCleared", conn);
 
-    ClientState Character(InstanceState? instance = null)
+    ClientState Character(InstanceState? instance = null, bool solo = false, Guid? characterId = null)
     {
         TestSaves.Ensure();
         string name = "Scale" + Guid.NewGuid().ToString("N"); names.Add(name);
         var conn = new ClientState(new(ushort.MaxValue, "ScaleTest", 128, 128, 32, 32, null, []), 0, 1)
-        { Character = name, ClassRow = 1, Instance = instance ?? new(), PlayerLife = 100, PlayerSent = true,
+        { Character = name, CharacterId = characterId, Ssf = solo, League = solo ? "SSF Standard" : null,
+            ClassRow = 1, Instance = instance ?? new(), PlayerLife = 100, PlayerSent = true,
             WornCosmetics = [] };
         conn.Pools = Program.PoolsFor(conn, 100);
         return conn;
@@ -349,6 +350,59 @@ public sealed class ActorScaleGatewayTests : IDisposable
         Assert.False(observer.SeenPlayers.ContainsKey(owner.PeerId));
     }
 
+    [Fact]
+    public async Task Ssf_town_players_see_each_other_move_and_leave_without_sharing_dropped_items()
+    {
+        var registry = new GameServer.Core.World.InstanceRegistry();
+        Guid firstId = Guid.NewGuid(), secondId = Guid.NewGuid();
+        var first = registry.Enter(0x235c, "First", "SSF Standard", solo: true, soloIdentity: firstId.ToString("N"));
+        var second = registry.Enter(0x235c, "Second", "SSF Standard", solo: true, soloIdentity: secondId.ToString("N"));
+        Assert.Same(first, second);
+        var store = new InstanceStore(TimeProvider.System, TimeSpan.FromMinutes(6));
+        long created = first.Created.ToUnixTimeMilliseconds();
+        var ownerState = store.Enter(first.Id, created, firstId.ToString("N"));
+        var observerState = store.Enter(second.Id, created, secondId.ToString("N"));
+        Assert.NotSame(ownerState, observerState);
+        var owner = Character(ownerState, solo: true, characterId: firstId);
+        var observer = Character(observerState, solo: true, characterId: secondId);
+        owner.PeerType = observer.PeerType = 123;
+        owner.PeerTemplate = Call<PlayerObject>("PlayerForCreation", owner);
+        observer.PeerTemplate = Call<PlayerObject>("PlayerForCreation", observer);
+        Publish(owner); Publish(observer);
+        using var ownerWire = await Wire.Open();
+        using var observerWire = await Wire.Open();
+        await observerWire.Invoke("SyncInstancePlayers", observer);
+        AssertCreate(await observerWire.Read(), owner.PeerId, 0);
+        await ownerWire.Invoke("SyncInstancePlayers", owner);
+        AssertCreate(await ownerWire.Read(), observer.PeerId, 0);
+
+        uint drop = ownerState.Ground.Add(new(32, 32, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)));
+        Assert.Empty(observerState.Ground.All());
+        Assert.Null(observerState.Ground.Take(drop));
+        Assert.NotNull(ownerState.Ground.Get(drop));
+
+        owner.Walk.Teleport(40, 41, owner.Clock.Elapsed.TotalSeconds);
+        owner.PlayerLife = 77;
+        Publish(owner);
+        await observerWire.Invoke("SyncInstancePlayers", observer);
+        Assert.NotEmpty(await observerWire.Read());
+        Assert.Equal((40, 41, 77u), (observer.SeenPlayers[owner.PeerId].X,
+            observer.SeenPlayers[owner.PeerId].Y, observer.SeenPlayers[owner.PeerId].Life));
+
+        owner.Closed = true;
+        ownerState.RemovePlayer(owner.PeerId);
+        store.Leave(ownerState);
+        await observerWire.Invoke("SyncInstancePlayers", observer);
+        Assert.Equal(InstanceProtocol.RemoveObject(owner.PeerId), await observerWire.Read());
+        Assert.False(observer.SeenPlayers.ContainsKey(owner.PeerId));
+        var returned = store.Enter(first.Id, created, firstId.ToString("N"));
+        Assert.NotNull(returned.Ground.Get(drop));
+        Assert.NotNull(returned.Player(observer.PeerId));
+        store.Leave(returned);
+        observerState.RemovePlayer(observer.PeerId);
+        store.Leave(observerState);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
@@ -393,24 +447,27 @@ public sealed class ActorScaleGatewayTests : IDisposable
     public async Task Actual_projectile_route_contact_radius_and_all_height_packets_ignore_actor_scale()
     {
         var conn = Character();
-        conn.Monsters.Add(42, new("scale geometry", new(60, 35, 0), 0, 0, 100));
-        using var wire = await Wire.Open();
+        var target = new SpawnedMonster("scale geometry", new(60, 35, 0), 0, 0, 100);
+        conn.Monsters.Add(42, target);
+        await using var f = new ProjectileRuntimeFixture(conn);
         async Task<byte[]> Flight()
         {
-            conn.NextObjectId = 0x3000;
-            await Program.FlyProjectile("actor-scale-test", wire.Stream, wire.Ciphers, conn,
-                ("Metadata/Projectiles/DefaultArrow", 10000), (32, 32), (100, 32), null,
-                conn.ProjectileEpoch, log: false, impact: "none").WaitAsync(TimeSpan.FromSeconds(5));
-            byte[] bytes = await wire.Read();
-            // Offset three from the route is inside the existing radius four: a real contact produces 0x1b7.
-            Index(bytes, new LoginWriter().U16(0x1b7).U32(0x3000).ToArray());
-            return bytes;
+            conn.NextObjectId = 0x3000; target.Life = 100;
+            double at = f.Session.Runtime.Now / (double)GameServer.Core.Projectiles.ProjectileRuntime.QuantaPerSecond;
+            f.Release(f.Shot(new("Metadata/Projectiles/DefaultArrow") { Speed = 10000, Range = 68, Radius = 4 },
+                origin: new(32, 32), aim: new(100, 32)));
+            byte[] creation = await f.Read(); // Publish the real object before its terminal contact.
+            f.Advance(at + .02);
+            byte[] terminal = await f.Read();
+            // Three cells from the route is inside radius four, independently of actor scale.
+            Index(terminal, new LoginWriter().U16(0x1b7).U32(0x3000).ToArray());
+            Assert.Equal(90u, target.Life);
+            Assert.Empty(f.Session.Runtime.Projectiles);
+            return [.. creation, .. terminal];
         }
         var baseline = await Flight();
         conn.PlayerStats[720] = 100; Assert.Equal(100, Scale(conn));
         Assert.Equal(baseline, await Flight());
-        Assert.Equal(100u, conn.Monsters[42].Life);
     }
-
     public void Dispose() { foreach (string name in names) PlayerInventories.Forget(name); }
 }

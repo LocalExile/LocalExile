@@ -18,5 +18,6 @@
     <ProjectReference Include="..\..\src\GameServer.Core\GameServer.Core.csproj" />
     <ProjectReference Include="..\..\src\GameServer.Storage\GameServer.Storage.csproj" />
     <ProjectReference Include="..\..\src\GameServer.Host\GameServer.Host.csproj" />
+    <ProjectReference Include="..\..\src\GameServer.Auth\GameServer.Auth.csproj" />
   </ItemGroup>
 </Project>

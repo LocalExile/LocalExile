@@ -5,9 +5,9 @@ using GameServer.Core.Protocol.Login;
 partial class Program
 {
     static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality) =>
-        Skills.CooldownMs(effect, level) <= 0 || GemSkillEffects(conn.Character).Count(g => g.Effect == effect) != 1 ? null :
-            SingleUseCooldown.ForSkill(Skills, Stats, effect, level, CharacterPlayerStats(conn),
-                Skills.EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
+        SkillsFor(conn).CooldownMs(effect, level) <= 0 || GemSkillEffects(conn).Count(g => g.Effect == effect) != 1 ? null :
+            SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, CharacterPlayerStats(conn),
+                SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
 
     static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
     {
@@ -40,13 +40,17 @@ partial class Program
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
         ushort? skillId)
     {
-        lock (conn.Monsters)
+        using (ProjectileMutation(conn))
         {
             ticket = null;
             SingleUseCooldownState? state = null;
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
-                || requestedAt is double asked && conn.HitRecovery.BlocksInput(asked, conn.Clock.Elapsed.TotalSeconds)
+            if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
+                || requestedAt is double asked && PlayerActionBlocked(conn, asked, conn.Clock.Elapsed.TotalSeconds)
                 || actionToken is int original && conn.ActionCount != original) return false;
+            // Soul counters do not enable an executor. Refuse the actual Vaal instance before action/movement,
+            // cooldown reservation or native acknowledgement, including when modifiers reduce its cost to zero.
+            if (skillId is ushort requested && GemSkillEffects(conn)
+                .Any(g => g.Id == requested && SkillsFor(conn).VaalSouls(g.Effect, g.Level) > 0)) return false;
             // Covers object/self and instant routes before creating or spending cooldown state or a new action.
             if ((skillId is ushort id ? ActorSkillInstanceDisabled(conn, effect, id)
                 : ActorSkillDisabled(conn, effect)) is not null) return false;
@@ -68,9 +72,9 @@ partial class Program
     {
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
         var player = CharacterPlayerStats(conn);
-        var plans = GemSkillEffects(conn.Character).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
-            g.Count() != 1 ? null : SingleUseCooldown.ForSkill(Skills, Stats, g.Key, g.First().Level, player,
-                Skills.EffectStats(g.Key, g.First().Level, g.First().Quality).ToDictionary(s => s.Item1, s => s.Item2)));
+        var plans = GemSkillEffects(conn).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
+            g.Count() != 1 ? null : SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, g.Key, g.First().Level, player,
+                SkillsFor(conn).EffectStats(g.Key, g.First().Level, g.First().Quality).ToDictionary(s => s.Item1, s => s.Item2)));
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
@@ -117,7 +121,7 @@ partial class Program
         int epoch;
         lock (conn.Monsters) epoch = conn.ProjectileEpoch;
         return Send(remote, stream, ciphers, [], "0x02ba player active cooldown progress/rate refresh",
-            atGate: () => NativeCooldownRefresh(conn, epoch, () => GemSkillEffects(conn.Character)
+            atGate: () => NativeCooldownRefresh(conn, epoch, () => GemSkillEffects(conn)
                 .Where(g => CooldownFor(conn, g.Effect, g.Level, g.Quality) is not null)
                 .Select(g => (g.Id, g.Effect)).ToArray()));
     }

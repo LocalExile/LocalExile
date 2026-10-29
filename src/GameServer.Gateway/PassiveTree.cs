@@ -11,14 +11,14 @@ using System.Text.Json;
 /// Gold respec (Bestel's Respecialisation): a node costs VillageBalancePerLevelShared.dat's GoldRespecCost at the
 /// character's level times the node's multiplier, as the client's per-node cost 0x141efb140 computes it.
 /// </summary>
-sealed class PassiveTree(string folder = "data")
+sealed class PassiveTree(string folder = "data", bool ruthless = false)
 {
     public sealed record Node(ushort GraphId, string Id, string Name, IReadOnlyList<(uint Key, int Value)> Stats, int PointsGranted,
         bool IsAscendancy, bool IsStart, int MasteryGroup, int RespecMultiplier = 1);
 
     public sealed record MasteryEffect(int Row, ushort Hash, string Id, IReadOnlyList<(uint Key, int Value)> Stats);
 
-    private readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder));
+    private readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder, ruthless));
     private readonly Lazy<Dictionary<int, MasteryEffect>> _effects = new(() => LoadEffects(folder));
     private readonly Lazy<Dictionary<int, List<MasteryEffect>>> _groups = new(() => LoadGroups(folder, LoadEffects(folder)));
     private readonly Lazy<Dictionary<int, int>> _respecCosts = new(() => LoadRespecCosts(folder));
@@ -69,7 +69,7 @@ sealed class PassiveTree(string folder = "data")
     public bool IsEffectFor(ushort graphId, MasteryEffect effect) =>
         EffectsFor(graphId).Any(e => e.Row == effect.Row && e.Hash == effect.Hash);
 
-    private static Dictionary<ushort, Node> LoadNodes(string folder)
+    private static Dictionary<ushort, Node> LoadNodes(string folder, bool ruthless)
     {
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
         var nodes = new Dictionary<ushort, Node>();
@@ -79,17 +79,22 @@ sealed class PassiveTree(string folder = "data")
         {
             int graphId = r.GetProperty("PassiveSkillGraphId").GetInt32();
             if (graphId is <= 0 or > ushort.MaxValue) continue;
-            var keys = r.GetProperty("Stats").EnumerateArray().Select(s => s.GetInt32()).ToList();
+            // The mode flag is per catalog, never global: regular and Ruthless characters may be online together.
+            // A marked alternate replaces the entire vector, including an empty vector or explicit zero values.
+            bool alternate = ruthless && r.TryGetProperty("HasHardmodeAlternate", out var hardmode) && hardmode.GetBoolean();
+            var keys = r.GetProperty(alternate ? "StatsHardmode" : "Stats").EnumerateArray().Select(s => s.GetInt32()).ToList();
             var stats = new List<(uint, int)>();
             for (int i = 0; i < keys.Count && i < 5; i++)
-                stats.Add(((uint)keys[i] + 1, r.GetProperty($"Stat{i + 1}Value").GetInt32()));
+                stats.Add(((uint)keys[i] + 1, r.GetProperty($"Stat{i + 1}Value{(alternate ? "Hardmode" : "")}").GetInt32()));
             int masteryGroup = r.TryGetProperty("MasteryGroup", out var group) && group.ValueKind == JsonValueKind.Number
                 ? group.GetInt32() : -1;
             // The client's multiplier: an expansion node's own value (unnamed column at +0xb2), 0 for a multiple-choice node.
             int respec = r.GetProperty("IsExpansion").GetBoolean() ? r.GetProperty("__col26").GetInt32()
                 : r.GetProperty("IsMultipleChoice").GetBoolean() ? 0 : 1;
-            nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, r.GetProperty("Id").GetString() ?? "", r.GetProperty("Name").GetString() ?? "",
-                stats, r.GetProperty("SkillPointsGranted").GetInt32(), r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number,
+            string name = r.GetProperty("Name").GetString() ?? "";
+            if (alternate && r.GetProperty("NameHardmode").GetString() is { Length: > 0 } alternateName) name = alternateName;
+            nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, r.GetProperty("Id").GetString() ?? "", name,
+                stats, r.GetProperty(alternate ? "SkillPointsGrantedHardmode" : "SkillPointsGranted").GetInt32(), r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number,
                 r.GetProperty("Characters").GetArrayLength() > 0, masteryGroup, respec));
         }
         return nodes;

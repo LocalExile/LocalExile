@@ -80,6 +80,46 @@ public sealed class CharacterAreaAdmissionTests
         Assert.Equal(123u, AccountStash.For(character.StashKey, Program.Items).Gold);
     }
 
+    [Fact]
+    public void Accepted_Ruthless_town_admission_keeps_flask_charges_while_loading_validated_progress()
+    {
+        using var character = new Character(ruthless: true);
+        character.Store();
+        var items = character.OfferFlask();
+
+        Assert.Equal(10, Program.PrepareCharacterForArea("ruthless-admission-test", character.State, 1));
+
+        var saved = CharacterSaves.Load(character.Name)!;
+        Assert.Equal(AscendancyFamily.Normal, character.State.MainAscendancy.Selection!.Family);
+        Assert.Equal(new ushort[] { 39725 }, character.State.Passives);
+        Assert.Equal(1, Assert.Single(items.Items(PlayerInventories.Flask)).Item.Charges);
+        Assert.Equal(1, Assert.Single(saved.Inventories[PlayerInventories.Flask]).Item.Charges);
+        Assert.Empty(items.Offered());
+        Assert.Null(saved.Gold);
+        Assert.Equal(123u, AccountStash.For(character.StashKey, Program.ItemsFor(character.State)).Gold);
+        Assert.NotNull(character.State.SavedPassiveProgress);
+    }
+
+    [Fact]
+    public void Rejected_Ruthless_progress_does_not_normalize_inventory_or_pending_offers()
+    {
+        using var character = new Character(ruthless: true);
+        character.Json["MainAscendancy"]!["Selection"]!["Revision"] = "future-client";
+        character.Flask["FutureItemField"] = JsonNode.Parse("""{"keep":[1,2]}""");
+        character.Store();
+        var items = character.OfferFlask();
+        string before = character.SavedJson;
+
+        Assert.Throws<AscendancyRuleException>(() =>
+            Program.PrepareCharacterForArea("ruthless-admission-test", character.State, 1));
+
+        Assert.Equal(before, character.SavedJson);
+        Assert.Equal(1, Assert.Single(items.Items(PlayerInventories.Flask)).Item.Charges);
+        Assert.Single(items.Offered());
+        Assert.Null(character.SavedStash);
+        Assert.Null(character.State.SavedPassiveProgress);
+    }
+
     sealed class Character : IDisposable
     {
         public string Name { get; } = $"Admission{Guid.NewGuid():N}";
@@ -90,14 +130,15 @@ public sealed class CharacterAreaAdmissionTests
         public string SavedJson => Saves.Get(SaveDatabase.Table.Characters, Name)!;
         public string? SavedStash => Saves.Get(SaveDatabase.Table.Stashes, StashKey);
 
-        public Character()
+        public Character(bool ruthless = false)
         {
             TestSaves.Ensure();
             State = new(new(AreaLayouts.LioneyesWatch, "AdmissionTown", 128, 128, 32, 32, null, []), 0, 1)
-            { Character = Name, Account = Name, League = "Standard", ClassRow = 4 };
+            { Character = Name, Account = Name, League = ruthless ? "Ruthless" : "Standard", ClassRow = 4,
+                Ruthless = ruthless };
             var definition = Program.Ascendancies.Find(4, AscendancyFamily.Normal, "Slayer");
             Assert.NotNull(definition);
-            var type = Program.Items.Find("Metadata/Items/Flasks/FlaskLife1");
+            var type = Program.ItemsFor(State).Find("Metadata/Items/Flasks/FlaskLife1");
             Assert.NotNull(type);
             var flask = CharacterSaves.ToSaved(ItemCatalog.Create(type) with { Charges = 1 });
             var save = new CharacterSaves.Save(new()
@@ -112,7 +153,7 @@ public sealed class CharacterAreaAdmissionTests
 
         public PlayerInventories OfferFlask()
         {
-            var items = PlayerInventories.For(Name, Program.Items);
+            var items = PlayerInventories.For(Name, Program.ItemsFor(State));
             Assert.NotNull(items.Offer(PlayerInventories.Flask, 1, 0, 0, _ => null));
             Assert.Single(items.Offered());
             return items;

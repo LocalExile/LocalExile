@@ -57,7 +57,7 @@ public class UtilityFlasksTests
     {
         // Every utility row of Flasks.dat (by BaseItemTypes name): its buff's stats as the tables give them, how each
         // counts here, its duration and its charges (per use, maximum). A new row or a changed value fails this test.
-        // M modelled, P only on the character panel (no ailments, stun or curses on the player here), W Ward (#206),
+        // M modelled, P only on the character panel (unsupported sources/consumers), W Ward (#206),
         // U not applied.
         var expected = new Dictionary<string, (string Stats, double Seconds, int PerUse, int Max)>
         {
@@ -71,7 +71,7 @@ public class UtilityFlasksTests
             ["Quartz Flask"] = ("phase_through_objects 1 M, base_spell_suppression_chance_% 10 M", 6, 30, 60),
             ["Jade Flask"] = ("base_evasion_rating 1500 M", 6, 30, 60),
             ["Basalt Flask"] = ("basalt_flask_armour_+%_final 20 M", 8, 40, 60),
-            ["Aquamarine Flask"] = ("base_frozen_effect_on_self_+% -60 P", 8, 20, 50),
+            ["Aquamarine Flask"] = ("base_frozen_effect_on_self_+% -60 M", 8, 20, 50),
             ["Stibnite Flask"] = ("stibnite_flask_evasion_rating_+%_final 20 M", 8, 40, 60),
             ["Sulphur Flask"] = ("damage_+% 40 M", 8, 40, 60),
             ["Silver Flask"] = ("onslaught: attack_speed_+% 20 M, base_cast_speed_+% 20 M, base_movement_velocity_+% 20 M", 6, 40, 60),
@@ -137,19 +137,19 @@ public class UtilityFlasksTests
     }
 
     [Fact]
-    public void Iron_Flask_Ward_waits_for_ward_and_changes_nothing_yet()
+    public void Iron_Flask_Ward_contributes_to_the_authoritative_pool()
     {
-        // Ward comes with PR #206; UtilityFlasks.Ward is where its Bonus.Ward / WardPct will take these. Until then the
-        // pools are unchanged.
+        // Ward contributes to its own pool, independently of Armour/Evasion and plain native raw stats.
         var iron = UtilityFlasks.For(Of("Iron Flask")!, Flask(), new Dictionary<string, int> { ["local_flask_ward_+%_during_effect"] = 30 }, None).Stats;
         var stats = iron.Select(s => (s.Stat, s.Value)).ToList();
         Assert.Equal((200, 30), UtilityFlasks.Ward(stats));
-        Assert.Equal(CharacterStats.Bonus.None, UtilityFlasks.Apply(CharacterStats.Bonus.None, stats));
+        Assert.Equal(CharacterStats.Bonus.None with { Ward = 200, WardPct = 30 },
+            UtilityFlasks.Apply(CharacterStats.Bonus.None, stats));
         Assert.Empty(UtilityFlasks.RawStats(stats, StatNames.Value));
     }
 
     [Fact]
-    public void Panel_only_stats_go_to_the_client_and_change_no_pool()
+    public void Raw_ailment_stats_reach_the_runtime_and_client_without_changing_pools()
     {
         var aquamarine = UtilityFlasks.For(Of("Aquamarine Flask")!, Flask(), new Dictionary<string, int>(), None).Stats.Select(s => (s.Stat, s.Value)).ToList();
         Assert.Equal(CharacterStats.Bonus.None, UtilityFlasks.Apply(CharacterStats.Bonus.None, aquamarine));
@@ -375,8 +375,8 @@ public class UtilityFlasksTests
 
         var b = UtilityFlasks.Apply(CharacterStats.Bonus.None, UtilityFlasks.Strongest(stats));
         Assert.Equal((1500, 60, 14, 20, 20, 20, 55), (b.Evasion, b.ArmourPct, b.MovementVelocityPct, b.FireResistance, b.ColdResistance, b.LightningResistance, b.CriticalStrikeChancePct));
-        // The immunity only reaches the panel: no ailments are inflicted here.
-        Assert.Equal(UtilityFlasks.Support.PanelOnly, UtilityFlasks.SupportOf("base_immune_to_shock"));
+        // The immunity is consumed by the incoming ordinary monster ailment runtime.
+        Assert.Equal(UtilityFlasks.Support.Modelled, UtilityFlasks.SupportOf("base_immune_to_shock"));
     }
 
     [Fact]

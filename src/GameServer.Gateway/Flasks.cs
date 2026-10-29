@@ -17,16 +17,21 @@ static class Flasks
     /// <summary>Gives each flask in the flask bar (life, mana and utility: <see cref="ItemCatalog.FlaskChargesOf"/>) up to
     /// <paramref name="charges"/> charges, up to its maximum with its mods (<see cref="FlaskCharges.Of"/>), saved now or, with <paramref name="saveNow"/> false, with the next save
     /// (PlayerInventories.ChangeUnsaved): the flasks that changed.</summary>
-    public static List<InventoryItem> Fill(PlayerInventories items, ItemCatalog catalog, int charges, bool saveNow = true)
+    public static List<InventoryItem> Fill(PlayerInventories items, ItemCatalog catalog, int charges, bool saveNow = true,
+        Func<InventoryItem, bool>? canGain = null)
     {
         List<InventoryItem> changed = [];
         foreach (var flask in items.Items(PlayerInventories.Flask))
-            if (catalog.ByHash(flask.Item.TypeHash) is { } type && catalog.FlaskChargesOf(type) is { } baseUse
+            if (canGain?.Invoke(flask) != false && catalog.ByHash(flask.Item.TypeHash) is { } type && catalog.FlaskChargesOf(type) is { } baseUse
                 && FlaskCharges.Of(baseUse, ItemModStats.Local(flask.Item, catalog.Mods)) is var use && flask.Item.Charges < use.MaxCharges &&
                 (saveNow ? items.Change(PlayerInventories.Flask, flask.Id, i => Gain(i, use, charges)) : items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Gain(i, use, charges))) is { } done)
                 changed.Add(done);
         return changed;
     }
+
+    /// <summary>Recovery flasks need room in at least one pool they restore. Mana's cap excludes reservations.</summary>
+    public static bool CanRecover(Flask f, uint life, uint maxLife, uint mana, uint unreservedMana) =>
+        (f.LifePerUse > 0 && life < maxLife) || (f.ManaPerUse > 0 && mana < unreservedMana);
 
     /// <summary>The flask with <paramref name="charges"/> more, up to its maximum.</summary>
     public static Item Gain(Item flask, Flask f, int charges) =>

@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Accounts;
+using GameServer.Storage;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
@@ -10,6 +12,7 @@ partial class Program
     {
         try
         {
+            HardcoreDeathPersistence.RetryPending(Saves.Db);
             CharacterSaves.SaveExperience();
             PlayerInventories.SaveAllUnsaved();
             if (why is not null) Console.WriteLine($"[gateway] unsaved progress saved ({why})");
@@ -39,8 +42,8 @@ partial class Program
         var startItems = ItemsOf(conn);
         level = LoadProgress(conn, level);
         // Towns and hideouts refill the flasks, before the inventories go to the client.
-        if ((WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
-            && FillFlasks(startItems, int.MaxValue).Count > 0)
+        if (!conn.Ruthless && (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
+            && FillFlasks(startItems, int.MaxValue, catalog: ItemsFor(conn)).Count > 0)
             Console.WriteLine($"[gateway] {remote} flasks refilled in town");
         // A sale still open when the last connection ended (a disconnect, a crash) ended as a cancel: every offered
         // item is in its cell (it never left it).
@@ -87,6 +90,16 @@ partial class Program
                     Console.WriteLine($"[gateway] {remote} resolve failed ({resolved.Error ?? "no character"}); connection refused");
                     return;
                 }
+                // A prior lethal write may have failed while Auth still saw the source HC league. Retry it before any
+                // world state is sent, then independently reject that now-stale ticket. Normal saves never revive HC.
+                HardcoreDeathPersistence.RetryPendingCharacter(Saves.Db, resolved.CharacterId);
+                var canonicalCharacter = new SqliteAccountStore(Saves.Db).FindCharacter(resolved.Character);
+                if (canonicalCharacter is null ||
+                    !HardcoreDeathRules.TicketMatches(canonicalCharacter, resolved.CharacterId, resolved.League))
+                {
+                    Console.WriteLine($"[gateway] {remote} character is dead or its league changed; connection refused");
+                    return;
+                }
                 ushort areaHash = resolved.Area;
                 uint seed = resolved.Seed;
                 ulong instanceId = resolved.Instance;
@@ -99,12 +112,17 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, Ruthless = resolved.Ruthless, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 left = conn;
+                RegisterRuthlessVitalsAdmission(conn);
+                // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
+                conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Commands = Commands(remote, stream, ciphers, conn);
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = PrepareCharacterForArea(remote, conn, resolved.Level);
+                // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
+                InitializeCharacterVitals(conn);
                 prepared = true;
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: 0,
                     Text: resolved.League ?? "", LeagueStats: LeagueStatsFor(conn.MainAscendancy));
@@ -116,11 +134,7 @@ partial class Program
                     Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {level} from the saved experience (the account had {resolved.Level})" +
                         (fixedLevel.Ok ? "" : $"; not saved to the account: {fixedLevel.Error}"));
                 }
-                conn.PlayerLife = conn.PlayerMaxLife;
-                conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
-                conn.AuraDeathHandled = false;
-                conn.PlayerMana = (uint)UnreservedMana(conn);
-                Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: {Skills.ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
+                Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: {SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
                 // The read loop answers ticks; everything else runs in order on the handler task (ClientInbox, issue #46).
                 var inbox = new ClientInbox();
                 using var reading = new CancellationTokenSource();
@@ -151,6 +165,9 @@ partial class Program
                     }
                     inbox.Complete();
                     await handlers;
+                    // An open trade ends with its owner: the other side gets its items back in view and the window closes.
+                    try { await CancelPlayerTrade(conn, "disconnected"); }
+                    catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
                 }
             }
         }
@@ -168,12 +185,14 @@ partial class Program
                 {
                     CharacterSaves.SaveExperience(CharacterName(left));
                     ItemsOf(left).SaveUnsaved();
+                    PersistRuthlessVitals(left);
                 }
             }
             catch (Exception e)
             {
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {e.GetType().Name}: {e.Message}");
             }
+            ForgetRuthlessVitalsAdmission(left);
             // The instance keeps its monsters as they are now, for the next connection (#12).
             if (left.MonstersPlaced)
                 lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Values, left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
@@ -200,7 +219,7 @@ partial class Program
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
             if (conn.Ticks++ % 50 == 0) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
-            await Send(remote, stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs, ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32()), null);
+            await SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs, ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32()));
             var waited = Stopwatch.GetElapsedTime(readAt);
             if (waited > ClientInbox.SlowAfter)
                 Console.WriteLine($"[gateway] {remote} slow tick #{conn.Ticks}: 0x001c sent {waited.TotalMilliseconds:0} ms after the 0x001b was read");
@@ -243,9 +262,9 @@ partial class Program
         reading.Cancel();
     }
 
-    // Monster AI, one tick every 500 ms per connection. A monster within its aggro range (MonsterVarieties MaxAgroRange, in
-    // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to a cell
-    // StopRange from the player, re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
+    // Monster AI, one tick every MonsterAiTickMs per connection. A monster within its aggro range (MonsterVarieties MaxAgroRange, in
+    // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to its own cell
+    // around the player (MonsterSurround), re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
     // Positions are the server's estimates (WalkEstimator at MonsterVarieties MovementSpeed cells/s).
     // The server frame clock (Agents/docs/protocol/07 §6): S→C 0x2b6 sets the frame length, then 0x2b5 ends a frame every
     // FrameMs. A lockstep client advances its world by exactly these frames, running the messages of each at its start (it
@@ -277,7 +296,8 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} <= 0x01d4 pause: in a town or hideout, not paused");
             return;
         }
-        lock (conn.Monsters) { if (pause) conn.Clock.Stop(); else conn.Clock.Start(); }
+        // Pause is a barrier: commit the preceding combat interval before freezing the world clock.
+        using (ProjectileMutation(conn)) { if (pause) conn.Clock.Stop(); else conn.Clock.Start(); }
         await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
     }
 
@@ -299,6 +319,7 @@ partial class Program
         await gate.WaitAsync();
         try
         {
+            if (ProjectileOutputGuard.Value is { } projectileGuard && !projectileGuard()) return;
             if (still is not null && !still()) return;
             if (atGate is not null)
             {
@@ -308,10 +329,29 @@ partial class Program
             if (log is not null) Console.WriteLine($"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}");
             string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
-            ciphers.Send.Process(bytes);
-            await stream.WriteAsync(bytes);
+            await Write(stream, ciphers, bytes);
             if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
         }
         finally { gate.Release(); }
     }
+
+    // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this
+    // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
+    static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
+    {
+        var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
+        await wire.WaitAsync();
+        try
+        {
+            ciphers.Send.Process(bytes);
+            await stream.WriteAsync(bytes);
+        }
+        finally { wire.Release(); }
+    }
+
+    // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone
+    // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
+    static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
+
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
 }

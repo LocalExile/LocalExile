@@ -64,7 +64,8 @@ public static class InstanceEntities
     /// (default 2), bit6 → +0x81, bit7 f32 +0x6c (default 1.0)), then a u16 when the row's bool at +0xff is set, one u32
     /// per GrantedStats value when its IsRecovery (+0x7c) is set (<paramref name="values"/>: the caller must give exactly
     /// that many, or the client misreads the message), and a u32-counted list of u32. The buff's visual (BuffVisuals)
-    /// plays while it lasts.
+    /// plays while it lasts. u68 is the raw IEEE-754 f32 duration in seconds (not integer milliseconds);
+    /// f6c is the countdown rate (default 1.0).
     /// </summary>
     public static byte[] AddBuff(uint objectId, ushort buffInstance, ushort buffRow, uint sourceId = 0, ushort sourceSkill = 0,
         IReadOnlyList<uint>? values = null, uint? u68 = null, float? f6c = null, ushort? visual = null,
@@ -227,24 +228,33 @@ public static class InstanceEntities
     /// <summary>
     /// Changes the player's skills (0x2ba to the Actor, flags 0x20 → <c>0x142198800</c>): u8 records, u8 ids, the skill
     /// records (as in the 0x40 list: added, or replacing the one with the same id), the u16 ids to remove
-    /// (<c>0x142198560</c>: found by id in the skill manager, its remove handler runs), then u8 0 and u8 0 for the two
-    /// lists that follow. Unlike the 0x40 list it removes skills, and it tells the client's UI that the skills changed
+    /// (<c>0x142198560</c>: found by id in the skill manager, its remove handler runs), then u8-counted soul seeds
+    /// (ActiveSkills row, capacity) and updates (row, current, new capacity). Empty lists preserve existing budgets.
+    /// Unlike the 0x40 list it removes skills, and it tells the client's UI that the skills changed
     /// (<c>0x140b14b00</c> before and after, when there is a record or an id): the character panel's skill list follows it.
     /// </summary>
-    public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed)
+    public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
+        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null)
     {
         var w = new BlobWriter().U8(0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
         foreach (var s in skills) PlayerObject.WriteSkillRecord(w, s);
         foreach (var id in removed) w.U16(id);
-        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.U8(0).U8(0).ToArray());
+        w.U8(checked((byte)(soulSeeds?.Count ?? 0)));
+        foreach (var s in soulSeeds ?? []) w.U32(s.ActiveSkillsRow).U32(s.Capacity);
+        w.U8(checked((byte)(soulUpdates?.Count ?? 0)));
+        foreach (var s in soulUpdates ?? []) w.U32(s.ActiveSkillsRow).U32(s.Current).U32(s.NewCapacity);
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
     /// <summary>Actor 0x40's cooldown trailer (0x142197d24..0x142197fd8), without replacing any skill.
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
     /// A zero remaining budget clears the entry vector. Native skill base duration and cooldown group stay intact.</summary>
-    public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns)
+    public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns,
+        IReadOnlyList<VaalSoulBudget>? souls = null)
     {
-        var w = new BlobWriter().U8(0x40).U8(0).U8(0).U8(0).U32((uint)cooldowns.Count);
+        var w = new BlobWriter().U8(0x40).U8(0).U8(0);
+        PlayerObject.WriteSoulBudgets(w, souls);
+        w.U32((uint)cooldowns.Count);
         foreach (var c in cooldowns)
         {
             if (!float.IsFinite(c.RemainingBaseSeconds) || c.RemainingBaseSeconds < 0
@@ -645,6 +655,7 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
 public sealed record ProjectileObject(string TypePath, int GridX, int GridY, float Rotation = 0, ushort Team = 0,
     int? Height = null)
 {
+    public string? AnimatedObject { get; init; }
     /// <summary>Animated in the object's component order (Positioned, Animated, BaseEvents).</summary>
     public const byte AnimatedComponentIndex = 1;
 
@@ -657,7 +668,8 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
         // made the arrow invisible (it never drew because the blob was 30 bytes and the components no longer lined up).
         w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(Height is null ? 0 : 0x04)).U8(0);
         if (Height is int h) w.I32(-h).F32(h * 7.8125f);           // h = z / 7.8125 (z points down): i32 -h, f32 z
-        w.U8(0x40);                                                // Animated: the projectile's own art (Projectiles.dat AOFiles)
+        if (AnimatedObject is null) w.U8(0x40);                    // Animated: Projectiles.dat AOFiles
+        else w.U8(1).WStr32(AnimatedObject);                        // Explicit art, the same Animated reader as effects.
         w.U8(0);                                                   // tasks
         return w.ToArray();
     }
@@ -779,6 +791,8 @@ public sealed record GrantedSupport(uint EffectsPerLevelRow, uint StatSetsPerLev
 public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatSetsPerLevelRow,
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
+    /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
+    public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x142196ce0.</summary>
     public IReadOnlyList<GrantedSupport> Supports { get; init; } = [];
     /// <summary>The effect's additional stat sets (GrantedEffects StatSet2, e.g. Volcanic Fissure's), in order: each one's
@@ -833,7 +847,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0)
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null)
 {
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
@@ -909,10 +923,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
         // vtable+0xa0 reader 0x1421932b0: two flag bytes. f0 0x40 = the skill list (0x142197b10); the rest stay off.
         w.WStr32("").U16(0).U8(0).U32(0).U32(0);
-        if (Skills is { Count: > 0 })
+        if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);
-            WriteSkillList(w, Skills);
+            WriteSkillList(w, Skills ?? [], Souls);
         }
         else w.U8(0).U8(0);
         w.U8(0);            // tasks (0x141ee00f0)
@@ -923,16 +937,25 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     /// (u16 skill id, u32 c × 4 u32). Each skill: u16 id (+0x40), the GrantedEffectsPerLevel reference (0x1424a0dc0:
     /// u8 → +0x10, u32 GEPL row, then a GrantedEffectStatSetsPerLevel reference 0x1424a0990: u8 a [u8 if a], u32 GESSPL
     /// row; then one more stat-set reference per entry of the effect's additional stat sets, GrantedSkill.ExtraStatSets), u8
-    /// flags (bit0 → u32 parent object id + u16), u8 support count × (GEPL and stat-set references, u32), u32, u32, u32, u8, then the
+    /// flags (bit0 → u32 parent object id + u16, bit1 retains Vaal soul inputs), u8 support count ×
+    /// (GEPL and stat-set references, u32), u32, u32, u32, u8, then the
     /// skill's stats (compact count × compact key, compact value) and one such stat list per additional stat set.</summary>
     /// <summary>The Actor's index in the player object's component order (04 §3).</summary>
     public const byte ActorComponentIndex = 9;
 
-    internal static void WriteSkillList(BlobWriter w, IReadOnlyList<GrantedSkill> skills)
+    internal static void WriteSkillList(BlobWriter w, IReadOnlyList<GrantedSkill> skills,
+        IReadOnlyList<VaalSoulBudget>? souls = null)
     {
         w.U8((byte)skills.Count);
         foreach (var s in skills) WriteSkillRecord(w, s);
-        w.U8(0).U32(0);
+        WriteSoulBudgets(w, souls);
+        w.U32(0);
+    }
+
+    internal static void WriteSoulBudgets(BlobWriter w, IReadOnlyList<VaalSoulBudget>? souls)
+    {
+        w.U8(checked((byte)(souls?.Count ?? 0)));
+        foreach (var s in souls ?? []) w.U32(s.ActiveSkillsRow).U32(s.Capacity).U32(s.Current);
     }
 
     /// <summary>One skill record (<c>0x142196ce0</c>), as the 0x40 list and the 0x20 update carry it.</summary>
@@ -942,7 +965,8 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8(0).U32(s.EffectsPerLevelRow)      // GEPL reference
          .U8(0).U32(s.StatSetsPerLevelRow);    // its stat set
         foreach (var (row, _) in s.ExtraStatSets) w.U8(0).U32(row);   // one more stat-set reference per additional set
-        w.U8(0).U8(checked((byte)s.Supports.Count)); // flags: no parent object, then supports
+        // 0x1421975f0: without bit1 a raw Vaal stored-use count makes the constructor zero its soul inputs.
+        w.U8(s.VaalResourcesEnabled ? (byte)0x02 : (byte)0).U8(checked((byte)s.Supports.Count));
         foreach (var support in s.Supports)
         {
             w.U8(0).U32(support.EffectsPerLevelRow).U8(0).U32(support.StatSetsPerLevelRow);

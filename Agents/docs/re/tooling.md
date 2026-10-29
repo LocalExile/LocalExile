@@ -127,6 +127,8 @@ Workflow per run:
 | `dump-stats-object.js` | the stored (key, value) pairs of every stats object asked for one key (set `KEY`) |
 | `find-string-refs.js` | standalone: finds a UTF-16 string (`NEEDLE`) in the client's writable memory, then the pointers to each hit. Asynchronous and slow (minutes over ~6 GB); found the tile objects' virtual `.ao` names. Wait for `done` before closing the session: closing waits for running scans, and a synchronous `scanSync` over all memory hung the session and lost the client |
 | `trace-items.js` | every item the client reads (type hash, bytes), each item component's read and the bytes it consumed, and 0xc0 inventory reads ([../protocol/13-items.md](../protocol/13-items.md)) |
+| `trace-flask-use.js` | 0x263 item-use reads, the two native use callbacks, the sound path they pick and its audio submission: what a flask press's confirmation actually plays (13-items.md §8) |
+| `trace-flask-mana.js` | read-only flask/mana probe: outgoing 0x24/0x25/0x70, the client's mana pool per change and every 0x263 result — used to find that the client pays for attack-moves the server only walks |
 | `trace-enter-area.js` | milestones (SetLocalPlayerId, EnterArea, WorldActivate, CreateObject, UI `0x140785160`), inventory registrations, passive slot creation and **inventory lookups that return null** (with the row and caller) |
 
 Notes:

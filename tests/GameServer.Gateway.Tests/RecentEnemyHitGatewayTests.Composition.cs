@@ -209,6 +209,7 @@ public partial class RecentEnemyHitGatewayTests
         using var f = new Fixture();
         var ordinary = Program.PoolsFor(f.Conn, 100);
         f.Conn.MainAscendancy = new(Nodes: [38080, 29437]);
+        f.Conn.PlayerStats[Program.Stats.Key(PowerOfPurpose.RawFlag)!.Value] = 0; // Isolate the Strength-mana control.
         f.Conn.Pools = Program.PoolsFor(f.Conn, 100);
         f.Conn.PlayerLife = f.Conn.Pools.Life;
         f.Conn.PlayerMana = ordinary.Mana;

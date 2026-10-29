@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// second); ComponentCharges its charges. A use puts the buff on the player for the duration and its stats count on the
 /// character until it ends (<see cref="Apply"/>, <see cref="RawStats"/>), as do the flask's "during effect" mods
 /// (<see cref="DuringEffect"/>). How each stat counts is <see cref="SupportOf"/>: modelled, shown on the character panel
-/// only (ailments, stun and curses on the player, which nothing here inflicts), or waiting for Ward (PR #206).
+/// only (unsupported ailment sources and curses), or consumed by the authoritative Ward pool.
 /// </summary>
 static class UtilityFlasks
 {
@@ -32,10 +32,9 @@ static class UtilityFlasks
     {
         /// <summary>It counts: the pools, the walk speed, the damage code or another mechanic use it.</summary>
         Modelled,
-        /// <summary>It goes to the client for the character panel only: ailments, stun and curses on the player do not
-        /// exist here (monsters only hit), so it changes nothing yet.</summary>
+        /// <summary>It goes to the client for the character panel only; its gameplay source/consumer is unsupported.</summary>
         PanelOnly,
-        /// <summary>Ward, which PR #206 brings (<see cref="Ward"/> is the one place to connect it).</summary>
+        /// <summary>Ward bonuses consumed by the authoritative pool through <see cref="Apply"/>.</summary>
         Ward,
         /// <summary>Not applied.</summary>
         Unsupported,
@@ -44,16 +43,23 @@ static class UtilityFlasks
     /// <summary>The stats only the character panel reads (<see cref="Support.PanelOnly"/>).</summary>
     static readonly IReadOnlySet<string> PanelOnly = new HashSet<string>(StringComparer.Ordinal)
     {
-        "base_frozen_effect_on_self_+%", "stun_threshold_+%",
-        "base_avoid_chill_%", "base_avoid_freeze_%", "base_avoid_ignite_%", "base_avoid_shock_%", "base_avoid_stun_%",
-        "base_stun_recovery_+%", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%", "shocked_effect_on_self_+%",
-        "curse_effect_on_self_+%", "chance_to_freeze_shock_ignite_%", "base_immune_to_freeze", "base_immune_to_chill",
-        "base_immune_to_shock", "base_immune_to_ignite", "immune_to_poison", "immune_to_bleeding",
+        "stun_threshold_+%",
+        "base_avoid_stun_%",
+        "base_stun_recovery_+%",
+        "curse_effect_on_self_+%", "chance_to_freeze_shock_ignite_%",
+        "immune_to_poison", "immune_to_bleeding",
+    };
+
+    static readonly IReadOnlySet<string> ElementalAilmentInputs = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "base_frozen_effect_on_self_+%", "base_avoid_chill_%", "base_avoid_freeze_%", "base_avoid_ignite_%",
+        "base_avoid_shock_%", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%", "shocked_effect_on_self_+%",
+        "base_immune_to_freeze", "base_immune_to_chill", "base_immune_to_shock", "base_immune_to_ignite",
     };
 
     /// <summary>How a flask effect's stat counts here.</summary>
     public static Support SupportOf(string stat) =>
-        ActorScale.IsInput(stat) || Modelled.Contains(stat) ? Support.Modelled
+        ActorScale.IsInput(stat) || Modelled.Contains(stat) || ElementalAilmentInputs.Contains(stat) ? Support.Modelled
         : PanelOnly.Contains(stat) ? Support.PanelOnly
         : stat is "base_ward" or "ward_+%" ? Support.Ward
         : Support.Unsupported;
@@ -112,7 +118,7 @@ static class UtilityFlasks
 
     /// <summary>The utility flasks by BaseItemTypes row, from data/tables Flasks, BuffDefinitions, BuffTemplates,
     /// ComponentCharges and Stats: every one, whatever its stats do here (<see cref="SupportOf"/>).</summary>
-    public static Dictionary<int, Utility> Load(string folder, IReadOnlyList<ItemCatalog.BaseType> rows)
+    public static Dictionary<int, Utility> Load(string folder, IReadOnlyList<ItemCatalog.BaseType> rows, bool ruthless = false)
     {
         var result = new Dictionary<int, Utility>();
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
@@ -132,7 +138,8 @@ static class UtilityFlasks
         {
             using var templates = JsonDocument.Parse(File.ReadAllBytes(Table("BuffTemplates")));
             foreach (var t in templates.RootElement.EnumerateArray())
-                if (t.GetProperty("Id").GetString() == OnslaughtTemplate && t.GetProperty("BuffDefinitionsKey") is { ValueKind: JsonValueKind.Number } k && k.GetInt32() == onslaught)
+                if (t.GetProperty("Id").GetString() == OnslaughtTemplate + (ruthless ? "HardMode" : "")
+                    && t.GetProperty("BuffDefinitionsKey") is { ValueKind: JsonValueKind.Number } k && k.GetInt32() == onslaught)
                     onslaughtBuff = new((ushort)onslaught, OnslaughtBuff,
                         [.. buffRows[onslaught].GetProperty("StatsKeys").EnumerateArray().Select(StatName)
                             .Zip(t.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32()))]);
@@ -149,12 +156,16 @@ static class UtilityFlasks
             // BuffStatValues has one value per StatsKeys entry (Ruby Flask: base_fire_damage_resistance_% 40,
             // base_maximum_fire_damage_resistance_% 5).
             List<(string, int)> values = [.. buff.GetProperty("StatsKeys").EnumerateArray().Select(StatName)
-                .Zip(f.GetProperty("BuffStatValues").EnumerateArray().Select(v => v.GetInt32()))];
+                .Zip(f.GetProperty(ruthless && f.TryGetProperty("BuffStatValues2", out var alternateValues)
+                    && alternateValues.ValueKind == JsonValueKind.Array ? "BuffStatValues2" : "BuffStatValues")
+                    .EnumerateArray().Select(v => v.GetInt32()))];
             bool grantsOnslaught = buff.GetProperty("GrantedFlags").EnumerateArray().Any(s => StatName(s) == OnslaughtFlag);
             // RecoveryTime is in tenths of a second, as for life flasks (Quicksilver Flask: 60, 6 s; Path of Building and
-            // RePoE 3.29 agree). The second column, RecoveryTime2 (Quicksilver 20), is not the duration the game uses.
+            // RePoE 3.29 agree). RecoveryTime2 is the Ruthless duration (Quicksilver 20, 2 s).
             result.TryAdd(b.GetInt32(), new Utility(b.GetInt32(), (ushort)bk.GetInt32(), buff.GetProperty("Id").GetString() ?? "", values,
-                f.GetProperty("RecoveryTime").GetInt32() / 10.0, use.PerUse, use.Max, grantsOnslaught ? onslaughtBuff : null));
+                f.GetProperty(ruthless && f.TryGetProperty("RecoveryTime2", out var alternateTime)
+                    && alternateTime.ValueKind == JsonValueKind.Number ? "RecoveryTime2" : "RecoveryTime").GetInt32() / 10.0,
+                use.PerUse, use.Max, grantsOnslaught ? onslaughtBuff : null));
         }
         return result;
     }
@@ -321,6 +332,7 @@ static class UtilityFlasks
             LightningMaxResistance = b.LightningMaxResistance + Get("base_maximum_lightning_damage_resistance_%"),
             ChaosMaxResistance = b.ChaosMaxResistance + Get("base_maximum_chaos_damage_resistance_%"),
             Armour = b.Armour + Get("base_physical_damage_reduction_rating"),
+            Ward = b.Ward + Get("base_ward"), WardPct = b.WardPct + Get("ward_+%"),
             Evasion = b.Evasion + Get("base_evasion_rating"),
             ArmourPct = b.ArmourPct + Get("physical_damage_reduction_rating_+%"),
             EvasionPct = b.EvasionPct + Get("evasion_rating_+%"),
@@ -354,7 +366,7 @@ static class UtilityFlasks
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141e9cd68: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e7b77c).
                 "phase_through_objects" => "virtual_phase_through_objects",
-                _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) => stat,
+                _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat) => stat,
                 _ => null,
             };
             if (name is not null && catalog.Key(name) is uint key)
@@ -368,10 +380,19 @@ static class UtilityFlasks
     /// (which objects the client's phasing filter lets through is not traced).</summary>
     public static bool Phasing(IEnumerable<(string Stat, int Value)> stats) => stats.Any(s => s.Stat == "phase_through_objects" && s.Value > 0);
 
-    /// <summary>The Ward the running flasks grant (Iron Flask: base_ward; the Ward suffix: ward_+%): the one place to
-    /// connect them to Ward once PR #206 brings it (its Bonus.Ward / WardPct). Until then nothing applies them.</summary>
+    /// <summary>Ward bonuses use the authoritative Ward pool (base_ward and ward_+%).</summary>
     public static (int Flat, int Increased) Ward(IEnumerable<(string Stat, int Value)> stats) =>
         (stats.Where(s => s.Stat == "base_ward").Sum(s => s.Value), stats.Where(s => s.Stat == "ward_+%").Sum(s => s.Value));
+
+    // Call only after the normal flask-use admission/payment and effect start, never from a stat projection.
+    public static bool RestoreWardAfterPaidUse(WardState ward, Func<string, int> local, double now)
+    {
+        if (local("local_flask_restore_ward") <= 0) return false;
+        ward.Advance(now);
+        bool wasBroken = ward.Broken;
+        ward.Restore();
+        return wasBroken;
+    }
 
     /// <summary>Adds the running flasks' <see cref="RawStats"/> to the character's stats (Program.CharacterPlayerStats).</summary>
     public static void AddRawStats(Dictionary<uint, int> stats, IEnumerable<(string Stat, int Value)> running, StatCatalog catalog)

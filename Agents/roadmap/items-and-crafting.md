@@ -25,6 +25,7 @@ features.
   rarity, implicits and every mod list are sent and saved (13 §2a);
   magic and rare items roll, drop unidentified and a Scroll of Wisdom identifies them (13 §2b);
   equipped items' mods count on the character (13 §2c).
+  Life/mana flask charges, recovery, native drinking sound and full-pool refusal are implemented (13 §8).
   Open issues: enchants / crafted / corrupted / influences / uniques (#60), area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).

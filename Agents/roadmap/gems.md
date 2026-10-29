@@ -82,7 +82,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Remaining: a live check of Lilly and Siosa once Act 6 and The Library are reachable (the towns have no walk-map
   capture yet).
 - **Corruption and Vaal skills:** Vaal Orb outcomes on gems (one level over the cap, quality up to 23%, the Vaal
-  variant), the Lapidary Lens's double corruption, and Vaal souls for the Vaal skills.
+  variant), the Lapidary Lens's double corruption, and supported Vaal skill executors.
+  Soul collection/budget payloads are implemented; native acceptance remains in skills-and-combat.
   Goes with item corruption (#60).
 - **Bonus levels:** "+1 to Level of Socketed Gems" and other item mods (#59), Empower Support and the awakened
   exceptional supports.

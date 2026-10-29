@@ -45,7 +45,7 @@ public class AttributeModifiersTests
     [Fact]
     public void Extreme_flat_and_increased_aliases_saturate_instead_of_wrapping()
     {
-        int Positive(string _) => int.MaxValue;
+        int Positive(string name) => name == "intelligence_is_0" ? 0 : int.MaxValue;
         Assert.Equal((int.MaxValue, int.MaxValue, int.MaxValue), AttributeModifiers.From(Positive).Apply(14, 14, 32));
         var negativeFlat = AttributeModifiers.From(n => n.EndsWith("_+%") ? 0 : int.MinValue);
         Assert.Equal((0, 0, 0), negativeFlat.Apply(14, 14, 32));

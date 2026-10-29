@@ -224,6 +224,9 @@ G = global / static data.
 | `0x1421f5680` | Fn | inventory item entry read (u32 id, u8 x, u8 y, item) |
 | `0x1435dbd28` (ctor `0x1421a37b0`, write `0x1421a37f0`, read `0x1421a3880`) | Cls | S→C 0xbf inventory change (`0x1425079a0` / `0x142507bf0`) |
 | `0x141d62550` → `0x1421f5160` | Fn | 0xbf handler → apply removals, additions, revision |
+| `0x1435dca20` (read `0x1421aded0`, write `0x1421addf0`) | Cls | S→C 0x263 item-use result; successful flask use triggers the drinking sound ([13](13-items.md) §8) |
+| `0x14215391b` → `0x142171890` | Fn | 0x263 dispatch (case 0xc6) → instance +0x3c78 item-use listeners |
+| `0x140d95a70` / `0x140ddcd60` → `0x140ff6320` | Fn | item-use UI callbacks → native audio submission (BaseItemTypes use sound when override is empty) |
 | `0x1435c0898`, `0x1435dc660` | Cls | S→C 0xc1 remove inventory, 0xc2 inventory permissions |
 | `0x1435bf5f0` (write `0x141fa0d00`, sender `0x14215f300`) | Cls | C→S 0x28 pick up item |
 | `0x1435bf710` (write `0x141f8feb0`, sender `0x14215f400`) | Cls | C→S 0x2a place held item |
@@ -422,11 +425,22 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x142198d40` | Fn | AddSkill(manager, ActionTypes HASH16): basic action |
 | `0x1421932b0` | Fn | Actor slot 20 reader (f0 0x40 skill list, 0x20 skill update, …) |
 | `0x14246f900` | Fn | SkillGem: the level from the experience (thresholds from ItemExperiencePerLevel) |
-| `0x142197b10` | Fn | Actor f0 0x40: skill list |
-| `0x142198800` | Fn | Actor f0 0x20: skill update (add records, remove ids) |
+| `0x142197b10` | Fn | Actor 0x40: skills, soul row/capacity/current, cooldown trailer |
+| `0x142198800` | Fn | Actor 0x20: skills/removes, soul seeds, current/new-capacity updates |
+| `0x142199a80` | Fn | Sorted soul-entry upsert at skill manager +0x188, stride 0x20 |
+| `0x141eea5b0` | Fn | Soul payload lookup through GrantedEffects ActiveSkills pointer |
+| `0x141ee8720` | Fn | Effective required souls: no-souls flag, selected multiplier, final percent |
+| `0x141eea3a0` | Fn | Availability: required souls <= current |
+| `0x141eea350` | Code | Native soul subtraction and dirty flag inside 0x141ee9d30 |
+| `0x140acfbb0` | Fn | Soul icon uses/fill; divisions guarded by nonzero required souls |
+| `0x140ad7fb0` | Fn | Soul current/capacity text |
+| `0x140826070` | Fn | Soul current/capacity text |
 | `0x142198560` | Fn | Actor f0 0x20: remove u16 skill ids from the skill manager |
 | `0x1421981d0` | Fn | read n skill records into the manager |
 | `0x142196ce0` | Fn | skill record reader |
+| `0x1421975f0..0x142197610` | Code | Clear wire bit1 and nonzero raw stored uses set constructor disable bit |
+| `0x1421976e8..0x1421976f6` | Code | Constructor parameter13 = (wire bit2 * 2) or dil |
+| `0x141ee7571..0x141ee75ba` | Code | Parameter13 bit0 zeros soul inputs; otherwise copies GEPL +0x28/+0x2c |
 | `0x1424a0dc0` | Fn | GrantedEffectsPerLevel reference reader |
 | `0x1424a0990` | Fn | GrantedEffectStatSetsPerLevel reference reader |
 | `0x141ee73d0` | Fn | ActiveSkillInstance ctor (action id from GEPL → GrantedEffect → ActiveSkill → ActionType) |

@@ -346,6 +346,14 @@ sealed class PlayerInventories
     /// <summary><see cref="SocketedGems"/> with the id of the item each gem is in.</summary>
     public IReadOnlyList<(uint ItemId, Item Gem)> SocketedGemsByItem() => [.. SocketedGemPlaces().Select(g => (g.ItemId, g.Gem))];
 
+    // Immutable item records from ONE inventory read, including attribute gear and all active socket hosts.
+    internal IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
+    {
+        lock (_lock)
+            return [.. ItemModStats.EquipmentRows.SelectMany(row =>
+                (_items.TryGetValue(row, out var items) ? items : []).Select(item => (row, item)))];
+    }
+
     public Item? SocketHost(uint id)
     {
         lock (_lock) return _items.Values.SelectMany(v => v).FirstOrDefault(i => i.Id == id)?.Item;
@@ -935,6 +943,45 @@ sealed class PlayerInventories
             var after = before.ToList();
             foreach (var reward in rewards)
                 if (reward.StackSize > 0 && StackInto(MainInventory, after, reward, shapeOf, ref probe).Left > 0) return null;
+            foreach (var items in _items.Values) items.RemoveAll(i => _offered.ContainsKey(i.Id));
+            _offered.Clear();
+            _items[MainInventory] = after;
+            _nextItemId = probe;
+            var old = before.ToDictionary(i => i.Id);
+            result = new([.. after.Where(i => old.TryGetValue(i.Id, out var previous) && previous != i)],
+                [.. after.Where(i => !old.ContainsKey(i.Id))], 0);
+        }
+        Persist();
+        return result;
+    }
+
+    /// <summary>Whether <paramref name="received"/> fits the main inventory once every offered item is gone (a player
+    /// trade checks both sides before either changes). Nothing changes.</summary>
+    public bool CanExchange(IReadOnlyList<Item> received, Func<Item, Shape?> shapeOf)
+    {
+        lock (_lock)
+        {
+            uint probe = _nextItemId;
+            var after = ItemsIn(MainInventory).Where(i => !_offered.ContainsKey(i.Id)).ToList();
+            foreach (var item in received)
+                if (item.StackSize > 0 && StackInto(MainInventory, after, item, shapeOf, ref probe).Left > 0) return false;
+            return true;
+        }
+    }
+
+    /// <summary>A player trade completed: every offered item is gone and <paramref name="received"/> goes into the main
+    /// inventory, in one save. Unlike <see cref="Sell(IReadOnlyList{Item}, Func{Item, Shape?})"/> either side may be
+    /// empty. Null (nothing changes) when the received items do not fit.</summary>
+    public Stacking? Exchange(IReadOnlyList<Item> received, Func<Item, Shape?> shapeOf)
+    {
+        Stacking result;
+        lock (_lock)
+        {
+            uint probe = _nextItemId;
+            var before = ItemsIn(MainInventory).Where(i => !_offered.ContainsKey(i.Id)).ToList();
+            var after = before.ToList();
+            foreach (var item in received)
+                if (item.StackSize > 0 && StackInto(MainInventory, after, item, shapeOf, ref probe).Left > 0) return null;
             foreach (var items in _items.Values) items.RemoveAll(i => _offered.ContainsKey(i.Id));
             _offered.Clear();
             _items[MainInventory] = after;

@@ -39,8 +39,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceNpcs.cs`, `NpcCatalog.cs`, `TownNpcs.cs`, Gateway (`SpawnTownNpcs`, `TalkToNpc`).
   Docs: [17](../docs/protocol/17-npcs.md).
 
+- **Trade between players** in one instance (two clients, 2026-10-28): the request shows the requester's waiting box
+  and the other player's notification, Accept opens the window on both, offered items appear on both sides, Accept
+  greys the accepting side's offer for both players, and both accepting swaps the items in one transaction for both saves.
+  Cancel, decline, a disconnect or leaving the area return every offered item. See [28](../docs/protocol/28-player-trade.md).
+  Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
+  Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.
+
 ## Partly working
 
+- Ruthless selects its native shop/reward rows, item levels, rarity and purchase costs.
+  Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
+  Support gems are excluded from deterministic rewards and the opening support chest.
+  Supported flask vendors, Helena and Niko refill Ruthless pools and flasks.
+  Automated checks cover native Ruthless shop rows, restricted stock and vendor resource/flask refills.
+  Other vendor, quest-reward and pricing cases are covered by automated checks.
+  See [league modes](../docs/game/league-modes.md).
 - Quest rewards open the native reward inventory for every `QuestRewardOffers` row whose items the server can build,
   and grant the class-filtered choices (level-one gems, normal flasks; unbuildable magic armour rows are skipped).
   The item and claimed flag are saved together, with duplicate, prerequisite, full-inventory and save-failure guards.
@@ -51,7 +65,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their original cells/items remain reserved in the durable save;
   take-back/cancel restores the view, disconnect/crash preserves items, and acceptance exchanges items/payment in one
   save.
-  Player-to-player trade remains unimplemented.
   Recipe quotes cover rare sets, gem transformations, socket/quality salvage, upgrades and common equipment recipes.
   Acceptance pays the cached outputs atomically, refuses a full inventory and preserves ingredients on save failure.
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.

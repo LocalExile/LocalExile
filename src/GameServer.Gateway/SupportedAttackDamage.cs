@@ -5,6 +5,8 @@ static class SupportedAttackDamage
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
     {
         var hit = DamagePacket.Of(DamageType.Physical, new(weapon.MinDamage, weapon.MaxDamage));
+        double manaPhysical = DamageStats.ManaAddedPhysical(get);
+        hit = hit.Add(DamageType.Physical, new(manaPhysical, manaPhysical));
         foreach (var type in DamageTypes.ConversionOrder)
         {
             string slug = type.ToString().ToLowerInvariant();

@@ -74,14 +74,21 @@ partial class Program
         await conn.QuestGate.WaitAsync();
         try
         {
-            var flags = conn.QuestFlagsSnapshot();
             var items = ItemsOf(conn);
-            bool carried = MercyMission.Carried(items).Any(c => c.Item.Item.TypeHash == type.Hash);
-            var (set, remove) = MercyMission.Sync(flags.Contains(MercyMission.HaveMedicineChest), MercyMission.Done(flags.Contains), carried);
-            if (remove && removeItems)
-                foreach (var row in MercyMission.RemoveAll(items, type.Hash).GroupBy(r => r.Row))
-                    await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                        [.. row.Select(r => r.Item.Id)], []), $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: Medicine Chest removed, Nessa has one");
+            bool? set;
+            List<(byte Row, InventoryItem Item)> removed = [];
+            lock (conn.Monsters)
+            {
+                if (HardcoreProgressBlocked(conn)) return;
+                var flags = conn.QuestFlagsSnapshot();
+                bool carried = MercyMission.Carried(items).Any(c => c.Item.Item.TypeHash == type.Hash);
+                var sync = MercyMission.Sync(flags.Contains(MercyMission.HaveMedicineChest), MercyMission.Done(flags.Contains), carried);
+                set = sync.Set;
+                if (sync.Remove && removeItems) removed = MercyMission.RemoveAll(items, type.Hash);
+            }
+            foreach (var row in removed.GroupBy(r => r.Row))
+                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                    [.. row.Select(r => r.Item.Id)], []), $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: Medicine Chest removed, Nessa has one");
             if (set is bool on) await SetQuestFlagsHeld(remote, stream, ciphers, conn, [MercyMission.HaveMedicineChest], on);
         }
         finally { conn.QuestGate.Release(); }
@@ -116,9 +123,13 @@ partial class Program
         await conn.QuestGate.WaitAsync();
         try
         {
-            if (MedicineChestType() is { } type && MercyMission.HandIn(CharacterName(conn), items, type.Hash) is var (row, chest))
+            lock (conn.Monsters)
             {
-                handed = (row, chest);
+                if (HardcoreProgressBlocked(conn)) return false;
+                if (MedicineChestType() is { } type) handed = MercyMission.HandIn(CharacterName(conn), items, type.Hash);
+            }
+            if (handed is var (row, chest))
+            {
                 await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [chest.Id], []),
                     $"0x00bf inventory {PlayerInventories.InventoryId(row)}: Medicine Chest {chest.Id} given to Nessa");
                 await SetQuestFlagsHeld(remote, stream, ciphers, conn, [MercyMission.NessaCongratulated]);

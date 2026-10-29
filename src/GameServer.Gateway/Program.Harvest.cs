@@ -11,8 +11,9 @@ partial class Program
         if (!conn.HarvestOpen || HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
         var items = ItemsOf(conn);
         var stash = PersonalStashOf(conn);
-        var name = Harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
-        var result = ItemMoves.HarvestAtStation(items, stash, Harvest, recipe, Random.Shared);
+        var harvest = HarvestFor(conn);
+        var name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
+        var result = ItemMoves.HarvestAtStation(items, stash, harvest, recipe, Random.Shared);
         if (result is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0274 Harvest recipe {name} refused (item, recipe or lifeforce)");

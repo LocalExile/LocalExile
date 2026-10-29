@@ -54,8 +54,9 @@ sealed class AccountStash
     {
         [0] = ("NormalStash", 12, 12), [1] = ("PremiumStash", 12, 12), [3] = ("CurrencyStash", 142, 4), [4] = ("UniqueStash", 254, 4),
         [5] = ("MapStash", 12, 6), [7] = ("QuadStash", 24, 24), [8] = ("EssenceStash", 110, 4), [9] = ("FragmentStash", 255, 9),
-        [12] = ("DelveStash", 41, 4),
-        [17] = ("FlaskStash", 250, 4), [18] = ("GemStash", 250, 2),
+        [6] = ("DivinationCardStash", 255, 2), [12] = ("DelveStash", 41, 4), [13] = ("BlightStash", 83, 4),
+        [14] = ("UltimatumStash", 62, 5), [15] = ("DeliriumStash", 88, 1),
+        [17] = ("FlaskStash", 250, 4), [18] = ("GemStash", 250, 2), [22] = ("BreachStash", 1, 1),
     };
 
     /// <summary>The tabs every account starts with: two normal tabs, two premium tabs, a quad tab and the special tabs
@@ -109,10 +110,11 @@ sealed class AccountStash
     /// data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>
     public static AccountStash For(string account, ItemCatalog catalog) => Create(account, catalog, FirstInventoryId, FirstItemId, StarterTabs);
 
-    /// <summary>The guild stash of the account (no guilds yet: each account is its own guild), saved as "guild:&lt;account&gt;"
-    /// and made with <see cref="GuildStarterTabs"/>.</summary>
-    public static AccountStash ForGuild(string account, ItemCatalog catalog) =>
-        Create("guild:" + account, catalog, GuildFirstInventoryId, GuildFirstItemId, GuildStarterTabs);
+    /// <summary>The guild stash of the account (no guilds yet: each account is its own guild), scoped to the full league.
+    /// Standard retains the legacy "guild:&lt;account&gt;" key. SSF never opens or creates a guild stash.</summary>
+    public static AccountStash ForGuild(string account, ItemCatalog catalog, string? league = null, bool solo = false) =>
+        solo ? throw new InvalidOperationException("Guild storage is unavailable in Solo Self-Found.")
+            : Create("guild:" + Key(account, league), catalog, GuildFirstInventoryId, GuildFirstItemId, GuildStarterTabs);
 
     /// <summary>The tabs a guild stash starts with.</summary>
     static readonly SavedTab[] GuildStarterTabs =
@@ -361,8 +363,12 @@ sealed class AccountStash
         if (!_rules.Slotted(t.Saved.Type)) return (x, y);
         if (_rules.IsOverflowSlot(t.Saved.Type, x, y)) return (x, y);   // a spare cell under the crafting slot: where dropped
         if (_rules.SlotOf(t.Saved.Type, item.TypeHash) is not int slot) { why = $"the {TypeName(t)} tab has no slot for that item"; return null; }
-        return (slot, 0);
+        return SlotCell(t, slot);
     }
+
+    // Slot n of a slotted tab is cell (n mod width, n / width): every layout but the divination tab's fits its first row;
+    // its 470 cards run on into the second row of its 255 × 2.
+    static (int X, int Y) SlotCell(TabState t, int slot) => (slot % t.Grid.W, slot / t.Grid.W);
 
     static string TypeName(TabState t) => Types.TryGetValue(t.Saved.Type, out var n) ? n.Name : $"type {t.Saved.Type}";
 
@@ -495,6 +501,97 @@ sealed class AccountStash
         if (changed.Count + added.Count > 0) Persist(tab);
         return new(changed, added, left);
     }
+
+    /// <summary>What <see cref="FillSlots"/> did: grown and new stacks, how many item types had no room left in their slot
+    /// and how many the server could not create.</summary>
+    public sealed record SlotFill(IReadOnlyList<InventoryItem> Changed, IReadOnlyList<InventoryItem> Added, int Full, int Skipped);
+
+    /// <summary>
+    /// The /item_tab command: up to <paramref name="amount"/> more of every item type that has a slot of its own in a
+    /// slotted tab (currency, essence, fragment, delve, blight, delirium, divination), each into that slot only and as far
+    /// as the slot holds (<see cref="StashRules.MaxStack"/>; one of an item that doesn't stack), in one save.
+    /// <paramref name="create"/> makes an item of a type, or null when the server can't write it. Null with the reason
+    /// when the tab has no slots of its own.
+    /// </summary>
+    public SlotFill? FillSlots(int tab, int amount, Func<uint, Item?> create, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+    {
+        var changed = new List<InventoryItem>();
+        var added = new List<InventoryItem>();
+        int full = 0, skipped = 0;
+        lock (_lock)
+        {
+            why = "";
+            if (tab < 0 || tab >= _tabs.Count) { why = "no such tab"; return null; }
+            var t = _tabs[tab];
+            if (StashRules.NotShown(t.Saved.Type)) { why = $"the server doesn't show items on the {TypeName(t)} tab yet"; return null; }
+            if (!_rules.Slotted(t.Saved.Type))
+            {
+                why = $"the {TypeName(t)} tab has no slot for each item type (a currency, essence, fragment, delve, blight, delirium or divination tab has)";
+                return null;
+            }
+            foreach (var (type, slot) in _rules.Slots(t.Saved.Type).OrderBy(s => s.Value))
+            {
+                // A slot past the tab's published cells would draw over the tab.
+                if (slot >= t.Grid.W * t.Grid.H || create(type) is not { } item || shapeOf(item) is not { } shape) { skipped++; continue; }
+                var (x, y) = SlotCell(t, slot);
+                int at = t.Items.FindIndex(i => i.X == x && i.Y == y);
+                // Another type in the slot (two layout rows naming one slot): leave it.
+                if (at >= 0 && t.Items[at].Item.TypeHash != type) { skipped++; continue; }
+                // The divination tab shows a card only once its set is complete (live 2026-10-28): fill it to its set.
+                int max = shape.MaxStack <= 1 || t.Saved.Type == StashRules.Divination ? Math.Max(1, (int)shape.MaxStack) : MaxStack(t, item, shape, -1, -1);
+                int room = max - (at >= 0 ? t.Items[at].Item.StackSize : 0);
+                if (room <= 0) { full++; continue; }
+                int take = Math.Min(amount, room);
+                if (at >= 0)
+                {
+                    var grown = t.Items[at] with { Item = t.Items[at].Item with { StackSize = (ushort)(t.Items[at].Item.StackSize + take) } };
+                    t.Items[at] = grown;
+                    changed.Add(grown);
+                }
+                else
+                {
+                    var placed = new InventoryItem(_nextItemId++, (byte)x, (byte)y, item with { StackSize = (ushort)take });
+                    t.Items.Add(placed);
+                    added.Add(placed);
+                }
+            }
+        }
+        if (changed.Count + added.Count > 0) Persist(tab);
+        return new(changed, added, full, skipped);
+    }
+
+    /// <summary>
+    /// The /item_tab command on a tab without a slot per type (the gem tab): each of <paramref name="items"/> the tab
+    /// holds and doesn't have yet (by <paramref name="key"/>) into the first free cell, in order, in one save.
+    /// <see cref="SlotFill.Full"/> counts the ones already there, <see cref="SlotFill.Skipped"/> the ones that found no
+    /// room or that the tab doesn't hold.
+    /// </summary>
+    public SlotFill? FillCells(int tab, IEnumerable<Item> items, Func<Item, string> key, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+    {
+        var added = new List<InventoryItem>();
+        int present = 0, skipped = 0;
+        lock (_lock)
+        {
+            why = "";
+            if (tab < 0 || tab >= _tabs.Count) { why = "no such tab"; return null; }
+            var t = _tabs[tab];
+            var have = t.Items.Select(i => key(i.Item)).ToHashSet();
+            foreach (var item in items)
+            {
+                if (!have.Add(key(item))) { present++; continue; }
+                if (!_rules.Holds(t.Saved.Type, item.TypeHash) || shapeOf(item) is not { } shape
+                    || FreeCellIn(t, shape.Width, shape.Height, shapeOf) is not { } cell) { skipped++; continue; }
+                var placed = PlayerInventories.Completed(new InventoryItem(_nextItemId++, cell.X, cell.Y, item), shape);
+                t.Items.Add(placed);
+                added.Add(placed);
+            }
+        }
+        if (added.Count > 0) Persist(tab);
+        return new([], added, present, skipped);
+    }
+
+    /// <summary>The tab's StashType row, or null for no such tab.</summary>
+    public byte? TabType(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Type : null; }
 
     /// <summary>Replaces an item in a tab with a changed copy (same id and cell), saved; null when it is not there (currency
     /// used on an item in the stash, e.g. the currency tab's crafting slot).</summary>

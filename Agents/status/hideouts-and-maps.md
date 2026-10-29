@@ -51,6 +51,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Hideout editing moves and rotates installed furniture, the waypoint and NPCs through native C→S 0x5b.
   Placements persist per character/template; runtime interactions and path blockers follow the moved objects.
+  Every template of the selected hideout is editable: one without a captured walk map leaves cell checks to the client.
   Furniture moves send 0x161 to rebuild native hideout model collision without changing object ids.
   Server blockers are registered again at saved positions on entry.
   NPCs and all functional furniture share inherited OT collision footprints and interaction clearance.

@@ -87,8 +87,10 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87740`), which builds the
   page. The Gateway sends 0xc0 once per connection and tab, 0xc8 every time.
 - Sizes (`AccountStash.Types`): StashType StorageSlots × column 4: Normal and Premium 12 × 12, Quad 24 × 24; the special
-  tabs (Currency 142 × 4, Essence 110 × 4, Fragment 255 × 9, Map 12 × 6, Flask 250 × 4, Gem 250 × 2) are cells x = the
-  layout's slot index (CurrencyStashTabLayout `FirstSlotIndex` …), a guess that loads but is not checked with items.
+  tabs (Currency 142 × 4, Essence 110 × 4, Fragment 255 × 9, Map 12 × 6, Flask 250 × 4, Gem 250 × 2, Delve 41 × 4,
+  Blight 83 × 4, Delirium 88 × 1, Divination 255 × 2, Ultimatum 62 × 5, Breach 1 × 1) are cells x = the layout's slot
+  index (CurrencyStashTabLayout `FirstSlotIndex` …). A type missing here falls back to 12 × 12, and slots past that width
+  draw over the tab: blight oils at slots 12 and 79–82 did (live 2026-10-28) until Blight got its 83 × 4.
 - Items move with the inventory messages of [13](13-items.md): C→S 0x28 / 0x2a with the tab's inventory id; the
   Gateway answers with S→C 0xbf on the tab (manager 0) and on the cursor.
 
@@ -187,8 +189,12 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   Other slotted tabs retain 5000 (`StashRules.SlotStack`), also the fallback for absent or invalid currency limits.
   The Delve (StashType 12, DelveStashTabLayout) and
   Blight (13, BlightStashTabLayout) and Delirium (15, DeliriumStashTabLayout) tabs are slotted the same way; the
-  Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row (a guess: the table has no slot
-  numbers). Unique (4), Breach (22) and Ultimatum (14) tabs exist but take nothing yet (`StashRules.NotShown`: uniques
+  Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a
+  map from each row's card (its BaseItemTypes Id) to the row index (`0x140b31180`), and 470 rows run past the tab's
+  255 cells. So slot n is cell (n mod width, n / width): rows 255–469 go into the second row of its 255 × 2. Every other
+  layout fits its first row. The tab shows a card only once its set is complete (stack = the card's stack size).
+  Live 2026-10-28: with one card each, only the 1-card sets showed; with two each, exactly the 1- and 2-card sets.
+  Luck of the Vaal (row 154, not in game) never showed. Unique (4), Breach (22) and Ultimatum (14) tabs exist but take nothing yet (`StashRules.NotShown`: uniques
   are keyed by unique names and the server has none; 3.29.3b has no breach or ultimatum layout table). The starter tabs
   are four normal tabs "1"-"4", as the real game's, then the premium and special ones; a stash saved before gets the
   missing ones
@@ -210,6 +216,24 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   (the item's max) and keeps the rest. A Shift + click split takes at most a full stack too.
 - **Repair.** Items a special tab can't show (an earlier build let any item into any tab) move at load into their slot,
   else into the first normal tab with room, and are saved there. One that finds no room stays where it is, saved.
+- **Filling a tab (dev, `/item_tab <tab name> <count>`).** The tab is found by its name, ignoring case, or else by
+  the only tab whose StashType name starts with the text. Each item type with a slot of its own on that tab
+  (`StashRules.Slots`) gets up to `count` more, at most 1000 per command. Each type goes into its own slot only, never
+  the spare slots, and is capped by that slot's limit above; an item that doesn't stack gets one. A divination card is
+  capped at its complete set, which is what the tab shows.
+  `AccountStash.FillSlots` does all of it in one save, and an open tab gets one S→C 0xbf.
+  - Gem tab (StashType 18, 250 × 2): one of every creatable gem variant (`ItemCatalog.FullShopGems`, transfigured and
+    Vaal included), red, green, blue then white, actives before supports. They go into free cells in order
+    (`AccountStash.FillCells`), and a variant already there is not added again. The client sorts the gems into its colour
+    sub-tabs by itself (live 2026-10-28). The server can create 1044 variants and the tab has 500 cells, so the rest are
+    reported as finding no room.
+  - Refused: normal, premium, quad and flask tabs (no slot per type), and the `NotShown` tabs.
+  - Skipped:
+    - types the server can't write;
+    - a slot already holding another type;
+    - slots past the tab's cells (none in the 3.29.3b layouts).
+  - Real data: currency 126 types, essence 104, fragment 308 (62 of them non-stacking), delve 33, blight 17,
+    delirium 24, divination 470.
 
 ## Guild stash (verified live 2026-10-21)
 

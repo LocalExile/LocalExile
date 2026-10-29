@@ -68,8 +68,9 @@ sealed partial class VendorRecipes
         public int Left = placement.Item.StackSize;
     }
 
-    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random? random = null)
+    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random? random = null, double? ruthlessRewardMultiplier = null)
     {
+        if (ruthlessRewardMultiplier is { } multiplier) return RuthlessBasicSale(offered, multiplier);
         var rng = random ?? Random.Shared;
         var pool = offered.OrderBy(x => x.Id).Select(i => new Ingredient(i, Type(i.Item))).ToList();
         if (pool.Select(i => i.Id).Distinct().Count() != pool.Count) throw new ArgumentException("Duplicate vendor ingredient id");
@@ -299,6 +300,68 @@ sealed partial class VendorRecipes
                 rewards.Add(ItemCatalog.Create(type) with { StackSize = (ushort)n });
             }
         return new(rewards, recipes);
+    }
+
+    // Ruthless deliberately excludes the regular deterministic recipes. Basic selling remains useful, with the
+    // LocalExile configurable reward multiplier applied after combining like shards, before full-stack normalization.
+    Quote RuthlessBasicSale(IEnumerable<InventoryItem> offered, double multiplier)
+    {
+        var money = new Dictionary<string, long>();
+        void Add(string name, long count) => money[name] = checked(money.GetValueOrDefault(name) + count);
+        var placements = offered.ToArray();
+        if (placements.Select(i => i.Id).Distinct().Count() != placements.Length)
+            throw new ArgumentException("Duplicate vendor ingredient id");
+        foreach (var placement in placements)
+        {
+            var item = placement.Item;
+            var type = Type(item);
+            int count = item.StackSize;
+            if (type.Class == "StackableCurrency")
+            {
+                int wisdoms = type.Name switch
+                {
+                    "Portal Scroll" => 1, "Armourer's Scrap" => 2,
+                    "Blacksmith's Whetstone" or "Orb of Transmutation" or "Orb of Alteration" => 4,
+                    _ => throw new NotSupportedException("This currency's Ruthless vendor recipe is not implemented. Nothing has been sold."),
+                };
+                Add("Scroll of Wisdom", (long)wisdoms * count);
+            }
+            else if (!item.Identified && item.Rarity != ItemRarity.Normal)
+                Add("Transmutation Shard", (item.Rarity == ItemRarity.Magic ? 2L : 5L) * count);
+            else
+            {
+                var modPrice = ModPrice(item);
+                if (modPrice.Alteration == 0 && modPrice.Alchemy == 0) Add("Scroll Fragment", count);
+                else
+                {
+                    Add("Alteration Shard", (long)modPrice.Alteration * count);
+                    Add("Alchemy Shard", (long)modPrice.Alchemy * count);
+                }
+            }
+        }
+        multiplier = double.IsFinite(multiplier) ? Math.Clamp(multiplier, 0, 1) : 0;
+        var totals = new Dictionary<uint, long>();
+        foreach (var (name, count) in money)
+        {
+            var type = Exact(name) ?? throw new InvalidOperationException($"Vendor reward missing: {name}");
+            totals[type.Hash] = checked(totals.GetValueOrDefault(type.Hash) + (long)Math.Floor(count * multiplier));
+        }
+        foreach (var hash in totals.Keys.ToArray())
+            if (_catalog.ByHash(hash) is { BecomesWhenFull: true } type && _catalog.Row(type.FullStackRow) is { } full)
+            {
+                totals[full.Hash] = checked(totals.GetValueOrDefault(full.Hash) + totals[hash] / type.MaxStack);
+                totals[hash] %= type.MaxStack;
+            }
+        var rewards = new List<Item>();
+        foreach (var (hash, count) in totals.OrderBy(x => x.Key))
+            for (long left = count; left > 0;)
+            {
+                var type = _catalog.ByHash(hash)!;
+                int amount = (int)Math.Min(left, type.MaxStack);
+                rewards.Add(ItemCatalog.Create(type) with { StackSize = (ushort)amount });
+                left -= amount;
+            }
+        return new(rewards, placements.Length == 0 ? [] : ["Ruthless basic sale"]);
     }
 
     static bool Empty(Item i) => i.Sockets.All(s => s.Gem is null);

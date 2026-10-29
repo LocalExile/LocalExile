@@ -19,8 +19,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the bar is restored with S→C 0x53 after login and area changes (binds are C→S 0x4e).
   Code: `CharacterSaves.cs`, `PlayerInventories.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §11, [13](../docs/protocol/13-items.md) §7.
-- Logins start at the character's last town's spawn point, as in the real game (after logging out, Exit to Character
-  Selection, a crash, a restart or a disconnect while dead);
+- Playable logins start at the character's last town's spawn point (after logging out, Exit to Character Selection,
+  a crash, a restart or a disconnect while dead);
   Auth records the town when a town ticket resolves (`Character.LastTown` in `data/saves.db`).
   Code: Auth (`InstanceDirectory`), `WorldAreaTowns.cs`.
   Docs: [09](../docs/protocol/09-area-change.md) §4.
@@ -40,12 +40,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [01](../docs/protocol/01-login.md) §7, [04](../docs/protocol/04-player-entity.md).
 - Exit to character selection: Esc → "Exit to Character Selection" and the hardcore death screen's Exit (C→S 0x153);
   the Gateway closes the instance connection and the client returns to the character list on the same login
-  connection; Play enters again.
+  connection; playable characters can enter again.
   Code: Gateway.
   Docs: [09](../docs/protocol/09-area-change.md) §6.
 
 ## Partly working
 
+- Selected league modes have server rules with automated coverage and native entry, exit and migration checks.
+  Ordinary Hardcore death migrates to the matching softcore base while preserving SSF; Hardcore Ruthless stays dead.
+  Carried progress and the death record commit together, source stash/gold stay behind, and stale writes cannot undo it.
+  Automated coverage includes lethal ignite, stale death callbacks and one-time death effects
+  in ordinary and Ruthless modes.
+  Auth, Gateway and dev-server entry reject dead characters and stale tickets; transient failed deaths retry before entry.
+  The native character list returned a dead Hardcore Ruthless character in Void with its terminal marker;
+  an ordinary Hardcore SSF death returned in SSF Standard and could enter again.
+  Full retail mode parity still depends on the server's incomplete gameplay systems.
+  SSF isolation and Ruthless rules are described in [league modes](../docs/game/league-modes.md).
 - Local startup explicitly resets the cached login gateway to loopback before launching the client, preventing a stale
   remote endpoint from causing DSA handshake failure (General Rhoa Failure #3).
   See protocol/01-login.md.

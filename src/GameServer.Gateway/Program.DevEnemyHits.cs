@@ -8,7 +8,7 @@ partial class Program
     // /hit and /spellhit are synthetic incoming enemy contacts. /blockhit can additionally block.
     // Admission, prior-history decision, pool mutation and recording are a single combat commit.
     static bool TryDevEnemyHit(ClientState conn, DamageType type, int amount, bool block, bool spell, bool suppress,
-        out DevEnemyHit hit)
+        out DevEnemyHit hit, bool ranged = false)
     {
         lock (conn.Monsters)
         {
@@ -22,7 +22,10 @@ partial class Program
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
-            bool blocked = block && DamageModel.Blocks(blockChance, conn.IncomingHitRandom.NextDouble() * 100, luckyBlock);
+            bool unluckyBlock = spell ? conn.Pools.SpellBlockUnlucky : conn.Pools.AttackBlockUnlucky;
+            bool blocked = block && DamageModel.Blocks(blockChance, conn.IncomingHitRandom.NextDouble() * 100, luckyBlock, unluckyBlock);
+            if (!blocked && DamageTypes.IsElemental(type) && GamblerFor(stats).UsesNinetyResistance(conn.IncomingHitRandom))
+                resistance = maximum = 90;
             bool immune = PlayerImmunities(conn).Contains(type);
             bool armourRelevant = type == DamageType.Physical ? amount > 0
                 : type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage
@@ -30,6 +33,14 @@ partial class Program
             var armour = IncomingArmourLocked(conn, !blocked && !immune && armourRelevant, priorContacts, stats);
             int dealt = blocked || immune ? 0
                 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
+            if (type == DamageType.Physical && ranged && !spell && !blocked && !immune)
+            {
+                var reduction = PlayerDamageReduction(conn, stats);
+                dealt = FortificationDamageTaken(conn, AntiquarianEffects.RangedPhysical(
+                    PlayerHitMitigation.AfterResistance(conn.Pools, type, amount, reduction.Physical,
+                        reduction.Elemental, armour.EffectiveArmour), true,
+                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0));
+            }
             string mitigation = immune ? "immunity"
                 : MitigationLabel(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(conn) : default;
@@ -40,11 +51,12 @@ partial class Program
             int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
             int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife
-                - conn.EnergyShield.Damage(dealt, type == DamageType.Chaos, now) + gainedLife));
+                - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt, type == DamageType.Chaos ? dealt : 0, now, stats) + gainedLife));
             if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             conn.RecentEnemyHits.Record(now);
             if (block) ChargesWhenHit(conn, blocked, spell);
-            if (conn.PlayerLife == 0) conn.InvalidateIncomingHits();
+            if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+            RecordHardcoreDeath(conn);
             hit = new(dealt, mitigation, conn.PlayerLife, conn.PlayerMana, manaBefore,
                 blocked, blockChance, suppressed, suppression);
             return true;

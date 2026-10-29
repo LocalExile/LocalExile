@@ -590,6 +590,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         static readonly MethodInfo SetLevelMethod = GatewayMethod("SetLevel");
         readonly int _classRow;
         readonly bool _god;
+        readonly bool _hardcore;
+        readonly bool _ruthless;
         public string Character { get; } = $"AscInt{Guid.NewGuid():N}"[..22];
         public ClientState State { get; }
         public byte[] LastBytes { get; private set; } = [];
@@ -602,11 +604,14 @@ public sealed partial class AscendancyGatewayIntegrationTests
 
         public GatewayCharacter(IReadOnlyList<string>? awards = null, IReadOnlyList<ushort>? nodes = null,
             int classRow = 4, byte baseClass = 4, string choice = "Aristocrat", ushort refundPoints = 20, int level = 1,
-            bool god = false, AscendancyFamily family = AscendancyFamily.Phrecia)
+            bool god = false, AscendancyFamily family = AscendancyFamily.Phrecia,
+            bool hardcore = false, bool ruthless = false)
         {
             TestSaves.Ensure();
             _classRow = classRow;
             _god = god;
+            _hardcore = hardcore;
+            _ruthless = ruthless;
             Assert.NotNull(Program.Stats.Key("active_skill_base_area_of_effect_radius"));
             var definition = Program.Ascendancies.Find(baseClass, family, choice)!;
             Assert.NotNull(definition);
@@ -619,7 +624,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         public ClientState Reload()
         {
             var state = new ClientState(new(0, "AscendancyIntegration", 128, 128, 32, 32, null, []), 0, 1)
-            { Character = Character, ClassRow = _classRow, God = _god };
+            { Character = Character, ClassRow = _classRow, God = _god, Hardcore = _hardcore, Ruthless = _ruthless };
             try { Load.Invoke(null, [state, 1]); }
             catch (TargetInvocationException e) when (e.InnerException is not null) { ExceptionDispatchInfo.Capture(e.InnerException).Throw(); }
             (state.PlayerLife, state.PlayerMana) = (state.Pools.Life, state.Pools.Mana);

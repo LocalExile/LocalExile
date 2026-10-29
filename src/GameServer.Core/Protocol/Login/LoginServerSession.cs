@@ -67,10 +67,13 @@ public sealed class LoginServerSession(AccountService accounts)
         if (characters.Count == 0) return [];
         // The u32 is probably the character's index on the character screen (0 for the first, the only one tested).
         var chosen = characters[(int)Math.Min(play.Value, (uint)characters.Count - 1)];
+        if (!HardcoreDeathRules.CanEnter(chosen))
+            return [CharacterList(), new U16Message(0x0f, ResultLeagueDoesNotExist)];
         // Last played now: the character screen selects it next time (CharacterList's B28).
         accounts.Touch(Session.AccountId, chosen.Id, chosen.AreaId);
         CharacterName = chosen.Name;
-        CharacterLeague = Leagues.Find(chosen.League);
+        CharacterId = chosen.Id;
+        CharacterLeague = Leagues.ResolveSavedLeague(chosen.League);
         CharacterClass = chosen.Class;
         CharacterLevel = chosen.Level;
         CharacterLastTown = chosen.LastTown;
@@ -84,8 +87,9 @@ public sealed class LoginServerSession(AccountService accounts)
 
     /// <summary>The character chosen with Play (0x0e), once in game.</summary>
     public string? CharacterName { get; private set; }
+    public Guid? CharacterId { get; private set; }
 
-    /// <summary>The chosen character's league (null if the server no longer offers it).</summary>
+    /// <summary>The chosen character's offered or historical league (null if neither catalog knows it).</summary>
     public League? CharacterLeague { get; private set; }
 
     /// <summary>The chosen character's class.</summary>
@@ -245,5 +249,6 @@ public sealed class LoginServerSession(AccountService accounts)
         Session is null ? [] :
         [.. accounts.Characters(Session.AccountId).Select(c =>
             // U46 (+0x46) is the portrait variation the character screen draws (0x14082e210 → 0x142426b00).
-            new ListEntry15(c.Name, c.League, 0, 0, (byte)Math.Clamp(c.Level, 0, 255), 0, (byte)c.Class, 0, c.Portrait, 0, 0))];
+            new ListEntry15(c.Name, c.League, (byte)(c.HardcoreDeath?.PermanentlyDead == true ? 1 : 0), 0,
+                (byte)Math.Clamp(c.Level, 0, 255), 0, (byte)c.Class, 0, c.Portrait, 0, 0))];
 }

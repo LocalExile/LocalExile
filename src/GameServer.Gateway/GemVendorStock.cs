@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// Faster Casting from Yeena after Sharp and Cruel. Only gems the client's shop list has (<see cref="ItemCatalog.ShopGems"/>)
 /// are sold, so Vaal, awakened and placeholder gems stay out.
 /// </summary>
-sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills)
+sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
 {
     static readonly string[] CurrencyIds =
     [
@@ -42,12 +42,18 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
 
     /// <summary>The NPC's gem stock at character level/quest state: BaseItemTypes rows, in row order. Empty before the
     /// character has completed a quest that offers gems (or when Lilly/Siosa's own unlock is missing).</summary>
-    public IReadOnlyList<int> Stock(string npcId, int classRow, IReadOnlySet<string> flags)
+    public IReadOnlyList<int> Stock(string npcId, int classRow, IReadOnlySet<string> flags, bool ruthless = false, int level = 100)
     {
         bool lilly = npcId.EndsWith("/Lilly", StringComparison.OrdinalIgnoreCase)
             || npcId.EndsWith("/Lilly2", StringComparison.OrdinalIgnoreCase);
         bool siosa = npcId.EndsWith("/Siosa", StringComparison.OrdinalIgnoreCase);
         if ((lilly && !flags.Contains(LillyUnlock)) || (siosa && !flags.Contains(SiosaUnlock))) return [];
+        // Siosa exchanges an Uncarved Gemstone for an active gem. Other Ruthless vendors sell no gems.
+        if (ruthless)
+            return !siosa ? [] : [.. sellable.Intersect(RuthlessGemRows(folder)).Where(row => items.Row(row) is { } type
+                && RuthlessGemRules.AllowsBase(type.Id)
+                && items.Gem(type) is { IsSupport: false, Variants.Count: > 0 } gem
+                && skills.PlayerLevelReq(gem.Variant(0).Effect, 1) <= level).Order()];
         bool ignoreClass = lilly || siosa;
         var available = npcs.AvailableRewards(flags);
         bool Done(QuestRewardCatalog.Offer offer) => flags.Contains(offer.TakenFlag) || available.Contains(offer.Row);
@@ -69,6 +75,16 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
         if (npcId.EndsWith("/Yeena", StringComparison.OrdinalIgnoreCase) && rewards.Find(15) is { } weaver && Done(weaver))
             Add("Metadata/Items/Gems/SupportGemFasterCast", rows);
         return [.. rows];
+    }
+
+    static IReadOnlySet<int> RuthlessGemRows(string folder)
+    {
+        using var index = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/IndexableSkillGems.json")));
+        using var gems = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/SkillGems.json")));
+        return index.RootElement.EnumerateArray().Where(r => r.GetProperty("IndexRuthless").ValueKind == System.Text.Json.JsonValueKind.Number)
+            .SelectMany(r => r.GetProperty("SkillGem2").EnumerateArray().Select(x => x.GetInt32()))
+            .Where(row => row >= 0 && row < gems.RootElement.GetArrayLength())
+            .Select(row => gems.RootElement[row].GetProperty("BaseItemTypesKey").GetInt32()).ToHashSet();
     }
 
     // The 3.29 cross-class supports are vendor-only additions, so they are named by their BaseItemTypes Id.

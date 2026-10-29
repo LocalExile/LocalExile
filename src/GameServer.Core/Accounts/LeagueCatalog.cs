@@ -55,6 +55,10 @@ public sealed class LeagueCatalog
     public League? Find(string? name) =>
         name is null ? null : All.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Resolves saved characters in the configured catalog or the default Standard/Allflame families.
+    /// Creation uses <see cref="Find"/> so a narrower configuration does not offer disabled families again.</summary>
+    public League? ResolveSavedLeague(string? name) => Find(name) ?? Default.Find(name);
+
     public IReadOnlyList<LeagueEntry> Entries() => [.. All.Select(l => l.Entry())];
 
     private static IEnumerable<League> Variants(string b)

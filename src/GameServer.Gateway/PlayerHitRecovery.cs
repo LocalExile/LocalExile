@@ -6,6 +6,8 @@ sealed class PlayerHitRecovery
 {
     public const byte TakeHitAnimation = 5;
     public double Until { get; private set; } = double.NegativeInfinity;
+    /// <summary>Accepted recovery permanently invalidates older paid windups, independently of Move and expiry.</summary>
+    public int Generation { get; private set; }
     public bool Active(double now) => now < Until;
     public bool BlocksInput(double requestedAt, double now) => Active(now) || requestedAt < Until;
     public void Clear() => Until = double.NegativeInfinity;
@@ -14,6 +16,7 @@ sealed class PlayerHitRecovery
     {
         if (Active(now) || !float.IsFinite(seconds) || seconds <= 0) return false;
         Until = now + seconds;
+        Generation++;
         return true;
     }
 

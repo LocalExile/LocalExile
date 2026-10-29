@@ -17,6 +17,7 @@ sealed class NpcCatalog
         public string? Model { get; init; }
         /// <summary>A fixed world z (a town room's line, <see cref="Placement.Height"/>).</summary>
         public float? Height { get; init; }
+        public int RuthlessShopRow { get; init; } = -1;
         public bool Supported => Components is { } c && NpcObject.CanSerialize(c, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
@@ -149,10 +150,15 @@ sealed class NpcCatalog
             }
         }
         var shopOfSet = new List<int>();
+        var ruthlessShopOfSet = new List<int>();
         string sets = Path.Combine(folder, "tables", "NPCShopSets.json");
         if (File.Exists(sets))
             using (var doc = JsonDocument.Parse(File.ReadAllBytes(sets)))
+            {
                 shopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.GetProperty("Shop").ValueKind == JsonValueKind.Number ? s.GetProperty("Shop").GetInt32() : -1)];
+                ruthlessShopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.TryGetProperty("ShopRuthless", out var shop)
+                    && shop.ValueKind == JsonValueKind.Number ? shop.GetInt32() : -1)];
+            }
         var rows = new List<Npc>();
         using (var doc = JsonDocument.Parse(File.ReadAllBytes(table)))
             foreach (var r in doc.RootElement.EnumerateArray())
@@ -168,7 +174,11 @@ sealed class NpcCatalog
                 int set = r.GetProperty("ShopSet").ValueKind == JsonValueKind.Number ? r.GetProperty("ShopSet").GetInt32() : -1;
                 rows.Add(new Npc(rows.Count, id, r.GetProperty("Name").GetString() ?? "", list,
                     stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
-                    set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1) { Model = TownNpcs.ModelOf(id) });
+                    set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1)
+                {
+                    Model = TownNpcs.ModelOf(id),
+                    RuthlessShopRow = set >= 0 && set < ruthlessShopOfSet.Count ? ruthlessShopOfSet[set] : -1,
+                });
             }
         return new(rows, null, ReadTalk(folder));
     }

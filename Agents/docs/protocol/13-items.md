@@ -728,10 +728,16 @@ The Gateway (`UseFlask`, `Flasks.cs`, `FlaskRecovery.cs`) takes the flask in tha
 11). Its base use comes from the tables (`ItemCatalog.FlaskOf`): Flasks.dat LifePerUse / ManaPerUse over RecoveryTime
 (tenths of a second) and ComponentCharges PerCharge of MaxCharges. Small Life Flask: 70 life over 3 s, 7 of 21 charges;
 Small Mana Flask: 50 mana over 3 s, 6 of 24. A use with fewer charges than it needs (§8b), or while dead, does nothing.
+Before spending charges, recovery flasks also need room in a pool they restore: life below maximum for life flasks,
+mana below the **unreserved** cap for mana flasks; a hybrid needs either of its pools below its cap.
+When those pools are full, the Gateway sends `0x263` result `0x4e2`, without spending/saving charges, adding a buff,
+restarting an existing recovery effect, or playing the drinking sound; the refusal carries the authoritative pool.
+The refusal result was captured from the official 3.29.3b client; the native UI suppresses its failure sound for `0x4e2`.
 Otherwise:
 
 1. The charges are spent and saved, and the flask goes to the client again (S→C 0xbf: the item removed and added with
-   its new Charges, same id).
+   its new Charges, same id). S→C `0x263` then confirms the successful use and triggers the native drinking
+   sound (details below).
 2. Its recovery (`FlaskRecovery.For`, as Path of Building's Item.lua and CalcPerform calcFlaskRecovery and poewiki's
    "Recovery from flasks"): base × (1 + quality) × (1 + increased amount recovered: `local_flask_amount_to_recover_+%`
    and the life / mana ones) × (1 + the character's `flask_life_to_recover_+%` / `flask_mana_to_recover_+%` and
@@ -792,14 +798,18 @@ RePoE 3.29.3.3 `base_items.json` give Quicksilver 6 s (duration 60), Ruby 8 s, I
 | Gold | flask_utility_rarity (131) | base_item_found_rarity_+% 30: rarer drops | 5 s, 60 of 80 |
 | Aquamarine | flask_utility_aquamarine (126) | base_frozen_effect_on_self_+% −60: character panel only | 8 s, 20 of 50 |
 | Corundum | flask_utility_stun_protection (1888) | stun_threshold_+% 30: character panel only | 7.5 s, 20 of 50 |
-| Iron | flask_utility_ward (132) | base_ward 200: waits for Ward (PR #206) | 4 s, 40 of 60 |
+| Iron | flask_utility_ward (132) | base_ward 200; paid use restores Ward immediately | 4 s, 40 of 60 |
 
 The Silver Flask's buff has no stats, only the flag `silver_flask_display_onslaught`; the Gateway also puts `onslaught`
 (row 215) on the player with the values of BuffTemplates `MapModPlayerOnslaught` (20, 20, 20). How each buff stat counts
 is `UtilityFlasks.SupportOf`: modelled (the pools, the walk, drops, damage), only the character panel (ailments, stun
-and curses on the player: monsters here only hit physically, so nothing freezes, stuns or curses the player), or Ward,
-which PR #206 brings (`UtilityFlasks.Ward` is where its Bonus.Ward / WardPct take Iron Flask's base_ward and the Ward
-suffix once both are merged). Every utility flask spends its charges and shows its buff and bar.
+and unsupported curse/ailment effects), or Ward.
+Ward flat/increased bonuses feed the authoritative pool through `UtilityFlasks.Apply`.
+After a successful charge payment and effect start, `local_flask_restore_ward` restores broken Ward immediately.
+Stat projection, refused uses and ordinary effect refresh never restore Ward.
+Native selected Antiquarian spent 40 charges and restored 502 Ward, returning to 22 after the four-second effect.
+See [the Ward model and native evidence](../game/antiquarian.md).
+Every utility flask spends its charges and shows its buff and bar.
 
 A use:
 
@@ -843,7 +853,7 @@ stat), each value rounded down (PoB ModStore.ScaleAddMod: to two decimals, then 
 
 The "during effect" suffixes (`UtilityFlasks.DuringEffect`) count while the flask runs, scaled by its effect: increased
 armour (`local_flask_armour_+%_while_healing` → `physical_damage_reduction_rating_+%`), increased evasion, movement
-speed, additional elemental resistances and increased critical strike chance; increased Ward waits for #206; the
+speed, additional elemental resistances, increased critical strike chance and increased Ward; the
 ailment, stun and curse ones (avoid, reduced effect or duration on you, immunities, "chance to Freeze, Shock and
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not
 modelled).
@@ -938,12 +948,70 @@ Diamond its roll (20 → 21), the second only the sure charge (15 → 16); a Sma
 Recovery Amount" used below full life added 28 more life over 10 s (a 3250-life character). Not seen live: charges when
 hit and every 3 seconds (tests only).
 
+### Use confirmation and drinking sound (S→C 0x263)
+
+Updating charges and adding the recovery buff do not play the drinking sound.
+The server must also send the item-use result, only after a successful use:
+
+| Wire field | Meaning |
+|---|---|
+| u16 BE `0x263` | Message id |
+| u32 BE | Used item's BaseItemTypes HASH32 |
+| u32 BE | Inventory id (`12` for the flask bar, not its row `11`) |
+| u32 BE | Item id, not its flask-bar cell |
+| u16 BE `0` | Empty string (no sound override) |
+| u32 BE | Result: `0` success, `0x4e2` full recovery pools |
+
+Evidence: official 3.28 captures in the older project's `out/capture_stream.jsonl` contain
+`0263403b9b3b0000000c00000002000000000000` (life) and
+`026393c8c37f0000000c00000004000000000000` (mana).
+The current 3.29.3b reader `0x1421aded0` confirms the same layout, including the **four-byte** wire result
+which it truncates into the message's u16 field at `+0x40`.
+Dispatcher case `0xc6` at `0x14215391b` fires the instance's `+0x3c78` listeners through `0x142171890`.
+UI callbacks `0x140d95a70` / `0x140ddcd60` use the type hash to look up BaseItemTypes and its use sound.
+With an empty override and result zero, the sound comes from the base row's `+0x58` reference, then its `+0x10` path.
+A nonzero result takes the failure branch instead; `0x4e2` is used for full-pool refusals without a drinking sound.
+
+Live verification on 3.29.3b: normal C→S `0x70` requests for Small Life and Small Mana Flasks reached
+`0x140ddcd60`, selected `Audio/Sound Effects/ItemSounds/flaskdrink.ogg`, and submitted it to audio `0x140ff6320`.
+The read-only probe is `scripts/re/frida/trace-flask-use.js` (load after `common.js`).
+Tests compare `InstanceItems.ItemUsed` against both official capture payloads.
+
+Listening checks initially raised doubt about `flaskdrink.ogg`.
+A fresh read-only capture from the user's official 3.29.3b Steam client confirmed the same path on successful
+Small Life Flask use: `0x263`, hash `0x403b9b3b`, inventory `12`, item `8`, empty override, result `0`.
+The native callback selected `Audio/Sound Effects/ItemSounds/flaskdrink.ogg`; the user also reported it sounded alike.
+Other captured uses returned `0x4e2`; no successful mana use was captured in this official session.
+`SoundEffects` row `Flask` is not a substitute: its UI path `flask.ogg2d` was identified by the user as inventory
+placement; substituting its other path `flask.ogg` into the UI callback was silent.
+All temporary substitutions and the official-client capture were detached; native default selection remains unchanged.
+
+Full-pool gate verified live locally: life `85/85` and mana `63/63` produce `0x263` result `0x4e2` plus the
+authoritative `0x1b1` of that pool (so the orb matches the server), with no inventory charge update, no recovery buff
+and no drinking audio submission.
+After `/hit chaos 20`, life-flask use spends charges, adds its buff, recovers life and plays `flaskdrink.ogg`;
+after `/heal`, another use is refused again.
+`FlasksTests` cover full pools, one-point deficits, irrelevant missing resources, reservation caps and hybrids.
+
+### The client pays for attack-moves the server only walks
+
+A read-only probe of a real input session (2026-10-26) showed the **client** spending the attack skill's mana on every
+attack-move use (Holy Strike: 6 mana per attack time), while the Gateway's attack-move branch only walks the player:
+the client's orb fell to 20/63 while the server still held 63, so every mana-flask press came back `0x4e2`.
+The Gateway now answers each attack-move with the authoritative mana (S→C `0x1b1`, at most four a second because the
+client repeats the use every frame while the button is held), giving the predicted cost back.
+A point within the weapon's reach is a swing at the ground instead of an attack-move, so standing and swinging costs
+the skill's mana as on the client (live 2026-10-26: it used to cost nothing).
+A full-pool refusal carries the authoritative pool too, so the orb and the next press agree.
+Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`); test: `ManaCostTests` pins Holy Strike's
+6 mana at level 1.
+
 ## Open
 
 - Flasks: fewer kill charges in acts 6 to 10 and maps (the amount is not in the tables), single monsters' own flask
   charge stats, partial charges across connections (not saved), hybrid flasks' buffs (a hybrid flask recovers both pools
   but shows only the life buff), the effects across an area change (they end), the "during any flask effect" passives.
-  Utility flasks: Ward (Iron Flask, the Ward suffix) until PR #206 is in; ailments, stun and curses on the player
+  Utility flasks: unsupported ailments, stun modifiers and curses on the player
   (Aquamarine's freeze effect, Corundum, the ailment suffixes: panel only); Aquamarine's chilled ground; the smoke
   cloud's art; which objects phasing lets the player through besides monsters; how long the grounds last; whether taking
   a flask off the bar ends its effect (it does here, `UtilityFlasks.EndsWhenFlaskLeavesItsCell`); leech suffixes.

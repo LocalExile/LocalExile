@@ -393,6 +393,10 @@ It now has an explicit framing length, including when followed by another messag
 
 The Gateway accepts registered functional objects and NPCs only in the character's selected personal hideout.
 Town objects, pets, portals, unknown ids, out-of-grid/blocked terrain and nonfinite rotations are rejected.
+The terrain check needs the template's captured walk map (`live.ps1 -Walkmaps`). A template without one has a
+0 × 0 grid, so the server skips the cell check and relies on the native Edit UI's placement check
+(`HideoutEditing.Cells`). Without that fallback every move in an uncaptured template was refused.
+A move in a hideout other than the character's selected one is logged as refused, with the reason.
 The Edit toggle is local client UI state; no separate server edit-mode toggle was observed.
 This implementation applies translation and rotation; variation and mirroring changes are not implemented.
 

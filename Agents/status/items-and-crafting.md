@@ -15,13 +15,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   instant, low life, other-pool costs, mana at the end, not removed at full, extra life), as Path of Building does.
   Several recovery flasks queue, the highest rate first (poewiki).
   Checked live: the base recovery and the extra-life suffix; the other mods and queueing by tests.
+  A successful use also sends S→C `0x263`; the native UI then looks the base type up and plays its use sound,
+  `Audio/Sound Effects/ItemSounds/flaskdrink.ogg` (traced on the official 3.29.3b client and captured from it).
+  Full pools refuse the flask before any charge or buff, with silent `0x263` result `0x4e2` and the authoritative pool;
+  mana fullness uses the unreserved cap (full-pool refusals verified live locally).
+  The client also pays the attack skill's mana for attack-moves the server only walks; the Gateway answers with the
+  authoritative mana so the orb and the flasks agree (probe 2026-10-26).
   Code: `Flasks.cs`, `FlaskRecovery.cs`, Gateway (`UseFlask`, `RunResourceRecovery`).
   Docs: [13](../docs/protocol/13-items.md) §8.
 - Flask charges: kills give 1 / 3.5 / 6 / 11 charges by rarity (Mods.dat monster rarity mods, poewiki), increased
   flask charges gained and charge recovery multiply, partial charges are kept.
   Charges on dealing a critical strike (one 0.132 s cooldown), when hit and every 3 seconds; charges used and maximum
   charges with mods.
-  Towns, hideouts and resurrection fill every flask; a flask put on the bar in a hostile area starts empty.
+  Ordinary-mode towns, hideouts and resurrection fill every flask; a flask put on the bar in a hostile area starts empty.
   `Game_FLASK_CHARGES=full` brings back "every kill fills every flask".
   Not yet: fewer charges in acts 6 to 10 and maps; charges on taking a critical strike (monsters deal none) and at
   maximum frenzy charges (none here).
@@ -39,7 +45,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   phases through monsters, Gold raises the rarity of drops, Silver gives Onslaught.
   Checked live: every flask's use, stats on the client, bars, pause, death, area change; not the client walking faster
   or phasing (the control bridge cannot make it walk).
-  Not yet: Iron Flask's Ward (PR #206), ailments, stun and curses on the player (Aquamarine, Corundum and the ailment
+  Iron Flask now contributes to the authoritative Ward pool and restores broken Ward only after paid use.
+  A native Antiquarian check spent 40 charges, restored 502 Ward immediately and returned to 22 after expiry.
+  See [Ward and native evidence](../docs/game/antiquarian.md).
+  Not yet: ailments, stun and curses on the player (Aquamarine, Corundum and the ailment
   suffixes reach the panel only), Aquamarine's chilled ground, the smoke cloud's art, leech suffixes.
   Code: `UtilityFlasks.cs`, `FlaskGrounds.cs`, Gateway (`UseUtilityFlask`, `RunUtilityFlasks`, `RunFlaskGrounds`).
   Docs: [13](../docs/protocol/13-items.md) §8a.
@@ -98,6 +107,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   backstop, the Foulborn rightmost variant and Enkindling (`UniqueCatalog`, `Program.Mageblood`;
   [13](../docs/protocol/13-items.md) §2e, §8a).
 
+- Ruthless uses native mod/flask alternatives, reduced tunable drops and vendor returns, and refuses bench crafting.
+  Entering town or a hideout does not refill its pools/flasks; supported vendors refill them instead.
+  Active utility flasks cannot gain charges, and native Ruthless durations/Onslaught values apply.
+  Automated pool-restoration and session-ownership checks cover area changes, reconnects and vendor refill persistence.
+  Drop, recipe, bench and flask-rule calculations have automated coverage; full retail balance remains partial.
+  See [league modes](../docs/game/league-modes.md).
 - Essence crafting (2026-10-25, automated verification; real-client use pending): all 105 craftable essences resolve
   their exact class-specific guaranteed mod from Essences.dat, including tier-8 and Desolation.
   Normal/rare eligibility, random-mod level caps, fractures, metamod refusal and repeated consumption from the Essence

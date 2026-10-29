@@ -82,10 +82,20 @@ public class DefaultObjectCriticalResistanceTests
             await Task.Delay(100); // Respect the actual fast attack's next-input deadline; do not reset action state.
             await Use();
             Assert.Equal(4926u - (uint)damage, target.Life);
-            byte[] received = new byte[reader.Available];
-            await reader.GetStream().ReadExactlyAsync(received);
-            new ConnectionCiphers(new byte[64], isClient: true).Receive.Process(received);
-            Assert.True(received.AsSpan().IndexOf(InstanceProtocol.LifeUpdate(42, target.Life)) >= 0);
+            // A completed server write need not be available on the receiving socket yet.
+            byte[] expected = InstanceProtocol.LifeUpdate(42, target.Life);
+            var received = new List<byte>();
+            var decrypt = new ConnectionCiphers(new byte[64], isClient: true);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            byte[] buffer = new byte[4096];
+            while (received.ToArray().AsSpan().IndexOf(expected) < 0)
+            {
+                int count = await reader.GetStream().ReadAsync(buffer, deadline.Token);
+                Assert.True(count > 0);
+                byte[] chunk = buffer[..count];
+                decrypt.Receive.Process(chunk);
+                received.AddRange(chunk);
+            }
         }
         finally { PlayerInventories.Forget(character); }
     }

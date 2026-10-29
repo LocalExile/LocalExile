@@ -1,0 +1,10 @@
+{
+  "itemDropMultiplier": 0.20,
+  "goldMultiplier": 0.25,
+  "equipmentRarityMultiplier": 0.25,
+  "gemExperienceMultiplier": 0.25,
+  "vendorRewardMultiplier": 0.20,
+  "experiencePenaltyStartLevel": 68,
+  "experienceMultiplierPerLevel": 0.90,
+  "campaignBossLifeRecoveryFraction": 0.25
+}

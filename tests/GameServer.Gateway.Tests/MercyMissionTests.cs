@@ -262,8 +262,11 @@ public class MercyMissionTests : IDisposable
     [Fact] public void OnTheRealCapturesOnlyTheTidalIslandsBoatRoomTakesTheFallback()
     {
         if (RealData() is not { } data || !Directory.Exists(Path.Combine(data, "walkability"))) return;
+        var files = Directory.GetFiles(Path.Combine(data, "walkability"), "*_seed*.doodads.json");
+        // Height-only test fixtures can create this directory without installing any real room captures.
+        if (files.Length == 0) return;
         int areas = 0;
-        foreach (var file in Directory.GetFiles(Path.Combine(data, "walkability"), "*_seed*.doodads.json"))
+        foreach (var file in files)
         {
             string name = Path.GetFileName(file)[..^".doodads.json".Length];
             int at = name.LastIndexOf("_seed", StringComparison.Ordinal);

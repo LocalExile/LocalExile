@@ -42,17 +42,48 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AscendancyCatalog`, `AscendancyProgress`, `OrdinaryPassiveRules`, `CharacterSaves`, Gateway progression.
   Docs: [scope, evidence and beginner steps](../docs/game/ascendancies.md).
 
+- Antiquarian: all nine notables and nine small nodes execute through three legal connected eight-point builds.
+  Native checks cover Ward/Adrenaline, final attributes/requirements, stun recovery, Enduring Cry duration,
+  always-hit attacks, Far Shot arrows and active-shield block/ranged mitigation.
+  Paid full refunds, reallocation, pause, death, area carry, relog and Gateway restart were checked.
+  Selection requires `Game_VERIFIED_ANTIQUARIAN=1` and read-only verification of the exact installed compatible graph.
+  Ordinary Juggernaut selection after a full refund restores the Default graph.
+  Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
+
+- Gambler: every node in its installed graph has a gameplay consumer, including both Block Luck choices and drawbacks.
+  Legal eight-point builds, exclusive choices, paid refunds, failed-save rollback and reload have Gateway coverage.
+  Incoming ordinary monster ailments give Risk Aversion an actual avoidance consumer, alongside bounded stun recovery.
+  Native checks cover legal builds, both choices, outgoing/incoming resistance outcomes, damage, real ignite avoidance,
+  lethal death-panel/checkpoint behavior, refunds, relog and restart.
+  Current-base build/tests and exact related-head composition preserve the documented shared merge resolutions.
+  Default Phrecia admission is gated; the explicit Gambler opt-in verifies installed graph bytes read-only.
+  Docs: [Gambler checklist, scope and verification](../docs/game/gambler.md).
+
 ## Partly working
 
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
-  Phrecia game connections/selection remain explicitly gated pending an agreed client-compatible graph.
+  Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
-  The native Labyrinth/Altar flow is separate (#151); special class gameplay is outside this slice.
+  The native Labyrinth/Altar flow is separate (#151); other Phrecia class gameplay remains separate work.
   Native ordinary command checks do not establish an expanded chooser or special class gameplay.
+  Forest Tracking's attack-damage bonus from final evasion shares the existing Steel Willed calculation.
+  Automated checks cover actual node allocation/refund/reload, final defences, signed composition and attack consumers.
+  Seventeen native raw-input controls cover real damage, armour/evasion composition, added damage and relog.
+  Full Daughter of Oshabi gameplay remains separate.
+  Herald, Architect of Chaos, Paladin and Puppeteer family gem levels reach actual skill records and calculations.
+  Automated checks cover real connected allocation, paid refunds, reload, supported levels and intrinsic requirements.
+  Twenty-eight native checks cover effective family levels, unrelated sources, removal, unchanged storage and relog.
+  Family-specific execution and Phrecia native admission remain separate.
   Docs: [scope and compatibility gate](../docs/game/ascendancies.md).
+- Ruthless applies a configurable compounding XP multiplier from level 68 by default.
+  The numeric rate is LocalExile tuning because the retail server formula is not public.
+  Native Ruthless passive stat/point alternatives are selected for each Ruthless connection.
+  Automated configuration tests cover valid live edits and retaining the last valid snapshot after invalid input.
+  Native passive alternatives and the compounding level formula have automated coverage.
+  See [league modes](../docs/game/league-modes.md).
 
 ## Not working yet
 
 - Saving quest progress.
   Quest passive/refund rewards and native Labyrinth/Altar acquisition (#151) remain missing.
-  Special ascendancy gameplay and Phrecia client compatibility are separate work.
+  Remaining special ascendancy gameplay and broader Phrecia client compatibility are separate work.

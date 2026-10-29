@@ -22,8 +22,11 @@ partial class Program
             await conn.Commands!.Reply(error!);
             return;
         }
-        Interlocked.Increment(ref conn.ActionCount);
-        conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
+        using (ProjectileMutation(conn))
+        {
+            Interlocked.Increment(ref conn.ActionCount);
+            conn.Walk.Teleport(to.X, to.Y, ProjectileWorldTime(conn));
+        }
         await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, to.X, to.Y),
             $"0x01b7 player /tp to ({to.X}, {to.Y}){(to.Next is null ? "" : $" next to {to.Next}")}");
         await conn.Commands!.Reply($"Teleported to ({to.X}, {to.Y}) in {conn.Layout.Id}{(to.Next is null ? "" : $", next to {to.Next}")}.");

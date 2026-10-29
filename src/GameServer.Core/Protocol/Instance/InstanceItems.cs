@@ -46,7 +46,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public int GemVariant { get; init; }
 
     /// <summary>SkillGem component +0x10: bit 2 (0x04) is the client's "level locked" (right-click on the gem; its level-up
-    /// check 0x142472db0 returns false then). The client's own bits 5 (variant) and 7 are not sent.</summary>
+    /// check 0x142472db0 returns false then). Payload derives bit 5 from GemVariant, as the native copy does.</summary>
     public byte GemFlags { get; init; }
 
     public ItemRarity Rarity { get; init; }
@@ -154,7 +154,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // 0x14246eb00: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x14246fa50
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
                 // IndexableSupportGems index (0: none).
-                case "SkillGem": w.I32(GemExperience).U32((uint)GemVariant).U8(GemFlags).U16(0); break;
+                // The network reader copies the flags byte verbatim; unlike the native copy it does not derive
+                // bit 5 from the variant. Normalize it here for both standalone and nested socket gems.
+                case "SkillGem": w.I32(GemExperience).U32((uint)GemVariant)
+                    .U8((byte)((GemFlags & ~0x20) | (GemVariant > 0 ? 0x20 : 0))).U16(0); break;
                 // 0x1421e2e20: u8 = bit0/bit1 (special, nothing more) | socket count << 2 | link group count << 5; per socket
                 // u8 colour << 1 | has gem, then the gem (item data without the length prefix); then a u8 per link group
                 // (assumed: the group's socket count).
@@ -398,6 +401,14 @@ public static class InstanceItems
     /// read from the client's serializer. The client changes nothing itself: the server spends the charges and recovers.
     /// </summary>
     public static uint ReadUseFlask(ReadOnlySpan<byte> m) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+
+    /// <summary>
+    /// S→C 0x263: item-use result. Reader 0x1421aded0: u32 type HASH32, inventory id, item id, string, u32 result.
+    /// The empty string and zero result let the native callback play the base item's use sound; 0x4e2 refuses a full
+    /// recovery pool without that sound. The result occupies four wire bytes despite its u16 client field.
+    /// </summary>
+    public static byte[] ItemUsed(uint typeHash, uint inventoryId, uint itemId, ushort result = 0) =>
+        new LoginWriter().U16(0x263).U32(typeHash).U32(inventoryId).U32(itemId).U16(0).U32(result).ToArray();
 
     public const ushort UseItemTypeOnId = 0x72;
     public const int UseItemTypeOnLength = 23;

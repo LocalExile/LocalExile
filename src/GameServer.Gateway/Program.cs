@@ -248,9 +248,8 @@ sealed partial class Program
     internal const string RighteousFireRingAo = "Metadata/Effects/Spells/ri_fire/rifire.ao";
     // The projectiles' explosion (Fireball's, MiscAnimatedArtVariations fireball_standard variant 0).
     internal const string DefaultProjectileImpactAo = "Metadata/Effects/Spells/fireball/explode_new2.ao";
-    // Kinetic Blast's area explosion where its wand projectile lands (spells/cluster_burst/big.ao; the skill's own effect
-    // is ClusterBurst, and 3.29 names no Projectiles row for it, see SkillCatalog.ProjectileFallbacks).
-    internal const string KineticBlastImpactAo = "Metadata/Effects/Spells/cluster_burst/big.ao";
+    // Secondary KB explosion: kinetic_blast_small, distinct from the unscaled main-impact kinetic_blast_large art.
+    internal const string KineticBlastExplosionAo = "Metadata/Effects/Spells/cluster_burst/mini.ao";
     // The player's own tick (RunPlayerTick): regeneration and damage over time.
     internal const int PlayerTickMs = 250;
     // How often Righteous Fire's ring is moved to the player (RunRingFollow), and how far ahead it aims (our own number).

@@ -73,11 +73,15 @@ public sealed record ControlResponse
     public uint Ticket { get; init; }
     public bool IsTown { get; init; }
     public string? Character { get; init; }
+    /// <summary>Stable account-character identity; reused display names must not reactivate old tickets/world state.</summary>
+    public Guid? CharacterId { get; init; }
     /// <summary>"resolve": the name of the account the character belongs to (its stash is the account's).</summary>
     public string? Account { get; init; }
-    /// <summary>The character's league and whether it is hardcore (the death screen offers only Exit).</summary>
+    /// <summary>The canonical full league name; selected modes are explicit flags, not inferred from this display name.</summary>
     public string? League { get; init; }
     public bool Hardcore { get; init; }
+    public bool Ssf { get; init; }
+    public bool Ruthless { get; init; }
     /// <summary>The character's class: Characters.dat IntegerId (CharacterClass), the Witch (3) if unknown.</summary>
     public int Class { get; init; } = 3;
     /// <summary>The character's level (from the account store).</summary>

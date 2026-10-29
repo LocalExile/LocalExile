@@ -88,5 +88,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Server-side world simulation** (monsters, combat): no project for it yet; add one when it is needed.
 - **Several players** in one instance: player presence, poses, life, departure and body blockers are published.
   Verify two authenticated connections together, then add party admission to private instances and shared combat.
+  Party invites (C→S 0x93) and friend requests (C→S 0x80) are read but not answered: next, S→C 0xa9 party info and the
+  friend list ([28](../docs/protocol/28-player-trade.md) "Open"). Trade between players works.
   The native remote-player body and normal/unique monster clearance have single-client checks.
   See [status/world.md](../status/world.md) and [07](../docs/protocol/07-latency-visibility-movement.md).

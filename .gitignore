@@ -24,6 +24,9 @@ PathOfExile*.exe
 /artifacts/
 /captures/
 
+# Active gameplay tuning is local; commit reusable defaults, not a server's current settings.
+/config/ruthless.json
+
 # --- Secrets ---
 *.pfx
 *.p12

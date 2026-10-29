@@ -119,3 +119,9 @@ the Submerged Passage blocker), which matches having been there.
   Roadmap's "every area at seed 1" capture fixes it for the dev seed.
 - 0x4c's u32 and 0x4d's u32; the other 0x7b kinds (0x01..0x72 open other panels: stash, vendors, …).
 - Real quest progress should set and save the flags instead of deriving them from visits.
+
+### Current position versus quest highlighting
+
+These are separate native pin layers, not two forms of the current-area field. The green `WorldPanelPlayerIcon` is pin +0x32c: 0x140a96b30 matches the actual instance WorldAreas row against each MapPins.WorldAreas list, so hideouts without campaign pins naturally show no player marker.
+
+The orange quest-location overlay uses pin +0x32b, rendered at 0x140ab08b0 with `WorldPanelVisitedQuestLocationIcon` / `WorldPanelRevealedQuestLocationIcon`. 0x140a99f80 derives it from the selected QuestStates row's MapPins list (+0x45/+0x4d), resolved by 0x141e7fa00 and selected via 0x140a97240. It can remain on a town while the player is on The Coast or in a hideout, because the selected quest still points there. It is not a stale current-location packet. Reusing it as an unconditional location ring would require a client UI change; do not falsify quest flags or area identity to move it.

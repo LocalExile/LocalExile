@@ -1,335 +1,203 @@
-using GameServer.Core.World;
+using GameServer.Core.Projectiles;
 
 namespace GameServer.Gateway.Tests;
 
 public class ProjectileFlightTests
 {
+    static ProjectileProfile Arrow => new("test") { Speed = 10, Range = 100, Radius = 1, Lifetime = ProjectileRuntime.Time(20) };
+
     [Fact]
-    public void An_evaded_near_contact_does_not_hide_a_later_hit_in_the_same_swept_interval()
+    public void An_evaded_near_contact_does_not_hide_a_later_hit_in_the_same_delayed_advance()
     {
-        var targets = Observe(0, (9, Walker(80, 10)), (2, Walker(40, 10)));
-        var attempted = new List<uint>();
-        var step = Flight(targets).Advance(10, targets, id => { attempted.Add(id); return id == 9; });
-        Assert.Equal(new uint[] { 2, 9 }, attempted);
-        Assert.Equal(9u, step.TargetId);
-        Assert.Equal(6.9, step.At, 6);
-        Assert.Equal(79, step.Position.X, 6);
+        var world = new ProjectileRuntimeProbe(); world.Target(9, 80, 10); world.Target(2, 40, 10);
+        world.Accept = hit => hit.Target.Id == 9 ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
+        world.Release(); world.Advance(10.01);
+        Assert.Equal(new uint[] { 2, 9 }, world.Attempts.Select(h => h.Target.Id));
+        Assert.InRange(world.Attempts[1].At, ProjectileRuntime.Time(6.9) - 1, ProjectileRuntime.Time(6.9) + 1);
+        Assert.InRange(world.Attempts[1].Position.X, 79, 79 + 10d / ProjectileRuntime.QuantaPerSecond + 1e-9);
+        Assert.Empty(world.Runtime.Projectiles);
     }
 
     [Fact]
     public void An_evaded_overlapping_target_is_not_rolled_again_on_following_polls()
     {
-        var targets = Observe(0, (1, Walker(40, 10)));
-        var flight = Flight(targets);
-        int attempts = 0;
-        bool Miss(uint _) { attempts++; return false; }
-        Assert.False(flight.Advance(3, targets, Miss).Finished);
-        Assert.False(flight.Advance(3.05, targets, Miss).Finished);
-        var end = flight.Advance(10, targets, Miss);
-        Assert.Equal(1, attempts);
-        Assert.Equal(0u, end.TargetId);
-        Assert.Equal((110.0, 10.0), end.Position);
-        Assert.Equal(end, flight.Advance(20, targets, _ => throw new Exception("Terminal flight cannot hit twice")));
+        var world = new ProjectileRuntimeProbe(); world.Target(1, 40, 10);
+        world.Accept = _ => ProjectileHitResult.Miss; world.Release();
+        world.Advance(3); world.Advance(3.05); world.Advance(10.01); world.Advance(20);
+        Assert.Single(world.Attempts);
+        var end = Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End);
+        Assert.Equal(ProjectileEndReason.Distance, end.Reason);
+        Assert.Equal(110, end.Position.X, 9); Assert.Equal(10, end.Position.Y, 9);
     }
 
     [Fact]
     public void Missed_contacts_continue_to_the_wall_without_testing_targets_behind_it()
     {
-        var targets = Observe(0, (1, Walker(30, 10)), (2, Walker(80, 10)));
-        var flight = new ProjectileFlight((10, 10), (60, 10), 10, 0, 1, wall: true, targets);
-        var attempted = new List<uint>();
-        var end = flight.Advance(10, targets, id => { attempted.Add(id); return false; });
-        Assert.Equal(new uint[] { 1 }, attempted);
-        Assert.True(end.Wall);
-        Assert.Equal(0u, end.TargetId);
-        Assert.Equal((60.0, 10.0), end.Position);
-    }
-
-    [Fact]
-    public void An_accepted_contact_still_stops_and_never_checks_more_distant_targets()
-    {
-        var targets = Observe(0, (3, Walker(80, 10)), (2, Walker(40, 10)), (1, Walker(40, 10)));
-        var attempted = new List<uint>();
-        var end = Flight(targets).Advance(10, targets, id => { attempted.Add(id); return true; });
-        Assert.Equal(new uint[] { 1 }, attempted);
-        Assert.Equal(1u, end.TargetId);
-        Assert.Equal(2.9, end.At, 6);
-    }
-
-    [Fact]
-    public void A_moving_crossing_can_be_evaded_before_a_later_contact_in_one_delayed_poll()
-    {
-        var crossing = Walker(40, 0, 10);
-        crossing.Order(40, 30, 0);
-        var far = Walker(80, 10);
-        var initial = Observe(0, (1, crossing), (2, far));
-        var flight = Flight(initial, speed: 30);
-        var attempted = new List<uint>();
-        var end = flight.Advance(3, Observe(3, (1, crossing), (2, far)), id => { attempted.Add(id); return id == 2; });
-        // Observed motion over this interval crosses the projectile's sweep before the farther stationary enemy.
-        Assert.Equal(new uint[] { 1, 2 }, attempted);
-        Assert.Equal(2u, end.TargetId);
-    }
-
-    static WalkEstimator Walker(int x, int y, double speed = 10) => new(x, y, speed, width: 300, height: 300);
-    static ProjectileFlight.Target[] Observe(double at, params (uint Id, WalkEstimator Walk)[] monsters) =>
-        [.. monsters.Select(m => new ProjectileFlight.Target(m.Id, m.Walk.Position(at), m.Walk))];
-    static ProjectileFlight Flight(ProjectileFlight.Target[] targets, double speed = 10) =>
-        new((10, 10), (110, 10), speed, launched: 0, radius: 1, wall: false, targets);
-
-    [Fact]
-    public void A_piercing_sweep_does_not_reserve_a_target_that_leaves_the_route_at_launch()
-    {
-        var monster = Walker(60, 10, 20);
-        var flight = Flight(Observe(0, (1, monster)));
-        Assert.Empty(flight.AdvancePiercing(3, Observe(3, (1, monster))).Contacts);
-        monster.Order(60, 110, 3);
-        var (step, contacts) = flight.AdvancePiercing(10, Observe(10, (1, monster)));
-        Assert.Empty(contacts);
-        Assert.True(step.Finished);
-        Assert.Equal((110.0, 10.0), step.Position);
-    }
-
-    [Fact]
-    public void A_piercing_sweep_hits_a_target_that_enters_the_route_after_launch()
-    {
-        var monster = Walker(60, 30, 20);
-        var flight = Flight(Observe(0, (1, monster)));
-        Assert.Empty(flight.AdvancePiercing(3, Observe(3, (1, monster))).Contacts);
-        monster.Order(60, 10, 3);
-        ProjectileFlight.Pierced? hit = null;
-        for (double at = 3.1; at < 10 && hit is null; at += 0.1)
-        {
-            var (_, contacts) = flight.AdvancePiercing(at, Observe(at, (1, monster)));
-            if (contacts.Count > 0) hit = contacts[0];
-        }
-        Assert.NotNull(hit);
-        Assert.Equal(1u, hit!.Value.Id);
-        Assert.InRange(hit.Value.At, 4.8, 5.2);
-    }
-
-    [Fact]
-    public void A_piercing_sweep_reports_every_contact_in_order_and_keeps_flying()
-    {
-        var near = Walker(40, 10); var far = Walker(80, 10);
-        var targets = Observe(0, (9, far), (2, near));
-        var (step, contacts) = Flight(targets).AdvancePiercing(10, targets);
-        Assert.Equal(new uint[] { 2, 9 }, contacts.Select(c => c.Id));
-        Assert.Equal(2.9, contacts[0].At, 6);
-        Assert.Equal(6.9, contacts[1].At, 6);
-        Assert.True(step.Finished);
-        Assert.Equal(0u, step.TargetId);
-        Assert.Equal((110.0, 10.0), step.Position);
-    }
-
-    [Fact]
-    public void Already_pierced_targets_are_ignored_without_hiding_later_contacts()
-    {
-        var first = Walker(40, 10); var second = Walker(70, 10);
-        var targets = Observe(0, (1, first), (2, second));
-        var (_, contacts) = Flight(targets).AdvancePiercing(10, targets, new HashSet<uint> { 1 });
-        Assert.Equal(new uint[] { 2 }, contacts.Select(c => c.Id));
-    }
-
-    [Fact]
-    public void A_monster_that_changes_course_before_contact_is_not_reserved_at_launch()
-    {
-        var monster = Walker(60, 10, 20);
-        var flight = Flight(Observe(0, (1, monster)));
-        Assert.False(flight.Advance(3, Observe(3, (1, monster))).Finished);
-        monster.Order(60, 110, 3);
-        ProjectileFlight.Step step = default;
-        for (double at = 3.1; at < 10.2; at += 0.1) step = flight.Advance(at, Observe(at, (1, monster)));
-        Assert.True(step.Finished);
-        Assert.Equal(0u, step.TargetId);
-        Assert.False(step.Wall);
-        Assert.Equal((110.0, 10.0), step.Position);
-    }
-
-    [Fact]
-    public void A_monster_that_walks_into_the_path_after_launch_is_hit()
-    {
-        var monster = Walker(60, 30);
-        var flight = Flight(Observe(0, (1, monster)));
-        Assert.False(flight.Advance(3, Observe(3, (1, monster))).Finished);
-        monster.Order(60, 10, 3);
-        ProjectileFlight.Step step = default;
-        for (double at = 3.1; at < 5.2 && !step.Finished; at += 0.1)
-            step = flight.Advance(at, Observe(at, (1, monster)));
-        Assert.Equal(1u, step.TargetId);
-        Assert.InRange(step.At, 4.8, 5.1);
-        Assert.InRange(step.Position.X, 58, 61);
-    }
-
-    [Fact]
-    public void A_later_nearer_interceptor_wins_over_the_original_far_target()
-    {
-        var far = Walker(90, 10);
-        var near = Walker(50, 30);
-        var flight = Flight(Observe(0, (9, far), (2, near)));
-        flight.Advance(1, Observe(1, (9, far), (2, near)));
-        near.Order(50, 10, 1);
-        ProjectileFlight.Step step = default;
-        for (double at = 1.1; at < 10.1 && !step.Finished; at += 0.1)
-            step = flight.Advance(at, Observe(at, (9, far), (2, near)));
-        Assert.Equal(2u, step.TargetId);
-        Assert.InRange(step.Position.X, 48, 50);
-    }
-
-    [Fact]
-    public void Relative_sweep_catches_a_crossing_even_when_neither_endpoint_overlaps()
-    {
-        var crossing = Walker(60, 0, 20);
-        crossing.Order(60, 20, 0);
-        var flight = Flight(Observe(0, (1, crossing)), speed: 100);
-        var hit = flight.Advance(1, Observe(1, (1, crossing)));
-        Assert.Equal(1u, hit.TargetId);
-        Assert.InRange(hit.At, 0.48, 0.5);
-        Assert.InRange(hit.Position.X, 58, 60);
-    }
-
-    [Fact]
-    public void A_stale_or_dead_target_is_removed_from_the_observation_and_cannot_explode_the_projectile()
-    {
-        var monster = Walker(60, 10);
-        var flight = Flight(Observe(0, (1, monster)));
-        Assert.False(flight.Advance(2, Observe(2, (1, monster))).Finished);
-        // Runtime filters removed/dead/zero-life monsters before advancing, with the monster lock held.
-        var end = flight.Advance(10, []);
-        Assert.True(end.Finished);
-        Assert.Equal(0u, end.TargetId);
-        Assert.False(end.Wall);
-    }
-
-    [Fact]
-    public void A_newly_spawned_target_cannot_be_swept_backwards_through_time()
-    {
-        var flight = Flight([]);
-        var behind = Walker(30, 10);
-        var end = flight.Advance(5, Observe(5, (1, behind)));
-        Assert.False(end.Finished);
-        Assert.Equal(0u, end.TargetId);
-    }
-
-    [Fact]
-    public void A_stopped_clock_preserves_flight_and_the_terminal_result_is_latched()
-    {
-        var monster = Walker(60, 10);
-        var flight = Flight(Observe(0, (1, monster)));
-        var before = flight.Advance(2, Observe(2, (1, monster)));
-        for (int wallClockPoll = 0; wallClockPoll < 100; wallClockPoll++)
-            Assert.Equal(before, flight.Advance(2, Observe(2, (1, monster))));
-        var hit = flight.Advance(5, Observe(5, (1, monster)));
-        Assert.Equal(1u, hit.TargetId);
-        Assert.Equal(hit, flight.Advance(20, []));
+        var world = new ProjectileRuntimeProbe { Blocked = (x, _) => x == 60 };
+        world.Target(1, 30, 10); world.Target(2, 80, 10);
+        world.Accept = _ => ProjectileHitResult.Miss; world.Release(); world.Advance(10.01);
+        Assert.Equal(1u, Assert.Single(world.Attempts).Target.Id);
+        var end = Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End);
+        Assert.Equal(ProjectileEndReason.Terrain, end.Reason);
+        Assert.Equal(59.5, end.Position.X, 5);
     }
 
     [Fact]
     public void Earliest_contact_wins_independent_of_dictionary_order_and_ties_use_object_id()
     {
-        var near = Walker(40, 10); var far = Walker(80, 10);
-        var targets = Observe(0, (9, far), (3, near), (2, near));
-        var hit = Flight(targets).Advance(10, targets);
-        Assert.Equal(2u, hit.TargetId);
-        Assert.Equal(2.9, hit.At, 6);
+        var world = new ProjectileRuntimeProbe();
+        world.Target(9, 80, 10); world.Target(3, 40, 10); world.Target(2, 40, 10);
+        world.Release(); world.Advance(10.01);
+        var hit = Assert.Single(world.Attempts);
+        Assert.Equal(2u, hit.Target.Id); Assert.InRange(hit.At, ProjectileRuntime.Time(2.9) - 1, ProjectileRuntime.Time(2.9) + 1);
+    }
+
+    [Fact]
+    public void A_moving_crossing_can_be_evaded_before_a_later_contact()
+    {
+        var world = new ProjectileRuntimeProbe();
+        world.Target(1, at => new(40, Math.Min(30, at * 10)));
+        world.Target(2, 80, 10);
+        world.Accept = hit => hit.Target.Id == 2 ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
+        world.Release(Arrow with { Speed = 30 }); world.Advance(3);
+        Assert.Equal(new uint[] { 1, 2 }, world.Attempts.Select(h => h.Target.Id));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_target_that_changes_course_before_contact_is_not_reserved_at_launch(bool piercing)
+    {
+        var world = new ProjectileRuntimeProbe(); world.Target(1, 60, 10);
+        world.Release(Arrow with { Pierce = piercing ? 2 : 0 }); world.Advance(3);
+        world.Targets.Clear(); world.Target(1, at => new(60, 10 + Math.Min(100, (at - 3) * 20)));
+        world.Advance(10.01);
+        Assert.Empty(world.Attempts); Assert.Empty(world.Runtime.Projectiles);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_target_that_walks_into_the_route_after_launch_is_hit(bool piercing)
+    {
+        var world = new ProjectileRuntimeProbe(); world.Target(1, 60, 30);
+        world.Release(Arrow with { Pierce = piercing ? 2 : 0 }); world.Advance(3);
+        world.Targets.Clear(); world.Target(1, at => new(60, Math.Max(10, 30 - (at - 3) * 20)));
+        world.Advance(10.01);
+        var hit = Assert.Single(world.Attempts);
+        Assert.Equal(1u, hit.Target.Id);
+        Assert.InRange(hit.At, ProjectileRuntime.Time(4.8), ProjectileRuntime.Time(5.2));
+    }
+
+    [Fact]
+    public void A_later_nearer_interceptor_wins_over_the_original_far_target()
+    {
+        var world = new ProjectileRuntimeProbe(); world.Target(9, 90, 10); world.Target(2, 50, 30);
+        world.Release(); world.Advance(1);
+        world.Targets.RemoveAll(t => t.Key.Id == 2);
+        world.Target(2, at => new(50, Math.Max(10, 30 - (at - 1) * 10)));
+        world.Advance(10.01);
+        Assert.Equal(2u, Assert.Single(world.Attempts).Target.Id);
+    }
+
+    [Fact]
+    public void Relative_sweep_catches_a_crossing_and_is_independent_of_polling_cadence()
+    {
+        ProjectileRuntimeProbe Run(bool fine)
+        {
+            var world = new ProjectileRuntimeProbe();
+            world.Target(1, at => new(60, Math.Min(20, at * 20)));
+            world.Release(Arrow with { Speed = 100 });
+            if (fine) for (int i = 1; i <= 10; i++) world.Advance(i / 10d);
+            else world.Advance(1);
+            return world;
+        }
+        var coarse = Assert.Single(Run(false).Attempts); var fine = Assert.Single(Run(true).Attempts);
+        Assert.Equal(coarse.At, fine.At); Assert.Equal(coarse.Target, fine.Target);
+        Assert.InRange(coarse.At, ProjectileRuntime.Time(.48), ProjectileRuntime.Time(.5));
+    }
+
+    [Fact]
+    public void A_piercing_sweep_reports_every_contact_once_in_order_and_keeps_flying()
+    {
+        var world = new ProjectileRuntimeProbe(); world.Target(9, 80, 10); world.Target(2, 40, 10);
+        world.Release(Arrow with { Pierce = 2 }); world.Advance(3); world.Advance(10.01);
+        Assert.Equal(new uint[] { 2, 9 }, world.Attempts.Select(h => h.Target.Id));
+        Assert.InRange(world.Attempts[0].At, ProjectileRuntime.Time(2.9) - 1, ProjectileRuntime.Time(2.9) + 1);
+        Assert.InRange(world.Attempts[1].At, ProjectileRuntime.Time(6.9) - 1, ProjectileRuntime.Time(6.9) + 1);
+        Assert.Equal(ProjectileEndReason.Distance, Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End).Reason);
+    }
+
+    [Fact]
+    public void Removed_targets_cannot_explode_the_projectile_and_new_targets_cannot_be_swept_backwards()
+    {
+        var world = new ProjectileRuntimeProbe(); world.Target(1, 60, 10); world.Release(); world.Advance(2);
+        world.Targets.Clear(); world.Advance(5); world.Target(2, 30, 10); world.Advance(10.01);
+        Assert.Empty(world.Attempts); Assert.Empty(world.Runtime.Projectiles);
+    }
+
+    [Fact]
+    public void A_stopped_horizon_and_a_terminal_result_cannot_apply_a_hit_twice()
+    {
+        var world = new ProjectileRuntimeProbe(); world.Target(1, 60, 10); world.Release(); world.Advance(2);
+        var before = Assert.Single(world.Runtime.Projectiles).Position;
+        for (int i = 0; i < 100; i++) world.Advance(2);
+        Assert.Equal(before, Assert.Single(world.Runtime.Projectiles).Position);
+        world.Advance(5); world.Advance(20);
+        Assert.Single(world.Attempts); Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End);
     }
 
     [Fact]
     public void Scheduler_delay_clips_monster_motion_to_the_projectiles_own_end_time()
     {
-        var monster = Walker(110, 30, 10);
-        var flight = Flight(Observe(0, (1, monster)));
-        flight.Advance(9, Observe(9, (1, monster)));
-        monster.Order(110, 0, 9);
-        var step = flight.Advance(12, Observe(12, (1, monster)));
-        Assert.True(step.Finished);
-        Assert.Equal(0u, step.TargetId); // At t=10 the monster is still ten cells away; t=11 is too late.
+        var world = new ProjectileRuntimeProbe(); world.Target(1, 110, 30); world.Release(); world.Advance(9);
+        world.Targets.Clear(); world.Target(1, at => new(110, Math.Max(0, 30 - (at - 9) * 10)));
+        world.Advance(12); Assert.Empty(world.Attempts); Assert.Empty(world.Runtime.Projectiles);
     }
 
     [Fact]
-    public void Replacing_a_monsters_walk_for_a_dev_teleport_does_not_create_a_crossing_trajectory()
+    public void Replacing_an_actor_for_a_dev_teleport_does_not_create_a_crossing_trajectory()
     {
-        var monster = Walker(43, 30);
-        var flight = Flight(Observe(0, (1, monster)));
-        monster = Walker(43, 0); // /mob_tp and /mob_move replace the estimator on an explicit placement.
-        Assert.False(flight.Advance(5, Observe(5, (1, monster))).Finished);
+        var world = new ProjectileRuntimeProbe(); world.Target(1, 43, 30); world.Release(); world.Advance(1);
+        world.Targets.Clear(); world.Target(1, 43, 0); world.Advance(5); Assert.Empty(world.Attempts);
     }
 
     [Fact]
-    public void Linear_motion_contact_time_is_independent_of_polling_cadence()
+    public void Transfer_cancellation_survives_ticket_consumption_and_failed_transfer()
     {
-        var monster = Walker(60, 0, 20); monster.Order(60, 20, 0);
-        var coarse = Flight(Observe(0, (1, monster)), 100);
-        var fine = Flight(Observe(0, (1, monster)), 100);
-        var first = coarse.Advance(1, Observe(1, (1, monster)));
-        ProjectileFlight.Step second = default;
-        for (int poll = 1; poll <= 10 && !second.Finished; poll++)
-            second = fine.Advance(poll / 10.0, Observe(poll / 10.0, (1, monster)));
-        Assert.Equal(first.TargetId, second.TargetId);
-        Assert.Equal(first.At, second.At, 6);
-    }
-
-    [Fact]
-    public void Transfer_cancellation_survives_ticket_consumption_and_failed_transfers_do_not_revive_old_flights()
-    {
-        var conn = new ClientState(new AreaLayout(1, "test", 200, 200, 10, 10, null, []), 1, 1);
-        int before = conn.ProjectileEpoch;
-        Assert.True(conn.ProjectileActive(before));
-        conn.ProjectileObjects.UnionWith([0x3000u, 0x3001u]); // One flying object and one impact awaiting cleanup.
-        Assert.True(conn.TryBeginAreaChange(new PendingTransfer(2, 0, false), out var remove));
-        Assert.Equal(new[] { 0x3000u, 0x3001u }, remove.Order());
-        Assert.Empty(conn.ProjectileObjects);
-        Assert.False(conn.ProjectileActive(before));
-        Assert.False(conn.TryBeginAreaChange(new PendingTransfer(3, 0, false), out _));
-        conn.PendingTransfer = null; // Transfer consumes this before its asynchronous Auth call finishes.
-        Assert.False(conn.ProjectileActive(conn.ProjectileEpoch));
-        conn.ResumeAfterFailedTransfer();
-        Assert.False(conn.ProjectileActive(before));
-        Assert.True(conn.ProjectileActive(conn.ProjectileEpoch));
-        conn.Closed = true;
+        var conn = new ClientState(new(1, "test", 200, 200, 10, 10, null, []), 1, 1);
+        int before = conn.ProjectileEpoch; conn.ProjectileObjects.UnionWith([0x3000u, 0x3001u]);
+        Assert.True(conn.TryBeginAreaChange(new(2, 0, false), out var remove));
+        Assert.Equal(new[] { 0x3000u, 0x3001u }, remove.Order()); Assert.Empty(conn.ProjectileObjects);
+        Assert.False(conn.ProjectileActive(before)); Assert.False(conn.TryBeginAreaChange(new(3, 0, false), out _));
+        conn.PendingTransfer = null; Assert.False(conn.ProjectileActive(conn.ProjectileEpoch));
+        conn.ResumeAfterFailedTransfer(); Assert.False(conn.ProjectileActive(before));
+        Assert.True(conn.ProjectileActive(conn.ProjectileEpoch)); conn.Closed = true;
         Assert.False(conn.ProjectileActive(conn.ProjectileEpoch));
     }
 
     [Fact]
-    public void Paused_terminal_visuals_keep_their_cleanup_pending_until_resume_or_transfer()
+    public async Task Paused_terminal_output_keeps_cleanup_pending_until_resume_or_transfer()
     {
-        var conn = new ClientState(new AreaLayout(1, "test", 200, 200, 10, 10, null, []), 1, 1);
-        int epoch = conn.ProjectileEpoch;
-        conn.ProjectileObjects.Add(0x3000);
-        conn.Clock.Stop(); // Pause occurs after expiry was observed but before the packet reaches the send gate.
-        Assert.False(conn.TryCommitProjectileVisual(epoch)); // Animated swap is deferred too.
-        Assert.False(conn.TryCommitProjectileVisual(epoch, () => conn.ProjectileObjects.Remove(0x3000)));
-        Assert.Contains(0x3000u, conn.ProjectileObjects); // Cleanup has not been lost by dropping a paused packet.
-        conn.Clock.Start();
-        Assert.True(conn.TryCommitProjectileVisual(epoch));
-        Assert.True(conn.TryCommitProjectileVisual(epoch, () => conn.ProjectileObjects.Remove(0x3000)));
-        Assert.Empty(conn.ProjectileObjects);
-
-        conn.ProjectileObjects.Add(0x3001);
-        conn.Clock.Stop();
-        Assert.True(conn.TryBeginAreaChange(new PendingTransfer(2, 0, false), out var cleanup));
-        Assert.Equal(new[] { 0x3001u }, cleanup); // The transfer takes ownership of paused cleanup.
-        conn.Clock.Start();
-        bool oldPacketCommitted = false;
-        Assert.False(conn.TryCommitProjectileVisual(epoch, () => oldPacketCommitted = true));
-        Assert.False(oldPacketCommitted);
-    }
-
-    [Fact]
-    public void Wall_route_excludes_a_monster_behind_it_but_allows_a_nearer_monster()
-    {
-        var route = ProjectileFlight.ClipWall((10, 10), (110, 10), (x, _) => x == 50);
-        Assert.True(route.Wall);
-        Assert.Equal((49, 10), route.End);
-        var behind = Walker(60, 10);
-        var flight = new ProjectileFlight((10, 10), route.End, 10, 0, 1, route.Wall, Observe(0, (1, behind)));
-        var end = flight.Advance(5, Observe(5, (1, behind)));
-        Assert.True(end.Wall);
-        Assert.Equal(0u, end.TargetId);
-        Assert.Equal((49.0, 10.0), end.Position);
-        var near = Walker(40, 10);
-        flight = new((10, 10), route.End, 10, 0, 1, route.Wall, Observe(0, (2, near)));
-        Assert.Equal(2u, flight.Advance(5, Observe(5, (2, near))).TargetId);
+        foreach (bool transfer in new[] { false, true })
+        {
+            await using var f = new ProjectileRuntimeFixture();
+            f.Release(); await f.Read(); uint id = Assert.Single(f.Conn.ProjectileObjects);
+            await f.HoldOutput(); f.Advance(10.01);
+            Assert.Empty(f.Session.Runtime.Projectiles); // Terminal simulation precedes paused output cleanup.
+            f.Conn.Clock.Stop(); f.ReleaseOutput();
+            Assert.Contains(id, f.Conn.ProjectileObjects);
+            if (transfer)
+            {
+                Assert.True(f.Conn.TryBeginAreaChange(new(2, 0, false), out var cleanup));
+                Assert.Contains(id, cleanup); Assert.Empty(f.Conn.ProjectileObjects);
+                await f.Session.OutputCompleted.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            else
+            {
+                f.Conn.Clock.Start(); await f.Read(); Assert.Empty(f.Conn.ProjectileObjects);
+            }
+        }
     }
 
     [Theory]
@@ -339,20 +207,16 @@ public class ProjectileFlightTests
     [InlineData(10, 110, 10, 10)]
     public void Grid_trace_cannot_tunnel_through_a_single_cell_wall(int x0, int y0, int x1, int y1)
     {
-        bool Blocked(int x, int y) => x == 50 || y == 50;
-        var result = ProjectileFlight.ClipWall((x0, y0), (x1, y1), Blocked);
-        Assert.True(result.Wall);
-        Assert.False(Blocked(result.End.X, result.End.Y));
-        Assert.False(ProjectileFlight.ClipWall((x0, y0), result.End, Blocked).Wall);
+        Assert.NotNull(ProjectileGeometry.TraceGrid(new(x0, y0), new(x1, y1), (x, y) => x == 50 || y == 50));
     }
 
     [Fact]
-    public void Diagonal_corner_cells_and_a_wall_at_the_launch_cell_block()
+    public void Diagonal_corner_side_cells_and_a_wall_at_launch_block()
     {
-        Assert.Equal(((10, 10), true), ProjectileFlight.ClipWall((10, 10), (20, 20), (x, y) => x == 11 && y == 10));
-        Assert.Equal(((10, 10), true), ProjectileFlight.ClipWall((10, 10), (20, 20), (_, _) => true));
-        var flight = new ProjectileFlight((10, 10), (10, 10), 10, 0, 1, true, []);
-        Assert.True(flight.Advance(0.1, []).Wall);
+        Assert.Equal(.05, ProjectileGeometry.TraceGrid(new(10, 10), new(20, 20), (x, y) => x == 11 && y == 10)!.Value.Fraction, 6);
+        Assert.Equal(0, ProjectileGeometry.TraceGrid(new(10, 10), new(20, 20), (_, _) => true)!.Value.Fraction);
+        var world = new ProjectileRuntimeProbe { Blocked = (_, _) => true }; world.Release(); world.Advance(.1);
+        Assert.Equal(ProjectileEndReason.Terrain, Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End).Reason);
     }
 
     [Theory]
@@ -366,30 +230,22 @@ public class ProjectileFlightTests
     [InlineData(26, 34, 40, 40, 37, 38)]
     [InlineData(10, 10, 16, 24, 12, 13)]
     [InlineData(16, 24, 10, 10, 12, 13)]
-    public void Non_45_degree_exact_corners_check_both_side_cells_in_all_directions(
-        int x0, int y0, int x1, int y1, int blockX, int blockY)
+    public void Non_45_degree_corner_side_cells_block_in_all_directions(int x0, int y0, int x1, int y1, int bx, int by)
     {
-        bool Blocks(int x, int y) => x == blockX && y == blockY;
-        var clipped = ProjectileFlight.ClipWall((x0, y0), (x1, y1), Blocks);
-        Assert.True(clipped.Wall);
-        Assert.False(Blocks(clipped.End.X, clipped.End.Y));
-        Assert.NotEqual((x1, y1), clipped.End);
-        Assert.False(ProjectileFlight.ClipWall((x0, y0), clipped.End, Blocks).Wall);
+        var hit = ProjectileGeometry.TraceGrid(new(x0, y0), new(x1, y1), (x, y) => x == bx && y == by);
+        Assert.NotNull(hit); Assert.InRange(hit.Value.Fraction, 0, .999999);
     }
 
     [Fact]
-    public void The_rounded_wire_endpoint_also_has_a_clear_route_through_adjacent_blockers()
+    public void A_wall_blocks_the_far_monster_but_allows_a_nearer_contact()
     {
-        var random = new Random(917);
-        for (int map = 0; map < 200; map++)
+        foreach (bool near in new[] { false, true })
         {
-            var blocked = new HashSet<(int, int)>();
-            for (int cell = 0; cell < 200; cell++) blocked.Add((random.Next(11, 90), random.Next(11, 90)));
-            var end = (random.Next(40, 90), random.Next(40, 90));
-            bool Blocks(int x, int y) => blocked.Contains((x, y));
-            var clipped = ProjectileFlight.ClipWall((10, 10), end, Blocks);
-            Assert.False(Blocks(clipped.End.X, clipped.End.Y));
-            Assert.False(ProjectileFlight.ClipWall((10, 10), clipped.End, Blocks).Wall);
+            var world = new ProjectileRuntimeProbe { Blocked = (x, _) => x == 50 };
+            world.Target(1, near ? 40 : 60, 10); world.Release(); world.Advance(10.01);
+            Assert.Equal(near ? 1 : 0, world.Attempts.Count);
+            Assert.Equal(near ? ProjectileEndReason.Enemy : ProjectileEndReason.Terrain,
+                Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End).Reason);
         }
     }
 }

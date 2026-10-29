@@ -17,6 +17,7 @@ sealed class MonsterCatalog(string folder = "data")
         int AttackMs = 1500, int AttackRange = 8, int DamageMultiplier = 100, int ExperienceMultiplier = 100, bool BossHealthBar = false)
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
+        public bool RangedWeapon { get; init; }
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
         public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
@@ -228,6 +229,10 @@ sealed class MonsterCatalog(string folder = "data")
                 }
             }
         }
+        var rangedVisuals = RangedWeaponVisuals(folder);
+        bool RangedWeapon(JsonElement row) => new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }
+            .Any(name => row.TryGetProperty(name, out var values) && values.ValueKind == JsonValueKind.Array
+                && values.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.Number && rangedVisuals.Contains(value.GetInt32())));
         var rows = new List<Variety>();
         using (var doc = JsonDocument.Parse(File.ReadAllBytes(varieties)))
         {
@@ -246,12 +251,28 @@ sealed class MonsterCatalog(string folder = "data")
                     r.GetProperty("AttackSpeed").GetInt32(), r.GetProperty("MaximumAttackDistance").GetInt32(),
                     r.GetProperty("DamageMultiplier").GetInt32(), r.GetProperty("ExperienceMultiplier").GetInt32(),
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
-                    { LifeData = lifeData.GetValueOrDefault(baseType) ?? new(null, null, null) });
+                    { LifeData = lifeData.GetValueOrDefault(baseType) ?? new(null, null, null), RangedWeapon = RangedWeapon(r) });
             }
         }
         // With object-types.json, a type missing from it has no .ot: do not guess.
         if (components.Count > 0)
             rows = [.. rows.Select(v => v.Components is null ? v with { Components = [] } : v)];
         return (rows, null);
+    }
+
+    static HashSet<int> RangedWeaponVisuals(string folder)
+    {
+        string classes = Path.Combine(folder, "tables", "ItemClasses.json");
+        string bases = Path.Combine(folder, "tables", "BaseItemTypes.json");
+        if (!File.Exists(classes) || !File.Exists(bases)) return [];
+        using var c = JsonDocument.Parse(File.ReadAllBytes(classes));
+        using var b = JsonDocument.Parse(File.ReadAllBytes(bases));
+        var rangedClasses = c.RootElement.EnumerateArray().Select((row, index) => (row, index))
+            .Where(p => p.row.GetProperty("Id").GetString() is "Bow" or "Wand").Select(p => p.index).ToHashSet();
+        return b.RootElement.EnumerateArray()
+            .Where(row => row.TryGetProperty("ItemClassesKey", out var k) && k.ValueKind == JsonValueKind.Number
+                && rangedClasses.Contains(k.GetInt32()) && row.TryGetProperty("ItemVisualIdentity", out var v)
+                && v.ValueKind == JsonValueKind.Number)
+            .Select(row => row.GetProperty("ItemVisualIdentity").GetInt32()).ToHashSet();
     }
 }

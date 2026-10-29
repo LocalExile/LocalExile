@@ -314,7 +314,8 @@ public static class ClientPathfinder
         if (blockers.Count == 0) return false;
         int tx0 = Math.Max(0, (x - radius) / Tile), tx1 = (x + radius) / Tile + 1;
         int ty0 = Math.Max(0, (y - radius) / Tile), ty1 = (y + radius) / Tile + 1;
-        foreach (var b in blockers)
+        // A BlockerSet yields only the blockers that can reach this cell; the others could not block it anyway.
+        foreach (var b in blockers is BlockerSet set ? set.Near(x, y, threshold) : blockers)
         {
             if (b.CollisionRadius is double hull)
             {

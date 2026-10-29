@@ -4,7 +4,7 @@
 /// This is a server model, not evidence of native fractional parity. Existing attribute-derived pool divisions stay intact.
 /// </summary>
 readonly record struct AttributeModifiers(long Strength = 0, long Dexterity = 0, long Intelligence = 0,
-    long StrengthPct = 0, long DexterityPct = 0, long IntelligencePct = 0)
+    long StrengthPct = 0, long DexterityPct = 0, long IntelligencePct = 0, bool ZeroIntelligence = false)
 {
     public static bool IsInput(string name) => name is
         "base_strength" or "additional_strength" or "base_dexterity" or "additional_dexterity"
@@ -12,7 +12,7 @@ readonly record struct AttributeModifiers(long Strength = 0, long Dexterity = 0,
         or "base_strength_and_dexterity" or "additional_strength_and_dexterity"
         or "base_strength_and_intelligence" or "additional_strength_and_intelligence"
         or "base_dexterity_and_intelligence" or "additional_dexterity_and_intelligence"
-        or "strength_+%" or "dexterity_+%" or "intelligence_+%" or "all_attributes_+%";
+        or "strength_+%" or "dexterity_+%" or "intelligence_+%" or "all_attributes_+%" or "intelligence_is_0";
 
     public static AttributeModifiers From(Func<string, int> get) => FromWide(name => get(name));
 
@@ -27,14 +27,14 @@ readonly record struct AttributeModifiers(long Strength = 0, long Dexterity = 0,
             get("base_strength") + get("additional_strength") + all + strDex + strInt,
             get("base_dexterity") + get("additional_dexterity") + all + strDex + dexInt,
             get("base_intelligence") + get("additional_intelligence") + all + strInt + dexInt,
-            get("strength_+%") + allPct, get("dexterity_+%") + allPct, get("intelligence_+%") + allPct);
+            get("strength_+%") + allPct, get("dexterity_+%") + allPct, get("intelligence_+%") + allPct, get("intelligence_is_0") != 0);
     }
 
     public static int Signed(decimal value) => (int)Math.Clamp(value, int.MinValue, int.MaxValue);
 
     public (int Strength, int Dexterity, int Intelligence) Apply(long strength = 0, long dexterity = 0,
         long intelligence = 0) => (Final((decimal)Strength + strength, StrengthPct),
-            Final((decimal)Dexterity + dexterity, DexterityPct), Final((decimal)Intelligence + intelligence, IntelligencePct));
+            Final((decimal)Dexterity + dexterity, DexterityPct), ZeroIntelligence ? 0 : Final((decimal)Intelligence + intelligence, IntelligencePct));
 
     public (int Strength, int Dexterity, int Intelligence) Flat =>
         (Signed(Strength), Signed(Dexterity), Signed(Intelligence));

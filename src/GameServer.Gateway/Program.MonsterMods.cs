@@ -139,7 +139,7 @@ partial class Program
                 last = now;
                 if (conn.Paused || seconds <= 0) continue;
                 List<(uint Id, uint Life)> changed;
-                lock (conn.Monsters) changed = RegenerateMonstersLocked(conn.Monsters, seconds);
+                using (ProjectileMutation(conn)) changed = RegenerateMonstersLocked(conn.Monsters, seconds);
                 // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
                 // revive the monster on the client.
                 foreach (var (id, life) in changed)
