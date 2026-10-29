@@ -5,9 +5,10 @@ partial class Program
     internal static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
-            || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type))) return;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped.
+        if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
+            || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type)) && Get("all_damage_taken_can_chill") == 0) return;
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         bool frozen = previousAction == 0;
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical

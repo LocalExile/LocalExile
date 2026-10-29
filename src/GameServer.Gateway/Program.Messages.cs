@@ -575,6 +575,7 @@ partial class Program
                     await SendPlayer(remote, stream, ciphers, conn);
                     conn.PlayerSent = true;
                     await StartGracePeriod(remote, stream, ciphers, conn);
+                    await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
                     await SendWaypoints(remote, stream, ciphers, conn);
                     uint gold = PersonalStashOf(conn).Gold;
                     await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (account, {conn.League ?? "Standard"})");

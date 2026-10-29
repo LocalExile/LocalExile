@@ -112,7 +112,7 @@ partial class Program
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level, before);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
-        var passives = PassivesFor(conn).Stats(nodes, masteries);
+        var passives = PassiveBuffAuras.WithSelfBuffs(PassivesFor(conn).Stats(nodes, masteries), PassivesFor(conn), nodes);
         // Only attributes need a wide source view. Keep each raw key until overrides have replaced its entire total.
         var passiveAttributes = new Dictionary<string, long>();
         foreach (ushort node in nodes)
@@ -706,8 +706,8 @@ partial class Program
                 conn.MasteryEffects = effectsNow;
                 conn.RefundPoints = refundsNow;
                 conn.SavedPassiveProgress = new(conn.MainAscendancy, now, effectsNow, refundsNow);
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                conn.ApplyMovementSpeed();
+                // Also reconciles the ailments on the player with the new stats (Changing Seasons reverses a running chill).
+                RecomputePoolsAndSpeed(conn);
                 conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
@@ -727,6 +727,7 @@ partial class Program
                 await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (respec, {cost} paid)");
             }
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
+            await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
         }
         // Sent either way: on a refusal it puts the client's tree back to the server's.

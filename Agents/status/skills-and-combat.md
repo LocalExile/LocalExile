@@ -282,6 +282,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   reference radius, the uniform Positioned scale; matches the real game at level 1) and kept on the player every 100
   ms; server-side mana (cost, regeneration); `/god` (also 200% increased area of effect), `/set_aoe`.
   Code: Gateway (`ActivateRighteousFire`, `RunPlayerTick`), `SkillArea.cs`.
+  Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats and shows its
+  icon (Surfcaster's Ghost of the Deep); enemy and ally passive auras are not applied.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Warcry admission restriction (#297): any signed nonzero `your_warcry_skills_are_disabled` blocks new typed warcries.
   Actual caster passive/equipment/raw dev sources are read before skill overlays, action echoes, costs and cooldowns.
@@ -685,6 +687,10 @@ and can require explicit recipes.
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
+  Reversed chill (`chill_effect_is_reversed`) is increased action speed while freeze still stops the player, and
+  `all_damage_taken_can_chill` chills from any hit's total damage (Surfcaster's Changing Seasons).
+  The sent stats now include the final `virtual_action_speed_+%` that the native walk and action clips read; that
+  native effect is not checked live.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
   Alternative ailments and hostile spell/projectile adapters remain unimplemented.
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.

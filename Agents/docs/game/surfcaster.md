@@ -19,8 +19,8 @@ Native acceptance is still open and needs the reviewed combined graph installed 
 | | 50% chance to Freeze Enemies for 1 second when they Hit you; Enemies you Freeze remain Frozen for at least 1 second | Not yet: no monster freeze. |
 | 6252 Glacial Wave | Enemies Chilled by your Hits take increased damage and deal less damage by the Chill Effect | Not yet: no monster chill. |
 | 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Not yet: no monster shock. |
-| 52944 Changing Seasons | The Effect of Chill on you is reversed; All Damage Taken from Hits can Chill you | Not yet. |
-| 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Not yet. |
+| 52944 Changing Seasons | The Effect of Chill on you is reversed; All Damage Taken from Hits can Chill you | Works: any monster hit chills by its total damage, and the chill raises action speed instead; freeze is unchanged. |
+| 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Works: the Torment Touched buff gives the player all four 23% bonuses and shows its icon. No allies or tormented spirits exist to use the rest. |
 | 48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290 | 4% increased Cast Speed | Works: `base_cast_speed_+%` reaches `cast_speed_+%`. |
 | | 5% chance to Cause Monsters to Flee | Not yet: monsters have no flee state. |
 | | 10% increased Rarity of Fish Caught | No effect in 3.29.3b: the game has no fishing. |
@@ -69,6 +69,35 @@ Three legal eight-point builds cover all 18 non-start nodes:
   gameplay); there is no fishing skill or table, so `can_catch_corrupted_fish` and `fish_rarity_+%` have no consumer.
   No client code reads key 0x8e6 as a stat. Its two uses (`0x14017ae7c`, `0x140183a45`) pass 0x8e6 to the
   ClientStrings getter `0x1421fdc40` for the whisper "From"/"To" labels.
+- **Ghost of the Deep.** Its PassiveSkills row lists BuffTemplates 671 (`CustomAscendancyIllegalFisherman`,
+  AuraRadius 0), which puts BuffDefinitions 2550 (`Torment Touched`, BuffVisuals 1875, CancelOnDeath false) on the
+  player with 23 each to `base_movement_velocity_+%`, `attack_speed_+%`, `base_cast_speed_+%` and `damage_+%`, and 1
+  to `cant_touch_this` and `monster_is_touched_by_ghost`.
+  `PassiveBuffAuras` reads that chain from the tables and adds the values to the allocated passives' sum, so the
+  existing consumers take them like any passive: movement speed (server walk and the sent `movement_velocity_+%`),
+  attack speed, cast speed and damage.
+  The wiki's infocard and its 3.27.0g history give the player all four bonuses.
+  The stat text's "nearby allies" line has no aura behind it (the template's radius is 0), and the engine has no allies.
+  The two flags have no consumer: there are no tormented spirits to touch the player again, and the client reads
+  `monster_is_touched_by_ghost` only in a monster drop-quantity calculator.
+  Fairgraves' Tricorne's interaction (wiki) does not apply.
+  The buff is published with S→C 0x1c1 at area entry and after an allocation, and removed with 0x1c2 on refund; it has
+  no duration and stays through death.
+  Whether the native client keeps it after a death is not checked live.
+- **Changing Seasons.** `all_damage_taken_can_chill` lets a monster hit of any type chill the player.
+  The magnitude uses the hit's total damage taken, all types together, against the usual maximum-Life threshold
+  (wiki Changing Seasons: hits chill "with any damage type").
+  Freeze and shock still need their own cold or lightning damage.
+  `chill_effect_is_reversed` turns the chill into increased action speed by its effect (PoB `CalcPerform`: ActionSpeed
+  INC +effect), capped at 30% like any chill, and still scaled by `chill_effectiveness_on_self_+%`.
+  A freeze still stops the player (wiki: other action speed modifiers such as Freeze are unaffected).
+  `not_affected_by_action_speed_modifiers` cancels the speed-up as well.
+  The server walk, attack and cast timers and the sent action-speed stats follow `PlayerElementalAilments.ActionFactor`:
+  a 30% chill gives 1.3, with `virtual_action_speed_+%` +30, `action_speed_-%` −30 and the intermediary +30.
+  The client's `virtual_chill_effect_is_reversed` (0x1e46) is only a calculator (`0x14277bcd0`: key 0x1e44, or 0x1e45
+  on chilled ground), network stats run none ([04](../protocol/04-player-entity.md) §4.1a), and its other uses are
+  ClientStrings lookups, so the sent action speed carries the reversal.
+  Chilled ground is not modelled, so `chill_effect_is_reversed_when_on_chilled_ground` has no source.
 - **Sea Legs** already had its consumer (`ResistanceOvercap`, [11-skills](../protocol/11-skills.md) §12); the
   Gateway test compares the node with plain +40% cold and lightning resistance and both flags.
 
@@ -91,10 +120,20 @@ With the graph installed, start through `scripts/dev/live.ps1` and run:
 Equip the rod and socket a spell, then check that its casts per second rise by about 60% and every hit is a critical
 strike.
 Take the rod off to see both end.
+Build A also holds Ghost of the Deep: the Torment Touched icon shows, and the character panel has 23% more movement,
+attack and cast speed than without it.
+To try Changing Seasons, refund and allocate build B, then let a physical monster hit you: you are chilled and move
+and attack faster for two seconds.
+
+```text
+/add_passive 41643 60505 34767 61246 53922 6252 37534 52944
+```
 To try the rod with Stormy Seas and Within the Tempest, refund and allocate:
 
 ```text
 /add_passive 48926 64012 33031 37082 41643 60505 34767 61246
 ```
 
-Coverage: `AscendancyGatewayIntegrationTests.Surfcaster` and `VerifiedGamblerGraphTests`.
+Coverage: `AscendancyGatewayIntegrationTests.Surfcaster` (Ghost of the Deep against plain stats with its publication,
+reload and refund; Changing Seasons on a physical and a cold hit, a freeze and the unaffected flag) and
+`VerifiedGamblerGraphTests`.

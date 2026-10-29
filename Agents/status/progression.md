@@ -68,7 +68,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Surfcaster: Baited Breath (every hit crits while holding a Fishing Rod), Screaming Reels (60% more cast speed with a
   rod, in the server wait and the native clip), Sea Legs, Stormy Seas' conversion, Brine Bound's Cannot be Frozen and
   the small nodes' cast speed have consumers, with Gateway coverage of legal builds, paid refunds and reload.
-  Not yet: outgoing chill/freeze/shock on monsters, Ghost of the Deep, Changing Seasons and monster flee.
+  Ghost of the Deep's Torment Touched buff gives its four 23% bonuses and shows on the player.
+  Changing Seasons lets any hit chill the player and makes the chill increased action speed.
+  Not yet: outgoing chill/freeze/shock on monsters and monster flee.
   Fishing (fish rarity, corrupted fish) has no gameplay in 3.29.3b. `Game_VERIFIED_SURFCASTER=1` opts in.
   Docs: [Surfcaster checklist](../docs/game/surfcaster.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

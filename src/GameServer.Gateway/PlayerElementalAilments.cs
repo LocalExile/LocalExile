@@ -11,7 +11,8 @@ sealed class PlayerElementalAilments
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude);
     readonly List<Effect> effects = [];
     double carry;
-    double actionFloor, freezeEffect = 1;
+    double actionFloor, actionCeiling = double.PositiveInfinity, freezeEffect = 1;
+    bool chillReversed;
 
     public (bool Ignite, int Chill, bool Freeze, int Shock) Snapshot(double now) =>
         (Magnitude(Kind.Ignite, now) > 0, (int)Magnitude(Kind.Chill, now), Magnitude(Kind.Freeze, now) > 0,
@@ -25,8 +26,14 @@ sealed class PlayerElementalAilments
         lock (effects) return effects.Where(e => e.Kind == kind && e.From <= now && now < e.Until)
             .Select(e => e.Magnitude).DefaultIfEmpty().Max();
     }
-    public double ActionFactor(double now) => Math.Max(actionFloor,
-        1 - Math.Max(Magnitude(Kind.Freeze, now) * freezeEffect, Magnitude(Kind.Chill, now)) / 100);
+    // Changing Seasons (chill_effect_is_reversed): the chill on you raises action speed by its effect instead of lowering
+    // it (PoB CalcPerform: ActionSpeed INC +effect); freeze still stops you (wiki Changing Seasons).
+    public double ActionFactor(double now)
+    {
+        double freeze = Magnitude(Kind.Freeze, now) * freezeEffect, chill = Magnitude(Kind.Chill, now);
+        double change = chillReversed && freeze <= 0 ? chill : -Math.Max(freeze, chillReversed ? 0 : chill);
+        return Math.Min(actionCeiling, Math.Max(actionFloor, 1 + change / 100));
+    }
     public double DamageTakenFactor(double now) => 1 + Magnitude(Kind.Shock, now) / 100;
 
     static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
@@ -41,6 +48,8 @@ sealed class PlayerElementalAilments
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
             actionFloor = get("action_speed_cannot_be_reduced_below_base") != 0
                 || get("not_affected_by_action_speed_modifiers") != 0 ? 1 : 0;
+            actionCeiling = get("not_affected_by_action_speed_modifiers") != 0 ? 1 : double.PositiveInfinity;
+            chillReversed = get("chill_effect_is_reversed") != 0;
         }
     }
 
@@ -63,7 +72,9 @@ sealed class PlayerElementalAilments
             if (maxLife == 0) return;
             double cold = taken[DamageType.Cold].Min / maxLife;
             double lightning = taken[DamageType.Lightning].Min / maxLife;
-            double chill = Math.Min(30, Math.Floor(50 * Math.Pow(cold, .4)
+            // Changing Seasons (all_damage_taken_can_chill): every type of the hit's damage counts toward its chill.
+            double chilling = get("all_damage_taken_can_chill") != 0 ? taken.MinTotal / maxLife : cold;
+            double chill = Math.Min(30, Math.Floor(50 * Math.Pow(chilling, .4)
                 * Math.Max(0, 1 + get("chill_effectiveness_on_self_+%") / 100.0)));
             if (chill >= 5) Add(Kind.Chill, chill, 2);
             if (!critical) return;

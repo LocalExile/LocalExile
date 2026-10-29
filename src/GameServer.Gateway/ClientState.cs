@@ -353,6 +353,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double SentAdrenalineUntil = double.NaN;
     public double SentStunRecoveryUntil = double.NaN;
     public ushort WardBuff, AdrenalineBuff;
+    /// <summary>The passive self buffs published on the player: BuffDefinitions row → buff instance (PassiveBuffAuras).</summary>
+    public readonly Dictionary<ushort, ushort> PassiveBuffs = [];
     // The stats the server has set on the player after creating it (/set_stat, /set_speed): what the client computes
     // with, so the server can follow it (attack time).
     public readonly Dictionary<uint, int> PlayerStats = [];

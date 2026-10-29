@@ -1509,6 +1509,16 @@ A foreign-source packet non-removal control establishes no party aura executor o
   [13](13-items.md) §8). The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+- **Passive self buffs** (`PassiveBuffAuras`): a passive's PassiveSkills `PassiveSkillBuffs` lists BuffTemplates rows;
+  a template names its BuffDefinitions row, gives one `Buff_StatValues` entry per `GrantedStats` stat (Stats row + 1
+  is the key) and an `AuraRadius`. A row without `IsRecovery` carries no values in 0x1c1, so the client cannot apply
+  them: the server adds the values to the allocated passives' stat sum and sends the buff for its icon and visual only.
+  The buff goes out with 0x1c1 at area entry (each area's connection starts without buffs) and after an allocation,
+  and comes off with 0x1c2 on the refund; one instance per template, however many nodes grant it.
+  Only listed permanent self templates with radius 0 are applied (Surfcaster's Ghost of the Deep, template 671 →
+  Torment Touched 2550). Templates with a radius are auras on enemies or allies, and the other radius-0 templates have
+  their own timing or condition (Trickster's alternation, Occultist's wither pulse, Chieftain's while stationary);
+  those stay unhandled.
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2
