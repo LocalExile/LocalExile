@@ -20,7 +20,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   `Grounds`, the 346 varieties with NPC / ControlZone / BlightTower … components (each needs its deserializer, schema.md).
   Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`
   files); types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.
-  Corpse consumers still need authoritative final-death registration, identity and one-use reservation/consumption.
+  Corpse consumers still need authoritative final-death registration and identity; one-use consumption exists only as
+  Deathrattle's `SpawnedMonster.CorpseConsumed` flag, with no reservation shared between consumers.
   Preserve zero-Life, type, spectre and owned restrictions; dead snapshots also need Actor's conditional death bytes.
   Check every new component with `scripts/re/frida/check-components.js`.
 - **Done when:** monsters in areas match the official game's (mods, rarity bonuses, emerge, boss bar).

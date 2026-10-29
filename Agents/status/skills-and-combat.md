@@ -297,6 +297,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native Endurance Charges confirm accepted releases; Fireball remains usable and relog clears the developer flag.
   Phrecia play stays gated; source precedence, aliases and queued boundaries have additional automated coverage.
   See [11](../docs/protocol/11-skills.md) section 10b.
+- Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
+  client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
+  corpse and quest chests opening (Deathrattle).
+  Gateway coverage; not yet checked with the real client.
+  Explosion conversion, added damage, crits, on-hit effects, art and the client's 0.22 s wave delay are not modelled.
+  Code: `Program.Warcries.cs`, `UseChargeSkillCore`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10c.
 - Own-aura restriction (#304) consumes signed 21148 OR 11881, with explicit final 11075 developer precedence.
   Typed Aura and accepted Blasphemy metadata drive admission and native skill flags.
   Admission and queued acknowledgements use the requested skill ID; duplicate gems keep separate support context.
@@ -433,8 +440,8 @@ and can require explicit recipes.
   `skill_is_instant`, so the client sends them as C→S 0x191 and keeps walking;
   the server applies them and answers S→C 0x1ce, which starts the skill bar's cooldown.
   Skill records retain GEPL Cooldown as the native base and carry the cooldown count.
-  Ordinary one-use spells/attacks now resolve player and skill generic recovery once, and the server keeps remaining
-  base-time budget through stat changes and pause.
+  Ordinary one-use spells, attacks and warcries now resolve player and skill generic recovery once (warcries add
+  `warcry_cooldown_speed_+%`), and the server keeps remaining base-time budget through stat changes and pause.
   Preflight reserves before action/movement/echo side effects; queued effects retain the original action/area ticket.
   Real-client Dash initial +100%/-50% recovery, early raw rejection without movement/echo/mana, and pause checks pass.
   The native positive-rate cache required an explicit cooldown-state refresh after skill-stat changes;

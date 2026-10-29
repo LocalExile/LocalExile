@@ -917,8 +917,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `skill_cooldown_time_override_ms` / `skill_cooldown_is_4_seconds`. With 0 there the client kept no cooldown and the
   bar showed none (Frida: no records, +0xc8 = 0; live 2026-10-21); `GrantedSkill.CooldownMs` now carries GEPL Cooldown.
   +0xd0 (the cooldown group) comes from the GEPL row's CooldownGroup (+0x30).
-  For ordinary one-use spells/attacks, the native base remains GEPL Cooldown; the final recovery percentage is
-  player-computed `virtual_cooldown_speed_+%` (3398) + the skill's own base (3397) and virtual (3398) inputs once.
+  For ordinary one-use spells, attacks and warcries, the native base remains GEPL Cooldown; the final recovery
+  percentage is player-computed `virtual_cooldown_speed_+%` (3398) + the skill's own base (3397) and virtual (3398)
+  inputs once.
+  A warcry adds the player's and the skill's `warcry_cooldown_speed_+%` (3640): PoB counts it as cooldown recovery
+  for the Warcry skill type, and the client's own virtual (`0x14281dfa0`, checked against the disassembly) adds
+  client stat 0xe38 when the skill has `is_warcry` (0xd7e), so the record's 3398 and the client's value agree.
   Dash quality 20 adds 10%; the player's base input is already included in its computed virtual value.
   `SingleUseCooldown` shares this resolution between granted skill stats and server readiness.
   The server retains remaining **base milliseconds**, subtracting elapsed game-clock time times the recovery rate;
@@ -1369,7 +1373,7 @@ Instant aliases retain their existing supported subset; this does not add instan
 The existing `CastGemSkill` check remains the cast admission boundary.
 A queued action echo can pass preflight and then fail that check before payment.
 After cast admission, a source change behind a queued paid mana packet does not add a late cancellation or refund.
-An accepted Enduring Cry still schedules its existing non-cancellable charge release in `UseChargeSkill`.
+An accepted Enduring Cry still schedules its existing non-cancellable charge release in `UseChargeSkillCore`.
 Later source or action changes do not cancel that release.
 Enduring Cry remains partial: this change adds no healing engine or other warcry mechanics.
 
@@ -1383,6 +1387,39 @@ A refused request after the original eight-second cooldown spent no use; clearin
 The retry granted a second charge; an explicit warcry speed input kept it clear of the first charge's expiry.
 Relog cleared the transient developer flag.
 These controls verify the shared restriction, not Rampager allocation or complete Enduring Cry behavior.
+
+## 10c. Warcry release: timing and release effects
+
+A warcry's use time is its GrantedEffects CastTime over `1 + warcry_speed_+% / 100` (the player's and the gem's)
+and over action speed, at least one server tick (`WarcryCastSeconds`; PoB CalcOffence `calcWarcryCastTime`, whose
+0.8 s base is Enduring Cry's CastTime).
+The client's warcry action (`0x141abcaa0`) divides the same CastTime (GrantedEffects row offset `+0x5f`) by
+`1 + (warcry_speed_+% + warcry_speed_+%_if_not_warcried_recently + retaliation speed) / 100`; its animation runs at
+the actor's action speed.
+The two conditional terms are not modelled on the server.
+
+At the release, after its own effect, every warcry runs `WarcryReleased` within its own radius around the player.
+The client's action (`0x141abd120`) takes its wide scan (`0x141abff60` → `0x141abd490`) over that same radius
+(vtable +0x498) when `warcry_gain_mp_from_corpses` (0x2fe9), Deathrattle's corpse explosion (0x46b6), the corpse
+loot chance (0x4b75) or `open_nearby_chests_on_warcry` (0x4b74) is set.
+That scan lists Chest objects and eligible corpses with a delay of distance / radius × 0.22 s and counts living
+hostiles' power; which code consumes the list was not traced, so the server's removals and life updates stand.
+- Corpse explosion (`nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry`): every corpse in the
+  radius explodes once.
+  A corpse is a dead monster at zero Life whose Life type allows corpse use (`MonsterLifeData.IsUsableAsCorpse`) and
+  that no explosion has consumed (`SpawnedMonster.CorpseConsumed`).
+  The corpse is removed (S→C 0x2bb).
+  The explosion hits living hostile monsters within 22 cells of it (PoB `EnemyExplode`, grown by area of effect) for
+  the percentage of the corpse's maximum Life as physical damage, scaled by the player's `damage_+%`,
+  `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage (poewiki Explode).
+  It is neither an attack nor a spell: no block, evasion or crit.
+  Kills go through `MonsterKilled`.
+  Not modelled: conversion, added damage and other global hit modifiers on explosions, on-hit effects, art and the
+  0.22 s wave delay.
+- Chests (`open_nearby_chests_on_warcry`): the quest chests the server has (the Twilight Strand support gem chest and
+  the Mud Flats Rhoa Nests) open through the same core as walking up to them, which saves first.
+
+Only Enduring Cry has a warcry executor; the hook sits in its release so later executors inherit it.
 Future composition with outgoing Spell or incoming armour changes must retain this caster-only admission check.
 
 ## 10c. Actor restriction: own aura skills disabled (#304)
@@ -1914,8 +1951,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   killing hit a Power Charge, Flicker Strike's and Power Siphon's own on-hit chances count, and Enduring Cry grants an
   Endurance Charge per 5 power (`endurance_charge_granted_per_X_monster_power_during_endurance_warcry`) of the hostile
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
-  its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%`; a later action does not
-  cancel it (`cannot_cancel_skill_before_contact_point`).
+  its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%` and slowed by action speed
+  (§10c); a later action does not cancel it (`cannot_cancel_skill_before_contact_point`).
   The combat code only enqueues events (`ChargesOnHit` at the default attack, area and projectile hits, `ChargesOnKill`
   in `MonsterKilled`, `ChargesWhenHit` in `MonsterSwing` and `/blockhit`); `RunCharges` rolls them every 50 ms, with
   the character's stats worked out outside the Monsters lock and only while events wait.

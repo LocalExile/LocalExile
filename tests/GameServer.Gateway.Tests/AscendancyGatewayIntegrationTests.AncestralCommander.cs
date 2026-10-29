@@ -141,4 +141,82 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(dev - gain, await LifeAfter(() => game.Command("/hit chaos 20")));
         Assert.True(monster < half + gain);
     }
+
+    [Fact]
+    public async Task Ancestral_Commander_warcries_match_their_plain_stats()
+    {
+        if (!DataAvailable()) return;
+        using var game = AncestralCommander();
+        using var plain = AncestralCommander();
+        using var none = AncestralCommander();
+        Assert.Null((await game.Change(AncestralCommanderBuilds[1], true)).Error); // Call of the Ancestors, Deathrattle
+        lock (plain.State.Monsters)
+            foreach (var (name, value) in new[] { ("warcry_speed_+%", 200), ("warcry_cooldown_speed_+%", -30),
+                (Program.CorpseExplosionStat, 12), (Program.OpenChestsStat, 1) })
+                plain.State.PlayerStats[GamblerKey(name)] = value;
+
+        // Call of the Ancestors: the cry takes a third of its 0.8 s and recovers at 70%; a spell's recovery is unchanged.
+        int cry = Program.Skills.EffectRow("EnduringCry"), bomb = Program.Skills.EffectRow("FrostBomb");
+        SingleUseCooldown? Cooldown(ClientState s, int effect) => SingleUseCooldown.ForSkill(Program.Skills, Program.Stats,
+            effect, 1, Program.CharacterPlayerStats(s), WarcryOwn(effect));
+        double Cast(ClientState s) => Program.WarcryCastSeconds(s, cry, Program.CharacterPlayerStats(s), WarcryOwn(cry));
+        foreach (var s in new[] { game.State, plain.State })
+        {
+            Assert.Equal(.8 / 3, Cast(s), 6);
+            Assert.Equal(new SingleUseCooldown(8000, -30), Cooldown(s, cry));
+            Assert.Equal(new SingleUseCooldown(2500, 0), Cooldown(s, bomb));
+        }
+        Assert.Equal(new SingleUseCooldown(8000, 0), Cooldown(none.State, cry));
+        Assert.Equal(.8, Cast(none.State), 6);
+        lock (none.State.Monsters)
+            Program.ApplyPlayerAilmentsLocked(none.State, DamagePacket.Of(DamageType.Cold, 1, 1),
+                DamagePacket.Of(DamageType.Cold, (int)none.State.PlayerMaxLife, (int)none.State.PlayerMaxLife),
+                false, false, none.State.Clock.Elapsed.TotalSeconds, Program.CharacterPlayerStats(none.State));
+        Assert.Equal(.8 / .7, Cast(none.State), 6); // chilled: 30% less action speed
+
+        // Deathrattle: at the cry's release, a corpse within its radius explodes for 12% of its maximum Life on the living
+        // monster beside it, is consumed and removed, and a Rhoa Nest within the radius opens. The node's cry goes through
+        // the real Enduring Cry release; the plain stats and no stats call the release consumer directly.
+        var zombie = Program.Monsters.Find(TutorialObjects.Zombie)!;
+        Assert.True(zombie.LifeData.IsUsableAsCorpse(0));
+        foreach (var (character, works) in new[] { (game, true), (plain, true), (none, false) })
+        {
+            var state = character.State;
+            double usedAt = state.Clock.Elapsed.TotalSeconds;
+            var here = state.Walk.Position(usedAt);
+            var corpse = new SpawnedMonster("corpse", new(here.X + 30, here.Y, 30), 0, 2, 1000) { Variety = zombie, Life = 0, Dead = true };
+            var beside = new SpawnedMonster("beside", new(here.X + 40, here.Y, 30), 0, 2, 1000);
+            var nest = new GlyphQuest.Nest(new(GlyphQuest.NestTypes[0], "", here.X - 20, here.Y, 0, null, 0), 0);
+            lock (state.Monsters) { state.Monsters[50] = corpse; state.Monsters[51] = beside; }
+            state.Glyphs = new([nest], null, null, []);
+            lock (state.GlyphNests) state.GlyphNests[0x2e80] = nest;
+            bool Opened() => state.Instance.ChestOpened(nest.At.X, nest.At.Y);
+            var bytes = character == game ? (await game.EnduringCry(cry, Opened)).Bytes : (await character.WarcryRelease(here, 60)).Bytes;
+            Assert.Equal(works ? 880u : 1000u, beside.Life);
+            Assert.Equal(works, corpse.CorpseConsumed);
+            Assert.Equal(works, Opened());
+            if (character == game) Assert.True(state.Clock.Elapsed.TotalSeconds - usedAt >= .8 / 3);
+            else Assert.Equal(works, bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(50)) >= 0);
+        }
+    }
+
+    static Dictionary<uint, int> WarcryOwn(int effect) => Program.Skills.EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
+
+    sealed partial class GatewayCharacter
+    {
+        public Task<(string? Error, byte[] Bytes)> WarcryRelease((int X, int Y) at, int radius) => Exchange(async (stream, cipher) =>
+        {
+            await Program.WarcryReleased("warcry-integration", stream, cipher, State, at, radius, State.ProjectileEpoch);
+            return null;
+        });
+
+        // A use of Enduring Cry through its release continuation, waiting for its effect.
+        public Task<(string? Error, byte[] Bytes)> EnduringCry(int effect, Func<bool> released) => Exchange(async (stream, cipher) =>
+        {
+            Assert.True(ProgramValue<bool>("UseChargeSkillCore", "warcry-integration", stream, cipher, State, effect, WarcryOwn(effect)));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (!released()) await Task.Delay(10, timeout.Token);
+            return null;
+        });
+    }
 }

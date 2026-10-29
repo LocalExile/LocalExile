@@ -68,8 +68,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ancestral Commander: the defensive nodes have server consumers (Armour and Life, Ancestral Endurance, Toughened
   Skin's action/movement floors and doubled body armour, Ancestral Defiance), with Gateway coverage of legal builds,
   the paid Ancestral Spirit choice refund and reload.
-  Not yet: Call of the Ancestors, Deathrattle, Ancestral Reach and Echo, Born under Fire, the five Spirits and Forest
-  of Ancestors (no warcry speed/cooldown rules, corpses, strike targeting, enemy auras, triggered skills or totems).
+  Call of the Ancestors speeds Enduring Cry's release and slows its one-use cooldown, which the record and the client
+  derive the same way; Deathrattle explodes and consumes the server's corpses and opens the quest chests at the release.
+  Deathrattle is partial: no explosion conversion, added damage, crits or art, and no chests beyond the quest ones.
+  Not yet: Ancestral Reach and Echo, Born under Fire, the five Spirits and Forest of Ancestors (no strike targeting,
+  enemy auras, triggered skills or totems).
   `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in; not yet checked with the real client.
   Docs: [Ancestral Commander checklist](../docs/game/ancestral-commander.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

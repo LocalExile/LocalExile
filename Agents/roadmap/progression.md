@@ -44,9 +44,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Aristocrat's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_ARISTOCRAT=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler.
   See [Aristocrat](../docs/game/aristocrat.md).
-- **Known:** Ancestral Commander's defensive nodes have server consumers; `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in.
-  **Next:** warcry speed and cooldown, Deathrattle's corpses and chests, strike targeting, Born under Fire's enemy aura,
-  the Spirit triggers and totems, then native acceptance.
+- **Known:** Ancestral Commander's defensive and warcry nodes have server consumers (Deathrattle partly);
+  `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in.
+  **Next:** strike targeting, Born under Fire's enemy aura, the Spirit triggers and totems, then native acceptance.
   See [Ancestral Commander](../docs/game/ancestral-commander.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
   Implementing all 19 Phrecia classes' special gameplay is separate from this selection lifecycle.

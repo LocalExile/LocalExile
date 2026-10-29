@@ -112,6 +112,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     // lock.
     public double FlinchUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
+    // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
+    public bool CorpseConsumed;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? CollisionPosition;

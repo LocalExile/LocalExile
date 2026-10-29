@@ -10,5 +10,5 @@ Keep unsupported engine behavior explicit and preserve ordinary/unascended play.
 [Gambler](gambler.md) records the full node checklist, supported incoming ailment path, verified opt-in prerequisites
 and remaining engine limits for this branch.
 [Ancestral Commander](ancestral-commander.md) records its checklist and admission.
-Its warcry, strike, enemy-aura, Spirit and totem nodes are still open.
+Its strike, enemy-aura, Spirit and totem nodes are still open; Deathrattle is partial.
 Other classes require their own acceptance; this change makes no claim about their completion.

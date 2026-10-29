@@ -2,8 +2,8 @@
 
 Ancestral Commander is the Marauder's Phrecia Juggernaut identity (`Juggernaut`, 3.29.3b), start node 17765.
 No node grants passive points.
-The defensive nodes have server consumers with Gateway coverage; the warcry, strike, enemy-aura, Spirit and totem
-nodes are still open, as the checklist says.
+The defensive and warcry nodes have server consumers with Gateway coverage (Deathrattle only partly); the strike,
+enemy-aura, Spirit and totem nodes are still open, as the checklist says.
 Native acceptance is open: it needs the reviewed combined graph installed (see Admission below).
 
 ## Node checklist
@@ -30,8 +30,8 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Not yet: as 59500. |
 | 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: as 59500, and the server has no mark curses. |
 | 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Not yet: the server has no totems. |
-| 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Not yet. |
-| 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Not yet: no corpse consumption or generic chests. |
+| 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
+| 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: the warcry release explodes the server's corpses and opens quest chests; see below. |
 | 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Not yet: no strike targeting. |
 | 61282 Ancestral Echo | Strikes also target the previous location they were used | Not yet: no strike targeting. |
 | 32105 Born under Fire | Nearby Enemies convert 50% of their Physical Damage to Fire | Not yet: no passive enemy auras. |
@@ -75,6 +75,37 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   A blocked hit counts: the wiki's Blocking page says blocking does not prevent the defender's when-hit effects.
   Whether the game treats "before being Hit" the same way for blocked hits, and its rounding, are unverified.
 
+- Call of the Ancestors, speed: a warcry's use time is its GrantedEffects CastTime over
+  `1 + warcry_speed_+% / 100` (the player's and the gem's) and over action speed, at least one server tick
+  (`WarcryCastSeconds`, PoB `calcWarcryCastTime`; Enduring Cry 0.8 s becomes 0.267 s).
+  The client times the cry from the same CastTime (row offset `+0x5f`) and `warcry_speed_+%` at `0x141abcaa0`
+  (checked against the disassembly); it applies action speed to the actor's animation itself.
+- Call of the Ancestors, cooldown: warcries now use the generic one-use cooldown (`SingleUseCooldown`), whose
+  recovery for a Warcry-type skill adds `warcry_cooldown_speed_+%` (PoB: cooldown recovery for the Warcry type).
+  Enduring Cry's 8 s recovers at 70%, and its skill record carries `virtual_cooldown_speed_+%` -30.
+  The client's own virtual (`0x14281dfa0`) adds the same stat when the skill has `is_warcry`, so both agree.
+  A spell's or attack's recovery is unchanged.
+- Deathrattle runs at every warcry release (`WarcryReleased`), within the warcry's own radius around the player:
+  the client's warcry action (`0x141abd120`) scans that radius for Chest objects and corpses when
+  `nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry` or `open_nearby_chests_on_warcry` is set.
+  Only Enduring Cry has an executor, so only it explodes corpses and opens chests so far.
+  - Corpses: a monster killed in this area visit, at zero Life, whose Life type allows corpse use and that no
+    explosion has consumed (`SpawnedMonster.CorpseConsumed`).
+    Each explodes once, is removed (S→C 0x2bb) and hits every living hostile monster within 22 cells of it (PoB's
+    `EnemyExplode` radius, grown by area of effect; the game's radius is unverified) for 12% of its maximum Life as
+    physical damage.
+    The hit takes the player's `damage_+%`, `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage
+    (poewiki Explode: global stats apply, attack and spell ones do not), then the monster's mitigation.
+    It is neither an attack nor a spell, so it is not blocked or evaded and it does not crit (0% base).
+    Kills give experience, loot and quest progress through `MonsterKilled`.
+    Not modelled: conversion, added damage and other global hit modifiers on the explosion, on-hit effects, the
+    explosion art and the client's wave delay (distance / radius × 0.22 s in `0x141abd490`).
+  - Chests: the Twilight Strand support gem chest (saved `Tutorial.ChestOpened` first, as when walked up to) and the
+    Mud Flats Rhoa Nests (`InstanceStore.OpenChest`) open when they are within the radius.
+    The server has no other chests yet.
+    The wiki's Deathrattle page says warcries also open reward chests and strongboxes; that they open these quest
+    chests is consistent with it but unverified.
+
 ## Admission
 
 The default Phrecia gate stays closed.
@@ -92,6 +123,9 @@ With the graph installed, start through `scripts/dev/live.ps1` and run:
 ```
 
 For the defensive nodes, use `/add_passive 11217 37852 24701 23061 8455 848 26496 9828` instead.
+For the warcry nodes, use `/add_passive 41978 48740 29654 3245 24701 23061 8455 848` with an Enduring Cry gem:
+the cry plays in a third of its time and its bar cooldown lasts about 11.4 s; killed monsters within 60 cells
+vanish at the release and hurt living ones beside them; in The Mud Flats a cry beside a Rhoa Nest opens it.
 Check the Defence tab's armour with a Plate Vest, the Charges tab's five Endurance Charges, walking speed with a
 reduced-movement body armour, a cold hit's chill, and Life before and after a monster hit at half Life.
 
