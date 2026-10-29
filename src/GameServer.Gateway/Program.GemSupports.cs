@@ -4,7 +4,7 @@ partial class Program
 {
     internal static readonly GemSupports Supports = new();
     sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
-        Dictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true);
+        Dictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false);
 
     static SupportedGem SupportedSkill(ClientState conn, ushort skillId)
     {
@@ -24,10 +24,13 @@ partial class Program
         var active = places
             .Where(p => !conn.Ruthless || ItemsFor(conn).ByHash(p.Gem.TypeHash) is { } type && RuthlessGemRules.AllowsBase(type.Id))
             .SelectMany(p => ItemsFor(conn).GemEffects(p.Gem).Select(e => (Place: p, Effect: e))).ToList();
+        var granted = GrantedSkillsOf(conn);
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds()).Assign(
-            [.. active.Select(g => new GemSkillIds.Gem(g.Place.ItemId, g.Place.Socket, g.Effect))], GemSkillIdPool.Value);
+            [.. active.Select(g => new GemSkillIds.Gem(g.Place.ItemId, g.Place.Socket, g.Effect)),
+                .. granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect))], GemSkillIdPool.Value);
         int index = Enumerable.Range(0, ids.Count).FirstOrDefault(i => ids[i] == skillId, -1);
         if (index < 0) return new(-1, 1, 0, [], []);
+        if (index >= active.Count) return GrantedSupportedSkill(conn, granted[index - active.Count]);
         var selected = active[index];
         // Vaal source/support eligibility must not inherit an earlier equipment notification's cached pools.
         if (requirements is null && SkillsFor(conn).VaalBudget(selected.Effect, ItemsFor(conn).GemLevel(selected.Place.Gem)) is not null)

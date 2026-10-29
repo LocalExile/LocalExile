@@ -660,7 +660,7 @@ partial class Program
     static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (gem.Effect != effect || gem.SourceGem is null) return "skill is unavailable";
+        if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted) return "skill is unavailable";
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
             return disabled;
         return SkillsFor(conn).EffectId(effect) is { } effectId ? ProjectileDefinition(effectId)?.Unavailable?.Invoke(conn) : null;
@@ -681,12 +681,13 @@ partial class Program
     {
         string name = CharacterName(conn);
         return GemSkillEffectsAt(name, ItemsOf(conn).SocketedGemPlaces(),
-            InactiveItems.GetValueOrDefault(name), conn.Ruthless);
+            InactiveItems.GetValueOrDefault(name), conn.Ruthless, GrantedSkillsOf(conn));
     }
 
+    // The passives' granted skills (GrantedSkillsOf) follow the gems, with Gem 0 and their fixed level.
     static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffectsAt(
         string? character, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places, IReadOnlySet<uint>? inactive,
-        bool ruthless)
+        bool ruthless, IReadOnlyList<PassiveGrantedSkills.Grant> granted)
     {
         var catalog = ruthless ? RuthlessItems.Value : Items;
         string name = string.IsNullOrEmpty(character) ? "Exile" : character;
@@ -694,11 +695,15 @@ partial class Program
             .Where(g => !ruthless || catalog.ByHash(g.Gem.TypeHash) is { } type && RuthlessGemRules.AllowsBase(type.Id))
             .SelectMany(g => catalog.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
-            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect))], GemSkillIdPool.Value);
+            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect)),
+                .. granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect))], GemSkillIdPool.Value);
         // Gems in an inactive item grant nothing, but keep their id.
         for (int i = 0; i < gems.Count; i++)
             if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
                 yield return (id, gems[i].Effect, catalog.GemName(gems[i].Gem), catalog.GemLevel(gems[i].Gem), gems[i].Gem.Quality, gems[i].Gem.TypeHash);
+        for (int i = 0; i < granted.Count; i++)
+            if (ids[gems.Count + i] is ushort id)
+                yield return (id, granted[i].Effect, granted[i].EffectId, granted[i].Level, 0, 0);
     }
 
     static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));

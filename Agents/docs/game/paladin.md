@@ -2,8 +2,8 @@
 
 Paladin is the Duelist's Phrecia Champion identity (`Champion`, ascendancy row 11, 3.29.3b), start node 24984.
 The start is implicit and free and has no stats; its link to 50986 is the ordinary Duelist start, not a class node.
-The class is not complete yet. The small nodes and Anointed Champion work; the other notables need engine mechanics
-that do not exist yet (passive-granted skills, debuffs on monsters, triggered skills, owned minions, link skills).
+The class is not complete yet. The small nodes, Anointed Champion and the Paladin Aura options work; the other notables
+need engine mechanics that do not exist yet (debuffs on monsters, triggered skills, owned minions, link skills).
 
 ## Node checklist
 
@@ -19,10 +19,10 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 42396 Field Medicine | Magic utility flasks applied to you have 40% increased effect; non-unique utility flasks you use apply to linked targets | Partly: the 40% is read for magic flasks (`UtilityFlasks`); there are no link skills to carry flasks to a target. |
 | 40171 Absolution | 40% increased effect of Non-Curse Auras while you have a linked target; curses go to you instead of linked targets | Not implemented yet: no link skills; no curse source exists for the redirect. |
 | 34448 Deep Connections | +5 to level of Link Skill Gems; no experience lost when a linked target's death kills you; link skills can target damageable minions | Partly: the +5 reaches the link gems' effective level (`SkillGemLevel`), but link skills have no executor; the engine has no death experience penalty. |
-| 44795 Paladin Aura | Choice shell: one paid point, one free option | The allocation and refund rules work (`AscendancyProgress`); the options below grant nothing yet. |
-| 58846 Determination | Grants level 30 Determination (GrantedEffectsPerLevel 17772) | Not implemented yet: skills come only from socketed gems and the default attack. |
-| 28569 Grace | Grants level 30 Grace (GrantedEffectsPerLevel 17460) | Not implemented yet, as Determination. |
-| 39868 Discipline | Grants level 40 Discipline (GrantedEffectsPerLevel 17316) | Not implemented yet, as Determination. |
+| 44795 Paladin Aura | Choice shell: one paid point, one free option | Done: the allocation and refund rules (`AscendancyProgress`); no stats of its own. |
+| 58846 Determination | Grants level 30 Determination (GrantedEffectsPerLevel 17772) | Done; see below. Flat armour and its more armour (`AuraCatalog.Bonus`). |
+| 28569 Grace | Grants level 30 Grace (GrantedEffectsPerLevel 17460) | Done; see below. Flat evasion and its more evasion. |
+| 39868 Discipline | Grants level 40 Discipline (GrantedEffectsPerLevel 17316) | Done; see below. 356 flat energy shield in the ES pool and 30% faster recharge. |
 
 Three legal eight-point builds, with a swap of the Paladin Aura option to Discipline, reach every node:
 
@@ -65,6 +65,32 @@ BuffDefinitions row 1262 `consecrated_ground_while_stationary` is invisible and 
 Unverified: whether the game makes the stationary ground in towns (the engine does not, as it runs no auras there),
 and whether the real ground disappears at once when the player moves (the linger makes the gameplay the same).
 
+## Paladin Aura
+
+The option's skill is a passive-granted skill (`PassiveGrantedSkills`): PassiveSkills.dat `GrantedEffectsPerLevel` of the
+allocated node (`GrantedEffectsPerLevelHardmode` in Ruthless) fixes the skill and its level.
+It joins the player's skills after the socketed gems ([11](../protocol/11-skills.md) §13):
+
+- **Skill id.** `GemSkillIds` keys it by a synthetic host (`0xFFFF0000 | node`, socket 0), so the id stays while the
+  node stays allocated and the skill bar keeps it; a swapped option's new skill never takes the old one's id at once.
+- **Level and stats.** The row's level (30, or 40 for Discipline) with quality 0 and no supports. Gem-level and gem-quality
+  bonuses do not apply: it is not a gem. It has no level or attribute requirement (the row's 90 or 100 is a gem's).
+- **Cast.** The client casts it as any aura (0x24 on the player): the gem cast path toggles it (`ToggleAura`), reserves
+  the row's 50% (Discipline 35%), sends the source and received buffs with the skill-bar association, and runs its
+  bonuses through `AuraCatalog`. The nodes' increased aura effect scales them, as for any of the player's auras.
+- **Discipline.** Its `base_maximum_energy_shield` is flat energy shield in the pool before the increases (PoB: a BASE
+  mod), scaled by aura effect; its `energy_shield_recharge_rate_+%` reaches the recharge (`EnergyShield.RechargePerMinute`).
+- **Saves and removal.** The toggle is saved by aura family (`CharacterSaves.ActiveAuras`) and restored on the next
+  connection. Refunding, swapping or resetting the option removes the skill: its aura ends and the mana comes back
+  (`EndSkillEffects`, `ReconcileOwnAuras`); the saved intent stays, as for a gem that left.
+- **One per family.** A Determination gem and the granted Determination cannot both run (the engine's rule for two gems).
+  Whether the game lets both reserve is unverified.
+
+Client evidence: the skill record (0x142196ce0) has no item field, so a granted skill's record is the same as a gem
+skill's, which the client already lists and binds by id. The aura frame lookup (0x141e11180, checked in the disassembly)
+matches only the buff's skill id (+0x48) and action hash (+0x4a). Not checked live yet: that the client shows the
+granted skill in the skill picker and does not grey it out below level 90.
+
 ## Admission
 
 The default Phrecia gate stays closed.
@@ -83,5 +109,9 @@ With the graph installed, start through `scripts/dev/live.ps1` and run:
 
 Stand still: the consecrated ground appears around the player and the Defence tab shows 9.5% of Life regenerated per
 second (four small nodes and 7.5% from the ground). Walk away: the regeneration stays for 4 seconds, then drops to 2%.
+
+For the Paladin Aura, reset and take `/add_passive 38874 44795 58846`: Determination appears on an empty skill-bar slot.
+Cast it: half the mana is reserved and the Defence tab's armour rises. Relog: it is still on. Refund 58846 (refund
+points) and take 39868: Determination ends, Discipline appears, and casting it adds 374 flat energy shield (356, 5% more from 38874).
 
 Coverage: `AscendancyGatewayIntegrationTests.Paladin`.

@@ -854,7 +854,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   This does not implement block recovery, ES stun avoidance, CI/mana/ES threshold substitutions, conditional defences,
   attacker-specific stun modifiers or monster spell/ranged stuns.
   Known final or raw base ES, active equipped ES bases and local flat ES disable this slice until ES avoidance exists.
-  This includes Discipline before a separate ES pool implementation computes `maximum_energy_shield`.
+  This includes Discipline, whose flat ES is part of the pool's `maximum_energy_shield`.
   Conditional stun-defence builds, flat/substituted thresholds and CI are also skipped conservatively.
   An equipped skill with `skill_cannot_be_stunned` or contact-phase immunity disables this slice for the build.
   Its precise active action phase is not tracked, so even an inactive equipped skill is conservatively excluded.
@@ -1677,8 +1677,9 @@ Determination and Grace add their level/quality-based flat and more defences, in
 Anger/Envy supply added attack/spell damage, Hatred feeds gain-as-extra conversion, Wrath adds attack
 lightning damage and more spell lightning damage, Zealotry supplies spell crit and more spell damage.
 Spell added damage uses the gem's damage effectiveness. Malevolence's more DoT affects the implemented
-Righteous Fire burn; its duration stat and Discipline's ES stats are published, but the server's ES pool,
-recharge, general DoT skills and Zealotry's conditional consecrated ground remain unimplemented.
+Righteous Fire burn; its duration stat is published. Discipline's flat ES goes into the ES pool before the
+increases and its recharge rate into the recharge. General DoT skills and Zealotry's conditional consecrated ground
+remain unimplemented.
 
 **Source and recipient pair (2026-10-25).** Sending only the source fixed ground art but the live
 client stopped showing top-left aura icons. Each self aura now owns two buff instances of its
@@ -1696,6 +1697,16 @@ that field via `0x141e07220` and `0x141e06290`. `auraSource: true` sends the com
 activation and restoration; recipients and other buffs retain their existing default. These aura
 rows have no MiscAnimated3 ring, so the nonzero marker only selects their EPK art; a radius-scaled
 ring will require its actual radius rather than this marker. The skill-bar association is independent.
+
+**Passive-granted skills.** A passive's PassiveSkills.dat `GrantedEffectsPerLevel` (the Hardmode column in Ruthless)
+grants its skill at that row's level (`PassiveGrantedSkills`, ordinary and ascendancy nodes alike). The Gateway lists it
+after the socketed gems in `GemSkillEffects` and `SupportedSkill`, keyed in `GemSkillIds` by a synthetic host
+(`0xFFFF0000 | node`, socket 0), so its id is as stable as a gem's. It has the row's level, quality 0, no supports and
+no requirements (gem-level and gem-quality bonuses raise gems only), and it casts, reserves, saves and ends through the
+gem paths above. The skill record carries no item, so the client gets the same record as for a gem of that level.
+Only self auras with an `AuraCatalog` effect are listed for now: a granted triggered, minion or other skill has no
+executor yet, and listing it would offer the player a skill that does nothing. The Paladin's Paladin Aura options use
+it ([Paladin](../game/paladin.md)).
 
 - **Reservation is in the data.** `GrantedEffectsPerLevel` has `ManaReservationFlat` and
   `ManaReservationPercent` (permyriad: `5000` = 50%); `SkillCatalog.Reservation` reads them. Standard
@@ -1738,7 +1749,6 @@ ring will require its actual radius rather than this marker. The skill-bar assoc
   - **Heralds:** Ash, Ice and Thunder need on-kill/overkill/shatter/storm effects; Agony and Purity need minions.
   - **Banners:** Defiance, Dread and War need the planted banner, stages and their pulses.
   - **Curse auras:** Blasphemy-style skills need the curse system.
-  - **Discipline:** activation, reservation and presentation work; the energy-shield pool/recharge mechanics remain open.
   - **Partial effects:** Purity of Elements' elemental-ailment immunity is not applied. Purity of Fire/Ice/Lightning
     max-resistance values are read at the gem's level (0 at level 1).
   - **Masteries:** Mana6, Reservation3 (life efficiency), Reservation4 (area) and Reservation5 (self aura effect) are mapped;

@@ -19,7 +19,7 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 
 - **Ordinary aura activation:** nine previously rejected self auras now share reservation, presentation and the
   supported stat/damage paths.
-  Remaining work: Discipline's ES pool, Pride's enemy debuff, conditional consecrated ground, herald/minion/banner
+  Remaining work: Pride's enemy debuff, conditional consecrated ground, herald/minion/banner
   mechanics.
   See protocol/11-skills.md section 13.
 - **Aura caster art:** the distinct EPKFiles2 visuals are selected on activation and area restoration;
@@ -93,8 +93,7 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
   Complete Lone Messenger, party auras and unsupported curse/enemy/banner/Vaal executors remain separate.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
-  Fire's); the combat auras (Anger, Hatred, Wrath, Zealotry, Pride), Heralds, banners, curse auras and
-  Determination/Grace/Discipline's armour/evasion/ES effects.
+  Fire's); the combat auras (Anger, Hatred, Wrath, Zealotry, Pride), Heralds, banners and curse auras.
   The skill-bar indicator's buff association is implemented (0x1c1 bit3; live check pending, see Status).
   Support gems come with the gem system ("Gems" below); party and minion auras and life reservation with their own
   systems.

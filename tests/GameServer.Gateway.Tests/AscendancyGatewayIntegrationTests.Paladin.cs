@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -147,6 +149,60 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(0, PaladinStat(plain.State, "life_regeneration_rate_per_minute_%"));
     }
 
+    // Each Paladin Aura option grants its aura at the row's fixed level; it casts, reserves, restores and goes as a gem's.
+    [Theory]
+    [InlineData((ushort)58846, 17772, "Determination", 30)]
+    [InlineData((ushort)28569, 17460, "Grace", 30)]
+    [InlineData((ushort)39868, 17316, "Discipline", 40)]
+    public async Task Paladin_Aura_option_grants_a_castable_aura_equal_to_a_plain_one(ushort option, int gepl, string effectId, int level)
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", level: 70, refundPoints: 100);
+        using var plain = new GatewayCharacter(choice: "Paladin", level: 70);
+        var before = game.State.Pools;
+        IReadOnlyList<GrantedSkill> Skills(ClientState state) => ProgramValue<IReadOnlyList<GrantedSkill>>("PlayerSkills", state);
+        Assert.Null((await game.Change([38874, 44795, option], true)).Error);
+        Assert.Null((await plain.Change([38874], true)).Error); // the same 5% aura effect, no option
+        var skill = Assert.Single(Skills(game.State), s => s.EffectsPerLevelRow == gepl);
+        Assert.Empty(skill.Supports);
+        Assert.DoesNotContain(Skills(plain.State), s => s.EffectsPerLevelRow == gepl);
+
+        // Cast as the client casts an aura (0x24 on the player): on, at the row's level, with the row's reservation.
+        await game.UseOnSelf(skill.Id);
+        int effect = Program.Skills.EffectRow(effectId);
+        var aura = Assert.Single(game.State.Auras.Values);
+        Assert.Equal((skill.Id, effect, level, 0), (aura.SkillId, aura.Effect, aura.Level, aura.Quality));
+        Assert.Equal(Program.Skills.Reservation(effect, level)!.Value.Percent, aura.ManaPercent);
+        plain.State.Auras[0x103] = new(0x103, effect, effectId, effectId, 7, AuraCatalog.BuffRow(effectId), 0, aura.ManaPercent, level);
+        plain.State.Pools = Program.PoolsFor(plain.State, 70);
+        var (pools, reference) = (game.State.Pools, plain.State.Pools);
+        Assert.Equal((reference.Armour, reference.Evasion, reference.EnergyShield), (pools.Armour, pools.Evasion, pools.EnergyShield));
+        Assert.Equal(AuraCatalog.ReservedMana(reference, plain.State.Auras.Values), AuraCatalog.ReservedMana(pools, game.State.Auras.Values));
+        switch (effectId)
+        {
+            case "Determination": Assert.True(pools.Armour > before.Armour); break;
+            case "Grace": Assert.True(pools.Evasion > before.Evasion); break;
+            default:
+                // Discipline's 356 flat energy shield, 5% more from 38874, before the increases; 30% faster recharge.
+                Assert.Equal(0u, before.EnergyShield);
+                Assert.Equal(EnergyShield.Max(374, pools.EnergyShieldPct), pools.EnergyShield);
+                Assert.Equal(32, PaladinStat(game.State, "energy_shield_recharge_rate_+%"));
+                Assert.Equal((int)Math.Round(pools.EnergyShield * 20 * 1.32),
+                    PaladinStat(game.State, "energy_shield_recharge_rate_per_minute"));
+                break;
+        }
+
+        // A new connection restores the saved toggle on the same skill id.
+        var restored = Assert.Single(game.Reload().Auras.Values);
+        Assert.Equal((skill.Id, level), (restored.SkillId, restored.Level));
+        // Refunding the option takes the skill, the aura and its reservation away.
+        Assert.Null((await game.Change([option], false, refundPoints: true)).Error);
+        Assert.Empty(game.State.Auras);
+        Assert.DoesNotContain(Skills(game.State), s => s.EffectsPerLevelRow == gepl);
+        Assert.Equal((before.Armour, before.Evasion, before.EnergyShield),
+            (game.State.Pools.Armour, game.State.Pools.Evasion, game.State.Pools.EnergyShield));
+    }
+
     [Fact]
     public void Paladin_stays_behind_the_closed_gate_and_its_refusal_names_its_checklist()
     {
@@ -159,6 +215,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
 
     sealed partial class GatewayCharacter
     {
+        // C→S 0x24 with the player as the target: how the client casts an aura or another self skill.
+        public Task<(string? Error, byte[] Bytes)> UseOnSelf(ushort skill) =>
+            Dispatch(new LoginWriter().U16(0x24).U32(Program.PlayerId).U16(skill).U16(1).U16(0).ToArray());
+
         // One flask-grounds step at a chosen game time (Program.FlaskGroundsTick): true when its ticker would stop.
         public async Task<bool> GroundsTick(double now)
         {
