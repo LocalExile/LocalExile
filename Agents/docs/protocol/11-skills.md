@@ -1366,7 +1366,7 @@ Instant aliases retain their existing supported subset; this does not add instan
 The existing `CastGemSkill` check remains the cast admission boundary.
 A queued action echo can pass preflight and then fail that check before payment.
 After cast admission, a source change behind a queued paid mana packet does not add a late cancellation or refund.
-An accepted Enduring Cry still schedules its existing non-cancellable charge release in `UseChargeSkill`.
+An accepted warcry schedules its non-cancellable release in `UseWarcry` (the taunt, §12; Enduring Cry's charges, §15).
 Later source or action changes do not cancel that release.
 Enduring Cry remains partial: this change adds no healing engine or other warcry mechanics.
 
@@ -1622,6 +1622,25 @@ A foreign-source packet non-removal control establishes no party aura executor o
   Blows/`BlockEffect` modifiers, projectile block and other on-block triggers are not modelled. Lucky block
   (`base_block_luck`, `attack_block_luck`, `spell_block_luck`) uses `1 - (1 - p)²` (PoB CalcDefence); Svalinn's unique
   item modifiers themselves are not supported yet.
+
+### The player's debuffs on monsters: passive enemy auras and taunt
+
+- **Passive enemy auras** (`PassiveBuffAuras`). PassiveSkills.dat `PassiveSkillBuffs` (`BuffsHardmode` in Ruthless)
+  points at BuffTemplates rows: `BuffDefinitionsKey`, `Buff_StatValues` (the values of the definition's GrantedStats,
+  in order), `AuraRadius` (cells) and `__col4`, read as the targets (1 self, 2 allies, 3 enemies: every Augury of
+  Penitence, Occultist and Saboteur enemy aura is `[3]`, the monster pack auras `[1, 2]` or `[2]`). An allowed enemy
+  template's buff goes on every hostile living monster within its radius of the living player (0x1c1, the player as
+  source) and comes off (0x1c2) when it leaves, dies, the node goes or the player dies. Allowed: Paladin's Light of
+  Divinity (672, Augury of Penitence 2551); the others wait for consumers of their stats.
+- **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
+  Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
+  Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
+  player ends it. BuffDefinitions 408 `taunted` shows it with its time left (flags bit1). The row is IsRecovery
+  (+0x7c), so its 0x1c1 carries its two GrantedStats values: `taunt_target_id` (the player) and `is_taunted` 1.
+- **Where it runs.** `RunEnemyDebuffs`, started with the area's loops, does `EnemyDebuffsTick` every 100 ms of game
+  time; the step works at the send gate, so a removed monster gets no buff. The auras and
+  `taunted_enemies_damage_taken_+%` come from the stats last sent (`PlayerStatsWithCleared`). Each monster keeps the
+  increased damage taken they give ([20](20-damage.md) §4).
 
 ### Cyclone area updates (2026-10-25)
 
@@ -1923,6 +1942,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
   its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%`; a later action does not
   cancel it (`cannot_cancel_skill_before_contact_point`).
+  `warcries_have_infinite_power` makes the power 999999 (PoB's override): the grant reaches the maximum, and the
+  regeneration stays at its 25-power cap.
   The combat code only enqueues events (`ChargesOnHit` at the default attack, area and projectile hits, `ChargesOnKill`
   in `MonsterKilled`, `ChargesWhenHit` in `MonsterSwing` and `/blockhit`); `RunCharges` rolls them every 50 ms, with
   the character's stats worked out outside the Monsters lock and only while events wait.

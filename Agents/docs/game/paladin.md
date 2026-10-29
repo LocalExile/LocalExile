@@ -2,8 +2,9 @@
 
 Paladin is the Duelist's Phrecia Champion identity (`Champion`, ascendancy row 11, 3.29.3b), start node 24984.
 The start is implicit and free and has no stats; its link to 50986 is the ordinary Duelist start, not a class node.
-The class is not complete yet. The small nodes, Anointed Champion and the Paladin Aura options work; the other notables
-need engine mechanics that do not exist yet (debuffs on monsters, triggered skills, owned minions, link skills).
+The class is not complete yet. The small nodes, Anointed Champion, the Paladin Aura options, Light of Divinity and Bring
+the Battle work; the other notables need engine mechanics that do not exist yet (triggered skills, owned minions, link
+skills).
 
 ## Node checklist
 
@@ -13,9 +14,9 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 |---|---|---|
 | 2134, 49271, 363, 29126, 54067, 43835, 2437, 38874, 11127 | Regenerate 0.5% of Life per second; 5% increased effect of Non-Curse Auras from your Skills | Done. `life_regeneration_rate_per_minute_%` 30 goes into the life regeneration the recovery loop applies (`PanelStats.LifePerMinute`); `non_curse_aura_effect_+%` 5 goes into `Pools.AuraEffectPct`, which scales every running aura's bonuses (`AuraCatalog.Bonus`, `RawStats`, `ResistanceStats`). |
 | 52104 Anointed Champion | Consecrated Ground around you while stationary; its effects linger for 4 seconds; 50% increased effect of Consecrated Ground you create | Done; see below. Curse effect on self has no consumer: nothing in the engine curses the player. |
-| 13763 Light of Divinity | Nearby (6 m) enemies take 25% increased Elemental Damage (BuffTemplate 672) | Not implemented yet: the engine applies no passive buff to monsters and has no per-monster damage taken from the player's debuffs. |
+| 13763 Light of Divinity | Nearby (6 m) enemies take 25% increased Elemental Damage (BuffTemplate 672) | Done; see below. Augury of Penitence (2551) on the hostile monsters within 60 cells; their hits and burns read its `elemental_damage_taken_+%` (`MonsterTakesMitigated`, `MonsterBurn`). |
 | 40299 Elemental Valiance | 25% chance to trigger level 20 Summon Elemental Relic on your or a nearby ally's kill, or on hitting a Rare or Unique enemy | Not implemented yet: no triggered skills and no owned minions. |
-| 46492 Bring the Battle | Warcries have infinite Power; enemies taunted by you take 20% increased damage and deal 20% less damage to other targets | Not implemented yet: taunt has no gameplay effect and warcry power exists only inside Enduring Cry. |
+| 46492 Bring the Battle | Warcries have infinite Power; enemies taunted by you take 20% increased damage and deal 20% less damage to other targets | Done; see below. Enduring Cry's power is 999999 (`UseWarcry`); the player's taunted monsters take 20% more of every type. The 20% less damage against other targets has no possible consumer: monsters only hit the player, who is the taunter. |
 | 42396 Field Medicine | Magic utility flasks applied to you have 40% increased effect; non-unique utility flasks you use apply to linked targets | Partly: the 40% is read for magic flasks (`UtilityFlasks`); there are no link skills to carry flasks to a target. |
 | 40171 Absolution | 40% increased effect of Non-Curse Auras while you have a linked target; curses go to you instead of linked targets | Not implemented yet: no link skills; no curse source exists for the redirect. |
 | 34448 Deep Connections | +5 to level of Link Skill Gems; no experience lost when a linked target's death kills you; link skills can target damageable minions | Partly: the +5 reaches the link gems' effective level (`SkillGemLevel`), but link skills have no executor; the engine has no death experience penalty. |
@@ -91,6 +92,38 @@ skill's, which the client already lists and binds by id. The aura frame lookup (
 matches only the buff's skill id (+0x48) and action hash (+0x4a). Not checked live yet: that the client shows the
 granted skill in the skill picker and does not grey it out below level 90.
 
+## Light of Divinity and Bring the Battle
+
+- **Enemy aura.** Light of Divinity's template 672 (`CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken`,
+  AuraRadius 60, targets `[3]`) puts BuffDefinitions 2551 Augury of Penitence (`elemental_damage_taken_+%` 25) on
+  every hostile living monster within 60 cells (6 m) of the living player (`PassiveBuffAuras`, `EnemyDebuffsTick`
+  every 100 ms of game time). 0x1c1 has the player as source; 0x1c2 takes it off when the monster leaves the radius or
+  dies, the node is refunded or the player dies. Area of effect does not change the radius.
+- **Taunt.** Every warcry taunts the hostile monsters within its radius when its cast ends (60 cells grown by area of
+  effect, the wiki's 6 m); the Basalt Flask taunts within its 30 cells (`TauntLocked`). A taunt lasts 3 s (wiki Taunt),
+  raised by `taunt_duration_+%`, replaces the player's older taunt on that monster and ends when the monster or the
+  player dies. It shows BuffDefinitions 408 `taunted` with its time left.
+- **Damage taken.** Each monster keeps the increased damage taken the player's debuffs give it
+  (`SpawnedMonster.TakenFromPlayer`); its hits (`MonsterTakesMitigated`: the default attack, gem area hits,
+  projectiles) and burns (`MonsterBurn`, Righteous Fire) read it. `taunted_enemies_damage_taken_+%` (20) counts on
+  every type while the player's taunt lasts, `elemental_damage_taken_+%` on fire, cold and lightning. Both add to the
+  monster's own `base_damage_taken_+%` (Path of Building: DamageTaken and ElementalDamageTaken are INC mods), so fire
+  on a taunted monster near the player takes 145%. Spell Resistant's less spell damage stays a separate multiplier.
+- **Infinite power.** `warcries_have_infinite_power` makes a warcry's power 999999 (PoB CalcPerform's override).
+  Enduring Cry near one normal monster then grants the maximum Endurance Charges (the grant of 199999 is clamped) and
+  the regeneration of its 25-power cap. The client works warcry power out itself for its display (0x141abd120 reads
+  `0x302e`); the stat goes out with the player's stats.
+- **No consumer.** `taunted_enemies_damage_+%_final_vs_non_taunt_target`: monsters only ever hit the player, who is
+  the taunter, so there is no hit for it to reduce.
+  Taunt immunity (`cannot_be_taunted`, map mods) is not modelled, and neither is the warcry-only
+  `taunted_enemies_by_warcry_damage_taken_+%` that the client adds for warcry skills (0x1428b0450); nothing in the
+  engine grants it.
+- **Other warcries.** Infernal, Seismic, Intimidating, Rallying, Ancestral, Battlemage's and General's Cry pay, cool
+  down and taunt; their own buffs, exerted attacks and summons are not implemented yet.
+
+Unverified: what BuffTemplates `__col4` means (1 self, 2 allies, 3 enemies is read from the rows only); whether the
+game measures "nearby" to the monster's centre, as here, or to its edge; that the client draws both buffs as sent.
+
 ## Admission
 
 The default Phrecia gate stays closed.
@@ -109,6 +142,9 @@ With the graph installed, start through `scripts/dev/live.ps1` and run:
 
 Stand still: the consecrated ground appears around the player and the Defence tab shows 9.5% of Life regenerated per
 second (four small nodes and 7.5% from the ground). Walk away: the regeneration stays for 4 seconds, then drops to 2%.
+Walk up to monsters: within 6 m they show Augury of Penitence, and fire, cold and lightning hits deal 25% more (the
+gateway log's hit damage). With an Enduring Cry gem, cry next to one monster: it shows Taunted for 3 seconds, the
+player gets three Endurance Charges, and the monster takes 20% more damage until the taunt ends.
 
 For the Paladin Aura, reset and take `/add_passive 38874 44795 58846`: Determination appears on an empty skill-bar slot.
 Cast it: half the mana is reserved and the Defence tab's armour rises. Relog: it is still on. Refund 58846 (refund

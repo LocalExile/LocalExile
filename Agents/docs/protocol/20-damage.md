@@ -414,6 +414,12 @@ its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignit
   Earlier native evidence remains attributed to its original heads; a stale #225 DLL did not test #226.
   Rebuild after the final checkout and verify embedded Git versions, hashes and the running DLL before `-NoBuild`.
   See [native build provenance](../dev/client-control.md#build-provenance-for-native-verification).
+- The player's debuffs on a monster add to its damage taken (`SpawnedMonster.TakenFromPlayer`, kept by
+  `EnemyDebuffsTick`, [11](11-skills.md) §12): `taunted_enemies_damage_taken_+%` on every type while his taunt lasts,
+  a passive enemy aura's `elemental_damage_taken_+%` on fire, cold and lightning. Both are increases that add to the
+  monster's `base_damage_taken_+%` (PoB: DamageTaken and ElementalDamageTaken are INC), in `MonsterTakesMitigated`
+  (every player hit) and `MonsterBurn` (Righteous Fire); Spell Resistant's less spell damage multiplies after them.
+  25% elemental and 20% taunted: fire 145%, physical 120%.
 - `DamageModel.Mitigate(DamagePacket, ...)` applies each type's own capped resistance.
   Incoming hit commands and monster swings share `PlayerHitMitigation` after resistance.
   Righteous Fire keeps the single-value resistance-only DoT path.

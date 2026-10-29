@@ -710,6 +710,14 @@ and can require explicit recipes.
   lingers after the last moment one covered him, and `consecrated_ground_effect_+%` raises it (5% to 7.5% of life per
   second). Automated coverage only; the ground art and the linger are not checked with the real client.
   See [13](../docs/protocol/13-items.md) §8a and [Paladin](../docs/game/paladin.md).
+- The player's debuffs on monsters: every warcry taunts the hostile monsters in its radius when its cast ends, the
+  Basalt Flask in its 30 cells (3 s, `taunt_duration_+%`, the `taunted` buff with its two values); passive enemy auras
+  (Light of Divinity's Augury of Penitence) sit on the hostile monsters near the living player.
+  Their increased damage taken (taunted 20% from Bring the Battle, elemental 25%) adds to the monster's own in every
+  player hit and in Righteous Fire's burn; `warcries_have_infinite_power` gives Enduring Cry the maximum charges.
+  The other warcries' own buffs, exerts and summons, taunt immunity and other passive enemy auras are not done.
+  Automated coverage only; not checked with the real client.
+  See [11](../docs/protocol/11-skills.md) §12 and [Paladin](../docs/game/paladin.md).
 - **Cyclone area of effect (2026-10-25).** `/set_aoe` now resends Cyclone's calculated final radius in the skill
   record, using the same radius calculation for server hits.
   Cyclone/CycloneAltX use a 16-cell base when their exported stat set has none.

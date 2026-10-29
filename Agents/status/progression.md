@@ -66,10 +66,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
 - Paladin: the nine small nodes (life regeneration, aura effect), Anointed Champion (consecrated ground while
-  stationary, its linger and 50% more effect) and the Paladin Aura options (granted level 30 Determination or Grace,
-  level 40 Discipline) have server consumers, with Gateway coverage of three legal builds, the
+  stationary, its linger and 50% more effect), the Paladin Aura options (granted level 30 Determination or Grace,
+  level 40 Discipline), Light of Divinity (nearby monsters take 25% more elemental damage) and Bring the Battle
+  (warcries taunt with infinite power; taunted monsters take 20% more damage) have server consumers, with Gateway
+  coverage of three legal builds, the
   Paladin Aura option swap, paid refunds and reload. `Game_VERIFIED_PALADIN=1` opts in on the reviewed combined graph.
-  Not yet: Light of Divinity, Elemental Valiance, Bring the Battle and the link-skill
+  Not yet: Elemental Valiance and the link-skill
   notables; not checked with the real client. Docs: [Paladin checklist](../docs/game/paladin.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.

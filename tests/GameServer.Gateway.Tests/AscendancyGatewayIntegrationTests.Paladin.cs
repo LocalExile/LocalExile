@@ -203,6 +203,127 @@ public sealed partial class AscendancyGatewayIntegrationTests
             (game.State.Pools.Armour, game.State.Pools.Evasion, game.State.Pools.EnergyShield));
     }
 
+    static SpawnedMonster PaladinTarget(int x) => new("PaladinTarget", new(x, 32, 30), 0, 2, 100_000) { Hostile = true };
+    static int PaladinHit(SpawnedMonster m, DamageType type) => Program.MonsterDamage(m, DamagePacket.Of(type, 1000, 1000), new Random(1), default);
+    static int PaladinBurn(SpawnedMonster m) => Program.MonsterBurn(m, new DamageOverTime(DamageType.Fire, 1000, 10), 1).Damage;
+    static bool PaladinSent(byte[] bytes, byte[] packet) => bytes.AsSpan().IndexOf(packet) >= 0;
+
+    // Light of Divinity's aura on monsters near the player and Bring the Battle's taunt increase, through the hit and
+    // burn consumers; the player stands at (32, 32).
+    [Fact]
+    public async Task Light_of_Divinity_and_taunts_raise_the_damage_monsters_take()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", level: 70, refundPoints: 100);
+        var state = game.State;
+        SpawnedMonster near = PaladinTarget(62), far = PaladinTarget(100); // 30 and 68 cells away
+        (state.Monsters[0x41], state.Monsters[0x42]) = (near, far);
+        Assert.Null((await game.Change([363, 13763], true)).Error);
+        await game.DebuffsTick(1);
+        ushort augury = near.PlayerAuras[2551];
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(0x41, augury, 2551, Program.PlayerId)));
+        Assert.Empty(far.PlayerAuras);
+        Assert.Equal((1250, 1250, 1000, 1250), (PaladinHit(near, DamageType.Fire), PaladinHit(near, DamageType.Lightning),
+            PaladinHit(near, DamageType.Physical), PaladinBurn(near)));
+        Assert.Equal(2250, Program.MonsterDamage(near, DamagePacket.Of(DamageType.Physical, 1000, 1000)
+            .Add(DamageType.Cold, new DamageRange(1000, 1000)), new Random(1), default));
+        Assert.Equal((1000, 1000), (PaladinHit(far, DamageType.Fire), PaladinBurn(far)));
+
+        // A taunt alone changes no damage; with Bring the Battle every type taken rises 20%, added to the 25%.
+        lock (state.Monsters) Assert.Equal(2, Program.TauntLocked(state, (32, 32), 100, 1, 3));
+        Assert.Equal(1000, PaladinHit(far, DamageType.Fire));
+        Assert.Null((await game.Change([43835, 46492], true)).Error);
+        lock (state.Monsters) Program.TauntLocked(state, (32, 32), 100, 1, 3);
+        Assert.Equal((1450, 1200, 1450), (PaladinHit(near, DamageType.Fire), PaladinHit(near, DamageType.Physical), PaladinBurn(near)));
+        Assert.Equal((1200, 1200, 1200), (PaladinHit(far, DamageType.Cold), PaladinHit(far, DamageType.Chaos), PaladinBurn(far)));
+        await game.DebuffsTick(1.1);
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(0x42, far.TauntBuff, 408, Program.PlayerId,
+            values: [Program.PlayerId, 1], u68: BitConverter.SingleToUInt32Bits((float)(4 - 1.1)))));
+        Assert.Equal(1450, PaladinHit(near, DamageType.Fire));
+
+        // The taunt ends after its 3 s; a refunded Light of Divinity takes its aura off; a dead player has neither.
+        await game.DebuffsTick(4.1);
+        Assert.Equal((0, 1250, 1000), (far.TauntBuff, PaladinHit(near, DamageType.Fire), PaladinHit(far, DamageType.Fire)));
+        state.PlayerLife = 0;
+        await game.DebuffsTick(4.2);
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(0x41, augury)));
+        Assert.Equal(1000, PaladinHit(near, DamageType.Fire));
+        state.PlayerLife = state.Pools.Life;
+        await game.DebuffsTick(4.3);
+        Assert.Equal(1250, PaladinHit(near, DamageType.Fire));
+        Assert.Null((await game.Change([13763], false, refundPoints: true)).Error);
+        await game.DebuffsTick(4.4);
+        Assert.Empty(near.PlayerAuras);
+        Assert.Equal(1000, PaladinHit(near, DamageType.Fire));
+
+        // A Basalt Flask taunts within its 30 cells through the same state, so the 20% applies to it too.
+        await game.UseFlaskGrounds("Basalt Flask", new Dictionary<string, int> { ["local_flask_taunt_enemies_on_use_radius"] = 30 });
+        Assert.Equal((1200, 1000), (PaladinHit(near, DamageType.Fire), PaladinHit(far, DamageType.Fire)));
+    }
+
+    // Every warcry taunts at its release; with Bring the Battle Enduring Cry has infinite power: one normal monster gives
+    // the maximum endurance charges and the regeneration a plain cry has at its 25-power cap.
+    [Fact]
+    public async Task Bring_the_Battle_warcries_taunt_with_infinite_power()
+    {
+        if (!DataAvailable()) return;
+        using var plain = new GatewayCharacter(choice: "Paladin", level: 70);
+        using var game = new GatewayCharacter(choice: "Paladin", level: 70);
+        Assert.Null((await game.Change([43835, 46492], true)).Error);
+        Assert.Equal(100, PaladinStat(game.State, "warcries_have_infinite_power"));
+        var charges = typeof(Program).GetMethod("ChargesOf", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        var cries = new Dictionary<GatewayCharacter, (SpawnedMonster Near, SpawnedMonster Far)>();
+        foreach (var character in new[] { plain, game })
+        {
+            var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemEnduringCry")!);
+            var seismic = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSeismicCry")!);
+            character.Items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)
+                with { Sockets = [new(SocketColour.White, gem), new(SocketColour.White, seismic)] });
+            await character.Command("/set_stat warcry_speed_+% 1900"); // a 40 ms cry
+            await character.Command("/set_stat additional_strength 100"); // the gems' requirement
+            cries[character] = (PaladinTarget(72), PaladinTarget(100)); // 40 and 68 cells away
+            (character.State.Monsters[0x41], character.State.Monsters[0x42]) = cries[character];
+            await character.UseOnSelf(PaladinSkill(character.State, "EnduringCry"));
+        }
+        // Released: the plain cry's regeneration has begun, the infinite one's charge grant waits for the ticker.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var granted = (ChargeSession)charges.Invoke(null, [game.State])!;
+        while (!granted.Pending || plain.State.EnduringCryRecovery.Rate(plain.State.Clock.Elapsed.TotalSeconds) == 0)
+            await Task.Delay(10, timeout.Token);
+
+        double now = game.State.Clock.Elapsed.TotalSeconds;
+        Assert.All(cries.Values, c => Assert.True(c.Near.TauntedUntil > now && c.Far.TauntedUntil == double.NegativeInfinity));
+        (int Held, int Maximum) Endurance(GatewayCharacter character)
+        {
+            var session = (ChargeSession)charges.Invoke(null, [character.State])!;
+            PaladinStat(character.State, "warcry_speed_+%"); // working out the stats gives the session its limits
+            session.Step(character.State.Clock.Elapsed.TotalSeconds, _ => 0, () => default, true, false, false, new ScriptedRandom());
+            return (session.Effective(ChargeType.Endurance), session.Limits(ChargeType.Endurance).Maximum);
+        }
+        Assert.Equal(0, Endurance(plain).Held);
+        Assert.Equal((3, 3), Endurance(game)); // the Duelist's three, from one normal monster
+        Assert.Equal(25 * plain.State.EnduringCryRecovery.Rate(now), game.State.EnduringCryRecovery.Rate(now), 6);
+        Assert.True(plain.State.EnduringCryRecovery.Rate(now) > 0);
+
+        // The taunted buff, with its two values (BuffDefinitions 408 is IsRecovery), and the 20% only with the node.
+        await game.DebuffsTick(now);
+        var (near, far) = cries[game];
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(0x41, near.TauntBuff, 408, Program.PlayerId,
+            values: [Program.PlayerId, 1], u68: BitConverter.SingleToUInt32Bits((float)(near.TauntedUntil - now)))));
+        Assert.Equal((0, 1200, 1000), (far.TauntBuff, PaladinHit(near, DamageType.Physical), PaladinHit(far, DamageType.Physical)));
+        Assert.Equal(1000, PaladinHit(cries[plain].Near, DamageType.Physical));
+
+        // Another warcry (Seismic Cry, whose own buff and exerted slams are not modelled) taunts the same way.
+        cries[plain].Near.TauntedUntil = double.NegativeInfinity;
+        await plain.UseOnSelf(PaladinSkill(plain.State, "SeismicCry"));
+        while (cries[plain].Near.TauntedUntil == double.NegativeInfinity) await Task.Delay(10, timeout.Token);
+        Assert.Equal(double.NegativeInfinity, cries[plain].Far.TauntedUntil);
+    }
+
+    static ushort PaladinSkill(ClientState state, string effectId) =>
+        ProgramValue<IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>>("GemSkillEffects", state)
+            .Single(g => g.Effect == Program.Skills.EffectRow(effectId)).Id;
+
     [Fact]
     public void Paladin_stays_behind_the_closed_gate_and_its_refusal_names_its_checklist()
     {
@@ -230,5 +351,19 @@ public sealed partial class AscendancyGatewayIntegrationTests
             });
             return stop;
         }
+
+        // One step of the player's debuffs on monsters at a chosen game time (Program.EnemyDebuffsTick).
+        public Task DebuffsTick(double now) => Exchange(async (stream, cipher) =>
+        {
+            await Program.EnemyDebuffsTick("paladin-integration", stream, cipher, State, now);
+            return null;
+        });
+
+        // A utility flask's on-use grounds and taunt (Program.MakeFlaskGrounds) with these local stats.
+        public Task UseFlaskGrounds(string flask, IReadOnlyDictionary<string, int> local) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)GatewayMethod("MakeFlaskGrounds").Invoke(null, ["paladin-integration", stream, cipher, State, flask, local, 8.0])!;
+            return null;
+        });
     }
 }

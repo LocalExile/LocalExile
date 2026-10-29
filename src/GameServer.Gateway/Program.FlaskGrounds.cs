@@ -8,8 +8,8 @@ partial class Program
     static readonly Lazy<Dictionary<FlaskGrounds.Kind, (string Ao, int ArtRadius)>> FlaskGroundArt = new(() => FlaskGrounds.LoadArt("data"));
 
     // A utility flask's use: what its implicit makes where the player stands (FlaskGrounds), for the flask's duration: a smoke
-    // cloud or consecrated ground (an effect object with the ground's art), or a taunt (the taunted buff on the hostile
-    // monsters within its radius, for 3 s).
+    // cloud or consecrated ground (an effect object with the ground's art), or a taunt of the hostile monsters within its
+    // radius (TauntLocked: 3 s, raised by taunt_duration_+%; the enemy-debuff step shows the taunted buff).
     static async Task MakeFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         string flask, IReadOnlyDictionary<string, int> local, double seconds)
     {
@@ -17,23 +17,17 @@ partial class Program
         var at = conn.Walk.Position(now);
         foreach (var (kind, radius) in FlaskGrounds.OnUse(local))
         {
-            FlaskGrounds.Ground ground;
             if (kind == FlaskGrounds.Kind.Taunt)
             {
-                ground = new(kind, at.X, at.Y, radius, now + FlaskGrounds.TauntSeconds);
-                lock (conn.Monsters)
-                    foreach (var (id, m) in conn.Monsters)
-                        if (!m.Dead && m.Life > 0 && m.Hostile && ground.Covers(m.Walk.Position(now))) ground.Taunted[id] = conn.NextBuff++;
-                uint taunt = BitConverter.SingleToUInt32Bits((float)FlaskGrounds.TauntSeconds);
-                foreach (var (id, buff) in ground.Taunted)
-                    await Send(remote, stream, ciphers, InstanceEntities.AddBuff(id, buff, FlaskGrounds.TauntedBuffRow, PlayerId, u68: taunt), null);
-                Console.WriteLine($"[gateway] {remote} {flask}: taunts {ground.Taunted.Count} monster(s) within {radius} cells of ({at.X}, {at.Y}) for {FlaskGrounds.TauntSeconds} s");
+                var player = CharacterPlayerStats(conn);
+                double taunt = TauntSeconds(name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
+                int taunted;
+                lock (conn.Monsters) taunted = TauntLocked(conn, at, radius, now, taunt);
+                Console.WriteLine($"[gateway] {remote} {flask}: taunts {taunted} monster(s) within {radius} cells of ({at.X}, {at.Y}) for {taunt:0.##} s");
+                continue;
             }
-            else
-            {
-                ground = new(kind, at.X, at.Y, radius, now + seconds, await SendGroundArt(remote, stream, ciphers, conn, kind, at, radius));
-                Console.WriteLine($"[gateway] {remote} {flask}: {kind} of radius {radius} at ({at.X}, {at.Y}) for {seconds:0.##} s");
-            }
+            var ground = new FlaskGrounds.Ground(kind, at.X, at.Y, radius, now + seconds, await SendGroundArt(remote, stream, ciphers, conn, kind, at, radius));
+            Console.WriteLine($"[gateway] {remote} {flask}: {kind} of radius {radius} at ({at.X}, {at.Y}) for {seconds:0.##} s");
             if (conn.FlaskGrounds.Add(ground)) _ = RunFlaskGrounds(remote, stream, ciphers, conn);
         }
     }
@@ -74,7 +68,7 @@ partial class Program
         conn.FlaskGrounds.TickerExited();
     }
 
-    // One step: grounds whose time is up go (their art removed, taunts taken off), monsters standing in a smoke cloud are
+    // One step: grounds whose time is up go (their art removed), monsters standing in a smoke cloud are
     // blinded (the blinded buff, FlaskGrounds.Accuracy / Evasion), a stationary player with a stationary radius (Anointed
     // Champion) has consecrated ground around him (made where he stops, removed when he moves, dies or is in a town), and the
     // player on consecrated ground or within its linger gets its effect (FlaskGrounds.PlayerStats, the ground_consecration
@@ -83,11 +77,7 @@ partial class Program
     {
         var state = conn.FlaskGrounds;
         foreach (var g in state.Expire(now))
-        {
             if (g.Object is uint obj) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(obj), $"0x02bb remove effect 0x{obj:x} ({g.Kind} ends)");
-            foreach (var (id, buff) in g.Taunted)
-                if (conn.Monsters.ContainsKey(id)) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
-        }
         // Smoke: who stands in it now.
         List<(uint Id, bool Inside)> monsters;
         lock (conn.Monsters)

@@ -113,9 +113,10 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// <summary>Life regenerated per second: life_regeneration_rate_per_minute_% of the maximum.</summary>
     public double LifeRegenPerSecond(uint maxLife) => maxLife * this["life_regeneration_rate_per_minute_%"] / 6000.0;
 
-    /// <summary>The factor on damage the monster takes: base_damage_taken_+% (increased/reduced), and for spells the
-    /// rare mod's rare_monster_mod_spell_damage_taken_+%_final (less).</summary>
-    public double DamageTaken(bool spell) => Math.Max(0, 1 + this["base_damage_taken_+%"] / 100.0)
+    /// <summary>The factor on damage the monster takes: base_damage_taken_+% (increased/reduced) plus
+    /// <paramref name="increased"/> (the player's debuffs on it, which add to it), and for spells the rare mod's
+    /// rare_monster_mod_spell_damage_taken_+%_final (less).</summary>
+    public double DamageTaken(bool spell, int increased = 0) => Math.Max(0, 1 + (this["base_damage_taken_+%"] + increased) / 100.0)
         * (spell ? Math.Max(0, 1 + this["rare_monster_mod_spell_damage_taken_+%_final"] / 100.0) : 1);
 
     /// <summary>The chance to block an attack (monster_base_block_%), capped at Monster.ot's maximum_block_%.</summary>

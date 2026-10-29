@@ -23,7 +23,8 @@ static class FlaskGrounds
     public static IEnumerable<(Kind Kind, int Radius)> OnUse(IReadOnlyDictionary<string, int> local) =>
         OnUseStats.Where(s => local.GetValueOrDefault(s.Stat) > 0).Select(s => (s.Kind, local[s.Stat]));
 
-    /// <summary>Taunt lasts 3 s (the stat's reminder text: "Taunt lasts for 3 seconds").</summary>
+    /// <summary>Taunt lasts 3 s (the stat's reminder text: "Taunt lasts for 3 seconds"; wiki Taunt), before
+    /// taunt_duration_+% (Program.TauntSeconds).</summary>
     public const double TauntSeconds = 3;
 
     /// <summary>Blind: 20% less accuracy and evasion (Path of Building CalcPerform "Blind"; BuffDefinitions blinded,
@@ -87,12 +88,11 @@ static class FlaskGrounds
         return art;
     }
 
-    /// <summary>One thing a flask made: where, how far it reaches, when it ends (connection clock seconds), its effect
-    /// object (the art), and for a taunt the monsters it taunted with their buff ids.</summary>
+    /// <summary>One ground a flask made: where, how far it reaches, when it ends (connection clock seconds) and its effect
+    /// object (the art). A taunt makes none: it is the monsters' (Program.TauntLocked).</summary>
     public sealed record Ground(Kind Kind, int X, int Y, int Radius, double Ends, uint? Object = null)
     {
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
-        public Dictionary<uint, ushort> Taunted { get; } = [];
     }
 
     /// <summary>One connection's flask grounds, the monsters blinded by smoke (with their buff ids), whether the player

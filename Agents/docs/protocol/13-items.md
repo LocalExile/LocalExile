@@ -873,8 +873,11 @@ player stands (radii in cells):
 - A stationary player with `consecrated_ground_while_stationary_radius` (or its Strength or Crusader variant, the
   largest as the client's 0x1428d43a0) has one consecrated ground of that radius where he stands: made when his walk
   ends, removed (0x2bb) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
-- Basalt (`local_flask_taunt_enemies_on_use_radius` 30): `taunted` (408) on the hostile monsters around for 3 s (the
-  reminder text); with one player that changes nothing else.
+- Basalt (`local_flask_taunt_enemies_on_use_radius` 30): taunts the hostile monsters around for 3 s (the reminder
+  text), through the player's shared taunt (`TauntLocked`, [11](11-skills.md) §12), which shows `taunted` (408).
+  Row 408 is IsRecovery, so its 0x1c1 carries `taunt_target_id` and `is_taunted`; the flask used to send it without
+  them, which the 0x1c1 reader (0x141fdf870) reads past the end of the message.
+  With one player, the taunt matters only for `taunted_enemies_damage_taken_+%` (Paladin's Bring the Battle).
 - Aquamarine's chilled ground (`local_flask_chilled_ground_on_flask_use_radius` 28) is not made: chilling monsters needs
   their slower walks and attacks to match on the client, which is not done. The ground shows the GroundEffects art
   (`ground_effects_v2/consecrated/consecrated_01.ao`, `smoke_blind/smoke_blind.ao`) as an effect object (`EffectObject`)

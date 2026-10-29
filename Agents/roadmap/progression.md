@@ -44,9 +44,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Aristocrat's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_ARISTOCRAT=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler.
   See [Aristocrat](../docs/game/aristocrat.md).
-- **Known:** Paladin's small nodes, Anointed Champion and Paladin Aura have consumers and Gateway coverage;
-  `Game_VERIFIED_PALADIN=1`.
-  **Next:** monster debuffs and taunt (Light of Divinity, Bring the Battle),
+- **Known:** Paladin's small nodes, Anointed Champion, Paladin Aura, Light of Divinity and Bring the Battle have
+  consumers and Gateway coverage; `Game_VERIFIED_PALADIN=1`.
+  **Next:**
   triggered relic minions (Elemental Valiance) and link skills (Absolution, Deep Connections, Field Medicine).
   See [Paladin](../docs/game/paladin.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
