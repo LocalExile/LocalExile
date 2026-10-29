@@ -149,8 +149,8 @@ partial class Program
             ClearRageOnDeath(conn);
             ChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
-            // Every "Recently" ends at death, the enemies' "hit by you recently" too.
-            foreach (var monster in conn.Monsters.Values) monster.PlayerHitAt = double.NegativeInfinity;
+            // Every "Recently" ends at death, the enemies' "hit by you" and "hit you" recently too.
+            foreach (var monster in conn.Monsters.Values) monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
         }
         foreach (var (id, life) in RecoverRuthlessBossesOnDeath(conn))
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"Ruthless campaign boss 0x{id:x} recovers to {life} life after player death");
@@ -410,6 +410,7 @@ partial class Program
             }
             await SendAntiquarian(remote, stream, ciphers, conn);
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
+            await SendAttackerSlows(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
             if (conn.PlayerLife == 0)

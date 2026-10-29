@@ -44,9 +44,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Aristocrat's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_ARISTOCRAT=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler.
   See [Aristocrat](../docs/game/aristocrat.md).
-- **Known:** Polytheist's small nodes, Brine King, minimum charges, Garukhan and Ryslatha have consumers.
-  `Game_VERIFIED_POLYTHEIST=1` opts in.
-  **Next:** Gruthkul, Lunaris, Solaris and Abberath, then native acceptance.
+- **Known:** Polytheist's small nodes, Brine King, minimum charges, Garukhan, Ryslatha, Gruthkul and Lunaris have
+  consumers. `Game_VERIFIED_POLYTHEIST=1` opts in.
+  **Next:** Solaris and Abberath, then native acceptance (including Gruthkul's slowed swing animation and the point the
+  client sends for a Nova with Lunaris).
   Yugul, Corrupted Blood immunity and Garukhan's ground immunity need curses, reflected damage, Corrupted Blood and
   hazardous ground first.
   See [Polytheist](../docs/game/polytheist.md).

@@ -482,6 +482,9 @@ partial class Program
             }
             stats[OwnAuraRestriction.BaseAura] = own.GetValueOrDefault(OwnAuraRestriction.BaseAura);
             OwnAuraRestriction.PublishSkill(stats, OwnAuraRestrictionValue(conn));
+            // Published like the own-aura reason (never zero over another); the client also derives it (FUN_1428cf770).
+            if (CastingSpell(conn, effect) && Stats.Key("your_spells_are_disabled") is uint spellsOff
+                && playerStats.GetValueOrDefault(spellsOff) != 0) stats[OwnAuraRestriction.SkillDisabled] = 1;
             if (Stats.Key(VaalSoulCost.Aura) is uint aura)
                 stats[aura] = VaalSoulInput(conn, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
@@ -636,6 +639,8 @@ partial class Program
     static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
     {
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
+        // Devout of Gruthkul: every spell, auras and triggered spells too (wiki: they cannot be cast or triggered).
+        if (CastingSpell(conn, effect) && SpellsDisabled(conn)) return "spells are disabled";
         return SkillsFor(conn).IsWarcry(effect) && Stats.Key("your_warcry_skills_are_disabled") is uint key
             && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0 ? "warcry skills are disabled" : null;
     }

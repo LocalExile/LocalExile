@@ -47,9 +47,9 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Pending (group 4) |
 | 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Pending (group 5) |
 | 64171 Devout of Yugul | Hex Reflection; Hexes affect Hexproof enemies; Immune to Reflected Damage; Unaffected by Curses. | Engine gap (all four) |
-| 43703 Devout of Lunaris | Nova spells at the target; Spells fire 2 additional Projectiles; 30% increased spell area. | Pending (group 3) |
+| 43703 Devout of Lunaris | Nova spells at the target; Spells fire 2 additional Projectiles; 30% increased spell area. | Done |
 | 1830 Devout of Ralakesh | +3 to Minimum Frenzy, Power and Endurance Charges; Corrupted Blood cannot be inflicted on you. | Charges done; Corrupted Blood: engine gap |
-| 5266 Devout of Gruthkul | Spells deal no damage and are disabled; 8% Life regeneration; +400 Life; enemy attack slow. | Pending (group 3) |
+| 5266 Devout of Gruthkul | Spells deal no damage and are disabled; 8% Life regeneration; +400 Life; enemy attack slow. | Done; swing animation unverified |
 | 24342 Devout of the Brine King | +10% to maximum Cold Resistance; Cannot be Frozen; Cannot be Chilled. | Done |
 | 23429 Devout of Ryslatha | Enemies you've Hit Recently have 100% reduced Life Regeneration; 30% more Maximum Attack Damage. | Done |
 
@@ -113,6 +113,38 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   (unverified for a refund within those 4 s). The client does not predict monster regeneration (the monster stats
   carry no `life_recovery_per_minute`), so the 0x1b1 updates alone show it and nothing snaps back.
 
+- **Devout of Gruthkul, Your Spells are disabled** (`your_spells_are_disabled`): every spell is refused before its
+  action, cost or cooldown, on every route the warcry and own-aura restrictions use
+  ([11](../protocol/11-skills.md) §10d). Spells are the skills the client marks `casting_spell`: auras, Heralds,
+  Righteous Fire, Portal and movement spells included; attacks and warcries stay usable. The client greys them itself
+  (`skill_disabled_by_stat` = 0x1520 AND `casting_spell`, `FUN_1428cf770`); the skill record also carries it.
+  Running spell auras are suspended with their saved intent, as for "Your Aura Skills are disabled", and come back after
+  a refund. A Righteous Fire already burning keeps burning the player and deals the enemies nothing. Both are local
+  policy: how the real game ends (or keeps) an aura that runs when the restriction starts is unverified.
+- **Devout of Gruthkul, Spell Skills deal no Damage**: the existing consumer (#293, `SkillDamageContext`) zeroes every
+  spell hit and Righteous Fire's enemy burn, for spells released before the allocation too.
+- **Devout of Gruthkul, +400 to maximum Life and Regenerate 8% of Life per second**: `base_maximum_life` joins the life
+  pool and `life_regeneration_rate_per_minute_%` (480) the regeneration the resource writer applies.
+- **Devout of Gruthkul, Enemies that have Hit you with an Attack Recently have 10% reduced Attack Speed**
+  (`enemies_that_hit_you_with_attack_recently_attack_speed_+%` -10): every monster hit is an attack here (its basic
+  contact). A hit that is not evaded or blocked records `HitPlayerAt` on the monster; for 4 s the value joins the
+  monster's own increased attack speed (attack time × (1 + inc) / (1 + inc − 10%), `MonsterModEffects.AttackSeconds`),
+  read as the player's current stat. The AI's busy time, the contact at half the attack time and the 0x1ab log use it
+  (`MonsterSwingSeconds`); the player's death ends it. The monster's attack stats go to its Stats component again when
+  the slow starts and ends (`SendAttackerSlows`); whether the client's swing animation follows them is unverified
+  ([11](../protocol/11-skills.md) §6). The client has no literal read of 0x187f, so the effect is the server's.
+- **Devout of Lunaris, Nova Spells Cast at the targeted location instead of around you**
+  (`nova_spells_cast_at_target_location`): a Nova spell (ActiveSkillType Nova) is centred on the caster without it and
+  on the aimed point with it (`SpellCentre` in `AreaSkillHit`). The client derives
+  `virtual_self_targeted_skills_target_location_instead` from this stat, `casting_spell` and `skill_is_nova_skill`
+  (`FUN_142896650`), so the Gateway now publishes `skill_is_nova_skill` in Nova skills' records. Which point the client
+  sends for a Nova with the stat is not checked live yet ([11](../protocol/11-skills.md) §9a).
+- **Devout of Lunaris, Spells fire 2 additional Projectiles** (`spells_number_of_additional_projectiles`): the projectile
+  profile adds them to spells only (`GatewayProjectileModifiers`), for the release and the skill record's
+  `total_number_of_projectiles_to_fire` alike.
+- **Devout of Lunaris, Spell Skills have 30% increased Area of Effect** (`spell_area_of_effect_+%`): `SkillArea.Increased`
+  adds it for spells only, so a spell's radius grows by √1.3 (PoB calcRadius) and attacks keep theirs.
+
 ## Engine gaps
 
 These effects are not faked. Each waits for an engine system that does not exist yet:
@@ -158,8 +190,15 @@ What to check with that build (ring C):
 - Ryslatha: the Offence tab's maximum attack damage is 30% higher and the minimum unchanged (the panel may need a
   relog to refresh, [11](../protocol/11-skills.md) §4). A monster with regeneration (`/mob_mods <id> of_the_Hydra`)
   regains no life for 4 s after each hit, then regenerates again.
+- Gruthkul, with Fireball, Clarity and an attack gem socketed (Clarity on before the allocation): Fireball and Clarity
+  are greyed and refused ("spells are disabled" in the Gateway log, no mana spent), Clarity's buff and reservation end,
+  and the attack still works. Life is 400 higher and regenerates 8% per second. A monster that hits the player logs a
+  longer "attack time" on its next swings for 4 s ("attack time ... (enemies that hit you recently)"); watch whether its
+  swing animation slows too. A refund brings Clarity back.
 
 The ring B build (`46465 64171 51229 43703 29846 1830 6605 30769`) shows three of each charge at once.
+With Lunaris, Fireball fires three projectiles, Ice Nova goes off at the cursor (it stays around the player once
+refunded; check which point the 0x01ab log line carries), and spell areas are larger.
 
 The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukhan:
 

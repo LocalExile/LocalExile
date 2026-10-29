@@ -80,6 +80,11 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         / Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 
+    /// <summary>An attack time of <see cref="AttackSeconds"/> with <paramref name="extraPct"/> more increased attack speed (a
+    /// debuff on the monster, additive with its own attack_speed_+%).</summary>
+    public double AttackSeconds(double seconds, int extraPct) => extraPct == 0 ? seconds
+        : seconds * Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0) / Math.Max(0.1, 1 + (this["attack_speed_+%"] + extraPct) / 100.0);
+
     /// <summary>The walk's movement_velocity_+% (base_movement_velocity_+% summed), sent to the client so both walk
     /// the monster at its base × (1 + value / 100) (0x141e7c0b0).</summary>
     public int MovementPct => this["base_movement_velocity_+%"];

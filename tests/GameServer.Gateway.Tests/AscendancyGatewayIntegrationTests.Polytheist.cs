@@ -128,9 +128,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
 
     sealed partial class GatewayCharacter
     {
-        // One monster attack of 100 physical damage through MonsterSwing, optionally while 50% shocked or walking, with
-        // the evasion entropy preset (99: every attack hits); the life it took.
-        public async Task<uint> PolytheistMonsterHit(bool shocked, bool walking = false, int entropy = 99)
+        // One monster attack of 100 physical damage through MonsterSwing (or the attacker's own), optionally while 50%
+        // shocked or walking, with the evasion entropy preset (99: every attack hits); the life it took.
+        public async Task<uint> PolytheistMonsterHit(bool shocked, bool walking = false, int entropy = 99, SpawnedMonster? attacker = null)
         {
             uint before = State.PlayerLife;
             await Exchange(async (stream, cipher) =>
@@ -148,10 +148,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
                 if (walking) State.Walk.Order(position.X > 64 ? position.X - 60 : position.X + 60, position.Y, now);
                 State.EvasionEntropy = entropy;
                 State.LastEvasionAt = State.Clock.Elapsed.TotalSeconds;
-                var monster = new SpawnedMonster("Polytheist incoming contact", new(position.X + 2, position.Y, 30), 0, 2, 1000)
+                var monster = attacker ?? new SpawnedMonster("Polytheist incoming contact", new(position.X + 2, position.Y, 30), 0, 2, 1000)
                 {
                     Hostile = true, Attack = new(SkillCatalog.FirstSkillId, .002, 20, DamagePacket.Of(DamageType.Physical, 100, 100)),
                 };
+                monster.Walk.Teleport(position.X + 2, position.Y, now);
                 State.Monsters[43] = monster;
                 await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["polytheist-integration", stream, cipher,
                     State, 43u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
@@ -175,6 +176,31 @@ public sealed partial class AscendancyGatewayIntegrationTests
             State.Walk.Teleport(position.X, position.Y, State.Clock.Elapsed.TotalSeconds);
             return null;
         });
+
+        public Task<(string? Error, byte[] Bytes)> PolytheistAttackerSlows() => Exchange(async (stream, cipher) =>
+        {
+            await ProgramValue<Task>("SendAttackerSlows", "polytheist-integration", stream, cipher, State);
+            return null;
+        });
+
+        // One area spell sweep (AreaSkillHit, at once) cast from self at aim, with a monster standing at each; which it hit.
+        public async Task<(bool Self, bool Aim)> PolytheistAreaSpell(ushort skillId, (int X, int Y) self, (int X, int Y) aim)
+        {
+            var gem = ProgramValue<IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>>(
+                "GemSkillEffects", State).Single(g => g.Id == skillId);
+            SpawnedMonster At((int X, int Y) p) => new("Polytheist area target", new(p.X, p.Y, 30), 0, 2, 100000) { Hostile = true };
+            var (near, far) = (At(self), At(aim));
+            (State.Monsters[46], State.Monsters[47]) = (near, far);
+            Assert.Null((await Exchange(async (stream, cipher) =>
+            {
+                await (Task)GatewayMethod("AreaSkillHit").Invoke(null, ["polytheist-integration", stream, cipher, State, skillId, gem,
+                    self, aim, true, (ushort)0, null, null, null])!;
+                return null;
+            })).Error);
+            State.Monsters.Remove(46);
+            State.Monsters.Remove(47);
+            return (near.Life < near.MaxLife, far.Life < far.MaxLife);
+        }
 
         public Task<(string? Error, byte[] Bytes)> PolytheistDeath() => Exchange(async (stream, cipher) =>
         {
@@ -297,5 +323,114 @@ public sealed partial class AscendancyGatewayIntegrationTests
         monster.Regen = 0;
         Program.RegenerateConnectionMonsters(state, hitAt + .5, .5);
         Assert.Equal(550u, monster.Life);
+    }
+
+    static (ushort Id, int Effect) PolytheistSkill(ClientState state, string name) => ProgramValue<IEnumerable<(ushort Id, int Effect,
+        string Name, int Level, int Quality, uint Gem)>>("GemSkillEffects", state).Where(g => g.Name == name).Select(g => (g.Id, g.Effect)).Single();
+
+    static void EquipPolytheistGems(GatewayCharacter game, params string[] names) =>
+        game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(Program.Items.Find("Iron Hat")!) with
+        {
+            Sockets = [.. names.Select(n => new ItemSocket(SocketColour.White, FamilyGem(n)))], Links = [.. names.Select(_ => (byte)1)],
+        });
+
+    [Fact]
+    public async Task Polytheist_Gruthkul_disables_spells_and_slows_enemies_that_hit_you()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", refundPoints: 40, level: 60);
+        var state = game.State;
+        EquipPolytheistGems(game, "Fireball", "Ground Slam", "Clarity");
+        var (fireball, slam, clarity) = (PolytheistSkill(state, "Fireball"), PolytheistSkill(state, "Ground Slam"), PolytheistSkill(state, "Clarity"));
+        CharacterSaves.SetAuraActive(game.Character, "Clarity", true);
+        void Reconcile()
+        {
+            lock (state.Monsters) typeof(Program).GetMethod("ReconcileOwnAuras", System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, [state, false]);
+        }
+        string? Disabled((ushort Id, int Effect) skill) => ProgramValue<string?>("GemDisabled", state, skill.Effect);
+        int Flag(ushort id) => FamilySkills(state).Single(s => s.Id == id).Stats!.FirstOrDefault(v => v.Key == OwnAuraRestriction.SkillDisabled).Value;
+        var monster = new SpawnedMonster("Polytheist hasty attacker", new(10, 10, 30), 0, 2, 1000)
+        {
+            Hostile = true, Attack = new(SkillCatalog.FirstSkillId, .002, 20, DamagePacket.Of(DamageType.Physical, 1, 1)),
+            Mods = new([], [], new(new Dictionary<string, int> { ["attack_speed_+%"] = 20 })),
+        };
+        double Swing(double at) => Program.MonsterSwingSeconds(state, monster, at);
+        var plain = state.Pools;
+        Assert.Equal(0, ProgramValue<double>("LifeRegenPerSecond", state));
+        Reconcile();
+        Assert.Single(state.Auras);
+        Assert.All(new[] { fireball, slam, clarity }, s => Assert.Null(Disabled(s)));
+        Assert.True(ProgramValue<DamagePacket>("SupportedHit", state, fireball.Id).MaxTotal > 0);
+        await game.PolytheistMonsterHit(false, attacker: monster);
+        Assert.Equal(.002, Swing(monster.HitPlayerAt), 12);
+
+        Assert.Null((await game.Change(PolytheistBuilds[2], true)).Error);
+        // Your Spells are disabled: spells and spell auras, never attacks. A running spell aura is suspended (its intent
+        // kept) and not restored while the node is allocated. The skill record carries skill_disabled_by_stat.
+        Assert.Equal(("spells are disabled", "spells are disabled", (string?)null), (Disabled(fireball), Disabled(clarity), Disabled(slam)));
+        Assert.Empty(state.Auras);
+        Reconcile();
+        Assert.Empty(state.Auras);
+        Assert.Equal((1, 1, 0), (Flag(fireball.Id), Flag(clarity.Id), Flag(slam.Id)));
+        // Spell Skills deal no Damage; +400 to maximum Life; Regenerate 8% of Life per second.
+        Assert.Equal(0, ProgramValue<DamagePacket>("SupportedHit", state, fireball.Id).MaxTotal);
+        Assert.True(Program.SupportedProjectileHit(state, slam.Id, area: true).MaxTotal > 0);
+        Assert.Equal(plain.Life + 400, state.Pools.Life);
+        Assert.Equal(state.Pools.Life * .08, ProgramValue<double>("LifeRegenPerSecond", state), 6);
+        // Enemies that have Hit you with an Attack Recently have 10% reduced Attack Speed: not after an evaded attack; after
+        // a hit its 20% increased becomes 10% for 4 s, sent on its Stats component; a death ends it.
+        monster.HitPlayerAt = double.NegativeInfinity;
+        Assert.Equal(0u, await game.PolytheistMonsterHit(false, entropy: 0, attacker: monster));
+        Assert.Equal(double.NegativeInfinity, monster.HitPlayerAt);
+        await game.PolytheistMonsterHit(false, attacker: monster);
+        double slowed = .002 * 1.2 / 1.1, hitAt = monster.HitPlayerAt;
+        Assert.Equal(slowed, Swing(hitAt), 12);
+        Assert.Equal(slowed, Swing(hitAt + 4), 12);
+        Assert.Equal(.002, Swing(hitAt + 4.01), 12);
+        var slowedStats = InstanceEntities.StatsUpdate(43, (monster.Attack! with { Seconds = Swing(state.Clock.Elapsed.TotalSeconds) }).Stats());
+        Assert.True(game.LastBytes.AsSpan().IndexOf(slowedStats) >= 0);
+        state.Monsters[45] = monster;
+        Assert.Empty((await game.PolytheistAttackerSlows()).Bytes);
+        Assert.Null((await game.PolytheistDeath()).Error);
+        Assert.Equal(.002, Swing(hitAt), 12);
+        Assert.True((await game.PolytheistAttackerSlows()).Bytes.AsSpan().IndexOf(InstanceEntities.StatsUpdate(45, monster.Attack!.Stats())) >= 0);
+        state.Monsters.Remove(45);
+
+        state.PlayerLife = state.PlayerMaxLife;
+        CharacterSaves.SetAuraActive(game.Character, "Clarity", true);   // the death cleared the intent
+        Assert.Null((await game.Change([.. PolytheistBuilds[2].Reverse()], false, refundPoints: true)).Error);
+        Assert.All(new[] { fireball, slam, clarity }, s => Assert.Null(Disabled(s)));
+        Reconcile();
+        Assert.Single(state.Auras);
+    }
+
+    [Fact]
+    public async Task Polytheist_Lunaris_nova_at_the_target_more_spell_projectiles_and_spell_area()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", level: 60);
+        var state = game.State;
+        EquipPolytheistGems(game, "Ice Nova", "Fireball", "Ground Slam");
+        var (nova, fireball, slam) = (PolytheistSkill(state, "Ice Nova"), PolytheistSkill(state, "Fireball"), PolytheistSkill(state, "Ground Slam"));
+        (int X, int Y) self = (20, 20), aim = (100, 20);
+        int Panel(ushort id, string name) => FamilySkills(state).Single(s => s.Id == id).Stats!
+            .FirstOrDefault(v => v.Key == Program.Stats.Key(name)).Value;
+        int Radius((ushort Id, int Effect) skill, bool spell) => ProgramValue<int>("SkillRadius", state,
+            Program.Skills.EffectStats(skill.Effect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2), spell, skill.Effect);
+        var (plainNova, plainSlam) = (Radius(nova, true), Radius(slam, false));
+        // A Nova goes off around the caster wherever it is aimed; other area spells land where they are aimed.
+        Assert.Equal((true, false), await game.PolytheistAreaSpell(nova.Id, self, aim));
+        Assert.Equal(aim, Program.SpellCentre(state, fireball.Effect, self, aim));
+        Assert.Equal((1, 1), (Panel(nova.Id, "skill_is_nova_skill"), Panel(fireball.Id, "total_number_of_projectiles_to_fire")));
+
+        Assert.Null((await game.Change(PolytheistBuilds[1], true)).Error);
+        // Nova Spells Cast at the targeted location; Spells fire 2 additional Projectiles; 30% increased spell area only.
+        Assert.Equal((false, true), await game.PolytheistAreaSpell(nova.Id, self, aim));
+        Assert.Equal(3, Panel(fireball.Id, "total_number_of_projectiles_to_fire"));
+        int baseNova = Program.Skills.EffectStats(nova.Effect, 1).Single(kv => kv.Item1 == Program.Stats.Key("active_skill_base_area_of_effect_radius")).Item2;
+        Assert.Equal((int)Math.Floor(baseNova * Math.Floor(100 * Math.Sqrt(1.3)) / 100), Radius(nova, true));
+        Assert.Equal(baseNova, plainNova);
+        Assert.Equal(plainSlam, Radius(slam, false));
     }
 }

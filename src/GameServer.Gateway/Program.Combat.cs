@@ -648,7 +648,7 @@ partial class Program
         {
             // Locked commit backstop: a source may have changed after dispatch/cooldown preflight.
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InTown(conn)
-                || OwnAuraRestrictionValue(conn) != 0) return false;
+                || OwnAuraRestrictionValue(conn) != 0 || CastingSpell(conn, effect) && SpellsDisabled(conn)) return false;
             if (conn.Auras.Remove(skillId, out var old))
                 ended = old;
             else if (conn.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same)
@@ -774,6 +774,13 @@ partial class Program
         return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
     }
 
+    // An area spell's centre: the aimed point, but a Nova spell (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova) goes off
+    // around the caster wherever it was aimed, unless the caster has nova_spells_cast_at_target_location (Devout of
+    // Lunaris: "Nova Spells Cast at the targeted location instead of around you").
+    internal static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
+        !SkillsFor(conn).IsNova(effect) || Stats.Key("nova_spells_cast_at_target_location") is uint key
+            && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0 ? to : from;
+
     // A gem skill without a projectile (strikes, slams, area spells): a first, simple hit (2026-10-23). It lands once, after
     // half the attack time (attacks) or the cast (spells), on every living monster within the skill's area radius
     // (active_skill_base_area_of_effect_radius, else AreaSkillRadius cells, grown by area of effect: SkillArea) of the aimed point, or of the player for a
@@ -805,8 +812,8 @@ partial class Program
         lock (conn.Monsters) delay = spell ? castDuration.Value / 1000.0
             : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false);
         int radius = SkillRadius(conn, skillStats, spell, gem.Effect);
-        // A melee skill aimed far away still lands in front of the player.
-        var centre = !spell && Dist(from, to) > radius + weapon.Range ? from : to;
+        // A melee skill aimed far away still lands in front of the player; a Nova spell goes off around the caster.
+        var centre = !spell && Dist(from, to) > radius + weapon.Range ? from : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         if (cooldownUse?.Instant != true && conn.ActionCount != action) return;
         // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is.

@@ -100,6 +100,11 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public double Regen;
     // When the player last hit it (Clock seconds): "enemies you've Hit Recently". Reset at the player's death.
     public double PlayerHitAt = double.NegativeInfinity;
+    // When its attack last hit the player (Clock seconds; evaded and blocked attacks do not hit): "enemies that have Hit
+    // you with an Attack Recently". Reset at the player's death. Guarded by the Monsters lock.
+    public double HitPlayerAt = double.NegativeInfinity;
+    // The attack time its Stats component carries on the client (SendAttackerSlows), when it differs from Attack.Seconds.
+    public double? SwingSecondsSent;
     // The impales the player's attacks have left on it (Impale.cs); cleared when it dies.
     public readonly ImpaleState Impale = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.

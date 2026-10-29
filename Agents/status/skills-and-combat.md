@@ -393,6 +393,12 @@ and can require explicit recipes.
   Helena's picker now receives all 103 exported personal hideouts, including MTX templates;
   switching templates now uses the native selection request and persists the chosen home.
   See [11](../docs/protocol/11-skills.md) and [21](../docs/protocol/21-hideouts.md).
+- Spells disabled (`your_spells_are_disabled`, Devout of Gruthkul): every spell use is refused on the warcry and
+  own-aura admission routes, and the skill record carries `skill_disabled_by_stat`. Running spell auras are suspended
+  with their intent kept and restored after the source goes; a burning Righteous Fire keeps burning the player and deals
+  enemies nothing. Local policy for already-running effects; Gateway coverage only, not checked with the real client.
+  Code: Gateway (`SpellsDisabled`, `ActorSkillDisabledCore`, `SuspendRestrictedOwnAuras`).
+  Docs: [11](../docs/protocol/11-skills.md) §10d.
 - **Projectile modifiers.** Generic profiles consume resolved primary counts, speed, pierce/fork/chain/split/return
   grants and independent prohibitions in the sole staged runtime. Ordinary bows and catalog-known projectile gems
   work without a skill provider. A basic recipe is straight flight, not complete special-skill behavior.
@@ -713,6 +719,13 @@ and can require explicit recipes.
   its conditional path now also receives aggregate area (0xd7) and radius percentage (0x1591).
   Cyclone's additional melee-range and stage modifiers remain partial.
   See protocol/11-skills.md.
+- **Nova spells (2026-10-29).** Ice Nova, Discharge and Shock Nova (ActiveSkillType Nova) hit around the caster wherever
+  they are aimed; before, a Nova cast on a monster went off around the monster. With
+  `nova_spells_cast_at_target_location` (Devout of Lunaris) they hit around the aimed point, and Nova skill records carry
+  `skill_is_nova_skill`, which the client needs to target them there. Gateway coverage only; which point the client
+  sends with the stat is not checked live.
+  Code: `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
+  Docs: [11](../docs/protocol/11-skills.md) §9a.
 
 ## Not working yet
 

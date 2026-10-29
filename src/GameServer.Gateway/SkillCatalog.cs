@@ -148,6 +148,9 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         // CharacterPanelStats gates spell rows on this final flag and hides the weapon rows while it is set.
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
         Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
+        // The Nova type's flag. The client casts a Nova at the cursor only when this, casting_spell and the caster's
+        // nova_spells_cast_at_target_location are all set (FUN_142896650); otherwise it stays around the caster.
+        if (IsNova(effectRow)) Put("skill_is_nova_skill", 1);
         if (gepl >= 0 && t.Cooldowns[gepl] is { Ms: > 0, Uses: > 0 } cooldown)
         {
             Put("base_cooldown_count", cooldown.Uses);
@@ -393,6 +396,9 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
+    /// <summary>A Nova skill (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova): its spell goes off around the caster.</summary>
+    public bool IsNova(int effectRow) => _novaEffects.Value.Contains(effectRow);
+
     /// <summary>Aura metadata, including only supports already accepted by GemSupports.Resolve.</summary>
     public bool IsAura(int effectRow, IEnumerable<int>? acceptedSupports = null) =>
         _auraEffects.Value.Contains(effectRow)
@@ -405,6 +411,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     private readonly Lazy<HashSet<int>> _spellEffects = new(() => EffectsOfType(folder, "Spell"));
     private readonly Lazy<HashSet<int>> _projectileEffects = new(() => EffectsOfType(folder, "Projectile"));
     private readonly Lazy<HashSet<int>> _warcryEffects = new(() => EffectsOfType(folder, "Warcry"));
+    private readonly Lazy<HashSet<int>> _novaEffects = new(() => EffectsOfType(folder, "Nova"));
     private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
     private readonly Lazy<HashSet<int>> _curseEffects = new(() => EffectsOfType(folder, "AppliesCurse"));
     private readonly Lazy<HashSet<int>> _addedAuraEffects = new(() => EffectsOfType(folder, "Aura", added: true));

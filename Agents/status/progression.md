@@ -69,9 +69,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ralakesh's minimum charges have consumers, with Gateway coverage of three legal builds, paid refunds and reload.
   Devout of Garukhan (evasion and regeneration while moving, Unaffected by Shock) and Devout of Ryslatha (more maximum
   attack damage, no regeneration on enemies hit recently) have consumers and Gateway coverage against a plain build.
+  So do Devout of Gruthkul (spells disabled and dealing no damage, life, regeneration, enemies that hit you attack
+  slower; whether their swing animation slows is unverified) and Devout of Lunaris (Novas at the target, two more spell
+  projectiles, more spell area).
   Devout of Yugul, Ralakesh's Corrupted Blood immunity and Garukhan's ground immunity wait for curses, reflected
   damage, Corrupted Blood and hazardous ground.
-  The other four notables are still being built; `Game_VERIFIED_POLYTHEIST=1` opts in.
+  Devout of Solaris and Devout of Abberath are still being built; `Game_VERIFIED_POLYTHEIST=1` opts in.
   Not checked with the real client.
   Docs: [Polytheist checklist](../docs/game/polytheist.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
