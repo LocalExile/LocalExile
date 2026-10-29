@@ -351,6 +351,11 @@ partial class Program
                 var rolled = gambler.RollIncomingHit(a.Damage, conn.IncomingHitRandom);
                 rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out monsterCritical,
                     () => SelfCriticalReduction(conn));   // its crit, Executioner's
+                // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so the
+                // physical-only checks below and ignite see the converted damage.
+                var baseHit = a.Damage;
+                if (EnemyAuraConversionLocked(conn, m, here, now) is { } auraConversion)
+                    (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
                 var mitigated = gambler.MitigateIncomingHit(rolled, type =>
                     new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
                 var immune = PlayerImmunities(conn);
@@ -386,7 +391,7 @@ partial class Program
                 int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
                 conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats) + gainedLife));
                 conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
-                ApplyPlayerAilmentsLocked(conn, a.Damage, ailmentTaken.Select((_, r) =>
+                ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
                     new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
                     monsterCritical, blocked, now, stats);
                 conn.RecentEnemyHits.Record(now);
@@ -395,11 +400,11 @@ partial class Program
                 RecordHardcoreDeath(conn);
                 life = conn.PlayerLife;
                 mana = conn.PlayerMana;
-                if (!blocked && !a.Ranged && life > 0 && a.Damage.Components.All(c => c.Type == DamageType.Physical))
+                if (!blocked && !a.Ranged && life > 0 && baseHit.Components.All(c => c.Type == DamageType.Physical))
                     recovery = CommitPlayerHitRecoveryLocked(conn, damage, now);
                 else if (Stats.Key(AntiquarianEffects.StunRecoverySource) is uint turtle && stats.GetValueOrDefault(turtle) > 0)
                     Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
-                        + $"alive={life > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
+                        + $"alive={life > 0}, types={string.Join(',', baseHit.Components.Select(c => c.Type))}");
                 RageWhenHitLocked(conn);
                 break;
             }

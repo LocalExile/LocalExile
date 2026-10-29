@@ -297,13 +297,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native Endurance Charges confirm accepted releases; Fireball remains usable and relog clears the developer flag.
   Phrecia play stays gated; source precedence, aliases and queued boundaries have additional automated coverage.
   See [11](../docs/protocol/11-skills.md) section 10b.
-- Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
-  client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
-  corpse and quest chests opening (Deathrattle).
-  Gateway coverage; not yet checked with the real client.
-  Explosion conversion, added damage, crits, on-hit effects, art and the client's 0.22 s wave delay are not modelled.
-  Code: `Program.Warcries.cs`, `UseChargeSkillCore`.
-  Docs: [11](../docs/protocol/11-skills.md) section 10c.
 - Own-aura restriction (#304) consumes signed 21148 OR 11881, with explicit final 11075 developer precedence.
   Typed Aura and accepted Blasphemy metadata drive admission and native skill flags.
   Admission and queued acknowledgements use the requested skill ID; duplicate gems keep separate support context.
@@ -377,6 +370,28 @@ and can require explicit recipes.
   Unsupported Vaal casts are refused before action echoes or cooldown reservation, including effective zero cost.
   No executor, Rage payment or SGP countdown is added.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
+- Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
+  client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
+  corpse and quest chests opening (Deathrattle).
+  Gateway coverage; not yet checked with the real client.
+  Explosion conversion, added damage, crits, on-hit effects, art and the client's 0.22 s wave delay are not modelled.
+  Code: `Program.Warcries.cs`, `UseChargeSkillCore`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10c.
+- Strike targeting: a melee Strike's spirit strikes (`melee_attack_number_of_spirit_strikes`) hit the monsters the
+  client picks, mirrored from its scan and its seeded shuffle, for gem Strikes and the default attack.
+  With `melee_strike_skill_strike_previous_location` a Strike also hits where its previous use landed, and the
+  server sends the `skill_location_memory` buff.
+  Gateway coverage; not yet checked with the real client, and whether the client strikes the previous location
+  itself is unknown.
+  Not mirrored: the client's line-of-sight test and its choice among more than 20 candidates.
+  Code: `StrikeTargets.cs`, `Program.Strikes.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10d.
+- Passive enemy auras: a passive's BuffTemplates enemy aura puts its buff on hostile monsters in its radius, and its
+  hit conversion converts their hits (Born under Fire).
+  Auras with stats the server does not apply yet are neither sent nor applied.
+  Gateway coverage; not yet checked with the real client.
+  Code: `PassiveBuffAuras.cs`, `MonsterSwing`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10e.
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.
   Equipment contributes attributes before individual gem validation;

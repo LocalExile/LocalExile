@@ -2,8 +2,8 @@
 
 Ancestral Commander is the Marauder's Phrecia Juggernaut identity (`Juggernaut`, 3.29.3b), start node 17765.
 No node grants passive points.
-The defensive and warcry nodes have server consumers with Gateway coverage (Deathrattle only partly); the strike,
-enemy-aura, Spirit and totem nodes are still open, as the checklist says.
+The defensive, warcry, strike and enemy-aura nodes have server consumers with Gateway coverage (Deathrattle only
+partly); the Spirit and totem nodes are still open, as the checklist says.
 Native acceptance is open: it needs the reviewed combined graph installed (see Admission below).
 
 ## Node checklist
@@ -32,9 +32,9 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Not yet: the server has no totems. |
 | 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
 | 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: the warcry release explodes the server's corpses and opens quest chests; see below. |
-| 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Not yet: no strike targeting. |
-| 61282 Ancestral Echo | Strikes also target the previous location they were used | Not yet: no strike targeting. |
-| 32105 Born under Fire | Nearby Enemies convert 50% of their Physical Damage to Fire | Not yet: no passive enemy auras. |
+| 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Spirit strikes of gem Strikes and the default attack, picked as the client picks them; see below. |
+| 61282 Ancestral Echo | Strikes also target the previous location they were used | Partial: the server strikes the previous location and sends `skill_location_memory`; the client's own strike there needs a live check. |
+| 32105 Born under Fire | Nearby Enemies convert 50% of their Physical Damage to Fire | Monster hits within 60 cells convert, and the aura's buff goes on those monsters. |
 | 16317 Forest of Ancestors | 20% of Damage from Hits is taken from your nearest Totem's Life before you; +1 maximum Totem | Not yet: the server has no totems. |
 
 Three legal eight-point builds, with the four other Spirit options, cover every node:
@@ -105,6 +105,25 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
     The server has no other chests yet.
     The wiki's Deathrattle page says warcries also open reward chests and strongboxes; that they open these quest
     chests is consistent with it but unverified.
+- Ancestral Reach: `melee_attack_number_of_spirit_strikes` 2 and `extra_target_targeting_distance_+%` 50.
+  Each non-Vaal melee Strike use (Heavy Strike and the other Strike gems, and the default attack) also hits 2 living
+  hostile monsters 10 to 45 cells from the player, other than its target.
+  The server picks them as the client does: the candidates in id order, shuffled by the client's generator seeded with
+  the use's sequence and the player's id ([11](../protocol/11-skills.md) section 10d).
+  Each extra hit is a full hit of the skill; a use grants one Fortification and one Rage gain.
+  Not mirrored: the client's line-of-sight test and its choice among more than 20 candidates.
+- Ancestral Echo: `melee_strike_skill_strike_previous_location` 1, with a melee weapon.
+  A Strike skill's next use, from more than 5 cells away, also strikes where its previous use landed: a gem Strike hits
+  the monsters within its radius there, the default attack the monster nearest it within reach.
+  Each skill's location is kept until death; a use that hits a monster with its own swing does not hit it again there.
+  The server sends the client's `skill_location_memory` buff (BuffDefinitions 1451) at the skill's first use.
+  The client code that records the locations was not found, so whether the client draws the strike at the previous
+  location needs a live check; the target rules there are the server's own.
+- Born under Fire: BuffTemplates 674 gives every living hostile monster within 60 cells of the living player
+  BuffDefinitions 2552 (`base_physical_damage_%_to_convert_to_fire` 50), added and removed as they move every 100 ms.
+  A monster's hit within 60 cells at contact converts half its physical damage to fire, before mitigation, by the
+  player's own conversion rules: fire resistance applies, and the fire can ignite on a critical hit.
+  The generic passive enemy-aura path is [11](../protocol/11-skills.md) section 10e.
 
 ## Admission
 
@@ -123,6 +142,10 @@ With the graph installed, start through `scripts/dev/live.ps1` and run:
 ```
 
 For the defensive nodes, use `/add_passive 11217 37852 24701 23061 8455 848 26496 9828` instead.
+The first build carries the strike and aura nodes: with Heavy Strike in a one-handed mace, a strike into a pack also
+hits two monsters up to 45 cells away, and a second strike from elsewhere hits where the first landed (watch for the
+client's own strike there).
+Monsters within 60 cells carry the Born under Fire debuff, and their hits on the player show fire damage.
 For the warcry nodes, use `/add_passive 41978 48740 29654 3245 24701 23061 8455 848` with an Enduring Cry gem:
 the cry plays in a third of its time and its bar cooldown lasts about 11.4 s; killed monsters within 60 cells
 vanish at the release and hurt living ones beside them; in The Mud Flats a cry beside a Rhoa Nest opens it.

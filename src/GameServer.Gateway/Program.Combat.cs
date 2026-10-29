@@ -154,126 +154,161 @@ partial class Program
         {
             return;
         }
+        // A Strike's spirit strikes and previous-location strike are chosen as the swing starts, as the client chooses them
+        // (StrikeTargets): the default attack is a Strike.
+        int attackEffect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } attackId ? SkillsFor(conn).EffectRow(attackId) : -1;
+        var ownPenetration = attackEffect >= 0
+            ? SkillsFor(conn).EffectStats(attackEffect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2) : null;
+        List<uint> spirit;
+        (int X, int Y)? echo;
+        byte[]? memoryBuff;
+        using (ProjectileMutation(conn))
+            (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, use.SkillId, attackEffect, ownPenetration ?? new Dictionary<uint, int>(), stop, target,
+                use.Sequence, use.TargetId, ProjectileWorldTime(conn));
+        if (memoryBuff is not null)
+            await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
         // The hit lands at the attack animation's contact keyframe (data/animation-contacts.json), not a fixed half: the
         // client stretches the clip to the attack time, so the blood and the weapon impact sound line up with the swing.
         await Task.Delay(TimeSpan.FromSeconds(AttackContactDelay(conn, duration, approach: true)));
         await WhilePaused(conn);
-        uint life;
-        bool stageStarts = false;
-        int accuracy, evasion;
+        // One use, one Fortification and one Rage gain (as one AreaSkillHit sweep), whichever of its hits lands first.
+        bool fortified = false, raged = false;
+        if (!await HitTarget(use.TargetId, m, target)) return;
+        List<(uint Id, SpawnedMonster M, (int X, int Y) At)> extras;
         lock (conn.Monsters)
         {
-            if (m.Life == 0) return;
-            if (!PlayerActionCurrent(conn, action))
-            {
-                Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled by a later action");
-                return;
-            }
-            // The Accuracy Mastery's target conditions at the roll: the target's own rarity and its distance at the hit
-            // resolution time (TargetAccuracy). Spells do not roll, so spells never see these.
-            var targetAccuracy = AttackAccuracyAt(conn, m, conn.Clock.Elapsed.TotalSeconds);
-            bool unique = targetAccuracy.Unique, closeRange = targetAccuracy.CloseRange;
-            accuracy = targetAccuracy.Accuracy;
-            if (accuracy != conn.Pools.Accuracy)
-                Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} ({m.Label}, {m.Rarity}): accuracy {conn.Pools.Accuracy} -> {accuracy} " +
-                    $"for the target ({(unique ? "unique target, " : "")}{(closeRange ? "in close range (20 units) " : "")}accuracy mastery more)");
-            evasion = m.Mods.Effects.Evasion(Monsters.BaseEvasion(m.Level) ?? 0);
+            double now2 = conn.Clock.Elapsed.TotalSeconds;
+            extras = [.. spirit.Where(id => conn.Monsters.TryGetValue(id, out var s) && !s.Dead && s.Life > 0)
+                .Select(id => (id, conn.Monsters[id], conn.Monsters[id].Walk.Position(now2)))];
+            // The previous location's strike: the monster nearest it within the weapon's reach (a single-target hit, as the
+            // default attack's own).
+            if (echo is { } at && conn.Monsters.Where(e => e.Key != use.TargetId && !spirit.Contains(e.Key) && e.Value.Hostile
+                    && !e.Value.Dead && e.Value.Life > 0 && Dist(e.Value.Walk.Position(now2), at) <= weapon.Range + LivingCollision.Size(e.Value))
+                .OrderBy(e => Dist(e.Value.Walk.Position(now2), at)).Select(e => (e.Key, e.Value)).FirstOrDefault() is (var echoId, { } echoed))
+                extras.Add((echoId, echoed, echoed.Walk.Position(now2)));
         }
-        int hitChance = DamageModel.AccuracyHitChance(conn.FlaskGrounds.Evasion(use.TargetId, evasion), accuracy);   // blinded in smoke
-        if (!PlayerAlwaysHits(conn) && !DamageModel.Hits(hitChance, Random.Shared.Next(100)))
+        foreach (var (extraId, extra, at) in extras)
+            if (!await HitTarget(extraId, extra, at)) return;
+
+        // One hit of this swing on one monster: accuracy, block, impale, crit and on-hit as the target's own. False when a
+        // later action replaced the swing.
+        async Task<bool> HitTarget(uint targetId, SpawnedMonster m, (int X, int Y) target)
         {
-            Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} missed: accuracy {accuracy} vs evasion {evasion}, " +
-                $"{hitChance}% chance");
-            return;
-        }
-        if (MonsterBlocks(m, Random.Shared, spell: false))   // Stalwart: nothing of the hit happens
-        {
-            Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} ({m.Label}) blocked");
-            return;
-        }
-        int attackEffect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } attackId ? SkillsFor(conn).EffectRow(attackId) : -1;
-        var ownPenetration = attackEffect >= 0
-            ? SkillsFor(conn).EffectStats(attackEffect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2) : null;
-        // Impale: the stacks already on the target add their stored damage to this hit, this hit uses one of their five
-        // hits, and the hit's own physical damage may store a new stack for the hits after it.
-        double stored, impaleStored;
-        int impaleStacks, damage;
-        bool impaled, critical;
-        string? resistance;
-        using (ProjectileMutation(conn))
-        {
-            if (m.Life == 0) return;
-            if (!PlayerActionCurrent(conn, action) || conn.Paused)
+            uint life;
+            bool stageStarts = false;
+            int accuracy, evasion;
+            lock (conn.Monsters)
             {
-                Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled by a later action");
-                return;
+                if (m.Life == 0) return true;
+                if (!PlayerActionCurrent(conn, action))
+                {
+                    Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} cancelled by a later action");
+                    return false;
+                }
+                // The Accuracy Mastery's target conditions at the roll: the target's own rarity and its distance at the hit
+                // resolution time (TargetAccuracy). Spells do not roll, so spells never see these.
+                var targetAccuracy = AttackAccuracyAt(conn, m, conn.Clock.Elapsed.TotalSeconds);
+                bool unique = targetAccuracy.Unique, closeRange = targetAccuracy.CloseRange;
+                accuracy = targetAccuracy.Accuracy;
+                if (accuracy != conn.Pools.Accuracy)
+                    Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} ({m.Label}, {m.Rarity}): accuracy {conn.Pools.Accuracy} -> {accuracy} " +
+                        $"for the target ({(unique ? "unique target, " : "")}{(closeRange ? "in close range (20 units) " : "")}accuracy mastery more)");
+                evasion = m.Mods.Effects.Evasion(Monsters.BaseEvasion(m.Level) ?? 0);
             }
-            // Settle Rage at accepted contact before this hit's gain. It is a final multiplier on the attack packet,
-            // never on an existing impale bonus or on generic damage/DoT.
-            var player = CharacterPlayerStats(conn);
-            var pen = Penetration.Of(player, Stats, attack: true, ownPenetration);
-            var resistanceMods = HitResistMods(player, ownPenetration);
-            var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee,
-                ConversionFor(conn, attackEffect, 1, attack: true));
-            double physical = hit[DamageType.Physical].Max;
-            stored = m.Impale.Bonus;
-            m.Impale.AfterHit();
-            int impaleChance = Stats.Key("impale_on_hit_%_chance") is uint impaleKey ? player.GetValueOrDefault(impaleKey) : 0;
-            impaled = impaleChance > 0 && Random.Shared.Next(100) < impaleChance && m.Impale.Apply(physical);
-            // Read before the hit is applied: a killing blow clears the target's impales.
-            impaleStacks = m.Impale.Stacks;
-            impaleStored = m.Impale.Bonus;
-            var gambler = GamblerFor(player);
-            var ownRolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared);
-            // Impale is stored reflected damage, not part of the direct roll which can generate Fortification.
-            var rolled = stored > 0 ? ownRolled.Add(DamageType.Physical,
-                new DamageRange(Math.Floor(stored), Math.Floor(stored))) : ownRolled;
-            critical = RollCriticalStrike(conn, conn.Pools.AttackCriticalStrikeChance, ownPenetration);
-            int criticalMultiplier = CriticalMultiplierOn(m, AttackCriticalMultiplier(conn, player));
-            (damage, resistance) = MonsterDamage(m, rolled, critical, attack: true, resistanceMods, pen, gambler.InvertsResistance(Random.Shared));
-            if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
-            FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
-                WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration);
-            (m.Life, stageStarts) = TakeDamageLocked(m, damage);
-            if (stageStarts)
+            int hitChance = DamageModel.AccuracyHitChance(conn.FlaskGrounds.Evasion(targetId, evasion), accuracy);   // blinded in smoke
+            if (!PlayerAlwaysHits(conn) && !DamageModel.Hits(hitChance, Random.Shared.Next(100)))
             {
-                CommitBossStage(remote, stream, ciphers, conn, use.TargetId, m, ProjectileWorldTime(conn));
-                stageStarts = false;
+                Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} missed: accuracy {accuracy} vs evasion {evasion}, " +
+                    $"{hitChance}% chance");
+                return true;
             }
-            life = m.Life;
-            conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+            if (MonsterBlocks(m, Random.Shared, spell: false))   // Stalwart: nothing of the hit happens
+            {
+                Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} ({m.Label}) blocked");
+                return true;
+            }
+            // Impale: the stacks already on the target add their stored damage to this hit, this hit uses one of their five
+            // hits, and the hit's own physical damage may store a new stack for the hits after it.
+            double stored, impaleStored;
+            int impaleStacks, damage;
+            bool impaled, critical;
+            string? resistance;
+            using (ProjectileMutation(conn))
+            {
+                if (m.Life == 0) return true;
+                if (!PlayerActionCurrent(conn, action) || conn.Paused)
+                {
+                    Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} cancelled by a later action");
+                    return false;
+                }
+                // Settle Rage at accepted contact before this hit's gain. It is a final multiplier on the attack packet,
+                // never on an existing impale bonus or on generic damage/DoT.
+                var player = CharacterPlayerStats(conn);
+                var pen = Penetration.Of(player, Stats, attack: true, ownPenetration);
+                var resistanceMods = HitResistMods(player, ownPenetration);
+                var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee,
+                    ConversionFor(conn, attackEffect, 1, attack: true));
+                double physical = hit[DamageType.Physical].Max;
+                stored = m.Impale.Bonus;
+                m.Impale.AfterHit();
+                int impaleChance = Stats.Key("impale_on_hit_%_chance") is uint impaleKey ? player.GetValueOrDefault(impaleKey) : 0;
+                impaled = impaleChance > 0 && Random.Shared.Next(100) < impaleChance && m.Impale.Apply(physical);
+                // Read before the hit is applied: a killing blow clears the target's impales.
+                impaleStacks = m.Impale.Stacks;
+                impaleStored = m.Impale.Bonus;
+                var gambler = GamblerFor(player);
+                var ownRolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared);
+                // Impale is stored reflected damage, not part of the direct roll which can generate Fortification.
+                var rolled = stored > 0 ? ownRolled.Add(DamageType.Physical,
+                    new DamageRange(Math.Floor(stored), Math.Floor(stored))) : ownRolled;
+                critical = RollCriticalStrike(conn, conn.Pools.AttackCriticalStrikeChance, ownPenetration);
+                int criticalMultiplier = CriticalMultiplierOn(m, AttackCriticalMultiplier(conn, player));
+                (damage, resistance) = MonsterDamage(m, rolled, critical, attack: true, resistanceMods, pen, gambler.InvertsResistance(Random.Shared));
+                if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
+                if (!fortified) fortified = FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
+                    WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration);
+                (m.Life, stageStarts) = TakeDamageLocked(m, damage);
+                if (stageStarts)
+                {
+                    CommitBossStage(remote, stream, ciphers, conn, targetId, m, ProjectileWorldTime(conn));
+                    stageStarts = false;
+                }
+                life = m.Life;
+                conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+                if (life == 0)
+                {
+                    m.Aggro = false; m.Dead = true; m.Impale.Clear();
+                    CollectVaalSoulAtDeathLocked(conn, m);
+                }
+                if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
+            }
+            ChargesOnHit(conn, m, critical, spell: false);
+            if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
+            // At 0 the client's Life tick (0x141e6a190) stops notifying its listeners, so the mini life bar would keep the last
+            // value: hide it with the stat its listener watches (hide_mini_life_bar).
             if (life == 0)
-            {
-                m.Aggro = false; m.Dead = true; m.Impale.Clear();
-                CollectVaalSoulAtDeathLocked(conn, m);
-            }
-            RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
+                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
+                    $"0x01b3 monster 0x{targetId:x} hide_mini_life_bar = 1");
+            // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2).
+            await SendFlinch(remote, stream, ciphers, conn, targetId, m, damage, log: true);
+            // The hit result for the client's damage/effect pipeline (0x1af): the client applies the hit locally (the target's
+            // blood, the weapon impact sound "bonk") and 0x1b1 stays authoritative on life. flags 0x4201 is the real server's
+            // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
+            // the directional blood.
+            await Send(remote, stream, ciphers,
+                InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: 0x4201, kind: 0x03,
+                    angle: HitAngle(target.X - stop.X, target.Y - stop.Y)),
+                $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(targetId, life),
+                $"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}" +
+                (resistance is { } note ? $", {note}" : "") +
+                (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
+                (impaled ? $", impaled ({impaleStacks} stack(s), {impaleStored:0.#} stored)" : "") +
+                $", life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
+            if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, targetId, m);
+            if (stageStarts) _ = RunBossStage(remote, stream, ciphers, conn, targetId, m);
+            return true;
         }
-        ChargesOnHit(conn, m, critical, spell: false);
-        if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
-        // At 0 the client's Life tick (0x141e6a190) stops notifying its listeners, so the mini life bar would keep the last
-        // value: hide it with the stat its listener watches (hide_mini_life_bar).
-        if (life == 0)
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(use.TargetId, [(StatKeys.HideMiniLifeBar, 1)]),
-                $"0x01b3 monster 0x{use.TargetId:x} hide_mini_life_bar = 1");
-        // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2).
-        await SendFlinch(remote, stream, ciphers, conn, use.TargetId, m, damage, log: true);
-        // The hit result for the client's damage/effect pipeline (0x1af): the client applies the hit locally (the target's
-        // blood, the weapon impact sound "bonk") and 0x1b1 stays authoritative on life. flags 0x4201 is the real server's
-        // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
-        // the directional blood.
-        await Send(remote, stream, ciphers,
-            InstanceProtocol.ActionHit(PlayerId, use.Sequence, use.TargetId, flags: 0x4201, kind: 0x03,
-                angle: HitAngle(target.X - stop.X, target.Y - stop.Y)),
-            $"0x01af player hit on monster 0x{use.TargetId:x} (sequence 0x{use.Sequence:x4})");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(use.TargetId, life),
-            $"0x01b1 monster 0x{use.TargetId:x} hit for {damage}{(critical ? " (critical)" : "")}" +
-            (resistance is { } note ? $", {note}" : "") +
-            (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
-            (impaled ? $", impaled ({impaleStacks} stack(s), {impaleStored:0.#} stored)" : "") +
-            $", life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
-        if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, use.TargetId, m);
-        if (stageStarts) _ = RunBossStage(remote, stream, ciphers, conn, use.TargetId, m);
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from
@@ -703,7 +738,7 @@ partial class Program
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
         return AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, to, immediate: channelled, sequence: sequence,
-            actionToken: actionToken, cooldownUse: cooldownUse, channelGeneration: channelGeneration);
+            actionToken: actionToken, cooldownUse: cooldownUse, channelGeneration: channelGeneration, targetId: targetId);
     }
 
     // A channelled skill's hits (Cyclone): one sweep around the player every attack time (SupportedAttackSeconds: the
@@ -784,7 +819,7 @@ partial class Program
     static async Task AreaSkillHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null,
-        int? channelGeneration = null)
+        int? channelGeneration = null, uint targetId = 0)
     {
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
@@ -809,6 +844,17 @@ partial class Program
         var centre = !spell && Dist(from, to) > radius + weapon.Range ? from : to;
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         if (cooldownUse?.Instant != true && conn.ActionCount != action) return;
+        // A Strike's spirit strikes and previous-location strike, chosen as it starts, as the client chooses them
+        // (StrikeTargets). Each monster takes one hit of the use, whichever of them reaches it.
+        List<uint> spirit = [];
+        (int X, int Y)? echo = null;
+        byte[]? memoryBuff = null;
+        if (!spell && channelGeneration is null)
+            using (ProjectileMutation(conn))
+                (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, skillStats, from, centre, sequence,
+                    targetId, ProjectileWorldTime(conn));
+        if (memoryBuff is not null)
+            await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
         // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is.
         if (!immediate)
         {
@@ -817,6 +863,7 @@ partial class Program
             if ((cooldownUse?.Instant != true && conn.ActionCount != action) || conn.Closed || !Current()) return;
         }
         List<(uint Id, SpawnedMonster M)> targets;
+        int sweep;
         using (ProjectileMutation(conn))
         {
             double now = ProjectileWorldTime(conn);
@@ -828,6 +875,13 @@ partial class Program
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
             targets = [.. conn.Monsters.Where(e => !e.Value.Dead && e.Value.Life > 0 && Dist(e.Value.Walk.Position(now), centre) <= radius)
                 .Select(e => (e.Key, e.Value))];
+            sweep = targets.Count;
+            var struck = targets.Select(t => t.Id).ToHashSet();
+            foreach (uint id in spirit)
+                if (struck.Add(id) && conn.Monsters.TryGetValue(id, out var s) && !s.Dead && s.Life > 0) targets.Add((id, s));
+            if (echo is { } at)
+                targets.AddRange(conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
+                    && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
         }
         bool fortificationGranted = false; // One simultaneous sweep, independent of notification latency.
         bool rageGranted = false; // Only a positive gain takes this sweep's latch.
@@ -898,7 +952,8 @@ partial class Program
             ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
         }
         foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
-        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {sweep} monster(s) within {radius} cells of ({centre.X}, {centre.Y})" +
+            $"{(targets.Count > sweep ? $" and {targets.Count - sweep} more by spirit strikes{(echo is { } previous ? $" and the previous location ({previous.X}, {previous.Y})" : "")}" : "")} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
     }
 
     static async Task<bool> WaitProjectileTime(ClientState conn, double until, int epoch)

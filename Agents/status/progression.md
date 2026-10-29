@@ -71,8 +71,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Call of the Ancestors speeds Enduring Cry's release and slows its one-use cooldown, which the record and the client
   derive the same way; Deathrattle explodes and consumes the server's corpses and opens the quest chests at the release.
   Deathrattle is partial: no explosion conversion, added damage, crits or art, and no chests beyond the quest ones.
-  Not yet: Ancestral Reach and Echo, Born under Fire, the five Spirits and Forest of Ancestors (no strike targeting,
-  enemy auras, triggered skills or totems).
+  Ancestral Reach's spirit strikes hit the monsters the client picks; Ancestral Echo strikes the previous location on
+  the server, and whether the client strikes it too needs a live check.
+  Born under Fire converts nearby monsters' physical hits and puts its debuff on them.
+  Not yet: the five Spirits and Forest of Ancestors (no triggered skills or totems).
   `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in; not yet checked with the real client.
   Docs: [Ancestral Commander checklist](../docs/game/ancestral-commander.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

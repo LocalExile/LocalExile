@@ -379,6 +379,8 @@ its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignit
   rolls it and sends the life change.
 - Monster melee is a physical packet (`MonsterAttack.Damage`); the server rolls it when the swing lands.
   Each type takes resistance, then shared incoming hit mitigation, including enabled chaos armour (section 2e).
+  Within one of the player's passive enemy auras the rolled hit and its ailment base first take the aura's conversion
+  stats (Born under Fire: half the physical as fire; [11](11-skills.md) section 10e).
 - `missing_unreserved_life_%_gained_as_life_before_hit` adds that percent of missing Life, rounded down, once an enemy
   hit is decided not evaded and before it is rolled (`MonsterSwing` and the dev hits), only while alive.
   A blocked hit counts (blocking does not stop the defender's when-hit effects); Life reservation is not modelled.

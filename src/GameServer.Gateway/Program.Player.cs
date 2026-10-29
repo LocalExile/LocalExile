@@ -149,6 +149,7 @@ partial class Program
             ClearRageOnDeath(conn);
             ChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
+            conn.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         }
         foreach (var (id, life) in RecoverRuthlessBossesOnDeath(conn))
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"Ruthless campaign boss 0x{id:x} recovers to {life} life after player death");

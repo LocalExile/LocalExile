@@ -94,6 +94,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Native grey-icon prediction and persistent restricting equipment remain separate verification.
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
   Complete Lone Messenger, party auras and unsupported curse/enemy/banner/Vaal executors remain separate.
+  Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
+  the others (Overwhelm, the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
   Fire's); the combat auras (Anger, Hatred, Wrath, Zealotry, Pride), Heralds, banners, curse auras and
   Determination/Grace/Discipline's armour/evasion/ES effects.

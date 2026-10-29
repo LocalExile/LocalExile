@@ -393,6 +393,14 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
+    /// <summary>A Strike skill: ActiveSkillType MeleeSingleTarget, whose FlagStat is <c>skill_is_strike_skill</c>, the
+    /// stat the client's own strike virtuals test (<c>0x142896310</c>, <c>0x1428b12d0</c>). The default attack is one
+    /// (PoB's Default Attack has MeleeSingleTarget too).</summary>
+    public bool IsStrike(int effectRow) => _strikeEffects.Value.Contains(effectRow);
+
+    /// <summary>ActiveSkillType Vaal (FlagStat <c>skill_is_vaal_skill</c>).</summary>
+    public bool IsVaal(int effectRow) => _vaalEffects.Value.Contains(effectRow);
+
     /// <summary>Aura metadata, including only supports already accepted by GemSupports.Resolve.</summary>
     public bool IsAura(int effectRow, IEnumerable<int>? acceptedSupports = null) =>
         _auraEffects.Value.Contains(effectRow)
@@ -405,6 +413,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     private readonly Lazy<HashSet<int>> _spellEffects = new(() => EffectsOfType(folder, "Spell"));
     private readonly Lazy<HashSet<int>> _projectileEffects = new(() => EffectsOfType(folder, "Projectile"));
     private readonly Lazy<HashSet<int>> _warcryEffects = new(() => EffectsOfType(folder, "Warcry"));
+    private readonly Lazy<HashSet<int>> _strikeEffects = new(() => EffectsOfType(folder, "MeleeSingleTarget"));
+    private readonly Lazy<HashSet<int>> _vaalEffects = new(() => EffectsOfType(folder, "Vaal"));
     private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
     private readonly Lazy<HashSet<int>> _curseEffects = new(() => EffectsOfType(folder, "AppliesCurse"));
     private readonly Lazy<HashSet<int>> _addedAuraEffects = new(() => EffectsOfType(folder, "Aura", added: true));

@@ -1496,6 +1496,71 @@ Native grey-icon prediction, persistent restricting equipment and another client
 general reservations, banners, enemy auras and Vaal systems remain separate work.
 A foreign-source packet non-removal control establishes no party aura executor or gameplay behavior.
 
+## 10d. Strike skills: spirit strikes and the previous location
+
+A Strike is an ActiveSkills row typed `MeleeSingleTarget` (`SkillCatalog.IsStrike`).
+The default attack (`Melee`) is one.
+The client picks a Strike's extra targets itself when its melee action starts (`0x141c9c070` → `0x141c9ad30`) and
+draws their hits.
+The server makes the same choice as the swing starts (`StrikeExtrasLocked`, `StrikeTargets.cs`), so its damage lands
+on the monsters the client strikes.
+
+- Spirit strikes: the count is the client's `virtual_number_of_spirit_strikes` (`0x1428b12d0`).
+  It is 0 with `no_spirit_strikes`, for a non-melee attack, a non-Strike or a Vaal skill, else
+  `melee_attack_number_of_spirit_strikes`.
+  The scan radius is (100 + `extra_target_targeting_distance_+%`) / 100 × 30 cells in f32, truncated: 30, or 45 with
+  Ancestral Reach.
+  A candidate is a living hostile monster within that radius plus its own size of the player's cell, more than
+  9.95 cells away (squared distance over 99), and not the action's target.
+  The list holds at most 20 (`0x141ca3f30`).
+  The client sorts it by object id (`0x141a300b0`) and shuffles it front to back with TinyMT32 `init_by_array`, seeded
+  with the action's sequence and the player's object id (`0x1413cbe50`; one uniform draw per place, `0x140484fa0`).
+  The first N are struck.
+- Previous location: `melee_strike_skill_number_of_previous_locations_to_strike` (`0x142896310`) needs a melee main
+  hand, a Strike and `melee_strike_skill_strike_previous_location`.
+  The client keeps each Strike skill's locations in the `skill_location_memory` buff (BuffDefinitions 1451, invisible,
+  CancelOnDeath), which its melee action finds by skill id and the ActionTypes hash of the skill's bit-3 association.
+  A location is skipped while the player stands within 5 cells of where it stood then (squared distance under 25,
+  `0x141ca6eb0`).
+  The server keeps the last player cell and hit centre per skill (`StrikeTargets.Memory`) and clears them at death.
+  At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill and its
+  active-skill hash).
+- Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
+  living hostile monster within the skill's radius of the old centre.
+  The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
+  nearest the old centre within the weapon's reach.
+  Every extra hit rolls accuracy, block, crit and on-hit effects as the main one does.
+  A use grants at most one Fortification and one Rage gain, and each monster takes at most one hit of a use.
+
+Not mirrored: the client's line-of-sight test (`0x141d87160`), which 20 candidates it keeps when more qualify (the
+server keeps the 20 lowest ids), and the unarmed term (`unarmed_attack_number_of_spirit_strikes`).
+Unverified: the code that writes the locations into the buff was not found, so whether the client strikes the previous
+location from the buff the server sends needs a live check.
+The previous-location target rules (the radius for gem Strikes, the nearest monster for the default attack) and the
+one-hit-per-monster limit are the server's own and unverified.
+
+## 10e. Passive skills' enemy auras
+
+A passive's `PassiveSkillBuffs` lists BuffTemplates rows (`PassiveBuffAuras.cs`).
+A template names its BuffDefinitions row (`BuffDefinitionsKey`), the values of that row's `StatsKeys` in order
+(`Buff_StatValues`), its `AuraRadius` in cells and whom it affects (column 4).
+Column 4 holds 3 on every enemy debuff aura (Born under Fire, Overwhelm, the Occultist's) and 1, 2 or 10 on the self
+and ally ones (Tailwind); that reading comes from comparing the rows, not from the client code.
+
+Every 100 ms (`RunPassiveAuras`; not while paused or leaving the area) each living hostile monster within an enemy
+aura's radius of the living player gets the aura's buff (S→C 0x1c1, source the player).
+A monster that leaves the radius loses it (0x1c2); a dead or removed monster's buff is forgotten without a message.
+The stats act on the monster's hits at contact, by the radius at that moment: `MonsterSwing` converts the rolled hit
+and the ailment base with the auras' conversion stats (`EnemyAuraConversionLocked`, `DamageStats.Conversion`).
+Born under Fire (template 674, BuffDefinitions 2552, 60 cells) gives `base_physical_damage_%_to_convert_to_fire` 50:
+half of a nearby monster's physical hit is fire, which fire resistance lowers and which can ignite.
+
+Only an aura whose every stat the server applies is sent or applied (`EnemyAuraActs`; so far the hit conversions).
+The others, such as Overwhelm's crit multiplier, the Occultist's resistances and Kaom's Binding's
+`base_from_enemy_physical_damage_%_to_convert_to_fire`, wait for consumers: their buff would show an effect that
+does not happen.
+Self and ally auras are not modelled.
+
 ## 11. The skill bar
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.
