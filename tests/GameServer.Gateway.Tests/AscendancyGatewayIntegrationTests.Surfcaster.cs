@@ -437,4 +437,152 @@ public sealed partial class AscendancyGatewayIntegrationTests
             Assert.Equal(0, ailments.Magnitude(PlayerElementalAilments.Kind.Freeze, now + 1.3));
         }
     }
+
+    sealed partial class GatewayCharacter
+    {
+        // One swing of the monster at the player through the actual MonsterSwing, evasion's entropy set so it lands.
+        public Task<(string? Error, byte[] Bytes)> SurfcasterSwing(uint id) => Exchange(async (stream, cipher) =>
+        {
+            double now = State.Clock.Elapsed.TotalSeconds;
+            State.EvasionEntropy = 99; State.LastEvasionAt = now;
+            var m = State.Monsters[id];
+            await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["surfcaster-swing", stream, cipher, State, id, m,
+                m.Walk.Position(now), State.Walk.Position(now), State.IncomingHitEpoch])!;
+            return null;
+        });
+    }
+
+    static readonly MonsterAttack SurfcasterSwingAttack = new(SkillCatalog.FirstSkillId, .002, 20, DamagePacket.Of(DamageType.Physical, 100, 100));
+
+    // A hit of the character on a living monster through the actual AilmentsOnHitLocked (threshold: its life).
+    static void SurfcasterHit(ClientState state, SpawnedMonster m, DamageType type, int damage, bool critical)
+    {
+        lock (state.Monsters)
+            Program.AilmentsOnHitLocked(state, m, DamagePacket.Of(type, damage, damage), false, critical, 100,
+                Program.CharacterPlayerStats(state), null, state.Clock.Elapsed.TotalSeconds, new Random(1));
+    }
+
+    // Glacial Wave (6252): a monster chilled by the character's hit takes increased damage by the chill and deals less by
+    // half of it; a chill from a character without the node does neither.
+    [Fact]
+    public async Task Surfcaster_Glacial_Wave_chill_raises_damage_taken_and_lessens_monster_damage()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        using var plain = Surfcaster();
+        Assert.Null((await game.Change([41643, 60505, 53922, 6252], true)).Error);
+        var results = new List<(int Taken, int Burn, uint Lost)>();
+        foreach (var character in new[] { game, plain })
+        {
+            var m = SurfcasterTarget(character.State, 0x301, 3, life: 1000, attack: SurfcasterSwingAttack);
+            SurfcasterHit(character.State, m, DamageType.Cold, 1000, false);   // a 30% chill
+            double now = character.State.Clock.Elapsed.TotalSeconds;
+            Assert.Equal(30.0, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now));
+            var hit = DamagePacket.Of(DamageType.Lightning, 100, 100);
+            int taken = Program.MonsterDamage(m, hit, false, true, now, default).Damage;
+            int burn = Program.MonsterBurn(m, new DamageOverTime(DamageType.Fire, 100, 10), 1, now).Damage;
+            uint before = character.State.PlayerLife;
+            await character.SurfcasterSwing(0x301);
+            results.Add((taken, burn, before - character.State.PlayerLife));
+        }
+        // Plain equivalent of the damage taken: a monster with 30% increased damage taken from its mods.
+        var modded = new SpawnedMonster("modded", new(0, 0, 30), 0, 2, 1000)
+            { Mods = new([], [], new(new Dictionary<string, int> { ["base_damage_taken_+%"] = 30 })) };
+        Assert.Equal(130, Program.MonsterDamage(modded, DamagePacket.Of(DamageType.Lightning, 100, 100), false, true, 0, default).Damage);
+        Assert.Equal([(130, 130, 85u), (100, 100, 100u)], results);
+    }
+
+    // Brine Bound (52264): a monster that hits the character may be frozen for 1 s; every freeze the character inflicts
+    // lasts at least 1 s once past the 0.3 s threshold; the character cannot be frozen.
+    [Fact]
+    public async Task Surfcaster_Brine_Bound_freezes_attackers_holds_the_minimum_and_cannot_be_frozen()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        using var plain = Surfcaster();
+        using var equivalent = Surfcaster();
+        Assert.Null((await game.Change([41643, 60505, 56184, 52264], true)).Error);
+        SetDev(equivalent.State, ("chance_to_freeze_enemies_for_1_second_when_hit_%", 100), ("freeze_minimum_duration_X_ms", 1000),
+            ("base_cannot_be_frozen", 1));
+        // The node's 50% chance; a /set_stat value replaces it, so 100 forces the roll.
+        Assert.Equal(50, SurfcasterStat(game.State, "chance_to_freeze_enemies_for_1_second_when_hit_%"));
+        SetDev(game.State, ("chance_to_freeze_enemies_for_1_second_when_hit_%", 100));
+        var frozen = new List<(bool At, bool Later, bool Hit04, bool Hit02, bool Self)>();
+        foreach (var character in new[] { game, plain, equivalent })
+        {
+            var state = character.State;
+            var attacker = SurfcasterTarget(state, 0x401, 3, attack: SurfcasterSwingAttack);
+            await character.SurfcasterSwing(0x401);
+            double now = state.Clock.Elapsed.TotalSeconds;
+            bool Frozen(SpawnedMonster m, double at) => m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, at) > 0;
+            // Critical cold hits of 6.7% and 3.3% of the threshold: 0.402 s and 0.198 s of freeze.
+            var longer = SurfcasterTarget(state, 0x402, -3, life: 1000);
+            var shorter = SurfcasterTarget(state, 0x403, -3, life: 1000);
+            SurfcasterHit(state, longer, DamageType.Cold, 67, true);
+            SurfcasterHit(state, shorter, DamageType.Cold, 33, true);
+            var cold = DamagePacket.Of(DamageType.Cold, 1000, 1000);
+            lock (state.Monsters)
+                Program.ApplyPlayerAilmentsLocked(state, cold, cold, true, false, now, Program.CharacterPlayerStats(state));
+            frozen.Add((Frozen(attacker, now + .9), Frozen(attacker, now + 1), Frozen(longer, now + .9), Frozen(shorter, now),
+                state.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Freeze, now) > 0));
+        }
+        Assert.Equal([(true, false, true, false, false), (false, false, false, false, true), (true, false, true, false, false)], frozen);
+        // Without the minimum the 6.7% freeze ends at 0.402 s.
+        var none = plain.State.Monsters[0x402];
+        Assert.True(none.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, plain.State.Clock.Elapsed.TotalSeconds + .3) > 0);
+    }
+
+    // Within the Tempest (61246): a monster the character kills is shocked (15%, 2 s), and every shock the character
+    // inflicts, the corpse's too, spreads to living enemies within 15 cells; a spread shock does not spread again.
+    [Fact]
+    public async Task Surfcaster_Within_the_Tempest_shocks_kills_and_spreads_shocks_15_cells()
+    {
+        if (!DataAvailable()) return;
+        int Spread(Func<string, int> get) => MonsterElementalAilments.ShockSpreadRadius(get);
+        Assert.Equal((0, 15, 20), (Spread(_ => 0), Spread(n => n == "shock_proliferation_radius_is_at_least_15" ? 1 : 0),
+            Spread(n => n is "shock_proliferation_radius_is_at_least_15" ? 1 : n == "gloves_shock_proliferation_radius" ? 20 : 0)));
+        using var game = Surfcaster();
+        using var plain = Surfcaster();
+        using var equivalent = Surfcaster();
+        Assert.Null((await game.Change([41643, 60505, 34767, 61246], true)).Error);
+        SetDev(equivalent.State, ("enemy_shock_on_kill", 1), ("shock_proliferation_radius_is_at_least_15", 1));
+        const MonsterElementalAilments.Kind Shock = MonsterElementalAilments.Kind.Shock;
+        var results = new List<int[]>();
+        foreach (var character in new[] { game, plain, equivalent })
+        {
+            var state = character.State;
+            SetDev(state, ("global_always_hit", 1));
+            // Killed by the default attack (Attack) and by a skill's hit (ApplyMonsterHitLocked).
+            var attacked = SurfcasterTarget(state, 0x501, 3, life: 1);
+            var swept = SurfcasterTarget(state, 0x502, 200, life: 1);
+            await character.SurfcasterAttack(0x501);
+            lock (state.Monsters) Program.HitUnlessBlockedLocked(state, swept, 5);
+            Assert.True(attacked.Dead && swept.Dead);
+            // Around the corpse at +3: 14 cells (+17) and 16 cells (-13); +31 is 14 from the spread copy at +17.
+            var near = SurfcasterTarget(state, 0x503, 17);
+            var far = SurfcasterTarget(state, 0x504, -13);
+            var second = SurfcasterTarget(state, 0x505, 31);
+            // A living monster's shock from a hit (a critical 10.2% lightning hit: 20%) spreads 10 cells, to -70.
+            var hit = SurfcasterTarget(state, 0x506, -60, life: 1000);
+            var neighbour = SurfcasterTarget(state, 0x507, -70);
+            SurfcasterHit(state, hit, DamageType.Lightning, 102, true);
+            double now = state.Clock.Elapsed.TotalSeconds;
+            List<(byte[] Packet, string Log)> packets;
+            lock (state.Monsters) packets = Program.MonsterAilmentChangesLocked(state, now);
+            int Of(SpawnedMonster m, double at) => (int)m.Ailments.Magnitude(Shock, at);
+            results.Add([Of(attacked, now), Of(swept, now), Of(near, now), Of(far, now), Of(second, now), Of(hit, now),
+                Of(neighbour, now), Program.MonsterDamage(near, DamagePacket.Of(DamageType.Lightning, 100, 100), false, true, now, default).Damage]);
+            if (character == game)
+            {
+                Assert.Contains(packets, p => p.Log.Contains("monster 0x503") && p.Log.Contains("Shock 15%"));
+                // The spread copy goes when the corpse's shock ends, 2 s after the kill.
+                lock (state.Monsters) packets = Program.MonsterAilmentChangesLocked(state, now + 2.1);
+                Assert.Equal(0, Of(near, now + 2.1));
+                Assert.Contains(packets, p => p.Log.Contains("0x01c2 monster 0x503 Shock ends"));
+            }
+        }
+        Assert.Equal([15, 15, 15, 0, 0, 20, 20, 115], results[0]);
+        Assert.Equal([0, 0, 0, 0, 0, 20, 0, 100], results[1]);
+        Assert.Equal(results[0], results[2]);
+    }
 }

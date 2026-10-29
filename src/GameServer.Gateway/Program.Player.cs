@@ -614,6 +614,7 @@ partial class Program
                 {
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
+                    ShockOnKillLocked(conn, m);
                     if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
                 }
                 hits.Add((id, m, m.Life, damage));

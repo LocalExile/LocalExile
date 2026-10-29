@@ -248,6 +248,7 @@ partial class Program
             {
                 m.Aggro = false; m.Dead = true; m.Impale.Clear();
                 CollectVaalSoulAtDeathLocked(conn, m);
+                ShockOnKillLocked(conn, m);
             }
             else AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
                 at, Random.Shared);
@@ -986,6 +987,7 @@ partial class Program
         {
             m.Aggro = false; m.Dead = true;
             CollectVaalSoulAtDeathLocked(conn, m);
+            ShockOnKillLocked(conn, m);
         }
         return new(m.Life, starts);
     }

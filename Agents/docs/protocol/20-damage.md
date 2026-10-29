@@ -531,9 +531,41 @@ ends sooner is dropped. A monster that dies keeps them; it no longer acts.
 - **Mirrored** (`reflect_non_damaging_ailments_%_chance`, 100): the ailments a hit added act on the player as well
   (wiki Reflect: "in addition to its target"), through `PlayerElementalAilments.Inflict` with the player's own effect
   modifiers, caps and floor. The exact reflected magnitude is not verified.
+- **Glacial Wave.** A chill carries the attacker's `enemies_chilled_by_hits_take_damage_increased_by_chill_effect` and
+  `..._deal_damage_lessened_by_chill_effect` as they were when it landed. While such a chill lasts, the monster takes
+  increased damage by its strongest chill (any source, wiki Glacial Wave), added to shock and the mods' damage taken
+  (PoB DamageTaken INC), and its swings deal less by half of it: `MonsterSwing` scales the rolled hit by
+  1 − chill / 200 after the monster mods and before the player's mitigation (PoB Damage MORE −chill / 2).
+- **Freeze minimum.** `freeze_minimum_duration_X_ms` (Brine Bound, 1000) lifts any freeze the attacker inflicts that
+  passed the 0.3 s threshold to at least that long; no duration modifier changes the minimum (wiki Brine Bound).
+- **Freeze when hit.** `chance_to_freeze_enemies_for_1_second_when_hit_%` (Brine Bound) rolls once for each monster
+  hit that lands in `MonsterSwing`, blocked hits included (wiki Blocking: blocking keeps the defender's when-hit
+  effects), never for an evaded one. The freeze is 1 s through the usual duration modifiers, threshold, minimum and
+  immunity; whether duration modifiers apply to this fixed 1 s is not verified. It draws from `Random.Shared`, so the
+  incoming hit's own draws keep their order.
+- **Shock on kill.** `enemy_shock_on_kill` (Within the Tempest) shocks a monster the player kills, from a hit or
+  Righteous Fire (`ShockOnKillLocked` at the three death sites): 15% base (wiki Shock: shocks without damage) and 2 s,
+  through the player's shock effect and duration modifiers and the monster's own, at most 50%. Skill-local shock
+  modifiers of the killing skill are not counted; whether the game counts them is not verified. A killing hit's own
+  ailments are not put on the corpse (they apply only while the monster lives), although the wiki's ailment timing
+  note implies a killing hit inflicts its elemental ailments.
+- **Shock proliferation.** A shock takes the attacker's `virtual_shock_proliferation_radius` when it lands, as the
+  client's calculator `0x142828340` builds it: the largest of `gloves_shock_proliferation_radius`,
+  `virtual_elemental_status_effect_aura_radius` (the larger of `elemental_status_effect_aura_radius` and
+  `elementalist_...`, `0x142828e10`), `unique_vinktars_flask_shock_proliferation_radius`,
+  `ascendancy_non_damaging_elemental_ailment_proliferation_radius` and `passive_mastery_shock_proliferation_radius`,
+  and 15 with `shock_proliferation_radius_is_at_least_15`. Nothing else in the client reads the radius. The calculator
+  scales none of them by area of effect, and the server applies none; the wiki's general note that area modifiers
+  affect proliferation is not applied, because the node's own text is a fixed 1.5 m and the scaling is not verified.
+  Each AI tick (`ProliferateShocksLocked`), every living hostile monster within that radius (cells) of a monster with
+  such a shock, a corpse included, has the strongest one at the same effect until it ends, like an aura (wiki
+  Elemental proliferation). The copy does not spread again, does not count as inflicting, and goes as soon as the
+  monster is out of range or the source shock ends. The receiving monster's immunity counts; its own
+  `shocked_effect_on_self_+%` does not change the copy (not verified). Chill, freeze and ignite proliferation are not
+  modelled, nor a reflected shock spreading from the player.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
-effects but sends nothing. A kind is re-sent only when its strongest magnitude changes: S→C 0x1c2 for the old instance,
+effects but sends nothing, and shocks do not spread. A kind is re-sent only when its strongest magnitude changes: S→C 0x1c2 for the old instance,
 then 0x1c1 with BuffDefinitions 1 chilled, 2 frozen or 3 shocked (BuffVisuals 3, 4, 5), the player as source and no
 duration; 0x1c2 removes it at expiry, so a pause cannot desync it. All three rows have the +0xff bool, so 0x1c1
 carries a u16 at +0x82 ([11](11-skills.md) §12); chilled and shocked are `IsRecovery` and carry their one GrantedStats
@@ -543,5 +575,5 @@ walk `0x141e7c0b0` and the action clips read; network stats run no calculators (
 freeze is not sent there (−100 would divide the native clip by zero); the server stops the monster instead.
 
 Not modelled: Shatter, unique and boss thresholds and their reduced effects, immunities from the monster's variety
-(.ot), Brine Bound's freeze on being hit, Glacial Wave, Within the Tempest, and the client's frozen animation (not
-checked live).
+(.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
+client's frozen animation (not checked live).

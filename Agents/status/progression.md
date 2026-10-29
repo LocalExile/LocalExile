@@ -71,7 +71,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ghost of the Deep's Torment Touched buff gives its four 23% bonuses and shows on the player.
   Changing Seasons lets any hit chill the player and makes the chill increased action speed.
   Stormy Seas' cold damage shocks monsters (the general monster chill/freeze/shock engine).
-  Not yet: Brine Bound's freeze on being hit, Glacial Wave, Within the Tempest and monster flee.
+  On that engine, Glacial Wave's chill raises the monster's damage taken and lessens its swings, Brine Bound freezes
+  monsters that hit you and holds every freeze for 1 s, and Within the Tempest shocks kills and spreads shocks 1.5 m.
+  Not yet: monster flee.
   Fishing (fish rarity, corrupted fish) has no gameplay in 3.29.3b. `Game_VERIFIED_SURFCASTER=1` opts in.
   Docs: [Surfcaster checklist](../docs/game/surfcaster.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

@@ -44,10 +44,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Aristocrat's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_ARISTOCRAT=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler.
   See [Aristocrat](../docs/game/aristocrat.md).
-- **Known:** Surfcaster's fishing-rod notables, Sea Legs, Stormy Seas, Ghost of the Deep, Changing Seasons and the
-  small nodes' cast speed have server consumers; `Game_VERIFIED_SURFCASTER=1` opts in.
-  **Next:** Brine Bound's freeze on being hit, Glacial Wave, Within the Tempest (on the monster ailment engine) and
-  monster flee; then native acceptance.
+- **Known:** Surfcaster's fishing-rod notables, Sea Legs, Stormy Seas, Ghost of the Deep, Changing Seasons, Brine
+  Bound, Glacial Wave, Within the Tempest and the small nodes' cast speed have server consumers;
+  `Game_VERIFIED_SURFCASTER=1` opts in.
+  **Next:** monster flee; then native acceptance.
   See [Surfcaster](../docs/game/surfcaster.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
   Implementing all 19 Phrecia classes' special gameplay is separate from this selection lifecycle.

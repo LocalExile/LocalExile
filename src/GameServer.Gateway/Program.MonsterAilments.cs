@@ -6,10 +6,38 @@ using Kind = MonsterElementalAilments.Kind;
 // inflicted by every outgoing hit, shock as increased damage taken, chill and freeze in the monster AI, and their buffs.
 partial class Program
 {
-    /// <summary>The factor on damage a monster takes: its mods' increased damage taken and its shock, added together
-    /// (PoB DamageTaken INC), then a spell's less damage taken.</summary>
+    /// <summary>The factor on damage a monster takes: its mods' increased damage taken, its shock and Glacial Wave's chill,
+    /// added together (PoB DamageTaken INC), then a spell's less damage taken.</summary>
     internal static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now) =>
-        m.Mods.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now));
+        m.Mods.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now));
+
+    /// <summary>Within the Tempest (enemy_shock_on_kill): a monster the player just killed (its life reached 0 from a hit
+    /// or Righteous Fire) is shocked through the player's modifiers, and its corpse spreads that shock. Under the Monsters
+    /// lock.</summary>
+    static void ShockOnKillLocked(ClientState conn, SpawnedMonster m)
+    {
+        var player = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        if (Get("enemy_shock_on_kill") != 0)
+            m.Ailments.ShockOnKill(ProjectileWorldTime(conn), Get, name => m.Mods.Effects[name]);
+    }
+
+    /// <summary>Shock proliferation, once per AI tick before the buffs are sent: every living hostile monster within a
+    /// spreading shock's radius (cells, 10 to the metre) of the monster it is on, a corpse included, has the strongest
+    /// such shock until it ends (MonsterElementalAilments.Proliferated). Under the Monsters lock.</summary>
+    static void ProliferateShocksLocked(ClientState conn, double now)
+    {
+        var sources = new List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Shock)>();
+        foreach (var m in conn.Monsters.Values)
+            if (m.Ailments.Spreading(now) is { } shock) sources.Add((m, m.Walk.Position(now), shock));
+        foreach (var m in conn.Monsters.Values)
+        {
+            if (m.Dead || !m.Hostile || sources.Count == 0) { m.Ailments.Proliferated(null, _ => 0); continue; }
+            var at = m.Walk.Position(now);
+            m.Ailments.Proliferated(sources.Where(s => !ReferenceEquals(s.M, m) && Dist(s.At, at) <= s.Shock.Spread)
+                .Select(s => s.Shock).MaxBy(s => s.Magnitude), name => m.Mods.Effects[name]);
+        }
+    }
 
     /// <summary>Its action speed: 0 frozen, else less by its chill. Unstoppable (action_speed_cannot_be_reduced_below_base)
     /// keeps it at 1.</summary>
@@ -45,7 +73,7 @@ partial class Program
     }
 
     /// <summary>
-    /// What changed on the monsters' ailments since the last AI tick, as packets: the chilled, frozen and shocked buffs
+    /// What changed on the monsters' ailments since the last AI tick, spread shocks included, as packets: the chilled, frozen and shocked buffs
     /// (BuffDefinitions 1, 2, 3, which draw BuffVisuals 3, 4, 5) and the virtual_action_speed_+% the native walk
     /// (0x141e7c0b0) and action clips read, which network stats do not derive (04 §4.1a). A chill re-times the server's
     /// walk by the same factor, so both walk the monster alike. A freeze is not sent there (−100 would divide the native
@@ -53,6 +81,7 @@ partial class Program
     /// </summary>
     internal static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now)
     {
+        ProliferateShocksLocked(conn, now);
         var packets = new List<(byte[], string)>();
         foreach (var (id, m) in conn.Monsters)
         {

@@ -686,6 +686,9 @@ and can require explicit recipes.
   The player's hits chill, freeze and shock monsters: threshold maximum life, strongest effect with its own duration,
   shock as increased damage taken (hits and Righteous Fire), chill and freeze in the monster AI and walk, the monster
   mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
+  Chill can raise damage taken and lessen the monster's swings (Glacial Wave), a freeze can have a minimum duration
+  and a monster that hits the player can be frozen (Brine Bound), and a kill can shock the corpse; shocks spread to
+  living enemies within the client's `virtual_shock_proliferation_radius` of the shocked monster or corpse, like an aura.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
   Not yet: exposure, aura-dependent penetration, other added damage,

@@ -359,6 +359,7 @@ partial class Program
                 var rolled = gambler.RollIncomingHit(a.Damage, conn.IncomingHitRandom);
                 rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out monsterCritical,
                     () => SelfCriticalReduction(conn));   // its crit, Executioner's
+                if (m.Ailments.ChillDamageDealtFactor(now) is var lessened and < 1) rolled = rolled.Scale(lessened);   // Glacial Wave
                 var mitigated = gambler.MitigateIncomingHit(rolled, type =>
                     new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
                 var immune = PlayerImmunities(conn);
@@ -399,6 +400,11 @@ partial class Program
                     monsterCritical, blocked, now, stats);
                 conn.RecentEnemyHits.Record(now);
                 ChargesWhenHit(conn, blocked);
+                // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
+                // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
+                int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+                if (GameServer.Core.World.RandomRolls.Chance(Stat("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
+                    m.Ailments.Freeze(1, now, Stat, name => m.Mods.Effects[name]);
                 if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                 RecordHardcoreDeath(conn);
                 life = conn.PlayerLife;

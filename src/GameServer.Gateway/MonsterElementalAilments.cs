@@ -8,21 +8,65 @@ using GameServer.Core.World;
 sealed class MonsterElementalAilments
 {
     internal enum Kind { Chill, Freeze, Shock }
-    internal sealed record Effect(Kind Kind, double From, double Until, double Magnitude);
+    internal sealed record Effect(Kind Kind, double From, double Until, double Magnitude)
+    {
+        // Glacial Wave: a chill from a hit of a player with enemies_chilled_by_hits_take_damage_increased_by_chill_effect
+        // / ..._deal_damage_lessened_by_chill_effect, as the player had them when it landed.
+        public bool MoreTaken { get; init; }
+        public bool LessDealt { get; init; }
+        // A shock's proliferation radius in cells when it landed; 0 for one that does not spread, as a spread copy.
+        public int Spread { get; init; }
+    }
     readonly List<Effect> effects = [];
+    // The strongest shock another enemy's proliferation puts on this one, set again on every AI tick.
+    Effect? spread;
     // What the client was last sent: each kind's buff instance and magnitude, the action speed stat and the factor its
     // walk speed carries.
     readonly Dictionary<Kind, (ushort Instance, int Magnitude)> shown = [];
     public int SentActionSpeed;
     public double WalkFactor = 1;
 
-    public bool Idle => effects.Count == 0 && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
+    public bool Idle => effects.Count == 0 && spread is null && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
 
-    public double Magnitude(Kind kind, double now) => effects
-        .Where(e => e.Kind == kind && e.From <= now && now < e.Until).Select(e => e.Magnitude).DefaultIfEmpty().Max();
+    IEnumerable<Effect> Active(Kind kind, double now) => (spread is null ? effects : effects.Append(spread))
+        .Where(e => e.Kind == kind && e.From <= now && now < e.Until);
+
+    public double Magnitude(Kind kind, double now) => Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
 
     /// <summary>Action speed: 0 while frozen, else less by the chill's effect.</summary>
     public double ActionFactor(double now) => Magnitude(Kind.Freeze, now) > 0 ? 0 : 1 - Magnitude(Kind.Chill, now) / 100;
+
+    /// <summary>Glacial Wave: while a chill from such a hit lasts, the monster takes increased damage by its strongest
+    /// chill's effect (from any source, wiki Glacial Wave; PoB CalcPerform DamageTaken INC).</summary>
+    public double ChillDamageTakenPct(double now) => Active(Kind.Chill, now).Any(e => e.MoreTaken) ? Magnitude(Kind.Chill, now) : 0;
+
+    /// <summary>Glacial Wave: and deals less damage by half that effect (PoB CalcPerform Damage MORE −effect / 2).</summary>
+    public double ChillDamageDealtFactor(double now) =>
+        Active(Kind.Chill, now).Any(e => e.LessDealt) ? 1 - Magnitude(Kind.Chill, now) / 200 : 1;
+
+    /// <summary>
+    /// virtual_shock_proliferation_radius as the client's calculator (0x142828340) builds it: the largest of the gloves',
+    /// Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, itself the larger of its two sources),
+    /// Vinktar's flask's, the ascendancy's and the mastery's radius, and 15 with shock_proliferation_radius_is_at_least_15
+    /// (Within the Tempest). The calculator scales none of them by area of effect.
+    /// </summary>
+    internal static int ShockSpreadRadius(Func<string, int> get) => new[]
+    {
+        get("gloves_shock_proliferation_radius"), get("elemental_status_effect_aura_radius"),
+        get("elementalist_elemental_status_effect_aura_radius"), get("unique_vinktars_flask_shock_proliferation_radius"),
+        get("ascendancy_non_damaging_elemental_ailment_proliferation_radius"), get("passive_mastery_shock_proliferation_radius"),
+        get("shock_proliferation_radius_is_at_least_15") != 0 ? 15 : 0, 0,
+    }.Max();
+
+    /// <summary>The strongest of this monster's own shocks that spreads, alive or a corpse.</summary>
+    public Effect? Spreading(double now) => effects.Count == 0 ? null : effects
+        .Where(e => e.Kind == Kind.Shock && e.Spread > 0 && e.From <= now && now < e.Until).MaxBy(e => e.Magnitude);
+
+    /// <summary>Proliferation (wiki Elemental proliferation): the strongest spreading shock within reach of this monster
+    /// affects it at the same effect until that shock ends, like an aura; the copy does not spread again and is not a new
+    /// shock. Null, or a monster that cannot be shocked, takes it off.</summary>
+    public void Proliferated(Effect? shock, Func<string, int> target) =>
+        spread = shock is null || Immune(Kind.Shock, target) ? null : shock with { Spread = 0 };
 
     /// <summary>Chill and shock effect: floor(50 × (damage / threshold)^0.4 × effect modifiers), up to the cap, and none
     /// below 5% (the modifiers count before both limits).</summary>
@@ -47,35 +91,62 @@ sealed class MonsterElementalAilments
     /// damage, 0.06 s per 1% of the threshold up to 3 s, then duration modifiers, discarded under 0.3 s. Shock: a
     /// critical strike or chance_to_shock_% with lightning damage, and cold damage too with cold_damage_can_shock
     /// (Stormy Seas: the magnitude, not the chance), 2 s. <paramref name="attacker"/> gives the player's and the skill's
-    /// summed stats, <paramref name="target"/> the monster's own. The effects added are returned.
+    /// summed stats, <paramref name="target"/> the monster's own. The effects added are returned. A chill carries the
+    /// attacker's Glacial Wave stats, a shock its proliferation radius.
     /// </summary>
     public List<Effect> Inflict(double cold, double lightning, bool critical, double threshold, double now,
         Func<string, int> attacker, Func<string, int> target, Random random)
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
-        double Modifier(string attackerStat, string targetStat) =>
-            Math.Max(0, 1 + attacker(attackerStat) / 100.0) * Math.Max(0, 1 + target(targetStat) / 100.0);
-        void Add(Kind kind, double magnitude, double baseSeconds)
+        void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
+        Add(new(Kind.Chill, now, now + 2, Effectiveness(cold, threshold, EffectModifier(Kind.Chill, attacker, target), 30))
         {
-            double seconds = baseSeconds * Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_duration_+%") / 100.0)
-                * Math.Max(0, 1 - target($"base_self_{Name(kind)}_duration_-%") / 100.0);
-            if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, target)) return;
-            var effect = new Effect(kind, now, now + seconds, magnitude);
-            // A weaker one that also ends sooner can never be the strongest again.
-            effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= magnitude && e.Until <= effect.Until);
-            effects.Add(effect);
-            added.Add(effect);
-        }
-        Add(Kind.Chill, Effectiveness(cold, threshold,
-            Modifier("virtual_chill_effect_+%", "chill_effectiveness_on_self_+%"), 30), 2);
+            MoreTaken = attacker("enemies_chilled_by_hits_take_damage_increased_by_chill_effect") != 0,
+            LessDealt = attacker("enemies_chilled_by_hits_deal_damage_lessened_by_chill_effect") != 0,
+        });
         if (cold > 0 && (critical || RandomRolls.Chance(attacker("chance_to_freeze_%"), 100, random)))
-            Add(Kind.Freeze, 100, Math.Min(3, 6 * cold / threshold));
+            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * cold / threshold), 100));
         double shocking = lightning + (attacker("cold_damage_can_shock") != 0 ? cold : 0);
         if (shocking > 0 && (critical || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random)))
-            Add(Kind.Shock, Effectiveness(shocking, threshold,
-                Modifier("virtual_shock_effect_+%", "shocked_effect_on_self_+%"), 50), 2);
+            Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking, threshold, EffectModifier(Kind.Shock, attacker, target), 50))
+                { Spread = ShockSpreadRadius(attacker) });
         return added;
+    }
+
+    /// <summary>Brine Bound (chance_to_freeze_enemies_for_1_second_when_hit_%): a freeze of a set base duration, through
+    /// the same duration modifiers, threshold, minimum and immunity as a hit's.</summary>
+    public Effect? Freeze(double seconds, double now, Func<string, int> attacker, Func<string, int> target) =>
+        Apply(new(Kind.Freeze, now, now + seconds, 100), attacker, target);
+
+    /// <summary>Within the Tempest (enemy_shock_on_kill): the shock a killed monster's corpse gets, 15% base for 2 s
+    /// through the shock effect and duration modifiers (wiki Within the Tempest; the 15% of shocks without damage, wiki
+    /// Shock), up to 50%. It spreads like any shock the player inflicts.</summary>
+    public Effect? ShockOnKill(double now, Func<string, int> attacker, Func<string, int> target) =>
+        Apply(new(Kind.Shock, now, now + 2, Math.Min(50, Math.Floor(15 * EffectModifier(Kind.Shock, attacker, target))))
+            { Spread = ShockSpreadRadius(attacker) }, attacker, target);
+
+    static double EffectModifier(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
+        Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_effect_+%") / 100.0)
+        * Math.Max(0, 1 + target(kind == Kind.Chill ? "chill_effectiveness_on_self_+%" : "shocked_effect_on_self_+%") / 100.0);
+
+    /// <summary>One inflicted ailment with its base duration: the attacker's and target's duration modifiers, a freeze
+    /// under 0.3 s discarded, the target's immunity. Null when it does not apply.</summary>
+    Effect? Apply(Effect effect, Func<string, int> attacker, Func<string, int> target)
+    {
+        var (kind, now) = (effect.Kind, effect.From);
+        double seconds = (effect.Until - now) * Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_duration_+%") / 100.0)
+            * Math.Max(0, 1 - target($"base_self_{Name(kind)}_duration_-%") / 100.0);
+        if (effect.Magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, target)) return null;
+        // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
+        // duration modifier changes (wiki Brine Bound).
+        if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker("freeze_minimum_duration_X_ms") / 1000.0);
+        effect = effect with { Until = now + seconds };
+        // A weaker one of the same sort that also ends sooner can never be the strongest again.
+        effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
+            && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));
+        effects.Add(effect);
+        return effect;
     }
 
     /// <summary>The buffs to take off and put on so the client shows what applies at <paramref name="now"/>: a kind
@@ -83,6 +154,7 @@ sealed class MonsterElementalAilments
     public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude)> Present(double now, Func<ushort> instance)
     {
         effects.RemoveAll(e => e.Until <= now);
+        if (spread?.Until <= now) spread = null;
         var changes = new List<(Kind, ushort?, ushort?, int)>();
         foreach (var kind in Enum.GetValues<Kind>())
         {
