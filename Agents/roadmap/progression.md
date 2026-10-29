@@ -44,5 +44,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Aristocrat's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_ARISTOCRAT=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler.
   See [Aristocrat](../docs/game/aristocrat.md).
+- **Known:** Polytheist's small nodes, Brine King and minimum charges have consumers.
+  `Game_VERIFIED_POLYTHEIST=1` opts in.
+  **Next:** Garukhan, Ryslatha, Gruthkul, Lunaris, Solaris and Abberath, then native acceptance.
+  Yugul and Corrupted Blood immunity need curses, reflected damage and Corrupted Blood first.
+  See [Polytheist](../docs/game/polytheist.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
   Implementing all 19 Phrecia classes' special gameplay is separate from this selection lifecycle.

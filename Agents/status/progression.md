@@ -65,6 +65,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
+- Polytheist: the twelve small nodes (defences; light radius, which the client applies), Devout of the Brine King and
+  Ralakesh's minimum charges have consumers, with Gateway coverage of three legal builds, paid refunds and reload.
+  Devout of Yugul and Ralakesh's Corrupted Blood immunity wait for curses, reflected damage and Corrupted Blood.
+  The other six notables are still being built; `Game_VERIFIED_POLYTHEIST=1` opts in.
+  Not checked with the real client.
+  Docs: [Polytheist checklist](../docs/game/polytheist.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.

@@ -9,4 +9,5 @@ Keep unsupported engine behavior explicit and preserve ordinary/unascended play.
 
 [Gambler](gambler.md) records the full node checklist, supported incoming ailment path, verified opt-in prerequisites
 and remaining engine limits for this branch.
+[Polytheist](polytheist.md) records its node checklist, the nodes still owed a consumer and its engine gaps.
 Other classes require their own acceptance; this change makes no claim about their completion.
