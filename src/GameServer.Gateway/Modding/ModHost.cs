@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Modding;
@@ -112,7 +113,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     {
         lock (_gate)
         {
-            if (id != Path.GetFileName(id) || !File.Exists(Path.Combine(Folder, id, ManifestFile))) return false;
+            if (id != Path.GetFileName(id) || !IsMod(Path.Combine(Folder, id))) return false;
             _choices[id] = enabled;
             File.WriteAllLines(Path.Combine(Folder, StateFile), _choices.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} {(c.Value ? "on" : "off")}"));
             if (!enabled) foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
@@ -282,10 +283,12 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
             string id = Path.GetFileName(dir);
             if (_loaded.ContainsKey(id)) continue;
             string manifestPath = Path.Combine(dir, ManifestFile);
-            if (!File.Exists(manifestPath)) { _failed.Remove(id); continue; }   // not a mod (yet)
+            if (!IsMod(dir)) { _failed.Remove(id); continue; }   // not a mod (yet)
             try
             {
-                var manifest = ReadManifest(id, File.ReadAllText(manifestPath));
+                // Scripts need no manifest.
+                var manifest = File.Exists(manifestPath) ? ReadManifest(id, File.ReadAllText(manifestPath))
+                    : new ModManifest(id, "0", ModKind.Script, [], id + ".dll");
                 if (_choices.GetValueOrDefault(id, manifest.Enabled)) waiting[id] = (manifest, dir);
                 else { _off.Add(id); _failed.Remove(id); }
             }
@@ -319,11 +322,18 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         try
         {
             string path = Path.Combine(mod.Folder, manifest.Assembly);
-            if (!File.Exists(path)) throw new FileNotFoundException($"no {manifest.Assembly} in the mod's folder (built yet?)");
-            var assembly = context.LoadCopy(path);
-            var entries = assembly.GetExportedTypes()
+            string[] scripts = ModScripts.Sources(mod.Folder);
+            if (!File.Exists(path) && scripts.Length == 0) throw new FileNotFoundException($"no {manifest.Assembly} in the mod's folder (built yet?)");
+            List<Assembly> assemblies = File.Exists(path) ? [context.LoadCopy(path)] : [];
+            if (scripts.Length > 0)
+            {
+                var (dll, pdb) = ModScripts.Compile(id, scripts, ScriptReferences(manifest, mod.Folder));
+                mod.ScriptImage = dll;
+                assemblies.Add(context.LoadImage(dll, pdb));
+            }
+            var entries = assemblies.SelectMany(a => a.GetExportedTypes())
                 .Where(t => typeof(IMod).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }).ToList();
-            if (entries.Count == 0) throw new InvalidOperationException($"{manifest.Assembly} has no public class that implements IMod");
+            if (entries.Count == 0) throw new InvalidOperationException($"{(scripts.Length > 0 ? "the scripts have" : manifest.Assembly + " has")} no public class that implements IMod");
             var api = new Context(this, mod);
             foreach (var type in entries)
             {
@@ -340,13 +350,29 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
             mod.Entries.Clear();
             context.Unload();
             if (ex is TypeInitializationException or System.Reflection.TargetInvocationException && ex.InnerException is { } inner) ex = inner;
-            Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}" : $"{ex.GetType().Name}: {ex.Message}");
+            Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}"
+                : ex is ModScripts.CompileException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
             return false;
         }
         _loaded[id] = mod;
         _failed.Remove(id);
         Tell($"[mods] loaded {id} {manifest.Version} ({manifest.Kind.ToString().ToLowerInvariant()}, {mod.Hooks} hook(s))");
         return true;
+    }
+
+    static bool IsMod(string dir) => File.Exists(Path.Combine(dir, ManifestFile)) || (Directory.Exists(dir) && ModScripts.Sources(dir).Length > 0);
+
+    // What a mod's scripts compile against, beyond the framework: its folder's assemblies and its dependencies'.
+    IEnumerable<byte[]> ScriptReferences(ModManifest manifest, string folder)
+    {
+        foreach (string dll in Directory.GetFiles(folder, "*.dll")) yield return File.ReadAllBytes(dll);
+        foreach (string dependency in manifest.Depends)
+        {
+            var loaded = _loaded[dependency];
+            string path = Path.Combine(loaded.Folder, loaded.Manifest.Assembly);
+            if (File.Exists(path)) yield return File.ReadAllBytes(path);
+            if (loaded.ScriptImage is { } image) yield return image;
+        }
     }
 
     void Unload(string id)
@@ -471,6 +497,8 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         public string Folder { get; } = folder;
         public ModLoadContext Context { get; } = context;
         public List<IMod> Entries { get; } = [];
+        /// <summary>The compiled scripts, for the scripts of the mods that depend on this one.</summary>
+        public byte[]? ScriptImage;
         public int Hooks;
         public volatile bool Unloaded;
     }

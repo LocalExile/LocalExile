@@ -244,6 +244,80 @@ public sealed class ModHostTests : IDisposable
         Assert.Equal(["x", "y"], full.Depends);
     }
 
+    string AddScript(string id, string text, string file = "script.cs")
+    {
+        string dir = Path.Combine(_root, id);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, file), text);
+        return dir;
+    }
+
+    static string PingScript(string reply) => $$"""
+        public sealed class Ping : IMod
+        {
+            public void Load(IModContext mod) => mod.OnChatCommand("ping", "/ping (a script's)", c => c.Player.Tell("{{reply}}"));
+        }
+        """;
+
+    [Fact]
+    public async Task A_loose_script_needs_no_manifest_and_compiles_when_it_loads()
+    {
+        AddScript("s", PingScript("pong"));
+        _host.Start(watch: false);
+        Assert.True(await _host.RunCommand(_player, "ping", []));
+        Assert.Equal(["pong"], _player.Told);
+        Assert.Equal(new ModHost.Status("s", "0", ModKind.Script, 1, null), Assert.Single(_host.Mods()));
+    }
+
+    [Fact]
+    public async Task Saving_a_script_reloads_it_and_a_compile_error_says_where()
+    {
+        AddScript("s", PingScript("one"));
+        _host.Start();
+        await _host.RunCommand(_player, "ping", []);
+        AddScript("s", PingScript("two"));
+        await Until(async () => { await _host.RunCommand(_player, "ping", []); return _player.Told.Contains("two"); });
+        AddScript("s", "public sealed class Broken : IMod { }");
+        await Until(() => Task.FromResult(_host.Mods().Single().Error is not null));
+        Assert.Contains("script.cs(1,", _host.Mods().Single().Error);
+        Assert.Contains("CS0535", _host.Mods().Single().Error);
+        Assert.False(await _host.RunCommand(_player, "ping", []));
+        AddScript("s", PingScript("three"));
+        await Until(async () => { await _host.RunCommand(_player, "ping", []); return _player.Told.Contains("three"); });
+    }
+
+    static async Task Until(Func<Task<bool>> done)
+    {
+        for (int i = 0; i < 100; i++)
+        {
+            if (await done()) return;
+            await Task.Delay(100);
+        }
+        Assert.Fail("the mod did not reload in time");
+    }
+
+    [Fact]
+    public async Task A_script_cannot_compile_against_the_server_but_can_use_a_dependency()
+    {
+        AddScript("server", "public sealed class S : IMod { public void Load(IModContext mod) { _ = typeof(GameServer.Core.Accounts.League); } }");
+        AddScript("base", "public static class Shared { public const string Text = \"shared\"; } public sealed class B : IMod { public void Load(IModContext mod) { } }");
+        string user = AddScript("user", "public sealed class U : IMod { public void Load(IModContext mod) => mod.OnChatCommand(\"shared\", \"/shared\", c => c.Player.Tell(Shared.Text)); }");
+        File.WriteAllText(Path.Combine(user, ModHost.ManifestFile), """{ "depends": ["base"], "kind": "script" }""");
+        _host.Start(watch: false);
+        Assert.Contains("CS0234", _host.Mods().Single(m => m.Id == "server").Error);
+        Assert.True(await _host.RunCommand(_player, "shared", []));
+        Assert.Equal(["shared"], _player.Told);
+    }
+
+    [Fact]
+    public async Task An_unloaded_script_is_freed()
+    {
+        AddScript("s", PingScript("pong"));
+        _host.Start(watch: false);
+        Assert.True(_host.SetEnabled("s", false));
+        Assert.True(await _host.Unloaded("s"));
+    }
+
     [Fact]
     public async Task Chat_runs_a_mod_command_that_none_of_ours_shadows()
     {

@@ -34,4 +34,12 @@ sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadConte
         using var symbols = File.Exists(pdb) ? new MemoryStream(File.ReadAllBytes(pdb)) : null;
         return LoadFromStream(dll, symbols);
     }
+
+    /// <summary>Loads an assembly that exists only in memory (the mod's compiled scripts).</summary>
+    public Assembly LoadImage(byte[] image, byte[] symbols)
+    {
+        using var dll = new MemoryStream(image);
+        using var pdb = new MemoryStream(symbols);
+        return LoadFromStream(dll, pdb);
+    }
 }
