@@ -340,7 +340,12 @@ partial class Program
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life);
-        return pools with { FortificationRevision = FortificationOf(conn).Revision };
+        return pools with
+        {
+            FortificationRevision = FortificationOf(conn).Revision,
+            AttackerSlowPct = Input(AttackerSlow), EnemyRegenerationOnHitPct = Input(EnemyRegenerationOnHit),
+            VsBlindedCriticalPct = Input(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => Input(n) != 0),
+        };
     }
 
     // What the allocated passives add to the pools: attributes (base_* and additional_*, all attributes and the pairs),

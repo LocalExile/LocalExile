@@ -162,13 +162,12 @@ partial class Program
     internal const string EnemyRegenerationOnHit = "enemy_life_regeneration_rate_+%_for_4_seconds_on_hit";
 
     /// <summary>The connection's regeneration step ending at <paramref name="now"/>, with the player's
-    /// <see cref="EnemyRegenerationOnHit"/> (Devout of Ryslatha) on the enemies it hit in the last 4 s. The player's stats
-    /// are read only when a hit reaches into the step. The client does not step a monster's life from its regeneration
-    /// stat (no life_recovery_per_minute is sent: re/recovery-timing.md), so the 0x1b1 updates alone show it.</summary>
+    /// <see cref="EnemyRegenerationOnHit"/> (Devout of Ryslatha, Pools.EnemyRegenerationOnHitPct) on the enemies it hit in
+    /// the last 4 s. The client does not step a monster's life from its regeneration stat (no life_recovery_per_minute is
+    /// sent: re/recovery-timing.md), so the 0x1b1 updates alone show it.</summary>
     internal static List<(uint Id, uint Life)> RegenerateConnectionMonsters(ClientState conn, double now, double seconds)
     {
-        int onHit = now - seconds - conn.LastEnemyHitAt <= RecentlySeconds && Stats.Key(EnemyRegenerationOnHit) is uint key
-            ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+        int onHit = now - seconds - conn.LastEnemyHitAt <= RecentlySeconds ? conn.Pools.EnemyRegenerationOnHitPct : 0;
         using (ProjectileMutation(conn)) return RegenerateMonstersLocked(conn.Monsters, seconds, now, onHit);
     }
 

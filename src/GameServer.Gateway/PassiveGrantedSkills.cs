@@ -110,6 +110,8 @@ partial class Program
     // (until Walk.ArrivesAt; a movement skill's blink is no walk) at the walk's speed over the base speed, so movement speed
     // and chill change the step rate (the wiki: movement speed raises the frequency). It starts over when the walk ends, as
     // the run animation does.
+    // shortcut: Shield Charge blinks here, so it takes no steps (the wiki: it triggers footsteps); advance this clock
+    // during its charge once Shield Charge moves like a walk.
     internal static int FootstepsDue(ClientState conn, ref double run, double from, double now)
     {
         double before = run, until = Math.Min(now, conn.Walk.ArrivesAt);
@@ -216,7 +218,8 @@ partial class Program
             ushort? ignitedBuff = null;
             using (ProjectileMutation(conn))
             {
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) return;
+                // Stop the sweep, but not the kills it already queued.
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) break;
                 if (m.Dead || m.Life == 0 || MonsterBlocks(m, Random.Shared, spell: true)) continue;
                 var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared);
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded), own, attack: false);
@@ -244,7 +247,7 @@ partial class Program
                 $"{skill.Id} (footstep){(critical ? " (critical)" : "")}", deaths: deaths);
             ChargesOnHit(conn, m, critical, spell: true, skill.Effect, skill.Level, primary: id == targets[0].Id);
         }
-        foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
+        if (!conn.Closed) foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
     }
 
     // An effect object's art goes after it has played; nothing to remove once the connection is gone (a new area is a new

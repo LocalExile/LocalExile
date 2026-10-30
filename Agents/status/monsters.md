@@ -83,10 +83,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `Program.MonsterMods.cs`, `Program.Combat.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5, [Polytheist](../docs/game/polytheist.md).
 - Monster hits on the player: an attack that is neither evaded nor blocked records the time on the monster
-  (`HitPlayerAt`), and the player's death clears it. For 4 s after it, the player's
-  `enemies_that_hit_you_with_attack_recently_attack_speed_+%` (Devout of Gruthkul) lengthens the monster's swings, and
-  its attack stats are sent again on its Stats component. Gateway coverage only; whether the client's swing animation
-  follows those stats is not checked with the real client.
+  (`HitPlayerAt`), and the player's death clears it.
+  For 4 s after it, the player's `enemies_that_hit_you_with_attack_recently_attack_speed_+%` (Devout of Gruthkul)
+  lengthens the monster's swings, and its attack stats are sent again on its Stats component.
+  Gateway coverage only; whether the client's swing animation follows those stats is not checked with the real client.
   Code: `Program.Monsters.cs` (`MonsterSwingSeconds`, `SendAttackerSlows`), `MonsterMods.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §6, [Polytheist](../docs/game/polytheist.md).
 - Monster mods' accuracy (of the Marksman, of Precision): the monster's accuracy is raised in its swing, but only the

@@ -379,7 +379,7 @@ partial class Program
                 conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
                 ApplyPlayerAilmentsLocked(conn, a.Damage, ailmentTaken.Select((_, r) =>
                     new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
-                    monsterCritical, blocked, now, stats);
+                    monsterCritical, blocked, now, stats, source: id);
                 conn.RecentEnemyHits.Record(now);
                 ChargesWhenHit(conn, blocked);
                 if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
@@ -425,13 +425,10 @@ partial class Program
     internal const string AttackerSlow = "enemies_that_hit_you_with_attack_recently_attack_speed_+%";
 
     // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
-    // player's current reduced attack speed (slowPct, else read now), additive with its own increases.
-    internal static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now, int? slowPct = null) =>
+    // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
+    internal static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now) =>
         m.Attack is not { } a ? 0
-        : now - m.HitPlayerAt <= RecentlySeconds ? m.Mods.Effects.AttackSeconds(a.Seconds, slowPct ?? AttackerSlowPct(conn)) : a.Seconds;
-
-    static int AttackerSlowPct(ClientState conn) =>
-        Stats.Key(AttackerSlow) is uint key ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+        : now - m.HitPlayerAt <= RecentlySeconds ? m.Mods.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
 
     // The attack stats on a monster's Stats component (it carries them from its creation, 11-skills.md §6) again when
     // its attack time changes or goes back, so the client's swing can follow the server's. Called from the player tick
@@ -442,11 +439,11 @@ partial class Program
         lock (conn.Monsters)
         {
             double now = ProjectileWorldTime(conn);
-            int? slowPct = null;
+            bool slows = conn.Pools.AttackerSlowPct != 0;
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Dead || m.Attack is not { } a || m.SwingSecondsSent is null && now - m.HitPlayerAt > RecentlySeconds) continue;
-                double seconds = MonsterSwingSeconds(conn, m, now, slowPct ??= AttackerSlowPct(conn));
+                if (m.Dead || m.Attack is not { } a || m.SwingSecondsSent is null && (!slows || now - m.HitPlayerAt > RecentlySeconds)) continue;
+                double seconds = MonsterSwingSeconds(conn, m, now);
                 if (seconds == (m.SwingSecondsSent ?? a.Seconds)) continue;
                 m.SwingSecondsSent = seconds == a.Seconds ? null : seconds;
                 changed.Add((id, seconds, (a with { Seconds = seconds }).Stats()));

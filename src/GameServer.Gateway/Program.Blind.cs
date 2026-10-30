@@ -36,8 +36,7 @@ partial class Program
 
     // A supported gem's chance against a Blinded target (its attack or spell base, the pooled and own increases).
     internal static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
-        StatOf(CharacterPlayerStats(conn), VsBlindedCriticalStat) is not 0 and var extra
-            ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
+        conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a hit of this monster, which
     // joins the hit's other increased damage taken (shock). Hits only: an ignite's ticks carry no source monster.

@@ -53,6 +53,12 @@ static class CharacterStats
         internal long FortificationRevision { get; init; }
         // Calculated zero attributes are valid; legacy partial pool records may still need class defaults.
         internal bool AttributesResolved { get; init; }
+        // Player stats that monster swings, player ticks, regeneration steps and sweeps read for every character: resolved
+        // once per pool build (BuildPoolsFor), never a full stat build on those paths. 0/false: the character has none.
+        internal int AttackerSlowPct { get; init; }
+        internal int EnemyRegenerationOnHitPct { get; init; }
+        internal int VsBlindedCriticalPct { get; init; }
+        internal bool WhileMovingStats { get; init; }
     }
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,

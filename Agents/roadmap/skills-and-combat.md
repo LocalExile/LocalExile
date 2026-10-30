@@ -159,6 +159,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
   default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
   ([20](../docs/protocol/20-damage.md) §3).
+  An attack's packet goes through `MaximumAttackDamage.Apply` after conversion first (Devout of Ryslatha's more maximum
+  damage scales attack ailments too), with a regression test.
   Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
   Its hovered stationary-monster 0x191 path now uses the native size-aware object aim and object-bound confirmation.
   Automated acceptance/queued rejection checks and manual native endpoint experiments pass.

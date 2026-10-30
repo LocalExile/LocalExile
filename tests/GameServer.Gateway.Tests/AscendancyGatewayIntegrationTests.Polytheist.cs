@@ -1,5 +1,9 @@
+using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -31,11 +35,28 @@ public sealed partial class AscendancyGatewayIntegrationTests
             1830, 21979, 23429, 59443, 61900, 322, 5266, 51229, 26231, 25478 }.Order(), definition.Nodes.Keys.Order());
         Assert.Equal(definition.Nodes.Keys.Where(n => n != 409).Order(), PolytheistBuilds.SelectMany(b => b).Distinct().Order());
         Assert.All(definition.Nodes.Values, n => Assert.Equal(0, n.PointsGranted));
-        // The default gate stays closed; the opt-in's refusal names this class's page.
-        if (Environment.GetEnvironmentVariable("Game_VERIFIED_POLYTHEIST") != "1")
-            Assert.Throws<AscendancyRuleException>(() => AscendancyClientCompatibility.RequirePlayable(definition.Identity));
-        Assert.Contains("polytheist.md", Assert.Throws<AscendancyRuleException>(
-            () => VerifiedGamblerGraph.Verify([], [], "Polytheist")).Message);
+        // The default gate stays closed. The opt-in admits Guardian only through the installed-graph check: unverified
+        // graphs are refused with this class's page, and it opens nothing for the Slayer and Gladiator identities.
+        const string OptIn = "Game_VERIFIED_POLYTHEIST";
+        string? before = Environment.GetEnvironmentVariable(OptIn);
+        if (before != "1")
+            Assert.Contains("ascendancies.md", Assert.Throws<AscendancyRuleException>(
+                () => AscendancyClientCompatibility.RequirePlayable(definition.Identity)).Message);
+        try
+        {
+            Environment.SetEnvironmentVariable(OptIn, "1");
+            VerifiedGamblerGraph.InstalledGraphs = () => ([], []);
+            Assert.Contains("polytheist.md", Assert.Throws<AscendancyRuleException>(
+                () => AscendancyClientCompatibility.RequirePlayable(definition.Identity)).Message);
+            foreach (string other in new[] { "Slayer", "Gladiator" })
+                Assert.DoesNotContain("polytheist", Assert.Throws<AscendancyRuleException>(() => AscendancyClientCompatibility
+                    .RequirePlayable(new(AscendancyFamily.Phrecia, other, "3.29.3b"))).Message);
+        }
+        finally
+        {
+            VerifiedGamblerGraph.InstalledGraphs = null;
+            Environment.SetEnvironmentVariable(OptIn, before);
+        }
     }
 
     [Theory]
@@ -209,6 +230,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
             return (near.Life < near.MaxLife, far.Life < far.MaxLife);
         }
 
+        public Task<(string? Error, byte[] Bytes)> PolytheistRun(Func<NetworkStream, ConnectionCiphers, Task> work) =>
+            Exchange(async (stream, cipher) =>
+            {
+                await work(stream, cipher);
+                return null;
+            });
+
         public Task<(string? Error, byte[] Bytes)> PolytheistDeath() => Exchange(async (stream, cipher) =>
         {
             State.PlayerLife = 0;
@@ -359,6 +387,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // Enemies you've Hit Recently have 100% reduced Life Regeneration rate: none for 4 s, half of the step that ends
         // a quarter second after, all of it later; a death ends "recently".
         Hit();
+        // The boundaries from an exactly representable hit time (a Stopwatch reading is not).
+        monster.PlayerHitAt = state.LastEnemyHitAt = 10;
         Assert.Equal(0u, Regenerated(.5));
         Assert.Equal(0u, Regenerated(4));
         Assert.Equal(25u, Regenerated(4.25));
@@ -434,8 +464,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await game.PolytheistMonsterHit(false, attacker: monster);
         double slowed = .002 * 1.2 / 1.1, hitAt = monster.HitPlayerAt;
         Assert.Equal(slowed, Swing(hitAt), 12);
-        Assert.Equal(slowed, Swing(hitAt + 4), 12);
-        Assert.Equal(.002, Swing(hitAt + 4.01), 12);
+        // The 4 s boundary from an exactly representable hit time (a Stopwatch reading is not).
+        monster.HitPlayerAt = 10;
+        Assert.Equal(slowed, Swing(10), 12);
+        Assert.Equal(slowed, Swing(14), 12);
+        Assert.Equal(.002, Swing(14.01), 12);
+        monster.HitPlayerAt = hitAt;
         var slowedStats = InstanceEntities.StatsUpdate(43, (monster.Attack! with { Seconds = Swing(state.Clock.Elapsed.TotalSeconds) }).Stats());
         Assert.True(game.LastBytes.AsSpan().IndexOf(slowedStats) >= 0);
         state.Monsters[45] = monster;
@@ -467,14 +501,21 @@ public sealed partial class AscendancyGatewayIntegrationTests
         int Radius((ushort Id, int Effect) skill, bool spell) => ProgramValue<int>("SkillRadius", state,
             Program.Skills.EffectStats(skill.Effect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2), spell, skill.Effect);
         var (plainNova, plainSlam) = (Radius(nova, true), Radius(slam, false));
-        // A Nova goes off around the caster wherever it is aimed; other area spells land where they are aimed.
+        // A self-targeted spell (Ice Nova, Vaal Cold Snap) goes off around the caster wherever it is aimed; other area
+        // spells land where they are aimed, the Nova-type ones that are not self-targeted too (a totem's or a mine's, Dark
+        // Pact's, Ice Nova of Frostbolts').
         Assert.Equal((true, false), await game.PolytheistAreaSpell(nova.Id, self, aim));
+        (int X, int Y) Centre(string effect) => Program.SpellCentre(state, Program.Skills.EffectRow(effect), self, aim);
         Assert.Equal(aim, Program.SpellCentre(state, fireball.Effect, self, aim));
+        Assert.Equal((aim, aim, aim, aim, self), (Centre("ShockwaveTotem"), Centre("StormblastMine"), Centre("DarkPact"),
+            Centre("IceNovaAltX"), Centre("VaalColdSnap")));
         Assert.Equal((1, 1), (Panel(nova.Id, "skill_is_nova_skill"), Panel(fireball.Id, "total_number_of_projectiles_to_fire")));
 
         Assert.Null((await game.Change(PolytheistBuilds[1], true)).Error);
-        // Nova Spells Cast at the targeted location; Spells fire 2 additional Projectiles; 30% increased spell area only.
+        // Nova Spells Cast at the targeted location (a self-targeted spell that is no Nova stays on the caster); Spells
+        // fire 2 additional Projectiles; 30% increased spell area only.
         Assert.Equal((false, true), await game.PolytheistAreaSpell(nova.Id, self, aim));
+        Assert.Equal(self, Centre("VaalColdSnap"));
         Assert.Equal(3, Panel(fireball.Id, "total_number_of_projectiles_to_fire"));
         int baseNova = Program.Skills.EffectStats(nova.Effect, 1).Single(kv => kv.Item1 == Program.Stats.Key("active_skill_base_area_of_effect_radius")).Item2;
         Assert.Equal((int)Math.Floor(baseNova * Math.Floor(100 * Math.Sqrt(1.3)) / 100), Radius(nova, true));
@@ -539,6 +580,29 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(0u, await Hit(false, entropy: 100 - ordinaryChance));
         // 10% reduced Damage taken from Blinded Enemies, additive with the shock's 50% increase (x1.4, not x1.35).
         Assert.Equal((Math.Round(plain * .9), Math.Round(plain * 1.4)), (await Hit(false), await Hit(true)));
+        // The ignite a Blinded enemy inflicts burns 10% less as well, through the player tick's ailment step (Abberath's
+        // Unaffected by Ignite set aside here); one from an enemy outside the aura burns in full.
+        uint unaffected = Program.Stats.Key("unaffected_by_ignite")!.Value;
+        state.PlayerStats[unaffected] = 0;
+        int Burn(uint source)
+        {
+            var fire = DamagePacket.Of(DamageType.Fire, 200, 200);
+            double t = state.Clock.Elapsed.TotalSeconds;
+            lock (state.Monsters)
+            {
+                state.ElementalAilments.Clear();
+                var stats = Program.CharacterPlayerStats(state);
+                Program.ApplyPlayerAilmentsLocked(state, fire, fire, true, false, t, stats, source);
+                int burnt = Program.AdvancePlayerAilmentsLocked(state, t, t + 1, stats);
+                state.ElementalAilments.Clear();
+                state.PlayerLife = state.PlayerMaxLife;
+                return burnt;
+            }
+        }
+        int fullBurn = Burn(51);
+        Assert.True(fullBurn > 100);
+        Assert.InRange(Burn(43), fullBurn * .9 - 1, fullBurn * .9 + 1);
+        state.PlayerStats.Remove(unaffected);
         // 100% increased Critical Strike Chance against Blinded Enemies joins the increases, only against a blinded
         // target: the default attack goes from 5% to 10%, a spell's chance doubles.
         int? attackVs = Program.AttackCriticalChanceVsBlinded(state, Program.CharacterPlayerStats(state));
@@ -695,5 +759,178 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.True(burnt.AsSpan().IndexOf(InstanceEntities.RemoveBuff(51, endedBuff)) >= 0);
         Assert.True(burnt.AsSpan().IndexOf(InstanceEntities.RemoveBuff(50, buff)) < 0);
         Assert.Equal((0u, true, true), (dying.Life, dying.Dead, dying.Ignites.Idle));
+    }
+
+    // Every critical draw is the highest: only a 100% chance crits, so a chance below it never does.
+    sealed class HighestCriticalDraw : Random
+    {
+        public override int Next(int maxValue) => maxValue - 1;
+    }
+
+    [Fact]
+    public async Task Polytheist_combat_call_sites_crit_against_the_Blinded_stop_regeneration_and_slow_attackers()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", level: 60);
+        var state = game.State;
+        typeof(ClientState).GetProperty(nameof(ClientState.CriticalRandom), BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(state, new HighestCriticalDraw());
+        EquipPolytheistGems(game, "Ice Nova");
+        var nova = ProgramValue<IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>>(
+            "GemSkillEffects", state).Single(g => g.Name == "Ice Nova");
+        // Solaris (100% increased Critical Strike Chance against Blinded Enemies) and Abberath.
+        Assert.Null((await game.Change(PolytheistSolaris, true)).Error);
+        void Set(string name, int value)
+        {
+            state.PlayerStats[Program.Stats.Key(name)!.Value] = value;
+            state.Pools = Program.PoolsFor(state, 60);
+        }
+        // A 50% attack base (100% against a Blinded enemy); hits of exactly 1000 chaos damage (their own types at 100%
+        // reduced), so a critical strike is plain to see; fast attacks that always hit; Ryslatha's and Gruthkul's stats.
+        Set(AttackBaseCriticalStrike.UnarmedBaseStat, 5000);
+        foreach (string reduced in new[] { "physical_damage_+%", "cold_damage_+%", "fire_damage_+%" }) Set(reduced, -100);
+        foreach (string added in new[] { "attack_minimum_added_chaos_damage", "attack_maximum_added_chaos_damage",
+            "spell_minimum_added_chaos_damage", "spell_maximum_added_chaos_damage" }) Set(added, 1000);
+        Set("global_always_hit", 1);
+        Set("attack_speed_+%", 1000);
+        Set(Program.EnemyRegenerationOnHit, -100);
+        Set(Program.AttackerSlow, -10);
+        double now = state.Clock.Elapsed.TotalSeconds;
+        var at = state.Walk.Position(now);
+        state.Walk.Teleport(at.X, at.Y, now);
+        var regenerates = new MonsterModSet([], [], new(new Dictionary<string, int> { ["life_regeneration_rate_per_minute_%"] = 600 }));
+        SpawnedMonster Enemy(uint id, int dx)
+        {
+            var m = new SpawnedMonster("Polytheist call-site target", new(at.X + dx, at.Y, 30), 0, 2, 100000)
+            { Hostile = true, Mods = regenerates };
+            m.Walk.Teleport(at.X + dx, at.Y, now);
+            return state.Monsters[id] = m;
+        }
+        var (blinded, plain, idle) = (Enemy(60, 2), Enemy(61, -2), Enemy(62, 60));
+        state.FlaskGrounds.SetBlinded(60, true, () => 900);
+        // One strike on the two near monsters: an ordinary hit on the other one, a critical strike (150%) on the Blinded one.
+        async Task Struck(Func<NetworkStream, ConnectionCiphers, Task> strike)
+        {
+            var (b, p) = (blinded.Life, plain.Life);
+            Assert.Null((await game.PolytheistRun(strike)).Error);
+            uint taken = p - plain.Life;
+            Assert.True(taken > 0);
+            Assert.Equal(DamageModel.CriticalDamage((int)taken, 150), (int)(b - blinded.Life));
+        }
+
+        // The default attack.
+        await Struck(async (stream, cipher) =>
+        {
+            foreach (var (id, m) in new[] { (60u, blinded), (61u, plain) })
+            {
+                state.NextAttackAt = 0;
+                await Program.Attack("polytheist-integration", stream, cipher, state, new(id, SkillCatalog.FirstSkillId, 1, 1), m,
+                    state.Clock.Elapsed.TotalSeconds);
+            }
+        });
+        // Ryslatha through the default attack's hit: in the next regeneration step the two monsters it hit regain nothing
+        // and the damaged one it did not hit regenerates.
+        idle.Life = 50000;
+        Assert.Equal([62u], Program.RegenerateConnectionMonsters(state, state.Clock.Elapsed.TotalSeconds + 1, .5).Select(c => c.Id));
+
+        // An area spell's sweep: Ice Nova's 7.5% with 1200% increased is 97.5%, and 100% against the Blinded monster.
+        Set("spell_critical_strike_chance_+%", 1200);
+        await Struck((stream, cipher) => ProgramValue<Task>("AreaSkillHit", "polytheist-integration", stream, cipher, state,
+            nova.Id, nova, at, at, true, (ushort)0, null, null, null));
+        // Abberath's Fury's footstep: its 5% with 1850% increased is 97.5%, and 100% against the Blinded monster.
+        Set("spell_critical_strike_chance_+%", 1850);
+        var skill = Assert.Single(Program.FootstepSkills(state, state.Clock.Elapsed.TotalSeconds));
+        await Struck((stream, cipher) => Program.TriggerFootstepSkill("polytheist-integration", stream, cipher, state, skill));
+
+        // Gruthkul through the monster AI: a monster in reach whose attack hit the player recently starts its swing with
+        // the slowed attack time. The tick stops its walk where it stands, so its walk ends at the tick's time. Last: the
+        // AI loop ends with the state.
+        foreach (uint id in new uint[] { 60, 61, 62 }) state.Monsters.Remove(id);
+        var attacker = new SpawnedMonster("Polytheist slowed attacker", new(at.X + 2, at.Y, 30), 50, 2, 1000)
+        { Hostile = true, Attack = new(SkillCatalog.FirstSkillId, .002, 20, DamagePacket.Of(DamageType.Physical, 1, 1)) };
+        attacker.Walk.Teleport(at.X + 2, at.Y, now);
+        state.Monsters[63] = attacker;
+        attacker.HitPlayerAt = state.Clock.Elapsed.TotalSeconds;
+        Assert.Null((await game.PolytheistRun(async (stream, cipher) =>
+        {
+            var ai = ProgramValue<Task>("RunMonsterAi", "polytheist-integration", stream, cipher, state);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (attacker.BusyUntil == 0 && !ai.IsCompleted) await Task.Delay(5, timeout.Token);
+            state.Closed = true;
+            await ai;
+        })).Error);
+        Assert.Equal(.002 / .9, attacker.BusyUntil - attacker.Walk.ArrivesAt, 9);
+    }
+
+    [Fact]
+    public async Task Polytheist_Solaris_projectile_contact_crits_against_the_Blinded()
+    {
+        if (!DataAvailable()) return;
+        await using var f = new ProjectileRuntimeFixture(new(new AreaLayout(1, "polytheist-projectile", 300, 300, 10, 10, null, []), 1, 1)
+            { PlayerLife = 100, ActionCount = 7, CriticalRandom = new HighestCriticalDraw() });
+        // A 50% chance, 100% against a Blinded target (captured at release), ×101 critical damage.
+        var offense = new ProjectileOffense(DamagePacket.Of(DamageType.Physical, 20, 20), true, int.MaxValue, 5000, 10100, "solaris")
+        { VsBlindedCriticalChance = 10000 };
+        uint Contact(bool blind, double until)
+        {
+            var target = new SpawnedMonster("Polytheist projectile target", new(40, 10, 10, width: 300, height: 300), 0, 2, 100000);
+            f.Conn.Monsters[42] = target;
+            f.Conn.FlaskGrounds.SetBlinded(42, blind, () => 900);
+            f.Release(f.Shot(new("Metadata/Projectiles/DefaultArrow") { Speed = 100, Range = 100, Radius = 1 }, offense));
+            f.Advance(until);
+            return target.MaxLife - target.Life;
+        }
+        Assert.Equal(2020u, Contact(blind: true, until: 1));
+        Assert.Equal(20u, Contact(blind: false, until: 2));
+    }
+
+    // The methods a method's body calls (an async method's: its state machine's), by name.
+    static HashSet<string> Callees(string method)
+    {
+        var info = typeof(Program).GetMethod(method, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!;
+        var body = info.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType
+            .GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) ?? info;
+        byte[] il = body.GetMethodBody()!.GetILAsByteArray()!;
+        var names = new HashSet<string>();
+        for (int i = 0; i + 4 < il.Length; i++)
+            if (il[i] is 0x28 or 0x6F)   // call, callvirt
+                try { names.Add(body.Module.ResolveMethod(BitConverter.ToInt32(il, i + 1))!.Name); }
+                catch (Exception e) when (e is ArgumentException or BadImageFormatException) { }
+        return names;
+    }
+
+    [Fact]
+    public void Polytheist_runtime_loops_are_started_and_reach_their_consumers()
+    {
+        // The area entry starts the footstep loop with the player tick; the tick reaches the passive aura, the monsters'
+        // ignites, the attacker slow and the while-moving stats; the footstep loop triggers the skill per footstep; the
+        // regeneration loop steps with the on-hit regeneration stat.
+        Assert.Superset(new HashSet<string> { "RunPlayerTick", "RunFootstepSkills", "RunMonsterRegeneration", "RunMonsterAi" },
+            Callees("OnClientMessages"));
+        Assert.Superset(new HashSet<string> { "TickPassiveAuras", "BurnIgnites", "SendAttackerSlows", "SendWhileMovingStats" },
+            Callees("RunPlayerTick"));
+        Assert.Superset(new HashSet<string> { "FootstepsDue", "FootstepSkills", "TriggerFootstepSkill" }, Callees("RunFootstepSkills"));
+        Assert.Contains("RegenerateConnectionMonsters", Callees("RunMonsterRegeneration"));
+    }
+
+    [Fact]
+    public async Task Saboteur_Born_in_the_Shadows_blinds_nearby_enemies_and_takes_less_damage_from_them()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 5, baseClass: 6, choice: "Saboteur", family: AscendancyFamily.Normal, level: 60);
+        var state = game.State;
+        double now = state.Clock.Elapsed.TotalSeconds;
+        var at = state.Walk.Position(now);
+        state.Walk.Teleport(at.X, at.Y, now);
+        var attacker = new SpawnedMonster("Saboteur blind target", new(at.X + 2, at.Y, 30), 0, 2, 1000)
+        { Hostile = true, Attack = new(SkillCatalog.FirstSkillId, .002, 20, DamagePacket.Of(DamageType.Physical, 100, 100)) };
+        attacker.Walk.Teleport(at.X + 2, at.Y, now);
+        uint plain = await game.PolytheistMonsterHit(false, attacker: attacker);
+        // The same SaboteurBlind template as Devout of Solaris, with 15% reduced Damage taken from Blinded Enemies.
+        Assert.Null((await game.Change([64842, 5087], true)).Error);
+        state.Monsters[43] = attacker;
+        Assert.NotEmpty((await game.PolytheistAuraTick()).Bytes);
+        Assert.True(Program.Blinded(state, 43));
+        Assert.Equal(Math.Round(plain * .85), await game.PolytheistMonsterHit(false, attacker: attacker));
     }
 }

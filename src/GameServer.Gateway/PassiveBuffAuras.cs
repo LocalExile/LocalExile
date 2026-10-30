@@ -103,13 +103,16 @@ partial class Program
     internal static async Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         List<(uint Monster, ushort Buff, bool Added)> changes;
+        List<ushort> nodes;
+        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        // Outside the lock: the first call loads the aura table from PassiveSkills.
+        int? blindRadius = PassiveBuffAuras.BlindRadius(nodes, conn.Ruthless);
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             var player = conn.Walk.Position(now);
-            int? radius = conn.PlayerLife > 0
-                ? PassiveBuffAuras.BlindRadius([.. conn.Passives, .. conn.MainAscendancy.Allocated], conn.Ruthless) : null;
+            int? radius = conn.PlayerLife > 0 ? blindRadius : null;
             HashSet<uint> inside = radius is int r
                 ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && Dist(kv.Value.Walk.Position(now), player) <= r)
                     .Select(kv => kv.Key).ToHashSet()

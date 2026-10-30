@@ -400,8 +400,14 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
-    /// <summary>A Nova skill (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova): its spell goes off around the caster.</summary>
+    /// <summary>A Nova skill (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova, but also Shockwave Totem and
+    /// Stormblast Mine).</summary>
     public bool IsNova(int effectRow) => _novaEffects.Value.Contains(effectRow);
+
+    /// <summary>A self-targeted skill (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Vaal Cold Snap), whose use
+    /// the client centres on the caster (FUN_14193e290). Totems, mines and traps are left out: their effect goes off at
+    /// the object they place.</summary>
+    public bool IsSelfTargeted(int effectRow) => _selfTargetedEffects.Value.Contains(effectRow);
 
     /// <summary>Aura metadata, including only supports already accepted by GemSupports.Resolve.</summary>
     public bool IsAura(int effectRow, IEnumerable<int>? acceptedSupports = null) =>
@@ -416,6 +422,12 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     private readonly Lazy<HashSet<int>> _projectileEffects = new(() => EffectsOfType(folder, "Projectile"));
     private readonly Lazy<HashSet<int>> _warcryEffects = new(() => EffectsOfType(folder, "Warcry"));
     private readonly Lazy<HashSet<int>> _novaEffects = new(() => EffectsOfType(folder, "Nova"));
+    private readonly Lazy<HashSet<int>> _selfTargetedEffects = new(() =>
+    {
+        var self = EffectsOfTargetType(folder, 4, 10);
+        foreach (string placed in new[] { "SummonsTotem", "RemoteMined", "Trapped" }) self.ExceptWith(EffectsOfType(folder, placed));
+        return self;
+    });
     private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
     private readonly Lazy<HashSet<int>> _curseEffects = new(() => EffectsOfType(folder, "AppliesCurse"));
     private readonly Lazy<HashSet<int>> _addedAuraEffects = new(() => EffectsOfType(folder, "Aura", added: true));
@@ -445,6 +457,22 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
         return [.. effects.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(e => e.r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && instantSkills.Contains(a.GetInt32()))
+            .Select(e => e.i)];
+    }
+
+    /// <summary>The GrantedEffects rows whose ActiveSkill has one of these ActiveSkillTargetTypes.</summary>
+    static HashSet<int> EffectsOfTargetType(string folder, params int[] targetTypes)
+    {
+        string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
+        if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills"))) return [];
+        using var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills")));
+        var skills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
+            .Where(a => a.r.TryGetProperty("ActiveSkillTargetTypes", out var t) && t.ValueKind == JsonValueKind.Array
+                && t.EnumerateArray().Any(v => v.ValueKind == JsonValueKind.Number && targetTypes.Contains(v.GetInt32())))
+            .Select(a => a.i).ToHashSet();
+        using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+        return [.. effects.RootElement.EnumerateArray().Select((r, i) => (r, i))
+            .Where(e => e.r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && skills.Contains(a.GetInt32()))
             .Select(e => e.i)];
     }
 

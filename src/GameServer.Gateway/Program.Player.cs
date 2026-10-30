@@ -717,13 +717,12 @@ partial class Program
         "total_life_recovery_per_minute_from_regeneration", "mana_recovery_per_minute", "total_mana_recovery_per_minute_from_regeneration"];
 
     static Task SendWhileMovingStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+        !conn.Pools.WhileMovingStats ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
                 if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
                 var stats = CharacterPlayerStats(conn);
-                if (!WhileMovingInputs.Any(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)) return null;
                 // A row the stationary panel omits (no life regeneration) goes as 0, so the client stops predicting it.
                 return PlayerStatsUpdateAtGate(conn, [.. WhileMovingFinals.Select(n => Stats.Key(n)).OfType<uint>()
                     .Select(k => (k, stats.GetValueOrDefault(k)))]);

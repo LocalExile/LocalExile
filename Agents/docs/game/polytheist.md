@@ -98,9 +98,13 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 - **Devout of Ryslatha, 30% more Maximum Attack Damage** (`maximum_attack_damage_+%_final_from_ascendancy`):
   `MaximumAttackDamage.Apply` scales the maximum of every final component of an attack hit, after conversion, next to
   Rage's final multiplier: the default attack and its panel rows (`AttackHitConverted`), the native main/off-hand
-  physical bounds (`WeaponStats`), attack gems (`SupportedHitFor`), `AttackSkillHit` and ordinary bows. Minimum damage,
-  spells and damage over time are unchanged. PoB applies MaxDamage MORE to each type's own maximum and carries it
-  through conversion, which is the same. The client multiplies its three sources
+  physical bounds (`WeaponStats`), attack gems (`SupportedHitFor`), `AttackSkillHit` and ordinary bows. Minimum damage
+  and spells are unchanged. PoB applies MaxDamage MORE to each type's own maximum and carries it through conversion,
+  which is the same. The wiki says the stat applies to the skill's base and added damage, so it also raises the
+  damaging ailments an attack inflicts (PoB builds an ailment's base through the same `calcDamage`). Attacks inflict
+  no damaging ailments on the server yet; when they do, their flat ailment packet goes through
+  `MaximumAttackDamage.Apply` after conversion, before `IgniteFromHit` (roadmap, skills and combat). The client
+  multiplies its three sources
   (`combined_maximum_attack_damage_+%_final` = Π max(0, 1 + x/100) × 100 − 100, rounded: `FUN_1425d25b0`, checked
   in capstone at `0x1425d292e`); only the ascendancy source exists on the server.
 - **Devout of Ryslatha, Enemies you've Hit Recently have 100% reduced Life Regeneration rate**
@@ -129,7 +133,8 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   (`enemies_that_hit_you_with_attack_recently_attack_speed_+%` -10): every monster hit is an attack here (its basic
   contact). A hit that is not evaded or blocked records `HitPlayerAt` on the monster; for 4 s the value joins the
   monster's own increased attack speed (attack time × (1 + inc) / (1 + inc − 10%), `MonsterModEffects.AttackSeconds`),
-  read as the player's current stat. The AI's busy time, the contact at half the attack time and the 0x1ab log use it
+  read as the player's current stat (resolved with the stat pools, `Pools.AttackerSlowPct`, so a swing builds no
+  stats). The AI's busy time, the contact at half the attack time and the 0x1ab log use it
   (`MonsterSwingSeconds`); the player's death ends it. The monster's attack stats go to its Stats component again when
   the slow starts and ends (`SendAttackerSlows`); whether the client's swing animation follows them is unverified
   ([11](../protocol/11-skills.md) §6). The client has no literal read of 0x187f, so the effect is the server's.
@@ -157,7 +162,9 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 - **Devout of Solaris, 10% reduced Damage taken from Blinded Enemies** (`damage_taken_+%_from_blinded_enemies`; PoB:
   DamageTaken INC from a Blinded enemy): a Blinded monster's hit has the value added to the hit's other increased damage
   taken, the shock (`DamageTakenFactor(now, increasedPct)`): unshocked ×0.9, 50% shocked ×1.4. Unaffected by Shock still
-  removes only the shock's part. Hits only: an ignite's ticks carry no source monster, so they are unchanged.
+  removes only the shock's part. The ignite that monster's hit puts on the player keeps its source, so the burning
+  ignite's ticks add the value too while that monster is Blinded (`PlayerElementalAilments.Advance`; PoB's DamageTaken
+  covers damage over time as well).
 - **Devout of Solaris, Enemies Blinded by you have 100% reduced Critical Strike Chance**
   (`enemies_you_blind_have_critical_strike_chance_+%`): no monster here has a chance it could reduce. Monster attacks
   have no base critical chance in the server ([14](../protocol/14-monster-packs.md) §5); they crit only through
@@ -173,8 +180,11 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   5-6%, and the server makes every monster hit an attack. PoB assumes 5% for an unconfigured enemy. If a base chance is
   added, this stat must join its increases; until then the stat has no consumer. The client never reads 0x3099.
 - **Devout of Lunaris, Nova Spells Cast at the targeted location instead of around you**
-  (`nova_spells_cast_at_target_location`): a Nova spell (ActiveSkillType Nova) is centred on the caster without it and
-  on the aimed point with it (`SpellCentre` in `AreaSkillHit`). The client derives
+  (`nova_spells_cast_at_target_location`): a self-targeted spell (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
+  Shock Nova) is centred on the caster, and with the stat a self-targeted Nova spell (ActiveSkillType Nova) is centred
+  on the aimed point (`SpellCentre` in `AreaSkillHit`, the client's rule in `FUN_14193e290`). Totem, mine and trap
+  skills and Novas without a self target (Shockwave Totem, Stormblast Mine, Dark Pact) keep the aimed point either
+  way. The client derives
   `virtual_self_targeted_skills_target_location_instead` from this stat, `casting_spell` and `skill_is_nova_skill`
   (`FUN_142896650`), so the Gateway now publishes `skill_is_nova_skill` in Nova skills' records. Which point the client
   sends for a Nova with the stat is not checked live yet ([11](../protocol/11-skills.md) §9a).
@@ -186,7 +196,9 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   ([11](../protocol/11-skills.md) §12, `PassiveGrantedSkills`). Each footstep while the player walks explodes at the
   player's feet: two per 800 ms of the Templar's run animation (the first 233 ms after the walk starts), more often
   with movement speed and less when chilled (the wiki: movement speed raises the frequency; cast speed does nothing).
-  A movement skill's blink is no walk, so it triggers nothing, as the wiki says. Nothing triggers in town, in the grace
+  A movement skill's blink is no walk, so it triggers nothing, as the wiki says. The wiki's one exception, Shield
+  Charge (the player still walks, faster), is a known gap: Shield Charge is a Movement skill here and blinks too, so it
+  triggers nothing until it gets a walk-like charge. Nothing triggers in town, in the grace
   period, or while the player is dead, frozen or stunned. The hit is the level-20 row's 300-450 fire
   (GrantedEffectStatSetsPerLevel 45353) with the player's increases, added damage and conversion (`GrantedSpellHit`),
   a 5% base spell critical chance (with the Solaris increase against Blinded targets) and the spell multiplier, rolled
@@ -207,8 +219,10 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   strikes). Increased ignite duration lengthens it, and the monster's `base_self_ignite_duration_-%` (Fire and Ignite
   Resistant: 80%) shortens it. Several ignites can be on one monster; only the strongest burns
   (`MonsterIgnites`). The player tick burns them (`BurnIgnites`, every 250 ms) through the monster's fire resistance
-  and damage taken, as Righteous Fire's burn, and kills with it; they burn on while the player is dead (no experience
-  then). The monster shows the `ignited` buff (BuffDefinitions 0) from the hit until the last one ends or it dies.
+  and damage taken, as Righteous Fire's burn, and kills with it; they burn on while the player is dead (unverified: no
+  source found), with no experience then, and a dead Hardcore character's kills make no progress (`MonsterKilled`'s
+  `HardcoreProgressBlocked` gate, as a projectile's). The monster shows the `ignited` buff (BuffDefinitions 0) from
+  the hit until the last one ends or it dies.
   The ignite's flat fire is rolled apart from the hit's damage (the game takes the hit's own roll; the spread is the
   same, a `shortcut:` in the code). Only this skill's hits ignite monsters yet: the default attack, gems and
   projectiles do not ([20](../protocol/20-damage.md) §3).
@@ -240,6 +254,9 @@ These effects are not faked. Each waits for an engine system that does not exist
   (Frostblink, the Aquamarine flask) do not create it either.
 - **Corrupted Blood cannot be inflicted on you** (Ralakesh): nothing inflicts Corrupted Blood.
   The only related code maps a flask's bleed-and-Corrupted-Blood immunity to `immune_to_bleeding`.
+- **Shield Charge sets off Abberath's Fury** (Abberath; the wiki's one movement-skill exception): Shield Charge is a
+  Movement skill here, so the player blinks to the aimed cell and takes no footsteps.
+  It needs a charge that moves like a walk (`FootstepsDue` then advances during it).
 
 ## Admission
 

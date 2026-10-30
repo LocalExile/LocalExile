@@ -16,8 +16,18 @@ static class VerifiedGamblerGraph
                 + $"Read-only verification failed; see Agents/docs/game/{className.ToLowerInvariant()}.md");
     }
 
+    /// <summary>Tests: the two graphs' bytes in place of the installed archive's (the admission is checked without the
+    /// 66 GB Client/Content.ggpk). Null in production.</summary>
+    internal static Func<(byte[] Ordinary, byte[] Alternate)>? InstalledGraphs;
+
     public static void RequireInstalled(string className = "Gambler")
     {
+        if (InstalledGraphs is { } installed)
+        {
+            var (ordinary, alternate) = installed();
+            Verify(ordinary, alternate, className);
+            return;
+        }
         try
         {
             // Use the same decoder as read-only extraction; the target's Mermaid chunks exceed the managed decoder.

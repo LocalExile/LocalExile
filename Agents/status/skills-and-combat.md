@@ -394,27 +394,31 @@ and can require explicit recipes.
   switching templates now uses the native selection request and persists the chosen home.
   See [11](../docs/protocol/11-skills.md) and [21](../docs/protocol/21-hideouts.md).
 - Spells disabled (`your_spells_are_disabled`, Devout of Gruthkul): every spell use is refused on the warcry and
-  own-aura admission routes, and the skill record carries `skill_disabled_by_stat`. Running spell auras are suspended
-  with their intent kept and restored after the source goes; a burning Righteous Fire keeps burning the player and deals
-  enemies nothing. Local policy for already-running effects; Gateway coverage only, not checked with the real client.
+  own-aura admission routes, and the skill record carries `skill_disabled_by_stat`.
+  Running spell auras are suspended with their intent kept and restored after the source goes; a burning Righteous
+  Fire keeps burning the player and deals enemies nothing.
+  Local policy for already-running effects; Gateway coverage only, not checked with the real client.
   Code: Gateway (`SpellsDisabled`, `ActorSkillDisabledCore`, `SuspendRestrictedOwnAuras`).
   Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Passive blind aura (Devout of Solaris, Born in the Shadows: BuffTemplates `SaboteurBlind`): living hostile monsters
   within 35 cells get the `blinded` buff each player tick, which a death, a refund or leaving the radius takes off.
   Blind from it or the smoke cloud lowers their accuracy and evasion by 20%, lets
   `critical_strike_chance_+%_vs_blinded_enemies` raise the player's critical chance against them (default attack, area
-  sweeps, projectiles) and `damage_taken_+%_from_blinded_enemies` lower their hits. Other passive auras do nothing yet.
-  Gateway coverage only, not checked with the real client.
+  sweeps, footstep skills, projectiles) and `damage_taken_+%_from_blinded_enemies` lower their hits and ignites.
+  Other passive auras do nothing yet.
+  Gateway coverage only (a Polytheist and an ordinary Saboteur), not checked with the real client.
   Code: Gateway (`PassiveBuffAuras`, `TickPassiveAuras`, `Program.Blinded`, `CriticalChanceOn`).
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted footstep skill (Devout of Abberath: level 20 Abberath's Fury): while the player walks, each footstep
   of the Templar's run animation (two per 800 ms, faster with movement speed and slower when chilled) explodes at the
   player's feet with the skill's art and hits every living hostile monster within 7 cells (grown by spell area) as an
   area spell without a gem: 300-450 fire with the player's increases, critical strikes, block and the usual on-hit
-  effects. Not in town, the grace period, while frozen, stunned or dead, nor with spells disabled; a movement skill's
-  blink is no walk. A landed hit ignites the monster with its 25% chance or a critical strike (the player's ignites on
-  monsters below). The radius comes from the explosion art (no table gives one), and other passive-granted skills do
-  nothing yet. Gateway coverage only, not checked with the real client.
+  effects.
+  Not in town, the grace period, while frozen, stunned or dead, nor with spells disabled; a movement skill's blink is
+  no walk, and so is Shield Charge's, which the wiki says triggers it (a known gap).
+  A landed hit ignites the monster with its 25% chance or a critical strike (the player's ignites on monsters below).
+  The radius comes from the explosion art (no table gives one), and other passive-granted skills do nothing yet.
+  Gateway coverage only, not checked with the real client.
   Code: Gateway (`PassiveGrantedSkills`, `RunFootstepSkills`, `TriggerFootstepSkill`).
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - **Projectile modifiers.** Generic profiles consume resolved primary counts, speed, pierce/fork/chain/split/return
@@ -707,6 +711,7 @@ and can require explicit recipes.
   except the player's ignites on monsters: a critical strike or the chance ignites with 90% of the hit's flat fire per
   second for 4 s, the ignite increases, damage over time multipliers (+50% on a critical strike) and duration stats;
   only the strongest burns, through the monster's fire resistance, every player tick, with the `ignited` buff and kills.
+  They burn on while the player is dead (unverified), with no progress from a dead Hardcore character's kills.
   Only Abberath's Fury's footstep hits ignite yet; Gateway coverage only, not checked with the real client
   (`MonsterIgnites.cs`, [20](../docs/protocol/20-damage.md) §3).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
@@ -743,12 +748,15 @@ and can require explicit recipes.
   its conditional path now also receives aggregate area (0xd7) and radius percentage (0x1591).
   Cyclone's additional melee-range and stage modifiers remain partial.
   See protocol/11-skills.md.
-- **Nova spells (2026-10-29).** Ice Nova, Discharge and Shock Nova (ActiveSkillType Nova) hit around the caster wherever
-  they are aimed; before, a Nova cast on a monster went off around the monster. With
-  `nova_spells_cast_at_target_location` (Devout of Lunaris) they hit around the aimed point, and Nova skill records carry
-  `skill_is_nova_skill`, which the client needs to target them there. Gateway coverage only; which point the client
-  sends with the stat is not checked live.
-  Code: `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
+- **Self-targeted spells (2026-10-29).** Self-targeted spells (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
+  Shock Nova) hit around the caster wherever they are aimed, as the client draws them; before, an Ice Nova cast on a
+  monster went off around the monster.
+  Totem, mine and trap skills and Novas without a self target (Shockwave Totem, Stormblast Mine, Dark Pact) keep the
+  aimed point.
+  With `nova_spells_cast_at_target_location` (Devout of Lunaris) self-targeted Novas hit around the aimed point, and
+  Nova skill records carry `skill_is_nova_skill`, which the client needs to target them there.
+  Gateway coverage only; which point the client sends with the stat is not checked live.
+  Code: `SkillCatalog.IsSelfTargeted`, `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 
 ## Not working yet

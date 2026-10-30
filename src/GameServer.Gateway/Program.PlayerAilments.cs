@@ -3,7 +3,7 @@ using GameServer.Core.World;
 partial class Program
 {
     internal static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
-        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
+        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null)
     {
         if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type))) return;
@@ -14,7 +14,7 @@ partial class Program
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
         int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
-        conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom);
+        conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, source);
         if (!frozen && conn.ElementalAilments.ActionFactor(now) == 0)
         {
             conn.FreezeGeneration++;
@@ -33,7 +33,8 @@ partial class Program
         double previousAction = conn.ElementalAilments.ActionFactor(from);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
-            MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire));
+            MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
+            source => DamageTakenFromBlindedPct(conn, source, stats));
         int lifeDamage = conn.EnergyShield.Damage(damage, false, until);
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)

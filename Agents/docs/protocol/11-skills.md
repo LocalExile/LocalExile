@@ -1064,17 +1064,21 @@ weapon's local mods from the start (until 2026-10-23 it started with the unarmed
 `base_deal_no_damage` skills (Portal) deal none. An attack's hit carries the skill's damage effectiveness (§9). Not
 modelled: the skills' shapes (waves, cones, chains, leaps), stun, and the accuracy roll. Being tested live.
 
-**Nova spells** (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova; `SkillCatalog.IsNova`) go off around the caster
-wherever they are aimed (`SpellCentre`). Until 2026-10-29 every area spell was centred on the aimed point, so an Ice
-Nova cast on a monster went off around the monster while the client drew it around the player. The client's own
+**Self-targeted spells** (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Shock Nova;
+`SkillCatalog.IsSelfTargeted`) go off around the caster wherever they are aimed (`SpellCentre`). Until 2026-10-29
+every area spell was centred on the aimed point, so an Ice Nova cast on a monster went off around the monster while
+the client drew it around the player. The client's own
 action does the same: for a self-targeted skill (target types 4 and 10) it replaces the aimed point with the caster
 unless `virtual_self_targeted_skills_target_location_instead` (0x2a6e) or `virtual_nova_spells_cast_at_marked_target`
 (0x5361) is set (`FUN_14193e290`).
+Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed, and so do
+Novas without a self target (Dark Pact, Ice Nova of Frostbolts).
 0x2a6e is `casting_spell` AND `skill_is_nova_skill` (0x2a6c) AND the caster's `nova_spells_cast_at_target_location`
 (0x2a6d) (`FUN_142896650`, registered by `FUN_1400dc5f0`), and the skill input handler `FUN_1401216d0` reads it for the
 skill it builds a use for.
-The Gateway therefore publishes `skill_is_nova_skill` = 1 in every Nova skill's record (`SkillCatalog.EffectStats`), and
-a caster with `nova_spells_cast_at_target_location` (Devout of Lunaris) has its Novas centred on the aimed point
+The Gateway therefore publishes `skill_is_nova_skill` = 1 in every Nova skill's record (ActiveSkillType Nova,
+`SkillCatalog.IsNova`, `SkillCatalog.EffectStats`), and a caster with `nova_spells_cast_at_target_location` (Devout of
+Lunaris) has its self-targeted Novas centred on the aimed point
 ([Polytheist](../game/polytheist.md)). Which point the client sends for a Nova (a ground use at the cursor, or a self
 use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
@@ -1576,7 +1580,9 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
   a run-animation clock while the walk lasts (`Walk.ArrivesAt`), at `Walk.Speed` over the base walking speed, and
   restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
   footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
-  steps (the wiki: movement skills do not trigger it). `TriggerFootstepSkill` sends the explosion where the player
+  steps (the wiki: movement skills do not trigger it). The wiki's exception, Shield Charge (the player still walks,
+  faster), is a known gap: it is a Movement skill here and blinks too, so it triggers nothing. `TriggerFootstepSkill`
+  sends the explosion where the player
   stands: an `EffectObject` with SkillArtVariations `repeating_shockwave`'s default (MiscAnimated 1173
   `AbberathsHoovesImpact`, `Abberaths_Hooves_fireimpact.ao`, whose own SoundEvent is the step sound), its wake zone, and
   a RemoveObject 700 ms later (the mesh's one 666 ms clip). It then hits every living hostile monster within the radius

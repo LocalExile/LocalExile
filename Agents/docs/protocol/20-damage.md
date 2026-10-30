@@ -352,8 +352,11 @@ No native allocation of Rampager, owned-actor execution or whole-class acceptanc
 
 ## 2g. More maximum attack damage
 
-`maximum_attack_damage_+%_final_from_ascendancy` (Devout of Ryslatha's 30%) scales the maximum of every final component
-of an attack hit, after conversion; minima, spells and damage over time are unchanged (`MaximumAttackDamage`).
+`maximum_attack_damage_+%_final_from_ascendancy` (Devout of Ryslatha's 30%) scales the maximum of the attack's base and
+added damage, which for a hit is the maximum of every final component after conversion; minima and spells are unchanged
+(`MaximumAttackDamage`).
+It also scales the damaging ailments an attack inflicts (the wiki; PoB builds an ailment's base through the same
+`calcDamage`), so an attack's flat ailment packet must go through `MaximumAttackDamage.Apply` too (§3).
 PoB CalcOffence applies `MaxDamage` MORE to each type's own maximum and carries it through conversion, which is the same.
 It sits next to Rage's final multiplier at every attack site: the default attack and its panel rows, the native
 physical bounds, attack gems, `AttackSkillHit` and ordinary bows.
@@ -398,8 +401,9 @@ strongest burns. The player tick (`BurnIgnites`, 250 ms) burns them through the 
 taken (`MonsterDotTaken`, shared with Righteous Fire's burn), sends 0x1b1 and kills, and the monster carries the
 `ignited` buff (BuffDefinitions 0, no values) while one burns. Only Abberath's Fury's footstep hits call it yet
 ([Polytheist](../game/polytheist.md)): the default attack, gems, projectiles and bows build no flat packet for it, so
-they do not ignite. Shaper of Flames-style ignites from other damage types, "deal damage faster" stats and ignite
-proliferation are not modelled.
+they do not ignite. An attack's flat packet will go through `MaximumAttackDamage.Apply` (§2g) before it. The ignites
+burn on while the player is dead (unverified), and a dead Hardcore character's kills make no progress. Shaper of
+Flames-style ignites from other damage types, "deal damage faster" stats and ignite proliferation are not modelled.
 
 ## 4. What the server uses now
 
@@ -529,5 +533,7 @@ Chill changes action timing/movement, freeze cancels/gates actions, and shock in
 `unaffected_by_ignite` keeps the ignite (duration, `is_ignited`) but its ticks deal nothing
 ([Polytheist](../game/polytheist.md)).
 A hit from a monster the player has Blinded adds `damage_taken_+%_from_blinded_enemies` to the shock's increase
-(additive, `DamageTakenFactor(now, increasedPct)`); ignite ticks have no source and keep the shock alone.
+(additive, `DamageTakenFactor(now, increasedPct)`).
+An ignite keeps the monster that applied it, and the burning ignite's ticks add the same value while that monster is
+Blinded (`PlayerElementalAilments.Advance`).
 See [Gambler's exact source, threshold, formula and presentation limits](../game/gambler.md).

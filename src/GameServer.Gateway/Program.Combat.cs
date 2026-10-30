@@ -775,12 +775,14 @@ partial class Program
         return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
     }
 
-    // An area spell's centre: the aimed point, but a Nova spell (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova) goes off
-    // around the caster wherever it was aimed, unless the caster has nova_spells_cast_at_target_location (Devout of
-    // Lunaris: "Nova Spells Cast at the targeted location instead of around you").
+    // An area spell's centre: the aimed point, but a self-targeted spell (Ice Nova, Discharge, Vaal Cold Snap) goes off
+    // around the caster wherever it was aimed, as the client's action does (FUN_14193e290). A Nova among them goes off at
+    // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the
+    // targeted location instead of around you"; the client's 0x2a6e).
     internal static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
-        !SkillsFor(conn).IsNova(effect) || Stats.Key("nova_spells_cast_at_target_location") is uint key
-            && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0 ? to : from;
+        !SkillsFor(conn).IsSelfTargeted(effect) || SkillsFor(conn).IsNova(effect)
+            && Stats.Key("nova_spells_cast_at_target_location") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0
+            ? to : from;
 
     // A gem skill without a projectile (strikes, slams, area spells): a first, simple hit (2026-10-23). It lands once, after
     // half the attack time (attacks) or the cast (spells), on every living monster within the skill's area radius
@@ -813,7 +815,7 @@ partial class Program
         lock (conn.Monsters) delay = spell ? castDuration.Value / 1000.0
             : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false);
         int radius = SkillRadius(conn, skillStats, spell, gem.Effect);
-        // A melee skill aimed far away still lands in front of the player; a Nova spell goes off around the caster.
+        // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
         var centre = !spell && Dist(from, to) > radius + weapon.Range ? from : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         if (cooldownUse?.Instant != true && conn.ActionCount != action) return;
@@ -858,9 +860,10 @@ partial class Program
             string? resistance;
             using (ProjectileMutation(conn))
             {
-                // Catch up earlier projectile contacts before reading Rage or any other live offensive input.
+                // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
+                // the sweep keeps the kills it already queued.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) return;
+                    || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) break;
                 if (m.Dead || m.Life == 0) continue;
                 if (MonsterBlocks(m, Random.Shared, spell))
                 {
@@ -907,7 +910,7 @@ partial class Program
                 melee: !spell, sequence: sequence, deaths: deaths);
             ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
         }
-        foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
+        if (!conn.Closed) foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
     }
 
@@ -1156,10 +1159,15 @@ partial class Program
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
-        bool alive;
-        lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
+        bool alive, blocked;
+        lock (conn.Monsters)
+        {
+            at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0;
+            blocked = HardcoreProgressBlocked(conn);
+        }
         await SendVaalSouls(remote, stream, ciphers, conn);
-        if (m.Variety is not { } variety || !m.Hostile) return;
+        // A dead Hardcore character's kills (an ignite still burning) make no progress, as a projectile's (CommitProjectileKill).
+        if (blocked || m.Variety is not { } variety || !m.Hostile) return;
         ChargesOnKill(conn, m);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
             && CharacterSaves.Load(CharacterName(conn))?.Tutorial is { ZombieKilled: false })
