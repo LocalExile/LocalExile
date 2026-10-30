@@ -176,7 +176,7 @@ partial class Program
                             m.BossBarShown = true;
                             bossBars.Add((id, m));
                         }
-                        else if (m.Aggro && d > 2 * m.AggroRange)
+                        else if (m.Aggro && !m.Fleeing && d > 2 * m.AggroRange)   // a flee walk is not cut short
                         {
                             m.Aggro = false;
                             orders.Add((id, m.Walk.Order(mx, my, now), (mx, my), "gives up"));
@@ -189,6 +189,20 @@ partial class Program
                             if (now < m.Walk.ArrivesAt) orders.Add((id, m.Walk.Order(mx, my, now), (mx, my), "is frozen"));
                             m.LastTarget = null;
                             continue;
+                        }
+                        // Fleeing (MonsterFlee): once a started swing ends, it walks to its flee point and does nothing
+                        // else until that walk ends, there or short of it; then it chases again.
+                        if (m.Fleeing)
+                        {
+                            if (now < m.BusyUntil) continue;
+                            if (m.FleeTo is { } flee)
+                            {
+                                m.FleeTo = m.LastTarget = null;
+                                orders.Add((id, m.Walk.Order(flee.X, flee.Y, now), flee, "flees"));
+                                continue;
+                            }
+                            if (now < m.Walk.ArrivesAt) continue;
+                            m.Fleeing = false;
                         }
                         if (!m.Aggro || now < m.BusyUntil) continue;
                         // In reach: stop and swing at the player (hostile monsters with an attack, while the player lives).

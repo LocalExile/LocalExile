@@ -51,9 +51,9 @@ partial class Program
         m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 ? 1 : m.Ailments.ActionFactor(now);
 
     /// <summary>
-    /// A player hit that landed on a living monster inflicts its ailments (MonsterElementalAilments.Inflict) from the
-    /// damage the monster took per type: the mitigated packet × its damage taken × the critical multiplier on a critical
-    /// strike. The threshold is its maximum life (wiki: equal to it for most monsters). <paramref name="player"/> is
+    /// A player hit that landed on a living monster may make it flee (MonsterFlee) and inflicts its ailments
+    /// (MonsterElementalAilments.Inflict) from the damage the monster took per type: the mitigated packet × its damage
+    /// taken × the critical multiplier on a critical strike. The threshold is its maximum life (wiki: equal to it for most monsters). <paramref name="player"/> is
     /// CharacterPlayerStats, <paramref name="skill"/> the skill's own stats; both count. Under the Monsters lock, after the
     /// hit's damage, so the hit does not gain from its own shock.
     /// </summary>
@@ -68,6 +68,15 @@ partial class Program
         var added = m.Ailments.Inflict(mitigated[DamageType.Cold].Min * factor, mitigated[DamageType.Lightning].Min * factor,
             critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill), name => m.Mods.Effects[name], random,
             AilmentArea(Player, Skill, spell));
+        // Fleeing (MonsterFlee): its own draws (Random.Shared), so a projectile's reaction draws stay in order.
+        if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
+                m.Mods.Effects["monster_chance_to_not_flee_%"], Random.Shared))
+        {
+            int size = Math.Max(0, LivingCollision.Size(m));
+            m.FleeTo = MonsterFlee.Point(m.Walk.Position(now), conn.Walk.Position(now),
+                (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)), Random.Shared);
+            m.Fleeing = m.FleeTo is not null;
+        }
         // Mirrored: the ailments act on the player as well (wiki Reflect), as they landed, then through the player's own
         // modifiers; the exact reflected magnitude is not verified.
         if (added.Count == 0 || conn.PlayerLife == 0

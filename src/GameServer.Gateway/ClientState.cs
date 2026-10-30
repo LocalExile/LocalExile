@@ -104,6 +104,10 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public readonly MonsterElementalAilments Ailments = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
+    // Fleeing (MonsterFlee): from a hit's roll until its walk to the flee point ends; FleeTo is the point until the AI
+    // orders that walk.
+    public bool Fleeing;
+    public (int X, int Y)? FleeTo;
     public string Label => label;
     public WalkEstimator Walk { get; set; } = walk;
     public int AggroRange => aggroRange;

@@ -304,10 +304,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
         });
     }
 
-    static SpawnedMonster SurfcasterTarget(ClientState state, uint id, int dx, uint life = 10_000, MonsterAttack? attack = null)
+    static SpawnedMonster SurfcasterTarget(ClientState state, uint id, int dx, uint life = 10_000, MonsterAttack? attack = null,
+        MonsterModSet? mods = null)
     {
         var (x, y) = state.Walk.Position(state.Clock.Elapsed.TotalSeconds);
-        var monster = new SpawnedMonster($"target 0x{id:x}", new(x + dx, y, 30), 100, 2, life) { Attack = attack, Aggro = true };
+        var monster = new SpawnedMonster($"target 0x{id:x}", new(x + dx, y, 30), 100, 2, life)
+            { Attack = attack, Aggro = true, Mods = mods ?? MonsterModSet.None };
         lock (state.Monsters) state.Monsters[id] = monster;
         return monster;
     }
@@ -604,5 +606,70 @@ public sealed partial class AscendancyGatewayIntegrationTests
         double at = game.State.Clock.Elapsed.TotalSeconds;
         Assert.Equal((true, 15, 0, 20), (corpse.Dead, Now(reached), Now(beyond), Now(touched)));
         int Now(SpawnedMonster m) => (int)m.Ailments.Magnitude(Shock, at);
+    }
+
+    // The nine small nodes (48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290): 4% cast speed and 5% chance to
+    // cause monsters to flee each, against plain /set_stat equivalents; a fleeing monster walks away instead of swinging.
+    [Fact]
+    public async Task Surfcaster_small_nodes_cast_speed_and_monster_flee()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        using var plain = Surfcaster();
+        Assert.Null((await game.Change([36782, 41643, 42290, 48926], true)).Error);   // the four next to the start
+        SetDev(plain.State, ("base_cast_speed_+%", 16), ("global_hit_causes_monster_flee_%", 20));
+        foreach (var (stat, value) in new[] { ("cast_speed_+%", 16), ("global_hit_causes_monster_flee_%", 20),
+            ("main_hand_hit_causes_monster_flee_%", 20) })
+            Assert.Equal((value, value), (SurfcasterStat(game.State, stat), SurfcasterStat(plain.State, stat)));
+        int Chance(ClientState state, bool spell) => MonsterFlee.Chance(spell, n => SurfcasterStat(state, n), _ => 0);
+        Assert.Equal((20, 20), (Chance(game.State, false), Chance(game.State, true)));
+
+        // One roll per hit, then the monster's chance not to flee: the rarity's own mods give magic 50, rare and unique 100.
+        var variety = Program.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite")!;
+        MonsterModSet Mods(MonsterRarity rarity) => Program.MonsterModsFor(game.State, variety, 10, rarity, null, alone: true);
+        int NotFlee(MonsterRarity rarity) => Mods(rarity).Effects["monster_chance_to_not_flee_%"];
+        Assert.Equal((0, 50, 100, 100), (NotFlee(MonsterRarity.Normal), NotFlee(MonsterRarity.Magic),
+            NotFlee(MonsterRarity.Rare), NotFlee(MonsterRarity.Unique)));
+        var random = new Random(3);
+        int Count(int chance, int notFlee) => Enumerable.Range(0, 2000).Count(_ => MonsterFlee.Rolls(chance, notFlee, random));
+        Assert.Equal((2000, 0, 0), (Count(100, 0), Count(100, 100), Count(0, 0)));
+        Assert.InRange(Count(20, 0), 330, 470);
+        Assert.InRange(Count(100, 50), 900, 1100);
+        // The point: 50 cells off within 60 degrees of straight away from the player, else 25, else none.
+        static double Off((int X, int Y) p) => Math.Sqrt((p.X - 100) * (p.X - 100) + p.Y * p.Y);
+        var point = MonsterFlee.Point((100, 0), (0, 0), (_, _) => true, random)!.Value;
+        Assert.InRange(Off(point), 49, 51);
+        Assert.True(point.X >= 124, $"{point}");
+        Assert.InRange(Off(MonsterFlee.Point((100, 0), (0, 0), (x, y) => Math.Abs(x - 100) + Math.Abs(y) <= 36, random)!.Value), 24, 26);
+        Assert.Null(MonsterFlee.Point((100, 0), (0, 0), (_, _) => false, random));
+
+        // A forced roll through the actual hit: the normal monster in reach flees, the rare one does not, and without the
+        // nodes nothing flees.
+        SetDev(game.State, ("global_hit_causes_monster_flee_%", 100));
+        var attack = new MonsterAttack(SkillCatalog.FirstSkillId, 10, 20, DamagePacket.Of(DamageType.Physical, 1, 1));
+        var fleeing = SurfcasterTarget(game.State, 0x601, 3, attack: attack);
+        var rare = SurfcasterTarget(game.State, 0x602, -3, attack: attack, mods: Mods(MonsterRarity.Rare));
+        var unmoved = SurfcasterTarget(plain.State, 0x601, 3, attack: attack);
+        SetDev(plain.State, ("global_hit_causes_monster_flee_%", 0));
+        foreach (var (state, m) in new[] { (game.State, fleeing), (game.State, rare), (plain.State, unmoved) })
+            SurfcasterHit(state, m, DamageType.Physical, 1, false);
+        Assert.Equal((true, false, false), (fleeing.Fleeing, rare.Fleeing, unmoved.Fleeing));
+        var to = fleeing.FleeTo!.Value;
+        double now = game.State.Clock.Elapsed.TotalSeconds;
+        var from = fleeing.Walk.Position(now);
+        Assert.True(to.X > from.X, $"{to}");   // away from the player
+
+        // The AI walks it to the point and it does not swing, though in reach; the rare one swings.
+        var (_, bytes) = await game.SurfcasterAiTicks(250);
+        var walk = InstanceProtocol.ActionStarted(0x601, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
+        Assert.True(bytes.AsSpan().IndexOf(walk) >= 0);
+        Assert.Equal((0.0, true, true, null), (fleeing.BusyUntil, rare.BusyUntil > now, fleeing.Fleeing, fleeing.FleeTo));
+        // Its walk ends (here short of the point, back in reach): the flee is over and it swings again.
+        now = game.State.Clock.Elapsed.TotalSeconds;
+        fleeing.Walk.Teleport(from.X, from.Y, now);
+        game.State.Closed = false;
+        await game.SurfcasterAiTicks(250);
+        Assert.False(fleeing.Fleeing);
+        Assert.True(fleeing.BusyUntil > now);
     }
 }

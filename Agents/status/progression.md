@@ -73,7 +73,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Stormy Seas' cold damage shocks monsters (the general monster chill/freeze/shock engine).
   On that engine, Glacial Wave's chill raises the monster's damage taken and lessens its swings, Brine Bound freezes
   monsters that hit you and holds every freeze for 1 s, and Within the Tempest shocks kills and spreads shocks 1.5 m.
-  Not yet: monster flee.
+  The small nodes' chance to cause monsters to flee makes a hit monster walk away without attacking.
+  Not yet checked with the real client: that needs the reviewed combined graph installed.
   Fishing (fish rarity, corrupted fish) has no gameplay in 3.29.3b. `Game_VERIFIED_SURFCASTER=1` opts in.
   Docs: [Surfcaster checklist](../docs/game/surfcaster.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

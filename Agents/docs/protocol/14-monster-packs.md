@@ -185,6 +185,7 @@ cells/s, a normal one every 0.125–0.133 s; the server walks it at the same spe
 | `chill_effectiveness_on_self_+%`, `base_self_freeze_duration_-%` (of the Ice), `shocked_effect_on_self_+%` (of the Tempest) | the player's chill and shock effect and freeze duration on it ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)) |
 | `action_speed_cannot_be_reduced_below_base`, `movement_speed_cannot_be_reduced_below_base` (Unstoppable) | the player's chill and freeze do not slow or stop it |
 | `reflect_non_damaging_ailments_%_chance` (Mirrored) | the chill, freeze and shock a player hit inflicts on it act on the player too |
+| `monster_chance_to_not_flee_%` (the rarity's MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100) | its chance to ignore a player hit's flee ([11](11-skills.md) §6) |
 
 **Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the
 server never does to monsters: Hexproof, of Congealment, Reflector's, the ignite and wither parts of of the Magma and

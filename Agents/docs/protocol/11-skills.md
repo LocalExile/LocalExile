@@ -602,6 +602,18 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
 - **AI** (`RunMonsterAi`, 100 ms): a hostile, chasing monster within reach stops and swings: 0x1ab with its skill, flags
   0x0408 | 0x80, target = the player, sequence 0xffff. At half the attack time the hit lands if the monster lives and
   the player is still within reach + 2: 0x1b1 on the player.
+- **Fleeing** (`MonsterFlee`, wiki Fleeing). A player hit that leaves the monster alive rolls the hit's chance to
+  cause monsters to flee (`AilmentsOnHitLocked`: an attack's `main_hand_hit_causes_monster_flee_%`, a spell's
+  `global_hit_causes_monster_flee_%`, plus the skill's own), then the monster's `monster_chance_to_not_flee_%`
+  ([14](14-monster-packs.md) §5: magic 50, rare and unique 100).
+  The monster picks a floor cell 50 cells away within 60° of straight away from the player (eight tries, then eight at
+  25 cells, else no flee).
+  After a swing in progress, the AI orders the walk there (0x1ab Move, logged "flees").
+  It does not chase, swing or give up its aggro until that walk ends, at the point or short of it.
+  A freeze stops the walk and ends the flee.
+  The distance is ours (the real server picks the point).
+  Monster.ot also lists a `Flee` basic action (§2; ActionTypes `HASH16` 0xe1a9, factory `0x14199aba0` on the same
+  move-action base `0x141937cc0` as Move); whether the real server uses it for this walk is not verified.
 - **Defence.** The monster's accuracy is `DefaultMonsterStats.Accuracy` at its level (raised by its mods); the server
   rolls the player's
   evasion with the same `AccuracyHitChance` formula and sends no life update on a miss. The roll uses PoE's shared

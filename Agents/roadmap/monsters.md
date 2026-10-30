@@ -12,6 +12,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   melee attacks all work ([10](../docs/protocol/10-chat-and-commands.md) §5, [11](../docs/protocol/11-skills.md) §6);
   areas are populated with their MonsterPacks and unique boss ([14](../docs/protocol/14-monster-packs.md));
   emerge monsters rise near the player ([10](../docs/protocol/10-chat-and-commands.md) §5).
+  Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
+  and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation
   ([status](../status/monsters.md#partly-working)); integrated native evidence is scoped in
   [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).

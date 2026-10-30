@@ -2,7 +2,7 @@
 
 Surfcaster is the Shadow's Phrecia Saboteur identity (`Saboteur`, ascendancy row 17, 3.29.3b), start node 18635.
 No node grants passive points, so a build spends the class's eight ascendancy points.
-The class is in progress; the table below marks which effects have a gameplay consumer and which do not yet.
+Every effect has a gameplay consumer on the server, except the two fishing lines, which have no gameplay in 3.29.3b.
 Native acceptance is still open and needs the reviewed combined graph installed (see Admission below).
 
 ## Node checklist
@@ -22,7 +22,7 @@ Native acceptance is still open and needs the reviewed combined graph installed 
 | 52944 Changing Seasons | The Effect of Chill on you is reversed; All Damage Taken from Hits can Chill you | Works: any monster hit chills by its total damage, and the chill raises action speed instead; freeze is unchanged. |
 | 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Works: the Torment Touched buff gives the player all four 23% bonuses and shows its icon. No allies or tormented spirits exist to use the rest. |
 | 48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290 | 4% increased Cast Speed | Works: `base_cast_speed_+%` reaches `cast_speed_+%`. |
-| | 5% chance to Cause Monsters to Flee | Not yet: monsters have no flee state. |
+| | 5% chance to Cause Monsters to Flee | Works: a hit may make a normal or magic monster run away (`MonsterFlee`); the distance is not verified. |
 | | 10% increased Rarity of Fish Caught | No effect in 3.29.3b: the game has no fishing. |
 
 Effect text and numbers are the wiki's (from the game's stat descriptions) and the 3.29.3b PassiveSkills values.
@@ -131,6 +131,31 @@ Three legal eight-point builds cover all 18 non-start nodes:
   A killing hit's own shock is not put on the corpse, only the on-kill one.
   In the game a non-unique enemy killed while frozen shatters and leaves no corpse to spread from (wiki Freeze); Shatter
   is not modelled, so here that corpse still spreads its shock.
+- **The small nodes** each give `base_cast_speed_+%` 4, `global_hit_causes_monster_flee_%` 5 and `fish_rarity_+%` 10.
+  The cast speed reaches the panel's `cast_speed_+%` like any increase, so four of them give 16%.
+- **Monster flee** (`MonsterFlee`, wiki Fleeing). Every player hit that leaves a monster alive rolls once in
+  `AilmentsOnHitLocked`, so the default attack, area skills and projectiles all count.
+  An attack's chance is `main_hand_hit_causes_monster_flee_%`; the client's calculator `0x1427906b0` sums it from the
+  global stat and the main hand's `main_hand_local_hit_causes_monster_flee_%`.
+  No 3.29.3b weapon mod grants the local stat, so the server's panel row sums the global one only.
+  A spell uses `global_hit_causes_monster_flee_%`; the skill's own stat (Chance to Flee Support) adds to both.
+  A successful roll then faces the monster's `monster_chance_to_not_flee_%`, which the rarity's own mods give:
+  MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100.
+  That is the wiki's rule: magic monsters avoid half of the flees, rare and unique ones all.
+  A monster that is already fleeing does not roll again.
+  The monster picks a floor cell 50 cells (5 m) away within 60° of straight away from the player.
+  It tries eight times, then eight times at 25 cells; when none is floor it does not flee.
+  A swing that has already started finishes first.
+  Then the AI walks the monster there (0x1ab Move). It neither chases nor swings until that walk ends, at the point
+  or where the path stops short, and then chases again.
+  It keeps its aggro during the walk; a freeze stops the walk and so ends the flee.
+  The rolls use their own random, so the projectile reaction draws stay in order.
+  Not verified: the distance, which the real server picks, and whether a hit during a swing cancels the swing.
+  The real server may walk the monster with Monster.ot's `Flee` basic action (ActionTypes `HASH16` 0xe1a9).
+  Its factory `0x14199aba0` builds the same move-action base (`0x141937cc0`) as Move's `0x141989180`, with its own
+  vtable; the server sends Move, which the client is known to walk.
+  Stun would also end a flee (wiki), but monsters are not stunned in this engine.
+  Monsters that flee when ignited (wiki) are not modelled: monsters are not ignited.
 - **Sea Legs** already had its consumer (`ResistanceOvercap`, [11-skills](../protocol/11-skills.md) §12); the
   Gateway test compares the node with plain +40% cold and lightning resistance and both flags.
 
@@ -184,8 +209,14 @@ For Glacial Wave, allocate build B, give the attack the same lightning (Stormy S
 monster: its `0x01b1 player hit by monster` lines drop by half the chill, and your hits on it rise by the chill.
 For Brine Bound, allocate build C and let monsters hit you: about half of them freeze for one second (frozen icon,
 `0x01c1 monster … Freeze`), and a cold monster's critical hit does not freeze you.
+For monster flee, any build's four small nodes give 20%; `/set_stat global_hit_causes_monster_flee_% 100` makes every
+hit roll it.
+Hit a normal monster: it runs about 5 m away from you without attacking (`0x01ab monster … flees`), then comes back.
+A rare or unique monster never flees, and a magic one flees from about half of the hits.
 
-Coverage: `AscendancyGatewayIntegrationTests.Surfcaster` (Ghost of the Deep against plain stats with its publication,
+Coverage: `AscendancyGatewayIntegrationTests.Surfcaster` (the small nodes' cast speed and flee chance against plain
+stats, the rarity's chance not to flee, the flee point, a forced flee through the hit, the AI walking a fleeing
+monster in reach instead of swinging and its return after the walk; Ghost of the Deep against plain stats with its publication,
 reload and refund; Changing Seasons on a physical and a cold hit, a freeze and the unaffected flag; the monster
 ailment model's floor, caps, freeze threshold and strongest effect; shock against plain increased damage taken; chill
 and freeze in the monster AI with their buffs; Mirrored and Unstoppable; Stormy Seas' cold critical strike shocking

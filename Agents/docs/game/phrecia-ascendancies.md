@@ -9,5 +9,6 @@ Keep unsupported engine behavior explicit and preserve ordinary/unascended play.
 
 [Gambler](gambler.md) records the full node checklist, supported incoming ailment path, verified opt-in prerequisites
 and remaining engine limits for this branch.
-[Surfcaster](surfcaster.md) is in progress: its checklist marks which nodes have consumers and which do not yet.
+[Surfcaster](surfcaster.md) records its node checklist, the monster ailment and flee engines it uses, and its opt-in;
+native acceptance is still open.
 Other classes require their own acceptance; this change makes no claim about their completion.

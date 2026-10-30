@@ -172,7 +172,7 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "monster_base_block_%", "base_cannot_be_stunned", "hit_damage_+%_per_10%_missing_enemy_life",
         "self_take_no_extra_damage_from_critical_strikes", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
         "shocked_effect_on_self_+%", "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
-        "reflect_non_damaging_ailments_%_chance",
+        "reflect_non_damaging_ailments_%_chance", "monster_chance_to_not_flee_%",
     };
 
     /// <summary>Stats that only stop something the server does not do to monsters yet (ignite on monsters, curses,
