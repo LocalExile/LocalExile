@@ -403,6 +403,9 @@ For every area its level generator port reproduces (the supported areas, [re/011
 it generates the layout itself from the seed: nothing to capture, and nothing is written to disk. Any other area needs
 a capture from your own client. This step is optional and only for those areas or for working on the generator; by
 default nothing is recorded.
+Captures stay on your machine (`data/` is not in Git), so a new install has none.
+That only matters for `scripts/re/levelgen/gate.ps1`, the check for generator changes, which needs them to compare
+against: without them it reports `gate: NOT RUN`.
 
 - **Without captures:** you can play every supported area. An area that is not supported tells you so in game; its
   layout is unknown to the server (you may spawn somewhere odd, and it has no area transitions).

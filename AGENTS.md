@@ -47,3 +47,6 @@ All agent and contributor documentation is in [Agents/](Agents/). Read these fir
 - **Level generator changes pass `scripts/re/levelgen/gate.ps1`** before they are committed (nothing lost against
   `gate-baseline.json`; `-Save` and commit the new baseline). Run levelgen through `scripts/re/levelgen/lg.ps1`, not
   `dotnet run` ([re/011](Agents/docs/re/011-level-generation.md) §8).
+  The gate needs this machine's own recordings (`data/walkability/*.gen.json`, not in git; `live.ps1 -Walkmaps`).
+  Without them it stops with `gate: NOT RUN`: that is not a pass, so report it as not run.
+  `lg.ps1 survey` is no substitute: it shows the generator gets through an area, not that it matches the client.

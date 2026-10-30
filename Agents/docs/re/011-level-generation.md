@@ -1483,7 +1483,10 @@ the target open, so the recorder's write of the fourth object threw and left the
   against its own trace (every logged load has one since the capture tours), for its draws and first difference. It
   also prints the work queue: seed-1 traces grouped by the client's caller at the first difference, every wrong
   logged load the same way (the biggest causes by loads held back), and stops grouped by reason. `-Save` makes the run the baseline (commit it with
-  the change); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  the change), keeping any check the run did not cover; `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  The traces are local (`data/` is not in git) and only the results are committed, so a new machine has none: a full
+  run without seed-1 traces stops with `gate: NOT RUN` (exit 2) and changes nothing, which is not a pass.
+  Record them with `live.ps1 -Walkmaps` or a capture tour.
 - **Check:** `lg.ps1 hash <trace.gen.json>…` recomputes the tile hash from a
   traced grid. `… generate <area> <seed> [trace.gen.json]` runs the port and, with a trace, compares draw by draw
   (kind, argument, result; the first difference names the client's caller; the object scripts' LCG draws,

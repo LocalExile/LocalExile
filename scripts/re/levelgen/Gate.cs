@@ -11,10 +11,13 @@ namespace LevelGenTool;
 /// projectile grids, the doodads against the capture) and every (area, seed) the client logged (the oracle), run by
 /// worker processes that each open the game once. The results go to gate-latest.json beside this file and are compared
 /// with gate-baseline.json (committed): what was gained, what was lost, and the first-difference clusters to work on
-/// next. `--save` makes the results the new baseline; the exit code is 1 when anything was lost.
+/// next. `--save` makes the results the new baseline, keeping any check the run did not cover; the exit code is 1 when
+/// anything was lost, 2 when a full run has no seed-1 traces to compare with (nothing ran).
 /// Options: --jobs N, --only &lt;area regex&gt;, --no-oracle, --save.</summary>
 static class Gate
 {
+    const int NotRun = 2;
+
     /// <summary>One check's outcome. Capture checks fill all fields, oracle checks only <see cref="Hash"/>.
     /// <see cref="Captured"/> is -1 for a trace with no doodad capture (no .doodads.json); <see cref="Heights"/> (cells
     /// whose ground height differs) is -1 with no height capture (no .heights.bin).</summary>
@@ -72,6 +75,17 @@ static class Gate
                 if (System.Text.RegularExpressions.Regex.IsMatch(area, only))
                     tasks.Add($"failure\t{area}\t{seed}\t{level}\t{Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(message))}");
 
+        // A partial run compares only what it ran.
+        bool partial = only != "." || !oracle;
+        // The traces stay on the machine that recorded them (data/ is not in git). Without any, every baseline check
+        // would read as lost and --save would empty the file the servers read their supported areas from.
+        if (!partial && !tasks.Any(t => t.StartsWith("capture\t", StringComparison.Ordinal)))
+        {
+            Console.WriteLine($"gate: no recordings in {Path.Combine(Shared.RuntimeRoot(), "data", "walkability")} (*_seed1.gen.json), so nothing was compared.");
+            Console.WriteLine("They are local: record them with live.ps1 -Walkmaps or a /tour (Agents/docs/re/011-level-generation.md).");
+            return NotRun;
+        }
+
         var clock = Stopwatch.StartNew();
         var results = RunWorkers(tasks, jobs);
         Console.WriteLine($"gate: {tasks.Count} checks with {jobs} workers in {clock.Elapsed.TotalSeconds:0}s");
@@ -81,16 +95,17 @@ static class Gate
         var baseline = File.Exists(baselinePath)
             ? JsonSerializer.Deserialize<SortedDictionary<string, Result>>(File.ReadAllText(baselinePath)) ?? new()
             : new SortedDictionary<string, Result>();
-        // A partial run compares only what it ran.
-        if (only != "." || !oracle)
+        if (partial)
             baseline = new(baseline.Where(b => results.ContainsKey(b.Key)).ToDictionary(b => b.Key, b => b.Value));
         Summary(results, baseline);
         int lost = Compare(results, baseline);
         Clusters(results);
         if (save)
         {
-            Write(baselinePath, only == "." && oracle ? results : Merge(baselinePath, results));
-            Console.WriteLine($"saved as the baseline ({Path.GetRelativePath(root, baselinePath)})");
+            // Some traces missing: what this run did not cover stays, whatever a full run would write.
+            int kept = baseline.Keys.Count(k => !results.ContainsKey(k));
+            Write(baselinePath, partial || kept > 0 ? Merge(baselinePath, results) : results);
+            Console.WriteLine($"saved as the baseline ({Path.GetRelativePath(root, baselinePath)})" + (kept > 0 ? $", keeping {kept} checks this run did not cover" : ""));
         }
         return lost > 0 ? 1 : 0;
     }
