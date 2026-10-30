@@ -13,6 +13,11 @@ partial class Program
     // Path of Building's EnemyExplode radius (skill("radius", 22)), grown by area of effect.
     const int CorpseExplosionRadius = 22;
 
+    // shortcut: the generic gore burst (MiscAnimated SuicideExplodeNoGibs) at its own size; which art the client's warcry
+    // wave (0x141abd490) plays for an exploding corpse is not found yet. Upgrade once that consumer is traced.
+    internal const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
+    const int CorpseExplosionArtMs = 2000;
+
     internal static async Task WarcryReleased(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) at, int radius, int epoch)
     {
@@ -48,7 +53,7 @@ partial class Program
         (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get, DamageConversion conversion)
     {
         int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
-        var consumed = new List<(uint Id, string Label)>();
+        var consumed = new List<(uint Id, string Label, (int X, int Y) At)>();
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit, int Damage)>();
         using (ProjectileMutation(conn))
         {
@@ -59,9 +64,9 @@ partial class Program
                 // Gone for the client (0x2bb below), so gone here too: a later removal (a projectile kill's) must not send it again.
                 corpse.CorpseConsumed = true;
                 conn.Monsters.Remove(id);
-                consumed.Add((id, corpse.Label));
                 var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);
                 var centre = corpse.Walk.Position(now);
+                consumed.Add((id, corpse.Label, centre));
                 foreach (var (targetId, m) in conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
@@ -76,8 +81,24 @@ partial class Program
                 }
             }
         }
-        foreach (var (id, label) in consumed)
+        var art = new List<uint>();
+        foreach (var (id, label, centre) in consumed)
+        {
+            uint effect;
+            lock (conn.Monsters) effect = conn.NextObjectId++;
+            art.Add(effect);
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02b9 create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb corpse 0x{id:x} ({label}) explodes (Deathrattle)");
+        }
+        if (art.Count > 0)
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(CorpseExplosionArtMs);
+                foreach (uint effect in art)
+                    if (conn.ProjectileActive(epoch)) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null);
+            });
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         foreach (var (id, m, hit, damage) in hits)
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage, "a corpse explosion", deaths: deaths);

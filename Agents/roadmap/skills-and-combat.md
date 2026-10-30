@@ -65,7 +65,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Blocked input, source clearing, paid retries and an accepted cry's release are verified.
   See [11](../docs/protocol/11-skills.md) section 10b; broader warcry engines and Phrecia enablement remain separate.
   Warcry speed, one-use warcry cooldowns and the shared release effects (section 10i) run for Enduring Cry; the other
-  warcries need executors, and explosions need their global added damage, flat crit chance, on-hit effects and art.
+  warcries need executors, and explosions need their global added damage, flat crit chance, on-hit effects, the
+  native explosion art (a generic gore burst stands in) and the wave delay.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
   The overcapped resistances' derived evasion and critical increases now follow that rule and are native-verified.

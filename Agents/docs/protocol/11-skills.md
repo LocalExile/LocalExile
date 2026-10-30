@@ -1660,8 +1660,11 @@ hostiles' power; which code consumes the list was not traced, so the server's re
   spell-only lines), after the increases as in every server hit.
   It is neither an attack nor a spell: no block or evasion, and its base critical strike chance is 0%.
   Kills go through `MonsterKilled`.
+  Each consumed corpse gets an effect object with the generic gore burst
+  (`Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao`) for 2 s; the art the native
+  warcry wave plays is not traced, so this choice is unverified.
   Not modelled: global flat added damage and flat critical strike chance, which the wiki's Explode page says apply to
-  non-skill explosions; on-hit effects, art and the 0.22 s wave delay.
+  non-skill explosions; on-hit effects and the 0.22 s wave delay.
 - Chests (`open_nearby_chests_on_warcry`): the quest chests the server has (the Twilight Strand support gem chest and
   the Mud Flats Rhoa Nests) open through the same core as walking up to them, which saves first.
 

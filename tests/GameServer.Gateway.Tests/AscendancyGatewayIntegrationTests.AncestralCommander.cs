@@ -198,7 +198,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
             lock (state.Monsters) Assert.Equal(!works, state.Monsters.ContainsKey(50)); // removed once, here and for the client
             Assert.Equal(works, Opened());
             if (character == game) Assert.InRange(state.Clock.Elapsed.TotalSeconds - usedAt, .8 / 3, .6); // not the plain 0.8 s
-            else Assert.Equal(works, bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(50)) >= 0);
+            else
+            {
+                Assert.Equal(works, bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(50)) >= 0);
+                // The gore burst is drawn at the corpse it consumes.
+                Assert.Equal(works, bytes.AsSpan().IndexOf(System.Text.Encoding.Unicode.GetBytes(Program.CorpseExplosionAo)) >= 0);
+            }
         }
         // The owner's global conversion applies: half the 120 as fire, of which a 50% fire resistance takes half.
         lock (plain.State.Monsters) plain.State.PlayerStats[GamblerKey("base_physical_damage_%_to_convert_to_fire")] = 50;
