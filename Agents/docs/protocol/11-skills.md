@@ -1728,9 +1728,12 @@ and listing it would offer the player a skill that does nothing. The Paladin's P
 ([Paladin](../game/paladin.md)).
 
 **Triggered passive skills.** A granted triggered skill has no bar use and is never listed, since it runs from its trigger.
-The one with an executor is Summon Elemental Relic (Elemental Valiance).
+The one with an executor is Summon Elemental Relic, from Paladin's Elemental Valiance and the ordinary Guardian's
+Unwavering Crusade (19641), which have the same buff and grant.
 Its trigger is the node's ally buff template (`PassiveBuffAuras.AllyAurasFor`, targets `[1, 2]`) carrying
 `can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique`.
+Ruthless reads `BuffsHardmode` only for a row with `HasHardmodeAlternate`, as for the stats; other rows keep
+`PassiveSkillBuffs` (their `BuffsHardmode` is a copy or empty).
 The hit and kill paths (`ApplyMonsterHitLocked`, the default attack, Righteous Fire's burn) call
 `TriggerElementalRelicLocked` under the Monsters lock. It rolls the skill's chance stat, spends the skill's cooldown
 through `SingleUseCooldown` (with cooldown recovery) and queues the summon for the minion step.
@@ -1743,10 +1746,12 @@ The client reads these two to know the player's minion (the link-target filter 0
 lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
 - A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bb) a second later.
-- The owner's death or the loss of the granting passive kills it without an explosion.
-- The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%`.
-- A minion with a teleport (RelicTeleport) beyond its aggro range jumps next to the owner (0x1b7, as `/mob_tp`):
-  the monster AI follows only within that range.
+- The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
+  living owner's links to it end without killing him.
+- The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his
+  `base_minion_duration_+%` added to the skill's increased duration (Path of Building: CreatesMinion skills).
+- A minion with a teleport (RelicTeleport) beyond its aggro range (MaxAgroRange) jumps next to the owner (0x1b7, as
+  `/mob_tp`): the monster AI follows only within that range.
 - Each minion's aura goes on the owner (0x1c1, the minion as source) while he is within its radius, and comes off
   (0x1c2) when he leaves it or the minion ends. Its raw stats join the owner's stats (`MinionAuraStats`, unscaled by
   his aura effect; his own aura of the same family wins when it is at least as strong), and the stats are sent again.

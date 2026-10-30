@@ -67,7 +67,8 @@ partial class Program
     }
 
     // A granted triggered skill (InbuiltTrigger) has no bar use: it runs from its trigger and stays out of the skill list.
-    // Summon Elemental Relic (Elemental Valiance, GEPL 78412 at level 20) is the one with an executor (Program.PlayerMinions.cs).
+    // Summon Elemental Relic (GEPL 78412 at level 20: Paladin's Elemental Valiance and the Guardian's Unwavering Crusade,
+    // the same buff and grant) is the one with an executor (Program.PlayerMinions.cs).
     static bool IsRelicSkill(string effectId) => effectId is "SummonElementalRelic" or "SummonElementalRelicHardMode";
 
     /// <summary>The relic skill the player's passives grant and the radius of the buff (BuffTemplates 546, the player

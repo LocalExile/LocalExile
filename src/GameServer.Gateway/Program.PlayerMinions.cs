@@ -24,6 +24,8 @@ partial class Program
     // minion that just ended sees it gone). A failed step is logged and the next one runs; a closed connection ends the loop.
     static async Task RunPlayerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        // Loads the relic trigger's tables now, so that no step or hit loads them under the Monsters lock.
+        _ = RelicTriggerOf(conn);
         while (!conn.Closed)
         {
             await Task.Delay(100);
@@ -46,7 +48,8 @@ partial class Program
     /// <summary>
     /// One step of the player's minions at game time <paramref name="now"/>. A minion whose time is up (or that died)
     /// dies and explodes; one whose owner died or lost the granting passive dies without exploding (our rule: the wiki
-    /// does not say). Then the queued relic summons are made, and each living minion's aura goes on the owner while he
+    /// does not say), and a living owner's links to it end without killing him (our rule, see paladin.md). Then the
+    /// queued relic summons are made, and each living minion's aura goes on the owner while he
     /// is within its radius and off when he leaves it or it ends; the player's stats are sent again when that changes.
     /// </summary>
     internal static async Task PlayerMinionsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
@@ -54,7 +57,7 @@ partial class Program
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;
-        bool aurasChanged = false;
+        bool aurasChanged = false, linksEnded = false;
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
@@ -78,11 +81,18 @@ partial class Program
                 if (minion.OwnerBuff != 0) { bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff)); aurasChanged = true; }
                 if (!current) continue;
                 if (keep) ended.Add(minion);
+                else if (conn.PlayerLife > 0 && conn.Links.On(minion.Id) is { } link)
+                {
+                    // A refund is not the minion expiring (the wiki's death rule): the link ends, the player lives.
+                    EndLinkLocked(conn, link, bytes);
+                    linksEnded = true;
+                }
                 m.Aggro = false; m.Dead = true; m.Life = 0;
                 conn.Minions.Bodies.Add((minion.Id, now + 1));
                 bytes.AddRange(InstanceEntities.StatsUpdate(minion.Id, [(StatKeys.HideMiniLifeBar, 1)]));
                 bytes.AddRange(InstanceProtocol.LifeUpdate(minion.Id, 0));
             }
+            if (linksEnded) { LinksChangedLocked(conn); aurasChanged = true; }
         }
         if (bytes.Count > 0)
             await Send(remote, stream, ciphers, [.. bytes], $"0x01b1/0x02bb player minions end: {string.Join(", ", ended.Select(m => $"{m.Kind} 0x{m.Id:x}"))}");
@@ -97,8 +107,9 @@ partial class Program
             foreach (var minion in conn.Minions.All)
             {
                 var m = minion.Monster;
-                // RelicTeleport: the AI follows within the aggro range only, so from beyond it the minion jumps to him
-                // (as /mob_tp). shortcut: the threshold is the aggro range, the game's is not in the data.
+                // RelicTeleport: the AI follows within the aggro range only (MonsterVarieties MaxAgroRange, 150 for the
+                // relics), so from beyond it the minion jumps to him (as /mob_tp). shortcut: the threshold is the aggro
+                // range, the game's is not in the data (RelicTeleport has no stats).
                 if (minion.Teleports && conn.PlayerLife > 0 && Dist(m.Walk.Position(now), here) > m.AggroRange)
                 {
                     var (x, y) = NextToPlayer(conn);
@@ -136,7 +147,9 @@ partial class Program
 
     // A triggered Summon Elemental Relic: a relic of a random element next to the player at his level up to the skill's
     // minion_actor_level_is_user_level_up_to_maximum (85, Ruthless 80), for base_skill_effect_duration with his skill
-    // duration modifiers; a relic of that element already there has its duration refreshed instead (at most one each).
+    // duration modifiers and his base_minion_duration_+% (Path of Building's SkillStatMap: increased Duration for
+    // CreatesMinion skills, which Summon Elemental Relic is); a relic of that element already there has its duration
+    // refreshed instead (at most one each).
     // shortcut: Combat Focus's element exclusions (RandomElement skills) are not modelled; every element can come.
     static async Task SummonElementalRelic(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
@@ -156,7 +169,8 @@ partial class Program
             int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
             (element, string id) = RelicVarieties[conn.Minions.Random.Next(RelicVarieties.Length)];
             skill = relic.Grant.EffectId;
-            seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+            seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
+                name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? Player("base_minion_duration_+%") : 0));
             if (conn.Minions.All.FirstOrDefault(m => m.Skill == skill && m.Kind == element.ToString()) is { } same)
             {
                 same.Until = now + seconds;

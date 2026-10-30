@@ -66,14 +66,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
 - Paladin: the nine small nodes (life regeneration, aura effect), Anointed Champion (consecrated ground while
-  stationary, its linger and 50% more effect), the Paladin Aura options (granted level 30 Determination or Grace,
-  level 40 Discipline), Light of Divinity (nearby monsters take 25% more elemental damage), Bring the Battle
-  (warcries taunt with infinite power; taunted monsters take 20% more damage), Elemental Valiance (triggered
-  elemental relics that give their aura and explode), Absolution (40% aura effect while linked), Deep Connections
-  (links to the player's relics, +5 link gem levels) and Field Medicine (40% magic utility flask effect; flasks on
-  linked targets, whose movement speed a relic walks at) have server consumers, with Gateway coverage of three legal
-  builds, the Paladin Aura option swap, paid refunds and reload. `Game_VERIFIED_PALADIN=1` opts in on the reviewed
-  combined graph. No consumer: curses, party allies, a death experience penalty, and a linked minion's flask defences.
+  stationary, its linger and 50% increased effect), the Paladin Aura options (granted level 30 Determination or Grace,
+  level 40 Discipline), Light of Divinity (nearby monsters take 25% increased elemental damage), Bring the Battle
+  (warcries taunt with infinite power; taunted monsters take 20% increased damage), Elemental Valiance (triggered
+  elemental relics that give their aura and explode, in Ruthless too), Absolution (40% aura effect while linked), Deep
+  Connections (links to the player's relics, +5 link gem levels) and Field Medicine (40% magic utility flask effect;
+  flasks on linked targets, whose movement speed a relic walks at) have server consumers, with Gateway coverage of
+  three legal builds, the Paladin Aura option swap, paid refunds and reload.
+  `Game_VERIFIED_PALADIN=1` opts in on the reviewed combined graph.
+  No consumer: curses, party allies, a death experience penalty, and a linked minion's flask defences.
   Not applied: a linked minion's flask phasing, and flask damage on a relic's explosion (unverified).
   Not yet checked with the real client. Docs: [Paladin checklist](../docs/game/paladin.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

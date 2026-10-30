@@ -393,16 +393,17 @@ and can require explicit recipes.
   with a stable id, no supports, quality 0 and no requirements; it casts, reserves, saves and ends like a gem's.
   Only self auras are listed until other granted skills (minions, other kinds) have executors.
   A granted triggered skill is never listed and runs from its trigger.
-  Summon Elemental Relic (Elemental Valiance) rolls on kills and on hits against rares and uniques, behind its cooldown.
+  Summon Elemental Relic (Paladin's Elemental Valiance, the ordinary Guardian's Unwavering Crusade) rolls on kills and
+  on hits against rares and uniques, behind its cooldown, in Ruthless too.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
 - Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
   They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
-  can cast an aura on him and explode when they end; his increased minion life raises their life, and the flasks that
-  Field Medicine puts on a linked minion change its walk speed.
+  can cast an aura on him and explode when they end; his increased minion life and duration raise their life and
+  duration, and the flasks that Field Medicine puts on a linked minion change its walk speed.
   Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
   are never saved.
-  Only Summon Elemental Relic's relics exist; no gem or other passive makes minions yet.
+  Only Summon Elemental Relic's relics exist (Elemental Valiance and Unwavering Crusade); no gem makes minions yet.
   Not modelled: monsters attacking minions, minion attacks and damaging skills, the player's other minion modifiers
   (damage, resistances, energy shield), and party allies.
   Automated coverage only, not checked with the real client.
@@ -410,7 +411,8 @@ and can require explicit recipes.
 - Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
   he has `link_skills_can_target_minions` (Deep Connections); with no party play there is nothing else to link.
   A link lasts its duration, costs mana every second, breaks after 4 s out of range or when its cost is not paid, and
-  its target's death kills the player. `number_of_active_links` goes to the client; Absolution and Field Medicine use
+  its target's death kills the player (a refund of the relics' passive ends the link without one).
+  `number_of_active_links` goes to the client; Absolution and Field Medicine use
   the links. Not modelled: the beam, line of sight, the gems' effects on the target, and party allies.
   Automated coverage only, not checked with the real client.
   See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md#link-skills).

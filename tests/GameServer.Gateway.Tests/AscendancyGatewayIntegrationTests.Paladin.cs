@@ -99,7 +99,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         }
         Assert.True(game.State.Pools.Armour > plain.State.Pools.Armour);
 
-        // The most a legal build holds: the six start neighbours, Absolution and 49271 behind it (seven small nodes).
+        // The most a legal build holds: the six start neighbours (2134 from above), Absolution and 49271 behind it (seven
+        // small nodes).
         Assert.Null((await game.Change([363, 2437, 38874, 43835, 54067, 40171, 49271], true)).Error);
         Assert.Equal(baseline + game.State.Pools.Life * .035, Regen(game.State), 6);
         Assert.Equal(baseAura + 35, game.State.Pools.AuraEffectPct);
@@ -183,7 +184,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             case "Determination": Assert.True(pools.Armour > before.Armour); break;
             case "Grace": Assert.True(pools.Evasion > before.Evasion); break;
             default:
-                // Discipline's 356 flat energy shield, 5% more from 38874, before the increases; 30% faster recharge.
+                // Discipline's 356 flat energy shield, with 38874's 5% aura effect, before the increases; 30% faster recharge.
                 Assert.Equal(0u, before.EnergyShield);
                 Assert.Equal(EnergyShield.Max(374, pools.EnergyShieldPct), pools.EnergyShield);
                 Assert.Equal(32, PaladinStat(game.State, "energy_shield_recharge_rate_+%"));
@@ -353,7 +354,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(("Fire", false, (byte)70, (uint)Program.Monsters.BaseLife(fire, 70)!),
             (relic.Kind, relic.Monster.Hostile, relic.Monster.Level, relic.Monster.MaxLife));
         Assert.Same(relic.Monster, state.Monsters[relic.Id]);
-        Assert.Equal(now + 5, relic.Until, 6);
+        Assert.Equal(now + 5, relic.Until, 1e-6);
         Assert.Equal(("Anger", 59), (relic.OwnerAura!.EffectId, relic.OwnerAura.Radius)); // 40 and gem level 20's 19
         ushort buff = relic.OwnerBuff;
         Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(Program.PlayerId, buff, 149, relic.Id)));
@@ -382,8 +383,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
         state.Minions.PendingRelics = 1;
         await game.MinionsTick(now + 1);
         Assert.Same(relic, Assert.Single(state.Minions.All));
-        Assert.Equal(now + 6, relic.Until, 6);
-        // Left beyond its 60-cell follow range, it teleports back next to the player (RelicTeleport); its aura stays on.
+        Assert.Equal(now + 6, relic.Until, 1e-6);
+        // Left beyond its 150-cell aggro range (MaxAgroRange), it teleports back next to the player (RelicTeleport); its
+        // aura stays on.
         var beside = relic.Monster.Walk.Position(now);
         relic.Monster.Walk = state.NewMonsterWalk(relic.Id, 200, 32, relic.Monster.Walk.Speed, 1, false);
         await game.MinionsTick(now + 1);
@@ -425,16 +427,57 @@ public sealed partial class AscendancyGatewayIntegrationTests
         state.Minions.PendingRelics = 1;
         state.Minions.Random = new ScriptedRandom(2);
         await game.Command("/set_stat minion_maximum_life_+% 50"); // increased minion life raises its life and explosion
+        await game.Command("/set_stat base_minion_duration_+% 20"); // and increased minion duration its 5 s
         await game.MinionsTick(now + 8);
         var lightning = Assert.Single(state.Minions.All);
         Assert.Equal("Lightning", lightning.Kind);
         Assert.Equal(blast * 3 / 2, lightning.Monster.MaxLife);
+        Assert.Equal(now + 8 + 6, lightning.Until, 1e-6);
         Assert.Null((await game.Change([40299], false, refundPoints: true)).Error);
         state.Minions.Random = new ScriptedRandom();
         await game.MinionsTick(now + 8.1);
         Assert.Empty(state.Minions.All);
         state.SingleUseCooldowns.Clear(); state.SkillReadyAt.Clear();
         Assert.False(Trigger(rare, true, true));
+    }
+
+    // The relic trigger's real callers, a default-attack kill and a Righteous Fire burn kill; Ruthless, where the empty
+    // BuffsHardmode means PassiveSkillBuffs and the HardMode skill caps the relic at level 80; and the ordinary Guardian's
+    // Unwavering Crusade (19641), which has the same buff and grant.
+    [Fact]
+    public async Task Relic_trigger_runs_from_attack_and_burn_kills_in_Ruthless_and_for_the_Guardian()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", level: 70);
+        var state = game.State;
+        Assert.Null((await game.Change([363, 13763, 29126, 40299], true)).Error);
+        await game.Command("/set_stat global_always_hit 1");
+        await game.Command("/set_stat attack_speed_+% 900");
+        SpawnedMonster Dying(int x) => new("PaladinDying", new(x, 32, 30), 0, 2, 100_000) { Hostile = true, Life = 1 };
+        var struck = state.Monsters[0x41] = Dying(34);
+        state.Minions.Random = new ScriptedRandom(0); // the kill's roll; a second roll fails the test
+        await game.Attack(0x41, struck);
+        Assert.Equal((true, 1), (struck.Dead, state.Minions.PendingRelics));
+        state.SingleUseCooldowns.Clear(); state.SkillReadyAt.Clear();
+        var burnt = state.Monsters[0x42] = Dying(36);
+        state.Minions.Random = new ScriptedRandom(0);
+        await game.Burn(new RighteousFireState(1, 2, null, SkillCatalog.FirstSkillId, 6000, 0, 1000));
+        Assert.Equal((true, 2), (burnt.Dead, state.Minions.PendingRelics));
+
+        using var ruthless = new GatewayCharacter(choice: "Paladin", level: 90, ruthless: true);
+        Assert.Null((await ruthless.Change([363, 13763, 29126, 40299], true)).Error);
+        Assert.NotEmpty(PassiveBuffAuras.AllyAurasFor([40299], ruthless: true));
+        ruthless.State.Clock.Stop();
+        ruthless.State.Minions.Random = new ScriptedRandom(24, 0); // the kill rolls 24 of 25%; the relic is Fire
+        lock (ruthless.State.Monsters) Assert.True(Program.TriggerElementalRelicLocked(ruthless.State, PaladinTarget(60), false, true));
+        await ruthless.MinionsTick(ruthless.State.Clock.Elapsed.TotalSeconds);
+        Assert.Equal((byte)80, Assert.Single(ruthless.State.Minions.All).Monster.Level);
+
+        using var guardian = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Guardian", family: AscendancyFamily.Normal, level: 70);
+        guardian.State.Minions.Random = new ScriptedRandom(0);
+        Assert.Null((await guardian.Change([40010, 4494, 16745, 19641], true)).Error);
+        lock (guardian.State.Monsters) Assert.True(Program.TriggerElementalRelicLocked(guardian.State, PaladinTarget(60), false, true));
+        Assert.Equal(1, guardian.State.Minions.PendingRelics);
     }
 
     static ushort PaladinSkill(ClientState state, string effectId) =>
@@ -489,7 +532,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // Level 1 + 5: level 6's duration and cost, longer and dearer than the gem's own level.
         int row = Program.Skills.EffectRow("SoulLink");
         int At(int level, string stat) => Program.Skills.EffectStats(row, level).Single(s => s.Item1 == Program.Stats.Key(stat)).Item2;
-        Assert.Equal(At(6, "base_skill_effect_duration") / 1000.0, link.Until - now, 6);
+        Assert.Equal(At(6, "base_skill_effect_duration") / 1000.0, link.Until - now, 1e-6);
         Assert.True(At(6, "base_skill_effect_duration") > At(1, "base_skill_effect_duration"));
         Assert.Equal(At(6, "mana_cost_per_minute"), (int)link.ManaPerMinute);
         Assert.True(At(6, "mana_cost_per_minute") > At(1, "mana_cost_per_minute"));
@@ -577,6 +620,19 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal((0u, 0, epoch + 1, epoch + 1), (state.PlayerLife, state.Links.Count, state.IncomingHitEpoch, state.DeathNotificationEpoch));
         await game.LinksTick(buff.Until + .2);
         Assert.Equal(epoch + 1, state.IncomingHitEpoch);
+
+        // Refunding Elemental Valiance ends a linked relic and its link, and the player lives (our rule: no expiry).
+        state.PlayerLife = state.Pools.Life;
+        var second = PaladinRelic(state, 0x51, 60, variety);
+        Assert.True(await game.Link(soul, second.Id));
+        var secondLink = state.Links.On(second.Id)!;
+        Assert.Null((await game.Change([40299], false, refundPoints: true)).Error);
+        await game.MinionsTick(buff.Until + .3);
+        Assert.Equal((true, 0), (second.Monster.Dead, state.Links.Count));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(second.Id, secondLink.TargetBuff)));
+        await game.LinksTick(buff.Until + .3);
+        Assert.Equal((0, epoch + 1), (state.Links.Count, state.IncomingHitEpoch));
+        Assert.True(state.PlayerLife > 0);
     }
 
     [Fact]
@@ -625,6 +681,21 @@ public sealed partial class AscendancyGatewayIntegrationTests
         public Task LinksTick(double now) => Exchange(async (stream, cipher) =>
         {
             await Program.LinkSkillsTick("paladin-integration", stream, cipher, State, now);
+            return null;
+        });
+
+        // The default attack on a monster, until its hit has resolved (Program.Attack).
+        public Task Attack(uint id, SpawnedMonster m) => Exchange(async (stream, cipher) =>
+        {
+            await Program.Attack("paladin-integration", stream, cipher, State, new(id, SkillCatalog.FirstSkillId, 1, 1), m,
+                State.Clock.Elapsed.TotalSeconds);
+            return null;
+        });
+
+        // One second of Righteous Fire's burn around the player (Program.BurnAround).
+        public Task Burn(RighteousFireState rf) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)GatewayMethod("BurnAround").Invoke(null, ["paladin-integration", stream, cipher, State, rf, 1.0])!;
             return null;
         });
 

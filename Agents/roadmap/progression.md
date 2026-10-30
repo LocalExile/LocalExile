@@ -47,7 +47,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Paladin's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_PALADIN=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler. Field Medicine still
   lacks a phasing minion's walk (the client's phasing filter is not traced) and the rule for flask damage on a
-  relic's explosion.
+  relic's explosion. The ordinary Guardian's Unwavering Crusade (19641) uses the same relic code and needs its own
+  live check.
   See [Paladin](../docs/game/paladin.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
   Implementing all 19 Phrecia classes' special gameplay is separate from this selection lifecycle.
