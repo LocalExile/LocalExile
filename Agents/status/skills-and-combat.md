@@ -187,11 +187,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   entropy counter before damage, and `/defences` shows armour, physical reduction and the chance to evade a reference
   monster.
   Iron Reflexes converts all evasion to armour and drops dexterity's evasion bonus.
-  `damage_reduction_rating_from_body_armour_doubled` doubles the body armour's armour (and, with Iron Reflexes, its
-  converted evasion) before the increases; Gateway coverage, not yet checked with the real client.
-  `missing_unreserved_life_%_gained_as_life_before_hit` gains that share of missing Life before every non-evaded
-  monster swing and dev hit, blocked ones included (Life reservation is not modelled); Gateway coverage, not yet
-  checked with the real client.
   Chaos Inoculation sets maximum life to 1 (after the life modifiers) and grants chaos immunity in the damage model
   and the panel's Immune row; energy shield remains the pool. The pre-CI life used for stun/ailment thresholds and the
   low-life condition are not modelled.
@@ -240,8 +235,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top;
   only unconditional passive increases are modelled (no action speed, more multipliers, gear/buff movement or the 128
   cap yet).
-  `movement_speed_cannot_be_reduced_below_base` bounds the total below by 0, as the client does from the same flag;
-  Gateway coverage, not yet checked with the real client.
   Code: `CharacterStats.cs`, Gateway (`ApplyMovementSpeed`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
@@ -376,7 +369,8 @@ and can require explicit recipes.
   client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
   corpse and quest chests opening (Deathrattle).
   The explosion takes the player's global damage increases and conversion.
-  Warcries (every class's Enduring Cry) now use the generic one-use cooldown, with `warcry_cooldown_speed_+%` added to
+  Every one-use warcry, for every class (Enduring, Rallying, Intimidating, Seismic, Infernal, Ancestral, General's and
+  Battlemage's Cry), now uses the generic one-use cooldown, with `warcry_cooldown_speed_+%` added to
   its recovery as the client adds it; the live cooldown checks under "Instant skills and cooldowns" ran before
   warcries took that path.
   Gateway coverage; not yet checked with the real client.
@@ -391,7 +385,8 @@ and can require explicit recipes.
   strikes the previous location itself.
   Gateway coverage; not yet checked with the real client.
   Not mirrored: the client's line-of-sight test and its choice among more than 20 candidates.
-  Not for the Strike gems that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike, Wild Strike):
+  Not for the Strike gems typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their
+  transfigured gems except Frost Blades of Katabasis, which has no Projectile type and gets both):
   the server launches only their projectiles and has no melee hit for them, so the spirit strikes the client draws
   for them deal no damage.
   Code: `StrikeTargets.cs`, `Program.Strikes.cs`.
@@ -403,7 +398,8 @@ and can require explicit recipes.
   Code: `PassiveBuffAuras.cs`, `MonsterSwing`.
   Docs: [11](../docs/protocol/11-skills.md) section 10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftain options trigger on a Unique monster's crit, Savage
-  Hit or blocked hit, spend their shared 20 s cooldown and give the chieftain's Leadership buff for 12 s, during which
+  Hit or blocked hit, spend their shared 20 s cooldown and give the chieftain's Leadership buff for 12 s (with increased
+  skill effect and minion duration), during which
   that cooldown does not recover; death ends the buff.
   Kahuturoa's share of armour against elemental and chaos hits and Kiloava's Life, Mana and ES on block act.
   Server monsters have no base critical strike chance, so Kahuturoa's crit trigger fires only on a Unique with a
@@ -416,12 +412,22 @@ and can require explicit recipes.
   Code: `PassiveGrantedSkills.cs`, `SpiritChieftains.cs`, `MonsterSwing`.
   Docs: [11](../docs/protocol/11-skills.md) section 10f, [20](../docs/protocol/20-damage.md) section 2e.
 - Player minions that fight: a minion on the player's team, marked as his for the client, walks with him, goes for
-  the nearest hostile monster near both, swings its first skill with his minion modifiers, and its kills give him
+  the nearest hostile monster near both, swings its first skill with his minion modifiers (its base hit from
+  DefaultMonsterStats `MinionDamage`, the ally table), and its kills give him
   experience and loot; the instance save, his area hits and his on-kill charges leave it out.
   The Spirit chieftains are the only ones; no monster attacks a minion.
   Gateway coverage; not yet checked with the real client.
   Code: `PlayerMinions.cs`, `Program.MinionAttacks.cs`, `RunMonsterAi`.
   Docs: [11](../docs/protocol/11-skills.md) section 10h.
+- Ancestral Commander defences: `damage_reduction_rating_from_body_armour_doubled` doubles the body armour's armour
+  (and, with Iron Reflexes, its converted evasion) before the increases.
+  `missing_unreserved_life_%_gained_as_life_before_hit` gains that share of missing Life before every non-evaded
+  monster swing and dev hit, blocked ones included (Life reservation is not modelled).
+  `movement_speed_cannot_be_reduced_below_base` bounds the movement speed total below by 0, as the client does from
+  the same flag.
+  Gateway coverage; not yet checked with the real client (move into the armour and movement speed entries under
+  Works after a live check).
+  Docs: [ancestral-commander.md](../docs/game/ancestral-commander.md).
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.
   Equipment contributes attributes before individual gem validation;

@@ -258,6 +258,8 @@ partial class Program
     static async Task<bool> OpenTutorialChestCore(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,uint id,TutorialObjects.Placement chest)
     {
         if(conn.Ruthless || CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return false;
+        // The walk-up and a warcry can both get here at once: only the first opens it.
+        if(Interlocked.Exchange(ref conn.TutorialChestOpening,1)==1) return false;
         CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { ChestOpened=true });
         await Send(remote,stream,ciphers,InstanceProtocol.RemoveObject(id),null);
         await Send(remote,stream,ciphers,InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(chest.Type),TutorialObjects.ChestBlob(chest,true)),"0x02b9 opened support gem chest");

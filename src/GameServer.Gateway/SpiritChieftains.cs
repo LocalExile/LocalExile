@@ -127,7 +127,7 @@ partial class Program
     }
 
     // The allocated Spirit skill with this trigger, if its shared cooldown is ready: its Leadership for its duration
-    // (base_skill_effect_duration with the player's skill effect duration), the cooldown with the player's recovery.
+    // (base_skill_effect_duration with the player's skill effect and minion duration: these skills are CreatesMinion), the cooldown with the player's recovery.
     static bool TriggerSpiritChieftainLocked(ClientState conn, string trigger, IReadOnlyDictionary<uint, int> stats)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -138,7 +138,7 @@ partial class Program
                 || SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, grant.Effect, grant.Level, stats, own) is not { } plan) continue;
             int Player(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
             int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-            double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+            double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own, minion: true);
             if (!conn.SpiritChieftains.TryTrigger(now, plan, leadership.Row, leadership.Stats, seconds)) continue;
             // The chieftain at the player's level up to the skill's maximum (minion_actor_level_is_user_level_up_to_maximum).
             if (leadership.Minion is int minion)

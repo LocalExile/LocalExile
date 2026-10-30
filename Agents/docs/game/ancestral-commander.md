@@ -36,7 +36,7 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Partial: the trigger, the shared cooldown, Kaom's Leadership (25% of each hit taken from the nearest totem, 45% with Forest of Ancestors) and its fighting chieftain (first skill only). See below. |
 | 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
 | 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: Enduring Cry's release explodes the server's corpses, with the player's global damage and conversion, and opens quest chests; see below. |
-| 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Partial: spirit strikes of melee gem Strikes and the default attack, picked as the client picks them; not for the Strikes that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike, Wild Strike), which the client draws but the server does not hit. See below. |
+| 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Partial: spirit strikes of melee gem Strikes and the default attack, picked as the client picks them; not for the Strikes typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their transfigured gems except Frost Blades of Katabasis), which the client draws but the server does not hit. See below. |
 | 61282 Ancestral Echo | Strikes also target the previous location they were used | Partial: the server strikes the previous location and sends `skill_location_memory` with the first use's entry, from which the client strikes there itself; the target rules at the old place are the server's own, the client's strike needs a live check, and the Projectile Strikes get nothing (no melee hit on the server). |
 | 32105 Born under Fire | Nearby Enemies convert 50% of their Physical Damage to Fire | Monster hits within 60 cells convert, and the aura's buff goes on those monsters. |
 | 16317 Forest of Ancestors | 20% of Damage from Hits is taken from your nearest Totem's Life before you; +1 maximum Totem | Monster and `/hit` hits, and the limit, for every totem the server places (only Rejuvenation Totem places one so far). See below. |
@@ -117,8 +117,9 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
 - Ancestral Reach: `melee_attack_number_of_spirit_strikes` 2 and `extra_target_targeting_distance_+%` 50.
   Each non-Vaal melee Strike use (Heavy Strike and the other melee Strike gems, and the default attack) also hits 2
   living hostile monsters 10 to 45 cells from the player, other than its target.
-  The Strike gems that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their
-  transfigured gems) are left out: the server runs them through the projectile runtime, which has no melee hit, so
+  The Strike gems typed Projectile (ActiveSkillType Projectile: Frost Blades, Lightning Strike, Molten Strike, Wild
+  Strike and their transfigured gems except Frost Blades of Katabasis, which has no Projectile type and gets both nodes
+  through `AreaSkillHit`) are left out: the server runs them through the projectile runtime, which has no melee hit, so
   neither node does anything for them, while the client still draws their two spirit strikes, which deal no damage.
   The server picks them as the client does: the candidates in id order, shuffled by the client's generator seeded with
   the use's sequence and the player's id ([11](../protocol/11-skills.md) section 10d).
@@ -136,6 +137,8 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   BuffDefinitions 2552 (`base_physical_damage_%_to_convert_to_fire` 50), added and removed as they move every 100 ms.
   A monster's hit within 60 cells at contact converts half its physical damage to fire, before mitigation, by the
   player's own conversion rules: fire resistance applies, and the fire can ignite on a critical hit.
+  Conversion does not take away stun (the wiki's Stun page counts non-physical melee damage too): the hit recovery
+  check reads the monster's unconverted hit, as without the node.
   The generic passive enemy-aura path is [11](../protocol/11-skills.md) section 10e.
 - Forest of Ancestors: `number_of_additional_totems_allowed` 1 raises the totem limit to 2, as the client computes
   it, and `damage_removed_from_your_nearest_totem_before_life_or_es_%` 20.
@@ -166,7 +169,8 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   counts them too is unverified.
   A trigger spends the five skills' shared cooldown (CooldownGroup 24: 20 s, one use, with the player's cooldown
   recovery) and gives the player the chieftain's Leadership for the skill's 12 s (`base_skill_effect_duration`, with
-  increased skill effect duration).
+  increased skill effect duration and, as the five skills are CreatesMinion, increased minion duration
+  `base_minion_duration_+%`, as PoB's SkillStatMap applies it: 12% makes 13.44 s).
   The Leadership is the BuffTemplates row whose value stats are the skill's `ancestral_buff_*` stats (RongokuraisEmbrace
   for Kahuturoa, KitavasEmbrace, ValakosEmbrace, TasaliosEmbrace, NgamahusEmbrace): BuffDefinitions 2273, 2271, 2279,
   2274 or 2270, each of
@@ -195,6 +199,9 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   Spirit of Kahuturoa 9962, Utula 9998, Kiloava 9978, Rakiata 9994, Kaom 9965) rises beside the player at the next
   player tick, at his level up to `minion_actor_level_is_user_level_up_to_maximum` 85, with his minion damage, attack
   speed and movement speed as its own mods.
+  Its hit takes DefaultMonsterStats `MinionDamage` at its level, as for every IsPlayerMinion monster type (PoB's
+  `monsterAllyDamageTable` for non-hostile minions), not the hostile `Damage` column: Kahuturoa at 85 hits
+  734.45 × 160% ± 20%, 940 to 1410.
   It fights beside him as the server's player minions do ([11](../protocol/11-skills.md) section 10h) and lives as
   long as the Leadership: at its end, or the player's death, it dies and its body goes a second later.
   Nothing damages it: the skill's description calls it immortal.

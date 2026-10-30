@@ -382,8 +382,8 @@ partial class Program
                 var rolled = gambler.RollIncomingHit(a.Damage, conn.IncomingHitRandom);
                 rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out monsterCritical,
                     () => SelfCriticalReduction(conn));   // its crit, Executioner's
-                // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so the
-                // physical-only checks below and ignite see the converted damage.
+                // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
+                // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
                 var baseHit = a.Damage;
                 if (EnemyAuraConversionLocked(conn, m, here, now) is { } auraConversion)
                     (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
@@ -435,11 +435,11 @@ partial class Program
                     spirit = SpiritChieftainsWhenHitLocked(conn, stats, blocked, monsterCritical, Math.Min(lifeBefore, lifeDamage));
                 life = conn.PlayerLife;
                 mana = conn.PlayerMana;
-                if (!blocked && !a.Ranged && life > 0 && baseHit.Components.All(c => c.Type == DamageType.Physical))
+                if (!blocked && !a.Ranged && life > 0 && a.Damage.Components.All(c => c.Type == DamageType.Physical))
                     recovery = CommitPlayerHitRecoveryLocked(conn, damage, now);
                 else if (Stats.Key(AntiquarianEffects.StunRecoverySource) is uint turtle && stats.GetValueOrDefault(turtle) > 0)
                     Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
-                        + $"alive={life > 0}, types={string.Join(',', baseHit.Components.Select(c => c.Type))}");
+                        + $"alive={life > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
                 RageWhenHitLocked(conn);
                 break;
             }

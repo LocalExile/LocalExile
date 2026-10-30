@@ -506,6 +506,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Whether the open dialogue shows an NPCTalk row's talk (0x84 with its index) rather than the option list.
     public volatile bool InNpcTalk;
     public uint TutorialSceneId, TutorialChestId;
+    public int TutorialChestOpening;   // 1 once this connection opened the support gem chest (OpenTutorialChestCore)
     // a1q4 in The Mud Flats (GlyphQuest): the captured layout, the nests by object id (guarded by itself), the wall and the waterfall.
     public GlyphQuest.Layout? Glyphs;
     public readonly Dictionary<uint, GlyphQuest.Nest> GlyphNests = [];

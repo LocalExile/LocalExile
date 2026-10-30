@@ -197,7 +197,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             Assert.Equal(works, corpse.CorpseConsumed);
             lock (state.Monsters) Assert.Equal(!works, state.Monsters.ContainsKey(50)); // removed once, here and for the client
             Assert.Equal(works, Opened());
-            if (character == game) Assert.True(state.Clock.Elapsed.TotalSeconds - usedAt >= .8 / 3);
+            if (character == game) Assert.InRange(state.Clock.Elapsed.TotalSeconds - usedAt, .8 / 3, .6); // not the plain 0.8 s
             else Assert.Equal(works, bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(50)) >= 0);
         }
         // The owner's global conversion applies: half the 120 as fire, of which a 50% fire resistance takes half.
@@ -346,6 +346,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.True(game.State.ElementalAilments.Snapshot(game.State.Clock.Elapsed.TotalSeconds).Ignite);
         await Loss(game, 70, physical, critical: true);
         Assert.False(game.State.ElementalAilments.Snapshot(game.State.Clock.Elapsed.TotalSeconds).Ignite);
+        // Converting does not remove stun: a physical melee hit within the aura still starts the hit recovery.
+        int heavy = (int)(game.State.PlayerMaxLife * 4 / 5);
+        game.State.HitRecovery.Clear();
+        await Loss(game, 30, DamagePacket.Of(DamageType.Physical, heavy, heavy));
+        Assert.True(game.State.HitRecovery.Active(game.State.Clock.Elapsed.TotalSeconds));
 
         // Only auras whose every stat the server applies act: not Overwhelm's crit multiplier, Void Beacon's resistances or
         // Kaom's Binding's from-enemy conversion.
@@ -480,8 +485,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await utula.SpiritHit(DamagePacket.Of(DamageType.Chaos, 149, 149), MonsterRarity.Unique);
         Assert.Equal(851u, utula.State.PlayerLife);
         Assert.Equal(0, Stat(utula, "leech_%_is_instant"));
+        // Its 12 s take the player's increased minion duration (a CreatesMinion skill): 12% makes 13.44 s.
+        lock (utula.State.Monsters) utula.State.PlayerStats[GamblerKey("base_minion_duration_+%")] = 12;
+        double before = utula.State.Clock.Elapsed.TotalSeconds;
         await utula.SpiritHit(DamagePacket.Of(DamageType.Chaos, 150, 150), MonsterRarity.Unique);
         Assert.Equal(50, Stat(utula, "leech_%_is_instant"));
+        double until = utula.State.SpiritChieftains.Active(utula.State.Clock.Elapsed.TotalSeconds)!.Until;
+        Assert.InRange(until - before, 13.44, 13.44 + utula.State.Clock.Elapsed.TotalSeconds - before);
 
         // Spirit of Kiloava: blocking a Unique. The buff comes with the chieftain after that block; the next block recovers 5%
         // of maximum Life, Mana and Energy Shield, as the plain stats do, and does not trigger again (the shared cooldown).
@@ -674,7 +684,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
 
         // The monster AI swings it at that monster: the hit lands at half its 1 s attack.
         await game.RunAiUntil(() => near.Life < near.MaxLife);
-        var (min, max) = Program.Monsters.BaseDamage(variety, 85)!.Value;
+        // DefaultMonsterStats MinionDamage at 85 (734.45, PoB's monsterAllyDamageTable) × 160%, ± 20%; not Damage (862.36).
+        var (min, max) = (940, 1410);
+        Assert.Equal((min, max), Program.Monsters.BaseDamage(variety, 85));
         Assert.InRange(near.MaxLife - near.Life, (uint)min, (uint)max);
         // Its damage is its own at its level, with the player's increased minion damage, as the plain stat gives it.
         (MonsterHit Hit, int Damage)? Hit(GatewayCharacter c, uint minion, SpawnedMonster m, MinionTarget t)
@@ -682,9 +694,24 @@ public sealed partial class AscendancyGatewayIntegrationTests
             lock (c.State.Monsters)
                 return Program.MinionHitLocked(c.State, minion, m, t, c.State.Clock.Elapsed.TotalSeconds, new ZeroRandom());
         }
+        double enemyHitAt = game.State.LastEnemyHitAt;
         Assert.Equal(min, Hit(game, id, chieftain, target)!.Value.Damage);
+        Assert.Equal(enemyHitAt, game.State.LastEnemyHitAt); // a minion's hit is not the player's
+
         Assert.Equal((int)Math.Round(min * 1.5), Hit(strong, strongId, strongChieftain, Pick(strong, strongId, strongChieftain)!.Value)!.Value.Damage);
         Assert.True(strongNear.Life < strongNear.MaxLife);
+        // A kill by his minion is not his for his on-kill charges; his own is.
+        using (var owner = AncestralCommander())
+        {
+            var charges = ProgramValue<ChargeSession>("ChargesOf", owner.State);
+            var p = owner.State.Walk.Position(owner.State.Clock.Elapsed.TotalSeconds);
+            foreach (bool byMinion in new[] { true, false })
+            {
+                await owner.Killed(60, new SpawnedMonster("killed", new(p.X + 5, p.Y, 30), 0, 2, 1000)
+                    { Variety = variety, Hostile = true, Life = 0, Dead = true }, byMinion);
+                Assert.Equal(!byMinion, charges.Pending);
+            }
+        }
 
         // The player's area hits and the instance save leave it alone.
         game.Items.Add(PlayerInventories.Weapon1, 0, 0, TotemClub());
@@ -693,10 +720,21 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await game.HeavyStrike(Program.Skills.EffectRow("HeavyStrike"), at, at, sequence: 1, target: 0);
         Assert.True(near.Life < life);
         Assert.Equal(chieftain.MaxLife, chieftain.Life);
-        lock (game.State.Monsters) Assert.DoesNotContain(chieftain, Program.InstanceMonsters(game.State));
+        Program.KeepInstanceMonsters(game.State); // the disconnect save
+        Assert.DoesNotContain(Assert.IsType<List<SavedMonster>>(game.State.Instance.Monsters), s => !s.Hostile);
+        // Clicking it with the default attack does not attack it; clicking a hostile monster does.
+        int actions = game.State.ActionCount;
+        await game.UseObject(id);
+        Assert.Equal(actions, game.State.ActionCount);
+        await game.UseObject(45);
+        Assert.True(game.State.ActionCount > actions);
 
-        // When its Leadership ends (death ends it too) the chieftain dies, and its body goes a second later.
-        game.State.SpiritChieftains.End(game.State.Clock.Elapsed.TotalSeconds);
+        // The player's death ends its Leadership (and the strike locations); the chieftain dies, its body goes a second later.
+        game.State.StrikeLocations.Use(1, (0, 0), (5, 5));
+        await game.SpiritHit(DamagePacket.Of(DamageType.Chaos, 50000, 50000), MonsterRarity.Normal);
+        Assert.Equal(0u, game.State.PlayerLife);
+        Assert.Null(game.State.SpiritChieftains.Active(game.State.Clock.Elapsed.TotalSeconds));
+        Assert.Null(game.State.StrikeLocations.Use(1, (100, 100), (5, 5)));
         bytes = (await game.ChieftainStep()).Bytes;
         Assert.True(bytes.AsSpan().IndexOf(InstanceProtocol.LifeUpdate(id, 0)) >= 0);
         Assert.Empty(game.State.Minions.All);
@@ -783,6 +821,21 @@ public sealed partial class AscendancyGatewayIntegrationTests
             lock (State.Monsters) State.Monsters[44] = monster;
             await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["spirit-integration", stream, cipher,
                 State, 44u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
+            return null;
+        });
+
+        // A click on an object with the default attack (0x24), as the client sends it.
+        public Task<(string? Error, byte[] Bytes)> UseObject(uint target) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)GatewayMethod("OnUseObject").Invoke(null, ["use-integration", stream, cipher, State,
+                new InstanceTransfer.UseSkillOnObject(target, SkillCatalog.FirstSkillId, 7, 0), State.Clock.Elapsed.TotalSeconds])!;
+            return null;
+        });
+
+        // A monster's death, by the player or by his minion.
+        public Task<(string? Error, byte[] Bytes)> Killed(uint id, SpawnedMonster m, bool byMinion) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)GatewayMethod("MonsterKilled").Invoke(null, ["kill-integration", stream, cipher, State, id, m, byMinion])!;
             return null;
         });
 

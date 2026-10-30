@@ -587,7 +587,8 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `SkillCatalog.FindByRow` takes the highest GEPL / GESSPL level at or below the monster's (Melee: level 1, GEPL 4394).
   Id 0x0102, like the player's (no ActionType masks to it).
 - **Stats.** The final attack stats (`MonsterAttack.Stats`): attack time = MonsterVarieties `AttackSpeed` (2400 ms),
-  reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` at the level × `DamageMultiplier` / 100
+  reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion
+  type) at the level × `DamageMultiplier` / 100
   with a ±20% spread (the spread is assumed), then the monster's mods (its rarity's, its affixes: damage, attack time,
   extra fire / cold / lightning / chaos; [14](14-monster-packs.md) §5). They go in the monster's Stats component and
   in the skill.
@@ -1501,8 +1502,9 @@ on the monsters the client strikes.
   active-skill hash and that use as the first entry).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
-  A Strike gem that is also a Projectile skill (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their
-  transfigured gems) goes through the projectile runtime (`ScheduleGemProjectile`), which launches only its
+  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their transfigured
+  gems except Frost Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes
+  through the projectile runtime (`ScheduleGemProjectile`), which launches only its
   projectiles: the server has no melee hit for these gems, so it has no spirit strikes or previous location for them
   either and sends them no `skill_location_memory`.
   The client still picks and draws their spirit strikes (its virtual needs only melee and Strike), which deal no

@@ -45,4 +45,12 @@ partial class Program
     /// Monsters lock.</summary>
     internal static IEnumerable<SpawnedMonster> InstanceMonsters(ClientState conn) =>
         conn.Monsters.Where(kv => !conn.Minions.Owns(kv.Key)).Select(kv => kv.Value);
+
+    /// <summary>At disconnect: the instance keeps its monsters as they are now, for the next connection (#12); the
+    /// player's minions go with him.</summary>
+    internal static void KeepInstanceMonsters(ClientState left)
+    {
+        lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(InstanceMonsters(left),
+            left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
+    }
 }

@@ -74,8 +74,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   effects or art, only Enduring Cry, and no chests beyond the quest ones.
   Ancestral Reach's spirit strikes hit the monsters the client picks; Ancestral Echo strikes the previous location on
   the server and sends the client the first location it needs to strike there too.
-  Neither acts for the Strike gems that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike,
-  Wild Strike): the server has no melee hit for them, though the client draws their spirit strikes.
+  Neither acts for the Strike gems typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and
+  their transfigured gems except Frost Blades of Katabasis): the server has no melee hit for them, though the client draws their spirit strikes.
   Born under Fire converts nearby monsters' physical hits and puts its debuff on them.
   Spirits of Kahuturoa, Utula and Kiloava trigger on a Unique's crit, Savage Hit or blocked hit, with the shared
   cooldown and their Leadership buff (Kahuturoa's armour share and Kiloava's block recovery act; Utula's leech has no
