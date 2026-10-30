@@ -373,16 +373,17 @@ and can require explicit recipes.
 - Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
   client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
   corpse and quest chests opening (Deathrattle).
+  The explosion takes the player's global damage increases and conversion.
   Gateway coverage; not yet checked with the real client.
-  Explosion conversion, added damage, crits, on-hit effects, art and the client's 0.22 s wave delay are not modelled.
+  Flat added damage, on-hit effects, art and the client's 0.22 s wave delay are not modelled.
   Code: `Program.Warcries.cs`, `UseChargeSkillCore`.
   Docs: [11](../docs/protocol/11-skills.md) section 10c.
 - Strike targeting: a melee Strike's spirit strikes (`melee_attack_number_of_spirit_strikes`) hit the monsters the
   client picks, mirrored from its scan and its seeded shuffle, for gem Strikes and the default attack.
   With `melee_strike_skill_strike_previous_location` a Strike also hits where its previous use landed, and the
-  server sends the `skill_location_memory` buff.
-  Gateway coverage; not yet checked with the real client, and whether the client strikes the previous location
-  itself is unknown.
+  server sends the `skill_location_memory` buff with that first use, from which the client records the later uses and
+  strikes the previous location itself.
+  Gateway coverage; not yet checked with the real client.
   Not mirrored: the client's line-of-sight test and its choice among more than 20 candidates.
   Code: `StrikeTargets.cs`, `Program.Strikes.cs`.
   Docs: [11](../docs/protocol/11-skills.md) section 10d.
@@ -396,11 +397,20 @@ and can require explicit recipes.
   Hit or blocked hit, spend their shared 20 s cooldown and give the chieftain's Leadership buff for 12 s, during which
   that cooldown does not recover; death ends the buff.
   Kahuturoa's share of armour against elemental and chaos hits and Kiloava's Life, Mana and ES on block act.
+  The chieftain rises beside the player as his minion and fights the monsters near him until the buff ends.
   Gateway coverage; not yet checked with the real client.
-  Not modelled: the chieftain minion, the skills' records (the client shows only the buff), Utula's leech and
-  Rakiata's Mark trigger (see "Not working yet"), and carrying the buff or cooldown through an area change.
+  Not modelled: the chieftain's skills past its first, the skills' records (the client shows only the buff), Utula's
+  leech and Rakiata's Mark trigger (see "Not working yet"), and carrying the buff, minion or cooldown through an area
+  change.
   Code: `PassiveGrantedSkills.cs`, `SpiritChieftains.cs`, `MonsterSwing`.
   Docs: [11](../docs/protocol/11-skills.md) section 10f, [20](../docs/protocol/20-damage.md) section 2e.
+- Player minions that fight: a minion on the player's team, marked as his for the client, walks with him, goes for
+  the nearest hostile monster near both, swings its first skill with his minion modifiers, and its kills give him
+  experience and loot; the instance save, his area hits and his on-kill charges leave it out.
+  The Spirit chieftains are the only ones; no monster attacks a minion.
+  Gateway coverage; not yet checked with the real client.
+  Code: `PlayerMinions.cs`, `Program.MinionAttacks.cs`, `RunMonsterAi`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10h.
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.
   Equipment contributes attributes before individual gem validation;
@@ -763,10 +773,9 @@ and can require explicit recipes.
 - Projectile spawn height on platforms and doodads: the protocol carries no player z and the server has no
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
-- Leech, Mark curses (curses in general) and allied minions with fighting AI do not exist yet.
-  Spirit of Utula's Leadership (`leech_%_is_instant`) therefore changes nothing, Spirit of Rakiata (a crit against a
-  Marked Unique) is never triggered, and no Spirit chieftain minion is summoned
-  ([Ancestral Commander](../docs/game/ancestral-commander.md)).
+- Leech and Mark curses (curses in general) do not exist yet.
+  Spirit of Utula's Leadership (`leech_%_is_instant`) therefore changes nothing, and Spirit of Rakiata (a crit against
+  a Marked Unique) is never triggered ([Ancestral Commander](../docs/game/ancestral-commander.md)).
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
   an effect object follows the player only by 0x1ba glides.
   Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.

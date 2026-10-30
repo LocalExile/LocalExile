@@ -1520,11 +1520,18 @@ on the monsters the client strikes.
   hand, a Strike and `melee_strike_skill_strike_previous_location`.
   The client keeps each Strike skill's locations in the `skill_location_memory` buff (BuffDefinitions 1451, invisible,
   CancelOnDeath), which its melee action finds by skill id and the ActionTypes hash of the skill's bit-3 association.
+  The buff's behaviour (`Id2` RecordSkillUseLocations, made by `0x141e09ec0` → `0x14205a100`) is a ring of 6 entries:
+  u16 action sequence (action `+0x11a`), the player's cell and the target cell (i32 pairs; `0x80000000` is empty).
+  At its creation it takes its first entry from the 0x1c1 message's u32 list (buff `+0x80`) without checking its
+  length: sequence, player x, y, target x, y.
+  It then records each use of the skill as it starts (`0x14205a350`: the action's skill and ActionTypes hash match
+  the buff's; the target object's cell, else the aimed cell).
+  The melee action walks back from the current use's entry and strikes the earlier ones' target cells.
   A location is skipped while the player stands within 5 cells of where it stood then (squared distance under 25,
   `0x141ca6eb0`).
   The server keeps the last player cell and hit centre per skill (`StrikeTargets.Memory`) and clears them at death.
-  At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill and its
-  active-skill hash).
+  At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill, its
+  active-skill hash and that use as the first entry).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
   The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
@@ -1534,8 +1541,7 @@ on the monsters the client strikes.
 
 Not mirrored: the client's line-of-sight test (`0x141d87160`), which 20 candidates it keeps when more qualify (the
 server keeps the 20 lowest ids), and the unarmed term (`unarmed_attack_number_of_spirit_strikes`).
-Unverified: the code that writes the locations into the buff was not found, so whether the client strikes the previous
-location from the buff the server sends needs a live check.
+Unverified: the client's strike at the previous location (a live check).
 The previous-location target rules (the radius for gem Strikes, the nearest monster for the default attack) and the
 one-hit-per-monster limit are the server's own and unverified.
 
@@ -1568,8 +1574,8 @@ level (`PassiveGrantedSkills.cs`).
 A triggered one names its trigger twice: a `has_trigger_on_*` stat on the node and the same `trigger_on_*` flag in its
 GrantedEffectStatSetsPerLevel row's AdditionalFlags; the server reads the node's stat (`TriggeredGrantsLocked`).
 Ancestral Commander's Spirit chieftain skills are the ones with a consumer so far (`SpiritChieftains.cs`): a Unique
-monster's crit, Savage Hit or blocked hit triggers its option's skill, whose shared cooldown and Leadership buff
-[Ancestral Commander](../game/ancestral-commander.md) describes.
+monster's crit, Savage Hit or blocked hit triggers its option's skill, whose shared cooldown, Leadership buff and
+fighting chieftain (section 10h) [Ancestral Commander](../game/ancestral-commander.md) describes.
 Their summon's buff is the BuffTemplates row whose `StatsKey` (the stats that give its values) the skill's own stats
 hold; each of the row's BuffDefinitions `StatsKeys` takes the matching value.
 The server sends no skill record for them: they have no bar use, and the client shows only the buff.
@@ -1617,6 +1623,37 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
 Not modelled: the other totem skills (their gem use stays as before: a totem that does not use its skill is not
 placed), monsters attacking totems, placement range (`base_totem_range`), the totem's collision on the server's paths,
 and the totem as the aura buff's source.
+
+## 10h. Player minions that fight
+
+A player minion is a monster on the player's team kept in `ClientState.Monsters` and listed in `ClientState.Minions`
+(`PlayerMinions.cs`).
+The Spirit chieftains are the first (section 10f).
+- Spawn: `SpawnMonster` with `friendly: true` (Positioned team 0) and the stats `is_player_minion` and
+  `is_semantic_minion` 1 on its Stats component, which the client reads to treat it as the player's minion
+  (`0x141bf8490`).
+  The player's `minion_damage_+%`, minion attack speed (`minion_attack_speed_+%`, `minion_attack_and_cast_speed_+%`)
+  and `minion_movement_speed_+%` become its own damage, attack speed and movement mods at the summon.
+- Kept apart: the instance save (`InstanceMonsters`), the player's area hits and default attack, and the on-kill
+  charges skip it; an area change or logout drops it with the connection.
+- AI (`RunMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
+  A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
+  not one lurking unrisen.
+  In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
+  target's edge, re-ordered when the target moves 3 cells or, once there, every 0.5 s.
+- Swing (`MinionSwing`): S→C 0x1ab with its first skill aimed at the target (flags 0x0408 | 0x80), the contact at half
+  its attack time.
+  There the hit needs both alive and within reach + 2; it rolls the minion's accuracy (DefaultMonsterStats at its
+  level) against the target's evasion, then the target's block, then the target's mitigation (`MonsterTakesRolled`).
+  S→C 0x1af shows the hit (the minion as source, flags 0x4601), the target's Life follows, and a kill gives the
+  player experience and loot through `MonsterKilled` (no on-kill charges: the player did not kill it).
+  A minion's hit does not count as the player hitting.
+- End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
+  removed a second later (0x2bb).
+
+Not modelled: a minion's other skills (it uses its first granted effect, as every server monster), monsters
+attacking minions (only immortal minions exist so far), the minion's stats following the player's after the summon,
+minions crossing an area change, and minion commands.
 
 ## 11. The skill bar
 
@@ -2168,8 +2205,8 @@ hit time and ends immediately on movement/deadline even before the recovery loop
 It cannot reactivate by returning to the starting cell. No state is persisted across connections.
 
 While protected, the server grants immunity to every damage type, suppresses RF self-burning and outgoing
-RF pulses, and prevents hostile AI targeting and pending monster hits. Functional summoned-minion combat
-is not implemented; cosmetic pets have no incoming/outgoing damage to protect.
+RF pulses, and prevents hostile AI targeting and pending monster hits. The only fighting minions (section 10h) need a monster's
+hit to appear; cosmetic pets have no incoming/outgoing damage to protect.
 GGG's [3.25.0 patch notes](https://www.pathofexile.com/forum/view-thread/3531661) explicitly identify the
 Grace Period buff and protection from enemy targeting. The native buff metadata supplies the icon/name/stats;
 the requested 60-second duration and town/hideout exclusions are server policy. See also the

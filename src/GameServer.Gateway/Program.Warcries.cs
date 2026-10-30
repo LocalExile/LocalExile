@@ -19,7 +19,8 @@ partial class Program
         var stats = AreaPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         if (Get(CorpseExplosionStat) is int percent and > 0)
-            await ExplodeCorpses(remote, stream, ciphers, conn, at, radius, epoch, percent, Get);
+            await ExplodeCorpses(remote, stream, ciphers, conn, at, radius, epoch, percent, Get,
+                DamageStats.Conversion(stats, Stats, attack: null));
         bool current;
         lock (conn.Monsters) current = conn.ProjectileActive(epoch) && conn.PlayerLife > 0;
         if (current && Get(OpenChestsStat) != 0) await OpenChestsInRadius(remote, stream, ciphers, conn, at, radius);
@@ -30,19 +31,20 @@ partial class Program
         m.Dead && m.Life == 0 && !m.CorpseConsumed && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
 
     // The explosion's hit before the target's mitigation: the corpse's maximum Life x percent as physical damage, with the
-    // owner's global increases and more multipliers (poewiki Explode: global, not attack or spell, stats apply).
-    internal static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<string, int> get)
+    // owner's global increases and more multipliers, then his global conversion and gain as extra (poewiki Explode: global,
+    // not attack or spell, stats apply). Increases apply before conversion, as for every hit on the server.
+    internal static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<string, int> get, DamageConversion conversion)
     {
         double damage = corpseMaxLife * (double)percent / 100;
         long increased = (long)get("damage_+%") + get("physical_damage_+%") + get("area_damage_+%");
         return DamagePacket.Of(DamageType.Physical, damage, damage)
-            .Scale(Math.Max(0, 1 + increased / 100.0) * ChargeEffects.DamageMore(get));
+            .Scale(Math.Max(0, 1 + increased / 100.0) * ChargeEffects.DamageMore(get)).Convert(conversion);
     }
 
     // Deathrattle: every corpse within the warcry's radius explodes and is consumed; each explosion hits the living hostile
     // monsters around its corpse (not an attack or a spell: no block, no evasion, no crit at 0% base).
     static async Task ExplodeCorpses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get)
+        (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get, DamageConversion conversion)
     {
         int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
         var consumed = new List<(uint Id, string Label)>();
@@ -55,7 +57,7 @@ partial class Program
             {
                 corpse.CorpseConsumed = true;
                 consumed.Add((id, corpse.Label));
-                var hit = CorpseExplosionHit(corpse.MaxLife, percent, get);
+                var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);
                 var centre = corpse.Walk.Position(now);
                 foreach (var (targetId, m) in conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())

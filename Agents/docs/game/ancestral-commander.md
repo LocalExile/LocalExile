@@ -26,17 +26,17 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 37852 Toughened Skin | Action and Movement Speed cannot be modified to below base; Armour from equipped Body Armour is doubled | Ailment action floor, pool movement floor, body armour defences. |
 | 848 Ancestral Defiance | Gain 10% of missing unreserved Life before being Hit by an Enemy | Monster swings and dev enemy hits. |
 | 47491 Ancestral Spirit | Choice of one Spirit (no stats of its own) | Paid choice parent; its options are free choice effects with a paid refund. |
-| 59500 Spirit of Kahuturoa | Trigger level 20 Summon Spirit of Kahuturoa when you take a Critical Strike from a Unique | Partial: the trigger, the shared cooldown and Kahuturoa's Leadership (10% of Armour against elemental and chaos hits); no chieftain minion. See below. |
-| 17511 Spirit of Utula | Trigger on taking a Savage Hit from a Unique | Partial: the trigger, cooldown and Utula's Leadership buff; its 50% instant leech has nothing to act on (no leech), and no minion. |
-| 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Partial: the trigger, cooldown and Kiloava's Leadership (5% of Life, Mana and Energy Shield on block); no minion. |
-| 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: the server has no Mark curses, so nothing can trigger it. |
-| 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Partial: the trigger, the shared cooldown and Kaom's Leadership (25% more of hits from the nearest totem); no minion. See below. |
+| 59500 Spirit of Kahuturoa | Trigger level 20 Summon Spirit of Kahuturoa when you take a Critical Strike from a Unique | Partial: the trigger, the shared cooldown, Kahuturoa's Leadership (10% of Armour against elemental and chaos hits) and the chieftain fighting beside the player, with its first skill only. See below. |
+| 17511 Spirit of Utula | Trigger on taking a Savage Hit from a Unique | Partial: the trigger, cooldown, Utula's Leadership buff and its fighting chieftain (first skill only); its 50% instant leech has nothing to act on (no leech). |
+| 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Partial: the trigger, cooldown, Kiloava's Leadership (5% of Life, Mana and Energy Shield on block) and its fighting chieftain (first skill only). |
+| 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: the server has no Mark curses, so nothing can trigger it; its Leadership and chieftain rows are read and checked. |
+| 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Partial: the trigger, the shared cooldown, Kaom's Leadership (25% more of hits from the nearest totem) and its fighting chieftain (first skill only). See below. |
 | 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
-| 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: the warcry release explodes the server's corpses and opens quest chests; see below. |
+| 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: Enduring Cry's release explodes the server's corpses, with the player's global damage and conversion, and opens quest chests; see below. |
 | 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Spirit strikes of gem Strikes and the default attack, picked as the client picks them; see below. |
-| 61282 Ancestral Echo | Strikes also target the previous location they were used | Partial: the server strikes the previous location and sends `skill_location_memory`; the client's own strike there needs a live check. |
+| 61282 Ancestral Echo | Strikes also target the previous location they were used | Partial: the server strikes the previous location and sends `skill_location_memory` with the first use's entry, from which the client strikes there itself; the target rules at the old place are the server's own, and the client's strike needs a live check. |
 | 32105 Born under Fire | Nearby Enemies convert 50% of their Physical Damage to Fire | Monster hits within 60 cells convert, and the aura's buff goes on those monsters. |
-| 16317 Forest of Ancestors | 20% of Damage from Hits is taken from your nearest Totem's Life before you; +1 maximum Totem | Partial: monster and `/hit` hits, and the limit; only Rejuvenation Totem places a totem. See below. |
+| 16317 Forest of Ancestors | 20% of Damage from Hits is taken from your nearest Totem's Life before you; +1 maximum Totem | Monster and `/hit` hits, and the limit, for every totem the server places (only Rejuvenation Totem places one so far). See below. |
 
 Three legal eight-point builds, with the four other Spirit options, cover every node:
 
@@ -96,11 +96,14 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
     `EnemyExplode` radius, grown by area of effect; the game's radius is unverified) for 12% of its maximum Life as
     physical damage.
     The hit takes the player's `damage_+%`, `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage
-    (poewiki Explode: global stats apply, attack and spell ones do not), then the monster's mitigation.
+    (poewiki Explode: global stats apply, attack and spell ones do not), then his global physical conversion and
+    gain as extra damage (`DamageStats.Conversion` without the attack- and spell-only lines; increases apply first,
+    as in every server hit), then the monster's mitigation.
     It is neither an attack nor a spell, so it is not blocked or evaded and it does not crit (0% base).
     Kills give experience, loot and quest progress through `MonsterKilled`.
-    Not modelled: conversion, added damage and other global hit modifiers on the explosion, on-hit effects, the
-    explosion art and the client's wave delay (distance / radius × 0.22 s in `0x141abd490`).
+    Not modelled: flat added damage (whether any applies to the explosion is unverified), on-hit effects and ailments,
+    the explosion art, the client's wave delay (distance / radius × 0.22 s in `0x141abd490`; the wave list's consumer
+    was not found) and the other warcries (only Enduring Cry has an executor).
   - Chests: the Twilight Strand support gem chest (saved `Tutorial.ChestOpened` first, as when walked up to) and the
     Mud Flats Rhoa Nests (`InstanceStore.OpenChest`) open when they are within the radius.
     The server has no other chests yet.
@@ -117,9 +120,10 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   A Strike skill's next use, from more than 5 cells away, also strikes where its previous use landed: a gem Strike hits
   the monsters within its radius there, the default attack the monster nearest it within reach.
   Each skill's location is kept until death; a use that hits a monster with its own swing does not hit it again there.
-  The server sends the client's `skill_location_memory` buff (BuffDefinitions 1451) at the skill's first use.
-  The client code that records the locations was not found, so whether the client draws the strike at the previous
-  location needs a live check; the target rules there are the server's own.
+  The server sends the client's `skill_location_memory` buff (BuffDefinitions 1451) at the skill's first use, with
+  that use as the buff's first entry; the client records the later uses itself and strikes the previous location
+  from them ([11](../protocol/11-skills.md) section 10d).
+  The target rules at the old place are the server's own; the client's strike there needs a live check.
 - Born under Fire: BuffTemplates 674 gives every living hostile monster within 60 cells of the living player
   BuffDefinitions 2552 (`base_physical_damage_%_to_convert_to_fire` 50), added and removed as they move every 100 ms.
   A monster's hit within 60 cells at contact converts half its physical damage to fire, before mitigation, by the
@@ -171,15 +175,24 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
     Ancestors' 20, so 45% of each hit comes from the nearest totem while it lasts.
   The buff goes on the player (S→C 0x1c1 with its remaining seconds) and comes off at its end or at death (0x1c2), with
   the player's stats each time; its stats act only while the player lives.
-  BuffDefinitions has CancelOnDeath false on these rows: the chieftain minion grants the buff, and the server ends it at
-  death as the minion dies with the player.
+  BuffDefinitions has CancelOnDeath false on these rows: the chieftain minion grants the buff, and the server ends both
+  at death.
   That the buff lasts as long as the immortal minion, the skill's whole duration, is the reading of the skill
   description and the buff rows; it is unverified.
-  Not modelled: the chieftain minion that fights beside the player (the server has no allied minions); the Spirit skill
-  in the client's skill list (no record is sent, so the client shows neither the skill nor its cooldown, only the
-  buff; the client's own cooldown virtual at `0x14281dfa0` reads the record's `skill_cooldown_does_not_tick`); and the
-  minion following the player through an area change: an area change ends the buff and starts a fresh cooldown, as
-  every skill cooldown on the server.
+  The chieftain (AncestralEmbraceVariations: the Leadership's BuffTemplates row names its MonsterVarieties row,
+  Spirit of Kahuturoa 9962, Utula 9998, Kiloava 9978, Rakiata 9994, Kaom 9965) rises beside the player at the next
+  player tick, at his level up to `minion_actor_level_is_user_level_up_to_maximum` 85, with his minion damage, attack
+  speed and movement speed as its own mods.
+  It fights beside him as the server's player minions do ([11](../protocol/11-skills.md) section 10h) and lives as
+  long as the Leadership: at its end, or the player's death, it dies and its body goes a second later.
+  Nothing damages it: the skill's description calls it immortal.
+  Not modelled: the chieftain's other skills (Kahuturoa's leap slam, Utula's fireball, Kiloava's spear throw and
+  lightning bolt, Kaom's fire fist): like every server monster it uses only its first granted effect; the player's
+  minion stats changing while it lives (they are read at its summon); the Spirit skill in the client's skill list (no
+  record is sent, so the client shows neither the skill nor its cooldown, only the buff; the client's own cooldown
+  virtual at `0x14281dfa0` reads the record's `skill_cooldown_does_not_tick`); and the minion following the player
+  through an area change: an area change ends the buff and the chieftain and starts a fresh cooldown, as every skill
+  cooldown on the server.
 
 ## Admission
 
@@ -213,6 +226,8 @@ for 32 s.
 Kiloava (`16639`) needs a shield: blocking the unique shows Kiloava's Leadership, and the next block raises Life,
 Mana and Energy Shield by 5% each.
 Kahuturoa (`59500`) needs a unique that crits (a monster mod such as Deadliness); its buff lowers the next fire hit.
+Each trigger raises the chieftain beside the player: check that it shows as an ally, walks with him, swings at the
+monsters near him, that its hits lower their Life bars, and that it dies when the buff ends.
 For the totem nodes, use `/add_passive 19258 47491 17140 28454 16317` with a Rejuvenation Totem gem at character
 level 4 or higher: two totems stand at once and a third replaces the first, the player regenerates Life beside one,
 and a monster's hit takes 20% from the nearest totem's Life bar.

@@ -878,7 +878,7 @@ partial class Program
                 && PlayerActionBlocked(conn, conn.Clock.Elapsed.TotalSeconds, conn.Clock.Elapsed.TotalSeconds)) return;
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
-            targets = [.. conn.Monsters.Where(e => !e.Value.Dead && e.Value.Life > 0 && Dist(e.Value.Walk.Position(now), centre) <= radius)
+            targets = [.. conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && Dist(e.Value.Walk.Position(now), centre) <= radius)
                 .Select(e => (e.Key, e.Value))];
             sweep = targets.Count;
             var struck = targets.Select(t => t.Id).ToHashSet();
@@ -1030,12 +1030,13 @@ partial class Program
             a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore);
     }
 
-    // The short state mutation is shared with projectile impact; no awaits under Monsters.
-    static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage)
+    // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where
+    // it hits from) is not the player's hit for his hit-recently.
+    static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage, (int X, int Y)? allyAt = null)
     {
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeDamageLocked(m, damage);
-        conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+        if (allyAt is null) conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
         if (m.Life == 0)
         {
             m.Aggro = false; m.Dead = true;
@@ -1202,7 +1203,9 @@ partial class Program
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
     // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for as long as the
     // player is in the area (it stays in Monsters as Dead: no AI, no body collision); leaving does not save it.
-    static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    // A minion's kill (byMinion) is not the player's for his on-kill charges.
+    static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
+        bool byMinion = false)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
@@ -1210,7 +1213,7 @@ partial class Program
         lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
         await SendVaalSouls(remote, stream, ciphers, conn);
         if (m.Variety is not { } variety || !m.Hostile) return;
-        ChargesOnKill(conn, m);
+        if (!byMinion) ChargesOnKill(conn, m);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
             && CharacterSaves.Load(CharacterName(conn))?.Tutorial is { ZombieKilled: false })
         {

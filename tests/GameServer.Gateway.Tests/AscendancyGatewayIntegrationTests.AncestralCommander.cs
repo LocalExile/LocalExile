@@ -199,6 +199,18 @@ public sealed partial class AscendancyGatewayIntegrationTests
             if (character == game) Assert.True(state.Clock.Elapsed.TotalSeconds - usedAt >= .8 / 3);
             else Assert.Equal(works, bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(50)) >= 0);
         }
+        // The owner's global conversion applies: half the 120 as fire, of which a 50% fire resistance takes half.
+        lock (plain.State.Monsters) plain.State.PlayerStats[GamblerKey("base_physical_damage_%_to_convert_to_fire")] = 50;
+        var from = plain.State.Walk.Position(plain.State.Clock.Elapsed.TotalSeconds);
+        var resistant = new SpawnedMonster("resistant", new(from.X + 40, from.Y, 30), 0, 2, 1000)
+        { Mods = new([], [], new(new Dictionary<string, int> { ["base_fire_damage_resistance_%"] = 50 })) };
+        lock (plain.State.Monsters)
+        {
+            plain.State.Monsters[52] = new("corpse", new(from.X + 30, from.Y, 30), 0, 2, 1000) { Variety = zombie, Life = 0, Dead = true };
+            plain.State.Monsters[51] = resistant;
+        }
+        await plain.WarcryRelease(from, 60);
+        Assert.Equal(910u, resistant.Life);
     }
 
     [Fact]
@@ -268,8 +280,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
             ushort skill = character.HeavyStrikeGem(heavy).Id, buff = state.NextBuff;
             var bytes = (await character.HeavyStrike(heavy, (100, 100), (105, 100), sequence: 1, target: 60)).Bytes;
             var memory = InstanceEntities.AddBuff(Program.PlayerId, buff, 1451, Program.PlayerId, skill,
-                activeSkill: (skill, Program.Skills.ActionHash(heavy)!.Value));
-            Assert.Equal(character != none, bytes.AsSpan().IndexOf(memory) >= 0); // skill_location_memory, as the client keeps it
+                activeSkill: (skill, Program.Skills.ActionHash(heavy)!.Value), list: [1, 100, 100, 105, 100]);
+            // skill_location_memory, as the client keeps it, with this use as its first entry
+            Assert.Equal(character != none, bytes.AsSpan().IndexOf(memory) >= 0);
             struck.Add([.. monsters.Where(kv => kv.Value.Life < 1000).Select(kv => kv.Key).Order()]);
             uint first = monsters[60].Life;
             await character.HeavyStrike(heavy, (160, 100), (165, 100), sequence: 2, target: 0);
@@ -356,15 +369,16 @@ public sealed partial class AscendancyGatewayIntegrationTests
         }
     }
 
-    // Ancestral Spirit's options: the granted skill (level 20) and the Leadership its chieftain gives (BuffDefinitions row, stats).
-    static readonly (ushort Node, string Effect, ushort Row, (string Stat, int Value)[] Stats)[] SpiritLeaderships =
+    // Ancestral Spirit's options: the granted skill (level 20), the Leadership its chieftain gives (BuffDefinitions row, stats)
+    // and the chieftain (MonsterVarieties row).
+    static readonly (ushort Node, string Effect, ushort Row, (string Stat, int Value)[] Stats, int Minion)[] SpiritLeaderships =
     [
         (59500, "TriggerSummonedAncestorKahuturoa", 2273,
-            [("armour_%_applies_to_fire_cold_lightning_damage", 10), ("base_armour_%_applies_to_chaos_damage", 10)]),
-        (17511, "TriggerSummonedAncestorUtula", 2271, [("leech_%_is_instant", 50)]),
+            [("armour_%_applies_to_fire_cold_lightning_damage", 10), ("base_armour_%_applies_to_chaos_damage", 10)], 9962),
+        (17511, "TriggerSummonedAncestorUtula", 2271, [("leech_%_is_instant", 50)], 9998),
         (16639, "TriggerSummonedAncestorKiloava", 2279,
-            [("recover_%_of_maximum_life_on_block", 5), ("energy_shield_%_gained_on_block", 5), ("mana_%_gained_on_block", 5)]),
-        (62534, "TriggerSummonedAncestorRakiata", 2274, [("action_speed_+%_minimum_value_from_rakiatas_leadership", 10)]),
+            [("recover_%_of_maximum_life_on_block", 5), ("energy_shield_%_gained_on_block", 5), ("mana_%_gained_on_block", 5)], 9978),
+        (62534, "TriggerSummonedAncestorRakiata", 2274, [("action_speed_+%_minimum_value_from_rakiatas_leadership", 10)], 9994),
     ];
 
     [Fact]
@@ -374,7 +388,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         var granted = new PassiveGrantedSkills(Program.Skills);
         SingleUseCooldown plan = default;
         (ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats) kiloava = (0, []);
-        foreach (var (node, effect, row, stats) in SpiritLeaderships)
+        foreach (var (node, effect, row, stats, minion) in SpiritLeaderships)
         {
             var grant = Assert.Single(granted.For([node]));
             Assert.Equal((effect, 20), (grant.EffectId, grant.Level));
@@ -383,9 +397,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
             var leadership = SpiritChieftains.LeadershipOf(own)!.Value;
             Assert.Equal(row, leadership.Row);
             Assert.Equal(stats.Select(s => (GamblerKey(s.Stat), s.Value)), leadership.Stats);
+            Assert.Equal(minion, leadership.Minion);
             plan = SingleUseCooldown.ForSkill(Program.Skills, Program.Stats, grant.Effect, grant.Level, new Dictionary<uint, int>(), own)!.Value;
             Assert.Equal(new SingleUseCooldown(20000, 0), plan);
-            if (node == 16639) kiloava = leadership;
+            if (node == 16639) kiloava = (leadership.Row, leadership.Stats);
         }
 
         // 12 s of buff, during which the 20 s cooldown does not recover: the next trigger is 32 s after the first.
@@ -591,6 +606,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal((18u, 2u), await Hit(game, MonsterRarity.Unique, totemLife: 2));
         Assert.Null(rare.State.SpiritChieftains.Active(rare.State.Clock.Elapsed.TotalSeconds));
         Assert.Equal(2270, game.State.SpiritChieftains.Active(game.State.Clock.Elapsed.TotalSeconds)!.Row);
+        Assert.Equal(9965, game.State.SpiritChieftains.Pending!.Variety); // Spirit of Kaom rises at the next player tick
         // Kaom's Leadership adds 25%; after it, 20% again.
         await Place(game);
         Assert.Equal((11u, 9u), await Hit(game, MonsterRarity.Normal));
@@ -602,6 +618,91 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await game.SpiritHit(DamagePacket.Of(DamageType.Chaos, 5000, 5000), MonsterRarity.Normal);
         Assert.Equal(0u, game.State.PlayerLife);
         Assert.Empty(game.State.Totems.Living(game.State.Clock.Elapsed.TotalSeconds));
+    }
+
+    [Fact]
+    public async Task Ancestral_Commander_spirit_chieftains_fight_beside_the_player()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: [19258, 47491, 59500], level: 90);
+        using var strong = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: [19258, 47491, 59500], level: 90);
+        lock (strong.State.Monsters) strong.State.PlayerStats[GamblerKey("minion_damage_+%")] = 50;
+        var fire = DamagePacket.Of(DamageType.Fire, 1, 1);
+        var variety = Program.Monsters.Find("9962")!;
+        (uint Id, SpawnedMonster M) Summon(GatewayCharacter c)
+        {
+            var minion = Assert.Single(c.State.Minions.All);
+            Assert.True(minion.Fights);
+            var m = c.State.Monsters[minion.Id];
+            // Spirit of Kahuturoa on the player's team at his level up to 85, as long as its Leadership.
+            Assert.Equal((false, variety.Id, (byte)85, true), (m.Hostile, m.Variety!.Id, m.Level, m.Aggro));
+            Assert.Equal(c.State.SpiritChieftains.Active(c.State.Clock.Elapsed.TotalSeconds)!.Until, minion.Until);
+            return (minion.Id, m);
+        }
+        // A Unique's critical strike summons the chieftain beside the player.
+        var bytes = (await game.SpiritHit(fire, MonsterRarity.Unique, critical: true)).Bytes;
+        await strong.SpiritHit(fire, MonsterRarity.Unique, critical: true);
+        var (id, chieftain) = Summon(game);
+        var (strongId, strongChieftain) = Summon(strong);
+        Assert.True(bytes.AsSpan().IndexOf(InstanceProtocol.EnterWakeZone(id)) >= 0);
+
+        // It goes for the nearest living hostile monster near it and the player, not a distant one.
+        SpawnedMonster Target(GatewayCharacter c, uint at, int dx)
+        {
+            var p = c.State.Walk.Position(c.State.Clock.Elapsed.TotalSeconds);
+            var target = new SpawnedMonster("chieftain target", new(p.X + dx, p.Y, 30), 0, 2, 1_000_000) { Hostile = true };
+            lock (c.State.Monsters) c.State.Monsters[at] = target;
+            return target;
+        }
+        foreach (var c in new[] { game, strong })
+        {
+            lock (c.State.Monsters) c.State.Monsters.Remove(44); // the unique that triggered it
+            Target(c, 46, 300);
+        }
+        var near = Target(game, 45, 4);
+        var strongNear = Target(strong, 45, 4);
+        MinionTarget? Pick(GatewayCharacter c, uint minion, SpawnedMonster m)
+        {
+            double now = c.State.Clock.Elapsed.TotalSeconds;
+            lock (c.State.Monsters)
+                return Program.MinionTargetLocked(c.State, minion, m, m.Walk.Position(now), c.State.Walk.Position(now), now);
+        }
+        var target = Pick(game, id, chieftain)!.Value;
+        Assert.Equal((45u, true), (target.Id, target.InReach));
+
+        // The monster AI swings it at that monster: the hit lands at half its 1 s attack.
+        await game.RunAiUntil(() => near.Life < near.MaxLife);
+        var (min, max) = Program.Monsters.BaseDamage(variety, 85)!.Value;
+        Assert.InRange(near.MaxLife - near.Life, (uint)min, (uint)max);
+        // Its damage is its own at its level, with the player's increased minion damage, as the plain stat gives it.
+        (MonsterHit Hit, int Damage)? Hit(GatewayCharacter c, uint minion, SpawnedMonster m, MinionTarget t)
+        {
+            lock (c.State.Monsters)
+                return Program.MinionHitLocked(c.State, minion, m, t, c.State.Clock.Elapsed.TotalSeconds, new ZeroRandom());
+        }
+        Assert.Equal(min, Hit(game, id, chieftain, target)!.Value.Damage);
+        Assert.Equal((int)Math.Round(min * 1.5), Hit(strong, strongId, strongChieftain, Pick(strong, strongId, strongChieftain)!.Value)!.Value.Damage);
+        Assert.True(strongNear.Life < strongNear.MaxLife);
+
+        // The player's area hits and the instance save leave it alone.
+        game.Items.Add(PlayerInventories.Weapon1, 0, 0, TotemClub());
+        var at = chieftain.Walk.Position(game.State.Clock.Elapsed.TotalSeconds);
+        uint life = near.Life;
+        await game.HeavyStrike(Program.Skills.EffectRow("HeavyStrike"), at, at, sequence: 1, target: 0);
+        Assert.True(near.Life < life);
+        Assert.Equal(chieftain.MaxLife, chieftain.Life);
+        lock (game.State.Monsters) Assert.DoesNotContain(chieftain, Program.InstanceMonsters(game.State));
+
+        // When its Leadership ends (death ends it too) the chieftain dies, and its body goes a second later.
+        game.State.SpiritChieftains.End(game.State.Clock.Elapsed.TotalSeconds);
+        bytes = (await game.ChieftainStep()).Bytes;
+        Assert.True(bytes.AsSpan().IndexOf(InstanceProtocol.LifeUpdate(id, 0)) >= 0);
+        Assert.Empty(game.State.Minions.All);
+        Assert.True(chieftain.Dead);
+        game.State.Minions.Bodies[0] = (id, 0);
+        bytes = (await game.ChieftainStep()).Bytes;
+        Assert.True(bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(id)) >= 0);
+        Assert.False(game.State.Monsters.ContainsKey(id));
     }
 
     sealed class ZeroRandom : Random
@@ -680,6 +781,23 @@ public sealed partial class AscendancyGatewayIntegrationTests
             lock (State.Monsters) State.Monsters[44] = monster;
             await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["spirit-integration", stream, cipher,
                 State, 44u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
+            return null;
+        });
+
+        // The chieftain minions' step (Program.SpiritChieftainMinion), as the player tick runs it.
+        public Task<(string? Error, byte[] Bytes)> ChieftainStep() => Exchange(async (stream, cipher) =>
+        {
+            await Program.SpiritChieftainMinion("chieftain-integration", stream, cipher, State);
+            return null;
+        });
+
+        // The monster AI loop, until a condition holds.
+        public Task<(string? Error, byte[] Bytes)> RunAiUntil(Func<bool> done) => Exchange(async (stream, cipher) =>
+        {
+            var ai = (Task)GatewayMethod("RunMonsterAi").Invoke(null, ["ai-integration", stream, cipher, State])!;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try { while (!done()) await Task.Delay(10, timeout.Token); }
+            finally { State.Closed = true; await ai; State.Closed = false; }
             return null;
         });
 

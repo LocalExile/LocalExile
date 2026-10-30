@@ -13,10 +13,12 @@ partial class Program
             || variety.RangedWeapon && Skills.IsAttack(first));
 
     // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
-    // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob and the area's packs (PopulateArea) use it.
-    static async Task SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
+    // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob, the area's packs (PopulateArea) and the player's minions
+    // (extra stats on its Stats component; owned runs under the lock that adds it) use it. Its object id.
+    static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
-        MonsterModSet? mods = null, bool alone = true, bool? unrisen = null)
+        MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, IReadOnlyList<(uint Key, int Value)>? extraStats = null,
+        Action<uint, SpawnedMonster>? owned = null)
     {
         uint id = conn.NextObjectId++;
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
@@ -60,7 +62,7 @@ partial class Program
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
-        foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife)) (stats ??= []).Add(stat);
+        foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
         var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, variety.StateMachine, MonsterEmerge.CreateState(variety, emerge, waits), team,
             skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill], stats)
         {
@@ -78,6 +80,7 @@ partial class Program
         if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Value.Describe(mods)}" +
             (mods.NameWords.Count > 0 ? $", named {MonsterModRolls.Value.NameOf(mods.NameWords)}" : ""));
         using (ProjectileMutation(conn))
+        {
             MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, mods.Effects.MovementSpeed(variety.MovementSpeed), bodySize, rarity == MonsterRarity.Unique),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
@@ -85,10 +88,13 @@ partial class Program
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y),
             }, emerge, waits);
+            if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
+        }
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
         if (damagedLife < life)
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
+        return id;
     }
 
     // The area's monsters, once the player is in (Agents/docs/protocol/14-monster-packs.md): MonsterPacks scattered over the
@@ -152,6 +158,7 @@ partial class Program
                 if (!conn.AiEnabled || conn.Paused) continue;
                 var orders = new List<(uint Id, (int X, int Y) From, (int X, int Y) To, string Why)>();
                 var swings = new List<(uint Id, SpawnedMonster M, (int X, int Y) From, int Epoch)>();
+                var minionSwings = new List<(uint Id, SpawnedMonster M, (int X, int Y) From, MinionTarget Target)>();
                 var bossBars = new List<(uint Id, SpawnedMonster M)>();
                 var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
                 double now;
@@ -174,13 +181,34 @@ partial class Program
                             m.BossBarShown = true;
                             bossBars.Add((id, m));
                         }
-                        else if (m.Aggro && d > 2 * m.AggroRange)
+                        else if (m.Aggro && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a minion keeps following
                         {
                             m.Aggro = false;
                             orders.Add((id, m.Walk.Order(mx, my, now), (mx, my), "gives up"));
                             continue;
                         }
                         if (!m.Aggro || now < m.BusyUntil) continue;
+                        // The player's fighting minions attack his enemies near them; with none they follow him.
+                        if (conn.Minions.Fights(id) && m.Attack is { } ma && MinionTargetLocked(conn, id, m, (mx, my), (px, py), now) is { } target)
+                        {
+                            if (target.InReach)
+                            {
+                                m.BusyUntil = now + ma.Seconds;
+                                m.LastTarget = null;
+                                m.Walk.Order(mx, my, now);
+                                minionSwings.Add((id, m, (mx, my), target));
+                            }
+                            // A new path when the target moved, else again after arriving short, at most twice a second.
+                            else if (m.LastTarget is not { } last || Math.Abs(last.X - target.Approach.X) + Math.Abs(last.Y - target.Approach.Y) >= 3
+                                || now >= m.Walk.ArrivesAt && now >= m.NextChaseRetryAt)
+                            {
+                                m.NextChaseRetryAt = now + 0.5;
+                                m.LastTarget = target.Approach;
+                                orders.Add((id, m.Walk.Order(target.Approach.X, target.Approach.Y, now), target.Approach,
+                                    $"minion chases monster 0x{target.Id:x}"));
+                            }
+                            continue;
+                        }
                         // In reach: stop and swing at the player (hostile monsters with an attack, while the player lives).
                         if (m.Hostile && m.Attack is { } a && d <= a.Range && conn.PlayerLife > 0)
                         {
@@ -241,6 +269,8 @@ partial class Program
                     await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
                 foreach (var (id, m, from, epoch) in swings)
                     _ = MonsterSwing(remote, stream, ciphers, conn, id, m, from, (px, py), epoch);
+                foreach (var (id, m, from, target) in minionSwings)
+                    _ = MinionSwing(remote, stream, ciphers, conn, id, m, from, target);
                 conn.Performance.MaybeLog(remote);
             }
         }
