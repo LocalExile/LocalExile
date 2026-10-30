@@ -397,12 +397,13 @@ and can require explicit recipes.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
 - Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
-  They follow him, end by their duration, can cast an aura on him and explode when they end.
+  They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
+  can cast an aura on him and explode when they end; his increased minion life raises their life.
   Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
   are never saved.
   Only Summon Elemental Relic's relics exist; no gem or other passive makes minions yet.
-  Not modelled: monsters attacking minions, minion attacks and skills (the relic's teleport), minion stats from the
-  player, and party allies.
+  Not modelled: monsters attacking minions, minion attacks and damaging skills, the player's other minion modifiers
+  (damage, resistances, energy shield), and party allies.
   Automated coverage only, not checked with the real client.
   See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
 - Saved aura toggles (2026-10-25, awaiting client confirmation): active effects persist per character and restore on

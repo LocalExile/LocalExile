@@ -1729,7 +1729,7 @@ and listing it would offer the player a skill that does nothing. The Paladin's P
 
 **Triggered passive skills.** A granted triggered skill has no bar use and is never listed, since it runs from its trigger.
 The one with an executor is Summon Elemental Relic (Elemental Valiance).
-Its trigger is the node's ally buff template (`PassiveBuffAuras.AllyAurasFor`, targets `[2]`) carrying
+Its trigger is the node's ally buff template (`PassiveBuffAuras.AllyAurasFor`, targets `[1, 2]`) carrying
 `can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique`.
 The hit and kill paths (`ApplyMonsterHitLocked`, the default attack, Righteous Fire's burn) call
 `TriggerElementalRelicLocked` under the Monsters lock. It rolls the skill's chance stat, spends the skill's cooldown
@@ -1744,7 +1744,9 @@ lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
 - A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bb) a second later.
 - The owner's death or the loss of the granting passive kills it without an explosion.
-- The queued summons are made.
+- The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%`.
+- A minion with a teleport (RelicTeleport) beyond its aggro range jumps next to the owner (0x1b7, as `/mob_tp`):
+  the monster AI follows only within that range.
 - Each minion's aura goes on the owner (0x1c1, the minion as source) while he is within its radius, and comes off
   (0x1c2) when he leaves it or the minion ends. Its raw stats join the owner's stats (`MinionAuraStats`, unscaled by
   his aura effect; his own aura of the same family wins when it is at least as strong), and the stats are sent again.

@@ -125,7 +125,7 @@ game measures "nearby" to the monster's centre, as here, or to its edge; that th
 
 ## Elemental Valiance
 
-- **Trigger.** 40299 gives BuffTemplates 546 `GuardianAlliesSpawnRelicsForYouOnKill` (AuraRadius 60, targets `[2]`,
+- **Trigger.** 40299 gives BuffTemplates 546 `GuardianAlliesSpawnRelicsForYouOnKill` (AuraRadius 60, targets `[1, 2]`,
   `can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique`) and GrantedEffectsPerLevel 78412,
   Summon Elemental Relic at level 20 (Ruthless: its HardMode row). The skill is triggered and stays off the skill list.
   Each of these rolls the skill's 25% (`skill_triggered_by_nearby_allies_kill_or_hit_rare_unique_%_chance`): a kill by
@@ -135,10 +135,13 @@ game measures "nearby" to the monster's centre, as here, or to its edge; that th
   roll is made.
 - **The relic.** A random element, a third each: MonsterVarieties 7185–7187 (`ElementalLivingRelicFire`, `Cold`,
   `Lightning`). Its level is the character's, up to 85 (Ruthless 80, `minion_actor_level_is_user_level_up_to_maximum`).
-  Its life is the MinionLife column × 400 (`MonsterCatalog.BaseLife`, the client's rule for IsPlayerMinion types).
+  Its life is the MinionLife column × 400 (`MonsterCatalog.BaseLife`, the client's rule for IsPlayerMinion types),
+  raised by the player's `minion_maximum_life_+%`; the final maximum goes on its Stats as `maximum_life`.
   It lives `base_skill_effect_duration` (5 s) with the player's skill duration modifiers. A trigger for an element
   that already has a relic refreshes its duration instead, so there is at most one relic of each element.
   It is created on the player's team (Positioned team 0) next to him and follows him (the monster AI's surround).
+  The wiki calls its AI defensive, following close, with no damaging skill. The AI follows only within the relic's
+  60-cell aggro range, so from beyond it the relic teleports next to him (0x1b7, its RelicTeleport).
 - **Its aura.** The Fire Relic casts Anger, the Cold Relic Hatred, the Lightning Relic Wrath (the variety's aura
   effect), at stats between the two gem levels whose PlayerLevelReq bracket the relic's level, in proportion, rounded
   down (`PlayerMinions.AuraStatsAt`). GGG's numbers for a level-85 relic (Anger 182–259, Hatred 43%, Wrath 26–415 and
@@ -162,10 +165,12 @@ both. The Gateway sends them on the relic's Stats component.
 
 Unverified: the explosion radius (the data has no explosion skill for the relic; 22 cells is Path of Building's
 Minion Instability radius), the aura base radius (Path of Building's 40 for every aura, not in the data), the
-one-second body removal, and that a death or a refund kills the relics without an explosion.
-Not modelled: the relic's teleport to the player (RelicTeleport; it walks instead), the explosion's art, its aura's
-circle around the relic (only the player's received buff is sent), minion life modifiers, and monsters attacking the
-relic (none do, so it ends only by its duration). The client shows no cooldown for the skill, which it does not list.
+teleport distance (RelicTeleport has no stats; the aggro range is ours), the one-second body removal, that a death or
+a refund kills the relics without an explosion, and whether the game lists the triggered skill (here it is not listed,
+so the client shows no cooldown for it).
+Not modelled: the explosion's art, its aura's circle around the relic (only the player's received buff is sent), the
+player's other minion modifiers (minion damage, resistances, energy shield), Combat Focus's element exclusions (the
+skill is RandomElement), and monsters attacking the relic (none do, so it ends only by its duration).
 
 ## Admission
 

@@ -4,7 +4,8 @@ using DamageType = GameServer.Core.World.DamageType;
 /// The monsters the player owns (minions), Summon Elemental Relic's relics first (Program.PlayerMinions.cs). A minion is
 /// a monster on his team (Positioned team 0) that the client knows as his by its own stats is_player_minion and
 /// is_semantic_minion (the link-target filter 0x141bf8490 reads 0x48a and 0x3cf8). It follows him (the monster AI walks
-/// friendly monsters into the player's surround), lives until its duration ends (no monster attacks a minion), may cast an
+/// friendly monsters into the player's surround; one with a teleport jumps back to him from beyond its aggro range),
+/// lives until its duration ends (no monster attacks a minion), may cast an
 /// aura on him while he is within its radius and may explode when it ends; it leaves no corpse. It is never kept by the instance, goes with the
 /// connection (area change, logout) and dies with him. Guarded by the connection's Monsters lock.
 /// </summary>
@@ -21,6 +22,8 @@ sealed class PlayerMinions
         public double Until;
         public Aura? OwnerAura { get; init; }
         public Explosion? Explodes { get; init; }
+        /// <summary>It has a teleport to its owner (the relics' RelicTeleport).</summary>
+        public bool Teleports { get; init; }
         /// <summary>The aura's received buff on the owner, 0 while it is not on him.</summary>
         public ushort OwnerBuff;
     }

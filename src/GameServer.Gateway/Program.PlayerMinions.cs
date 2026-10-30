@@ -94,6 +94,17 @@ partial class Program
             var here = conn.Walk.Position(now);
             foreach (var minion in conn.Minions.All)
             {
+                var m = minion.Monster;
+                // RelicTeleport: the AI follows within the aggro range only, so from beyond it the minion jumps to him
+                // (as /mob_tp). shortcut: the threshold is the aggro range, the game's is not in the data.
+                if (minion.Teleports && conn.PlayerLife > 0 && Dist(m.Walk.Position(now), here) > m.AggroRange)
+                {
+                    var (x, y) = NextToPlayer(conn);
+                    m.Walk = conn.NewMonsterWalk(minion.Id, x, y, m.Walk.Speed, LivingCollision.Size(m), false);
+                    m.CollisionPosition = (x, y);
+                    m.LastTarget = null;
+                    bytes.AddRange(InstanceProtocol.Teleport(minion.Id, x, y));
+                }
                 if (minion.OwnerAura is not { } aura) continue;
                 bool inside = conn.PlayerLife > 0 && Dist(minion.Monster.Walk.Position(now), here) <= aura.Radius;
                 if (inside == (minion.OwnerBuff != 0)) continue;
@@ -102,7 +113,7 @@ partial class Program
                 else { bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff)); minion.OwnerBuff = 0; }
             }
         }
-        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01c1/0x01c2 player minion auras on the player");
+        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b7/0x01c1/0x01c2 player minion teleports and auras on the player");
         if (aurasChanged) await SendCharacterStats(remote, stream, ciphers, conn, "minion auras");
     }
 
@@ -124,6 +135,7 @@ partial class Program
     // A triggered Summon Elemental Relic: a relic of a random element next to the player at his level up to the skill's
     // minion_actor_level_is_user_level_up_to_maximum (85, Ruthless 80), for base_skill_effect_duration with his skill
     // duration modifiers; a relic of that element already there has its duration refreshed instead (at most one each).
+    // shortcut: Combat Focus's element exclusions (RandomElement skills) are not modelled; every element can come.
     static async Task SummonElementalRelic(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var player = CharacterPlayerStats(conn);
@@ -156,10 +168,15 @@ partial class Program
         }
         if (variety is null) { Console.WriteLine($"[gateway] {remote} {element} Relic: no MonsterVarieties row"); return; }
         var aura = RelicAura(conn, variety, level);
+        bool teleports = variety.GrantedEffects?.Any(e => SkillsFor(conn).EffectId(e) == "RelicTeleport") == true;
+        // The player's increased minion life raises its life (on its Stats as maximum_life) and so its explosion.
+        var mods = Player("minion_maximum_life_+%") is int moreLife and not 0
+            ? MonsterModSet.None with { Effects = new(new Dictionary<string, int> { ["maximum_life_+%"] = moreLife }) }
+            : MonsterModSet.None;
         await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, at.X, at.Y, friendly: true,
-            mods: MonsterModSet.None, extraStats: MinionStats, owned: (id, m) => conn.Minions.Add(new(id, m, skill, element.ToString())
+            mods: mods, extraStats: MinionStats, owned: (id, m) => conn.Minions.Add(new(id, m, skill, element.ToString())
             {
-                Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius),
+                Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius), Teleports = teleports,
             }));
         Console.WriteLine($"[gateway] {remote} {element} Relic summoned at level {level} for {seconds:0.##} s" +
             (aura is null ? "" : $", {aura.EffectId} within {aura.Radius} cells: {string.Join(", ", aura.Stats.Select(s => $"{Stats.Name(s.Key)} {s.Value}"))}"));

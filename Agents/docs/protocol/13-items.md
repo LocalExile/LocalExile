@@ -861,8 +861,8 @@ modelled).
 
 **What some flasks make on use** (`FlaskGrounds.cs`, `Program.FlaskGrounds.cs`), from their implicit mods, where the
 player stands (radii in cells):
-- Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Monsters standing in it are blinded (buff 179
-  `blinded`): 20% less accuracy against the player (`MonsterSwing`) and 20% less evasion against the player's attacks
+- Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Hostile monsters standing in it (not the
+  player's minions) are blinded (buff 179 `blinded`): 20% less accuracy against the player (`MonsterSwing`) and 20% less evasion against the player's attacks
   (Path of Building's Blind; the tables have no default value for it). Live: Hillock's accuracy 14 → 11.
 - Sulphur (`local_consecrate_ground_on_flask_use_radius` 18): consecrated ground. Standing on it the player regenerates
   5% of maximum life per second (`life_regeneration_rate_per_minute_%` 300) and curses are 50% less effective (Path of

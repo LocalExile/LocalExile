@@ -81,7 +81,7 @@ partial class Program
         // Smoke: who stands in it now.
         List<(uint Id, bool Inside)> monsters;
         lock (conn.Monsters)
-            monsters = [.. conn.Monsters.Select(kv => (kv.Key, !kv.Value.Dead && kv.Value.Life > 0
+            monsters = [.. conn.Monsters.Select(kv => (kv.Key, kv.Value.Hostile && !kv.Value.Dead && kv.Value.Life > 0
                 && state.Covers(FlaskGrounds.Kind.SmokeCloud, kv.Value.Walk.Position(now))))];
         foreach (uint gone in state.BlindedMonsters().Except(monsters.Select(m => m.Id)))
             state.SetBlinded(gone, false, () => 0);

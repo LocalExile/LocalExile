@@ -383,6 +383,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await game.MinionsTick(now + 1);
         Assert.Same(relic, Assert.Single(state.Minions.All));
         Assert.Equal(now + 6, relic.Until, 6);
+        // Left beyond its 60-cell follow range, it teleports back next to the player (RelicTeleport); its aura stays on.
+        var beside = relic.Monster.Walk.Position(now);
+        relic.Monster.Walk = state.NewMonsterWalk(relic.Id, 200, 32, relic.Monster.Walk.Speed, 1, false);
+        await game.MinionsTick(now + 1);
+        Assert.Equal(beside, relic.Monster.Walk.Position(now + 1));
+        Assert.True(PaladinSent(game.LastBytes, InstanceProtocol.Teleport(relic.Id, beside.X, beside.Y)));
+        Assert.Equal(buff, relic.OwnerBuff);
 
         // Its end: the explosion, its life as fire to the monsters within 22 cells of it; 25% more on one under Light of
         // Divinity (the debuff step gives it), and a dying one rolls the trigger as an ally's kill (cooldown long recovered).
@@ -417,8 +424,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
         state.PlayerLife = state.Pools.Life;
         state.Minions.PendingRelics = 1;
         state.Minions.Random = new ScriptedRandom(2);
+        await game.Command("/set_stat minion_maximum_life_+% 50"); // increased minion life raises its life and explosion
         await game.MinionsTick(now + 8);
-        Assert.Equal("Lightning", Assert.Single(state.Minions.All).Kind);
+        var lightning = Assert.Single(state.Minions.All);
+        Assert.Equal("Lightning", lightning.Kind);
+        Assert.Equal(blast * 3 / 2, lightning.Monster.MaxLife);
         Assert.Null((await game.Change([40299], false, refundPoints: true)).Error);
         state.Minions.Random = new ScriptedRandom();
         await game.MinionsTick(now + 8.1);
