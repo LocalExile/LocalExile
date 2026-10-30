@@ -256,6 +256,8 @@ partial class Program
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
+            InflictMonsterBlind(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond, shot.Blind,
+                contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical);
             return ProjectileHitResult.Hit;
         }

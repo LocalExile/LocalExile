@@ -158,7 +158,7 @@ partial class Program
     {
         int effect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
         var own = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        return AttackAccuracyProfile.From(conn.Pools, stats, Stats, own, local);
+        return AttackAccuracyProfile.From(conn.Pools, stats, Stats, own, local) with { Rating = PlayerAccuracy(conn) };
     }
 
     // What /set_stat set, then the class's attributes and pools and the passives' stats for the stats it did not set.
@@ -205,6 +205,13 @@ partial class Program
         int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet).Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         WithRage(conn, stats);
+        (int Less, double Until) blind;
+        lock (conn.Monsters) blind = PlayerBlindValue(conn);
+        if (blind.Less > 0 || conn.Blind.Sent.Less > 0)
+        {
+            stats[973] = blind.Less > 0 ? 1 : 0;
+            stats[15023] = stats[15024] = -blind.Less;
+        }
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -236,7 +243,8 @@ partial class Program
         foreach (var (stat, value) in PanelStats.Compute(Get, n => mainLocal.GetValueOrDefault(n), n => offLocal.GetValueOrDefault(n),
             playerLevel: conn.Pools.Level)
             .Concat(PanelStats.FromPools(Get, conn.Pools))
-            .Concat(PanelStats.Defence(Get, conn.Pools, Monsters.BaseDamage(conn.Pools.Level), Monsters.BaseAccuracy(conn.Pools.Level)))
+            .Concat(PanelStats.Defence(Get, conn.Pools with { Evasion = PlayerEvasion(conn) },
+                Monsters.BaseDamage(conn.Pools.Level), Monsters.BaseAccuracy(conn.Pools.Level)))
             .Concat(PanelStats.Recovery(Get, conn.Pools.Life, conn.Pools.Mana))
             .Concat(LeechLimits.Compute(Get, conn.Pools.Life, conn.Pools.Mana, conn.Pools.EnergyShield,
                 name => Stats.Key(name) is uint key && rawOverrides.TryGetValue(key, out int value) ? value : null,
@@ -390,7 +398,8 @@ partial class Program
     static IEnumerable<(uint, int)> BaseStats(ClientState conn)
     {
         var seen = new HashSet<uint>();
-        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools)) if (seen.Add(k)) yield return (k, v);
+        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with
+            { Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn) })) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = CharacterStatSources(conn, nodes).Stats;

@@ -453,6 +453,7 @@ partial class Program
         }
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);
+        CarryWhisperer(conn, r.Ticket);
         CarryAntiquarian(conn, r.Ticket);
         CarryRage(conn, r.Ticket);
         CarryVaalSouls(conn, r.Ticket);

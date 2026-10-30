@@ -567,8 +567,8 @@ partial class Program
         // The monster's accuracy comes from DefaultMonsterStats at its level. Evasion uses PoE's shared entropy
         // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
         // indefinitely). A new counter starts after 3.33 s without an attack.
-        int monsterAccuracy = conn.FlaskGrounds.Accuracy(id, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0));   // blinded in smoke
-        int hitChance = DamageModel.AccuracyHitChance(conn.Pools.Evasion, monsterAccuracy);
+        int monsterAccuracy = MonsterBlindRating(conn, id, m, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0), now);   // blinded in smoke
+        int hitChance = DamageModel.AccuracyHitChance(PlayerEvasion(conn), monsterAccuracy);
         if (EvadesLocked(conn, hitChance, now))
         {
             Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) evaded: accuracy {monsterAccuracy} " +
@@ -592,7 +592,7 @@ partial class Program
                 || c.Type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage));
         var armour = IncomingArmourLocked(conn, !blocked && armourRelevant, priorContacts, stats);
         int rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
-        int damage = 0, chaosDamage = 0;
+        int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
         double shockFactor = conn.ElementalAilments.DamageTakenFactor(now);
         foreach (var (type, range) in mitigated.Components)
@@ -606,15 +606,19 @@ partial class Program
             value = (int)Math.Round(value * shockFactor);
             ailmentTaken = ailmentTaken.Add(type, new(value, value));
             if (type == DamageType.Chaos) chaosDamage += value;
+            if (type == DamageType.Physical) physicalDamage += value;
             damage += value;
         }
         damage = FortificationDamageTaken(conn, damage);
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
-        if (blocked) { damage = 0; chaosDamage = 0; }
+        physicalDamage = FortificationDamageTaken(conn, physicalDamage);
+        physicalDamage = Math.Min(physicalDamage, Math.Max(0, damage - chaosDamage));
+        if (blocked) { damage = 0; chaosDamage = 0; physicalDamage = 0; }
         uint manaBefore = conn.PlayerMana;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
         int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
-        conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats) + gainedLife));
+        conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - WhispererDamagePlayerHit(conn, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage),
+                chaosDamage, now, stats) + gainedLife));
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
         TrimLeechLocked(conn);
         ApplyPlayerAilmentsLocked(conn, a.Damage, ailmentTaken.Select((_, r) =>
@@ -622,7 +626,7 @@ partial class Program
             monsterCritical, blocked, now, stats);
         conn.RecentEnemyHits.Record(now);
         ChargesWhenHit(conn, blocked);
-        if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+        if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); conn.Whisperer.Clear(); conn.Blind.Clear(); }
         RecordHardcoreDeath(conn);
         uint life = conn.PlayerLife;
         PlayerRecoveryIntent? recovery = null;
@@ -632,6 +636,10 @@ partial class Program
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={life > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
         RageWhenHitLocked(conn);
+        if (!blocked && life > 0 && m.Mods.Effects["global_chance_to_blind_on_hit_%"] is > 0 and var blindChance
+            && (blindChance >= 100 || conn.IncomingHitRandom.Next(100) < blindChance))
+            InflictPlayerBlind(conn, 4 * Math.Max(0, 1 + m.Mods.Effects["blind_duration_+%"] / 100d),
+                m.Mods.Effects["blind_effect_+%"]);
         // The hit packet carries this outcome's presentation and is processed at once (kind 3): 0x4000 particles,
         // 0x0200 main hand, 0x0001 blood, 0x0040 blocked, 0x0020 critical, code = the largest damage component.
         // The 3.29.3b decode (action-hit-packet-3.29.3b.md §§1–4) shows kind 2 only queues the package until an

@@ -245,14 +245,16 @@ partial class Program
     {
         var own = SupportedSkill(conn, skillId).Stats;
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        cost = (uint)Math.Max(0, Own("mana_cost"));
         lock (conn.Monsters)
         {
+            cost = Stats.Key("mana_cost") is uint key
+                ? (uint)Math.Max(0, SupportedStats(conn, skillId).GetValueOrDefault(key)) : 0;
             // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
             if (cost > 0 && BloodCharges.Uses(Own))
                 cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
             if (conn.PlayerMana < cost) return false;
             conn.PlayerMana -= cost;
+            WhispererManaSpentLocked(conn, cost);
             return true;
         }
     }
@@ -430,6 +432,7 @@ partial class Program
                 ailments = nextAilments;
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
             }
+            await SendBlind(remote, stream, ciphers, conn);
             await SendAntiquarian(remote, stream, ciphers, conn);
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
@@ -556,6 +559,8 @@ partial class Program
                 {
                     lifeCarry = manaCarry = burnCarry = 0;
                     FortificationOf(conn).Clear();
+                    conn.Whisperer.Clear();
+                    conn.Blind.Clear();
                     leech.Clear(now);
                     conn.EnergyShield.Empty();
                     ClearAntiquarianOnDeath(conn);
@@ -578,11 +583,27 @@ partial class Program
                             + conn.EnduringCryRecovery.Take(now) - lifeBurn, ref lifeCarry, minimum: 1);
                     AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
                     lifeAfter = conn.PlayerLife;
-                    if (lifeAfter == 0) ailmentDeathEpoch = conn.IncomingHitEpoch;
-                    conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
-                        mana + manaRate * seconds + leeched.Mana, ref manaCarry);
-                    leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
-                        conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+                    if (lifeAfter == 0)
+                    {
+                        ailmentDeathEpoch = conn.IncomingHitEpoch;
+                        dead = true;
+                        lifeCarry = manaCarry = burnCarry = 0;
+                        FortificationOf(conn).Clear();
+                        leech.Clear(now);
+                        conn.Whisperer.Clear();
+                        conn.Blind.Clear();
+                        conn.EnergyShield.Empty();
+                        ClearAntiquarianOnDeath(conn);
+                        manaAfter = manaBefore;
+                    }
+                    else
+                    {
+                        conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
+                            mana + manaRate * seconds + leeched.Mana + conn.Whisperer.Take(now), ref manaCarry);
+                        if (manaAfter == manaCap) conn.Whisperer.DiscardRecoveryFraction();
+                        leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
+                            conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+                    }
                 }
             }
             if (ailmentDeathEpoch is int lethalEpoch)
@@ -612,6 +633,8 @@ partial class Program
         FortificationOf(conn).TakeRecovery(now);
         conn.Antiquarian.TakeRecovery(now);
         conn.EnduringCryRecovery.Take(now);
+        conn.Whisperer.Take(now);
+        conn.Whisperer.DiscardRecoveryFraction();
     }
 
     // The ended flask effects' buffs come off the player (S→C 0x1c2).
@@ -828,6 +851,7 @@ partial class Program
         var cls = SkillsFor(conn).ClassFor(classRow);
         // Keep the ticket's remaining Rage timers frozen while the destination loads (before 0x7d).
         RestoreRage(conn);
+        RestoreWhisperer(conn);
         RestoreVaalSouls(conn);
         RestoreAntiquarian(conn);
         conn.Ward.SetMaximum(conn.Pools.Ward);

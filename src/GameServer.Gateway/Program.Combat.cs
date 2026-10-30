@@ -18,7 +18,7 @@ partial class Program
     {
         bool unique = target.Rarity == MonsterRarity.Unique;
         bool close = TargetAccuracy.InCloseRange(Dist(conn.Walk.Position(at), target.Walk.Position(at)));
-        return (TargetAccuracy.AgainstTarget(conn.Pools.Accuracy, conn.Pools.AccuracyMoreVsUniquePct,
+        return (TargetAccuracy.AgainstTarget(PlayerAccuracy(conn), conn.Pools.AccuracyMoreVsUniquePct,
             conn.Pools.AccuracyMoreInCloseRangePct, unique, close), unique, close);
     }
 
@@ -27,7 +27,7 @@ partial class Program
         AttackAccuracyProfile profile)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
-        evasion = conn.FlaskGrounds.Evasion(id, evasion);
+        evasion = MonsterBlindRating(conn, id, target, evasion, at);
         bool close = TargetAccuracy.InCloseRange(Dist(conn.Walk.Position(at), target.Walk.Position(at)));
         return profile.Chance(evasion, target.Rarity == MonsterRarity.Unique, close);
     }
@@ -216,7 +216,8 @@ partial class Program
             // Settle Rage at accepted contact before this hit's gain. It is a final multiplier on the attack packet,
             // never on an existing impale bonus or on generic damage/DoT.
             var player = CharacterPlayerStats(conn);
-            var accuracy = AttackAccuracyProfile.From(conn.Pools, player, Stats, ownPenetration, weapon.LocalSources);
+            var accuracy = AttackAccuracyProfile.From(conn.Pools, player, Stats, ownPenetration, weapon.LocalSources)
+                with { Rating = PlayerAccuracy(conn) };
             double contactAt = conn.Clock.Elapsed.TotalSeconds;
             int hitChance = AttackHitChanceAt(conn, use.TargetId, m, contactAt, accuracy);
             if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, contactAt, conn.AttackAccuracyRandom))
@@ -258,6 +259,7 @@ partial class Program
             conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
             if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
             RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
+            InflictMonsterBlind(m, conn.Clock.Elapsed.TotalSeconds, BlindInputs(player));
         }
         ChargesOnHit(conn, m, critical, spell: false);
         if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
@@ -917,6 +919,7 @@ partial class Program
                             !spell && SkillsFor(conn).IsMelee(gem.Effect), player, skillStats);
                     if (!rageGranted) rageGranted = RageOnHitLocked(conn, attack: !spell,
                         melee: !spell && SkillsFor(conn).IsMelee(gem.Effect), critical, skillStats);
+                    InflictMonsterBlind(m, conn.Clock.Elapsed.TotalSeconds, BlindInputs(player, skillStats));
                 }
             }
             if (applied is not { } hit) continue;

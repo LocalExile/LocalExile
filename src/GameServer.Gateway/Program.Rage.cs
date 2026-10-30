@@ -19,6 +19,7 @@ partial class Program
         {
             if (conn.RageRetired || conn.PlayerLife == 0) conn.Rage.Clear();
             var inputs = RageStats.Inputs(name => RageStat(stats, name));
+            conn.Whisperer.Observe(RageStat(stats, WhispererMana.RagePer200));
             // Stat projections must not advance Rage past an unprocessed projectile contact.
             var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
             foreach (var (name, amount) in RageStats.Display(value, inputs))
@@ -52,7 +53,7 @@ partial class Program
 
     internal static void ClearRageOnDeath(ClientState conn)
     {
-        lock (conn.Monsters) conn.Rage.Clear();
+        lock (conn.Monsters) { conn.Rage.Clear(); conn.Whisperer.Clear(); conn.Blind.Clear(); }
     }
 
     // Successful Auth transfer moves count, loss fraction, activity age and shared interval exactly once. Loading time

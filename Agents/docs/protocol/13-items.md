@@ -1009,6 +1009,11 @@ Otherwise:
    (`Flasks.Effects`); a second use of the same flask queues another effect. Enduring ("Effect does not Queue"), the
    character's "… Flask Effects do not Queue" for its kind of flask, and the suffix's extra life run on their own. The
    buff comes off (S→C 0x1c2) when the time is up, the pool is full (unless it stays), or the player dies.
+   Whisperer's `non_instant_mana_recovery_from_flasks_also_recovers_life` copies continuous Mana recovery to Life.
+   It preserves the original Mana queue, duration, source snapshot and removal rules, including staying at full Mana.
+   Immediate and instant-at-end recovery do not copy; repeated stat rebuilds never create new recovery.
+   Native Small Mana Flask use restored 50 Life at full Mana, and paid removal of the node removed that benefit.
+   See [the complete class model and acceptance](../game/whisperer.md).
 
 Character duration is resolved once from raw inputs by `PanelStats.FlaskDurationIncrease`:
 `G = flask_duration_+% + flask_duration_+%_per_level * actual player level`, with global factor `1 + G / 100`.
