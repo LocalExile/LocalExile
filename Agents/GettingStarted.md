@@ -131,8 +131,8 @@ Success: `Client\Game.exe` (about 79 MB) and `Client\Content.ggpk` exist.
 
 ### Optional external client folder
 
-The default remains `<repository>\Client`. To use another installation, create `client.local.json` in the repository
-root (beside `GameServer.slnx`). This file is ignored by Git. For example:
+The default remains `<repository>\Client`. To use another installation, create `config/client.local.json` in the
+repository. This file is ignored by Git. For example:
 
 ```json
 {
@@ -151,7 +151,8 @@ Malformed local configuration stops the tools with an error rather than silently
 Existing explicit `Game_CLIENT_EXE` and `Game_GGPK` overrides retain precedence for their individual files.
 Extraction passes the same archive to .NET and Python generators.
 Generated server data stays under repository `data/` unless a separate runtime folder is configured below.
-Standalone server commands do not read `client.local.json`; use the existing file environment overrides for those.
+Standalone server commands do not read `config/client.local.json`; use the existing file environment overrides for
+those.
 Other manual RE commands in this guide still need explicit external paths where their examples say `Client/...`.
 
 The client is launched with its own directory as its working directory, so its `config.json` continues to select
@@ -164,8 +165,8 @@ Start it normally from a PowerShell terminal in the repository root:
 
 ### Optional separate build folder
 
-Add `buildDirectory` to the same ignored `client.local.json` to keep compiled programs and intermediate files
-outside the source checkout.
+Add `buildDirectory` to the same ignored `config/client.local.json` to keep compiled programs and intermediate
+files outside the source checkout.
 For example, this layout puts the client and build output beside the repository:
 
 ```json

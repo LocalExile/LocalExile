@@ -44,7 +44,7 @@ one or `wait` seconds (default 1.5) in total. `replies` is null when the servers
 `live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Replies of commands
 sent from the chat box meanwhile are mixed in; the bridge does not capture the HUD.
 
-The control bridge uses the launcher's ignored `client.local.json` settings for an external client and build folder.
+The control bridge uses the launcher's ignored `config/client.local.json` settings for an external client and build folder.
 With `buildDirectory` configured, `game:open` uses that folder's existing Debug Patch DLL for gateway selection.
 Build once through `live.ps1` before using `game:open`; the bridge does not rebuild or fall back to source-tree DLLs.
 With `runtimeDirectory` configured, the bridge reads logs there and servers/extractors use its `data/` and `logs/`.

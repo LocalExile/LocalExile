@@ -2,7 +2,7 @@
 # Runs levelgen (scripts/re/levelgen/Program.cs) without `dotnet run`'s ~10 s: builds into bin/lg only when a source
 # under scripts/re/levelgen or src/GameServer.Data is newer than the build, then runs the dll, which hands the command to
 # the levelgen server (`serve`, started on first use, replaced after a rebuild) so the game files stay open.
-# It reads the client and data/ where the launcher keeps them (client.local.json, as live.ps1).
+# It reads the client and data/ where the launcher keeps them (config/client.local.json, as live.ps1).
 # LEVELGEN_LOCAL=1 runs without the server.
 # Not 'Stop': Windows PowerShell turns a native program's stderr (levelgen's progress lines) into errors. Exit codes count.
 $ErrorActionPreference = 'Continue'

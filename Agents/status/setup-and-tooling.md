@@ -11,7 +11,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `scripts/dev/extract-data.ps1`, `GameDataFiles.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 7.
   Launcher, extraction and native client control also accept an external installation through ignored
-  `client.local.json` or `Game_CLIENT_DIR`; the default remains repository `Client/`.
+  `config/client.local.json` or `Game_CLIENT_DIR`; the default remains repository `Client/`.
   Relative paths use the repository root, while generated data stays under `data/`.
   Native validation reached the login screen from the external folder with the dedicated profile selected.
   Read-only graph and item-type extraction succeeded against the relocated archive.

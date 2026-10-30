@@ -25,7 +25,7 @@ static class TestEnvironment
                     if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Game_SOURCE_ROOT")))
                         Environment.SetEnvironmentVariable("Game_SOURCE_ROOT", RepositoryRoot);
                     string? runtime = Environment.GetEnvironmentVariable("Game_RUNTIME_DIR");
-                    string config = Path.Combine(RepositoryRoot, "client.local.json");
+                    string config = Path.Combine(RepositoryRoot, "config", "client.local.json");
                     if (string.IsNullOrEmpty(runtime) && File.Exists(config))
                     {
                         using var json = JsonDocument.Parse(File.ReadAllText(config));

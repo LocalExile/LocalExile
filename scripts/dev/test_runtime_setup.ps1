@@ -14,7 +14,7 @@ function Expect-Failure($script, $pattern) {
 try {
     $repo = Join-Path $fixture 'source with spaces'
     $runtime = Join-Path $fixture 'runtime with spaces'
-    foreach ($relative in 'scripts\dev', 'data\schema', 'data\tables', 'logs', 'Tools\re\out\ot',
+    foreach ($relative in 'scripts\dev', 'config', 'data\schema', 'data\tables', 'logs', 'Tools\re\out\ot',
         'Tools\ooz\node_modules\ooz-wasm', 'src\Fake\bin', 'src\Fake\obj') {
         New-Item -ItemType Directory -Force -Path (Join-Path $repo $relative) | Out-Null
     }
@@ -25,7 +25,7 @@ try {
         'Tools\ooz\node_modules\ooz-wasm\index.js', 'src\Fake\bin\Fake.dll', 'src\Fake\obj\project.assets.json')
     foreach ($file in $files) { Set-Content -LiteralPath (Join-Path $repo $file) -Value "fixture $file" }
     @{runtimeDirectory='../runtime with spaces'} | ConvertTo-Json |
-        Set-Content -LiteralPath (Join-Path $repo 'client.local.json') -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $repo 'config\client.local.json') -Encoding utf8
     $setup = Join-Path $repo 'scripts\dev\setup-runtime.ps1'
     Expect-Failure { & $setup } 'Existing source data needs migration'
     $global:runtimeSetupTestRunning=$true
@@ -66,7 +66,7 @@ try {
     New-Item -ItemType Junction -Path $junction -Target $plain | Out-Null
     try {
         @{runtimeDirectory=$junction} | ConvertTo-Json |
-            Set-Content -LiteralPath (Join-Path $repo 'client.local.json') -Encoding utf8
+            Set-Content -LiteralPath (Join-Path $repo 'config\client.local.json') -Encoding utf8
         Expect-Failure { & $setup } 'ordinary directories'
     } finally {
         Assert ([IO.Path]::GetFullPath($junction).StartsWith($fixture + '\')) 'unexpected junction cleanup path'

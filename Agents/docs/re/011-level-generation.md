@@ -1471,7 +1471,7 @@ the target open, so the recorder's write of the fourth object threw and left the
   builds into `bin/lg` only when a source changed and hands the command to the levelgen server (`levelgen serve`,
   started on first use from a copy of the build, replaced after a rebuild), which keeps the game files and the
   terrain cache open: ~0.5 s a call. `LEVELGEN_LOCAL=1` runs a command in its own process.
-  It reads `data/` and the client where `client.local.json` keeps them, as `live.ps1` does.
+  It reads `data/` and the client where `config/client.local.json` keeps them, as `live.ps1` does.
 - **Gate:** `scripts/re/levelgen/gate.ps1` before every commit to the generator: every seed-1 trace (tile hash,
   every draw the port makes, both grids, the doodads; a trace with no `.doodads.json` is counted apart, not as a
   doodad failure, and an empty one (the recorder writes it for an area that places none, such as HideoutTemplarLab and

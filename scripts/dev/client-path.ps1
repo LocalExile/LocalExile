@@ -7,7 +7,7 @@ function Resolve-RepositoryPath([string]$RepositoryRoot, [string]$Path) {
 function Get-LocalDirectory([string]$RepositoryRoot, [string]$Setting, [string]$Variable, $Default) {
     $directory = [Environment]::GetEnvironmentVariable($Variable)
     if (-not $directory) {
-        $localConfig = Join-Path $RepositoryRoot 'client.local.json'
+        $localConfig = Join-Path $RepositoryRoot 'config\client.local.json'
         if (Test-Path -LiteralPath $localConfig) {
             try { $config = Get-Content -LiteralPath $localConfig -Raw | ConvertFrom-Json }
             catch { throw "cannot read ${localConfig}: $($_.Exception.Message)" }

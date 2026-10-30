@@ -11,7 +11,7 @@ try {
     $repo = Join-Path $fixture 'source with spaces'
     $client = Join-Path $fixture 'client with spaces'
     New-Item -ItemType Directory -Force -Path (Join-Path $repo 'scripts\dev'),
-        (Join-Path $repo 'data'), $client | Out-Null
+        (Join-Path $repo 'data'), (Join-Path $repo 'config'), $client | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'live.ps1'), (Join-Path $PSScriptRoot 'client-path.ps1'),
         (Join-Path $PSScriptRoot 'setup-runtime.ps1'), (Join-Path $PSScriptRoot 'run.ps1'), (Join-Path $PSScriptRoot 'stop.ps1') `
         -Destination (Join-Path $repo 'scripts\dev')
@@ -75,7 +75,7 @@ try {
         if ($externalRuntime) { $config.runtimeDirectory=$runtime }
         if ($configuredBuild) { $config.buildDirectory=$configuredBuild }
         $buildDirectory = if ($configuredBuild) { $configuredBuild } elseif ($externalRuntime) { $runtime } else { $null }
-        $config | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repo 'client.local.json') -Encoding utf8
+        $config | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repo 'config\client.local.json') -Encoding utf8
         foreach ($noBuild in $false, $true) {
             $global:liveBuildTestBuilds.Clear(); $global:liveBuildTestLaunches.Clear()
             & (Join-Path $repo 'scripts\dev\live.ps1') -NoClient -NoExtract -NoBuild:$noBuild

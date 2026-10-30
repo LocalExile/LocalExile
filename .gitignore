@@ -82,4 +82,4 @@ desktop.ini
 /scripts/re/levelgen/loads-latest.json
 
 # Per-checkout client installation path
-/client.local.json
+/config/client.local.json

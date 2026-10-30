@@ -20,7 +20,8 @@ class BuildPathsTests(unittest.TestCase):
     def test_defaults_partial_config_environment_and_invalid_settings(self):
         with tempfile.TemporaryDirectory(prefix="build paths ") as folder:
             repo = Path(folder)
-            config = repo / "client.local.json"
+            config = repo / "config" / "client.local.json"
+            config.parent.mkdir()
             self.assertIsNone(paths["build_directory"](repo, {}))
             self.assertEqual(repo / "Client", paths["client_directory"](repo, {}))
             for settings in ({"clientDirectory": "../Client"}, {"buildDirectory": "../build with spaces"},
@@ -56,7 +57,8 @@ class BuildPathsTests(unittest.TestCase):
                 repo = Path(folder)
                 directory = repo / "artifacts with spaces" if external else None
                 config = {"buildDirectory": str(directory)} if external else {"clientDirectory": "Client"}
-                (repo / "client.local.json").write_text(json.dumps(config), encoding="utf-8")
+                (repo / "config").mkdir()
+                (repo / "config" / "client.local.json").write_text(json.dumps(config), encoding="utf-8")
                 assembly = paths["project_assembly"](repo, "scripts/re/ggdump", directory)
                 todo = ["Metadata/" + "a" * 13000, "Metadata/" + "b" * 13000]
                 calls = []

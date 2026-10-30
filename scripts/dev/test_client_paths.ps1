@@ -9,10 +9,10 @@ $savedBuild = $env:Game_BUILD_DIR
 $savedRuntime = $env:Game_RUNTIME_DIR
 function Assert($value, $message) { if (-not $value) { throw $message } }
 try {
-    New-Item -ItemType Directory -Path $testRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $testRoot 'config') | Out-Null
     $env:Game_CLIENT_DIR = $null; $env:Game_CLIENT_EXE = $null; $env:Game_GGPK = $null
     $env:Game_BUILD_DIR = $null; $env:Game_RUNTIME_DIR = $null
-    $configPath = Join-Path $testRoot 'client.local.json'
+    $configPath = Join-Path $testRoot 'config\client.local.json'
     function Check($expected) {
         $paths = Get-ClientPaths -RepositoryRoot $testRoot
         Assert ($paths.Directory -eq $expected) 'wrong PowerShell directory'

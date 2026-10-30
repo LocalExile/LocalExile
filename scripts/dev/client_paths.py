@@ -8,7 +8,7 @@ def _directory(repository, setting, variable, default, environ):
     environ = os.environ if environ is None else environ
     directory = environ.get(variable)
     if not directory:
-        config_file = Path(repository) / "client.local.json"
+        config_file = Path(repository) / "config" / "client.local.json"
         if config_file.exists():
             config = json.loads(config_file.read_text(encoding="utf-8-sig"))
             names = ("clientDirectory", "buildDirectory", "runtimeDirectory")

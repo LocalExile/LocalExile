@@ -14,7 +14,7 @@ try {
     $runtime = if ($external) { Join-Path $fixture 'runtime with spaces' } else { $repo }
     $buildDirectory = if ($external) { $runtime } else { $null }
     $client = Join-Path $fixture 'external client with spaces'
-    New-Item -ItemType Directory -Force -Path (Join-Path $repo 'scripts\dev'), (Join-Path $runtime 'data\tables'),
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo 'scripts\dev'), (Join-Path $repo 'config'), (Join-Path $runtime 'data\tables'),
         (Join-Path $runtime 'Tools\ooz\node_modules\ooz-wasm'), (Join-Path $repo 'Tools\ooz'), $client | Out-Null
     foreach ($file in 'package.json', 'package-lock.json') {
         Set-Content -LiteralPath (Join-Path $repo "Tools\ooz\$file") -Value '{}'
@@ -29,7 +29,7 @@ try {
     . (Join-Path $PSScriptRoot 'client-path.ps1')
     $config = @{clientDirectory=$client}
     if ($external) { $config.runtimeDirectory=$runtime }
-    $config | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repo 'client.local.json') -Encoding utf8
+    $config | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repo 'config\client.local.json') -Encoding utf8
     $global:clientPathTestCalls.Clear()
     $expectedAssembly = Get-ProjectAssembly $repo 'Tools/PoEDataExtractor' $buildDirectory
     function Start-Process {
