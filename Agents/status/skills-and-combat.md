@@ -374,7 +374,8 @@ and can require explicit recipes.
   its recovery as the client adds it; the live cooldown checks under "Instant skills and cooldowns" ran before
   warcries took that path.
   Gateway coverage; not yet checked with the real client.
-  Global flat added damage and flat crit chance (the wiki's Explode page applies both), on-hit effects, art and the
+  Each exploding corpse shows a generic gore burst; the native art is not traced.
+  Global flat added damage and flat crit chance (the wiki's Explode page applies both), on-hit effects and the
   client's 0.22 s wave delay are not modelled.
   Code: `Program.Warcries.cs`, `UseChargeSkillCore`, `SingleUseCooldown.cs`.
   Docs: [11](../docs/protocol/11-skills.md) section 10i.

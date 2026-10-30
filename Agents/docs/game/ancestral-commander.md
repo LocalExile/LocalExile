@@ -105,9 +105,11 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
     as in every server hit), then the monster's mitigation.
     It is neither an attack nor a spell, so it is not blocked or evaded, and its base critical strike chance is 0%.
     Kills give experience, loot and quest progress through `MonsterKilled`.
+    Each consumed corpse gets the generic gore burst (`gore_explosion_no_gibs.ao`, MiscAnimated `SuicideExplodeNoGibs`)
+    as an effect object at its cell, removed after 2 s; which art the client's warcry wave plays is unverified.
     Not modelled: global flat added damage and flat critical strike chance, which the wiki's Explode page says apply to
     non-skill explosions (so on the server it never crits), on-hit effects and ailments,
-    the explosion art, the client's wave delay (distance / radius × 0.22 s in `0x141abd490`; the wave list's consumer
+    the client's wave delay (distance / radius × 0.22 s in `0x141abd490`; the wave list's consumer
     was not found) and the other warcries (only Enduring Cry has an executor).
   - Chests: the Twilight Strand support gem chest (saved `Tutorial.ChestOpened` first, as when walked up to) and the
     Mud Flats Rhoa Nests (`InstanceStore.OpenChest`) open when they are within the radius.
