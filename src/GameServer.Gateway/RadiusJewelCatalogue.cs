@@ -41,7 +41,7 @@ static class RadiusJewelCatalogue
         new("Chaos Resistance", "UniqueJewelNodeChaosResistUnique__1"),
     ];
 
-    public static readonly Entry[] All =
+    internal static readonly Entry[] Seed =
     [
         new("Brute Force Solution", "Cobalt Jewel", ["IntelligenceUniqueJewel35"], "JewelStrToIntUniqueJewel35"),
         new("Careful Planning", "Viridian Jewel", ["DexterityUniqueJewel36"], "JewelIntToDexUniqueJewel36"),
@@ -121,8 +121,9 @@ static class RadiusJewelCatalogue
             "JewelUniqueAllocateDisconnectedPassives", 0, 1, false, 800, RingVariants, null, true),
         new("Unnatural Instinct", "Viridian Jewel", [], "GrantsStatsFromNonNotablesInRadiusUnique__1", 1, 1, false, 800,
             null, ["AllocatedNonNotablesGrantNothingUnique__1_"]),
-        ..ThresholdJewelCatalogue.All,
     ];
+
+    public static Entry[] All => GameDataCatalog.RadiusJewels;
 
     public static string[] Names => [.. All.Select(entry => entry.Name).Distinct(StringComparer.OrdinalIgnoreCase)];
 
@@ -541,7 +542,7 @@ static class RadiusJewelCatalogue
 
     static ItemMod CreateMod(ModCatalog.Mod row, int? value = null, ModSection section = ModSection.Explicit)
     {
-        var values = row.Stats.Select(stat => stat.Max).ToArray();
+        var values = row.MaxValues().ToArray();
         if (value is int selected)
             for (int i = 0; i < row.Stats.Count; i++)
                 if (row.Stats[i].Id == "local_jewel_variable_ring_radius_value") values[i] = selected;

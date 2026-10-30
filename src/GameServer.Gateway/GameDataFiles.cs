@@ -7,7 +7,13 @@ static class GameDataFiles
 {
     public static readonly (string File, string Feature)[] All =
     [
-        ("data/tables/WorldAreas.json", "the game tables (stats, areas, waypoints, items, monsters, NPCs)"),
+        ("data/tables/WorldAreas.json", "the game tables (areas, waypoints, monsters, NPCs)"),
+        ("data/tables/BaseItemTypes.json", "item bases (items, drops and /item)"),
+        ("data/tables/ItemClasses.json", "item classes (socket caps and weapon restrictions)"),
+        ("data/tables/Stats.json", "stats and the editable stat reference"),
+        ("data/tables/Mods.json", "mods, affix rolls and the editable mod reference"),
+        ("data/tables/Tags.json", "mod spawn tags (affix rolls)"),
+        ("data/tables/UniqueStashLayout.json", "unique item names and artwork"),
         ("data/tables/PassiveJewelSlots.json", "ordinary passive tree jewel sockets"),
         ("data/tables/ModType.json", "vendor affix sale-price categories"),
         ("data/tables/Essences.json", "essence crafting and class-specific guaranteed modifiers"),

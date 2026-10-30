@@ -20,14 +20,16 @@ partial class Program
         if (!TargetMatches(passive, entry.Target)) return $"{entry.Name} replaces {entry.Target}, not {passive.Name} ({node})";
         if (conn.Tattoos.GetValueOrDefault(node) == entry.Name) return $"{passive.Name} ({node}) already has {entry.Name}";
         if (TattooStats.For(entry.Name) is null) return $"{entry.Name} has no server effect yet";
-        if (!conn.Tattoos.ContainsKey(node) && conn.Tattoos.Count >= 50) return "a character can have at most 50 tattoos";
+        int totalLimit = ItemsFor(conn).Limits.Get("tattoo_total", SystemSettings.Default.TattooTotalLimit);
+        if (!conn.Tattoos.ContainsKey(node) && totalLimit > 0 && conn.Tattoos.Count >= totalLimit)
+            return $"a character can have at most {totalLimit} tattoos";
         if (entry.EventOnly) return $"{entry.Name} is event-only and is not supported yet";
         if (entry.Name.StartsWith("Loyalty ", StringComparison.Ordinal)) return "Loyalty tattoos are not supported yet";
         if (entry.Name.StartsWith("Honoured Tattoo of the ", StringComparison.Ordinal)
             && entry.Target.StartsWith("Notable", StringComparison.Ordinal)) return "Honoured attribute notables are not supported yet";
 
         var next = new Dictionary<ushort, string>(conn.Tattoos) { [node] = entry.Name };
-        if (TattooLimitRefusal(next, node, entry) is { } limitError) return limitError;
+        if (TattooLimitRefusal(next, node, entry, ItemsFor(conn).Limits) is { } limitError) return limitError;
         var nextKeystones = new Dictionary<ushort, ushort>(conn.TattooKeystones);
         bool journeyMakanui = entry.Name == "Journey Tattoo of Makanui";
         JourneyMakanuiCatalogue.Entry? chosen = null;
@@ -167,13 +169,17 @@ partial class Program
     /// <summary>One tattoo per client limit group (Loyalty, Attribute Notable, Ancestral, Keystone, Ascendancy),
     /// apart from the global 50 cap. The same group on the same node is a replacement and is allowed.</summary>
     internal static string? TattooLimitRefusal(IReadOnlyDictionary<ushort, string> tattoos, ushort node,
-        TattooCatalogue.Entry entry)
+        TattooCatalogue.Entry entry, LimitSettings? limits = null)
     {
         if (entry.Limit < 0 || TattooCatalogue.LimitName(entry.Limit) is not { } group) return null;
+        int limit = (limits ?? LimitSettings.Default).Get($"tattoo:{group}", SystemSettings.Default.TattooGroupLimit);
+        if (limit == 0) return null;
+        int count = 0;
         foreach (var (other, name) in tattoos)
             if (other != node && TattooCatalogue.Find(name) is { } existing && existing.Limit == entry.Limit)
-                return $"only one {group} can be applied";
-        return null;
+                count++;
+        return count < limit ? null
+            : limit == 1 ? $"only one {group} can be applied" : $"only {limit} {group} can be applied";
     }
 
     /// <summary>The counting tattoos' aggregate stats: Journey Body/Mind/Soul grant their flat pool per allocated

@@ -9,9 +9,11 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 {
-    public sealed record Definition(string Name, string BaseTypeId, IReadOnlyList<string> Mods, byte ItemLevel = 86);
+    public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
+        bool Corrupted = false);
 
-    static readonly Definition[] Definitions =
+    /// <summary>The two entries whose curated 3.29 data differs from the PoB export used for the full catalogue.</summary>
+    static readonly Definition[] Curated =
     [
         // Mageblood (Heavy Belt): the +25-35 Strength is the Heavy Belt implicit; the rest are the unique's mods.
         new("Mageblood", "Metadata/Items/Belts/Belt4",
@@ -25,14 +27,23 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
              "ManaLeechPermyriadUniqueHelmetInt7", "SpellDamageModifiersApplyToAttackDamageUniqueHelmetInt7"]),
     ];
 
+    /// <summary>The generated full PoB catalogue (see scripts/re/unique_items.py), with the curated entries first so
+    /// the existing item tests and name lookup keep their 3.29 definitions.</summary>
+    internal static readonly Definition[] Seed =
+    [
+        .. Curated,
+        .. UniqueItemSeed.All.Where(entry => Curated.All(curated =>
+            !curated.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase))),
+    ];
+
     readonly Lazy<Dictionary<string, UniqueName>> _names = new(() => LoadNames(folder));
 
-    public IReadOnlyList<Definition> All => Definitions;
+    public IReadOnlyList<Definition> All => GameDataCatalog.Uniques;
 
     /// <summary>The definition a name matches (exact first, then the first containing it), or null.</summary>
     public Definition? Find(string name) =>
-        Definitions.FirstOrDefault(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-        ?? Definitions.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+        All.FirstOrDefault(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The unique item for a name, or null when the name is not one or its base type is not writable.</summary>
     public Item? Create(string name, Random random)
@@ -42,13 +53,18 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         var item = ItemCatalog.Create(type) with
         {
             ItemLevel = definition.ItemLevel, Rarity = ItemRarity.Unique, Identified = true,
+            Corrupted = definition.Corrupted,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
         var mods = item.Mods.ToList();
         foreach (string id in definition.Mods)
         {
             if (items.Mods.ById(id) is not { } mod) continue;
-            var values = mod.Stats.Select(s => s.Min == s.Max ? s.Min : random.Next(s.Min, s.Max + 1)).ToArray();
+            var values = mod.Stats.Select((_, i) =>
+            {
+                var (min, max) = mod.RangeAt(i);
+                return min == max ? min : random.Next(min, max + 1);
+            }).ToArray();
             mods.Add(new ItemMod(ModSection.Explicit, mod.Hash, values));
         }
         return item with { Mods = mods };
@@ -66,16 +82,13 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         using var layout = JsonDocument.Parse(File.ReadAllBytes(Table("UniqueStashLayout")));
         using var visuals = JsonDocument.Parse(File.ReadAllBytes(Table("ItemVisualIdentity")));
         // Unique names are wordlist 6 (rare names use 1 and 2); a layout row links the word to the unique artwork.
+        // Keep every wordlist row, not only the definitions known at startup: a definition added to the database later
+        // can then resolve its existing client word and art without a code change.
         var byWord = new Dictionary<int, string>();
-        foreach (var definition in Definitions)
-        {
-            int row = -1;
-            for (int i = 0; i < words.RootElement.GetArrayLength(); i++)
-                if (words.RootElement[i].GetProperty("Wordlist").GetInt32() == 6
-                    && words.RootElement[i].GetProperty("Text").GetString() == definition.Name) { row = i; break; }
-            if (row < 0) continue;
-            byWord[row] = definition.Name;
-        }
+        for (int i = 0; i < words.RootElement.GetArrayLength(); i++)
+            if (words.RootElement[i].GetProperty("Wordlist").GetInt32() == 6
+                && words.RootElement[i].GetProperty("Text").GetString() is { Length: > 0 } text)
+                byWord[i] = text;
         foreach (var r in layout.RootElement.EnumerateArray())
         {
             int wordsKey = r.GetProperty("WordsKey").GetInt32(), visualKey = r.GetProperty("ItemVisualIdentityKey").GetInt32();

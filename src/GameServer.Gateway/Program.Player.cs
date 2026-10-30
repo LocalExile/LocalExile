@@ -95,7 +95,8 @@ partial class Program
         lock (conn.Monsters) buff = conn.NextBuff++;
         bool hideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null;
         if (conn.EntryProtection.Start(now, conn.Walk.Position(now), buff, InTown(conn), hideout))
-            await Send(remote, stream, ciphers, GracePeriod.BeginPacket(PlayerId, buff), "Grace Period: 60 seconds of entry protection");
+            await Send(remote, stream, ciphers, GracePeriod.BeginPacket(PlayerId, buff),
+                $"Grace Period: {GracePeriod.Seconds} seconds of entry protection");
     }
 
     static async Task EndGracePeriod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool action = false)
@@ -453,9 +454,9 @@ partial class Program
             if (conn.Layout.Waypoint is { } waypoint
                 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (waypoint.GridX, waypoint.GridY)) <= WaypointActivationRange)
                 await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
-            // Gold within GoldAutoLootRange is picked up without a click.
+            // Gold within the configured auto-loot radius is picked up without a click.
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            foreach (var (id, gold) in conn.Instance.Ground.Within(at.X, at.Y, GoldAutoLootRange, IsGold))
+            foreach (var (id, gold) in conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold))
             {
                 await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted");
                 lock (conn.Monsters)

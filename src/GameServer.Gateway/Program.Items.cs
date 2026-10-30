@@ -203,16 +203,16 @@ partial class Program
             _ => "",
         };
         if (sockets > 0 && socketMod.Length > 0 && Items.Mods.ById(socketMod) is { } socket && socket.Stats.Count > 0)
-            mods.Add(new ItemMod(ModSection.Enchant, socket.Hash, [.. socket.Stats.Select(s => s.Max)]));
+            mods.Add(new ItemMod(ModSection.Enchant, socket.Hash, [.. socket.MaxValues()]));
         // The theme: what the cluster's small passives grant ("Added Small Passive Skills grant: ..."). It is an
         // enchantment (like the count and the sockets); a smaller jewel in a larger socket is padded by the client
         // with empty nodes instead, see JewelFitsCell.
         if (Items.Mods.ById(theme ?? "AfflictionJewelSmallPassivesGrantLife_") is { } themed && themed.Stats.Count > 0)
-            mods.Add(new ItemMod(ModSection.Enchant, themed.Hash, [.. themed.Stats.Select(s => s.Max)]));
+            mods.Add(new ItemMod(ModSection.Enchant, themed.Hash, [.. themed.MaxValues()]));
         // "1 Added Passive Skill is <notable>": an explicit prefix, one per notable the jewel has.
         foreach (string notable in asked)
             if (Items.Mods.ById(notable) is { } found && found.Stats.Count > 0)
-                mods.Add(new ItemMod(ModSection.Explicit, found.Hash, [.. found.Stats.Select(s => s.Max)]));
+                mods.Add(new ItemMod(ModSection.Explicit, found.Hash, [.. found.MaxValues()]));
         return ItemCatalog.Create(baseType) with
         {
             // The notables are the item's only affixes. A jewel without one is Normal, one or two are Magic (a magic
@@ -315,8 +315,8 @@ partial class Program
             VisualIdentity = visual,
             Mods =
             [
-                new ItemMod(ModSection.Explicit, sockets.Hash, [.. sockets.Stats.Select(s => s.Max)]),
-                new ItemMod(ModSection.Explicit, empty.Hash, [.. empty.Stats.Select(s => s.Max)]),
+                new ItemMod(ModSection.Explicit, sockets.Hash, [.. sockets.MaxValues()]),
+                new ItemMod(ModSection.Explicit, empty.Hash, [.. empty.MaxValues()]),
             ],
         };
     }
@@ -362,7 +362,8 @@ partial class Program
         {
             if (Items.Mods.ById(entry.Mods[i]) is not { } mod || mod.Stats.Count == 0) continue;
             int? fixedValue = i < entry.Values.Length ? entry.Values[i] : null;
-            var values = mod.Stats.Select((stat, index) => index == 0 && fixedValue is int value ? value : stat.Max).ToArray();
+            var values = mod.MaxValues().ToArray();
+            if (fixedValue is int value) values[0] = value;
             mods.Add(new ItemMod(ModSection.Explicit, mod.Hash, values));
         }
         if (mods.Count == 0) return null;
@@ -401,26 +402,40 @@ partial class Program
         if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
         {
             if (expansion) return "timeless jewels go in an ordinary passive tree socket";
-            var items = ItemsOf(conn);
-            if (items.Items(PlayerInventories.PassiveJewels)
-                .Any(i => i.X != x && TimelessJewelCatalog.IsTimeless(i.Item, ItemsFor(conn))))
-                return "only one Historic timeless jewel can be socketed";
+            int limit = ItemsFor(conn).Limits.Get("timeless_jewel", SystemSettings.Default.TimelessJewelLimit);
+            if (limit > 0)
+            {
+                var items = ItemsOf(conn);
+                int held = items.Items(PlayerInventories.PassiveJewels)
+                    .Count(i => i.X != x && TimelessJewelCatalog.IsTimeless(i.Item, ItemsFor(conn)));
+                if (held >= limit) return limit == 1
+                    ? "only one Historic timeless jewel can be socketed"
+                    : $"only {limit} Historic timeless jewels can be socketed";
+            }
         }
         if (ImpossibleEscapeCatalogue.Read(item, ItemsFor(conn).Mods) is not null)
         {
-            var items = ItemsOf(conn);
-            if (items.Items(PlayerInventories.PassiveJewels)
-                .Any(i => i.X != x && ImpossibleEscapeCatalogue.Read(i.Item, ItemsFor(conn).Mods) is not null))
-                return "only 1 Impossible Escape can be socketed";
+            int limit = ItemsFor(conn).Limits.Get("impossible_escape", SystemSettings.Default.ImpossibleEscapeLimit);
+            if (limit > 0)
+            {
+                var items = ItemsOf(conn);
+                int held = items.Items(PlayerInventories.PassiveJewels)
+                    .Count(i => i.X != x && ImpossibleEscapeCatalogue.Read(i.Item, ItemsFor(conn).Mods) is not null);
+                if (held >= limit) return limit == 1
+                    ? "only 1 Impossible Escape can be socketed"
+                    : $"only {limit} Impossible Escape can be socketed";
+            }
         }
         if (expansion && RadiusJewelCatalogue.IsRadius(item, ItemsFor(conn).Mods))
             return "radius unique jewels go in an ordinary passive tree socket";
-        if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { Limit: > 0 } limited)
+        if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { } limited)
         {
+            int baseLimit = limited.Limit > 0 ? limited.Limit : SystemSettings.Default.RadiusJewelDefaultLimit;
+            int limit = ItemsFor(conn).Limits.Get($"radius:{limited.Name}", baseLimit);
             var items = ItemsOf(conn);
-            if (items.Items(PlayerInventories.PassiveJewels)
-                .Count(i => i.X != x && RadiusJewelCatalogue.IsSameEntry(i.Item, item, ItemsFor(conn).Mods)) >= limited.Limit)
-                return $"only {limited.Limit} {limited.Name} can be socketed";
+            if (limit > 0 && items.Items(PlayerInventories.PassiveJewels)
+                .Count(i => i.X != x && RadiusJewelCatalogue.IsSameEntry(i.Item, item, ItemsFor(conn).Mods)) >= limit)
+                return $"only {limit} {limited.Name} can be socketed";
         }
         if (!JewelFitsCell(x, item)) return $"{type.Name} does not fit this socket";
         int needs = ItemModStats.LevelRequirement(item, type.DropLevel, ItemsFor(conn).Mods);

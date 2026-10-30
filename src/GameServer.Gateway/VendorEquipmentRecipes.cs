@@ -55,8 +55,12 @@ sealed partial class VendorRecipes
                 .SelectMany(p => p.Item1!.Stats.Select((s, n) => (s.Id, Value: p.m.Values[n])))
                 .Where(s => s.Id == "base_movement_velocity_+%").Select(s => s.Value).DefaultIfEmpty(0).Max();
             int target = boots.Item.Rarity == ItemRarity.Normal ? 10 : old > 0 && old < 30 ? old + 5 : 0;
-            if (target == 0 || _catalog.Mods.All.FirstOrDefault(m => m.Id.StartsWith("MovementVelocity") && m.Stats.Count == 1
-                && m.Stats[0].Min == target && m.Stats[0].Max == target && m.Domain == 1) is not { } mod) continue;
+            if (target == 0 || _catalog.Mods.All.FirstOrDefault(m =>
+            {
+                var range = m.RangeAt(0);
+                return m.Id.StartsWith("MovementVelocity") && m.Stats.Count == 1
+                    && range.Min == target && range.Max == target && m.Domain == 1;
+            }) is not { } mod) continue;
             rewards.Add(WithMod(boots, mod)); spend("Orb of Augmentation", 1); Consume("movement speed boots", boots, flask);
         }
 

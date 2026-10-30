@@ -102,6 +102,20 @@ features.
   whole-unique native acquisition/tooltip behavior, nonpositive-duration policy, official fractional rounding and
   queued native timer/predictor presentation remain open. See protocol 13 §8 and the items status.
 
+## 4. Server design
+
+- **Editable game data and limits:** the SQLite overlay, snapshot/reload foundation, mod roll ranges and item limits are
+  implemented and live-checked. The unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
+  catalogues are now in `catalog_entries` (including the full 1,302-row unique catalogue), seeded from the current code
+  arrays and swapped on `/game_data reload`. The `stats`/`mods`/`mod_stats` reference tables and
+  `effective_mod_stats` view give an editor the default keys and ranges without opening the JSON. `system_settings` now
+  holds socket caps by item class, passive points per level, drop/pack/experience/max-level/gold/default-limit/grace
+  numbers. The next step is item templates with custom names, then the admin interface, then NPC shops/placements and
+  the remaining drop/balance settings.
+  The client-compatibility boundary, schema and cache plan are in
+  [dev/editable-game-data.md](../docs/dev/editable-game-data.md).
+  The extracted JSON stays the reference; the database only overrides it.
+
 ## 5. Project
 
 - Completed currency metacraft protection for supported explicit-affix currencies;

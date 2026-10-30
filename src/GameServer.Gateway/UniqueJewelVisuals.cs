@@ -5,7 +5,7 @@
 /// HASH16 the client draws for the item. A jewel whose name is missing has no art of its own.</summary>
 static class UniqueJewelVisuals
 {
-    static readonly Dictionary<string, ushort> ByName = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, ushort> Seed = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Amanamu's Gaze"] = 20942,
         ["Anatomical Knowledge"] = 20403,
@@ -198,6 +198,8 @@ static class UniqueJewelVisuals
         ["Winter's Bounty"] = 57661,
         ["Witchbane"] = 44534,
     };
+
+    public static IReadOnlyDictionary<string, ushort> ByName => GameDataCatalog.JewelVisuals;
 
     public static ushort? Of(string name) =>
         ByName.TryGetValue(name, out ushort visual) && visual != 0 ? visual : null;

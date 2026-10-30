@@ -88,14 +88,15 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     public static int GoldAmount(int monsterLevel, MonsterRarity rarity, Random rng)
     {
         double chance = rarity switch { MonsterRarity.Normal => 0.40, MonsterRarity.Magic => 0.75, _ => 1 };
-        if (rng.NextDouble() >= chance) return 0;
+        chance = Math.Min(1, chance * SystemSettings.Default.GoldChanceMultiplier);
+        if (chance <= 0 || rng.NextDouble() >= chance) return 0;
         double times = rarity switch { MonsterRarity.Magic => 2, MonsterRarity.Rare => 5, MonsterRarity.Unique => 15, _ => 1 };
         return Math.Max(1, (int)Math.Round((3 + 1.2 * Math.Max(1, monsterLevel)) * times * (0.75 + 0.5 * rng.NextDouble())));
     }
 
     /// <summary>A pile of gold for a dying monster (<see cref="GoldAmount"/>), or null for none.</summary>
     public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng, double multiplier = 1) =>
-        (int)Math.Floor(GoldAmount(monsterLevel, rarity, rng) * Math.Clamp(multiplier, 0, 1)) is int amount and > 0 && catalog.Find(GoldId) is { Supported: true } type
+        (int)Math.Floor(GoldAmount(monsterLevel, rarity, rng) * Math.Max(0, multiplier)) is int amount and > 0 && catalog.Find(GoldId) is { Supported: true } type
             ? new Drop(ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(amount, ushort.MaxValue) }, type) : null;
 
     /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the campaign). Our own
@@ -103,7 +104,8 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng)
     {
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
-        if (maps is null || rng.NextDouble() >= chance) return null;
+        chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps"));
+        if (maps is null || chance <= 0 || rng.NextDouble() >= chance) return null;
         int tier = Math.Clamp(mapTier > 0 ? mapTier : 1, 1, 16);
         if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
         var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) };
@@ -113,17 +115,23 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     Drop? RollOne(int level, MonsterRarity monster, Random rng, int increasedRarity = 0, double rarityMultiplier = 1)
     {
         var (currency, equipment, flasks, gems) = _pools.Value;
-        double kind = rng.NextDouble();
+        double currencyWeight = 0.45 * SystemSettings.Default.DropMultiplier("currency");
+        double gemWeight = 0.04 * SystemSettings.Default.DropMultiplier("gems");
+        double flaskWeight = 0.10 * SystemSettings.Default.DropMultiplier("flasks");
+        double equipmentWeight = 0.41 * SystemSettings.Default.DropMultiplier("equipment");
+        double totalWeight = currencyWeight + gemWeight + flaskWeight + equipmentWeight;
+        if (totalWeight <= 0) return null;
+        double kind = rng.NextDouble() * totalWeight;
         ItemCatalog.BaseType? type = null;
-        if (kind < 0.45 && currency.Count > 0)
+        if (kind < currencyWeight && currency.Count > 0)
         {
             int total = currency.Sum(c => c.Weight), pick = rng.Next(total);
             foreach (var (t, w) in currency) { if (pick < w) { type = t; break; } pick -= w; }
         }
-        // 4% of items are gems, a rate of our own until the game's drop pools are known; gems have no rarity roll.
-        else if (kind < 0.49 && gems.Where(g => g.DropLevel <= level).ToList() is { Count: > 0 } g)
+        else if (kind < currencyWeight + gemWeight && gems.Where(g => g.DropLevel <= level).ToList() is { Count: > 0 } g)
             type = g[rng.Next(g.Count)].Type;
-        else if (kind < 0.59 && flasks.Where(f => f.DropLevel <= level).ToList() is { Count: > 0 } f)
+        else if (kind < currencyWeight + gemWeight + flaskWeight
+            && flasks.Where(f => f.DropLevel <= level).ToList() is { Count: > 0 } f)
             type = f[rng.Next(f.Count)].Type;
         else if (equipment.Where(e => e.DropLevel <= level).ToList() is { Count: > 0 } e)
             type = e[rng.Next(e.Count)].Type;
@@ -137,7 +145,10 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         if (rolls is not null && EquipmentClasses.Contains(type.Class))
         {
             var chances = EquipmentRarity(monster);
-            var (magic, rare) = WithIncreasedRarity((chances.Magic * rarityMultiplier, chances.Rare * rarityMultiplier), increasedRarity);
+            double uniqueRarity = SystemSettings.Default.DropMultiplier("unique_rarity");
+            var (magic, rare) = WithIncreasedRarity(
+                (chances.Magic * rarityMultiplier * uniqueRarity, chances.Rare * rarityMultiplier * uniqueRarity),
+                increasedRarity);
             double r = rng.NextDouble();
             // Magic and rare items drop unidentified (a Scroll of Wisdom identifies them, C→S 0x71).
             if (r < rare) item = rolls.Roll(item, ItemRarity.Rare, rng) with { Identified = false };

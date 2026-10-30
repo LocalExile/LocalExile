@@ -20,7 +20,7 @@ static class TimelessJewelCatalog
         public bool IsElegantHubris => DisplayMultiplier > 1;
     }
 
-    public static readonly Entry[] All =
+    internal static readonly Entry[] Seed =
     [
         new("Glorious Vanity", 1, "Vaal", "UniqueJewelAlternateTreeInRadiusVaal", 100, 8000, 1,
             [new("Xibaqua", 1, 0), new("Ahuana", 2, 1), new("Doryani", 3, 0)]),
@@ -35,6 +35,8 @@ static class TimelessJewelCatalog
         new("Heroic Tragedy", 6, "Kalguur", "UniqueJewelAlternateTreeInRadiusKalguur", 100, 8000, 1,
             [new("Vorana", 1, 0), new("Uhtred", 2, 0), new("Medved", 3, 0)]),
     ];
+
+    public static Entry[] All => GameDataCatalog.TimelessJewels;
 
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 

@@ -213,15 +213,9 @@ static class CurrencyEffects
     public static int SocketCapacity(Item item, ItemCatalog.BaseType type)
     {
         if (!item.Components.Contains("Sockets") || !type.Components.Contains("Sockets")) return 0;
-        int limit = type.Class switch
-        {
-            "Body Armour" or "Bow" or "Staff" or "Warstaff" or "Two Hand Sword" or "Two Hand Axe" or "Two Hand Mace" => 6,
-            "Helmet" or "Gloves" or "Boots" => 4,
-            "Shield" or "Claw" or "Dagger" or "Rune Dagger" or "Wand" or "One Hand Sword" or
-                "Thrusting One Hand Sword" or "One Hand Axe" or "One Hand Mace" or "Sceptre" => 3,
-            _ => 0,
-        };
-        return Math.Min(limit, type.Width * type.Height);
+        // The class setting is the cap, not the inventory cell count: a wand is 1x3 cells but may be given six
+        // sockets by the setting, as the old Game_SOCKET_CAPACITY dev flag already allowed. The client accepts it.
+        return SystemSettings.Default.SocketMax(type.Class);
     }
 
     /// <summary>Reroll the socket count and link groups. Refused targets spend no currency. 3.29: only the sockets the

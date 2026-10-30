@@ -5,7 +5,7 @@
 /// </summary>
 static class TattooStats
 {
-    static readonly Dictionary<string, (string Stat, int Value)[]> Entries = new(StringComparer.Ordinal)
+    internal static readonly Dictionary<string, (string Stat, int Value)[]> Seed = new(StringComparer.Ordinal)
     {
         ["Tattoo of the Ngamahu Firewalker"] = [("base_fire_damage_resistance_%", 6)],
         ["Tattoo of the Arohongui Moonwarden"] = [("base_cold_damage_resistance_%", 6)],
@@ -63,7 +63,9 @@ static class TattooStats
             [("life_mana_es_recovery_rate_+%_per_different_tribe_tattoos_allocated", 2)],
     };
 
-    public static IReadOnlyCollection<string> Names => Entries.Keys;
+    public static IReadOnlyDictionary<string, (string Stat, int Value)[]> Entries => GameDataCatalog.TattooEffects;
+
+    public static IReadOnlyCollection<string> Names => [.. Entries.Keys];
 
     /// <summary>The tattoo's replacement stats as client stat keys, or null when the tattoo is not in the pilot (or
     /// its stat names are missing from the client's Stats table).</summary>

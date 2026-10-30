@@ -815,10 +815,35 @@ partial class Program
                 ? $"Map portals will be created at {conn.PortalRotationDegrees:0.#}°."
                 : $"{rebuilt} map portal(s) rebuilt at {conn.PortalRotationDegrees:0.#}°.");
         })
-        .Add("mod", "/mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part of it> [values…] | /mod clear [section] (the held item; missing values are rolled)", async args =>
+        .Add("mod", "/mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part of it> [values…] | /mod set [section] <mod> [values…] | /mod clear [section] (the held item; missing values are rolled)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("which mod?");
             ModSection? section = null;
+            if (args[0].Equals("set", StringComparison.OrdinalIgnoreCase))
+            {
+                args = args[1..];
+                if (args.Length == 0) throw new ArgumentException("which mod?");
+                ModSection? setSection = null;
+                if (args.Length > 1 && ParseSection(args[0]) is { } parsed) { setSection = parsed; args = args[1..]; }
+                if (ItemsFor(conn).Mods.Find(args[0]) is not { } setMod) { await conn.Commands!.Reply($"No mod \"{args[0]}\" in Mods.dat"); return; }
+                if (ItemsOf(conn).Items(PlayerInventories.Cursor) is not [var held, ..]) { await conn.Commands!.Reply("Hold an item first"); return; }
+                var setValues = args[1..].Select(int.Parse).ToList();
+                var replacement = setMod.With(setSection ?? setMod.DefaultSection, setValues, Random.Shared);
+                int existing = held.Item.Mods.Select((m, index) => (m, index))
+                    .Where(p => p.m.Hash == replacement.Hash && (setSection is null || p.m.Section == setSection))
+                    .Select(p => p.index).DefaultIfEmpty(-1).First();
+                if (existing < 0) { await conn.Commands!.Reply($"The held item has no {setMod.Id}; use /mod to add it"); return; }
+                var targetSection = held.Item.Mods[existing].Section;
+                replacement = replacement with { Section = targetSection };
+                await ChangeHeldItem(remote, stream, ciphers, conn, i =>
+                {
+                    var mods = i.Mods.ToList();
+                    int index = mods.FindIndex(m => m.Hash == replacement.Hash && m.Section == targetSection);
+                    if (index >= 0) mods[index] = replacement;
+                    return i with { Mods = mods };
+                }, $"set {ItemsFor(conn).Mods.Describe(replacement)}");
+                return;
+            }
             if (args.Length > 1 && ParseSection(args[0]) is { } s) { section = s; args = args[1..]; }
             if (args[0].Equals("clear", StringComparison.OrdinalIgnoreCase))
             {
@@ -1082,7 +1107,7 @@ partial class Program
             int level = conn.Pools.Level;
             if (args.Length > 0)
             {
-                if (!int.TryParse(args[0], out int requested) || requested is < 1 or > Progression.MaxLevel)
+                if (!int.TryParse(args[0], out int requested) || requested < 1 || requested > Progression.MaxLevel)
                     throw new ArgumentException($"monster level 1 to {Progression.MaxLevel}");
                 level = requested;
             }
@@ -1103,7 +1128,7 @@ partial class Program
             int level = conn.Pools.Level;
             if (args.Length > 0)
             {
-                if (!int.TryParse(args[0], out int requested) || requested is < 1 or > Progression.MaxLevel)
+                if (!int.TryParse(args[0], out int requested) || requested < 1 || requested > Progression.MaxLevel)
                     throw new ArgumentException($"monster level 1 to {Progression.MaxLevel}");
                 level = requested;
             }
@@ -1475,6 +1500,165 @@ partial class Program
             var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             Console.WriteLine($"[gateway] {remote} /pos ({x}, {y}) in {conn.Layout.Id}");
             await conn.Commands!.Reply($"({x}, {y}) in {conn.Layout.Id}");
+        })
+        .Add("game_data", "/game_data reload | reference | mod <mod> <stat> <min> <max> | clear_mod <mod> [stat] | limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | settings | list (dev: SQLite game-data overrides; no restart)", async args =>
+        {
+            if (args.Length == 0)
+            {
+                await conn.Commands!.Reply("Usage: /game_data reload | reference | mod <mod> <stat> <min> <max> | clear_mod <mod> [stat] | " +
+                    "limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | settings | list");
+                return;
+            }
+            if (GameData.Store is not { } store)
+            {
+                await conn.Commands!.Reply("The game-data store is not open");
+                return;
+            }
+            string action = args[0].ToLowerInvariant();
+            try
+            {
+                switch (action)
+                {
+                    case "reload":
+                        GameData.Reload("command");
+                        await conn.Commands!.Reply($"Game data reloaded: revision {GameData.Current.Revision}");
+                        return;
+                    case "reference":
+                        bool seeded = GameDataReference.Seed(store, force: true);
+                        var (stats, mods, modStats) = store.ReferenceCounts();
+                        await conn.Commands!.Reply(seeded
+                            ? $"Reference tables rebuilt: {stats} stat(s), {mods} mod(s), {modStats} default mod stat row(s)"
+                            : "Reference tables need the extracted game tables (scripts/dev/extract-data.ps1)");
+                        return;
+                    case "mod":
+                        {
+                            if (args.Length != 5 || !int.TryParse(args[2], out int stat) || !int.TryParse(args[3], out int min)
+                                || !int.TryParse(args[4], out int max))
+                            {
+                                await conn.Commands!.Reply("Usage: /game_data mod <mod> <stat> <min> <max>");
+                                return;
+                            }
+                            if (ItemsFor(conn).Mods.Find(args[1]) is not { } mod)
+                            {
+                                await conn.Commands!.Reply($"No mod \"{args[1]}\"");
+                                return;
+                            }
+                            if (stat < 0 || stat >= mod.Stats.Count)
+                            {
+                                await conn.Commands!.Reply($"{mod.Id} has stats 0..{mod.Stats.Count - 1}");
+                                return;
+                            }
+                            if (min > max)
+                            {
+                                await conn.Commands!.Reply("minimum is above maximum");
+                                return;
+                            }
+                            store.SetModRange(mod.Id, stat, min, max);
+                            GameData.Reload("mod range");
+                            var range = mod.RangeAt(stat);
+                            await conn.Commands!.Reply($"{mod.Id} stat {stat} ({mod.Stats[stat].Id}) range {range.Min}..{range.Max}; " +
+                                "new rolls use it, existing items keep their values");
+                            return;
+                        }
+                    case "clear_mod":
+                        {
+                            if (args.Length is < 2 or > 3 || (args.Length == 3 && !int.TryParse(args[2], out _)))
+                            {
+                                await conn.Commands!.Reply("Usage: /game_data clear_mod <mod> [stat]");
+                                return;
+                            }
+                            string modId = ItemsFor(conn).Mods.Find(args[1])?.Id ?? args[1];
+                            store.ClearModRange(modId, args.Length == 3 ? int.Parse(args[2]) : null);
+                            GameData.Reload("clear mod range");
+                            await conn.Commands!.Reply($"Cleared the range override for {modId}" +
+                                (args.Length == 3 ? $" stat {args[2]}" : ""));
+                            return;
+                        }
+                    case "limit":
+                        {
+                            if (args.Length != 3 || !int.TryParse(args[2], out int value) || value < 0)
+                            {
+                                await conn.Commands!.Reply("Usage: /game_data limit <key> <value> (0 = unlimited)");
+                                return;
+                            }
+                            store.SetLimit(args[1], value);
+                            GameData.Reload("limit");
+                            await conn.Commands!.Reply($"Limit {args[1]} = {value}" + (value == 0 ? " (unlimited)" : ""));
+                            return;
+                        }
+                    case "clear_limit":
+                        if (args.Length != 2)
+                        {
+                            await conn.Commands!.Reply("Usage: /game_data clear_limit <key>");
+                            return;
+                        }
+                        store.ClearLimit(args[1]);
+                        GameData.Reload("clear limit");
+                        await conn.Commands!.Reply($"Cleared the limit override for {args[1]}");
+                        return;
+                    case "setting":
+                        {
+                            if (args.Length == 2)
+                            {
+                                if (!SystemSettings.Seeds.ContainsKey(args[1]))
+                                {
+                                    await conn.Commands!.Reply($"unknown setting \"{args[1]}\"");
+                                    return;
+                                }
+                                await conn.Commands!.Reply($"{args[1]} = {SystemSettings.Default.Get(args[1])}");
+                                return;
+                            }
+                            if (args.Length != 3 || !double.TryParse(args[2], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double setting))
+                            {
+                                await conn.Commands!.Reply("Usage: /game_data setting <key> [value]");
+                                return;
+                            }
+                            if (!SystemSettings.Validate(args[1], setting, out string? settingError))
+                            {
+                                await conn.Commands!.Reply(settingError!);
+                                return;
+                            }
+                            store.SetSetting(args[1], setting);
+                            GameData.Reload("setting");
+                            await conn.Commands!.Reply($"{args[1]} = {SystemSettings.Default.Get(args[1])}");
+                            return;
+                        }
+                    case "clear_setting":
+                        if (args.Length != 2)
+                        {
+                            await conn.Commands!.Reply("Usage: /game_data clear_setting <key>");
+                            return;
+                        }
+                        store.DeleteSetting(args[1]);
+                        GameData.Reload("clear setting");
+                        await conn.Commands!.Reply($"Cleared {args[1]}; it falls back to {SystemSettings.Seeds.GetValueOrDefault(args[1])}");
+                        return;
+                    case "settings":
+                        foreach (var (key, value) in SystemSettings.Default.Values.OrderBy(kv => kv.Key))
+                            await conn.Commands!.Reply($"  {key} = {value}");
+                        return;
+                    case "list":
+                        await conn.Commands!.Reply($"Game data revision {GameData.Current.Revision}: " +
+                            $"{GameData.Current.ModRanges.Count} mod range override(s), {GameData.Current.Limits.Count} limit override(s), " +
+                            $"{SystemSettings.Default.Values.Count} system setting(s); " + GameDataCatalog.Summary);
+                        var reference = store.ReferenceCounts();
+                        await conn.Commands!.Reply($"  reference: {reference.Stats} stat(s), {reference.Mods} mod(s), " +
+                            $"{reference.ModStats} default mod stat row(s)");
+                        foreach (var (key, range) in GameData.Current.ModRanges.OrderBy(kv => kv.Key.ModId).ThenBy(kv => kv.Key.Index))
+                            await conn.Commands!.Reply($"  mod {key.ModId}[{key.Index}] = {range.Min}..{range.Max}");
+                        foreach (var (key, value) in GameData.Current.Limits.OrderBy(kv => kv.Key))
+                            await conn.Commands!.Reply($"  limit {key} = {value}" + (value == 0 ? " (unlimited)" : ""));
+                        return;
+                    default:
+                        await conn.Commands!.Reply("Unknown /game_data action; use reload, reference, mod, clear_mod, limit, clear_limit, setting, clear_setting, settings or list");
+                        return;
+                }
+            }
+            catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or ArgumentException)
+            {
+                await conn.Commands!.Reply($"Game data change failed: {e.Message}");
+            }
         })
         .Add("lastpackets", "/lastpackets [n] (dev: the connection's last n messages, both directions, to the Gateway log; default 64)", async args =>
         {

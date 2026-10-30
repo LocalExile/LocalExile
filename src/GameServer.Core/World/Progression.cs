@@ -9,7 +9,28 @@ namespace GameServer.Core.World;
 /// </summary>
 public static class Progression
 {
-    public const int MaxLevel = 100;
+    /// <summary>The client's/table's hard ceiling. The configurable <see cref="MaxLevel"/> may lower it.</summary>
+    public const int MaxLevelCeiling = 100;
+
+    static int _maxLevel = MaxLevelCeiling;
+
+    /// <summary>The active level cap. The Gateway sets it from the system settings; lowering it clamps new level
+    /// calculations and the passive-point budget, while the experience table and client remain at 100.</summary>
+    public static int MaxLevel
+    {
+        get => Volatile.Read(ref _maxLevel);
+        set => Volatile.Write(ref _maxLevel, Math.Clamp(value, 1, MaxLevelCeiling));
+    }
+
+    static double _experienceMultiplier = 1;
+
+    /// <summary>A global multiplier on monster experience. The Gateway sets it from the system settings; 1 is the
+    /// live game's value.</summary>
+    public static double ExperienceMultiplier
+    {
+        get => Volatile.Read(ref _experienceMultiplier);
+        set => Volatile.Write(ref _experienceMultiplier, Math.Clamp(value, 0, 1000));
+    }
 
     /// <summary>
     /// The level penalty: monsters within a safe zone of 3 + level / 16 levels give full experience; beyond it the
@@ -43,7 +64,10 @@ public static class Progression
     public static uint MonsterExperience(int baseExperience, int multiplierPercent, MonsterRarity rarity, int playerLevel, int monsterLevel)
     {
         if (baseExperience <= 0 || multiplierPercent <= 0) return 0;
-        double xp = baseExperience * (multiplierPercent / 100.0) * RarityMultiplier(rarity) * LevelPenalty(playerLevel, monsterLevel);
+        double experienceMultiplier = ExperienceMultiplier;
+        if (experienceMultiplier <= 0) return 0;
+        double xp = baseExperience * (multiplierPercent / 100.0) * RarityMultiplier(rarity)
+            * LevelPenalty(playerLevel, monsterLevel) * experienceMultiplier;
         return (uint)Math.Max(1, Math.Round(xp));
     }
 
@@ -65,7 +89,22 @@ public static class Progression
         return (uint)Math.Min(cap, (ulong)experience + gain);
     }
 
-    /// <summary>Passive skill points from the character's level: one per level after the first (quests are not
-    /// implemented, so they give none).</summary>
-    public static int PassivePoints(int level) => Math.Clamp(level, 1, MaxLevel) - 1;
+    static int _passivePointsPerLevel = 1;
+
+    /// <summary>Passive skill points granted per level after the first. The Gateway sets it from the system settings;
+    /// the default is 1, the live game's value.</summary>
+    public static int PassivePointsPerLevel
+    {
+        get => Volatile.Read(ref _passivePointsPerLevel);
+        set => Volatile.Write(ref _passivePointsPerLevel, Math.Clamp(value, 1, 100));
+    }
+
+    /// <summary>Passive skill points from the character's level: <see cref="PassivePointsPerLevel"/> per level after the
+    /// first (quests are not implemented, so they give none).</summary>
+    public static int PassivePoints(int level) => PassivePoints(level, PassivePointsPerLevel);
+
+    /// <summary>The same calculation with an explicit per-level value, for tests and for callers that already resolved
+    /// the setting.</summary>
+    public static int PassivePoints(int level, int pointsPerLevel) =>
+        Math.Max(0, Math.Clamp(level, 1, MaxLevel) - 1) * Math.Max(0, pointsPerLevel);
 }

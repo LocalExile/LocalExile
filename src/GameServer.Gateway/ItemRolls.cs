@@ -5,11 +5,14 @@ using GameServer.Core.Protocol.Instance;
 /// Magic and rare items (Agents/docs/protocol/13-items.md §2b). Affixes come from Mods.dat: the base's ModDomain,
 /// GenerationType 1 (prefix) or 2 (suffix), Level at most the item level, not essence-only, a weight above 0 for the
 /// item's tags (<see cref="ModCatalog.Mod.WeightFor"/>) and no family already on the item. Each affix is drawn by weight
-/// from every mod still allowed, so prefixes and suffixes compete. Magic: 1-2 affixes, at most one of each. Rare: 4-6,
-/// at most three of each, and a name from Words.dat word lists 1 (prefix) and 2 (suffix), drawn by the same tag weights.
+/// from every mod still allowed, so prefixes and suffixes compete. Magic: 1-2 affixes, at most one of each. Rare: 4-6
+/// by default (jewels 3-4), at most the configured prefix/suffix caps (three/three and two/two by default), and a name
+/// from Words.dat word lists 1 (prefix) and 2 (suffix), drawn by the same tag weights.
 /// </summary>
-sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
+sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettings? settings = null)
 {
+    readonly SystemSettings _settings = settings ?? SystemSettings.Default;
+
     public const int Prefix = 1, Suffix = 2;
 
     /// <summary>Mods.dat GenerationType for the two Eldritch influences: Searing Exarch and Eater of Worlds.</summary>
@@ -102,8 +105,33 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
         return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
     }
 
-    /// <summary>The rare per-side limit: jewel classes allow two prefixes and two suffixes, other rare bases three.</summary>
-    static int MaxAffixesPerSide(ItemCatalog.BaseType type) => type.Class is "Jewel" or "AbyssJewel" ? 2 : 3;
+    /// <summary>The rare per-side limit from <c>system_settings</c>; jewel classes have their own, lower defaults.</summary>
+    (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type) =>
+        type.Class is "Jewel" or "AbyssJewel"
+            ? (_settings.RareJewelMaxPrefixes, _settings.RareJewelMaxSuffixes)
+            : (_settings.RareMaxPrefixes, _settings.RareMaxSuffixes);
+
+    /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
+    public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>
+        catalog.ByHash(item.TypeHash) is { } type ? MaxAffixesPerSide(type) : (3, 3);
+
+    /// <summary>The number of rare affixes: the ordinary weighted 4-6 (jewels 3-4), extended by however far the
+    /// configured caps exceed the class default (six ordinary, four jewel) and capped at the two caps' sum. With the
+    /// defaults this is exactly the old 4-6 / 3-4 distribution.</summary>
+    internal static int RareAffixCount(int weighted, int maxPrefix, int maxSuffix, int defaultSum)
+    {
+        int cap = Math.Max(0, maxPrefix) + Math.Max(0, maxSuffix);
+        int extra = Math.Max(0, maxPrefix + maxSuffix - defaultSum);
+        return Math.Min(cap, weighted + extra);
+    }
+
+    (int Count, int MaxPrefix, int MaxSuffix) RarePlan(ItemCatalog.BaseType type, Random rng)
+    {
+        bool jewel = type.Class is "Jewel" or "AbyssJewel";
+        int weighted = jewel ? (rng.Next(20) < 13 ? 3 : 4) : rng.Next(12) switch { < 8 => 4, < 11 => 5, _ => 6 };
+        var (maxPrefix, maxSuffix) = MaxAffixesPerSide(type);
+        return (RareAffixCount(weighted, maxPrefix, maxSuffix, jewel ? 4 : 6), maxPrefix, maxSuffix);
+    }
 
     /// <summary>The Eater of Worlds implicits an Eldritch Ichor of this tier can add.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> EldritchIchorPool(ItemCatalog.BaseType type, int tier) =>
@@ -241,22 +269,23 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
             return result;
         // CoE beta rare counts: affixNumberGeneration[6] = [2/3, 1/4, 1/12] for 4, 5 or 6 affixes.
         // Jewel classes cap at 4 (2 per side), affixNumberGeneration[4] = [.65,.35] for 3 or 4 affixes.
-        var (count, maxEach) = shape ?? (rarity == ItemRarity.Magic
-            ? (rng.Next(1, 3), 1)
-            : t.Class is "Jewel" or "AbyssJewel"
-                ? (rng.Next(20) < 13 ? 3 : 4, MaxAffixesPerSide(t))
-                : (rng.Next(12) switch { < 8 => 4, < 11 => 5, _ => 6 }, MaxAffixesPerSide(t)));
+        var (count, maxPrefix, maxSuffix) = shape is { } fixedShape
+            ? (fixedShape.Count, fixedShape.MaxEach, fixedShape.MaxEach)
+            : rarity == ItemRarity.Magic
+                ? (rng.Next(1, 3), 1, 1)
+                : RarePlan(t, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel))
             .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();
         var chosen = kept.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         int keptCount = chosen.Count;
         if (guaranteed is not null) chosen.Add(guaranteed);
-        bool Fits(ModCatalog.Mod mod, int max) => chosen.Count(c => c.GenerationType == mod.GenerationType) < max &&
+        bool Fits(ModCatalog.Mod mod) => chosen.Count(c => c.GenerationType == mod.GenerationType) <
+            (mod.GenerationType == Prefix ? maxPrefix : maxSuffix) &&
             !chosen.Any(c => c.Hash == mod.Hash || c.Families.Intersect(mod.Families).Any());
         if (requiredTag is not null)
         {
-            var required = pool.Where(p => p.Mod.Tags.Contains(requiredTag) && Fits(p.Mod, maxEach)).ToList();
+            var required = pool.Where(p => p.Mod.Tags.Contains(requiredTag) && Fits(p.Mod)).ToList();
             if (required.Count == 0) return null;
             chosen.Add(Pick(required, rng));
         }
@@ -266,7 +295,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
                 .SelectMany(m => m.Tags).ToHashSet();
         while (chosen.Count < count)
         {
-            var allowed = pool.Where(p => Fits(p.Mod, maxEach)).ToList();
+            var allowed = pool.Where(p => Fits(p.Mod)).ToList();
             if (affinityPercent is { } percent && affinityTags is { Count: > 0 })
                 allowed = [.. allowed.Select(p => (p.Mod, Weight: affinityTags.Overlaps(p.Mod.Tags)
                     ? Math.Max(1, p.Weight * (100 + percent) / 100) : p.Weight))];
@@ -323,28 +352,41 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
     /// <summary>One more explicit affix, drawn by weight from the base's pool at its item level: no family already on the
     /// item and at most <paramref name="maxEach"/> prefixes / suffixes. The old mods stay; null when nothing fits.</summary>
     public Item? AddAffix(Item item, int maxEach, Random rng, bool respectMetamods = true) =>
-        AddAffixCore(item, maxEach, rng, respectMetamods, requiredTag: null);
+        AddAffix(item, (maxEach, maxEach), rng, respectMetamods);
+
+    /// <summary>One more explicit affix with separate prefix and suffix caps; see <see cref="AddAffix(Item, int, Random, bool)"/>.</summary>
+    public Item? AddAffix(Item item, (int Prefix, int Suffix) max, Random rng, bool respectMetamods = true) =>
+        AddAffixCore(item, max, rng, respectMetamods, requiredTag: null);
 
     /// <summary>A Harvest augment's added modifier: one with this Tags.dat tag, as <see cref="AddAffix"/> otherwise.</summary>
     public Item? AddTaggedAffix(Item item, int maxEach, Random rng, string tag, bool respectMetamods = true) =>
-        AddAffixCore(item, maxEach, rng, respectMetamods, tag);
+        AddTaggedAffix(item, (maxEach, maxEach), rng, tag, respectMetamods);
+
+    /// <summary>A tagged affix with separate prefix and suffix caps; see <see cref="AddAffix(Item, int, Random, bool)"/>.</summary>
+    public Item? AddTaggedAffix(Item item, (int Prefix, int Suffix) max, Random rng, string tag, bool respectMetamods = true) =>
+        AddAffixCore(item, max, rng, respectMetamods, tag);
 
     /// <summary>The affixes <see cref="AddAffix"/> may add: the base's pool at the item's level, without families
-    /// already on the item, without a side that already has <paramref name="maxEach"/>, and filtered by the item's
-    /// metamods and an optional Tags.dat tag.</summary>
+    /// already on the item, without a side that already has <paramref name="maxEach"/> of that kind, and filtered by
+    /// the item's metamods and an optional Tags.dat tag.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> AffixesToAdd(Item item, int maxEach, bool respectMetamods = true,
-        string? requiredTag = null)
+        string? requiredTag = null) => AffixesToAdd(item, (maxEach, maxEach), respectMetamods, requiredTag);
+
+    /// <summary>The affixes <see cref="AddAffix"/> may add with separate prefix and suffix caps.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> AffixesToAdd(Item item, (int Prefix, int Suffix) max,
+        bool respectMetamods = true, string? requiredTag = null)
     {
         if (catalog.ByHash(item.TypeHash) is not { } t) return [];
         var have = item.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         var rules = new MetacraftRules(item, catalog.Mods);
-        return [.. Pool(t, item.ItemLevel).Where(p => (!respectMetamods || rules.Allows(p.Mod)) && have.Count(h => h.GenerationType == p.Mod.GenerationType) < maxEach &&
+        return [.. Pool(t, item.ItemLevel).Where(p => (!respectMetamods || rules.Allows(p.Mod)) &&
+            have.Count(h => h.GenerationType == p.Mod.GenerationType) < (p.Mod.GenerationType == Prefix ? max.Prefix : max.Suffix) &&
             !have.Any(h => h.Families.Intersect(p.Mod.Families).Any()) && (requiredTag is null || p.Mod.Tags.Contains(requiredTag)))];
     }
 
-    Item? AddAffixCore(Item item, int maxEach, Random rng, bool respectMetamods, string? requiredTag)
+    Item? AddAffixCore(Item item, (int Prefix, int Suffix) max, Random rng, bool respectMetamods, string? requiredTag)
     {
-        var allowed = AffixesToAdd(item, maxEach, respectMetamods, requiredTag);
+        var allowed = AffixesToAdd(item, max, respectMetamods, requiredTag);
         if (allowed.Count == 0) return null;
         var added = Pick(allowed, rng);
         // Prefixes before suffixes, as Roll orders them.
@@ -372,14 +414,15 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
     }
 
     /// <summary>Vaal Orb on a rare item: <paramref name="count"/> random explicit affixes leave and as many new ones come
-    /// (<see cref="AddAffix"/>, at most three of each kind); the others stay.</summary>
+    /// (<see cref="AddAffix"/>, at most the configured caps of each kind); the others stay.</summary>
     public Item ReplaceAffixes(Item item, int count, Random rng)
     {
         var fractured = item.FracturedIndexes();
         var explicits = item.Mods.Select((m, i) => (m, i)).Where(p => p.m.Section == ModSection.Explicit && !fractured.Contains(p.i)).Select(p => p.i)
             .OrderBy(_ => rng.Next()).Take(count).ToHashSet();
         var result = item with { Mods = [.. item.Mods.Where((_, i) => !explicits.Contains(i))] };
-        for (int n = 0; n < explicits.Count && AddAffix(result, 3, rng, respectMetamods: false) is { } added; n++) result = added;
+        var max = RareMaxAffixes(item);
+        for (int n = 0; n < explicits.Count && AddAffix(result, max, rng, respectMetamods: false) is { } added; n++) result = added;
         return result;
     }
 

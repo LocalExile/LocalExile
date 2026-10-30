@@ -7,7 +7,7 @@
 /// unconditional global mods. ReadConversion therefore returns null for these items.</summary>
 static class ThresholdJewelCatalogue
 {
-    public static readonly RadiusJewelCatalogue.Entry[] All =
+    internal static readonly RadiusJewelCatalogue.Entry[] Seed =
     [
         new("Divine Inferno", "Crimson Jewel", [], "InfernalCryThresholdJewel", 1, 1, false, 1200),
         new("Endless Misery", "Cobalt Jewel", ["ElementalDamageUnique__4"], "DischargeThresholdJewel__1", 1, 1, false, 1200),
@@ -43,4 +43,6 @@ static class ThresholdJewelCatalogue
         new("Winter Burial", "Crimson Jewel", ["ColdDamagePercentUnique__12"], "GlacialHammerThresholdJewel_2", 2, 1, false, 1200),
         new("Winter's Bounty", "Cobalt Jewel", ["ColdDamagePercentUnique__1"], "ColdsnapThresholdJewel__1", 1, 1, false, 1200),
     ];
+
+    public static RadiusJewelCatalogue.Entry[] All => GameDataCatalog.ThresholdJewels;
 }

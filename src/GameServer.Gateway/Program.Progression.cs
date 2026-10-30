@@ -1067,6 +1067,10 @@ partial class Program
         lock (conn.Monsters)
         {
             var (points, refundPoints, nodes, masteries) = PassiveState(conn);
+            // The client derives one point per level from the level byte. Any points beyond that (the dev extra
+            // points and the part of the configured per-level value above one) must travel as questPoints.
+            ushort clientExtra = (ushort)Math.Min(ushort.MaxValue,
+                Math.Max(0, points - Math.Max(0, conn.Pools.Level - 1)));
             int cluster = conn.ClusterPassives.Count;
             int unspent = points + PassivesFor(conn).PointsGranted(nodes) + AscendancyOrdinaryPoints(conn) - nodes.Count - cluster;
             var tattoos = conn.Tattoos
@@ -1083,9 +1087,9 @@ partial class Program
                 .Where(pair => pair.Entry is not null)
                 .ToDictionary(pair => pair.Node, pair => pair.Hash);
             return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated],
-                    questPoints: conn.ExtraPassivePoints, refundPoints: refundPoints, ascendancyPoints: (ushort)conn.MainAscendancy.EarnedPoints, masteryEffects: masteries,
+                    questPoints: clientExtra, refundPoints: refundPoints, ascendancyPoints: (ushort)conn.MainAscendancy.EarnedPoints, masteryEffects: masteries,
                     clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos),
-                $"0x0033 passive skill tree: level {conn.Pools.Level}, {points} skill point(s) ({conn.ExtraPassivePoints} extra), " +
+                $"0x0033 passive skill tree: level {conn.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
                 $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
                 $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes");
         }

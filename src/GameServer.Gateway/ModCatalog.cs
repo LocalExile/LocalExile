@@ -6,8 +6,10 @@ using GameServer.Core.Protocol.Instance;
 /// (Agents/docs/protocol/13-items.md §2a). The client identifies a mod by its HASH16 and counts its stats itself
 /// (StatsKey1..8 up to the first empty one), so every <see cref="ItemMod"/> is built here with exactly that many values.
 /// </summary>
-sealed class ModCatalog(string folder = "data", bool ruthless = false)
+sealed class ModCatalog(string folder = "data", bool ruthless = false, ModRangeProvider? ranges = null)
 {
+    public ModRangeProvider Ranges { get; } = ranges ?? ModRangeProvider.Default;
+
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
     public sealed record ModStat(string Id, int Min, int Max, bool Local = false);
@@ -19,6 +21,7 @@ sealed class ModCatalog(string folder = "data", bool ruthless = false)
     public sealed record Mod(int Row, string Id, ushort Hash, string Name, int Domain, int GenerationType, int Level,
         IReadOnlyList<ModStat> Stats)
     {
+        internal ModRangeProvider? Ranges { get; init; }
         public IReadOnlyList<int> Families { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> SpawnWeights { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> GenerationWeights { get; init; } = [];
@@ -46,9 +49,28 @@ sealed class ModCatalog(string folder = "data", bool ruthless = false)
         /// enchantments enchants, everything else (base implicits, corruptions …) implicit.</summary>
         public ModSection DefaultSection => GenerationType switch { 1 or 2 => ModSection.Explicit, 10 => ModSection.Enchant, _ => ModSection.Implicit };
 
-        /// <summary>The mod with a value per stat rolled in its range.</summary>
-        public ItemMod Roll(ModSection section, Random random) =>
-            new(section, Hash, [.. Stats.Select(s => random.Next(Math.Min(s.Min, s.Max), Math.Max(s.Min, s.Max) + 1))]);
+        /// <summary>The effective range of one stat: the database override when present, else the base Mods.dat range.</summary>
+        public (int Min, int Max) RangeAt(int index) =>
+            index >= 0 && index < Stats.Count
+                ? Ranges?.Range(Id, index, Stats[index].Min, Stats[index].Max) ?? Normalise(Stats[index])
+                : (0, 0);
+
+        /// <summary>The effective maxima, in stat order (max-roll dev items and unique definitions use these).</summary>
+        public IReadOnlyList<int> MaxValues() => [.. Stats.Select((_, i) => RangeAt(i).Max)];
+
+        static (int Min, int Max) Normalise(ModStat stat) => (Math.Min(stat.Min, stat.Max), Math.Max(stat.Min, stat.Max));
+
+        /// <summary>The mod with a value per stat rolled in its effective range.</summary>
+        public ItemMod Roll(ModSection section, Random random)
+        {
+            var values = new int[Stats.Count];
+            for (int i = 0; i < values.Length; i++)
+            {
+                var (min, max) = RangeAt(i);
+                values[i] = random.Next(min, max + 1);
+            }
+            return new(section, Hash, values);
+        }
 
         /// <summary>The mod with these values: missing ones are rolled, extra ones dropped (the client reads exactly one
         /// per stat).</summary>
@@ -61,7 +83,8 @@ sealed class ModCatalog(string folder = "data", bool ruthless = false)
         public override string ToString() => $"{Id} (row {Row})";
     }
 
-    private readonly Lazy<(List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById)> _mods = new(() => Load(folder, ruthless));
+    private readonly Lazy<(List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById)> _mods =
+        new(() => Load(folder, ruthless, ranges ?? ModRangeProvider.Default));
 
     public bool Loaded => _mods.Value.Rows.Count > 0;
 
@@ -85,7 +108,8 @@ sealed class ModCatalog(string folder = "data", bool ruthless = false)
         ? $"{mod.Id} {m.Section.ToString().ToLowerInvariant()}: " + string.Join(", ", mod.Stats.Select((s, i) => $"{s.Id} {(i < m.Values.Count ? m.Values[i] : 0)}"))
         : $"0x{m.Hash:x4} {m.Section.ToString().ToLowerInvariant()}: {string.Join(", ", m.Values)}";
 
-    private static (List<Mod>, Dictionary<ushort, Mod>, Dictionary<string, Mod>) Load(string folder, bool ruthless)
+    private static (List<Mod>, Dictionary<ushort, Mod>, Dictionary<string, Mod>) Load(string folder, bool ruthless,
+        ModRangeProvider ranges)
     {
         string path = Path.Combine(folder, "tables", "Mods.json"), statsPath = Path.Combine(folder, "tables", "Stats.json"),
             tagsPath = Path.Combine(folder, "tables", "Tags.json"), modTypePath = Path.Combine(folder, "tables", "ModType.json");
@@ -124,6 +148,7 @@ sealed class ModCatalog(string folder = "data", bool ruthless = false)
                 r.GetProperty("Name").GetString() ?? "", r.GetProperty("Domain").GetInt32(), r.GetProperty("GenerationType").GetInt32(),
                 r.GetProperty("Level").GetInt32(), modStats)
             {
+                Ranges = ranges,
                 Families = [.. r.GetProperty("Families").EnumerateArray().Select(f => f.GetInt32())],
                 SpawnWeights = Weights(r, "SpawnWeight_TagsKeys", "SpawnWeight_Values"),
                 GenerationWeights = Weights(r, "GenerationWeight_TagsKeys", "GenerationWeight_Values"),

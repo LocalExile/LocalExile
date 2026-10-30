@@ -57,7 +57,8 @@ sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
     {
         if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare) ||
             rolls.Annul(item, rng) is not { } removed) return null;
-        return rolls.AddTaggedAffix(removed, item.Rarity == ItemRarity.Magic ? 1 : 3, rng, tag);
+        (int Prefix, int Suffix) max = item.Rarity == ItemRarity.Magic ? (1, 1) : rolls.RareMaxAffixes(item);
+        return rolls.AddTaggedAffix(removed, max, rng, tag);
     }
 
     Item? Convert(Item item, IReadOnlyDictionary<string, string> map, Random rng)

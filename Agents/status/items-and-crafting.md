@@ -106,7 +106,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Item mods: rarity (normal, magic, rare, unique), identified, and the implicit, explicit, enchant, scourge and hidden
   mod lists in the Mods component; new items roll their BaseItemTypes implicits (Driftwood Wand 8-12% increased Spell
   Damage); magic names come from the affixes; rarity and mods are saved with the item (characters and stash);
-  `/mod`, `/mods`, `/rarity`, `/sockets` (colours and links, e.g. `/sockets RRGBBB`) on the held item;
+  `/mod`, `/mod set`, `/mods`, `/rarity`, `/sockets` (colours and links, e.g. `/sockets RRGBBB`) on the held item;
   `Game_SOCKET_CAPACITY=1..6` (dev) lets `/sockets` give any socketable base that many, e.g. a 6-link wand (its own
   capacity is 3).
   Magic and rare items: affixes rolled from Mods.dat by domain, item level, the item's tags and families, rare names
@@ -127,6 +127,30 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceItems.cs`, Gateway (`ModCatalog.cs`, `ItemRolls.cs`, `ItemDrops.cs`, `ItemModStats.cs`,
   `ItemWeapons.cs`, `ItemDefences.cs`, `ItemCatalog.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2a-§2c.
+- Game-data overrides (implemented 2026-10-30): the SQLite overlay `mod_stat_overrides`, `limit_overrides`,
+  `catalog_entries` and `system_settings` in `data/saves.db` changes mod roll ranges, item limits, catalogues and
+  numeric settings through `/game_data`; the Gateway loads the rows at startup, keeps the reference mod/base lists in
+  memory, and atomically republishes the effective snapshot after an edit, so no restart is needed. Verified live:
+  setting a range and a timeless-jewel limit, listing the revision, clearing both, and the tables being empty again
+  after the check.
+  Limits currently cover the Historic timeless jewel, Impossible Escape, radius unique jewels and the tattoo total/group
+  caps. `catalog_entries` now seeds and reloads the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect
+  and jewel-art catalogues (1,302 / 76 / 43 / 6 / 48 / 190 rows on the live database; the unique rows are the full
+  generated PoB catalogue); the code arrays are the fresh-database seed. `catalog_seed_keys` records the applied
+  defaults, so a row deleted by an admin stays deleted while a genuinely new default is added. The
+  `stats`/`mods`/`mod_stats` tables hold 23,346 / 40,355 / 60,695 reference rows and `effective_mod_stats` joins the
+  range overrides. A fresh database gets all of them on the first Gateway start; `extract-data.ps1` checks `Stats.json`,
+  `Mods.json`, `BaseItemTypes.json`, `ItemClasses.json`, `Tags.json` and `UniqueStashLayout.json` as part of its `tables`
+  entry. `system_settings` seeds 45 numeric knobs: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
+  shield 3, belt 0, two-handed 6), rare prefix/suffix caps (3/3 ordinary, 2/2 jewels), passive points per level, gold
+  chance/amount/auto-loot, six drop multipliers, pack density/size, experience multiplier, maximum level, default
+  tattoo/jewel limits and grace period; `/game_data setting` changes a number and reloads it. Live: a wand set to six
+  sockets accepted `RRGBBB` and was reduced back to three; `passive_points_per_level = 2` made the 0x33 client budget
+  and server budget agree at 1198 points. The item-template schema exists, but custom item templates, custom names and
+  the admin panel are not implemented yet.
+  Code: `GameData.cs`, `GameDataCatalog.cs`, `GameDataStore.cs`, `ModRangeProvider.cs`, `LimitSettings.cs`, Gateway
+  (`Program.Commands.cs`).
+  Docs: [editable game data](../docs/dev/editable-game-data.md), [saves](../docs/saves.md).
 - Sacred Orb: ordinary and Shift currency use reroll the saved shared defence base on eligible armour.
   Only the base roll changes; mods, quality, sockets, gems, links, rarity and identification remain.
   Inventory and stash pairings save the target and one-unit payment atomically, including unchanged roll outcomes.

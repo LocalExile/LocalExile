@@ -18,9 +18,10 @@ sealed class ItemCatalog
     private StashRules? _stash;
     private readonly string _folder;
 
-    public ItemCatalog(string folder, bool ruthless = false)
+    public ItemCatalog(string folder, bool ruthless = false, LimitSettings? limits = null)
     {
         _folder = folder;
+        Limits = limits ?? LimitSettings.Default;
         Mods = new ModCatalog(folder, ruthless);
         _rows = new(() => Load(folder, Mods));
         _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
@@ -92,6 +93,9 @@ sealed class ItemCatalog
 
     /// <summary>Mods.dat, for the implicits of new items and the mods of saved ones.</summary>
     public ModCatalog Mods { get; }
+
+    /// <summary>Effective server-side item limits (the database override, else the catalogue default).</summary>
+    public LimitSettings Limits { get; }
 
     public string? Error => _rows.Value.Error;
 

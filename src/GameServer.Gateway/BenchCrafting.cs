@@ -88,7 +88,9 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
                         if (stat == "item_generation_can_have_multiple_crafted_mods" && existing.Values[i] > 0) limit = Math.Max(limit, 3);
                         else if (stat == "local_can_have_additional_crafted_mods") limit += existing.Values[i];
                     }
-            if (mod.Stats.Any(s => s.Id == "item_generation_can_have_multiple_crafted_mods" && s.Min > 0)) limit = Math.Max(limit, 3);
+            if (Enumerable.Range(0, mod.Stats.Count).Any(i =>
+                mod.Stats[i].Id == "item_generation_can_have_multiple_crafted_mods" && mod.RangeAt(i).Min > 0))
+                limit = Math.Max(limit, 3);
             bool conflict(ItemMod m) => catalog.Mods.ByHash(m.Hash) is { } other &&
                 (other.Hash == mod.Hash || other.Families.Intersect(mod.Families).Any());
             var remove = crafted.Where(conflict).ToList();

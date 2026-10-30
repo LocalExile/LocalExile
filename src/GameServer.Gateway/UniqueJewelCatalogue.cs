@@ -11,7 +11,7 @@ static class UniqueJewelCatalogue
     public sealed record Entry(string Name, string Base, bool Corrupted, int Level,
         string[] Mods, int?[] Values);
 
-    public static readonly Entry[] Global =
+    internal static readonly Entry[] SeedGlobal =
     [
         new("Ancestral Vision", "Viridian Jewel", false, 20, ["DexterityUnique__26", "ModifiersToSuppressionApplyToAilmentAvoidUnique__1"], [null, null]),
         new("Ancient Waystones", "Crimson Jewel", true, 20, ["ManaCostOfTotemAurasUniqueCorruptedJewel8"], [null]),
@@ -57,10 +57,13 @@ static class UniqueJewelCatalogue
         new("Weight of Sin", "Viridian Jewel", true, 20, ["IncreasedChaosDamageUniqueCorruptedJewel2", "ReducedMovementVelocityUniqueCorruptedJewel2_"], [null, null]),
     ];
 
-    public static readonly Entry[] Special =
+    internal static readonly Entry[] SeedSpecial =
     [
         new("Rational Doctrine", "Cobalt Jewel", false, 1, ["ConsecratedGroundStationarySTRHighestUnique__1", "ProfaneGroundCriticalStrikeINTHighestUnique__1", "ConsecratedGroundLingersUnique__1", "ProfaneGroundLingersUnique__1"], [null, null, null, null]),
     ];
+
+    public static Entry[] Global => GameDataCatalog.UniqueJewelGlobals;
+    public static Entry[] Special => GameDataCatalog.UniqueJewelSpecials;
 
     public static Entry? Find(string name) =>
         Global.FirstOrDefault(entry => string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase))

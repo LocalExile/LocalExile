@@ -26,6 +26,34 @@ using GameServer.Core.Diagnostics;
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
 
 ServerLog.Install("gateway");
+
+// dotnet run --project src/GameServer.Gateway -- seed-game-data [database]
+// Fills the SQLite game-data overlay from data/tables without starting the servers. The first Gateway start does the
+// same; this mode is for a fresh database, an editor or a check while the Gateway is stopped.
+if (args.Length > 0 && args[0].Equals("seed-game-data", StringComparison.OrdinalIgnoreCase))
+{
+    string path = args.Length > 1 ? args[1] : Saves.DefaultPath;
+    try
+    {
+        GameData.Open(path);
+        var (stats, mods, modStats) = (GameData.Store
+            ?? throw new InvalidOperationException("the game-data store did not open")).ReferenceCounts();
+        if (stats == 0 || mods == 0 || modStats == 0)
+        {
+            Console.Error.WriteLine("[gateway] game data seed: Stats.json/Mods.json are missing; run scripts/dev/extract-data.ps1 first");
+            return 1;
+        }
+        Console.WriteLine($"[gateway] game data seeded into {path}: {stats} stat(s), {mods} mod(s), " +
+            $"{modStats} default mod stat row(s)");
+        return 0;
+    }
+    catch (Exception e)
+    {
+        Console.Error.WriteLine($"[gateway] game data seed failed: {e.Message}");
+        return 1;
+    }
+}
+
 int port = int.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var p) ? p : 6112;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
@@ -45,6 +73,7 @@ try
 {
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
+    GameData.Open(Saves.Db.Path);
     Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
 }
 catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
@@ -157,7 +186,6 @@ sealed partial class Program
     internal const double PickupReach = 20 + 2;
     // How close (cells, centre to centre) gold on the ground is picked up by itself (RunPlayerTick): our own number, a
     // little inside a click's PickupReach.
-    internal const double GoldAutoLootRange = 15;
     // A monster's second skill, after its attack (SkillCatalog.FirstSkillId): a boss's stage skill (BossFights). 0x0103
     // is free in 3.29.3b (SkillCatalog.SkillIds).
     internal const ushort StageSkillId = 0x0103;

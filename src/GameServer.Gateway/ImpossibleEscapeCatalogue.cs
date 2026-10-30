@@ -41,7 +41,7 @@ static class ImpossibleEscapeCatalogue
         if (items.Mods.ById(ModId) is not { Stats.Count: > 0 } mod) return null;
         if (UniqueJewelVisuals.Of("Impossible Escape") is not ushort visual) return null;
         if (RadiusJewelCatalogue.WordHash("Impossible Escape", "data") is not uint word) return null;
-        var values = mod.Stats.Select(stat => stat.Max).ToArray();
+        var values = mod.MaxValues().ToArray();
         // The client stat is a keystone hash, not the MavenJewelRadiusKeystones row: the graph id resolves to the
         // keystone name in the item tooltip and moves the ring from the socket to the keystone.
         values[0] = keystone.GraphId;

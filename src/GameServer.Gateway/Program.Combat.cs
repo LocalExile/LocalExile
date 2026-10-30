@@ -1215,7 +1215,8 @@ partial class Program
             ? openMap.Area.Tier : 0;
         if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
         // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
-        if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared, balance?.GoldMultiplier ?? 1) is { } gold) drops.Add(gold);
+        if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
+            (balance?.GoldMultiplier ?? 1) * SystemSettings.Default.GoldDropMultiplier) is { } gold) drops.Add(gold);
         foreach (var drop in drops)
         {
             // A ring around the corpse, 3 to 6 cells out.

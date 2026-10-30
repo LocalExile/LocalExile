@@ -174,7 +174,8 @@ base name without them. Unidentified items show "Unidentified" and their implici
 New items roll their BaseItemTypes `Implicit_ModsKeys` (Driftwood Wand: `SpellDamageOnWeaponImplicitWand1`, 8-12%).
 Saves keep rarity, identified and each mod by Mods.dat Id, list and values; an item saved before mods gets its type's
 implicits again. Dev commands on the held item: `/mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part>
-[values…]` (missing values rolled, the list defaults from GenerationType), `/mod clear [list]`, `/mods`,
+[values…]` (missing values rolled, the list defaults from GenerationType), `/mod set [list] <mod> [values…]` (replaces
+an existing mod's roll and keeps the item's other mods), `/mod clear [list]`, `/mods`,
 `/rarity <normal|magic|rare|unique> [unid]`.
 
 ## 2b. Rolling magic and rare items
@@ -234,6 +235,8 @@ Each affix is drawn by weight from all allowed mods (prefixes and suffixes compe
 ModFamily with one already chosen. Magic: 1-2 affixes, at most one prefix and one suffix. Rare: 4 (7/12), 5 (4/12) or
 6 (1/12) affixes, at most three of each, and a name: one word from Words.dat list 1 (prefixes) and one from list 2
 (suffixes, with a leading space), drawn by the same tag weights. Values are rolled uniformly in each stat's range.
+The rare caps are `system_settings` (`rare_max_prefixes`/`rare_max_suffixes`, and the jewel pair): lowering a cap
+reduces the count to the caps' sum, and raising the sum above six adds the excess to the count (4/4 gives 6-8).
 These counts and chances are our own; the game's are not known.
 
 Drops: equipment from a normal / magic / rare / unique monster is magic 25 / 35 / 40 / 30% and rare 5 / 10 / 25 / 50%
