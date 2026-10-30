@@ -446,8 +446,9 @@ also check pause, flasks and RF. The new visual behavior awaits that real-client
   monsters' base resistances are in, §4, with unconditional penetration).
 - Added flat damage besides the maximum-mana granted lightning stat (supports/items, the other added-damage
   stats), increased/more modifiers on the base damage, and skill-specific added-damage scaling.
-- Damaging-ailment application, duration and effect on monsters; alternative ailments (scorch, brittle, sap); Shatter;
-  critical ailments; bleed movement bonus; poison stacking bookkeeping.
+- Damaging-ailment application, duration and effect on monsters; alternative ailments (scorch, brittle, sap); the
+  shatter visual and the on-death effects Shatter suppresses; critical ailments; bleed movement bonus; poison stacking
+  bookkeeping.
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, leech, life/mana gain on hit, and recoup.
 - Party/minion damage and the full support-gem effect set.
@@ -557,8 +558,9 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   (`ShockOnKillLocked`: from `AilmentsOnHitLocked` after a killing hit's own ailments, and from Righteous Fire's burn):
   15% base (wiki Shock: shocks without damage) and 2 s, through the player's shock effect and duration modifiers and
   the monster's own, at most 50%. Skill-local shock modifiers of the killing skill are not counted; whether the game
-  counts them is not verified. The killing hit's own shock stays on the corpse too, and the stronger one spreads
-  (wiki Within the Tempest: the spread includes shocks inflicted on enemies the character kills). A shattered monster
+  counts them is not verified. The killing hit's own shock stays on the corpse too; the stronger one applies to it, and
+  each spreads as far as its own radius reaches (wiki Within the Tempest: the spread includes shocks inflicted on
+  enemies the character kills). A shattered monster
   gets neither.
 - **Shatter** (wiki Shatter, Freeze): a non-unique monster that a hit kills while frozen, the killing hit's own freeze
   included, leaves no corpse. The server ends its ailments, so it spreads nothing and gets no kill shock. A kill by
@@ -576,10 +578,11 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   Elemental proliferation page says modifiers to area of effect affect proliferation. A hit's shock uses the hitting
   skill's area stats over the player's, a kill's shock the player's own. Whether the game scales Within the Tempest's
   fixed 1.5 m this way is not verified beyond that general rule.
-  Each AI tick (`ProliferateShocksLocked`), every living hostile monster within that radius (cells) of a monster with
-  such a shock, a corpse included, has the strongest one at the same effect until it ends, like an aura (wiki
-  Elemental proliferation). The copy does not spread again, does not count as inflicting, and goes as soon as the
-  monster is out of range or the source shock ends. The receiving monster's immunity counts; its own
+  Each AI tick (`ProliferateShocksLocked`), every living hostile monster has, at the same effect until it ends, the
+  strongest shock whose own radius (cells) reaches it from the monster it is on, a corpse included: each spreading
+  shock is an aura of its own (wiki Elemental proliferation), so a weaker shock with a wider radius still reaches the
+  monsters beyond a stronger one's. The copy does not spread again, does not count as inflicting, and goes as soon as
+  the monster is out of range or the source shock ends. The receiving monster's immunity counts; its own
   `shocked_effect_on_self_+%` does not change the copy (not verified). Chill, freeze and ignite proliferation are not
   modelled, nor a reflected shock spreading from the player. A shattered monster spreads nothing.
 

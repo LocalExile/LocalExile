@@ -481,9 +481,11 @@ and can require explicit recipes.
   ([11](../docs/protocol/11-skills.md) 13).
 - Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
   passives' sum and is sent with 0x1c1 after an allocation and on area entry, and taken off with 0x1c2 on a refund
-  (Surfcaster's Ghost of the Deep). Only the Gateway tests cover it; the icon and whether the client keeps the buff
-  after a death are not checked live. Enemy and ally passive auras are not applied.
-  Code: `PassiveBuffAuras.cs`. Docs: [11](../docs/protocol/11-skills.md) §12.
+  (Surfcaster's Ghost of the Deep).
+  Only the Gateway tests cover it; the icon and whether the client keeps the buff after a death are not checked live.
+  Enemy and ally passive auras are not applied.
+  Code: `PassiveBuffAuras.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The player's life, mana, accuracy, armour and evasion come from its class and level, with the attributes' bonuses
@@ -523,13 +525,15 @@ and can require explicit recipes.
 - **Spell cast timing (#192).** Catalog base/virtual cast milliseconds now stay unchanged for native spell actions,
   which apply cast speed themselves.
   Server waits and displayed casts per second share `SpellCastTiming`; attacks keep their existing path.
-  Screaming Reels' 60% more cast speed with a Fishing Rod uses the native calculator's formula in the server wait and in
-  the spell record's `cast_speed_+%`, which now also includes a support's own cast speed.
   The old -80% Fireball recovery capture lasted 18.75 seconds instead of 3.75 due to two divisions by 0.2.
   Automated 0/+100/-80 timing, instant/channel classification, invalid-rate and existing aura/sum checks pass.
   Real-client Q Fireball clips measured 3.750000157 s at -80%, 0.375 s at +100%, and 0.75 s at zero.
   Native virtual base stayed 750 ms; emitted cast rates were 0.27, 2.67 and 1.33 casts/s respectively.
   Projectile release/contact alignment was not separately measured.
+  Screaming Reels' 60% more cast speed with a Fishing Rod uses the native calculator's formula in the server wait and in
+  the spell record's `cast_speed_+%`.
+  That record value now also includes a support's own cast speed (Faster Casting), as the server wait already did.
+  Neither change is checked with the real client; only the Gateway tests cover them.
   Instant casts remain instant; channel damage cadence and conditional action-speed mechanics are unchanged.
   Numeric server durations below 1 ms are floored, and invalid factors/unrepresentable waits produce no spell effect.
   Code: `SpellCastTiming.cs`, Gateway (`GemSkills`, `CastMs`, `CastGemSkill`, `LaunchProjectile`, `AreaSkillHit`).
@@ -690,10 +694,12 @@ and can require explicit recipes.
   shock as increased damage taken (hits and Righteous Fire), chill and freeze in the monster AI and walk, the monster
   mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
   Chill can raise damage taken and lessen the monster's swings (Glacial Wave), a freeze can have a minimum duration
-  and a monster that hits the player can be frozen (Brine Bound). A corpse keeps its killing hit's ailments and a kill
-  can shock it, unless the hit killed it frozen and it shatters; shocks spread to living enemies within the client's
-  `virtual_shock_proliferation_radius` of the shocked monster or corpse, like an aura. An area skill applies a
-  Mirrored monster's reflected ailments after its last target, and a sweep stopped partway still rewards its kills.
+  and a monster that hits the player can be frozen (Brine Bound).
+  A corpse keeps its killing hit's ailments and a kill can shock it, unless the hit killed it frozen and it shatters.
+  Each shock spreads to living enemies within its own `virtual_shock_proliferation_radius` of the shocked monster or
+  corpse, like an aura.
+  An area skill applies a Mirrored monster's reflected ailments after its last target, and a sweep stopped partway
+  still rewards its kills.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
   Not yet: exposure, aura-dependent penetration, other added damage,

@@ -188,8 +188,8 @@ cells/s, a normal one every 0.125–0.133 s; the server walks it at the same spe
 | `monster_chance_to_not_flee_%` (the rarity's MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100) | its chance to ignore a player hit's flee ([11](11-skills.md) §6) |
 
 **Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the
-server never does to monsters: Hexproof, of Congealment, Reflector's, the ignite and wither parts of of the Magma and
-of Exile) and 6 in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
+server never does to monsters: Hexproof, of Congealment, Reflector's, the ignite and wither parts of "of the Magma" and
+"of Exile") and 6 in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
 Haste / of Damaging: the aura reaches only the monster itself; of Precision: its accuracy, not its increased critical
 strike chance, which raises a base of 0). The other 74 need a system the server does not have: an aura or buff without
 stats of its own, a granted or retaliation skill, a monster or ground on death, ailments, curses, blind or stun on the

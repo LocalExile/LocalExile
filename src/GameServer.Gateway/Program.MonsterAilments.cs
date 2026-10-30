@@ -29,13 +29,13 @@ partial class Program
         SkillArea.Modifier(name => (name == SkillArea.BaseIncreased ? 0 : player(name)) + skill(name), spell);
 
     /// <summary>Shock proliferation, once per AI tick before the buffs are sent: every living hostile monster within a
-    /// spreading shock's radius (cells, 10 to the metre) of the monster it is on, a corpse included, has the strongest
-    /// such shock until it ends (MonsterElementalAilments.Proliferated). Under the Monsters lock.</summary>
+    /// spreading shock's own radius (cells, 10 to the metre) of the monster it is on, a corpse included, has the strongest
+    /// shock that reaches it until that ends (MonsterElementalAilments.Proliferated). Under the Monsters lock.</summary>
     static void ProliferateShocksLocked(ClientState conn, double now)
     {
         var sources = new List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Shock)>();
         foreach (var m in conn.Monsters.Values)
-            if (m.Ailments.Spreading(now) is { } shock) sources.Add((m, m.Walk.Position(now), shock));
+            foreach (var shock in m.Ailments.Spreading(now)) sources.Add((m, m.Walk.Position(now), shock));
         foreach (var m in conn.Monsters.Values)
         {
             if (m.Dead || !m.Hostile || sources.Count == 0) { m.Ailments.Proliferated(null, _ => 0); continue; }

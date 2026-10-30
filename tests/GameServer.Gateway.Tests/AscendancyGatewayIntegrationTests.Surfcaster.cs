@@ -133,6 +133,16 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(540, CastMs(game.State));
         Assert.False(Program.RollCriticalStrike(game.State, 0));
         Assert.Equal(39, Record(game.State).Speed);
+
+        // The record's total holds a support's own cast speed as well: Faster Casting's 20 at level 1 and 5 from the
+        // blue socket's 10 quality (0.5 per 1%), so 39 + 25.
+        SetDev(game.State, ("virtual_intelligence_for_requirements", 100));
+        Assert.NotNull(game.Items.Remove(PlayerInventories.Helmet, Assert.Single(game.Items.Items(PlayerInventories.Helmet)).Id));
+        EquipFamilyGem(game, ItemCatalog.Create(Program.Items.Find("Fireball")!),
+            ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemFasterCast")!));
+        skill = ProgramValue<IEnumerable<(ushort, int, string, int, int, uint)>>("GemSkillEffects", game.State)
+            .Single(g => g.Item2 == effect).Item1;
+        Assert.Equal(64, Record(game.State).Speed);
     }
 
     // Ghost of the Deep (37553): BuffTemplates 671's values on BuffDefinitions 2550's stats join the passives' sum, so the
@@ -457,13 +467,16 @@ public sealed partial class AscendancyGatewayIntegrationTests
     sealed partial class GatewayCharacter
     {
         // One swing of the monster at the player through the actual MonsterSwing, evasion's entropy set so it lands.
-        public Task<(string? Error, byte[] Bytes)> SurfcasterSwing(uint id) => Exchange(async (stream, cipher) =>
+        // during runs after the swing's start check and before its contact (which waits on a timer).
+        public Task<(string? Error, byte[] Bytes)> SurfcasterSwing(uint id, Action? during = null) => Exchange(async (stream, cipher) =>
         {
             double now = State.Clock.Elapsed.TotalSeconds;
             State.EvasionEntropy = 99; State.LastEvasionAt = now;
             var m = State.Monsters[id];
-            await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["surfcaster-swing", stream, cipher, State, id, m,
+            var swing = (Task)GatewayMethod("MonsterSwing").Invoke(null, ["surfcaster-swing", stream, cipher, State, id, m,
                 m.Walk.Position(now), State.Walk.Position(now), State.IncomingHitEpoch])!;
+            during?.Invoke();
+            await swing;
             return null;
         });
     }
@@ -517,6 +530,32 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal([(130, 130, 85u), (100, 100, 100u)], results);
         // Its ignite: 100 × 0.9 × 1.3 from the plain chill, 85 of 100 with the node's.
         Assert.Equal((117.0, .85), (Math.Round(ignites[1], 6), Math.Round(ignites[0] / ignites[1], 6)));
+    }
+
+    // MonsterSwing reads the monster's ailments: a frozen monster does not start a swing, a chilled one reaches its
+    // contact later by its action speed, and a freeze that lands before the contact cancels the hit.
+    [Fact]
+    public async Task Surfcaster_monster_swing_waits_for_chill_and_stops_for_freeze()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        var state = game.State;
+        uint life = state.PlayerLife;
+        var frozen = SurfcasterTarget(state, 0x901, 3, life: 1000, attack: SurfcasterSwingAttack);
+        SurfcasterHit(state, frozen, DamageType.Cold, 1000, true);   // a critical full-life cold hit: frozen for 3 s
+        var (_, bytes) = await game.SurfcasterSwing(0x901);
+        Assert.Equal((0, life), (bytes.Length, state.PlayerLife));   // no 0x1ab and no hit
+        // A 30% chill makes the half-swing to the contact 0.3 / 0.7 s instead of 0.3 s.
+        var chilled = SurfcasterTarget(state, 0x902, -3, life: 1000, attack: SurfcasterSwingAttack with { Seconds = .6 });
+        SurfcasterHit(state, chilled, DamageType.Cold, 1000, false);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        (_, bytes) = await game.SurfcasterSwing(0x902, () =>
+        {
+            lock (state.Monsters) chilled.Ailments.Freeze(1, state.Clock.Elapsed.TotalSeconds, _ => 0, _ => 0);
+        });
+        Assert.True(watch.Elapsed.TotalSeconds >= .4, $"{watch.Elapsed}");
+        Assert.True(bytes.Length > 0);   // it started the swing
+        Assert.Equal(life, state.PlayerLife);
     }
 
     // Brine Bound (52264): a monster that hits the character may be frozen for 1 s; every freeze the character inflicts
@@ -641,6 +680,21 @@ public sealed partial class AscendancyGatewayIntegrationTests
         double at = game.State.Clock.Elapsed.TotalSeconds;
         Assert.Equal((true, 15, 0, 20), (corpse.Dead, Now(reached), Now(beyond), Now(touched)));
         int Now(SpawnedMonster m) => (int)m.Ailments.Magnitude(Shock, at);
+
+        // Each spreading shock reaches as far as its own radius: a corpse with a 10% shock from a hit with 50% increased
+        // area (18 cells) and the kill's 15% (15 cells) gives 15% at 10 cells and the weaker, wider 10% at 17.
+        var both = SurfcasterTarget(game.State, 0x50d, 500, life: 1000);
+        var inner = SurfcasterTarget(game.State, 0x50e, 510);
+        var band = SurfcasterTarget(game.State, 0x50f, 517);
+        lock (game.State.Monsters)
+        {
+            (both.Life, both.Dead) = (0, true);
+            both.Ailments.Inflict(0, 20, true, 1000, at, Flag, _ => 0, new Random(1), area: 1.5);
+            both.Ailments.ShockOnKill(at, Flag, _ => 0);
+            Program.MonsterAilmentChangesLocked(game.State, at);
+        }
+        Assert.Equal([(15.0, 15), (10.0, 18)], both.Ailments.Spreading(at).Select(e => (e.Magnitude, e.Spread)).OrderBy(e => e.Spread));
+        Assert.Equal((15, 10), (Now(inner), Now(band)));
     }
 
     // The nine small nodes (48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290): 4% cast speed and 5% chance to
@@ -769,11 +823,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.True(shattered.Dead && killed.Dead);
         Assert.True(state.Experience > experience);   // MonsterKilled ran for the kill before the Mirrored monster
         Assert.Equal((0.0, 0.0, true), (Of(shattered, Freeze), Of(shattered, Shock),
-            shattered.Ailments.Spreading(Program.ProjectileWorldTime(state)) is null));
+            !shattered.Ailments.Spreading(Program.ProjectileWorldTime(state)).Any()));
         Assert.True(third.Life < 1000 && Of(third, Chill) > 0 && Of(third, Freeze) > 0, $"{third.Life}");
         Assert.True(Of(mirrored, Freeze) > 0);
         Assert.True(state.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Freeze, state.Clock.Elapsed.TotalSeconds) > 0);
-        Assert.Equal((50.0, 50.0), (Of(killed, Shock), killed.Ailments.Spreading(state.Clock.Elapsed.TotalSeconds)!.Magnitude));
+        Assert.Equal((50.0, 50.0), (Of(killed, Shock), killed.Ailments.Spreading(state.Clock.Elapsed.TotalSeconds).Max(e => e.Magnitude)));
         var neighbour = SurfcasterTarget(state, 0x704, 12);
         lock (state.Monsters) Program.MonsterAilmentChangesLocked(state, state.Clock.Elapsed.TotalSeconds);
         Assert.Equal(50, Of(neighbour, Shock));
@@ -798,6 +852,63 @@ public sealed partial class AscendancyGatewayIntegrationTests
             await game.SurfcasterBurn(new RighteousFireState(1, 2, null, SkillCatalog.FirstSkillId, 6000, 0, 1));
             Assert.True(burned.Dead);
             Assert.Equal(15, Of(burned, Shock));
+        }
+    }
+
+    // The four player damage sites pass their hit's time, so the target's shock and Glacial Wave's chill count on the
+    // default attack, an area sweep, a projectile's contact and Righteous Fire's burn: the affected monster loses what a
+    // twin with the same increased damage taken from its mods loses at each one.
+    [Fact]
+    public async Task Surfcaster_hit_sites_count_the_target_shock_and_Glacial_Wave_chill()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        var state = game.State;
+        EquipFamilyGem(game, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemIceNova")!));
+        // Fixed lightning only, never a critical strike or a miss, so both monsters take the same roll.
+        SetDev(state, ("global_cannot_crit", 1), ("global_always_hit", 1), ("physical_damage_+%", -100), ("cold_damage_+%", -100),
+            ("attack_minimum_added_lightning_damage", 100), ("attack_maximum_added_lightning_damage", 100),
+            ("spell_minimum_added_lightning_damage", 100), ("spell_maximum_added_lightning_damage", 100), ("attack_speed_+%", 300));
+        var affected = SurfcasterTarget(state, 0x801, 3);
+        var twin = SurfcasterTarget(state, 0x802, -3, mods: new([], [], new(new Dictionary<string, int> { ["base_damage_taken_+%"] = 50 })));
+        // A 30% chill from a Glacial Wave hit and a 20% shock, from 0 for 200 s so they hold on both clocks.
+        static int Wave(string n) => n switch
+        {
+            "chance_to_shock_%" => 100,
+            "enemies_chilled_by_hits_take_damage_increased_by_chill_effect" => 1,
+            "virtual_chill_duration_+%" or "virtual_shock_duration_+%" => 9900,
+            _ => 0,
+        };
+        lock (state.Monsters) affected.Ailments.Inflict(1000, 102, false, 1000, 0, Wave, _ => 0, new Random(1));
+        Assert.Equal((30.0, 20.0, 30.0), (affected.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 1),
+            affected.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 1), affected.Ailments.ChillDamageTakenPct(1)));
+        (uint A, uint T) lost = (0, 0);
+        void Same(string site)
+        {
+            (uint A, uint T) now = (10_000 - affected.Life, 10_000 - twin.Life);
+            Assert.True(now.A > lost.A && now.A - lost.A == now.T - lost.T, $"{site}: {now} after {lost}");
+            lost = now;
+        }
+
+        await game.SurfcasterAttack(0x801);
+        state.NextAttackAt = 0;
+        await game.SurfcasterAttack(0x802);
+        Same("attack");
+        await game.SurfcasterSweep();
+        Same("sweep");
+        await using (var runtime = new ProjectileRuntimeFixture(state))
+        {
+            // One shot at each of them.
+            var (px, py) = state.Walk.Position(state.Clock.Elapsed.TotalSeconds);
+            foreach (int dx in new[] { 100, -100 })
+                runtime.Release(runtime.Shot(new("Metadata/Projectiles/DefaultArrow")
+                    { Speed = 100, Range = 100, Radius = 1, Lifetime = GameServer.Core.Projectiles.ProjectileRuntime.Time(20) },
+                    new(DamagePacket.Of(DamageType.Lightning, 100, 100), true, int.MaxValue, 0, 150, "surfcaster"),
+                    new(px, py), new(px + dx, py)));
+            runtime.Advance(1);
+            Same("projectile");
+            await game.SurfcasterBurn(new RighteousFireState(1, 2, null, SkillCatalog.FirstSkillId, 6000, 0, 10));
+            Same("burn");
         }
     }
 }

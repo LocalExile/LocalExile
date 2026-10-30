@@ -30,7 +30,9 @@ sealed class MonsterElementalAilments
     IEnumerable<Effect> Active(Kind kind, double now) => (spread is null ? effects : effects.Append(spread))
         .Where(e => e.Kind == kind && e.From <= now && now < e.Until);
 
-    public double Magnitude(Kind kind, double now) => Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
+    // The AI asks every living monster each tick, and most have no ailment: that case allocates nothing.
+    public double Magnitude(Kind kind, double now) =>
+        effects.Count == 0 && spread is null ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
 
     /// <summary>Action speed: 0 while frozen, else less by the chill's effect.</summary>
     public double ActionFactor(double now) => Magnitude(Kind.Freeze, now) > 0 ? 0 : 1 - Magnitude(Kind.Chill, now) / 100;
@@ -63,13 +65,14 @@ sealed class MonsterElementalAilments
     internal static int SpreadRadius(Func<string, int> attacker, double area) =>
         (int)Math.Floor(ShockSpreadRadius(attacker) * Math.Floor(100 * Math.Sqrt(Math.Max(0, area))) / 100);
 
-    /// <summary>The strongest of this monster's own shocks that spreads, alive or a corpse.</summary>
-    public Effect? Spreading(double now) => effects.Count == 0 ? null : effects
-        .Where(e => e.Kind == Kind.Shock && e.Spread > 0 && e.From <= now && now < e.Until).MaxBy(e => e.Magnitude);
+    /// <summary>This monster's own shocks that spread, alive or a corpse. Each is an aura of its own radius (wiki Elemental
+    /// proliferation), so a weaker shock with a wider radius still reaches the enemies beyond a stronger one's.</summary>
+    public IEnumerable<Effect> Spreading(double now) => effects.Count == 0 ? [] : effects
+        .Where(e => e.Kind == Kind.Shock && e.Spread > 0 && e.From <= now && now < e.Until);
 
-    /// <summary>Proliferation (wiki Elemental proliferation): the strongest spreading shock within reach of this monster
-    /// affects it at the same effect until that shock ends, like an aura; the copy does not spread again and is not a new
-    /// shock. Null, or a monster that cannot be shocked, takes it off.</summary>
+    /// <summary>Proliferation (wiki Elemental proliferation): the strongest of the spreading shocks whose radius reaches
+    /// this monster affects it at the same effect until that shock ends, like an aura; the copy does not spread again and
+    /// is not a new shock. Null, or a monster that cannot be shocked, takes it off.</summary>
     public void Proliferated(Effect? shock, Func<string, int> target) =>
         spread = shock is null || Immune(Kind.Shock, target) ? null : shock with { Spread = 0 };
 
