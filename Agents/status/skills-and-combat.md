@@ -282,8 +282,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   reference radius, the uniform Positioned scale; matches the real game at level 1) and kept on the player every 100
   ms; server-side mana (cost, regeneration); `/god` (also 200% increased area of effect), `/set_aoe`.
   Code: Gateway (`ActivateRighteousFire`, `RunPlayerTick`), `SkillArea.cs`.
-  Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats and shows its
-  icon (Surfcaster's Ghost of the Deep); enemy and ally passive auras are not applied.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Warcry admission restriction (#297): any signed nonzero `your_warcry_skills_are_disabled` blocks new typed warcries.
   Actual caster passive/equipment/raw dev sources are read before skill overlays, action echoes, costs and cooldowns.
@@ -481,6 +479,11 @@ and can require explicit recipes.
   Determination/Grace/Discipline (the base armour/evasion model exists, but their buffs and energy shield are not
   applied), Purity ailment immunity, Reservation masteries 1/2/6, supports, party/minion auras and life reservation
   ([11](../docs/protocol/11-skills.md) 13).
+- Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
+  passives' sum and is sent with 0x1c1 after an allocation and on area entry, and taken off with 0x1c2 on a refund
+  (Surfcaster's Ghost of the Deep). Only the Gateway tests cover it; the icon and whether the client keeps the buff
+  after a death are not checked live. Enemy and ally passive auras are not applied.
+  Code: `PassiveBuffAuras.cs`. Docs: [11](../docs/protocol/11-skills.md) §12.
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The player's life, mana, accuracy, armour and evasion come from its class and level, with the attributes' bonuses
@@ -687,8 +690,10 @@ and can require explicit recipes.
   shock as increased damage taken (hits and Righteous Fire), chill and freeze in the monster AI and walk, the monster
   mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
   Chill can raise damage taken and lessen the monster's swings (Glacial Wave), a freeze can have a minimum duration
-  and a monster that hits the player can be frozen (Brine Bound), and a kill can shock the corpse; shocks spread to
-  living enemies within the client's `virtual_shock_proliferation_radius` of the shocked monster or corpse, like an aura.
+  and a monster that hits the player can be frozen (Brine Bound). A corpse keeps its killing hit's ailments and a kill
+  can shock it, unless the hit killed it frozen and it shatters; shocks spread to living enemies within the client's
+  `virtual_shock_proliferation_radius` of the shocked monster or corpse, like an aura. An area skill applies a
+  Mirrored monster's reflected ailments after its last target, and a sweep stopped partway still rewards its kills.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
   Not yet: exposure, aura-dependent penetration, other added damage,

@@ -20,9 +20,8 @@ sealed class MonsterElementalAilments
     readonly List<Effect> effects = [];
     // The strongest shock another enemy's proliferation puts on this one, set again on every AI tick.
     Effect? spread;
-    // What the client was last sent: each kind's buff instance and magnitude, the action speed stat and the factor its
-    // walk speed carries.
-    readonly Dictionary<Kind, (ushort Instance, int Magnitude)> shown = [];
+    // What the client was last sent: each kind's magnitude, the action speed stat and the factor its walk speed carries.
+    readonly Dictionary<Kind, int> shown = [];
     public int SentActionSpeed;
     public double WalkFactor = 1;
 
@@ -125,6 +124,14 @@ sealed class MonsterElementalAilments
     public Effect? Freeze(double seconds, double now, Func<string, int> attacker, Func<string, int> target) =>
         Apply(new(Kind.Freeze, now, now + seconds, 100), attacker, target);
 
+    /// <summary>Shatter: the monster left no corpse, so its ailments end with it (the next presentation takes their buffs
+    /// off) and none spreads.</summary>
+    public void Shatter()
+    {
+        effects.Clear();
+        spread = null;
+    }
+
     /// <summary>Within the Tempest (enemy_shock_on_kill): the shock a killed monster's corpse gets, 15% base for 2 s
     /// through the shock effect and duration modifiers (wiki Within the Tempest; the 15% of shocks without damage, wiki
     /// Shock), up to 50%. It spreads like any shock the player inflicts, by the player's area modifier <paramref name="area"/>.</summary>
@@ -137,12 +144,14 @@ sealed class MonsterElementalAilments
         * Math.Max(0, 1 + target(kind == Kind.Chill ? "chill_effectiveness_on_self_+%" : "shocked_effect_on_self_+%") / 100.0);
 
     /// <summary>One inflicted ailment with its base duration: the attacker's and target's duration modifiers, a freeze
-    /// under 0.3 s discarded, the target's immunity. Null when it does not apply.</summary>
+    /// under 0.3 s discarded, the target's immunity. Null when it does not apply. The attacker's increase and the
+    /// target's increase on itself add up (PoB CalcOffence: Enemy…Duration INC + Self…Duration INC); a positive
+    /// base_self_*_duration_-% is a reduction.</summary>
     Effect? Apply(Effect effect, Func<string, int> attacker, Func<string, int> target)
     {
         var (kind, now) = (effect.Kind, effect.From);
-        double seconds = (effect.Until - now) * Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_duration_+%") / 100.0)
-            * Math.Max(0, 1 - target($"base_self_{Name(kind)}_duration_-%") / 100.0);
+        double seconds = (effect.Until - now) * Math.Max(0, 1 + (attacker($"virtual_{Name(kind)}_duration_+%")
+            - target($"base_self_{Name(kind)}_duration_-%")) / 100.0);
         if (effect.Magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, target)) return null;
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).
@@ -155,9 +164,16 @@ sealed class MonsterElementalAilments
         return effect;
     }
 
+    /// <summary>The buff instance each kind always has on its monster: the top of the range, which
+    /// <see cref="ClientState.NextBuff"/> never hands out, so a monster's frequent ailment changes take nothing from the
+    /// connection's counter and never meet another buff's instance on the same object.</summary>
+    internal static ushort Instance(Kind kind) => (ushort)(FirstInstance + (int)kind);
+    internal const ushort FirstInstance = ushort.MaxValue - 2;
+
     /// <summary>The buffs to take off and put on so the client shows what applies at <paramref name="now"/>: a kind
-    /// whose strongest magnitude changed is sent again with a new instance; expired effects are dropped.</summary>
-    public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude)> Present(double now, Func<ushort> instance)
+    /// whose strongest magnitude changed is sent again (the old one removed first, on the same instance); expired effects
+    /// are dropped.</summary>
+    public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude)> Present(double now)
     {
         effects.RemoveAll(e => e.Until <= now);
         if (spread?.Until <= now) spread = null;
@@ -165,12 +181,11 @@ sealed class MonsterElementalAilments
         foreach (var kind in Enum.GetValues<Kind>())
         {
             int magnitude = (int)Magnitude(kind, now);
-            bool had = shown.TryGetValue(kind, out var old);
-            if (had ? old.Magnitude == magnitude : magnitude == 0) continue;
-            ushort? added = magnitude > 0 ? instance() : null;
-            if (added is ushort a) shown[kind] = (a, magnitude);
+            bool had = shown.TryGetValue(kind, out int old);
+            if (had ? old == magnitude : magnitude == 0) continue;
+            if (magnitude > 0) shown[kind] = magnitude;
             else shown.Remove(kind);
-            changes.Add((kind, had ? old.Instance : null, added, magnitude));
+            changes.Add((kind, had ? Instance(kind) : null, magnitude > 0 ? Instance(kind) : null, magnitude));
         }
         return changes;
     }

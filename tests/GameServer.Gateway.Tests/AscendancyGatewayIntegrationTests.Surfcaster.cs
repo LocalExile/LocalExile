@@ -169,12 +169,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(baseWalk * 1.23, game.State.Walk.Speed, 6);
         Assert.Null(PassiveBuffAuras.Presentation(game.State)); // already published
 
-        // A reload (a new area's connection) has the stats and publishes the buff again.
+        // A reload (a new area's connection) has the stats, and entering the area publishes the buff again.
         var reloaded = game.Reload();
-        reloaded.PlayerSent = true;
         Assert.Equal(23, reloaded.Pools.MovementVelocityPct);
-        ushort next = reloaded.NextBuff;
-        Assert.Equal(InstanceEntities.AddBuff(Program.PlayerId, next, 2550, Program.PlayerId), PassiveBuffAuras.Presentation(reloaded));
+        (_, bytes) = await game.SurfcasterEnter(reloaded);
+        Assert.True(bytes.AsSpan().IndexOf(InstanceEntities.AddBuff(Program.PlayerId, reloaded.PassiveBuffs[2550], 2550,
+            Program.PlayerId)) >= 0);
 
         (error, bytes) = await game.Change([37553, 36782], false, refundPoints: true);
         Assert.Null(error);
@@ -261,6 +261,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.DoesNotContain(b.Inflict(40, 0, true, 1000, 0, None, None, random), e => e.Kind == MonsterElementalAilments.Kind.Freeze);
         Assert.Contains(b.Inflict(40, 0, true, 1000, 0, With("virtual_freeze_duration_+%", 50), None, random),
             e => e.Kind == MonsterElementalAilments.Kind.Freeze && Math.Abs(e.Until - .36) < 1e-9);
+        // The attacker's increase and the monster's own add up (PoB CalcOffence): 50% increased against 50% reduced on
+        // itself leaves 0.6 s; of the Ice's −80 (80% increased on itself) makes it 1.08 s.
+        double Frozen(Func<string, int> attacker, Func<string, int> target) => b.Inflict(100, 0, true, 1000, 0, attacker,
+            target, random).Single(e => e.Kind == MonsterElementalAilments.Kind.Freeze).Until;
+        Assert.Equal(.6, Frozen(With("virtual_freeze_duration_+%", 50), With("base_self_freeze_duration_-%", 50)), 6);
+        Assert.Equal(1.08, Frozen(None, With("base_self_freeze_duration_-%", -80)), 6);
         Assert.Empty(b.Inflict(0, 1000, false, 1000, 0, None, None, random));
         Assert.Equal(50, b.Inflict(0, 1000, false, 1000, 0, With("chance_to_shock_%", 100), None, random).Single().Magnitude);
         // Shock from cold needs cold_damage_can_shock; the monster's own modifiers and immunity count.
@@ -271,24 +277,33 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.DoesNotContain(b.Inflict(200, 0, true, 1000, 0, None, With("cannot_be_frozen", 1), random),
             e => e.Kind == MonsterElementalAilments.Kind.Freeze);
 
-        // The client sees a kind again only when its magnitude changes, and its buff goes when the last one ends.
+        // The client sees a kind again only when its magnitude changes, on the kind's own instance, and its buff goes
+        // when the last one ends. The connection's counter never reaches those instances.
         var c = new MonsterElementalAilments();
-        ushort next = 7;
+        ushort? chill = MonsterElementalAilments.Instance(MonsterElementalAilments.Kind.Chill);
         c.Inflict(200, 0, false, 1000, 0, None, None, random);
-        Assert.Equal([(MonsterElementalAilments.Kind.Chill, (ushort?)null, (ushort?)7, 26)], c.Present(0, () => next++));
+        Assert.Equal([(MonsterElementalAilments.Kind.Chill, (ushort?)null, chill, 26)], c.Present(0));
         c.Inflict(200, 0, false, 1000, 1, None, None, random);
-        Assert.Empty(c.Present(1, () => next++));
-        Assert.Equal([(MonsterElementalAilments.Kind.Chill, (ushort?)7, (ushort?)null, 0)], c.Present(3, () => next++));
+        Assert.Empty(c.Present(1));
+        c.Inflict(1000, 0, false, 1000, 1, None, None, random);
+        Assert.Equal([(MonsterElementalAilments.Kind.Chill, chill, chill, 30)], c.Present(1));
+        Assert.Equal([(MonsterElementalAilments.Kind.Chill, chill, (ushort?)null, 0)], c.Present(3.5));
         Assert.True(c.Idle);
+        var counter = new ClientState(new(0, "buffs", 8, 8, 1, 1, null, []), 0, 1)
+            { NextBuff = MonsterElementalAilments.FirstInstance - 1 };
+        Assert.Equal((MonsterElementalAilments.FirstInstance - 1, 1), ((int)counter.NextBuff++, (int)counter.NextBuff));
     }
 
     sealed partial class GatewayCharacter
     {
-        // Runs the actual monster AI loop for a few ticks, then ends it as a closed connection would.
-        public Task<(string? Error, byte[] Bytes)> SurfcasterAiTicks(int milliseconds) => Exchange(async (stream, cipher) =>
+        // Runs the actual monster AI loop until done holds (checked under the Monsters lock, at most 5 s), then ends it as
+        // a closed connection would; the tick that made it true still sends its packets.
+        public Task<(string? Error, byte[] Bytes)> SurfcasterAiUntil(Func<bool> done) => Exchange(async (stream, cipher) =>
         {
+            State.Closed = false;
             var ai = (Task)GatewayMethod("RunMonsterAi").Invoke(null, ["surfcaster-ai", stream, cipher, State])!;
-            await Task.Delay(milliseconds);
+            for (var until = DateTime.UtcNow.AddSeconds(5); DateTime.UtcNow < until; await Task.Delay(5))
+                lock (State.Monsters) if (done()) break;
             State.Closed = true;
             await ai;
             return null;
@@ -325,9 +340,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
         shocked.Ailments.Inflict(0, 102, true, 1000, 0, _ => 0, _ => 0, new Random(1));
         Assert.Equal(20, shocked.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 1));
         var hit = DamagePacket.Of(DamageType.Lightning, 100, 100);
-        Assert.Equal(100, Program.MonsterDamage(shocked, hit, false, true, 3, default).Damage); // expired
-        Assert.Equal((120, 120), (Program.MonsterDamage(shocked, hit, false, true, 1, default).Damage,
-            Program.MonsterDamage(plain, hit, false, true, 1, default).Damage));
+        Assert.Equal(100, Program.MonsterHitDamage(shocked, hit, false, true, 3, default).Damage); // expired
+        Assert.Equal((120, 120), (Program.MonsterHitDamage(shocked, hit, false, true, 1, default).Damage,
+            Program.MonsterHitDamage(plain, hit, false, true, 1, default).Damage));
         var burn = new DamageOverTime(DamageType.Fire, 100, 10);
         Assert.Equal((120, 120), (Program.MonsterBurn(shocked, burn, 1, 1).Damage, Program.MonsterBurn(plain, burn, 1, 1).Damage));
     }
@@ -347,9 +362,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         chilled.Ailments.Inflict(1000, 0, false, 1000, now, _ => 0, _ => 0, Random.Shared); // 30%
         frozen.Ailments.Inflict(1000, 0, true, 1000, now, _ => 0, _ => 0, Random.Shared);  // 30% and 3 s frozen
         frozen.Walk.Order(100, 100, now);
-        ushort firstBuff = game.State.NextBuff;
 
-        var (_, bytes) = await game.SurfcasterAiTicks(250);
+        var (_, bytes) = await game.SurfcasterAiUntil(() => plain.BusyUntil > now && chilled.BusyUntil > now);
         Assert.True(plain.BusyUntil > now);
         Assert.Equal(10 / .7 - 10, chilled.BusyUntil - plain.BusyUntil, 6);
         Assert.Equal(0, frozen.BusyUntil);
@@ -357,8 +371,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(21, chilled.Walk.Speed, 6);
         Assert.Equal(30, plain.Walk.Speed, 6);
         bool Sent(byte[] packet) => bytes.AsSpan().IndexOf(packet) >= 0;
-        bool Buff(uint id, MonsterElementalAilments.Kind kind, int magnitude) => Enumerable.Range(firstBuff, 4)
-            .Any(i => Sent(Program.AilmentBuff(id, (ushort)i, kind, magnitude)));
+        bool Buff(uint id, MonsterElementalAilments.Kind kind, int magnitude) =>
+            Sent(Program.AilmentBuff(id, MonsterElementalAilments.Instance(kind), kind, magnitude));
         Assert.True(Buff(0x101, MonsterElementalAilments.Kind.Chill, 30));
         Assert.True(Buff(0x103, MonsterElementalAilments.Kind.Freeze, 100));
         uint speed = Program.Stats.Key("virtual_action_speed_+%")!.Value;
@@ -474,24 +488,35 @@ public sealed partial class AscendancyGatewayIntegrationTests
         using var plain = Surfcaster();
         Assert.Null((await game.Change([41643, 60505, 53922, 6252], true)).Error);
         var results = new List<(int Taken, int Burn, uint Lost)>();
+        var ignites = new List<double>();
         foreach (var character in new[] { game, plain })
         {
             var m = SurfcasterTarget(character.State, 0x301, 3, life: 1000, attack: SurfcasterSwingAttack);
+            // A fire monster that always crits, so its swing ignites the character from its (lessened) hit.
+            var burning = SurfcasterTarget(character.State, 0x302, -3, life: 1000,
+                attack: SurfcasterSwingAttack with { Damage = DamagePacket.Of(DamageType.Fire, 100, 100) },
+                mods: new([], [], new(new Dictionary<string, int> { ["always_crit"] = 1 })));
+            SurfcasterHit(character.State, burning, DamageType.Cold, 1000, false);
             SurfcasterHit(character.State, m, DamageType.Cold, 1000, false);   // a 30% chill
             double now = character.State.Clock.Elapsed.TotalSeconds;
             Assert.Equal(30.0, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now));
             var hit = DamagePacket.Of(DamageType.Lightning, 100, 100);
-            int taken = Program.MonsterDamage(m, hit, false, true, now, default).Damage;
+            int taken = Program.MonsterHitDamage(m, hit, false, true, now, default).Damage;
             int burn = Program.MonsterBurn(m, new DamageOverTime(DamageType.Fire, 100, 10), 1, now).Damage;
             uint before = character.State.PlayerLife;
             await character.SurfcasterSwing(0x301);
             results.Add((taken, burn, before - character.State.PlayerLife));
+            await character.SurfcasterSwing(0x302);
+            ignites.Add(character.State.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Ignite,
+                character.State.Clock.Elapsed.TotalSeconds));
         }
         // Plain equivalent of the damage taken: a monster with 30% increased damage taken from its mods.
         var modded = new SpawnedMonster("modded", new(0, 0, 30), 0, 2, 1000)
             { Mods = new([], [], new(new Dictionary<string, int> { ["base_damage_taken_+%"] = 30 })) };
-        Assert.Equal(130, Program.MonsterDamage(modded, DamagePacket.Of(DamageType.Lightning, 100, 100), false, true, 0, default).Damage);
+        Assert.Equal(130, Program.MonsterHitDamage(modded, DamagePacket.Of(DamageType.Lightning, 100, 100), false, true, 0, default).Damage);
         Assert.Equal([(130, 130, 85u), (100, 100, 100u)], results);
+        // Its ignite: 100 × 0.9 × 1.3 from the plain chill, 85 of 100 with the node's.
+        Assert.Equal((117.0, .85), (Math.Round(ignites[1], 6), Math.Round(ignites[0] / ignites[1], 6)));
     }
 
     // Brine Bound (52264): a monster that hits the character may be frozen for 1 s; every freeze the character inflicts
@@ -534,9 +559,21 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.True(none.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, plain.State.Clock.Elapsed.TotalSeconds + .3) > 0);
     }
 
+    // A kill of the character through the actual AilmentsOnHitLocked: a physical hit took its last life, so it brings no
+    // shock of its own.
+    static void SurfcasterKill(ClientState state, SpawnedMonster m)
+    {
+        lock (state.Monsters)
+        {
+            (m.Life, m.Dead) = (0, true);
+            Program.AilmentsOnHitLocked(state, m, DamagePacket.Of(DamageType.Physical, 1, 1), false, false, 100,
+                Program.CharacterPlayerStats(state), null, state.Clock.Elapsed.TotalSeconds, new Random(1));
+        }
+    }
+
     // Within the Tempest (61246): a monster the character kills is shocked (15%, 2 s), and every shock the character
     // inflicts, the corpse's too, spreads to living enemies within 15 cells, grown by area of effect; a spread shock does
-    // not spread again.
+    // not spread again. The other kill paths are in the next test.
     [Fact]
     public async Task Surfcaster_Within_the_Tempest_shocks_kills_and_spreads_shocks_15_cells()
     {
@@ -559,12 +596,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
         {
             var state = character.State;
             SetDev(state, ("global_always_hit", 1));
-            // Killed by the default attack (Attack) and by a skill's hit (ApplyMonsterHitLocked).
+            // Killed by the default attack (Attack), whose unarmed physical hit brings no shock of its own.
             var attacked = SurfcasterTarget(state, 0x501, 3, life: 1);
-            var swept = SurfcasterTarget(state, 0x502, 200, life: 1);
             await character.SurfcasterAttack(0x501);
-            lock (state.Monsters) Program.HitUnlessBlockedLocked(state, swept, 5);
-            Assert.True(attacked.Dead && swept.Dead);
+            Assert.True(attacked.Dead);
             // Around the corpse at +3: 14 cells (+17) and 16 cells (-13); +31 is 14 from the spread copy at +17.
             var near = SurfcasterTarget(state, 0x503, 17);
             var far = SurfcasterTarget(state, 0x504, -13);
@@ -577,8 +612,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
             List<(byte[] Packet, string Log)> packets;
             lock (state.Monsters) packets = Program.MonsterAilmentChangesLocked(state, now);
             int Of(SpawnedMonster m, double at) => (int)m.Ailments.Magnitude(Shock, at);
-            results.Add([Of(attacked, now), Of(swept, now), Of(near, now), Of(far, now), Of(second, now), Of(hit, now),
-                Of(neighbour, now), Program.MonsterDamage(near, DamagePacket.Of(DamageType.Lightning, 100, 100), false, true, now, default).Damage]);
+            results.Add([Of(attacked, now), Of(near, now), Of(far, now), Of(second, now), Of(hit, now),
+                Of(neighbour, now), Program.MonsterHitDamage(near, DamagePacket.Of(DamageType.Lightning, 100, 100), false, true, now, default).Damage]);
             if (character == game)
             {
                 Assert.Contains(packets, p => p.Log.Contains("monster 0x503") && p.Log.Contains("Shock 15%"));
@@ -588,8 +623,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
                 Assert.Contains(packets, p => p.Log.Contains("0x01c2 monster 0x503 Shock ends"));
             }
         }
-        Assert.Equal([15, 15, 15, 0, 0, 20, 20, 115], results[0]);
-        Assert.Equal([0, 0, 0, 0, 0, 20, 0, 100], results[1]);
+        Assert.Equal([15, 15, 0, 0, 20, 20, 115], results[0]);
+        Assert.Equal([0, 0, 0, 0, 20, 0, 100], results[1]);
         Assert.Equal(results[0], results[2]);
 
         // With 100% increased area of effect a kill's shock and a hit's reach 21 cells: 20 away gets it, 22 away does not.
@@ -600,7 +635,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         var beyond = SurfcasterTarget(game.State, 0x50a, 78);
         var struck = SurfcasterTarget(game.State, 0x50b, 300, life: 1000);
         var touched = SurfcasterTarget(game.State, 0x50c, 320);
-        lock (game.State.Monsters) Program.HitUnlessBlockedLocked(game.State, corpse, 5);
+        SurfcasterKill(game.State, corpse);
         SurfcasterHit(game.State, struck, DamageType.Lightning, 102, true);
         lock (game.State.Monsters) Program.MonsterAilmentChangesLocked(game.State, game.State.Clock.Elapsed.TotalSeconds);
         double at = game.State.Clock.Elapsed.TotalSeconds;
@@ -660,16 +695,109 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.True(to.X > from.X, $"{to}");   // away from the player
 
         // The AI walks it to the point and it does not swing, though in reach; the rare one swings.
-        var (_, bytes) = await game.SurfcasterAiTicks(250);
+        var (_, bytes) = await game.SurfcasterAiUntil(() => fleeing.FleeTo is null && rare.BusyUntil > now);
         var walk = InstanceProtocol.ActionStarted(0x601, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
         Assert.True(bytes.AsSpan().IndexOf(walk) >= 0);
         Assert.Equal((0.0, true, true, null), (fleeing.BusyUntil, rare.BusyUntil > now, fleeing.Fleeing, fleeing.FleeTo));
         // Its walk ends (here short of the point, back in reach): the flee is over and it swings again.
         now = game.State.Clock.Elapsed.TotalSeconds;
         fleeing.Walk.Teleport(from.X, from.Y, now);
-        game.State.Closed = false;
-        await game.SurfcasterAiTicks(250);
+        await game.SurfcasterAiUntil(() => !fleeing.Fleeing && fleeing.BusyUntil > now);
         Assert.False(fleeing.Fleeing);
         Assert.True(fleeing.BusyUntil > now);
+    }
+
+    sealed partial class GatewayCharacter
+    {
+        // One sweep of the socketed gem skill through the actual AreaSkillHit, at once, aimed at the character.
+        public Task<(string? Error, byte[] Bytes)> SurfcasterSweep() => Exchange(async (stream, cipher) =>
+        {
+            var gem = ProgramValue<IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>>(
+                "GemSkillEffects", State).Single();
+            var at = State.Walk.Position(State.Clock.Elapsed.TotalSeconds);
+            await (Task)GatewayMethod("AreaSkillHit").Invoke(null, ["surfcaster-sweep", stream, cipher, State, gem.Id, gem,
+                at, at, true, (ushort)1, State.ActionCount, null, null])!;
+            return null;
+        });
+
+        // One second of Righteous Fire's burn around the character through the actual BurnAround.
+        public Task<(string? Error, byte[] Bytes)> SurfcasterBurn(RighteousFireState rf) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)GatewayMethod("BurnAround").Invoke(null, ["surfcaster-burn", stream, cipher, State, rf, 1.0])!;
+            return null;
+        });
+
+        // The area entry's step once the player object is sent (PlayerEnteredArea), on another area's connection.
+        public Task<(string? Error, byte[] Bytes)> SurfcasterEnter(ClientState state) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)GatewayMethod("PlayerEnteredArea").Invoke(null, ["surfcaster-enter", stream, cipher, state])!;
+            return null;
+        });
+    }
+
+    // Every kill path keeps the killing hit's ailments on the corpse, then adds Within the Tempest's: a critical cold hit
+    // (Baited Breath, Stormy Seas) shocks a 1-life unique by 50%, and its corpse spreads that, not the 15% of the kill.
+    // The same hit freezes, so a non-unique monster it kills shatters and leaves nothing to spread. An area skill's
+    // sweep inflicts on every monster it hits; a Mirrored monster's reflected freeze lands after the sweep, so the
+    // monsters after it are hit and the kill before it still gives experience. A projectile's contact does the same,
+    // and Righteous Fire's burn (damage over time never shatters) shocks its kill.
+    [Fact]
+    public async Task Surfcaster_sweep_projectile_and_burn_kills_keep_the_hit_shock_and_a_Mirrored_freeze_stops_no_sweep()
+    {
+        if (!DataAvailable()) return;
+        using var game = Surfcaster();
+        Assert.Null((await game.Change([48926, 64012, 33031, 37082, 41643, 60505, 34767, 61246], true)).Error);
+        game.Items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("FishingRod1")!));
+        EquipFamilyGem(game, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemIceNova")!));
+        var state = game.State;
+        SetDev(state, ("spell_minimum_added_cold_damage", 100), ("spell_maximum_added_cold_damage", 100));
+        const MonsterElementalAilments.Kind Chill = MonsterElementalAilments.Kind.Chill, Freeze = MonsterElementalAilments.Kind.Freeze,
+            Shock = MonsterElementalAilments.Kind.Shock;
+        // On the hits' own clock: the projectile runtime's while it runs.
+        double Of(SpawnedMonster m, MonsterElementalAilments.Kind kind) => m.Ailments.Magnitude(kind, Program.ProjectileWorldTime(state));
+
+        var (px, py) = state.Walk.Position(state.Clock.Elapsed.TotalSeconds);
+        var shattered = new SpawnedMonster("shattered", new(px + 4, py, 30), 100, 2, 1)
+            { Variety = Program.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite"), Level = 60, Aggro = true };
+        var killed = new SpawnedMonster("unique", new(px + 5, py, 30), 100, 2, 1) { Rarity = MonsterRarity.Unique, Aggro = true };
+        lock (state.Monsters) (state.Monsters[0x700], state.Monsters[0x701]) = (shattered, killed);
+        var mirrored = SurfcasterTarget(state, 0x702, 6, life: 1000,
+            mods: new([], [], new(new Dictionary<string, int> { ["reflect_non_damaging_ailments_%_chance"] = 100 })));
+        var third = SurfcasterTarget(state, 0x703, 7, life: 1000);
+        uint experience = state.Experience;
+        await game.SurfcasterSweep();
+        Assert.True(shattered.Dead && killed.Dead);
+        Assert.True(state.Experience > experience);   // MonsterKilled ran for the kill before the Mirrored monster
+        Assert.Equal((0.0, 0.0, true), (Of(shattered, Freeze), Of(shattered, Shock),
+            shattered.Ailments.Spreading(Program.ProjectileWorldTime(state)) is null));
+        Assert.True(third.Life < 1000 && Of(third, Chill) > 0 && Of(third, Freeze) > 0, $"{third.Life}");
+        Assert.True(Of(mirrored, Freeze) > 0);
+        Assert.True(state.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Freeze, state.Clock.Elapsed.TotalSeconds) > 0);
+        Assert.Equal((50.0, 50.0), (Of(killed, Shock), killed.Ailments.Spreading(state.Clock.Elapsed.TotalSeconds)!.Magnitude));
+        var neighbour = SurfcasterTarget(state, 0x704, 12);
+        lock (state.Monsters) Program.MonsterAilmentChangesLocked(state, state.Clock.Elapsed.TotalSeconds);
+        Assert.Equal(50, Of(neighbour, Shock));
+
+        // A projectile pierces a 1-life unique and hits the next: the corpse keeps the hit's 50% shock, the other is chilled.
+        var pierced = new SpawnedMonster("pierced", new(px - 20, py, 30), 100, 2, 1) { Rarity = MonsterRarity.Unique, Aggro = true };
+        lock (state.Monsters) state.Monsters[0x705] = pierced;
+        var struck = SurfcasterTarget(state, 0x706, -30);
+        await using (var runtime = new ProjectileRuntimeFixture(state))
+        {
+            runtime.Release(runtime.Shot(new("Metadata/Projectiles/DefaultArrow")
+                { Speed = 100, Range = 100, Radius = 1, Lifetime = GameServer.Core.Projectiles.ProjectileRuntime.Time(20), Pierce = 1 },
+                new(DamagePacket.Of(DamageType.Cold, 100, 100), true, int.MaxValue, 0, 150, "surfcaster"),
+                new(px, py), new(px - 100, py)));
+            runtime.Advance(1);
+            Assert.True(pierced.Dead);
+            Assert.Equal(50, Of(pierced, Shock));
+            Assert.True(Of(struck, Chill) > 0);
+
+            // Righteous Fire burns a 1-life monster at the character's feet to death: the kill's 15% shock.
+            var burned = SurfcasterTarget(state, 0x707, 0, life: 1);
+            await game.SurfcasterBurn(new RighteousFireState(1, 2, null, SkillCatalog.FirstSkillId, 6000, 0, 1));
+            Assert.True(burned.Dead);
+            Assert.Equal(15, Of(burned, Shock));
+        }
     }
 }

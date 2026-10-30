@@ -432,7 +432,14 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public FlaskGrounds.State FlaskGrounds { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
-    public ushort NextBuff = 1;
+    /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the monster ailments' fixed instances
+    /// (MonsterElementalAilments.Instance) and never hands out 0.</summary>
+    public ushort NextBuff
+    {
+        get => nextBuff;
+        set => nextBuff = value is 0 or >= MonsterElementalAilments.FirstInstance ? (ushort)1 : value;
+    }
+    ushort nextBuff = 1;
     public uint PlayerMaxLife => Pools.Life;
     // The player's life as the server keeps it (PlayerObject's Life, full on creation); 0 = dead.
     public bool AuraDeathHandled;

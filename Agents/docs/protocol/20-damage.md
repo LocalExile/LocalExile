@@ -498,11 +498,14 @@ See [Gambler's exact source, threshold, formula and presentation limits](../game
 ## Outgoing chill, freeze and shock on monsters
 
 Each `SpawnedMonster` has a `MonsterElementalAilments`, changed under the Monsters lock on the connection's pauseable
-clock (`ProjectileWorldTime`). The default attack, area skills and projectiles (ordinary bow shots included) call
-`AilmentsOnHitLocked` (`Program.MonsterAilments.cs`) after a hit's damage when the monster still lives, so a hit does
-not gain from its own shock. The damage per type is the resisted packet × the monster's damage taken × the critical
-multiplier on a critical strike; the threshold is its maximum life (wiki: equal to it for most monsters). The
-attacker's stats are `CharacterPlayerStats` plus the skill's own, summed through the panel rows (`PanelStats.Of`).
+clock (`ProjectileWorldTime`). The default attack, area skills and projectiles (ordinary bow shots included) take the
+hit's damage with `MonsterHitDamage` (the target's shock and chill at the hit's time) and then call
+`AilmentsOnHitLocked` (`Program.MonsterAilments.cs`) for every hit that landed, a killing one included, so a hit does
+not gain from its own shock. The older `MonsterDamage`, `MonsterTakes*` and `MonsterBurn` without a time leave the
+target's shock and chill out; a new player hit path needs both calls ([Surfcaster](../game/surfcaster.md), Hit paths).
+The damage per type is the resisted packet × the monster's damage taken × the critical multiplier on a critical
+strike; the threshold is its maximum life (wiki: equal to it for most monsters). The attacker's stats are
+`CharacterPlayerStats` plus the skill's own, summed through the panel rows (`PanelStats.Of`).
 
 | Ailment | Applied by | Effect | Duration |
 |---|---|---|---|
@@ -513,10 +516,13 @@ attacker's stats are `CharacterPlayerStats` plus the skill's own, summed through
 The effect modifiers are the attacker's `virtual_chill_effect_+%`/`virtual_shock_effect_+%` and the monster's
 `chill_effectiveness_on_self_+%`/`shocked_effect_on_self_+%`, both counted before the cap and the 5% floor. Durations
 take the attacker's `virtual_*_duration_+%` and the monster's `base_self_*_duration_-%` (positive reduces, as on the
-player's jewels). Of the Ice carries −80 of the freeze one in 3.29.3b Mods.dat, so by that sign its freeze lasts 80%
-longer; the game's text for it is not checked. `immune_to_*`, `cannot_be_*` and `base_cannot_be_*` on the monster's
-stats block each kind. The strongest of a kind applies, and each keeps its own duration (wiki); a weaker one that also
-ends sooner is dropped. A monster that dies keeps them; it no longer acts.
+player's jewels) added together, × (1 + (attacker − target) / 100), as PoB `CalcOffence` sums `Enemy…Duration` INC
+and the enemy's `Self…Duration` INC: 50% increased against 50% reduced on itself leaves the base duration. Of the
+Ice carries −80 of the freeze one in 3.29.3b Mods.dat; the wiki's text for it (Modifier:MonsterModResistantToCold) is
+"80% increased Freeze Duration on you", which is that sign. `immune_to_*`, `cannot_be_*` and `base_cannot_be_*` on the
+monster's stats block each kind. The strongest of a kind applies, and each keeps its own duration (wiki); a weaker one
+that also ends sooner is dropped. A monster that dies keeps them, the killing hit's included (wiki Ailment: a killing
+hit that inflicts an elemental ailment counts as killing an affected enemy); it no longer acts.
 
 - **Shock** adds to the mods' `base_damage_taken_+%` (PoB DamageTaken INC), before a spell's less damage taken, on
   the player's hits and Righteous Fire's burn (`MonsterDamageTaken`).
@@ -528,14 +534,18 @@ ends sooner is dropped. A monster that dies keeps them; it no longer acts.
 - **Stormy Seas.** `cold_damage_can_shock` lets the cold damage count for the shock's magnitude; the chance is still
   a critical strike or `chance_to_shock_%`. The client's calculator `0x1426f2660` makes `virtual_cold_damage_can_shock`
   (0x1bc6) from keys 0x451a, 0x1bc9 and 0x1b96, and nothing else in the client reads it.
-- **Mirrored** (`reflect_non_damaging_ailments_%_chance`, 100): the ailments a hit added act on the player as well
-  (wiki Reflect: "in addition to its target"), through `PlayerElementalAilments.Inflict` with the player's own effect
-  modifiers, caps and floor. The exact reflected magnitude is not verified.
+- **Mirrored** (`reflect_non_damaging_ailments_%_chance`, 100): the ailments a hit added to a living monster act on
+  the player as well (wiki Reflect: "in addition to its target"), through `PlayerElementalAilments.Inflict` with the
+  player's own effect modifiers, caps and floor (`ReflectAilmentsLocked`). The exact reflected magnitude is not
+  verified. An area skill's hits land together, so its sweep collects the reflections and applies them after its last
+  target; a reflected freeze therefore cannot end the sweep halfway. A sweep stopped partway for any other reason still
+  runs the deaths it already caused (experience, loot, quest flags).
 - **Glacial Wave.** A chill carries the attacker's `enemies_chilled_by_hits_take_damage_increased_by_chill_effect` and
   `..._deal_damage_lessened_by_chill_effect` as they were when it landed. While such a chill lasts, the monster takes
   increased damage by its strongest chill (any source, wiki Glacial Wave), added to shock and the mods' damage taken
   (PoB DamageTaken INC), and its swings deal less by half of it: `MonsterSwing` scales the rolled hit by
-  1 − chill / 200 after the monster mods and before the player's mitigation (PoB Damage MORE −chill / 2).
+  1 − chill / 200 after the monster mods and before the player's mitigation (PoB Damage MORE −chill / 2). Less damage
+  covers all of its damage, so the base its critical strike's ignite on the player starts from is scaled the same.
 - **Freeze minimum.** `freeze_minimum_duration_X_ms` (Brine Bound, 1000) lifts any freeze the attacker inflicts that
   passed the 0.3 s threshold to at least that long; no duration modifier changes the minimum (wiki Brine Bound).
 - **Freeze when hit.** `chance_to_freeze_enemies_for_1_second_when_hit_%` (Brine Bound) rolls once for each monster
@@ -543,12 +553,18 @@ ends sooner is dropped. A monster that dies keeps them; it no longer acts.
   effects), never for an evaded one. The freeze is 1 s through the usual duration modifiers, threshold, minimum and
   immunity; whether duration modifiers apply to this fixed 1 s is not verified. It draws from `Random.Shared`, so the
   incoming hit's own draws keep their order.
-- **Shock on kill.** `enemy_shock_on_kill` (Within the Tempest) shocks a monster the player kills, from a hit or
-  Righteous Fire (`ShockOnKillLocked` at the three death sites): 15% base (wiki Shock: shocks without damage) and 2 s,
-  through the player's shock effect and duration modifiers and the monster's own, at most 50%. Skill-local shock
-  modifiers of the killing skill are not counted; whether the game counts them is not verified. A killing hit's own
-  ailments are not put on the corpse (they apply only while the monster lives), although the wiki's ailment timing
-  note implies a killing hit inflicts its elemental ailments.
+- **Shock on kill.** `enemy_shock_on_kill` (Within the Tempest) shocks a monster the player kills
+  (`ShockOnKillLocked`: from `AilmentsOnHitLocked` after a killing hit's own ailments, and from Righteous Fire's burn):
+  15% base (wiki Shock: shocks without damage) and 2 s, through the player's shock effect and duration modifiers and
+  the monster's own, at most 50%. Skill-local shock modifiers of the killing skill are not counted; whether the game
+  counts them is not verified. The killing hit's own shock stays on the corpse too, and the stronger one spreads
+  (wiki Within the Tempest: the spread includes shocks inflicted on enemies the character kills). A shattered monster
+  gets neither.
+- **Shatter** (wiki Shatter, Freeze): a non-unique monster that a hit kills while frozen, the killing hit's own freeze
+  included, leaves no corpse. The server ends its ailments, so it spreads nothing and gets no kill shock. A kill by
+  damage over time (Righteous Fire) never shatters. The client's shatter visual is not sent, because the packet that
+  starts it is not known, so the client still shows the corpse; on-death effects that shatter would stop are not
+  modelled either.
 - **Shock proliferation.** A shock takes the attacker's `virtual_shock_proliferation_radius` when it lands, as the
   client's calculator `0x142828340` builds it: the largest of `gloves_shock_proliferation_radius`,
   `virtual_elemental_status_effect_aura_radius` (the larger of `elemental_status_effect_aura_radius` and
@@ -565,19 +581,22 @@ ends sooner is dropped. A monster that dies keeps them; it no longer acts.
   Elemental proliferation). The copy does not spread again, does not count as inflicting, and goes as soon as the
   monster is out of range or the source shock ends. The receiving monster's immunity counts; its own
   `shocked_effect_on_self_+%` does not change the copy (not verified). Chill, freeze and ignite proliferation are not
-  modelled, nor a reflected shock spreading from the player. In the game a non-unique monster killed while frozen
-  shatters and leaves no corpse to spread from (wiki Freeze); Shatter is not modelled, so such a corpse still spreads.
+  modelled, nor a reflected shock spreading from the player. A shattered monster spreads nothing.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
-effects but sends nothing, and shocks do not spread. A kind is re-sent only when its strongest magnitude changes: S→C 0x1c2 for the old instance,
-then 0x1c1 with BuffDefinitions 1 chilled, 2 frozen or 3 shocked (BuffVisuals 3, 4, 5), the player as source and no
-duration; 0x1c2 removes it at expiry, so a pause cannot desync it. All three rows have the +0xff bool, so 0x1c1
-carries a u16 at +0x82 ([11](11-skills.md) §12); chilled and shocked are `IsRecovery` and carry their one GrantedStats
-value (`action_speed_-%_from_chill`, `base_damage_taken_+%_from_shock`). The magnitude goes in both; what the client
-does with +0x82 is not known. The chill is also sent as 0x1b3 `virtual_action_speed_+%` (−chill), which the native
+effects but sends nothing, and shocks do not spread. A kind is re-sent only when its strongest magnitude changes: S→C
+0x1c2 for the old buff, then 0x1c1 with BuffDefinitions 1 chilled, 2 frozen or 3 shocked (BuffVisuals 3, 4, 5), the
+player as source and no duration. Each kind always uses the same instance on its monster, 0xfffd, 0xfffe or 0xffff
+(`MonsterElementalAilments.Instance`). The client keeps buffs per object by instance (`0x141e11720` looks up a live
+one, `0x141e11fb0` removes by instance, both skip one already being removed), and the connection's `NextBuff` wraps
+back to 1 below that range, so ailment changes take none of its instances and cannot meet another buff's. 0x1c2
+removes a buff at expiry, so a pause cannot desync it. All three rows have the +0xff bool, so 0x1c1 carries a u16 at
++0x82 ([11](11-skills.md) §12); chilled and shocked are `IsRecovery` and carry their one GrantedStats value
+(`action_speed_-%_from_chill`, `base_damage_taken_+%_from_shock`). The magnitude goes in both; what the client does
+with +0x82 is not known. The chill is also sent as 0x1b3 `virtual_action_speed_+%` (−chill), which the native
 walk `0x141e7c0b0` and the action clips read; network stats run no calculators ([04](04-player-entity.md) §4.1a). A
 freeze is not sent there (−100 would divide the native clip by zero); the server stops the monster instead.
 
-Not modelled: Shatter, unique and boss thresholds and their reduced effects, immunities from the monster's variety
-(.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
+Not modelled: the shatter visual, unique and boss thresholds and their reduced effects, immunities from the monster's
+variety (.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
 client's frozen animation (not checked live).

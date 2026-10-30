@@ -231,7 +231,7 @@ partial class Program
             critical = RollCriticalStrike(conn, conn.Pools.AttackCriticalStrikeChance, ownPenetration);
             int criticalMultiplier = CriticalMultiplierOn(m, AttackCriticalMultiplier(conn, player));
             double at = ProjectileWorldTime(conn);
-            (damage, resistance, var mitigated) = MonsterDamage(m, rolled, critical, attack: true, at, resistanceMods, pen,
+            (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, at, resistanceMods, pen,
                 gambler.InvertsResistance(Random.Shared));
             if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
             FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
@@ -248,9 +248,8 @@ partial class Program
             {
                 m.Aggro = false; m.Dead = true; m.Impale.Clear();
                 CollectVaalSoulAtDeathLocked(conn, m);
-                ShockOnKillLocked(conn, m);
             }
-            else AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
+            AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
                 at, Random.Shared);
             RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
         }
@@ -844,8 +843,10 @@ partial class Program
         HitResistances.Mods mods = default;
         DamagePacket sweepHit = default!;
         int criticalChance = 0, sweepMultiplier = 0;
-        // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work.
+        // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
+        // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
         var deaths = new List<(uint Id, SpawnedMonster M)>();
+        var reflected = new List<MonsterElementalAilments.Effect>();
         foreach (var (id, m) in targets)
         {
             MonsterHit? applied;
@@ -855,8 +856,9 @@ partial class Program
             using (ProjectileMutation(conn))
             {
                 // Catch up earlier projectile contacts before reading Rage or any other live offensive input.
+                // Stopped partway: the monsters already killed still get their deaths below.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) return;
+                    || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) break;
                 if (m.Dead || m.Life == 0) continue;
                 if (MonsterBlocks(m, Random.Shared, spell))
                 {
@@ -878,12 +880,13 @@ partial class Program
                 critical = RollCriticalStrike(conn, criticalChance, skillStats, attack: !spell);
                 int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
                 double at = ProjectileWorldTime(conn);
-                (damage, resistance, var mitigated) = MonsterDamage(m, rolled, critical, attack: !spell, at, mods, pen,
+                (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 applied = ApplyMonsterHitLocked(conn, m, damage);
-                if (applied is { Life: > 0 })
-                    AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared);
+                if (applied is not null)
+                    AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
+                        reflected);
                 if (applied is { StageStarts: true } staged)
                 {
                     CommitBossStage(remote, stream, ciphers, conn, id, m, ProjectileWorldTime(conn));
@@ -906,6 +909,8 @@ partial class Program
                 melee: !spell, sequence: sequence, deaths: deaths);
             ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
         }
+        if (reflected.Count > 0 && player is not null)
+            using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
         foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) within {radius} cells of ({centre.X}, {centre.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
     }
@@ -946,11 +951,25 @@ partial class Program
         return hit is not null;
     }
 
-    // The damage a player's outgoing hit deals to its monster: an already-rolled packet with its single critical draw,
-    // each type's own base resistance with the hit's penetration subtracted from the capped value (HitMitigation), then
-    // the target's damage taken at now, summed to the total the critical multiplier later applies to. The resisted
-    // packet is returned too, for the ailments. Damage over time has neither here and keeps its own path.
-    internal static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
+    // The damage a player's outgoing hit deals to its monster: one roll per type, then each type's own base resistance
+    // with the hit's penetration subtracted from the capped value (HitMitigation), summed to the total the critical
+    // multiplier later applies to. Damage over time has neither here and keeps its own path. Internal for the tests.
+    // Without a time the target's chill and shock do not count: a player hit path uses MonsterHitDamage.
+    internal static int MonsterDamage(SpawnedMonster m, DamagePacket hit, Random random, Penetration.PerType pen) =>
+        MonsterTakes(m, hit, random, spell: false, pen);
+
+    // Resolve an already-rolled packet using its single critical draw; target damage taken follows mitigation. Without
+    // the target's chill and shock: a player hit path uses MonsterHitDamage.
+    internal static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
+        bool critical, bool attack, HitResistances.Mods mods, Penetration.PerType pen = default, bool invertElemental = false)
+    {
+        var (damage, resistance, _) = MonsterHitDamage(m, rolled, critical, attack, double.NaN, mods, pen, invertElemental);
+        return (damage, resistance);
+    }
+
+    // A player's hit as MonsterDamage, with the target's damage taken at now (its shock, Glacial Wave's chill) and the
+    // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
+    internal static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
         bool invertElemental = false)
     {
@@ -987,7 +1006,6 @@ partial class Program
         {
             m.Aggro = false; m.Dead = true;
             CollectVaalSoulAtDeathLocked(conn, m);
-            ShockOnKillLocked(conn, m);
         }
         return new(m.Life, starts);
     }

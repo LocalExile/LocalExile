@@ -13,13 +13,13 @@ partial class Program
 
     /// <summary>Within the Tempest (enemy_shock_on_kill): a monster the player just killed (its life reached 0 from a hit
     /// or Righteous Fire) is shocked through the player's modifiers, and its corpse spreads that shock by the player's own
-    /// area of effect. Under the Monsters lock.</summary>
-    static void ShockOnKillLocked(ClientState conn, SpawnedMonster m)
+    /// area of effect. <paramref name="player"/> is the caller's CharacterPlayerStats, so a kill computes no stats of its
+    /// own. Under the Monsters lock.</summary>
+    static void ShockOnKillLocked(SpawnedMonster m, IReadOnlyDictionary<uint, int> player, double now)
     {
-        var player = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         if (Get("enemy_shock_on_kill") != 0)
-            m.Ailments.ShockOnKill(ProjectileWorldTime(conn), Get, name => m.Mods.Effects[name], AilmentArea(Get, _ => 0, spell: false));
+            m.Ailments.ShockOnKill(now, Get, name => m.Mods.Effects[name], AilmentArea(Get, _ => 0, spell: false));
     }
 
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
@@ -51,23 +51,35 @@ partial class Program
         m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 ? 1 : m.Ailments.ActionFactor(now);
 
     /// <summary>
-    /// A player hit that landed on a living monster may make it flee (MonsterFlee) and inflicts its ailments
-    /// (MonsterElementalAilments.Inflict) from the damage the monster took per type: the mitigated packet × its damage
-    /// taken × the critical multiplier on a critical strike. The threshold is its maximum life (wiki: equal to it for most monsters). <paramref name="player"/> is
-    /// CharacterPlayerStats, <paramref name="skill"/> the skill's own stats; both count. Under the Monsters lock, after the
-    /// hit's damage, so the hit does not gain from its own shock.
+    /// A player hit that landed inflicts its ailments (MonsterElementalAilments.Inflict) from the damage the monster took
+    /// per type: the mitigated packet × its damage taken × the critical multiplier on a critical strike. The threshold is
+    /// its maximum life (wiki: equal to it for most monsters). <paramref name="player"/> is CharacterPlayerStats,
+    /// <paramref name="skill"/> the skill's own stats; both count. Under the Monsters lock, after the hit's damage, so the
+    /// hit does not gain from its own shock.
+    /// A killing hit's ailments stay on the corpse (wiki Ailment: a killing hit that inflicts an elemental ailment counts
+    /// as killing an affected enemy; Elemental proliferation goes on from corpses), then the kill's own shock (Within the
+    /// Tempest), unless the monster shatters; a corpse neither flees nor reflects. A living monster may flee (MonsterFlee), and a Mirrored one puts the
+    /// ailments on the player too: at once, or into <paramref name="reflected"/> for the caller to apply after a sweep
+    /// whose hits land together (<see cref="ReflectAilmentsLocked"/>).
     /// </summary>
     internal static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
-        double now, Random random)
+        double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null)
     {
-        if (m.Dead || m.Life == 0) return;
         double factor = MonsterDamageTaken(m, spell, now) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         var added = m.Ailments.Inflict(mitigated[DamageType.Cold].Min * factor, mitigated[DamageType.Lightning].Min * factor,
             critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill), name => m.Mods.Effects[name], random,
             AilmentArea(Player, Skill, spell));
+        if (m.Dead || m.Life == 0)
+        {
+            // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
+            // included, leaves no corpse, so nothing spreads from it and the kill's shock has nothing to land on.
+            if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0) m.Ailments.Shatter();
+            else ShockOnKillLocked(m, player, now);
+            return;
+        }
         // Fleeing (MonsterFlee): its own draws (Random.Shared), so a projectile's reaction draws stay in order.
         if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
                 m.Mods.Effects["monster_chance_to_not_flee_%"], Random.Shared))
@@ -77,10 +89,20 @@ partial class Program
                 (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)), Random.Shared);
             m.Fleeing = m.FleeTo is not null;
         }
-        // Mirrored: the ailments act on the player as well (wiki Reflect), as they landed, then through the player's own
-        // modifiers; the exact reflected magnitude is not verified.
         if (added.Count == 0 || conn.PlayerLife == 0
             || !RandomRolls.Chance(m.Mods.Effects["reflect_non_damaging_ailments_%_chance"], 100, random)) return;
+        if (reflected is not null) reflected.AddRange(added);
+        else ReflectAilmentsLocked(conn, added, now, player, random);
+    }
+
+    /// <summary>Mirrored: the ailments a hit added act on the player as well (wiki Reflect), as they landed, then through
+    /// the player's own modifiers; the exact reflected magnitude is not verified. A new freeze cancels the player's action.
+    /// Under the Monsters lock.</summary>
+    internal static void ReflectAilmentsLocked(ClientState conn, IEnumerable<MonsterElementalAilments.Effect> added, double now,
+        IReadOnlyDictionary<uint, int> player, Random random)
+    {
+        if (conn.PlayerLife == 0) return;
+        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         double previous = conn.ElementalAilments.ActionFactor(now);
         foreach (var e in added)
             conn.ElementalAilments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
@@ -103,7 +125,7 @@ partial class Program
         {
             var a = m.Ailments;
             if (a.Idle) continue;
-            foreach (var (kind, removed, added, magnitude) in a.Present(now, () => conn.NextBuff++))
+            foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
                 if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));

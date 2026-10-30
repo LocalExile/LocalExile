@@ -573,9 +573,7 @@ partial class Program
                             $"(run live.ps1 -Walkmaps): spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY}){(conn.Layout.Walkable is null ? ", no walk map either: the player may stand outside the map" : "")}");
                     RecordVisit(conn);
                     await SendPlayer(remote, stream, ciphers, conn);
-                    conn.PlayerSent = true;
-                    await StartGracePeriod(remote, stream, ciphers, conn);
-                    await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
+                    await PlayerEnteredArea(remote, stream, ciphers, conn);
                     await SendWaypoints(remote, stream, ciphers, conn);
                     uint gold = PersonalStashOf(conn).Gold;
                     await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (account, {conn.League ?? "Standard"})");

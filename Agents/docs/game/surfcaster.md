@@ -17,8 +17,8 @@ Native acceptance is still open and needs the reviewed combined graph installed 
 | | Your Cold Damage can Shock | Works: a critical strike with cold damage shocks by that damage (`cold_damage_can_shock`). |
 | 52264 Brine Bound | Cannot be Frozen | Works: `cannot_be_frozen` blocks incoming freeze. |
 | | 50% chance to Freeze Enemies for 1 second when they Hit you; Enemies you Freeze remain Frozen for at least 1 second | Works: a monster hit that lands (blocked too) may freeze it for 1 s, and every freeze you inflict past the 0.3 s threshold lasts at least 1 s. |
-| 6252 Glacial Wave | Enemies Chilled by your Hits have Damage taken increased by Chill Effect; lessen their Damage dealt by half of Chill Effect | Works: on your hits and Righteous Fire, and on the monster's swings. Not modelled: the same chill reflected onto you by a Mirrored monster. |
-| 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Works: a kill shocks the corpse (15%, 2 s), and your shocks, the corpse's included, spread 15 cells, grown by area of effect, to living enemies. |
+| 6252 Glacial Wave | Enemies Chilled by your Hits have Damage taken increased by Chill Effect; lessen their Damage dealt by half of Chill Effect | Works: on your hits and Righteous Fire, and on the monster's swings and the ignite they put on you. Not modelled: the same chill reflected onto you by a Mirrored monster. |
+| 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Works: a corpse keeps the killing hit's shock and gets the kill's own (15%, 2 s), and your shocks, the corpse's included, spread 15 cells, grown by area of effect, to living enemies. |
 | 52944 Changing Seasons | The Effect of Chill on you is reversed; All Damage Taken from Hits can Chill you | Works: any monster hit chills by its total damage, and the chill raises action speed instead; freeze is unchanged. |
 | 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Works: the Torment Touched buff gives the player all four 23% bonuses and shows its icon. No allies or tormented spirits exist to use the rest. |
 | 48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290 | 4% increased Cast Speed | Works: `base_cast_speed_+%` reaches `cast_speed_+%`. |
@@ -107,6 +107,8 @@ Three legal eight-point builds cover all 18 non-start nodes:
   the monster takes increased damage by its strongest chill, added to shock and its mods' damage taken, on your hits and
   Righteous Fire's burn, and its swings deal less by half of it (PoB `CalcPerform`: DamageTaken INC, Damage MORE
   −chill / 2): a 30% chill gives 130 from 100 and 85 from 100.
+  Less damage dealt covers all of the monster's damage, so the ignite its critical strike puts on you starts from the
+  lessened hit as well.
   The wiki counts the strongest chill from any source once yours is on it; here every chill on a monster comes from
   your hits. The same chill reflected onto you (Mirrored) carries only its magnitude, so the wiki's reflected
   Glacial Wave (and its reversal by Changing Seasons) is not modelled.
@@ -119,6 +121,17 @@ Three legal eight-point builds cover all 18 non-start nodes:
   `base_cannot_be_frozen` reaches the panel's `cannot_be_frozen`, which blocks every incoming freeze.
 - **Within the Tempest.** `enemy_shock_on_kill` shocks every monster you kill, by a hit or Righteous Fire: 15% (the
   wiki's base for shocks without damage) for 2 s, through your shock effect and duration modifiers.
+  A killing hit also leaves its own chill, freeze and shock on the corpse, as on a living monster (wiki Ailment: a
+  killing hit that inflicts an elemental ailment counts as killing an affected enemy; wiki Within the Tempest: the
+  spread includes shocks inflicted on enemies you kill).
+  The stronger shock applies.
+  A non-unique monster that a hit kills while frozen, the killing hit's freeze included, shatters and leaves no corpse
+  (wiki Shatter), so it spreads nothing and gets no kill shock; the server ends its ailments, but the client still
+  shows the corpse, because the shatter packet is not known.
+  With Stormy Seas all the damage is cold, and a cold hit shocks above 15% only from about 5% of the threshold, where
+  it also freezes for 0.3 s, so a killing hit of that size shatters a non-unique monster.
+  The killing hit's stronger shock therefore spreads from unique monsters, from monsters that cannot be frozen, and
+  from lightning kills without Stormy Seas; other kills spread the 15%.
   `shock_proliferation_radius_is_at_least_15` gives every shock you inflict, the kill's included, a proliferation
   radius of at least 15 cells: the client's `virtual_shock_proliferation_radius` calculator (`0x142828340`) takes the
   largest of five radius stats and 15 with this flag, and does not scale it.
@@ -128,9 +141,6 @@ Three legal eight-point builds cover all 18 non-start nodes:
   Whether the game scales this node's fixed 1.5 m that way is not verified beyond the wiki's general rule.
   On every AI tick a living enemy within that radius of the shocked monster, alive or a corpse, has the same shock
   until it ends, like an aura; the copy does not spread again ([20](../protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)).
-  A killing hit's own shock is not put on the corpse, only the on-kill one.
-  In the game a non-unique enemy killed while frozen shatters and leaves no corpse to spread from (wiki Freeze); Shatter
-  is not modelled, so here that corpse still spreads its shock.
 - **The small nodes** each give `base_cast_speed_+%` 4, `global_hit_causes_monster_flee_%` 5 and `fish_rarity_+%` 10.
   The cast speed reaches the panel's `cast_speed_+%` like any increase, so four of them give 16%.
 - **Monster flee** (`MonsterFlee`, wiki Fleeing). Every player hit that leaves a monster alive rolls once in
@@ -156,6 +166,15 @@ Three legal eight-point builds cover all 18 non-start nodes:
   vtable; the server sends Move, which the client is known to walk.
   Stun would also end a flee (wiki), but monsters are not stunned in this engine.
   Monsters that flee when ignited (wiki) are not modelled: monsters are not ignited.
+- **Hit paths.** The ailments, Within the Tempest's kill shock and flee reach a hit only through
+  `MonsterHitDamage` (the target's shock and chill at the hit's time, and the resisted packet) followed by
+  `AilmentsOnHitLocked` on every landed hit, a killing one included. The default attack (`Attack`), area skills
+  (`AreaSkillHit`) and projectile contact (`Hit`) do that; Righteous Fire's burn passes its time to `MonsterBurn` and
+  calls `ShockOnKillLocked` on a kill.
+  The older helpers (`MonsterDamage`, `MonsterTakes`, `MonsterTakesRolled`, and `MonsterTakesMitigated` or
+  `MonsterBurn` without a time) still compile and leave the target's shock and chill out.
+  A new hit of the player's own (for example a warcry's hit or a passive's triggered skill) has to use the two calls
+  to get these effects; a minion's hit stays on the older helpers, since its kills and ailments are not the player's.
 - **Sea Legs** already had its consumer (`ResistanceOvercap`, [11-skills](../protocol/11-skills.md) §12); the
   Gateway test compares the node with plain +40% cold and lightning resistance and both flags.
 
@@ -202,8 +221,13 @@ Then give the rod's attack some lightning and hit a monster with it:
 
 Every hit is a critical strike of cold damage. Check that the monster shows the chilled, frozen and shocked icons,
 stands still while frozen and takes more damage while shocked; the log's `0x01c1 monster` lines give the magnitudes.
-Kill one monster of a pack: its corpse and every monster within 1.5 m of it show the shocked icon for two seconds
-(`0x01c1 monster … Shock 15%`), and a monster shocked by your hit shocks its neighbours the same way.
+A monster shocked by your hit shocks its neighbours within 1.5 m (`0x01c1 monster … Shock`).
+Set both added lightning stats back to 0 and kill one monster of a pack with the rod's physical hit: its corpse and
+every monster within 1.5 m of it show the shocked icon for two seconds (`0x01c1 monster … Shock 15%`).
+
+Kill a unique monster with such a hit: its corpse shows the hit's shock (`0x01c1 monster … Shock 50%` for a hit well
+above its life), not 15%, and nearby monsters get the same. A normal monster killed by a big cold hit shatters: its
+buffs go (`0x01c2 monster …`) and nothing spreads from it, though its corpse stays on screen.
 
 For Glacial Wave, allocate build B, give the attack the same lightning (Stormy Seas makes it cold) and chill a
 monster: its `0x01b1 player hit by monster` lines drop by half the chill, and your hits on it rise by the chill.
@@ -219,9 +243,12 @@ stats, the rarity's chance not to flee, the flee point, a forced flee through th
 monster in reach instead of swinging and its return after the walk; Ghost of the Deep against plain stats with its publication,
 reload and refund; Changing Seasons on a physical and a cold hit, a freeze and the unaffected flag; the monster
 ailment model's floor, caps, freeze threshold and strongest effect; shock against plain increased damage taken; chill
-and freeze in the monster AI with their buffs; Mirrored and Unstoppable; Stormy Seas' cold critical strike shocking
-only with the node; Glacial Wave's damage taken, burn and the monster's swing against plain values; Brine Bound's
-freeze on a landed swing, the 1 s minimum and Cannot be Frozen against plain stats; Within the Tempest's kill shock
-from the default attack and a skill hit, and the 15-cell spread from a corpse and a hit shock, 21 cells with 100%
-increased area of effect), the buff layout in `InstanceEntitiesTests` and
-`VerifiedGamblerGraphTests`.
+and freeze in the monster AI with their buffs, the fixed buff instances and the additive durations; Mirrored and
+Unstoppable; Stormy Seas' cold critical strike shocking only with the node; Glacial Wave's damage taken, burn, the
+monster's swing and its ignite against plain values; Brine Bound's freeze on a landed swing, the 1 s minimum and Cannot
+be Frozen against plain stats; Within the Tempest's kill shock from the default attack, and the 15-cell spread from a
+corpse and a hit shock, 21 cells with 100% increased area of effect; an area skill's sweep, a projectile's contact and
+Righteous Fire's burn each inflicting and killing, a unique's corpse keeping a killing critical strike's 50% shock
+and spreading it, a normal monster shattering, and a Mirrored monster's reflected freeze landing after the sweep, so
+the monster after it is still hit and the kill before it still gives experience; the passive buff sent on area
+entry), the buff layout in `InstanceEntitiesTests` and `VerifiedGamblerGraphTests`.

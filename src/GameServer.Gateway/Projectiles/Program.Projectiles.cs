@@ -228,14 +228,13 @@ partial class Program
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell);
             double contactAt = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier);
-            var (damage, _, mitigated) = MonsterDamage(target, rolled, critical, !shot.Spell, contactAt, shot.ResistanceMods,
+            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, contactAt, shot.ResistanceMods,
                 shot.Penetration, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             var hit = ApplyMonsterHitLocked(Conn, target, damage);
             if (hit is null) return ProjectileHitResult.Miss;
-            if (hit.Value.Life > 0)
-                AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
-                    contactAt, contact.Projectile.ReactionRandomSource);
+            AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
+                contactAt, contact.Projectile.ReactionRandomSource);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);

@@ -78,14 +78,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
 - Monster mods' accuracy (of the Marksman, of Precision): the monster's accuracy is raised in its swing, but only the
   tests check it; live, the player was never evaded.
+  Code: `MonsterMods.cs`.
+  Docs: [14](../docs/protocol/14-monster-packs.md) §5.
 - Monster flee: a player hit with a chance to cause monsters to flee (Surfcaster's small nodes, Chance to Flee Support)
   makes a living monster walk to a floor cell 5 m away from the player and not attack until that walk ends.
   Magic monsters avoid half of the flees and rare and unique ones all, through their rarity's own mods.
   Only the Gateway tests check it; the distance and the action the real server walks it with are not verified.
   Code: `MonsterFlee.cs`, `Program.MonsterAilments.cs`, `Program.Monsters.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §6, [Surfcaster](../docs/game/surfcaster.md).
-  Code: `MonsterMods.cs`.
-  Docs: [14](../docs/protocol/14-monster-packs.md) §5.
 
 ## Not working yet
 

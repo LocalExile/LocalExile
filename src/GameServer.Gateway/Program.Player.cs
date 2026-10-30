@@ -87,6 +87,15 @@ partial class Program
         return conn.EntryProtection.Protects(now, conn.Walk.Position(now));
     }
 
+    // The player object is in the new area: what starts on it there, the Grace Period and the passives' self buffs (each
+    // area's connection starts without buffs, PassiveBuffAuras).
+    static async Task PlayerEnteredArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        conn.PlayerSent = true;
+        await StartGracePeriod(remote, stream, ciphers, conn);
+        await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
+    }
+
     static async Task StartGracePeriod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -614,7 +623,7 @@ partial class Program
                 {
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
-                    ShockOnKillLocked(conn, m);
+                    ShockOnKillLocked(m, playerStats, now);
                     if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
                 }
                 hits.Add((id, m, m.Life, damage));

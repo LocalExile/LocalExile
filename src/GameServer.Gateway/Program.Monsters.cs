@@ -373,7 +373,9 @@ partial class Program
                 var rolled = gambler.RollIncomingHit(a.Damage, conn.IncomingHitRandom);
                 rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out monsterCritical,
                     () => SelfCriticalReduction(conn));   // its crit, Executioner's
-                if (m.Ailments.ChillDamageDealtFactor(now) is var lessened and < 1) rolled = rolled.Scale(lessened);   // Glacial Wave
+                // Glacial Wave: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
+                double lessened = m.Ailments.ChillDamageDealtFactor(now);
+                if (lessened < 1) rolled = rolled.Scale(lessened);
                 var mitigated = gambler.MitigateIncomingHit(rolled, type =>
                     new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
                 var immune = PlayerImmunities(conn);
@@ -409,7 +411,7 @@ partial class Program
                 int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
                 conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats) + gainedLife));
                 conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
-                ApplyPlayerAilmentsLocked(conn, a.Damage, ailmentTaken.Select((_, r) =>
+                ApplyPlayerAilmentsLocked(conn, lessened < 1 ? a.Damage.Scale(lessened) : a.Damage, ailmentTaken.Select((_, r) =>
                     new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
                     monsterCritical, blocked, now, stats);
                 conn.RecentEnemyHits.Record(now);
