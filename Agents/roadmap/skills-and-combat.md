@@ -199,7 +199,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 - The player's chill, freeze and shock on monsters are implemented with Gateway coverage.
   Check the chilled/frozen/shocked buffs, the sent `virtual_action_speed_+%` and the frozen pose with the real client,
   and find what 0x1c1's +0x82 u16 does.
-  The shatter visual (Shatter's corpse removal is applied server-side, its packet is not known), unique/boss
+  The shatter visual (the server ends a shattered monster's ailments and spreads nothing from it; the packet that
+  removes the corpse is not known), unique/boss
   thresholds and the monster variety's own immunities remain open, as do chill, freeze and ignite proliferation and a
   native check of the shock proliferation radius's area scaling.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).

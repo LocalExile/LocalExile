@@ -11,7 +11,7 @@ Native acceptance is still open and needs the reviewed combined graph installed 
 |---|---|---|
 | 37082 Baited Breath | All hits are Critical Strikes while holding a Fishing Rod | Works: every player hit crits without a roll. |
 | | You can catch Corrupted Fish | No effect in 3.29.3b: the game has no fishing. |
-| 64012 Screaming Reels | 60% more Cast Speed while holding a Fishing Rod | Works: server cast wait and the native cast clip. |
+| 64012 Screaming Reels | 60% more Cast Speed while holding a Fishing Rod | Works: server cast wait and the spell's sent `cast_speed_+%`, which should drive the native cast clip (not checked live). The player-level `cast_speed_+%` leaves the multiplier out. |
 | 61696 Sea Legs | +40% to Cold and Lightning Resistances; Evasion Rating and Critical Strike Chance increased by overcapped Cold / Lightning Resistance | Works (`ResistanceOvercap`). |
 | 60505 Stormy Seas | 100% of Lightning Damage Converted to Cold Damage | Works on every hit path (`DamageStats.Conversion`). |
 | | Your Cold Damage can Shock | Works: a critical strike with cold damage shocks by that damage (`cold_damage_can_shock`). |
@@ -20,7 +20,7 @@ Native acceptance is still open and needs the reviewed combined graph installed 
 | 6252 Glacial Wave | Enemies Chilled by your Hits have Damage taken increased by Chill Effect; lessen their Damage dealt by half of Chill Effect | Works: on your hits and Righteous Fire, and on the monster's swings and the ignite they put on you. Not modelled: the same chill reflected onto you by a Mirrored monster. |
 | 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Works: a corpse keeps the killing hit's shock and gets the kill's own (15%, 2 s), and your shocks, the corpse's included, spread 15 cells, grown by area of effect, to living enemies. |
 | 52944 Changing Seasons | The Effect of Chill on you is reversed; All Damage Taken from Hits can Chill you | Works: any monster hit chills by its total damage, and the chill raises action speed instead; freeze is unchanged. |
-| 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Works: the Torment Touched buff gives the player all four 23% bonuses and shows its icon. No allies or tormented spirits exist to use the rest. |
+| 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Works: the Torment Touched buff gives the player all four 23% bonuses; the buff is sent for its icon (not checked live). No allies or tormented spirits exist to use the rest. |
 | 48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290 | 4% increased Cast Speed | Works: `base_cast_speed_+%` reaches `cast_speed_+%`. |
 | | 5% chance to Cause Monsters to Flee | Works: a hit may make a normal or magic monster run away (`MonsterFlee`); the distance is not verified. |
 | | 10% increased Rarity of Fish Caught | No effect in 3.29.3b: the game has no fishing. |
@@ -146,6 +146,8 @@ Three legal eight-point builds cover all 18 non-start nodes:
   On every AI tick a living enemy has the strongest shock whose own radius reaches it from the shocked monster, alive
   or a corpse, until that shock ends, like an aura.
   So a weaker shock with a wider radius (from a skill with more area) still reaches the enemies beyond a stronger one's.
+  The copy keeps the source's magnitude, the source's own `shocked_effect_on_self_+%` included; the receiving
+  enemy's own value is not applied (not verified against the game).
   The copy does not spread again ([20](../protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)).
 - **The small nodes** each give `base_cast_speed_+%` 4, `global_hit_causes_monster_flee_%` 5 and `fish_rarity_+%` 10.
   The cast speed reaches the panel's `cast_speed_+%` like any increase, so four of them give 16%.
@@ -204,7 +206,8 @@ Equip the rod and socket a spell, then check that its casts per second rise by a
 strike.
 Take the rod off to see both end.
 Build A also holds Ghost of the Deep: the Torment Touched icon shows, and the character panel adds 23 to increased
-movement, attack and cast speed (cast speed 16% to 39% without a rod, 86% to 122% with one).
+movement, attack and cast speed (cast speed 16% to 39%; with a rod the socketed spell's own cast speed goes from 86% to
+122%, while the player-level stat keeps the plain 39%).
 To try Changing Seasons, refund and allocate build B, then let a physical monster hit you: you are chilled and move
 and attack faster for two seconds.
 
