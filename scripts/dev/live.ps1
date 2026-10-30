@@ -165,8 +165,10 @@ try {
         if ($servers -notcontains $s) { continue }
         # `dotnet watch` runs the Gateway with this checkout as its working directory, like the plain start, so data\
         # and logs\ resolve the same. --non-interactive restarts it on an edit hot reload cannot apply instead of asking.
-        $command = if ($Watch -and $s -eq 'Gateway') { @('watch', 'run', '--project', "src\GameServer.$s", '--non-interactive', '--') }
-            else { @("src\GameServer.$s\$bin\GameServer.$s.dll") }
+        # @(...) keeps a one-element list a list: an `if` unrolls it to a string, and the string + Auth's 'serve' made
+        # "...GameServer.Auth.dllserve" ("Could not execute because the specified command or file was not found").
+        $command = @(if ($Watch -and $s -eq 'Gateway') { 'watch', 'run', '--project', "src\GameServer.$s", '--non-interactive', '--' }
+            else { "src\GameServer.$s\$bin\GameServer.$s.dll" })
         Start-Detached 'dotnet' ($command + $serverArgs[$s]) `
             (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
     }
