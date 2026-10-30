@@ -9,10 +9,6 @@ readonly record struct MinionTarget(uint Id, SpawnedMonster Monster, (int X, int
 
 partial class Program
 {
-    // The stats that mark a monster as the player's minion for the client (0x141bf8490 reads both).
-    static IReadOnlyList<(uint Key, int Value)> MinionStats =>
-        [.. new[] { "is_player_minion", "is_semantic_minion" }.Select(Stats.Key).OfType<uint>().Select(k => (k, 1))];
-
     // A fighting minion reaches a monster's edge: its attack's distance (MaximumAttackDistance, as a monster's reach of the
     // player) plus the target's body.
     static double MinionReach(MonsterAttack a, SpawnedMonster target) => a.Range + Math.Max(0, LivingCollision.Size(target));
@@ -59,7 +55,7 @@ partial class Program
         var at = m.Walk.Position(now);
         if (Dist(at, t.Walk.Position(now)) > MinionReach(a, t) + 2) return null;
         int accuracy = m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
-        int evasion = conn.FlaskGrounds.Evasion(target.Id, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
+        int evasion = UnderBlind(conn, target.Id, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
         if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100)) || MonsterBlocks(t, random, spell: false))
             return null;
         int damage = MonsterTakesRolled(t, a.Damage.Roll(random), spell: false);

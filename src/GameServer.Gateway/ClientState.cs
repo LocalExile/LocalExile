@@ -450,9 +450,6 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public FlaskGrounds.State FlaskGrounds { get; } = new();
     /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Guarded by the Monsters lock.</summary>
     public StrikeTargets.Memory StrikeLocations { get; } = new();
-    /// <summary>The buffs the player's passive enemy auras put on monsters (PassiveBuffAuras). Guarded by the Monsters
-    /// lock.</summary>
-    public PassiveBuffAuras.State PassiveAuras { get; } = new();
     /// <summary>The Spirit chieftain skills' shared cooldown and Leadership buff (SpiritChieftains). Guarded by the Monsters
     /// lock.</summary>
     public SpiritChieftains SpiritChieftains { get; } = new();
@@ -461,8 +458,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public TotemState Totems { get; } = new();
     /// <summary>The player's enemy auras and taunt increase, from the stats last sent (Program.EnemyDebuffsTick).</summary>
     public volatile EnemyDebuffs EnemyDebuffs = EnemyDebuffs.None;
-    /// <summary>The monsters a passive's blind aura blinds (PassiveBuffAuras).</summary>
-    public PassiveBuffAuras.State PassiveAuras { get; } = new();
+    /// <summary>The monsters a passive's blind aura blinds (PassiveBuffAuras.BlindState, Program.EnemyDebuffsTick).</summary>
+    public PassiveBuffAuras.BlindState BlindAura { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
     /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the monster ailments' fixed instances

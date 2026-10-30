@@ -1,12 +1,19 @@
+using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 /// <summary>
-/// Skills that allocated passives grant or trigger ("Grants Level 30 Determination Skill", "Trigger level 20 Summon
-/// Spirit of Kahuturoa Skill when ..."): PassiveSkills.dat
-/// GrantedEffectsPerLevel by PassiveSkillGraphId, GrantedEffectsPerLevelHardmode in Ruthless. The row fixes the skill
-/// and its level. A passive-granted skill is not a gem: it has no supports, no quality, no gem-level bonuses and no
-/// requirements. Ordinary and ascendancy nodes both count. Game data: data/tables/PassiveSkills.json, loaded on first use.
+/// Skills that allocated passives grant or trigger (Agents/docs/protocol/11-skills.md §10f): "Grants Level 30
+/// Determination Skill", "Trigger level 20 Summon Spirit of Kahuturoa Skill when ...", Abberath's Fury on each footstep.
+/// PassiveSkills.dat GrantedEffectsPerLevel by PassiveSkillGraphId, GrantedEffectsPerLevelHardmode in Ruthless. The row
+/// fixes the skill and its level. A passive-granted skill is not a gem: it has no supports, no quality, no gem-level
+/// bonuses and no requirements. Ordinary and ascendancy nodes both count. Only skills with an executor act: granted
+/// self auras (Program.GrantedSkillsOf), Summon Elemental Relic (Program.RelicTriggerOf), the Spirit chieftains
+/// (Program.TriggeredGrantsLocked) and the footstep skill <c>RepeatingShockwave</c> (Abberath's Fury, Polytheist's Devout
+/// of Abberath at level 20: a spell triggered by each of the player's footsteps while running, Program.RunFootstepSkills).
+/// Game data: data/tables/PassiveSkills.json, loaded on first use.
 /// </summary>
 sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", bool ruthless = false)
 {
@@ -47,54 +54,9 @@ sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", b
         }
         return grants;
     }
-using System.Net.Sockets;
-using System.Text.Json;
-using GameServer.Core.Protocol.Instance;
-using GameServer.Core.Protocol.Login;
-using GameServer.Core.World;
 
-/// <summary>
-/// Skills a passive grants or triggers (Agents/docs/protocol/11-skills.md §12, "Passive-granted skills"): PassiveSkills.dat
-/// <c>GrantedEffectsPerLevel</c> (<c>GrantedEffectsPerLevelHardmode</c> for a Ruthless alternate) is a GrantedEffectsPerLevel
-/// row, which gives the GrantedEffects row and its level. Only the effects in <see cref="Supported"/> act, because their
-/// trigger runs here; a passive's other granted skills do nothing yet. <c>RepeatingShockwave</c> (Abberath's Fury,
-/// Polytheist's Devout of Abberath at level 20) is a spell triggered by each of the player's footsteps while running.
-/// </summary>
-static class PassiveGrantedSkills
-{
-    public enum Trigger { Footstep }
-
-    /// <summary>A granted skill: its GrantedEffects row and Id, its level and what triggers it.</summary>
-    public sealed record Granted(int Effect, string Id, int Level, Trigger Trigger);
-
-    // The effects the server triggers: their trigger has a runtime (RunFootstepSkills).
-    static readonly Dictionary<string, Trigger> Supported = new() { ["RepeatingShockwave"] = Trigger.Footstep };
-
-    static readonly Lazy<Dictionary<ushort, Granted>> Normal = new(() => Load("data", ruthless: false));
-    static readonly Lazy<Dictionary<ushort, Granted>> Ruthless = new(() => Load("data", ruthless: true));
-
-    /// <summary>The supported skills these nodes (PassiveSkillGraphIds) grant, once each however many nodes grant one.</summary>
-    public static IReadOnlyList<Granted> For(IEnumerable<ushort> nodes, bool ruthless) =>
-        [.. nodes.Select(n => (ruthless ? Ruthless : Normal).Value.GetValueOrDefault(n)).OfType<Granted>().Distinct()];
-
-    static Dictionary<ushort, Granted> Load(string folder, bool ruthless)
-    {
-        var result = new Dictionary<ushort, Granted>();
-        string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!File.Exists(path)) return result;
-        using var passives = JsonDocument.Parse(File.ReadAllBytes(path));
-        foreach (var row in passives.RootElement.EnumerateArray())
-        {
-            if (row.GetProperty("PassiveSkillGraphId").GetInt32() is not (> 0 and <= ushort.MaxValue and var node)) continue;
-            // As PassiveTree reads the stats: a Ruthless catalog takes the alternate columns only for a marked row.
-            bool alternate = ruthless && row.TryGetProperty("HasHardmodeAlternate", out var marked) && marked.GetBoolean();
-            if (row.TryGetProperty(alternate ? "GrantedEffectsPerLevelHardmode" : "GrantedEffectsPerLevel", out var granted)
-                && granted.ValueKind == JsonValueKind.Number && Program.Skills.PerLevelRow(granted.GetInt32()) is (int effect, int level)
-                && Program.Skills.EffectId(effect) is { } id && Supported.TryGetValue(id, out var trigger))
-                result[(ushort)node] = new(effect, id, level, trigger);
-        }
-        return result;
-    }
+    /// <summary>A skill each footstep triggers (its trigger has a runtime: Program.RunFootstepSkills).</summary>
+    internal static bool IsFootstepSkill(string effectId) => effectId == "RepeatingShockwave";
 
     // The Templar's run animations (Art/Models/CHARACTERS/Templar/rig.amd, all 18 run_* clips): an 800 ms loop with
     // footstepright at 233 ms and footstepleft at 633 ms.
@@ -217,6 +179,8 @@ partial class Program
         if (SkillsFor(conn).IsAura(grant.Effect)) own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
         return new(grant.Effect, grant.Level, 0, [], own, Granted: true);
+    }
+
     // The footstep trigger's poll: the run animation's clock and each footstep are followed to within this.
     const int FootstepPollMs = 50;
 
@@ -263,7 +227,7 @@ partial class Program
     // The footstep skills that trigger now: none while the player is dead, leaving, frozen or stunned, in town or in the
     // grace period, nor a disabled one (Devout of Gruthkul's "Your Spells are disabled": the wiki says it disables Abberath's
     // Fury).
-    internal static IReadOnlyList<PassiveGrantedSkills.Granted> FootstepSkills(ClientState conn, double now)
+    internal static IReadOnlyList<PassiveGrantedSkills.Grant> FootstepSkills(ClientState conn, double now)
     {
         List<ushort> nodes;
         lock (conn.Monsters)
@@ -271,7 +235,7 @@ partial class Program
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || PlayerActionBlocked(conn, now, now)) return [];
             nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
         }
-        var skills = PassiveGrantedSkills.For(nodes, conn.Ruthless).Where(s => s.Trigger == PassiveGrantedSkills.Trigger.Footstep).ToList();
+        var skills = (conn.Ruthless ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes).Where(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId)).ToList();
         if (skills.Count == 0 || InTown(conn) || InGracePeriod(conn)) return [];
         return [.. skills.Where(s => ActorSkillDisabledCore(conn, s.Effect, null) is null)];
     }
@@ -303,7 +267,7 @@ partial class Program
     // area spell's sweep (AreaSkillHit) without a gem: no cost, no cast time, crits and rolls per monster, every hit before
     // the sweep's deaths. A landed hit ignites a surviving monster with its 25% chance or a critical strike (IgniteFromHit).
     internal static async Task TriggerFootstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        PassiveGrantedSkills.Granted skill)
+        PassiveGrantedSkills.Grant skill)
     {
         var own = SkillsFor(conn).EffectStats(skill.Effect, skill.Level).ToDictionary(v => v.Item1, v => v.Item2);
         var area = MergeSkillStats(AreaPlayerStats(conn), own);
@@ -349,6 +313,8 @@ partial class Program
         var gambler = GamblerFor(player);
         bool rageGranted = false;
         var deaths = new List<(uint Id, SpawnedMonster M)>();
+        // A Mirrored monster's reflected ailments reach the player after the sweep, as an area spell's (AreaSkillHit).
+        var reflected = new List<MonsterElementalAilments.Effect>();
         foreach (var (id, m) in targets)
         {
             MonsterHit? applied;
@@ -362,7 +328,9 @@ partial class Program
                 if (m.Dead || m.Life == 0 || MonsterBlocks(m, Random.Shared, spell: true)) continue;
                 var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared);
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded), own, attack: false);
-                (damage, _) = MonsterDamage(m, rolled, critical, attack: false, mods, pen, gambler.InvertsResistance(Random.Shared));
+                double hitAt = ProjectileWorldTime(conn);
+                (damage, _, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
+                    gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier));
                 applied = ApplyMonsterHitLocked(conn, m, damage);
                 if (applied is { StageStarts: true } staged)
@@ -370,6 +338,8 @@ partial class Program
                     CommitBossStage(remote, stream, ciphers, conn, id, m, ProjectileWorldTime(conn));
                     applied = staged with { StageStarts = false };
                 }
+                if (applied is not null)
+                    AilmentsOnHitLocked(conn, m, mitigated, spell: true, critical, multiplier, player, own, hitAt, Random.Shared, reflected);
                 if (applied is not null && !rageGranted) rageGranted = RageOnHitLocked(conn, attack: false, melee: false, critical, own);
                 // shortcut: the ignite's flat fire is rolled apart from the hit (the game takes the hit's own roll; the
                 // spread is the same, and lucky or triple damage never reaches it either way), until a rolled hit
@@ -379,13 +349,15 @@ partial class Program
                     ignitedBuff = IgniteLocked(conn, m, context.OverTime(ignite), ProjectileWorldTime(conn));
             }
             if (ignitedBuff is ushort buff)
-                await Send(remote, stream, ciphers, IgnitedBuff(id, buff), $"0x01c1 monster 0x{id:x} ignited by {skill.Id}");
+                await Send(remote, stream, ciphers, IgnitedBuff(id, buff), $"0x01c1 monster 0x{id:x} ignited by {skill.EffectId}");
             if (applied is not { } landed) continue;
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, landed, damage,
-                $"{skill.Id} (footstep){(critical ? " (critical)" : "")}", deaths: deaths);
+                $"{skill.EffectId} (footstep){(critical ? " (critical)" : "")}", deaths: deaths);
             ChargesOnHit(conn, m, critical, spell: true, skill.Effect, skill.Level, primary: id == targets[0].Id);
         }
+        if (reflected.Count > 0)
+            using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
         if (!conn.Closed) foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
     }
 

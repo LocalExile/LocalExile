@@ -354,10 +354,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
 
         // Only auras whose every stat the server applies act: not Overwhelm's crit multiplier, Void Beacon's resistances or
         // Kaom's Binding's from-enemy conversion.
-        var born = Assert.Single(PassiveBuffAuras.Of([32105]));
-        Assert.Equal((674, (ushort)2552, 60, true), (born.Template, born.BuffRow, born.Radius, born.Enemies));
+        var born = Assert.Single(PassiveBuffAuras.For([32105]));
+        Assert.Equal((674, (ushort)2552, 60, true), (born.Row, born.BuffRow, born.Radius, born.Enemies));
         Assert.True(Program.EnemyAuraActs(born));
-        Assert.All(PassiveBuffAuras.Of([17315, 27096, 33467]), a => Assert.False(Program.EnemyAuraActs(a)));
+        Assert.All(PassiveBuffAuras.For([17315, 27096, 33467]), a => Assert.False(Program.EnemyAuraActs(a)));
 
         // The aura's buff (BuffDefinitions 2552) goes on a hostile monster within 60 cells and comes off when it leaves.
         foreach (var character in new[] { game, plain })

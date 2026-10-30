@@ -219,13 +219,7 @@ partial class Program
             bool alive = conn.PlayerLife > 0;
             summon = alive ? conn.SpiritChieftains.Pending : null;
             conn.SpiritChieftains.Pending = null;
-            foreach (var body in conn.Minions.Bodies.Where(b => now >= b.At).ToArray())
-            {
-                conn.Minions.Bodies.Remove(body);
-                if (!conn.Monsters.TryGetValue(body.Id, out var dead) || !dead.Dead) continue;
-                conn.Monsters.Remove(body.Id);
-                bytes.AddRange(InstanceProtocol.RemoveObject(body.Id));
-            }
+            RemoveMinionBodiesLocked(conn, now, bytes);
             // The buff ends with the player's death (SpiritChieftains.End), so its minion does too.
             double until = alive ? conn.SpiritChieftains.Active(now)?.Until ?? now : now;
             foreach (var minion in conn.Minions.All.Where(m => m.Fights).ToArray())

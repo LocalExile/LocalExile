@@ -1573,30 +1573,35 @@ Unverified: the client's strike at the previous location (a live check).
 The previous-location target rules (the radius for gem Strikes, the nearest monster for the default attack) and the
 one-hit-per-monster limit are the server's own and unverified.
 
-## 10e. Passive skills' enemy auras
+## 10e. Passive skills' buffs and auras
 
-A passive's `PassiveSkillBuffs` lists BuffTemplates rows (`PassiveBuffAuras.cs`).
-A template names its BuffDefinitions row (`BuffDefinitionsKey`), the values of that row's `StatsKeys` in order
-(`Buff_StatValues`), its `AuraRadius` in cells and whom it affects (column 4).
-Column 4 holds 3 on every enemy debuff aura (Born under Fire, Overwhelm, the Occultist's) and 1, 2 or 10 on the self
-and ally ones (Tailwind); that reading comes from comparing the rows, not from the client code.
+One table serves every class (`PassiveBuffAuras.cs`). A passive's `PassiveSkillBuffs` (in Ruthless `BuffsHardmode`,
+only for a row with `HasHardmodeAlternate`, as `PassiveTree` reads the stats) lists BuffTemplates rows.
+A template names its BuffDefinitions row (`BuffDefinitionsKey`), the values of that row's `GrantedStats` in order
+(`Buff_StatValues`; Stats row + 1 is the key; a template whose counts differ is left out), its `AuraRadius` in cells
+(0: a buff on the player himself) and whom it affects (`__col4`: 1 self, 2 allies, 3 enemies).
+Column 4 holds 3 on every enemy debuff aura (Born under Fire, Overwhelm, Augury of Penitence, the Occultist's, Saboteur's
+blind), `[1, 2]` on the ally ones; that reading comes from comparing the rows, not from the client code.
+Only templates whose stats have a consumer are applied, through three views:
 
-Every 100 ms (`RunPassiveAuras`; not while paused or leaving the area) each living hostile monster within an enemy
-aura's radius of the living player gets the aura's buff (S→C 0x1c1, source the player).
-A monster that leaves the radius loses it (0x1c2); a dead or removed monster's buff is forgotten without a message.
-The stats act on the monster's hits at contact, by the radius at that moment: `MonsterSwing` converts the rolled hit
-and the ailment base with the auras' conversion stats (`EnemyAuraConversionLocked`, `DamageStats.Conversion`).
-Born under Fire (template 674, BuffDefinitions 2552, 60 cells) gives `base_physical_damage_%_to_convert_to_fire` 50:
-half of a nearby monster's physical hit is fire, which fire resistance lowers and which can ignite.
-
-Only an aura whose every stat the server applies is sent or applied (`EnemyAuraActs`; so far the hit conversions).
-The others, such as Overwhelm's crit multiplier, the Occultist's resistances and Kaom's Binding's
-`base_from_enemy_physical_damage_%_to_convert_to_fire`, wait for consumers: their buff would show an effect that
-does not happen.
-Self and ally auras are not modelled.
+- **Enemy auras** (`EnemyAurasFor`, `Program.EnemyAuraActs`): Light of Divinity (672, Augury of Penitence 2551:
+  `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
+  BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50) and `SaboteurBlind` (below).
+  The others, such as Overwhelm's crit multiplier, the Occultist's resistances and Kaom's Binding's
+  `base_from_enemy_physical_damage_%_to_convert_to_fire`, wait for consumers: their buff would show an effect that
+  does not happen. The player tick shows them on monsters (`TickPassiveAuras` → `EnemyDebuffsTick`, §12 "The
+  player's debuffs on monsters"). The stats act on the monster's hits at contact, by the radius at that moment:
+  `MonsterSwing` converts the rolled hit and the ailment base with the auras' conversion stats
+  (`EnemyAuraConversionLocked`, `DamageStats.Conversion`), and the elemental damage taken joins the monster's
+  increased damage taken ([20](20-damage.md) §4).
+- **Player-and-ally auras** (`AllyAurasFor`, targets `[1, 2]`): Elemental Valiance's and Unwavering Crusade's relic
+  trigger (546, `GuardianAlliesSpawnRelicsForYouOnKill`; §12, Passive-granted skills).
+- **Self buffs** (`SelfBuffsFor`, radius 0): Ghost of the Deep (671 → Torment Touched 2550); §12, Passive self buffs.
 
 ## 10f. Skills that passives grant or trigger
 
+One table serves every class (`PassiveGrantedSkills.cs`): the granted self auras (§12), Summon Elemental Relic, the
+Spirit chieftains and Abberath's Fury's footsteps (§12, Passive-granted skills) read it.
 A passive's `GrantedEffectsPerLevel` (`GrantedEffectsPerLevelHardmode` in Ruthless) names the skill it grants and its
 level (`PassiveGrantedSkills.cs`).
 A triggered one names its trigger twice: a `has_trigger_on_*` stat on the node and the same `trigger_on_*` flag in its
@@ -1782,16 +1787,12 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
   not known. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
-- **Passive self buffs** (`PassiveBuffAuras`): a passive's PassiveSkills `PassiveSkillBuffs` lists BuffTemplates rows;
-  a template names its BuffDefinitions row, gives one `Buff_StatValues` entry per `GrantedStats` stat (Stats row + 1
-  is the key) and an `AuraRadius`. A row without `IsRecovery` carries no values in 0x1c1, so the client cannot apply
-  them: the server adds the values to the allocated passives' stat sum and sends the buff for its icon and visual only.
-  The buff goes out with 0x1c1 at area entry (each area's connection starts without buffs) and after an allocation,
-  and comes off with 0x1c2 on the refund; one instance per template, however many nodes grant it.
-  Only listed permanent self templates with radius 0 are applied (Surfcaster's Ghost of the Deep, template 671 →
-  Torment Touched 2550). Templates with a radius are auras on enemies or allies, and the other radius-0 templates have
-  their own timing or condition (Trickster's alternation, Occultist's wither pulse, Chieftain's while stationary);
-  those stay unhandled.
+- **Passive self buffs** (`PassiveBuffAuras.SelfBuffsFor`, §10e). A row without `IsRecovery` carries no values in
+  0x1c1, so the client cannot apply them: the server adds the values to the allocated passives' stat sum and sends the
+  buff for its icon and visual only. The buff goes out with 0x1c1 at area entry (each area's connection starts without
+  buffs) and after an allocation, and comes off with 0x1c2 on the refund; one instance per template, however many
+  nodes grant it. The other radius-0 templates have their own timing or condition (Trickster's alternation,
+  Occultist's wither pulse, Chieftain's while stationary); those stay unhandled.
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2
@@ -1805,23 +1806,20 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then
   × (1 + `active_skill_area_of_effect_radius_+%_final`), from the player's stats under the skill's (`SkillArea`).
   Conditional area stats (per charge, per attribute, "recently") are not modelled.
-- **Passive auras on enemies** (`PassiveBuffAuras.cs`): a passive's PassiveSkills `PassiveSkillBuffs` (`BuffsHardmode`
-  for a Ruthless alternate) name BuffTemplates rows: a BuffDefinitions row, its values (`Buff_StatValues`) and an
-  `AuraRadius` in cells. Only templates whose effect has consumers act. `SaboteurBlind` (Devout of Solaris, Born in the
+- **Passive blind aura** (`PassiveBuffAuras.BlindTemplate`, §10e). `SaboteurBlind` (Devout of Solaris, Born in the
   Shadows) is `generic_buff_aura` (1521: invisible, no stats, CancelOnDeath) with radius 35 (3.5 m in the wiki's
   distance table). Its effect is not in the definition: unnamed column `__col5` of the generic templates starts with an
   effect code that matches their Ids (1 chilled, 2 shocked, 9 blinded, 12 malediction, 19 taunted), not checked in the
-  client; the server keys on the template Id. Every player tick (250 ms; not while paused, but while the player is
-  dead, so a death clears it) `TickPassiveAuras` puts the `blinded` buff (179) on each living hostile monster within
-  the radius of the living player with 0x1c1 and takes it off with 0x1c2 when it leaves, the player dies or the node
-  is refunded; a vanished monster is forgotten without a message. The invisible aura buff on the player is not sent:
-  nothing on the client reads it that we know of. `Program.Blinded` (smoke cloud or aura) is the one Blind condition
-  the hits read: 20% less monster accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's
-  increased critical chance against the target, `damage_taken_+%_from_blinded_enemies` on its hits
-  ([Polytheist](../game/polytheist.md)).
-- **Passive-granted skills** (`PassiveGrantedSkills.cs`): a passive's PassiveSkills `GrantedEffectsPerLevel`
-  (`GrantedEffectsPerLevelHardmode` for a Ruthless alternate) is a GrantedEffectsPerLevel row, which names the
-  GrantedEffects row and its level. Only effects whose trigger runs on the server act; the others do nothing, and none
+  client; the server keys on the template Id. The player tick's `EnemyDebuffsTick` puts the `blinded` buff (179) on
+  each living hostile monster within the radius of the living player with 0x1c1 and takes it off with 0x1c2 when it
+  leaves, the player dies or the node is refunded; a vanished monster is forgotten without a message
+  (`PassiveBuffAuras.BlindState`). The invisible aura buff on the player is not sent: nothing on the client reads it
+  that we know of. `Program.Blinded` (smoke cloud or aura) is the one Blind condition the hits read: 20% less monster
+  accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's increased critical chance
+  against the target, `damage_taken_+%_from_blinded_enemies` on its hits ([Polytheist](../game/polytheist.md)).
+- **Passive-granted skills** (`PassiveGrantedSkills.cs`, §10f): a passive's PassiveSkills `GrantedEffectsPerLevel`
+  (`GrantedEffectsPerLevelHardmode` in Ruthless; for Devout of Abberath both name the same row) is a
+  GrantedEffectsPerLevel row, which names the GrantedEffects row and its level. Only effects whose trigger runs on the server act; the others do nothing, and none
   joins the client's skill list. `RepeatingShockwave` (Abberath's Fury, Devout of Abberath's 45556: level 20, no cost,
   no cooldown) is triggered by footsteps: `RunFootstepSkills` (a 50 ms poll per connection, stopped while paused) runs
   a run-animation clock while the walk lasts (`Walk.ArrivesAt`), at `Walk.Speed` over the base walking speed, and
@@ -1958,23 +1956,19 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
 
 ### The player's debuffs on monsters: passive enemy auras and taunt
 
-- **Passive enemy auras** (`PassiveBuffAuras`). PassiveSkills.dat `PassiveSkillBuffs` (in Ruthless
-  `BuffsHardmode` for a row with `HasHardmodeAlternate`)
-  points at BuffTemplates rows: `BuffDefinitionsKey`, `Buff_StatValues` (the values of the definition's GrantedStats,
-  in order), `AuraRadius` (cells) and `__col4`, read as the targets (1 self, 2 allies, 3 enemies: every Augury of
-  Penitence, Occultist and Saboteur enemy aura is `[3]`, the monster pack auras `[1, 2]` or `[2]`). An allowed enemy
-  template's buff goes on every hostile living monster within its radius of the living player (0x1c1, the player as
-  source) and comes off (0x1c2) when it leaves, dies, the node goes or the player dies. Allowed: Paladin's Light of
-  Divinity (672, Augury of Penitence 2551); the others wait for consumers of their stats.
+- **Passive enemy auras** (`PassiveBuffAuras.EnemyAurasFor`, §10e). Each applied enemy aura's buff goes on every
+  hostile living monster within its radius of the living player (0x1c1, the player as source) and comes off (0x1c2)
+  when it leaves, dies, the node goes or the player dies; the blind aura shows the `blinded` buff instead (§12,
+  Passive blind aura).
 - **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
   Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
   Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
   player ends it. BuffDefinitions 408 `taunted` shows it with its time left (flags bit1). The row is IsRecovery
   (+0x7c), so its 0x1c1 carries its two GrantedStats values: `taunt_target_id` (the player) and `is_taunted` 1.
-- **Where it runs.** `RunEnemyDebuffs`, started with the area's loops, does `EnemyDebuffsTick` every 100 ms of game
-  time; the step works at the send gate, so a removed monster gets no buff. The auras and
-  `taunted_enemies_damage_taken_+%` come from the stats last sent (`PlayerStatsWithCleared`). Each monster keeps the
-  increased damage taken they give ([20](20-damage.md) §4).
+- **Where it runs.** The player tick (`RunPlayerTick`, 250 ms, not while paused) calls `TickPassiveAuras`, which
+  does `EnemyDebuffsTick`; the step works at the send gate, so a removed monster gets no buff. The auras come from
+  the allocated nodes at each step, `taunted_enemies_damage_taken_+%` from the stats last sent
+  (`PlayerStatsWithCleared`). Each monster keeps the increased damage taken they give ([20](20-damage.md) §4).
 
 ### Cyclone area updates (2026-10-25)
 

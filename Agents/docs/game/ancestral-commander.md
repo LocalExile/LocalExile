@@ -134,7 +134,7 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   from them ([11](../protocol/11-skills.md) section 10d).
   The target rules at the old place are the server's own; the client's strike there needs a live check.
 - Born under Fire: BuffTemplates 674 gives every living hostile monster within 60 cells of the living player
-  BuffDefinitions 2552 (`base_physical_damage_%_to_convert_to_fire` 50), added and removed as they move every 100 ms.
+  BuffDefinitions 2552 (`base_physical_damage_%_to_convert_to_fire` 50), added and removed as they move at every player tick (250 ms; `EnemyDebuffsTick`, shared with Paladin and Polytheist).
   A monster's hit within 60 cells at contact converts half its physical damage to fire, before mitigation, by the
   player's own conversion rules: fire resistance applies, and the fire can ignite on a critical hit.
   Conversion does not take away stun (the wiki's Stun page counts non-physical melee damage too): the hit recovery

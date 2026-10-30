@@ -2,11 +2,12 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-/// <summary>What the player's debuffs on monsters need from his stats: his passives' enemy auras (PassiveBuffAuras) and
-/// taunted_enemies_damage_taken_+% (Bring the Battle), as last sent to the client (Program.PlayerStatsWithCleared).</summary>
-sealed record EnemyDebuffs(IReadOnlyList<PassiveBuffAuras.Aura> Auras, int TauntedDamageTakenPct)
+/// <summary>What the player's debuffs on monsters need from his stats: taunted_enemies_damage_taken_+% (Bring the Battle),
+/// as last sent to the client (Program.PlayerStatsWithCleared). His passives' enemy auras come from the allocated nodes
+/// at each step (PassiveBuffAuras.EnemyAurasFor).</summary>
+sealed record EnemyDebuffs(int TauntedDamageTakenPct)
 {
-    public static readonly EnemyDebuffs None = new([], 0);
+    public static readonly EnemyDebuffs None = new(0);
 }
 
 partial class Program
@@ -38,34 +39,26 @@ partial class Program
         return taunted;
     }
 
-    // Every 100 ms of game time from area entry (a pause holds it): EnemyDebuffsTick. A failed step is logged and the
-    // next one runs; a closed connection ends the loop.
-    static async Task RunEnemyDebuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        while (!conn.Closed)
-        {
-            await Task.Delay(100);
-            if (conn.Closed) break;
-            if (conn.Paused) continue;
-            try
-            {
-                await EnemyDebuffsTick(remote, stream, ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
-            }
-            catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
-            {
-                if (!conn.Closed) Console.WriteLine($"[gateway] {remote} enemy debuffs: {ex.Message}");
-            }
-            catch (Exception) { break; } // the connection has gone
-        }
-    }
+    // The player tick (RunPlayerTick, 250 ms, not while paused) steps the player's debuffs on monsters.
+    internal static Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        EnemyDebuffsTick(remote, stream, ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
 
     // One step of the player's debuffs on monsters, worked out at the send gate so a removed monster gets none: a taunt
     // shows the taunted buff (408) for its time left and goes when it ends, the monster dies or the player dies (wiki: a
     // taunt ends when its source dies); each enemy aura of his passives (Light of Divinity's Augury of Penitence, 2551)
-    // is on every hostile living monster within its radius of the player while he lives. Each monster then keeps the
-    // increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and burns read.
-    internal static Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+    // and Born under Fire's) is on every hostile living monster within its radius of the player while he lives, and the
+    // blind aura (SaboteurBlind) blinds them, shown with the blinded buff (PassiveBuffAuras.BlindState, Program.Blinded).
+    // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
+    // burns read. A refund or a death takes the auras off; a new area is a new connection.
+    internal static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    {
+        ushort[] nodes;
+        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        // Outside the lock: the first call loads the aura table from PassiveSkills.
+        var all = PassiveBuffAuras.EnemyAurasFor(nodes, conn.Ruthless);
+        var auras = all.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
+        int? blindRadius = PassiveBuffAuras.BlindRadius(all);
+        await Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -94,18 +87,18 @@ partial class Program
                             values: TauntedBuffValues, u68: BitConverter.SingleToUInt32Bits((float)(m.TauntedUntil - now))));
                         added++;
                     }
-                    double distance = living && (config.Auras.Count > 0 || m.PlayerAuras.Count > 0)
+                    double distance = living && (auras.Count > 0 || m.PlayerAuras.Count > 0)
                         ? Dist(m.Walk.Position(now), here) : double.PositiveInfinity;
                     if (m.PlayerAuras.Count > 0)
                         foreach (var (definition, buff) in m.PlayerAuras.ToArray())
-                            if (config.Auras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius)
+                            if (auras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius)
                             {
                                 bytes.AddRange(InstanceEntities.RemoveBuff(id, buff));
                                 m.PlayerAuras.Remove(definition);
                                 removed++;
                             }
                     int elemental = 0;
-                    foreach (var aura in config.Auras)
+                    foreach (var aura in auras)
                     {
                         if (distance > aura.Radius) continue;
                         if (!m.PlayerAuras.ContainsKey(aura.Definition))
@@ -117,9 +110,20 @@ partial class Program
                     }
                     m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental);
                 }
+                int? radius = conn.PlayerLife > 0 ? blindRadius : null;
+                HashSet<uint> inside = radius is int r
+                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && Dist(kv.Value.Walk.Position(now), here) <= r)
+                        .Select(kv => kv.Key).ToHashSet()
+                    : [];
+                foreach (var (id, buff, blinded) in conn.BlindAura.Reconcile(inside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
+                {
+                    bytes.AddRange(blinded ? InstanceEntities.AddBuff(id, buff, FlaskGrounds.BlindedBuffRow, PlayerId) : InstanceEntities.RemoveBuff(id, buff));
+                    if (blinded) added++; else removed++;
+                }
                 if (bytes.Count == 0) return null;
                 Console.WriteLine($"[gateway] {remote} enemy debuffs: {added} added, {removed} removed (t={now:0.000})");
                 return [.. bytes];
             }
         });
+    }
 }

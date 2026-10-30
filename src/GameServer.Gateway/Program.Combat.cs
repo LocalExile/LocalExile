@@ -917,7 +917,8 @@ partial class Program
         DamagePacket sweepHit = default!;
         int criticalChance = 0, sweepMultiplier = 0;
         int? blindedCriticalChance = null;
-        // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work.
+        // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
+        // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         var reflected = new List<MonsterElementalAilments.Effect>();
         foreach (var (id, m) in targets)
@@ -928,9 +929,8 @@ partial class Program
             string? resistance;
             using (ProjectileMutation(conn))
             {
-        int? blindedCriticalChance = null;
-                // Catch up earlier projectile contacts before reading Rage or any other live offensive input.
-                // Stopped partway: the monsters already killed still get their deaths below.
+                // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
+                // the sweep keeps the kills it already queued.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
                     || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) break;
                 if (m.Dead || m.Life == 0) continue;

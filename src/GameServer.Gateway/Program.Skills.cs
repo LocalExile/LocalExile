@@ -62,7 +62,7 @@ partial class Program
         // So do the player's debuffs on monsters (EnemyDebuffsTick): his passives' enemy auras and his taunt's increase.
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
-        conn.EnemyDebuffs = new(PassiveBuffAuras.EnemyAurasFor(nodes, conn.Ruthless), Sent("taunted_enemies_damage_taken_+%"));
+        conn.EnemyDebuffs = new(Sent("taunted_enemies_damage_taken_+%"));
         return stats;
     }
 

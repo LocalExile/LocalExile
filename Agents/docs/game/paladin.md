@@ -96,7 +96,7 @@ granted skill in the skill picker and does not grey it out below level 90.
 - **Enemy aura.** Light of Divinity's template 672 (`CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken`,
   AuraRadius 60, targets `[3]`) puts BuffDefinitions 2551 Augury of Penitence (`elemental_damage_taken_+%` 25) on
   every hostile living monster within 60 cells (6 m) of the living player (`PassiveBuffAuras`, `EnemyDebuffsTick`
-  every 100 ms of game time). 0x1c1 has the player as source; 0x1c2 takes it off when the monster leaves the radius or
+  at every player tick, 250 ms of game time). 0x1c1 has the player as source; 0x1c2 takes it off when the monster leaves the radius or
   dies, the node is refunded or the player dies. Area of effect does not change the radius.
 - **Taunt.** Every warcry taunts the hostile monsters within its radius when its cast ends (60 cells grown by area of
   effect, the wiki's 6 m); the Basalt Flask taunts within its 30 cells (`TauntLocked`). A taunt lasts 3 s (wiki Taunt),

@@ -154,7 +154,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         using var game = Surfcaster();
         using var plain = Surfcaster();
         game.State.PlayerSent = true;
-        var buff = Assert.Single(PassiveBuffAuras.For(Program.PassivesFor(game.State), [37553]));
+        var buff = Assert.Single(PassiveBuffAuras.SelfBuffsFor([37553], ruthless: false));
         Assert.Equal((ushort)2550, buff.Definition);
         Assert.Equal([("base_movement_velocity_+%", 23), ("attack_speed_+%", 23), ("base_cast_speed_+%", 23),
             ("damage_+%", 23), ("cant_touch_this", 1), ("monster_is_touched_by_ghost", 1)],

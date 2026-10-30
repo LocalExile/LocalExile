@@ -112,7 +112,7 @@ partial class Program
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level, before);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
-        var passives = PassiveBuffAuras.WithSelfBuffs(PassivesFor(conn).Stats(nodes, masteries), PassivesFor(conn), nodes);
+        var passives = PassiveBuffAuras.WithSelfBuffs(PassivesFor(conn).Stats(nodes, masteries), nodes, conn.Ruthless);
         // Only attributes need a wide source view. Keep each raw key until overrides have replaced its entire total.
         var passiveAttributes = new Dictionary<string, long>();
         foreach (ushort node in nodes)

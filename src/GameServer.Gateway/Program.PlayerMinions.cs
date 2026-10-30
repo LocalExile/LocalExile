@@ -64,15 +64,9 @@ partial class Program
             bool keep = conn.PlayerLife > 0 && RelicTriggerOf(conn) is not null;
             summons = keep ? conn.Minions.PendingRelics : 0;
             conn.Minions.PendingRelics = 0;
-            // A minion leaves no corpse: its body goes (0x2bb) a second after its death, once the death has played.
-            foreach (var body in conn.Minions.Bodies.Where(b => now >= b.At).ToArray())
-            {
-                conn.Minions.Bodies.Remove(body);
-                if (!conn.Monsters.TryGetValue(body.Id, out var dead) || !dead.Dead) continue;
-                conn.Monsters.Remove(body.Id);
-                bytes.AddRange(InstanceProtocol.RemoveObject(body.Id));
-            }
-            foreach (var minion in conn.Minions.All.ToArray())
+            RemoveMinionBodiesLocked(conn, now, bytes);
+            // The relics; the Spirit chieftains end in SpiritChieftainMinion.
+            foreach (var minion in conn.Minions.All.Where(m => IsRelicSkill(m.Skill)).ToArray())
             {
                 var m = minion.Monster;
                 bool current = conn.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);

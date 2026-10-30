@@ -7,7 +7,7 @@ partial class Program
     internal const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";
 
     internal static bool Blinded(ClientState conn, uint monster) =>
-        conn.FlaskGrounds.Blinded(monster) || conn.PassiveAuras.Blinded(monster);
+        conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster);
 
     // A monster's accuracy (its hits on the player) or evasion (against the player's attacks): 20% less while Blinded
     // (FlaskGrounds.BlindLessPct, PoB's Blind).

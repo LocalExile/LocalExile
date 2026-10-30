@@ -262,7 +262,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         });
 
         // One footstep's skill (TriggerFootstepSkill) with a monster dx cells east of the player and one a cell further.
-        public async Task<(SpawnedMonster Near, SpawnedMonster Far, byte[] Bytes)> PolytheistFootstep(PassiveGrantedSkills.Granted skill, int dx)
+        public async Task<(SpawnedMonster Near, SpawnedMonster Far, byte[] Bytes)> PolytheistFootstep(PassiveGrantedSkills.Grant skill, int dx)
         {
             double now = State.Clock.Elapsed.TotalSeconds;
             var at = State.Walk.Position(now);
@@ -683,7 +683,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Null((await game.Change([59443, 61900], true)).Error);
         // Triggers Level 20 Abberath's Fury: 300-450 fire, here with 100% increased fire damage.
         var skill = Assert.Single(Program.FootstepSkills(state, now));
-        Assert.Equal(("RepeatingShockwave", 20), (skill.Id, skill.Level));
+        Assert.Equal(("RepeatingShockwave", 20), (skill.EffectId, skill.Level));
         var hit = Program.GrantedSpellHit(state, skill.Effect, skill.Level);
         Assert.Equal((600.0, 900.0, 900.0), (hit[DamageType.Fire].Min, hit[DamageType.Fire].Max, hit.MaxTotal));
         // A footstep explodes where the player stands and hits the monster 7 cells away, not the one at 8.
