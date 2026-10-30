@@ -30,10 +30,14 @@ public partial class SpellNoDamageTests
         Assert.Equal(!predicted, CreatesObject(await runtime.Read(), "Metadata/Projectiles/DefaultArrow"));
     }
 
-    [Fact]
-    public async Task Gem_skill_projectiles_are_released_as_client_predicted()
+    // Spark's action fires through the same native ProjectileAction method as Fireball's (vtable slot 0x618:
+    // 0x141bb13a0, Spark's 0x141b363a0 forwards to it), so the client draws Spark's sparks itself too.
+    [Theory]
+    [InlineData("Fireball")]
+    [InlineData("Spark")]
+    public async Task Gem_skill_projectiles_are_released_as_client_predicted(string effect)
     {
-        using var f = new Fixture("Fireball", "Driftwood Wand");
+        using var f = new Fixture(effect, "Driftwood Wand");
         await using var runtime = new ProjectileRuntimeFixture(f.Conn);
         var gems = (IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
             Method("GemSkillEffects").Invoke(null, [f.Conn])!;
@@ -42,5 +46,18 @@ public partial class SpellNoDamageTests
         var use = (GameServer.Core.Projectiles.ProjectileUse)Method("CaptureGemProjectile").Invoke(null,
             [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32), roll])!;
         Assert.True(Assert.IsType<ProjectileOffense>(use.Payload).ClientPredicted);
+    }
+
+    // The client's Spark action gives each of its own sparks skill_effect_duration (0x168) / 1000 seconds of life
+    // (0x141b35b7a) and removes it when that runs out (0x141b36170): without the virtual stat every spark died on its
+    // first tick and none was drawn.
+    [Theory]
+    [InlineData(0, 2000)]
+    [InlineData(50, 3000)]
+    public void Spark_skill_carries_its_final_effect_duration(int increased, int expected)
+    {
+        using var f = new Fixture("Spark", "Driftwood Wand");
+        f.Set("skill_effect_duration_+%", increased);
+        Assert.Equal(expected, f.Panel()[Program.Stats.Key("skill_effect_duration")!.Value]);
     }
 }
