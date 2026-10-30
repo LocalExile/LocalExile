@@ -39,11 +39,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   height. In a layout the Gateway generates, each exit's destination comes from the graph node of the room it stands
   in ("entranceN" → Connections[N − 1], "teleportN" → the "telepadN" slot, as gates within the area: the Upper Prison's
   way to the Warden's Quarters, boss arenas); other areas use the walk-map recorder's capture and the atlas.
+  The offline audit `scripts/re/exits` checks acts 1–10 at four seeds each: 8 of 600 loads keep a problem (two
+  boss arenas, 1_5_8 and 2_8_13, below), from 221 with the atlas's model matching;
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
   Native requirement removal/restoration, four town/Coast transfers, spell payment, ES recovery and relog controls pass.
-  Code: Gateway (`AreaTransitionCatalog.cs`), `AreaExits.cs`, `scripts/walkmaps`, `scripts/re/atlas`, Auth's instance registry.
+  Code: Gateway (`AreaTransitionCatalog.cs`), `AreaExits.cs`, `scripts/walkmaps`, `scripts/re/atlas`, `scripts/re/exits`,
+  Auth's instance registry.
   Docs: [08](../docs/protocol/08-area-transitions.md) §8, [09](../docs/protocol/09-area-change.md).
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance

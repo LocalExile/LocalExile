@@ -235,8 +235,12 @@ static class AreaTransitionCatalog
         }
     });
 
+    /// <summary>Whether a scripts/walkmaps capture wins over the layout the Gateway generates (off for scripts/re/exits,
+    /// which audits the generated layouts).</summary>
+    internal static bool UseCaptures { get; set; } = true;
+
     /// <summary>True once scripts/walkmaps saved this layout's tile objects.</summary>
-    public static bool Captured(string id, uint seed) => File.Exists(CaptureFile(id, seed));
+    public static bool Captured(string id, uint seed) => UseCaptures && File.Exists(CaptureFile(id, seed));
 
     static string CaptureFile(string id, uint seed) => $"{Folder}/{id}_seed{seed}.transitions.json";
 

@@ -395,6 +395,38 @@ special case. The ad-hoc fixes for The Cavern of Wrath / Anger (Reskin prefix, "
 paired with its unused partner) and The Submerged Passage (the lone unnamed object takes the point-only exit) are not
 needed for generated layouts. Captures of areas the Gateway does not generate still go through §7's model matching.
 
+**The audit** (`scripts/re/exits`, from the repository root):
+
+```bash
+dotnet run --project scripts/re/exits -c Release -- [area regex] [--seeds N] [--seed S] [--json out.json] [--quiet] [--notes]
+```
+
+For every campaign area (WorldAreas "1_…" / "2_…" of acts 1–10 with a topology) the Gateway generates, at seed 1 and N
+more seeds (default 3, fixed per area), it generates the layout, asks `AreaTransitionCatalog.For` for the exits as the
+Gateway does on entry (captures off) and checks them against the layout's descriptions and the WorldAreas connections:
+missing (an enabled `entranceN` whose room holds an unused object, and no exit to Connections[N − 1]), misplaced (an
+exit there, but not in that room), unexpected and duplicate destinations, `teleportN` without a gate to its `telepadN`,
+and unreachable exits (walking from the exit back to Connections[0], within the Gateway's walk-up range, and through the
+area's gates). Info lines: rooms without an object for their entrance, connections no node names, objects not created.
+2 minutes for 600 loads; exit code 1 on a problem.
+
+Results 2026-10-30 (150 areas × 4 seeds; 5 campaign areas the Gateway does not generate are skipped):
+
+| | model matching (§7) | graph nodes (§8) |
+|---|---|---|
+| loads with a problem | 221 | 8 |
+| areas with a problem | 58 | 2 |
+| `teleportN` without its gate | 650 | 0 |
+| duplicate / unexpected destinations | 62 / 4 | 0 / 0 |
+| unreachable exits | 48 | 12 |
+| entrances with no exit (no object of their own: 36) | 376 | 36 |
+| placed objects not created | 920 | 351 |
+
+The 8 left are two boss rooms with more gates than named points, where the slots cannot be told apart: The Cathedral
+Rooftop (1_5_8, bossentry.arm: four teleports, three "telepad" points; Kitava's arena gates come out unreachable) and
+The Harbour Bridge (2_8_13, bridge_arena.arm: two "telepad" points at one place; the arena's inner gate). The real
+server keys tile records by a per-tile value (tile map +0xa0) not yet traced.
+
 Not modelled: a gate or exit the game enables later is sent enabled (no Transitionable step, no disabled bit); an
 `entranceN` whose room holds no object is a portal or an NPC's travel in the game (the way to town after Malachai,
 Kitava, the Brine King; Weylam's boat) and is not created.
