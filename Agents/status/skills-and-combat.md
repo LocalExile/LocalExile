@@ -753,10 +753,10 @@ and can require explicit recipes.
 - Projectile spawn height on platforms and doodads: the protocol carries no player z and the server has no
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
-- Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
-  an effect object follows the player only by 0x1ba glides.
-  Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.
 - Leech, Mark curses (curses in general) and allied minions with fighting AI do not exist yet.
   Spirit of Utula's Leadership (`leech_%_is_instant`) therefore changes nothing, Spirit of Rakiata (a crit against a
   Marked Unique) is never triggered, and no Spirit chieftain minion is summoned
   ([Ancestral Commander](../docs/game/ancestral-commander.md)).
+- Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
+  an effect object follows the player only by 0x1ba glides.
+  Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.

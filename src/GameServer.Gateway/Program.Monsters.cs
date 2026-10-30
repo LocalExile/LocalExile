@@ -432,7 +432,7 @@ partial class Program
             $"{(blocked ? " (blocked)" : "")}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
         if (mana != manaBefore)
             await SendPlayerMana(remote, stream, ciphers, conn,
-                $"0x01b1 player mana {mana} ({(blocked ? $"+{conn.Pools.ManaGainedOnBlock} on block" : "no block gain")})");
+                $"0x01b1 player mana {mana} ({(blocked ? $"+{(long)mana - manaBefore} on block" : "no block gain")})");
         if (life == 0)
             await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
         else if (!blocked) await GainFlaskChargesWhenHit(remote, stream, ciphers, conn);

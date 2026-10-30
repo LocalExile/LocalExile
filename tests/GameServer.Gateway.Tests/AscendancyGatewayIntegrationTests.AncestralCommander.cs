@@ -481,6 +481,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
         foreach (var character in new[] { kiloava, plain })
             Assert.Equal((550u, 10u, 5u), (character.State.PlayerLife, character.State.PlayerMana, character.State.EnergyShield.Current));
         Assert.Same(first, kiloava.State.SpiritChieftains.Active(kiloava.State.Clock.Elapsed.TotalSeconds));
+        // /blockhit recovers the same (every roll is still 0, so 75% block chance blocks).
+        (kiloava.State.PlayerLife, kiloava.State.PlayerMana) = (500, 0);
+        kiloava.State.EnergyShield.Empty();
+        object?[] blockHit = [kiloava.State, DamageType.Chaos, 100, true, false, false, null, false];
+        Assert.True((bool)typeof(Program).GetMethod("TryDevEnemyHit", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, blockHit)!);
+        Assert.Equal((550u, 10u, 5u), (kiloava.State.PlayerLife, kiloava.State.PlayerMana, kiloava.State.EnergyShield.Current));
         await none.SpiritHit(chaos, MonsterRarity.Unique, block: true);
         Assert.Equal(0u, none.State.EnergyShield.Current);
     }
