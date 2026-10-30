@@ -453,9 +453,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
     }
 
     // A relic of the player's (a friendly minion) at (x, 32), the player standing at (32, 32).
-    static PlayerMinions.Minion PaladinRelic(ClientState state, uint id, int x)
+    static PlayerMinions.Minion PaladinRelic(ClientState state, uint id, int x, MonsterCatalog.Variety? variety = null)
     {
-        SpawnedMonster m = new("PaladinRelic", new(x, 32, 30), 0, 2, 1000);
+        SpawnedMonster m = new("PaladinRelic", new(x, 32, variety?.MovementSpeed ?? 30), 0, 2, 1000) { Variety = variety };
         var relic = new PlayerMinions.Minion(id, m, "SummonElementalRelic", "Fire") { Until = state.Clock.Elapsed.TotalSeconds + 5 };
         lock (state.Monsters) { state.Monsters[id] = m; state.Minions.Add(relic); }
         return relic;
@@ -518,8 +518,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
     }
 
     // A link cast on a relic (C→S 0x24) links it at the end of the cast. Field Medicine: a magic utility flask has 40%
-    // more effect on the player, as the plain stat gives, and its buff goes on the linked relic for its duration. The
-    // relic's duration running out while linked kills the player once, through the normal death path.
+    // more effect on the player, as the plain stat gives. Its effect goes on the linked relic for its duration without
+    // that 40% ("applied to you"): a magic Quicksilver's 40% and a Silver Flask's Onslaught (20%) make the relic walk 60%
+    // faster, on the server and in the client's movement_velocity_+%, until they end. The relic's duration running out
+    // while linked kills the player once, through the normal death path.
     [Fact]
     public async Task Paladin_linked_relic_ending_kills_the_player_and_Field_Medicine_flasks_reach_it()
     {
@@ -539,21 +541,31 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.NotEqual(unscaled, Effect(state));
 
         ushort soul = await PaladinSoulLink(game);
-        var relic = PaladinRelic(state, 0x50, 60);
+        var variety = Program.Monsters.Find("Metadata/Monsters/AnimatedItem/ElementalLivingRelicFire")!;
+        var relic = PaladinRelic(state, 0x50, 60, variety);
         await game.UseOnAndWait(relic.Id, soul, () => state.Links.Count == 1); // a paused game casts nothing
         Assert.Equal(relic.Id, Assert.Single(state.Links.All).Target);
         state.Clock.Stop(); // from here on game time moves only with the steps below
         double now = state.Clock.Elapsed.TotalSeconds;
 
-        game.Items.Add(PlayerInventories.Flask, 0, 0, flask);
+        var silver = Program.Items.UtilityFlaskOf(Program.Items.Find("Silver Flask")!)!;
+        game.Items.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(Program.Items.Find("Quicksilver Flask")!) with { Rarity = ItemRarity.Magic, Charges = 60 });
+        game.Items.Add(PlayerInventories.Flask, 1, 0, ItemCatalog.Create(Program.Items.Find("Silver Flask")!) with { Charges = 60 });
         await game.Dispatch(new LoginWriter().U16(InstanceItems.UseFlaskId).U32(0).ToArray());
-        var buff = Assert.Single(state.Links.Flasks);
+        await game.Dispatch(new LoginWriter().U16(InstanceItems.UseFlaskId).U32(1).ToArray());
+        Assert.Equal(2, state.Links.Flasks.Count);
+        var buff = state.Links.Flasks[1];
         Assert.Equal(relic.Id, buff.Target);
-        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(relic.Id, buff.Buff, granite.BuffRow, Program.PlayerId,
-            u68: BitConverter.SingleToUInt32Bits((float)(buff.Until - now)))));
-        await game.LinksTick(buff.Until);
+        uint duration = BitConverter.SingleToUInt32Bits((float)(buff.Until - now));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(relic.Id, buff.Buff, silver.BuffRow, Program.PlayerId, u68: duration)));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(relic.Id, buff.Extra!.Value, silver.Extra!.BuffRow, Program.PlayerId, u68: duration)));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.StatsUpdate(relic.Id, [(StatKeys.MovementVelocityPct, 60)])));
+        Assert.Equal(variety.MovementSpeed * 1.6, relic.Monster.Walk.Speed, 6);
+        await game.LinksTick(state.Links.Flasks.Max(f => f.Until));
         Assert.Empty(state.Links.Flasks);
-        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(relic.Id, buff.Buff)));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(relic.Id, buff.Extra.Value)));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.StatsUpdate(relic.Id, [(StatKeys.MovementVelocityPct, 0)])));
+        Assert.Equal(variety.MovementSpeed, relic.Monster.Walk.Speed, 6);
 
         // The relic's duration runs out while linked: it ends (the minion step), and the link step kills the player once.
         relic.Until = buff.Until;

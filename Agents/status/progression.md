@@ -70,10 +70,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   level 40 Discipline), Light of Divinity (nearby monsters take 25% more elemental damage), Bring the Battle
   (warcries taunt with infinite power; taunted monsters take 20% more damage), Elemental Valiance (triggered
   elemental relics that give their aura and explode), Absolution (40% aura effect while linked), Deep Connections
-  (links to the player's relics, +5 link gem levels) and Field Medicine (40% magic utility flask effect, flasks on
-  linked targets) have server consumers, with Gateway coverage of three legal builds, the
-  Paladin Aura option swap, paid refunds and reload. `Game_VERIFIED_PALADIN=1` opts in on the reviewed combined graph.
-  No consumer: curses, party allies, a death experience penalty, and flask stats on linked targets.
+  (links to the player's relics, +5 link gem levels) and Field Medicine (40% magic utility flask effect; flasks on
+  linked targets, whose movement speed a relic walks at) have server consumers, with Gateway coverage of three legal
+  builds, the Paladin Aura option swap, paid refunds and reload. `Game_VERIFIED_PALADIN=1` opts in on the reviewed
+  combined graph. No consumer: curses, party allies, a death experience penalty, and a linked minion's flask defences.
+  Not applied: a linked minion's flask phasing, and flask damage on a relic's explosion (unverified).
   Not yet checked with the real client. Docs: [Paladin checklist](../docs/game/paladin.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.

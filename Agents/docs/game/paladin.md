@@ -3,7 +3,7 @@
 Paladin is the Duelist's Phrecia Champion identity (`Champion`, ascendancy row 11, 3.29.3b), start node 24984.
 The start is implicit and free and has no stats; its link to 50986 is the ordinary Duelist start, not a class node.
 Every node has a gameplay consumer. The parts the engine cannot have yet (party allies, curses, a death experience
-penalty) are named in the node's row. Nothing here has been checked with the real client yet.
+penalty, a phasing minion) are named in the node's row. Nothing here has been checked with the real client yet.
 
 ## Node checklist
 
@@ -16,7 +16,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 13763 Light of Divinity | Nearby (6 m) enemies take 25% increased Elemental Damage (BuffTemplate 672) | Done; see below. Augury of Penitence (2551) on the hostile monsters within 60 cells; their hits and burns read its `elemental_damage_taken_+%` (`MonsterTakesMitigated`, `MonsterBurn`). |
 | 40299 Elemental Valiance | 25% chance to trigger level 20 Summon Elemental Relic on your or a nearby ally's kill, or on hitting a Rare or Unique enemy | Done; see below. The player's kills and hits roll the trigger (`TriggerElementalRelicLocked`); the relic is an owned minion (`PlayerMinions`, `PlayerMinionsTick`) whose aura goes into the player's stats and whose death explosion hits monsters. Party allies' kills have no consumer: there is no party play. |
 | 46492 Bring the Battle | Warcries have infinite Power; enemies taunted by you take 20% increased damage and deal 20% less damage to other targets | Done; see below. Enduring Cry's power is 999999 (`UseWarcry`); the player's taunted monsters take 20% more of every type. The 20% less damage against other targets has no possible consumer: monsters only hit the player, who is the taunter. |
-| 42396 Field Medicine | Magic utility flasks applied to you have 40% increased effect; non-unique utility flasks you use apply to linked targets | Partly; see Link skills. The 40% is read for magic flasks (`UtilityFlasks.For`). A non-unique utility flask puts its buff on each linked target for its duration (`FlaskToLinkedTargets`); the buff's stats there have no consumer, because nothing reads a minion's buffs. |
+| 42396 Field Medicine | Magic utility flasks applied to you have 40% increased effect; non-unique utility flasks you use apply to linked targets | Partly; see Link skills. The 40% is read for magic flasks (`UtilityFlasks.For`). A non-unique utility flask puts its effect on each linked target for its duration (`FlaskToLinkedTargets`), and a relic walks at its movement speed (`MinionFlaskSpeedLocked`). Not applied: phasing on a minion, and the damage and critical strike stats on the relic's explosion (unverified). The defensive stats have no possible consumer: nothing damages a minion. |
 | 40171 Absolution | 40% increased effect of Non-Curse Auras while you have a linked target; curses go to you instead of linked targets | Done; see Link skills. The 40% counts in `Pools.AuraEffectPct` while `number_of_active_links` is nonzero (`PassiveBonus`). The curse redirect has no possible consumer: nothing in the engine casts curses. |
 | 34448 Deep Connections | +5 to level of Link Skill Gems; no experience lost when a linked target's death kills you; link skills can target damageable minions | Done; see Link skills. The +5 reaches the link gems' effective level (`SkillGemLevel`), so their duration and cost; `link_skills_can_target_minions` lets a link take the player's relics. The experience clause has no possible consumer: the engine has no death experience penalty. |
 | 44795 Paladin Aura | Choice shell: one paid point, one free option | Done: the allocation and refund rules (`AscendancyProgress`); no stats of its own. |
@@ -204,8 +204,18 @@ There is no party play, so a link can only take one of the player's minions, and
   `number_of_active_links` is nonzero, as in the client's aura effect (0x142822db0). The pools and the auras' stats are
   worked out again whenever a link starts or ends.
 - **Field Medicine.** With `flasks_apply_to_your_linked_targets`, a non-unique utility flask the player uses puts its
-  buff on every linked target for the flask's duration (`FlaskToLinkedTargets`; Path of Building's
-  nonUniqueFlasksApplyToMinion). The magic-flask 40% counts on the player only ("applied to you").
+  effect on every linked target for the flask's duration (`FlaskToLinkedTargets`; Path of Building's
+  nonUniqueFlasksApplyToMinion). The target gets the flask's buff, and the Silver Flask's Onslaught too. Its stats
+  there are scaled by the flask's own increased effect but not by the player's "applied to you" ones
+  (`flask_effect_+%`, and the magic-flask 40% of this node), as Path of Building's `effectIncNonPlayer`.
+  Of each flask effect only the strongest applies, as on the player.
+  A minion target walks at its variety's speed × (1 + its mods' and the flasks' `base_movement_velocity_+%`): a magic
+  Quicksilver (40%) and a Silver Flask's Onslaught (20%) make a relic walk 60% faster. The server's walk and the
+  client's `movement_velocity_+%` (0xf5, sent in 0x1b3; the client walks every mover at its base × (1 + 0xf5 / 100),
+  `0x141e7c0b0`) change together when an effect starts or ends (`MinionFlaskSpeedLocked`).
+  The relics follow the player and use no skill but their aura, so a flask's attack and cast speed do nothing on them.
+  Path of Building's relic data has `untargetable_by_monster_ai` and `set_cannot_be_afflicted`, and no monster here
+  damages a minion, so its resistances, armour, evasion, suppression and ailment immunities have nothing to act on.
 
 Client evidence (decompile dump): the filter 0x141bf8490 also accepts a monster with `monster_is_valid_link_target`
 and refuses a minion with `cannot_be_damaged`; the relics have neither. The candidate list 0x141bf8080 is read only by
@@ -221,7 +231,10 @@ Not modelled:
 - Link-only cost modifiers.
 - The gems' effects on the target (damage sharing, added damage, leech, block, triggers, critical strikes): the only
   targets are relics, which are never hit and deal only their explosion.
-- The stats of a flask's buff on the target and the Silver Flask's Onslaught there: nothing reads a minion's buffs.
+- Phasing (Quartz Flask) on a minion: which movers the client's phasing filter lets through is not traced, so a
+  phasing minion's walk could leave the client's.
+- A flask's increased damage (Sulphur Flask) and critical strike stats (Diamond Flask) on a relic: whether its
+  explosion uses the relic's damage modifiers is unverified (the wiki and Path of Building do not say).
 - Absolution's curse redirect: nothing in the engine casts curses.
 - Deep Connections' "no experience lost": the engine has no death experience penalty.
 
@@ -268,7 +281,9 @@ per second`, the player and the relic show the Soul Link buffs, mana drains, and
 Link again and let the relic run out: the player dies.
 For Field Medicine, reset and take `/add_passive 363 13763 29126 40299 54067 42396 11127 34448` and put a magic Granite
 Flask on the flask bar. Using it gives 2100 armour instead of 1500; with a relic linked, the relic shows the Granite
-Flask buff for the flask's duration.
+Flask buff for the flask's duration. With a relic linked, use a magic Quicksilver Flask and a Silver Flask, then walk
+away: the relic shows the two flask buffs and Onslaught, the log shows `flask_utility_sprint on the linked targets`, and it keeps
+up 60% faster until they end.
 The three builds at the top have no Elemental Valiance, so their links have nothing to target.
 
 Coverage: `AscendancyGatewayIntegrationTests.Paladin`.

@@ -45,8 +45,11 @@ sealed class LinkSkills
     public void Add(Link link) => links[link.Target] = link;
     public void Remove(uint target) => links.Remove(target);
 
-    /// <summary>Flask buffs on linked targets (Field Medicine): the target, its buff instance and when it ends.</summary>
-    public readonly List<(uint Target, ushort Buff, double Until)> Flasks = [];
+    /// <summary>A flask effect on a linked target (Field Medicine): the target, its buff instances (the flask's, and the
+    /// Silver Flask's Onslaught), when it ends and the stats it applies there.</summary>
+    internal sealed record FlaskOn(uint Target, ushort Buff, ushort? Extra, double Until, IReadOnlyList<UtilityFlasks.Source> Stats);
+
+    public readonly List<FlaskOn> Flasks = [];
 
     /// <summary>The cost paid up to this game time, and the unpaid fraction of a mana point.</summary>
     public double PaidAt, ManaCarry;

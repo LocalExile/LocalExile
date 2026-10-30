@@ -128,11 +128,15 @@ partial class Program
         {
             if (conn.Closed || conn.LeavingArea) return;
             var links = conn.Links;
-            foreach (var flask in links.Flasks.Where(f => now >= f.Until || !LinkTargetAliveLocked(conn, f.Target)).ToArray())
+            var spent = links.Flasks.Where(f => now >= f.Until || !LinkTargetAliveLocked(conn, f.Target)).ToArray();
+            foreach (var flask in spent)
             {
                 links.Flasks.Remove(flask);
-                if (conn.Monsters.ContainsKey(flask.Target)) bytes.AddRange(InstanceEntities.RemoveBuff(flask.Target, flask.Buff));
+                if (!conn.Monsters.ContainsKey(flask.Target)) continue;
+                bytes.AddRange(InstanceEntities.RemoveBuff(flask.Target, flask.Buff));
+                if (flask.Extra is ushort extra) bytes.AddRange(InstanceEntities.RemoveBuff(flask.Target, extra));
             }
+            foreach (uint target in spent.Select(f => f.Target).Distinct()) MinionFlaskSpeedLocked(conn, target, now, bytes);
             string? all = conn.PlayerLife == 0 ? "the player died" : null;
             if (all is null && links.All.FirstOrDefault(l => !LinkTargetAliveLocked(conn, l.Target)) is { } lost)
             {
@@ -177,26 +181,45 @@ partial class Program
         if (ended.Count > 0) await SendCharacterStats(remote, stream, ciphers, conn, "links ended");
     }
 
-    // Field Medicine (flasks_apply_to_your_linked_targets): a non-unique utility flask the player uses puts its buff on each
-    // linked target for the flask's duration (Path of Building's nonUniqueFlasksApplyToMinion). Its stats would act on the
-    // target only, where nothing reads them: the targets are minions, which no monster attacks.
+    // Field Medicine (flasks_apply_to_your_linked_targets): a non-unique utility flask the player uses puts its effect on
+    // each linked target for the flask's duration (Path of Building's nonUniqueFlasksApplyToMinion): its buff, the Silver
+    // Flask's Onslaught too, and its stats at the flask's own increased effect but without the player's "applied to you"
+    // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer). A minion target walks at their
+    // movement speed (MinionFlaskSpeedLocked); their other stats have nothing to act on (paladin.md).
     static async Task FlaskToLinkedTargets(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        Item flask, UtilityFlasks.Utility utility, double seconds)
+        Item flask, IReadOnlyDictionary<string, int> local, UtilityFlasks.Utility utility, Func<string, int> character)
     {
-        if (flask.Rarity == ItemRarity.Unique || Stats.Key("flasks_apply_to_your_linked_targets") is not uint key
-            || CharacterPlayerStats(conn).GetValueOrDefault(key) == 0) return;
+        if (flask.Rarity == ItemRarity.Unique || character("flasks_apply_to_your_linked_targets") == 0) return;
+        var (stats, seconds) = UtilityFlasks.For(utility, flask, local,
+            name => name is "flask_effect_+%" or "magic_utility_flask_effect_+%" ? 0 : character(name));
+        uint duration = BitConverter.SingleToUInt32Bits((float)seconds);
         var bytes = new List<byte>();
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            foreach (var link in conn.Links.All.Where(l => LinkTargetAliveLocked(conn, l.Target)))
+            foreach (var link in conn.Links.All.Where(l => LinkTargetAliveLocked(conn, l.Target)).ToArray())
             {
                 ushort buff = conn.NextBuff++;
-                conn.Links.Flasks.Add((link.Target, buff, now + seconds));
-                bytes.AddRange(InstanceEntities.AddBuff(link.Target, buff, utility.BuffRow, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)seconds)));
+                ushort? extra = utility.Extra is null ? null : conn.NextBuff++;
+                conn.Links.Flasks.Add(new(link.Target, buff, extra, now + seconds, stats));
+                bytes.AddRange(InstanceEntities.AddBuff(link.Target, buff, utility.BuffRow, PlayerId, u68: duration));
+                if (utility.Extra is { } x && extra is ushort e)
+                    bytes.AddRange(InstanceEntities.AddBuff(link.Target, e, x.BuffRow, PlayerId, u68: duration));
+                MinionFlaskSpeedLocked(conn, link.Target, now, bytes);
             }
         }
         if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], $"0x01c1 {utility.BuffId} on the linked targets for {seconds:0.##} s");
+    }
+
+    // A minion's walk with the player's flasks on it (Field Medicine): its variety's speed × (1 + its mods' and the
+    // flasks' base_movement_velocity_+%, the strongest of each flask effect), in the server's walk and, as
+    // movement_velocity_+% (0xf5), in the client's, which walks every mover at its base × (1 + 0xf5 / 100) (0x141e7c0b0).
+    static void MinionFlaskSpeedLocked(ClientState conn, uint target, double now, List<byte> bytes)
+    {
+        if (!conn.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is not { } variety) return;
+        int pct = m.Mods.Effects.MovementPct + UtilityFlasks.Strongest(conn.Links.Flasks.Where(f => f.Target == target)
+            .SelectMany(f => f.Stats)).Where(s => s.Stat == "base_movement_velocity_+%").Sum(s => s.Value);
+        m.Walk.SetSpeed(Math.Max(1, variety.MovementSpeed * Math.Max(0, 100 + pct) / 100.0), now);
+        bytes.AddRange(InstanceEntities.StatsUpdate(target, [(StatKeys.MovementVelocityPct, pct)]));
     }
 }

@@ -398,7 +398,8 @@ and can require explicit recipes.
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
 - Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
   They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
-  can cast an aura on him and explode when they end; his increased minion life raises their life.
+  can cast an aura on him and explode when they end; his increased minion life raises their life, and the flasks that
+  Field Medicine puts on a linked minion change its walk speed.
   Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
   are never saved.
   Only Summon Elemental Relic's relics exist; no gem or other passive makes minions yet.
