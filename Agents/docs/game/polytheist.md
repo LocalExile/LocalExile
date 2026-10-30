@@ -44,7 +44,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 33835 small (ring C) | Same as 27664. | Done |
 | 25478 small (ring C) | Same as 27664. | Done |
 | 22056 Devout of Garukhan | Evasion, Life and Mana Regeneration while moving; Unaffected by Shock; ground immunity. | Done; ground immunity: engine gap |
-| 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Done; the enemies' reduced crit has nothing to reduce (see below) |
+| 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Done, except the enemies' reduced crit: no consumer, monsters have no base crit chance here (see below) |
 | 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Pending (group 5) |
 | 64171 Devout of Yugul | Hex Reflection; Hexes affect Hexproof enemies; Immune to Reflected Damage; Unaffected by Curses. | Engine gap (all four) |
 | 43703 Devout of Lunaris | Nova spells at the target; Spells fire 2 additional Projectiles; 30% increased spell area. | Done |
@@ -167,8 +167,10 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   `virtual_always_crit` (0x2549, derived from `always_crit` by `FUN_14275ba00`) before it reads any chance or increase
   (checked in capstone: `0x14275c24c` jumps to `0x14275c694: mov eax, 0x2710`). PoB agrees: an always-crit enemy
   ignores increases (CalcDefence's `AlwaysCrit`). A blinded Deadliness monster therefore still crits. Whether
-  ordinary 3.29 monster attacks carry a base critical chance is unverified; if one is added, this stat joins its
-  increases. The client never reads 0x3099.
+  ordinary 3.29 monster attacks carry a base critical chance is unverified: the monster attacks' stat sets
+  (GrantedEffectStatSetsPerLevel of `Melee`, `MeleeAtAnimationSpeed` and the like) have `AttackCritChance` 0, but PoB
+  assumes 5% for an unconfigured enemy. If a base chance is added, this stat must join its increases; until then the
+  stat has no consumer. The client never reads 0x3099.
 - **Devout of Lunaris, Nova Spells Cast at the targeted location instead of around you**
   (`nova_spells_cast_at_target_location`): a Nova spell (ActiveSkillType Nova) is centred on the caster without it and
   on the aimed point with it (`SpellCentre` in `AreaSkillHit`). The client derives

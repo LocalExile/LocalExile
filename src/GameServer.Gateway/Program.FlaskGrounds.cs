@@ -50,7 +50,7 @@ partial class Program
     }
 
     // Every 100 ms of game time while a flask ground lasts: monsters standing in a smoke cloud are blinded (the blinded
-    // buff, FlaskGrounds.Accuracy / Evasion), the player on consecrated ground gets its regeneration (FlaskGrounds.PlayerStats,
+    // buff, Program.Blinded), the player on consecrated ground gets its regeneration (FlaskGrounds.PlayerStats,
     // the ground_consecration buff, the stats again), and grounds whose time is up go (their art removed, taunts taken off).
     static async Task RunFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
