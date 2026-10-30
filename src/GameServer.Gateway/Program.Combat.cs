@@ -280,6 +280,7 @@ partial class Program
                     m.Aggro = false; m.Dead = true; m.Impale.Clear();
                     CollectVaalSoulAtDeathLocked(conn, m);
                 }
+                TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
             }
             ChargesOnHit(conn, m, critical, spell: false);
@@ -497,6 +498,9 @@ partial class Program
                 return false;
             }
         }
+        // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
+        if (gem.Name is not null && LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+            return await CastLink(remote, stream, ciphers, conn, skillId, gem.Effect, targetId, Current);
         if (gem.Name is not null && SupportedReservation(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
@@ -565,7 +569,7 @@ partial class Program
             _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
             return true;
         }
-        if (gem.Name is not null && UseChargeSkillInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
+        if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
@@ -1042,6 +1046,7 @@ partial class Program
             m.Aggro = false; m.Dead = true;
             CollectVaalSoulAtDeathLocked(conn, m);
         }
+        TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         return new(m.Life, starts);
     }
 

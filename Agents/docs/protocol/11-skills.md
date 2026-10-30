@@ -858,7 +858,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   This does not implement block recovery, ES stun avoidance, CI/mana/ES threshold substitutions, conditional defences,
   attacker-specific stun modifiers or monster spell/ranged stuns.
   Known final or raw base ES, active equipped ES bases and local flat ES disable this slice until ES avoidance exists.
-  This includes Discipline before a separate ES pool implementation computes `maximum_energy_shield`.
+  This includes Discipline, whose flat ES is part of the pool's `maximum_energy_shield`.
   Conditional stun-defence builds, flat/substituted thresholds and CI are also skipped conservatively.
   An equipped skill with `skill_cannot_be_stunned` or contact-phase immunity disables this slice for the build.
   Its precise active action phase is not tracked, so even an inactive equipped skill is conservatively excluded.
@@ -1374,7 +1374,7 @@ Instant aliases retain their existing supported subset; this does not add instan
 The existing `CastGemSkill` check remains the cast admission boundary.
 A queued action echo can pass preflight and then fail that check before payment.
 After cast admission, a source change behind a queued paid mana packet does not add a late cancellation or refund.
-An accepted Enduring Cry still schedules its existing non-cancellable charge release in `UseChargeSkillCore`.
+An accepted warcry schedules its non-cancellable release in `UseWarcry` (the taunt, §12; Enduring Cry's charges, §15).
 Later source or action changes do not cancel that release.
 Enduring Cry remains partial: this change adds no healing engine or other warcry mechanics.
 
@@ -1834,6 +1834,26 @@ Only Enduring Cry has a warcry executor; the hook sits in its release so later e
   (`base_block_luck`, `attack_block_luck`, `spell_block_luck`) uses `1 - (1 - p)²` (PoB CalcDefence); Svalinn's unique
   item modifiers themselves are not supported yet.
 
+### The player's debuffs on monsters: passive enemy auras and taunt
+
+- **Passive enemy auras** (`PassiveBuffAuras`). PassiveSkills.dat `PassiveSkillBuffs` (in Ruthless
+  `BuffsHardmode` for a row with `HasHardmodeAlternate`)
+  points at BuffTemplates rows: `BuffDefinitionsKey`, `Buff_StatValues` (the values of the definition's GrantedStats,
+  in order), `AuraRadius` (cells) and `__col4`, read as the targets (1 self, 2 allies, 3 enemies: every Augury of
+  Penitence, Occultist and Saboteur enemy aura is `[3]`, the monster pack auras `[1, 2]` or `[2]`). An allowed enemy
+  template's buff goes on every hostile living monster within its radius of the living player (0x1c1, the player as
+  source) and comes off (0x1c2) when it leaves, dies, the node goes or the player dies. Allowed: Paladin's Light of
+  Divinity (672, Augury of Penitence 2551); the others wait for consumers of their stats.
+- **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
+  Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
+  Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
+  player ends it. BuffDefinitions 408 `taunted` shows it with its time left (flags bit1). The row is IsRecovery
+  (+0x7c), so its 0x1c1 carries its two GrantedStats values: `taunt_target_id` (the player) and `is_taunted` 1.
+- **Where it runs.** `RunEnemyDebuffs`, started with the area's loops, does `EnemyDebuffsTick` every 100 ms of game
+  time; the step works at the send gate, so a removed monster gets no buff. The auras and
+  `taunted_enemies_damage_taken_+%` come from the stats last sent (`PlayerStatsWithCleared`). Each monster keeps the
+  increased damage taken they give ([20](20-damage.md) §4).
+
 ### Cyclone area updates (2026-10-25)
 
 `/set_aoe` sends the increased-area input, but Cyclone's visual also needs the final
@@ -1888,8 +1908,9 @@ Determination and Grace add their level/quality-based flat and more defences, in
 Anger/Envy supply added attack/spell damage, Hatred feeds gain-as-extra conversion, Wrath adds attack
 lightning damage and more spell lightning damage, Zealotry supplies spell crit and more spell damage.
 Spell added damage uses the gem's damage effectiveness. Malevolence's more DoT affects the implemented
-Righteous Fire burn; its duration stat and Discipline's ES stats are published, but the server's ES pool,
-recharge, general DoT skills and Zealotry's conditional consecrated ground remain unimplemented.
+Righteous Fire burn; its duration stat is published. Discipline's flat ES goes into the ES pool before the
+increases and its recharge rate into the recharge. General DoT skills and Zealotry's conditional consecrated ground
+remain unimplemented.
 
 **Source and recipient pair (2026-10-25).** Sending only the source fixed ground art but the live
 client stopped showing top-left aura icons. Each self aura now owns two buff instances of its
@@ -1907,6 +1928,61 @@ that field via `0x141e07220` and `0x141e06290`. `auraSource: true` sends the com
 activation and restoration; recipients and other buffs retain their existing default. These aura
 rows have no MiscAnimated3 ring, so the nonzero marker only selects their EPK art; a radius-scaled
 ring will require its actual radius rather than this marker. The skill-bar association is independent.
+
+**Passive-granted skills.** A passive's PassiveSkills.dat `GrantedEffectsPerLevel` (the Hardmode column in Ruthless)
+grants its skill at that row's level (`PassiveGrantedSkills`, ordinary and ascendancy nodes alike). The Gateway lists it
+after the socketed gems in `GemSkillEffects` and `SupportedSkill`, keyed in `GemSkillIds` by a synthetic host
+(`0xFFFF0000 | node`, socket 0), so its id is as stable as a gem's. It has the row's level, quality 0, no supports and
+no requirements (gem-level and gem-quality bonuses raise gems only), and it casts, reserves, saves and ends through the
+gem paths above. The skill record carries no item, so the client gets the same record as for a gem of that level.
+Only self auras with an `AuraCatalog` effect are listed for now: a granted minion or other skill has no executor yet,
+and listing it would offer the player a skill that does nothing. The Paladin's Paladin Aura options use it
+([Paladin](../game/paladin.md)).
+
+**Triggered passive skills.** A granted triggered skill has no bar use and is never listed, since it runs from its trigger.
+The one with an executor is Summon Elemental Relic, from Paladin's Elemental Valiance and the ordinary Guardian's
+Unwavering Crusade (19641), which have the same buff and grant.
+Its trigger is the node's ally buff template (`PassiveBuffAuras.AllyAurasFor`, targets `[1, 2]`) carrying
+`can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique`.
+Ruthless reads `BuffsHardmode` only for a row with `HasHardmodeAlternate`, as for the stats; other rows keep
+`PassiveSkillBuffs` (their `BuffsHardmode` is a copy or empty).
+The hit and kill paths (`ApplyMonsterHitLocked`, the default attack, Righteous Fire's burn) call
+`TriggerElementalRelicLocked` under the Monsters lock. It rolls the skill's chance stat, spends the skill's cooldown
+through `SingleUseCooldown` (with cooldown recovery) and queues the summon for the minion step.
+Tests replace `PlayerMinions.Random`.
+
+**Owned minions** (`PlayerMinions`, `Program.PlayerMinions.cs`). A minion is a monster made by `SpawnMonster` with
+`friendly: true` (Positioned team 0) and the stats `is_player_minion` and `is_semantic_minion` 1 on its Stats component.
+The client reads these two to know the player's minion (the link-target filter 0x141bf8490).
+`ClientState.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
+lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
+
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bb) a second later.
+- The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
+  living owner's links to it end without killing him.
+- The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his
+  `base_minion_duration_+%` added to the skill's increased duration (Path of Building: CreatesMinion skills).
+- A minion with a teleport (RelicTeleport) beyond its aggro range (MaxAgroRange) jumps next to the owner (0x1b7, as
+  `/mob_tp`): the monster AI follows only within that range.
+- Each minion's aura goes on the owner (0x1c1, the minion as source) while he is within its radius, and comes off
+  (0x1c2) when he leaves it or the minion ends. Its raw stats join the owner's stats (`MinionAuraStats`, unscaled by
+  his aura effect; his own aura of the same family wins when it is at least as strong), and the stats are sent again.
+
+The explosion hits the hostile monsters as the minion's hit (`ApplyMonsterHitLocked` with `allyAt`): the player's
+hit-recently and on-kill charges do not count it, while experience and items do (`MonsterKilled`, `byMinion`).
+The player's area skills and default attack skip friendly monsters. The instance save leaves minions out, so they never
+come back; an area change or a logout ends them with the connection. Monsters do not attack minions.
+
+**Link skills** (`LinkSkills`, `Program.LinkSkills.cs`). A link gem's cast (`CastLink` from `CastGemSkill`, on any cast
+route) links one target at the end of its cast time: the aimed object when it qualifies, else the nearest one. The
+target must pass the client's filter (0x141bf8490): within (100 + `link_skill_range_+%`) × 80 / 100 cells and, with
+`link_skills_can_target_minions`, one of the player's living minions; there are no party allies. The link sends the
+gem's source buff on the player and its target buff on the target (0x1c1), and `number_of_active_links` in 0x1b3, which
+the client's aura effect (0x142822db0) and `PassiveBonus` read for `non_curse_aura_effect_+%_while_linked`.
+`LinkSkillsTick` runs after `PlayerMinionsTick` in every minion step. It pays the links' `mana_cost_per_minute` (GEPL
+CostTypes 7) and breaks every link when that cannot be paid. It ends a link with its duration or after 4 s out of range,
+and kills the player through `PlayerDied` when a linked target died or ended. The beam effect is not sent. Rules,
+evidence and limits: [Paladin](../game/paladin.md#link-skills).
 
 - **Reservation is in the data.** `GrantedEffectsPerLevel` has `ManaReservationFlat` and
   `ManaReservationPercent` (permyriad: `5000` = 50%); `SkillCatalog.Reservation` reads them. Standard
@@ -1949,7 +2025,6 @@ ring will require its actual radius rather than this marker. The skill-bar assoc
   - **Heralds:** Ash, Ice and Thunder need on-kill/overkill/shatter/storm effects; Agony and Purity need minions.
   - **Banners:** Defiance, Dread and War need the planted banner, stages and their pulses.
   - **Curse auras:** Blasphemy-style skills need the curse system.
-  - **Discipline:** activation, reservation and presentation work; the energy-shield pool/recharge mechanics remain open.
   - **Partial effects:** Purity of Elements' elemental-ailment immunity is not applied. Purity of Fire/Ice/Lightning
     max-resistance values are read at the gem's level (0 at level 1).
   - **Masteries:** Mana6, Reservation3 (life efficiency), Reservation4 (area) and Reservation5 (self aura effect) are mapped;
@@ -2124,6 +2199,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
   its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%` and slowed by action speed
   (§10i); a later action does not cancel it (`cannot_cancel_skill_before_contact_point`).
+  `warcries_have_infinite_power` makes the power 999999 (PoB's override): the grant reaches the maximum, and the
+  regeneration stays at its 25-power cap.
   The combat code only enqueues events (`ChargesOnHit` at the default attack, area and projectile hits, `ChargesOnKill`
   in `MonsterKilled`, `ChargesWhenHit` in `MonsterSwing` and `/blockhit`); `RunCharges` rolls them every 50 ms, with
   the character's stats worked out outside the Monsters lock and only while events wait.

@@ -102,6 +102,13 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public readonly ImpaleState Impale = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
+    // The player's debuffs on it (Program.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
+    // seconds) with the taunted buff shown and the end it shows, his passives' enemy auras (BuffDefinitions row → buff
+    // instance), and the increased damage taken they give (every type; fire, cold and lightning) that its hits read.
+    public double TauntedUntil = double.NegativeInfinity, TauntShownUntil;
+    public ushort TauntBuff;
+    public readonly Dictionary<ushort, ushort> PlayerAuras = [];
+    public (int All, int Elemental) TakenFromPlayer;
     public string Label => label;
     public WalkEstimator Walk { get; set; } = walk;
     public int AggroRange => aggroRange;
@@ -422,7 +429,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>One change of the flask bar and its S→C 0xbf at a time (Program.ChangeFlaskBar), so the revisions go out in
     /// order with the latest charges.</summary>
     public SemaphoreSlim FlaskBarGate { get; } = new(1, 1);
-    /// <summary>The smoke clouds, consecrated ground and taunts of flasks (FlaskGrounds).</summary>
+    /// <summary>The smoke clouds and consecrated ground of flasks (FlaskGrounds).</summary>
     public FlaskGrounds.State FlaskGrounds { get; } = new();
     /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Guarded by the Monsters lock.</summary>
     public StrikeTargets.Memory StrikeLocations { get; } = new();
@@ -435,6 +442,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>The player's summoned totems (Program.Totems.cs), kept apart from <see cref="Monsters"/>. Guarded by the
     /// Monsters lock.</summary>
     public TotemState Totems { get; } = new();
+    /// <summary>The player's enemy auras and taunt increase, from the stats last sent (Program.EnemyDebuffsTick).</summary>
+    public volatile EnemyDebuffs EnemyDebuffs = EnemyDebuffs.None;
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
     public ushort NextBuff = 1;

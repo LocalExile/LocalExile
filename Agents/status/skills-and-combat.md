@@ -448,9 +448,37 @@ and can require explicit recipes.
 - Ordinary aura expansion (2026-10-25, awaiting client confirmation): Determination, Grace, Discipline, Anger, Hatred,
   Wrath, Zealotry, Malevolence and Envy now activate with reservation and paired visual/HUD buffs.
   Armour/evasion, added hit damage, gain-as-cold, spell damage/crit and RF's more DoT are connected.
-  Discipline's ES pool/recharge and conditional effects remain partial.
+  Discipline's flat energy shield is in the ES pool (before the increases) and its recharge rate in the recharge.
+  Conditional effects remain partial.
   Reservation overflow is refused.
   See [11](../docs/protocol/11-skills.md) section 13.
+- Passive-granted skills: a passive's `GrantedEffectsPerLevel` skill joins the gem skills at the row's fixed level,
+  with a stable id, no supports, quality 0 and no requirements; it casts, reserves, saves and ends like a gem's.
+  Only self auras are listed until other granted skills (minions, other kinds) have executors.
+  A granted triggered skill is never listed and runs from its trigger.
+  Summon Elemental Relic (Paladin's Elemental Valiance, the ordinary Guardian's Unwavering Crusade) rolls on kills and
+  on hits against rares and uniques, behind its cooldown, in Ruthless too.
+  Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
+  real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
+  They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
+  can cast an aura on him and explode when they end; his increased minion life and duration raise their life and
+  duration, and the flasks that Field Medicine puts on a linked minion change its walk speed.
+  Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
+  are never saved.
+  Only Summon Elemental Relic's relics exist (Elemental Valiance and Unwavering Crusade); no gem makes minions yet.
+  Not modelled: monsters attacking minions, minion attacks and damaging skills, the player's other minion modifiers
+  (damage, resistances, energy shield), and party allies.
+  Automated coverage only, not checked with the real client.
+  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
+  he has `link_skills_can_target_minions` (Deep Connections); with no party play there is nothing else to link.
+  A link lasts its duration, costs mana every second, breaks after 4 s out of range or when its cost is not paid, and
+  its target's death kills the player (a refund of the relics' passive ends the link without one).
+  `number_of_active_links` goes to the client; Absolution and Field Medicine use
+  the links. Not modelled: the beam, line of sight, the gems' effects on the target, and party allies.
+  Automated coverage only, not checked with the real client.
+  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md#link-skills).
 - Saved aura toggles (2026-10-25, awaiting client confirmation): active effects persist per character and restore on
   relog, area entry and server restart, subject to usable gems and available reservation.
   Helena's picker now receives all 103 exported personal hideouts, including MTX templates;
@@ -539,8 +567,7 @@ and can require explicit recipes.
   The skill-bar active frame and rotating circle now receive the buff's skill id/action hash association (0x1c1 bit3),
   including area-entry restoration; automated checks pass, live icon verification pending.
   Not modelled: combat auras (Anger/Hatred/Wrath/Zealotry/Pride), Heralds, banners, curse auras,
-  Determination/Grace/Discipline (the base armour/evasion model exists, but their buffs and energy shield are not
-  applied), Purity ailment immunity, Reservation masteries 1/2/6, supports, party/minion auras and life reservation
+  Purity ailment immunity, Reservation masteries 1/2/6, supports, party/minion auras and life reservation
   ([11](../docs/protocol/11-skills.md) 13).
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
@@ -775,6 +802,19 @@ and can require explicit recipes.
   elapsed-game-time loop, replacing regeneration's 250 ms jumps; pool fractions and caps are preserved.
   Implemented with regression tests; real-client visual verification after Gateway restart is pending.
   See [20](../docs/protocol/20-damage.md), "Continuous resource updates".
+- Consecrated ground while stationary (Paladin's Anointed Champion): a ground of the stationary radius stays where the
+  player stands and goes when he moves, dies or is in a town; the effect of his grounds (the Sulphur Flask's too)
+  lingers after the last moment one covered him, and `consecrated_ground_effect_+%` raises it (5% to 7.5% of life per
+  second). Automated coverage only; the ground art and the linger are not checked with the real client.
+  See [13](../docs/protocol/13-items.md) §8a and [Paladin](../docs/game/paladin.md).
+- The player's debuffs on monsters: every warcry taunts the hostile monsters in its radius when its cast ends, the
+  Basalt Flask in its 30 cells (3 s, `taunt_duration_+%`, the `taunted` buff with its two values); passive enemy auras
+  (Light of Divinity's Augury of Penitence) sit on the hostile monsters near the living player.
+  Their increased damage taken (taunted 20% from Bring the Battle, elemental 25%) adds to the monster's own in every
+  player hit and in Righteous Fire's burn; `warcries_have_infinite_power` gives Enduring Cry the maximum charges.
+  The other warcries' own buffs, exerts and summons, taunt immunity and other passive enemy auras are not done.
+  Automated coverage only; not checked with the real client.
+  See [11](../docs/protocol/11-skills.md) §12 and [Paladin](../docs/game/paladin.md).
 - **Cyclone area of effect (2026-10-25).** `/set_aoe` now resends Cyclone's calculated final radius in the skill
   record, using the same radius calculation for server hits.
   Cyclone/CycloneAltX use a 16-cell base when their exported stat set has none.

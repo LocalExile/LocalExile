@@ -56,6 +56,13 @@ partial class Program
             conn.SentStatKeys = now;
             RefreshPeerScale(conn, stats.Single(s => s.Item1 == ActorScale.Final).Item2);
         }
+        // The ground around a stationary player follows the stats the client was told (RunPlayerTick starts its ticker).
+        int Sent(string name) => Stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        conn.FlaskGrounds.Configure(FlaskGrounds.StationaryRadius(Sent), Sent(FlaskGrounds.LingerStat));
+        // So do the player's debuffs on monsters (EnemyDebuffsTick): his passives' enemy auras and his taunt's increase.
+        ushort[] nodes;
+        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        conn.EnemyDebuffs = new(PassiveBuffAuras.EnemyAurasFor(nodes, conn.Ruthless), Sent("taunted_enemies_damage_taken_+%"));
         return stats;
     }
 
@@ -157,7 +164,8 @@ partial class Program
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet).Concat(conn.FlaskGrounds.PlayerStats()), Stats);
+        UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet)
+            .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
         AddSpiritLeadershipStats(conn, stats);
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
@@ -300,7 +308,7 @@ partial class Program
         }
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values];
-        foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, SkillsFor(conn), Stats))
+        foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Add(k, extra.GetValueOrDefault(k), v);
         foreach (var (k, v) in extra) if (seen.Add(k)) yield return (k, v);
     }
@@ -658,7 +666,7 @@ partial class Program
     static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (gem.Effect != effect || gem.SourceGem is null) return "skill is unavailable";
+        if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted) return "skill is unavailable";
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
             return disabled;
         return SkillsFor(conn).EffectId(effect) is { } effectId ? ProjectileDefinition(effectId)?.Unavailable?.Invoke(conn) : null;
@@ -679,12 +687,13 @@ partial class Program
     {
         string name = CharacterName(conn);
         return GemSkillEffectsAt(name, ItemsOf(conn).SocketedGemPlaces(),
-            InactiveItems.GetValueOrDefault(name), conn.Ruthless);
+            InactiveItems.GetValueOrDefault(name), conn.Ruthless, GrantedSkillsOf(conn));
     }
 
+    // The passives' granted skills (GrantedSkillsOf) follow the gems, with Gem 0 and their fixed level.
     static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffectsAt(
         string? character, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places, IReadOnlySet<uint>? inactive,
-        bool ruthless)
+        bool ruthless, IReadOnlyList<PassiveGrantedSkills.Grant> granted)
     {
         var catalog = ruthless ? RuthlessItems.Value : Items;
         string name = string.IsNullOrEmpty(character) ? "Exile" : character;
@@ -692,11 +701,15 @@ partial class Program
             .Where(g => !ruthless || catalog.ByHash(g.Gem.TypeHash) is { } type && RuthlessGemRules.AllowsBase(type.Id))
             .SelectMany(g => catalog.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
-            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect))], GemSkillIdPool.Value);
+            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect)),
+                .. granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect))], GemSkillIdPool.Value);
         // Gems in an inactive item grant nothing, but keep their id.
         for (int i = 0; i < gems.Count; i++)
             if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
                 yield return (id, gems[i].Effect, catalog.GemName(gems[i].Gem), catalog.GemLevel(gems[i].Gem), gems[i].Gem.Quality, gems[i].Gem.TypeHash);
+        for (int i = 0; i < granted.Count; i++)
+            if (ids[gems.Count + i] is ushort id)
+                yield return (id, granted[i].Effect, granted[i].EffectId, granted[i].Level, 0, 0);
     }
 
     static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));

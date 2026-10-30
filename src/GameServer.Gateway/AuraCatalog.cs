@@ -102,7 +102,7 @@ static class AuraCatalog
         int fire = 0, cold = 0, lightning = 0, chaos = 0;
         int fireMax = 0, coldMax = 0, lightningMax = 0, chaosMax = 0;
         int accuracy = 0, criticalChance = 0, attackSpeed = 0, movementSpeed = 0;
-        int armour = 0, evasion = 0, armourMore = 0, evasionMore = 0, spellCrit = 0;
+        int armour = 0, evasion = 0, armourMore = 0, evasionMore = 0, spellCrit = 0, energyShield = 0;
         foreach (var aura in auras)
         {
             switch (Family(aura.EffectId))
@@ -117,6 +117,10 @@ static class AuraCatalog
                     break;
                 case "Zealotry":
                     spellCrit += Value(skills, stats, aura, "spell_critical_strike_chance_+%", auraEffectPct);
+                    break;
+                case "Discipline":
+                    // Flat energy shield before the increases (PoB: a BASE mod); RawStats only publishes the raw stat.
+                    energyShield += Value(skills, stats, aura, "base_maximum_energy_shield", auraEffectPct);
                     break;
                 case "PurityOfElements":
                     int all = Value(skills, stats, aura, "base_resist_all_elements_%", auraEffectPct);
@@ -153,7 +157,7 @@ static class AuraCatalog
             LightningMaxResistance: lightningMax, ChaosMaxResistance: chaosMax,
             Accuracy: accuracy, CriticalStrikeChancePct: criticalChance, SpellCriticalStrikeChancePct: criticalChance + spellCrit,
             AttackSpeedPct: attackSpeed, MovementVelocityPct: movementSpeed, Armour: armour, Evasion: evasion,
-            ArmourMorePct: armourMore, EvasionMorePct: evasionMore);
+            ArmourMorePct: armourMore, EvasionMorePct: evasionMore, EnergyShield: energyShield);
     }
 
     /// <summary>The raw keys behind Purity's resistance and maximum bonuses, for per-key dev replacements.

@@ -5,6 +5,7 @@ using DamageModel = GameServer.Core.World.DamageModel;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
 using DamageType = GameServer.Core.World.DamageType;
+using DamageTypes = GameServer.Core.World.DamageTypes;
 
 // Magic and rare monster mods (MonsterMods.cs, Agents/docs/protocol/14-monster-packs.md §5): the rolls and the hooks the
 // spawn, the monsters' hits, the player's hits and the regeneration tick call.
@@ -90,7 +91,13 @@ partial class Program
         var e = m.Mods.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double total = mitigated.MinTotal - physical * e.PhysicalReduction / 100.0;
-        return (int)Math.Round(total * e.DamageTaken(spell));
+        // The player's debuffs on it add to its own increased damage taken (PoB: DamageTaken and ElementalDamageTaken are
+        // both INC): his taunt's on every type, his enemy auras' elemental increase on fire, cold and lightning.
+        var (all, elemental) = m.TakenFromPlayer;
+        double factor = e.DamageTaken(spell, all);
+        if (elemental == 0) return (int)Math.Round(total * factor);
+        double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
+        return (int)Math.Round(total * factor + elementalDamage * (e.DamageTaken(spell, all + elemental) - factor));
     }
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
@@ -115,12 +122,14 @@ partial class Program
         m.Mods.Effects.NoExtraCriticalDamage ? 100 : multiplier;
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time): less its fire resistance and its
-    /// damage taken. Spell Resistant counts for hits only: its stat has no description saying it covers damage over
-    /// time.</summary>
+    /// damage taken, the player's debuffs on it included. Spell Resistant counts for hits only: its stat has no
+    /// description saying it covers damage over time.</summary>
     internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds)
     {
         var e = m.Mods.Effects;
-        double factor = (100 - DamageModel.Capped(e.Resistance(burn.Type), MonsterModEffects.MaxResistance)) / 100.0 * e.DamageTaken(spell: false);
+        var (all, elemental) = m.TakenFromPlayer;
+        double factor = (100 - DamageModel.Capped(e.Resistance(burn.Type), MonsterModEffects.MaxResistance)) / 100.0
+            * e.DamageTaken(spell: false, all + (DamageTypes.IsElemental(burn.Type) ? elemental : 0));
         return (burn with { DamagePerSecond = burn.DamagePerSecond * factor }).Tick(seconds, m.Burn);
     }
 

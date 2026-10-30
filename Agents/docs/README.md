@@ -65,6 +65,7 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 | [game/gambler.md](game/gambler.md) | Gambler node checklist, incoming elemental ailments and read-only opt-in |
 | [game/aristocrat.md](game/aristocrat.md) | Aristocrat node checklist: gem levels/quality, attribute requirements and conditional immunities |
 | [game/ancestral-commander.md](game/ancestral-commander.md) | Ancestral Commander node checklist: every node but Spirit of Rakiata has a consumer (Deathrattle, the strike nodes, the four Spirits and Forest of Ancestors partly); read-only opt-in |
+| [game/paladin.md](game/paladin.md) | Paladin node checklist: small nodes, stationary consecrated ground, Paladin Aura, enemy aura and taunt, relics, link skills and opt-in |
 | [game/ascendancies.md](game/ascendancies.md) | selection, points, saves and the Phrecia play gate |
 | [game/antiquarian.md](game/antiquarian.md) | all nine node consumers, verified-graph admission, legal builds and native acceptance |
 | [re/ascendancy-client-3.29.3b.md](re/ascendancy-client-3.29.3b.md) | native identity and point evidence |

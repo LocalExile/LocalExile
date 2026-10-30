@@ -20,7 +20,9 @@ partial class Program
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, IReadOnlyList<(uint Key, int Value)>? extraStats = null,
         Action<uint, SpawnedMonster>? owned = null)
     {
-        uint id = conn.NextObjectId++;
+        uint id;
+        // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
+        lock (conn.Monsters) id = conn.NextObjectId++;
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         if (bodySize >= 0)
         {

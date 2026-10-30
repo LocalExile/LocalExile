@@ -85,7 +85,7 @@ partial class Program
             Console.WriteLine($"[gateway] {CharacterName(conn)}: inactive items (requirements not met): " +
                 string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                     $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
-        return (WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))), attributes);
+        return (WithLinks(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources)))), attributes);
     }
 
     // Shared equipment/passive resolver. The requirement snapshot uses this without publishing caches or pools.
@@ -262,6 +262,7 @@ partial class Program
             Accuracy = bonus.Accuracy + aura.Accuracy,
             Armour = bonus.Armour + aura.Armour,
             Evasion = bonus.Evasion + aura.Evasion,
+            EnergyShield = bonus.EnergyShield + aura.EnergyShield,
             ArmourMorePct = aura.ArmourMorePct,
             EvasionMorePct = aura.EvasionMorePct,
             CriticalStrikeChancePct = attackIncrease,
@@ -454,8 +455,10 @@ partial class Program
             + Get("mana_reservation_efficiency_+%") + Get("reservation_efficiency_+%");
         int lifeReservation = Get("base_life_reservation_efficiency_+%") + Get("base_reservation_efficiency_+%")
             + Get("life_reservation_efficiency_+%") + Get("reservation_efficiency_+%");
+        // Absolution's increase counts while the player has a linked target, as the client's 0x142822db0 adds it.
         int auraEffect = Get("non_curse_aura_effect_+%") + Get("aura_effect_+%")
-            + Get("aura_effect_on_self_from_your_skills_+%");
+            + Get("aura_effect_on_self_from_your_skills_+%")
+            + (Get("number_of_active_links") > 0 ? Get("non_curse_aura_effect_+%_while_linked") : 0);
         int auraArea = Get("base_aura_area_of_effect_+%");
         // Defences: the tree's flat armour/evasion and their increased modifiers. "Defences" and the combined armour and
         // evasion increase apply to both ratings, as in PoB's calcLib.mod.
