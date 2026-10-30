@@ -101,6 +101,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
                 Assert.Equal(minimum, session.Limits(type).Minimum);
                 Assert.Equal(minimum, session.Effective(type));
             }
+            // Abberath: the footstep-triggered Abberath's Fury and the hoofprints the client draws from the player stats.
+            bool abberath = allocated && index == 0;
+            Assert.Equal(abberath ? 1 : 0, Program.FootstepSkills(state, state.Clock.Elapsed.TotalSeconds).Count);
+            Assert.Equal(abberath ? 1 : 0, PolytheistStat(state, "goat_footprints_from_item"));
         }
     }
 
@@ -218,6 +222,30 @@ public sealed partial class AscendancyGatewayIntegrationTests
             await Program.TickPassiveAuras("polytheist-integration", stream, cipher, State);
             return null;
         });
+
+        // One footstep's skill (TriggerFootstepSkill) with a monster dx cells east of the player and one a cell further.
+        public async Task<(SpawnedMonster Near, SpawnedMonster Far, byte[] Bytes)> PolytheistFootstep(PassiveGrantedSkills.Granted skill, int dx)
+        {
+            double now = State.Clock.Elapsed.TotalSeconds;
+            var at = State.Walk.Position(now);
+            SpawnedMonster At(int x)
+            {
+                var m = new SpawnedMonster("Polytheist footstep target", new(at.X + x, at.Y, 30), 0, 2, 100000) { Hostile = true };
+                m.Walk.Teleport(at.X + x, at.Y, now);
+                return m;
+            }
+            var (near, far) = (At(dx), At(dx + 1));
+            (State.Monsters[48], State.Monsters[49]) = (near, far);
+            var (error, bytes) = await Exchange(async (stream, cipher) =>
+            {
+                await Program.TriggerFootstepSkill("polytheist-integration", stream, cipher, State, skill);
+                return null;
+            });
+            Assert.Null(error);
+            State.Monsters.Remove(48);
+            State.Monsters.Remove(49);
+            return (near, far, bytes);
+        }
     }
 
     [Fact]
@@ -533,5 +561,84 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await using var runtime = new ProjectileRuntimeFixture(state);
         var use = ProgramValue<ProjectileUse>("CaptureGemProjectile", state, runtime.Session, fireball.Id, fireball, (at.X + 50, at.Y));
         Assert.Equal(2 * spell, Assert.IsType<ProjectileOffense>(use.Payload).VsBlindedCriticalChance);
+    }
+
+    [Fact]
+    public async Task Polytheist_Abberath_footsteps_trigger_Abberaths_Fury_and_ignites_deal_nothing()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", refundPoints: 40, level: 60);
+        var state = game.State;
+        state.PlayerStats[Program.Stats.Key("fire_damage_+%")!.Value] = 100;
+        double now = state.Clock.Elapsed.TotalSeconds;
+        var at = state.Walk.Position(now);
+        state.Walk.Teleport(at.X, at.Y, now);
+        // The footsteps of `seconds` of walking at `speed` times the base walking speed (FootstepsDue), or of standing.
+        int Steps(double seconds, double speed = 1, bool walk = true)
+        {
+            double t = state.Clock.Elapsed.TotalSeconds, run = 0;
+            state.Walk.SetSpeed(Program.WalkSpeed * speed, t);
+            if (walk) state.Walk.Order(at.X + 90, at.Y, t);
+            Assert.True(!walk || state.Walk.ArrivesAt > t + seconds);
+            int steps = Program.FootstepsDue(state, ref run, t, t + seconds);
+            state.Walk.Teleport(at.X, at.Y, t);
+            state.Walk.SetSpeed(Program.WalkSpeed, t);
+            return steps;
+        }
+        (int Damage, bool Ignited) Ignite()
+        {
+            var stats = Program.CharacterPlayerStats(state);
+            int Get(string name) => stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+            var probe = new PlayerElementalAilments();
+            var fire = DamagePacket.Of(DamageType.Fire, 1000, 1000);
+            probe.Apply(fire, fire, true, 1000, 0, Get, new Random(1));
+            bool ignited = probe.Snapshot(.5).Ignite;
+            return (probe.Advance(0, 1, Get, 0, 75, false), ignited);
+        }
+        // The run animation's two footsteps per 800 ms loop (the first 233 ms in), faster with the walk's speed.
+        Assert.Equal((0, 1, 2, 1), (PassiveGrantedSkills.Footsteps(0, .2), PassiveGrantedSkills.Footsteps(.233, .633),
+            PassiveGrantedSkills.Footsteps(0, .8), PassiveGrantedSkills.Footsteps(.633, 1.05)));
+        Assert.Equal((2, 0, 2, 4), (Steps(.8), Steps(.8, walk: false), Steps(.4, speed: 2), Steps(.8, speed: 2)));
+        // A plain character has no footstep skill, and an ignite burns it.
+        Assert.Empty(Program.FootstepSkills(state, now));
+        var plainIgnite = Ignite();
+        Assert.True(plainIgnite.Damage > 0 && plainIgnite.Ignited);
+
+        Assert.Null((await game.Change([59443, 61900], true)).Error);
+        // Triggers Level 20 Abberath's Fury: 300-450 fire, here with 100% increased fire damage.
+        var skill = Assert.Single(Program.FootstepSkills(state, now));
+        Assert.Equal(("RepeatingShockwave", 20), (skill.Id, skill.Level));
+        var hit = Program.GrantedSpellHit(state, skill.Effect, skill.Level);
+        Assert.Equal((600.0, 900.0, 900.0), (hit[DamageType.Fire].Min, hit[DamageType.Fire].Max, hit.MaxTotal));
+        // A footstep explodes where the player stands and hits the monster 7 cells away, not the one at 8.
+        var (near, far, bytes) = await game.PolytheistFootstep(skill, PassiveGrantedSkills.FootstepExplosionRadius);
+        uint taken = near.MaxLife - near.Life;
+        Assert.InRange(taken, 600u, 900u * (uint)state.Pools.SpellCriticalStrikeMultiplier / 100);
+        Assert.Equal(far.MaxLife, far.Life);
+        string art = Program.Art.Animated(PassiveGrantedSkills.ExplosionArtVariation, 0)!;
+        Assert.Equal("Metadata/Effects/Microtransactions/Aura/Uniques/Disjunction/Abberaths_Hooves_fireimpact.ao", art);
+        Assert.True(bytes.AsSpan().IndexOf(new EffectObject(at.X, at.Y, art).Blob()) >= 0);
+        // No footstep skill while frozen.
+        var cold = DamagePacket.Of(DamageType.Cold, state.PlayerMaxLife, state.PlayerMaxLife);
+        lock (state.Monsters)
+            Program.ApplyPlayerAilmentsLocked(state, cold, cold, true, false, now, Program.CharacterPlayerStats(state));
+        Assert.Empty(Program.FootstepSkills(state, now));
+        state.ElementalAilments.Clear();
+        // Burning Hoofprints: the client picks the goat footprints from the player stats; Unaffected by Ignite keeps the
+        // ignite (is_ignited) and takes its damage.
+        var final = ProgramValue<IEnumerable<(uint Key, int Value)>>("FinalPlayerStats", state).ToDictionary(s => s.Key, s => s.Value);
+        Assert.Equal((1, 20), (final[Program.Stats.Key("goat_footprints_from_item")!.Value],
+            final[Program.Stats.Key("display_abberaths_hooves_skill_level")!.Value]));
+        Assert.Equal((0, true), Ignite());
+
+        // Devout of Gruthkul disables the spell (and would zero its damage); a refund brings it back.
+        Assert.Null((await game.Change([30769, 5266], true)).Error);
+        Assert.Empty(Program.FootstepSkills(state, now));
+        Assert.Equal(0, Program.GrantedSpellHit(state, skill.Effect, skill.Level).MaxTotal);
+        Assert.Null((await game.Change([5266, 30769], false, refundPoints: true)).Error);
+        Assert.Single(Program.FootstepSkills(state, now));
+        Assert.Null((await game.Change([61900, 59443], false, refundPoints: true)).Error);
+        Assert.Empty(Program.FootstepSkills(state, now));
+        Assert.Equal(plainIgnite, Ignite());
     }
 }

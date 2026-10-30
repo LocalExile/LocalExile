@@ -309,6 +309,10 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     public string? EffectId(int effectRow) =>
         _tables.Value?.EffectRows.FirstOrDefault(kv => kv.Value.Row == effectRow).Key;
 
+    /// <summary>A GrantedEffectsPerLevel row's GrantedEffects row and level, or null.</summary>
+    public (int Effect, int Level)? PerLevelRow(int row) =>
+        _tables.Value is { } t && row >= 0 && row < t.PerLevel.Count ? t.PerLevel[row] : null;
+
     /// <summary>A GrantedEffects row by its Id, or -1.</summary>
     public int EffectRow(string effectId) =>
         _tables.Value is { } t && t.EffectRows.TryGetValue(effectId, out var effect)

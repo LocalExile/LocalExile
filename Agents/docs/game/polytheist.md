@@ -1,8 +1,7 @@
 # Polytheist
 
 Polytheist is the Templar's Phrecia `Guardian` identity (3.29.3b), start node 409.
-It is being built in five groups. This page lists every node with its consumer, or the group that still owes one,
-or the engine system it is waiting for.
+This page lists every node with its consumer or the engine system it is waiting for.
 Native acceptance is still open: it needs the reviewed combined graph installed (see Admission below).
 
 ## Graph and builds
@@ -45,7 +44,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 25478 small (ring C) | Same as 27664. | Done |
 | 22056 Devout of Garukhan | Evasion, Life and Mana Regeneration while moving; Unaffected by Shock; ground immunity. | Done; ground immunity: engine gap |
 | 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Done, except the enemies' reduced crit: no consumer, monsters have no base crit chance here (see below) |
-| 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Pending (group 5) |
+| 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Done; the explosion's 25% chance to ignite: engine gap; radius unverified |
 | 64171 Devout of Yugul | Hex Reflection; Hexes affect Hexproof enemies; Immune to Reflected Damage; Unaffected by Curses. | Engine gap (all four) |
 | 43703 Devout of Lunaris | Nova spells at the target; Spells fire 2 additional Projectiles; 30% increased spell area. | Done |
 | 1830 Devout of Ralakesh | +3 to Minimum Frenzy, Power and Endurance Charges; Corrupted Blood cannot be inflicted on you. | Charges done; Corrupted Blood: engine gap |
@@ -180,6 +179,30 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 - **Devout of Lunaris, Spells fire 2 additional Projectiles** (`spells_number_of_additional_projectiles`): the projectile
   profile adds them to spells only (`GatewayProjectileModifiers`), for the release and the skill record's
   `total_number_of_projectiles_to_fire` alike.
+- **Devout of Abberath, Triggers Level 20 Abberath's Fury** (the node's `GrantedEffectsPerLevel` 45556:
+  `RepeatingShockwave` level 20; `display_abberaths_hooves_skill_level` is only the tooltip): a passive-granted skill
+  ([11](../protocol/11-skills.md) §12, `PassiveGrantedSkills`). Each footstep while the player walks explodes at the
+  player's feet: two per 800 ms of the Templar's run animation (the first 233 ms after the walk starts), more often
+  with movement speed and less when chilled (the wiki: movement speed raises the frequency; cast speed does nothing).
+  A movement skill's blink is no walk, so it triggers nothing, as the wiki says. Nothing triggers in town, in the grace
+  period, or while the player is dead, frozen or stunned. The hit is the level-20 row's 300-450 fire
+  (GrantedEffectStatSetsPerLevel 45353) with the player's increases, added damage and conversion (`GrantedSpellHit`),
+  a 5% base spell critical chance (with the Solaris increase against Blinded targets) and the spell multiplier, rolled
+  per monster as an area spell's sweep. 3.27.0g's "100% more damage" is in that row (level 7 has 50-75; the wiki says
+  about 6 times), not a separate stat. The radius is 7 cells grown by spell area (Lunaris's 30% included): no stat,
+  PoB or poedb gives one, so it is the explosion mesh's size, unverified. The hit log reads
+  "RepeatingShockwave (footstep)". The wiki's limit of about +160% movement speed is not modelled (its mechanism is
+  unknown).
+  Devout of Gruthkul disables it (the wiki: taking both disables Abberath's Fury): `ActorSkillDisabledCore` refuses
+  the spell, and Spell Skills deal no Damage would zero it.
+- **Devout of Abberath, Burning Hoofprints** (`goat_footprints_from_item`) is the client's: the player stats carry it,
+  and `FUN_141ebd630` turns it into the goat footprint variation that `FUN_14166a840` draws on each footstep event
+  ([11](../protocol/11-skills.md) §12). The server sends nothing else.
+- **Devout of Abberath, Unaffected by Ignite** (PoB: SelfIgniteEffect 100% less): `PlayerElementalAilments.Reconcile`
+  reads `unaffected_by_ignite`, and `Advance` then deals no ignite damage. The ignite itself stays, with its duration
+  and `is_ignited`. The client derives `virtual_unaffected_by_ignite` (0x380d: `FUN_1400c0320` registers it with
+  `FUN_14277a080`, from `unaffected_by_ignite` 0x1de6 and other sources); only `num_different_ailments_affecting_you`
+  (`FUN_1428c50f0`) reads it.
 - **Devout of Lunaris, Spell Skills have 30% increased Area of Effect** (`spell_area_of_effect_+%`): `SkillArea.Increased`
   adds it for spells only, so a spell's radius grows by √1.3 (PoB calcRadius) and attacks keep theirs.
 
@@ -200,6 +223,8 @@ These effects are not faked. Each waits for an engine system that does not exist
   (Frostblink, the Aquamarine flask) do not create it either.
 - **Corrupted Blood cannot be inflicted on you** (Ralakesh): nothing inflicts Corrupted Blood.
   The only related code maps a flask's bleed-and-Corrupted-Blood immunity to `immune_to_bleeding`.
+- **Abberath's Fury's 25% chance to Ignite** (`base_chance_to_ignite_%` in its level-20 row): no player hit ignites
+  monsters yet, so the explosions deal their hit and nothing more.
 
 ## Admission
 
@@ -250,5 +275,12 @@ The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukha
   damage with a monster outside the radius); the of_Deadliness monster still crits while blinded. The player's
   critical strikes ("(critical)" in the hit log) come more often against blinded monsters (twice as often with no
   other increased critical chance).
+- Abberath: walk and watch the fire explode at the player's feet about twice a second, with the burning hoofprints
+  behind; a monster within about 0.7 m of a step takes the hit ("hit by RepeatingShockwave (footstep)" in the Gateway
+  log). Standing, casting or using a movement skill sets off nothing. Check the explosion art and size against the
+  real game, and whether the real game shows the Abberath's Hooves buff icon (it is not sent). A monster's critical
+  fire hit still ignites the player ("elemental ailments changed"), but life does not drop from it.
+- With Gruthkul (on another Polytheist Templar, `/add_passive 59443 61900 30769 5266`) nothing explodes; refund 5266
+  and 30769 in the ascendancy tree and the explosions come back.
 
 Coverage: `AscendancyGatewayIntegrationTests.Polytheist` and `VerifiedGamblerGraphTests`.

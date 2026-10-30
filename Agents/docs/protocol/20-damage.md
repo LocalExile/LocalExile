@@ -505,7 +505,8 @@ The Gateway's supported monster melee contact now calls `ApplyPlayerAilmentsLock
 Risk Aversion's final avoidance stats are consumed independently per eligible ailment, with no lucky avoidance.
 The resource writer integrates strongest ignite with live resistance, ES and lethal Life damage; RF remains nonlethal.
 Chill changes action timing/movement, freeze cancels/gates actions, and shock increases subsequent damage taken.
-`unaffected_by_shock` keeps the shock (duration, `is_shocked`) but leaves damage taken at 1
+`unaffected_by_shock` keeps the shock (duration, `is_shocked`) but leaves damage taken at 1, and
+`unaffected_by_ignite` keeps the ignite (duration, `is_ignited`) but its ticks deal nothing
 ([Polytheist](../game/polytheist.md)).
 A hit from a monster the player has Blinded adds `damage_taken_+%_from_blinded_enemies` to the shock's increase
 (additive, `DamageTakenFactor(now, increasedPct)`); ignite ticks have no source and keep the shock alone.

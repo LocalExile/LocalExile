@@ -1568,6 +1568,27 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
   the hits read: 20% less monster accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's
   increased critical chance against the target, `damage_taken_+%_from_blinded_enemies` on its hits
   ([Polytheist](../game/polytheist.md)).
+- **Passive-granted skills** (`PassiveGrantedSkills.cs`): a passive's PassiveSkills `GrantedEffectsPerLevel`
+  (`GrantedEffectsPerLevelHardmode` for a Ruthless alternate) is a GrantedEffectsPerLevel row, which names the
+  GrantedEffects row and its level. Only effects whose trigger runs on the server act; the others do nothing, and none
+  joins the client's skill list. `RepeatingShockwave` (Abberath's Fury, Devout of Abberath's 45556: level 20, no cost,
+  no cooldown) is triggered by footsteps: `RunFootstepSkills` (a 50 ms poll per connection, stopped while paused) runs
+  a run-animation clock while the walk lasts (`Walk.ArrivesAt`), at `Walk.Speed` over the base walking speed, and
+  restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
+  footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
+  steps (the wiki: movement skills do not trigger it). `TriggerFootstepSkill` sends the explosion where the player
+  stands: an `EffectObject` with SkillArtVariations `repeating_shockwave`'s default (MiscAnimated 1173
+  `AbberathsHoovesImpact`, `Abberaths_Hooves_fireimpact.ao`, whose own SoundEvent is the step sound), its wake zone, and
+  a RemoveObject 700 ms later (the mesh's one 666 ms clip). It then hits every living hostile monster within the radius
+  as an area spell sweep without a gem (`AreaSkillHit`'s per-monster block, crit, damage, Rage, flask charges and
+  on-hit charges; deaths after every hit). No stat gives the radius, so it is the explosion mesh's 7 cells (`disjunction.sm`
+  BoundingBox ±73.553 units, 6.8 cells), grown by spell area (`SkillArea`); unverified. The footprints are the
+  client's: `FUN_141ebd630` returns footprint variation 0x19 (Footprints row 24, `FootprintsGoat`) when the player
+  stats carry `goat_footprints_from_item` (0x1526) and no `footstep_effect_variation` (0x55f), and `FUN_14166a840`
+  draws it on the rig's footstep events. The client has its own `RepeatingShockwave` action, built by the generic
+  action factory (`FUN_141265460`, `FUN_14196d550`), but nothing here sends it one. The
+  `abberaths_hooves_display_buff` (BuffDefinitions 838, visible) is not sent: when the real game shows it is
+  unverified ([Polytheist](../game/polytheist.md)).
 - **A worn Righteous Fire effect** (its `skill_art_variation`, [23](23-microtransactions.md) §3) swaps both buffs'
   visuals through 0x1c1's BuffVisuals override and the ring's AO (`SkillArt`), also on the enemies' aura; NoRing
   draws no ring. A pick while the fire burns lights it again with the new art (casting again while it burns does

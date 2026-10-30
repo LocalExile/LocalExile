@@ -407,6 +407,16 @@ and can require explicit recipes.
   Gateway coverage only, not checked with the real client.
   Code: Gateway (`PassiveBuffAuras`, `TickPassiveAuras`, `Program.Blinded`, `CriticalChanceOn`).
   Docs: [11](../docs/protocol/11-skills.md) §12.
+- Passive-granted footstep skill (Devout of Abberath: level 20 Abberath's Fury): while the player walks, each footstep
+  of the Templar's run animation (two per 800 ms, faster with movement speed and slower when chilled) explodes at the
+  player's feet with the skill's art and hits every living hostile monster within 7 cells (grown by spell area) as an
+  area spell without a gem: 300-450 fire with the player's increases, critical strikes, block and the usual on-hit
+  effects. Not in town, the grace period, while frozen, stunned or dead, nor with spells disabled; a movement skill's
+  blink is no walk. The radius comes from the explosion art (no table gives one), its 25% chance to ignite does nothing
+  (no player hit ignites monsters), and other passive-granted skills do nothing yet. Gateway coverage only, not checked
+  with the real client.
+  Code: Gateway (`PassiveGrantedSkills`, `RunFootstepSkills`, `TriggerFootstepSkill`).
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - **Projectile modifiers.** Generic profiles consume resolved primary counts, speed, pierce/fork/chain/split/return
   grants and independent prohibitions in the sole staged runtime. Ordinary bows and catalog-known projectile gems
   work without a skill provider. A basic recipe is straight flight, not complete special-skill behavior.
@@ -699,7 +709,8 @@ and can require explicit recipes.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
   Alternative ailments and hostile spell/projectile adapters remain unimplemented.
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.
-  `unaffected_by_shock` keeps the shock and `is_shocked` without the damage-taken increase.
+  `unaffected_by_shock` keeps the shock and `is_shocked` without the damage-taken increase; `unaffected_by_ignite`
+  keeps the ignite and `is_ignited` without its damage.
   "While moving" evasion and regeneration follow the server's walk, and more maximum attack damage scales every attack
   hit's maxima next to Rage; Gateway coverage only ([Polytheist](../docs/game/polytheist.md)).
   Unconditional penetration works on the player's outgoing hits (general per-element and elemental stats, the

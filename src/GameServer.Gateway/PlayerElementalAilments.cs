@@ -12,7 +12,7 @@ sealed class PlayerElementalAilments
     readonly List<Effect> effects = [];
     double carry;
     double actionFloor, freezeEffect = 1;
-    bool unaffectedByShock;
+    bool unaffectedByShock, unaffectedByIgnite;
 
     public (bool Ignite, int Chill, bool Freeze, int Shock) Snapshot(double now) =>
         (Magnitude(Kind.Ignite, now) > 0, (int)Magnitude(Kind.Chill, now), Magnitude(Kind.Freeze, now) > 0,
@@ -44,6 +44,7 @@ sealed class PlayerElementalAilments
             effects.RemoveAll(e => Immune(e.Kind, get));
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
             unaffectedByShock = get("unaffected_by_shock") != 0;
+            unaffectedByIgnite = get("unaffected_by_ignite") != 0;
             actionFloor = get("action_speed_cannot_be_reduced_below_base") != 0
                 || get("not_affected_by_action_speed_modifiers") != 0 ? 1 : 0;
         }
@@ -81,6 +82,7 @@ sealed class PlayerElementalAilments
 
     // Integrate strongest ignite through every start/end boundary: a weaker, longer ignite can resume.
     // Resistance/immunity are live; hit luck, block, suppression and the 90% hit override never enter this pass.
+    // Unaffected by Ignite (PoB SelfIgniteEffect 100% less): the ignite stays on the player and in is_ignited, dealing nothing.
     public int Advance(double from, double until, Func<string, int> get, int fireResistance, int maxFireResistance,
         bool fireImmune)
     {
@@ -94,7 +96,7 @@ sealed class PlayerElementalAilments
             for (int i = 1; i < boundaries.Length; i++)
             {
                 double at = (boundaries[i - 1] + boundaries[i]) / 2;
-                if (!fireImmune) damage += DamageModel.Mitigate(Magnitude(Kind.Ignite, at), fireResistance, maxFireResistance)
+                if (!fireImmune && !unaffectedByIgnite) damage += DamageModel.Mitigate(Magnitude(Kind.Ignite, at), fireResistance, maxFireResistance)
                     * DamageTakenFactor(at) * (boundaries[i] - boundaries[i - 1]);
             }
             effects.RemoveAll(e => e.Until <= until);
