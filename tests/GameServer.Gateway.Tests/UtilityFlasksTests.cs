@@ -67,4 +67,18 @@ public class UtilityFlasksTests
 
     static ClientState Connection() => new(new AreaLayout(1, "test", 200, 200, 10, 10, null, []), 1, 1);
 
+
+    [Fact]
+    public void A_received_flask_rate_change_preserves_its_base_budget_and_ends_the_extra_source_together()
+    {
+        var effects = new UtilityFlasks.Effects();
+        effects.SetExpiryRate(0, .5);
+        effects.Start(Active(1, Utility(("base_movement_velocity_+%", 40)), 0));
+        Assert.Equal(12, effects.Of(1)!.Ends);
+        effects.SetExpiryRate(2, 1); // One of six base seconds consumed, five remain.
+        Assert.Equal(7, effects.Of(1)!.Ends);
+        Assert.Empty(effects.End(6.99, false, out _));
+        Assert.Single(effects.End(7, false, out bool stop));
+        Assert.True(stop);
+    }
 }

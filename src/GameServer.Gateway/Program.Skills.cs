@@ -72,16 +72,22 @@ partial class Program
 
     static IEnumerable<(uint, int)> FinalPlayerStats(ClientState conn)
     {
-        if (BuildScopeOf(conn) is not { } scope) return FinalPlayerStatsCore(conn);
-        return [.. scope.Final ??= [.. FinalPlayerStatsCore(conn)]];
+        if (BuildScopeOf(conn) is not { } scope) return FinalPlayerStatsCore(conn, native: true);
+        return [.. scope.Final ??= [.. FinalPlayerStatsCore(conn, native: true)]];
     }
 
-    static IEnumerable<(uint, int)> FinalPlayerStatsCore(ClientState conn) =>
-        FinalPlayerStatsFrom(conn, CharacterPlayerStats(conn));
+    static IEnumerable<(uint, int)> ServerSkillPlayerStats(ClientState conn) => FinalPlayerStatsCore(conn, native: false);
+
+    static IEnumerable<(uint, int)> FinalPlayerStatsCore(ClientState conn, bool native = true) =>
+        FinalPlayerStatsFrom(conn, new(CharacterPlayerStats(conn)), native);
 
     // The final stats from a character snapshot already worked out (PlayerSkills reuses its own).
-    static IEnumerable<(uint, int)> FinalPlayerStatsFrom(ClientState conn, Dictionary<uint, int> stats)
+    static IEnumerable<(uint, int)> FinalPlayerStatsFrom(ClientState conn, Dictionary<uint, int> stats, bool native = true)
     {
+        // Native Actor presentation composes Chill once; server timers use the unprojected character factor.
+        if (native && Stats.Key(ActionSpeed.Virtual) is uint nativeAction)
+            stats[nativeAction] = (int)Math.Round(100 * ((1 + stats.GetValueOrDefault(nativeAction) / 100.0)
+                * conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) - 1));
         // Quivers are gated by main_hand_weapon_type on the client, independently of the model's weapon stance. Only the
         // bow's value is known, so other weapons send nothing (a value /set_stat set stays); taking the bow off clears the
         // 9 sent before through PlayerStatsWithCleared.
@@ -120,7 +126,7 @@ partial class Program
             // weighted by its own critical chance and chance to hit (the Off Hand rows, OffHandPanelStats).
             int offSpeed = list.First(s => s.Item1 == StatKeys.OffHandAttackSpeedPct).Item2;
             var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(mainHit, weapon.AttackSeconds(stats),
-                offHit, DualWieldPanel.OffHandSeconds(off, offSpeed), damageFactor,
+                offHit, DualWieldPanel.OffHandSeconds(off, offSpeed) / Math.Max(.01, ActionSpeed.Multiplier(stats, Stats.Key)), damageFactor,
                 OffHandDamageFactor(conn, stats, n => Stats.Key(n) is uint key ? stats.GetValueOrDefault(key) : 0, own: null));
             Put(StatKeys.DisplayHundredTimesDamagePerSkillUse, perUse);
             Put(StatKeys.HundredTimesDamagePerSecond, perSecond);
@@ -292,10 +298,11 @@ partial class Program
                 SupportedAttackDamage.Raw(offWeapon, Get), attackConversion, Get));
         foreach (var (stat, value) in ailmentRows)
             if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+        conn.ElementalAilments.Reconcile(Get, conn.Clock.Elapsed.TotalSeconds);
         var ailments = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
         foreach (var (name, value) in new[] { ("is_ignited", ailments.Ignite ? 1 : 0),
             ("is_chilled", ailments.Chill > 0 ? 1 : 0), ("is_frozen", ailments.Freeze ? 1 : 0),
-            ("is_shocked", ailments.Shock > 0 ? 1 : 0), ("action_speed_-%", (int)Math.Round(100 * (1 - conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds)))),
+            ("is_shocked", ailments.Shock > 0 ? 1 : 0),
             ("intermediary_combined_action_speed_+%", (int)Math.Round(-100 * (1 - conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds)))) })
             if (Stats.Key(name) is uint key && value != 0) stats[key] = stats.GetValueOrDefault(key) + value;
         // The conditions as they are now; the player tick sends the chance again when they change.
@@ -323,6 +330,7 @@ partial class Program
         // bifurcation policies; a selected spell gets its own (GemSkills).
         foreach (var (stat, value) in SpellEffectiveCritical(conn, stats, conn.Pools.SpellCriticalStrikeChance, own: null))
             if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+        if (Stats.Key(ActionSpeed.Virtual) is uint actionSpeed) stats[actionSpeed] = ActionSpeed.From(Get).Percent;
         stats[OwnAuraRestriction.Disabled] = OwnAuraRestrictionValue(conn);
         if (Get("global_always_hit") != 0)
             foreach (string name in new[] { "main_hand_chance_to_hit_%", "off_hand_chance_to_hit_%",
@@ -520,7 +528,7 @@ partial class Program
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0;
-            if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, CastSpeedPct(stats) + supportCastSpeed) is { } spellTiming)
+            if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, CastSpeedPct(stats) + supportCastSpeed, ActionSpeed.Multiplier(stats, Stats.Key)) is { } spellTiming)
             {
                 spellTiming.ApplyTo(stats, Stats);
             }
@@ -551,6 +559,22 @@ partial class Program
                 if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint scaleKey) stats[scaleKey] = radiusPercent;
                 if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
                 Console.WriteLine($"[gateway] Cyclone area: base {baseRadius}, radius {radius}, increased area {increased}%, radius scale {radiusPercent}%");
+            }
+            if (SkillsFor(conn).EffectId(effect) == "TemporalChains")
+            {
+                int CurseArea(string name) => name == "skill_area_of_effect_+%"
+                    ? Get(name) + Get("curse_area_of_effect_+%") : name == SkillArea.BaseIncreased
+                        ? Stat(own, name) : Get(name);
+                if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseRadius) stats[baseRadius] = 22;
+                if (Stats.Key("active_skill_area_of_effect_radius") is uint radius)
+                    stats[radius] = SkillArea.Radius(22, CurseArea, true);
+                if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint scale)
+                    stats[scale] = SkillArea.RadiusPercent(CurseArea, true);
+                if (SupportedReservation(conn, id) is { } reserve)
+                {
+                    if (Stats.Key("base_mana_reservation_%") is uint percent) stats[percent] = reserve.Percent;
+                    if (Stats.Key("base_mana_reservation") is uint flat) stats[flat] = reserve.Flat;
+                }
             }
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
@@ -589,7 +613,8 @@ partial class Program
                     if (Stats.Key(key) is uint statKey) stats[statKey] = value;
                 if (SkillsFor(conn).IsAttack(effect))
                 {
-                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((WeaponFor(conn).AttackMs / (seconds * 1000) - 1) * 100);
+                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((WeaponFor(conn).AttackMs / (seconds * 1000
+                        * Math.Max(.01, ActionSpeed.Multiplier(stats, Stats.Key))) - 1) * 100);
                     stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
                     foreach (var (field, value) in new[]
                     {
@@ -855,7 +880,10 @@ partial class Program
     static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (gem.Effect != effect || gem.SourceGem is null) return "skill is unavailable";
+        if (gem.Effect != effect) return "skill is unavailable";
+        if (gem.SourceGem is null)
+            return CompanionForEffect(conn, effect) is not null ? ActorSkillInstanceDisabled(conn, effect, skillId)
+                : "skill is unavailable";
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? WeaponRestricted(conn, effect)
                 ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
             return disabled;
@@ -904,13 +932,20 @@ partial class Program
         var gems = places
             .Where(g => !ruthless || catalog.ByHash(g.Gem.TypeHash) is { } type && RuthlessGemRules.AllowsBase(type.Id))
             .SelectMany(g => catalog.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
+        var granted = HarbingerGrants(character);
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
-            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect))], GemSkillIdPool.Value);
+            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect)),
+                .. granted.Select(g => new GemSkillIds.Gem(0, g.Node, g.SummonEffect))], GemSkillIdPool.Value);
         // Gems in an inactive item grant nothing, but keep their id.
         for (int i = 0; i < gems.Count; i++)
             if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
                 yield return (id, gems[i].Effect, catalog.GemName(gems[i].Gem), catalog.GemLevel(gems[i].Gem), gems[i].Gem.Quality, gems[i].Gem.TypeHash);
+        for (int i = 0; i < granted.Length; i++)
+            if (ids[gems.Count + i] is ushort id)
+                yield return (id, granted[i].SummonEffect, (ruthless ? RuthlessSkills.Value : Skills).EffectId(granted[i].SummonEffect)!,
+                    granted[i].SummonLevel, 0, 0);
     }
+
 
     static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 

@@ -19,6 +19,8 @@ The shipped alternate graph contains older ordinary-tree topology.
 A separately agreed client-compatible graph is required before Phrecia can be enabled in an actual game connection.
 Antiquarian has an explicit `Game_VERIFIED_ANTIQUARIAN=1` opt-in which verifies exact installed archive bytes read-only.
 Its [whole-class audit](antiquarian.md) records the hashes, all node consumers, legal builds and native acceptance.
+Harbinger has a separate `Game_VERIFIED_HARBINGER=1` opt-in against the same reviewed installed graph.
+Its [node audit](harbinger.md) distinguishes implemented consumers from pending whole-class native acceptance.
 Other Phrecia choices are refused before saving, and their existing saves refuse admission before inventory loading
 or passive normalization, retaining their data.
 There is no automatic graph installation, recovery, archive rewrite, or memory-hook workaround in this slice.

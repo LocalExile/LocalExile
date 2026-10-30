@@ -60,11 +60,53 @@ partial class Program
         if (ticker is int ticket) _ = RunUtilityFlasks(remote, stream, ciphers, conn, ticket);
         Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
             string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {conn.Walk.Speed:0.##} cells/s");
-        foreach (var packet in UtilityFlasks.StartPackets(effect, PlayerId))
-            await Send(remote, stream, ciphers, packet, $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s");
+        await SendUtilityFlaskStart(remote, stream, ciphers, conn, effect);
         await MakeFlaskGrounds(remote, stream, ciphers, conn, type.Name, local, seconds);
         await SendCharacterStats(remote, stream, ciphers, conn, $"{type.Name} on");
     }
+
+    // The source buff and its maintained projection are one accepted write: expiry/death cannot remove the source
+    // between their adds and leave an infinite Onslaught behind. Sample recipient stats and base time at that gate.
+    static Task<bool> SendUtilityFlaskStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, UtilityFlasks.Active effect) => SendGenerated(remote, stream, ciphers, () =>
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
+                || UtilityFlasks.LeftItsCell(effect, ItemsOf(conn).Items(PlayerInventories.Flask))
+                || conn.UtilityFlaskEffects.RemainingBase(effect, conn.Clock.Elapsed.TotalSeconds) <= 0) return null;
+            var stats = PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
+            return UtilityFlaskStartPacket(conn, effect, stats, conn.Clock.Elapsed.TotalSeconds);
+        }
+    }, $"0x01c1 player buffs: {effect.Name} (flask {effect.Slot})");
+
+    static byte[] UtilityFlaskStartPacket(ClientState conn, UtilityFlasks.Active effect, byte[] stats, double now)
+    {
+        double remaining = conn.UtilityFlaskEffects.RemainingBase(effect, now);
+        // The snapshot has already consumed SentStatKeys clears. Keep that publication even if construction
+        // crossed the source deadline; only the now-invalid source/maintained buff adds must be suppressed.
+        return remaining <= 0 ? stats
+            : [.. stats, .. UtilityFlasks.StartPackets(effect, PlayerId, remaining).SelectMany(p => p)];
+    }
+
+    // Each resource of a hybrid has its own source and queue. Publish only that source's remaining base budget.
+    static Task<bool> SendRecoveryFlaskStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, Flasks.Effect effect, bool withDuration) => SendGenerated(remote, stream, ciphers, () =>
+    {
+        lock (conn.Monsters)
+        {
+            double Rate() => RecipientEffectRate(conn,
+                EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot()).Sources, 4);
+            if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
+                || conn.FlaskEffects.ProjectedRemaining(effect, conn.Clock.Elapsed.TotalSeconds, Rate()) <= 0) return null;
+            var stats = PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
+            double remaining = conn.FlaskEffects.ProjectedRemaining(effect, conn.Clock.Elapsed.TotalSeconds, Rate());
+            if (remaining <= 0) return stats;
+            uint perMinute = (uint)Math.Clamp(Math.Round((effect.LifePerSecond + effect.ManaPerSecond) * 60), 0, uint.MaxValue);
+            return [.. stats, .. Flasks.Buff(PlayerId, effect.Buff, effect.BuffRow, effect.Slot,
+                withDuration ? remaining : null, [perMinute])];
+        }
+    }, $"0x01c1 recovery flask {effect.Slot}, buff {effect.Buff}");
 
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
     // (ItemDrops.WithIncreasedRarity).
@@ -84,7 +126,7 @@ partial class Program
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
-        conn.ElementalAilments.Reconcile(Get);
+        conn.ElementalAilments.Reconcile(Get, conn.Clock.Elapsed.TotalSeconds);
         conn.ApplyMovementSpeed();
     }
 

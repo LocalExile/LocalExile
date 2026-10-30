@@ -36,6 +36,7 @@ partial class Program
                 ? conn.PlayerStats.TryGetValue(key, out int set) ? set : sources.GetValueOrDefault(key) : 0;
             var session = FortificationOf(conn);
             if (conn.PlayerLife == 0 && session.Value.Uncapped > 0) session.Clear();
+            session.SetExpiryRate(conn.Clock.Elapsed.TotalSeconds, RecipientEffectRate(conn, sources, 1));
             var value = session.Observe(conn.Clock.Elapsed.TotalSeconds, Get);
             void Add(string name, int added)
             {
@@ -161,7 +162,7 @@ partial class Program
                 {
                     // Build and acknowledge the tail AFTER any aura prefix, in the same order as its wire packets.
                     var value = session.Read(conn.Clock.Elapsed.TotalSeconds);
-                    var packets = new List<byte[]>();
+                    var packets = new List<byte[]> { PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)) };
                     if (session.Buff != 0) packets.Add(InstanceEntities.RemoveBuff(PlayerId, session.Buff));
                     session.Buff = 0;
                     if (value.Current > 0)
@@ -169,10 +170,9 @@ partial class Program
                         session.Buff = conn.NextBuff++;
                         packets.Add(InstanceEntities.AddBuff(PlayerId, session.Buff, 1943, PlayerId,
                             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0,
-                                value.NextExpiry!.Value - now)),
+                                (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
                     }
-                    packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
                     packets.Add(InstanceEntities.PlayerSkillsChange(PlayerId, PlayerSkills(conn), []));
                     session.PresentedRevision = session.Revision;
                     return packets.SelectMany(p => p).ToArray();

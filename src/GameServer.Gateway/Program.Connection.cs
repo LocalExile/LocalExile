@@ -206,6 +206,8 @@ partial class Program
             left.Packets.Print(remote, "before the client closed the connection");
         if (left is not null)
         {
+            lock (left.Monsters)
+                left.Companions?.Release(left.SummonLease, left.LeavingArea, DateTimeOffset.UtcNow);
             // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
@@ -305,6 +307,7 @@ partial class Program
         lock (conn.Monsters)
         {
             conn.Closed = true;
+            conn.Companions?.Release(conn.SummonLease, conn.LeavingArea, DateTimeOffset.UtcNow);
             conn.InvalidateIncomingHits();
             FortificationOf(conn).Clear();
             LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
@@ -348,7 +351,11 @@ partial class Program
             return;
         }
         // Pause is a barrier: commit the preceding combat interval before freezing the world clock.
-        using (ProjectileMutation(conn)) { if (pause) conn.Clock.Stop(); else conn.Clock.Start(); }
+        using (ProjectileMutation(conn))
+        {
+            if (pause) conn.Clock.Stop(); else conn.Clock.Start();
+            conn.Companions?.Pause(conn.SummonLease, DateTimeOffset.UtcNow, pause);
+        }
         await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
     }
 

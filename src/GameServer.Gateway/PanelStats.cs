@@ -42,7 +42,8 @@ static class PanelStats
     public static readonly Sum[] Sums =
     [
         // Offence
-        new("cast_speed_+%", ["base_cast_speed_+%", "attack_and_cast_speed_+%"]),
+        new("curse_duration_+%", ["base_curse_duration_+%"]),
+        new("cast_speed_+%", ["base_cast_speed_+%", "attack_and_cast_speed_+%", "arcane_surge_cast_speed_+%"]),
         new("global_chance_to_knockback_%", ["base_global_chance_to_knockback_%"]),
         new("virtual_knockback_distance_+%", ["knockback_distance_+%"]),
         new("stun_duration_+%", ["base_stun_duration_+%"]),
@@ -120,6 +121,7 @@ static class PanelStats
         new("virtual_energy_shield_delay_-%", ["energy_shield_delay_-%"]),
         new("virtual_block_recovery_+%", ["block_recovery_+%", "base_stun_recovery_+%", "stun_recovery_+%"]),
         new("stun_recovery_+%", ["base_stun_recovery_+%"]),
+        new("virtual_debuff_time_passed_+%", ["debuff_time_passed_+%"]),
         new("avoid_stun_%", ["base_avoid_stun_%"]),
         new("cannot_be_stunned", ["base_cannot_be_stunned"], Flag: true),
         new("extra_damage_taken_from_crit_+%", [new("base_self_critical_strike_multiplier_-%", Mul: -1)]),

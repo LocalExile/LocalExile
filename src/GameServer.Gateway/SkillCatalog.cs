@@ -881,7 +881,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         /// main_hand_attack_speed_+% (the final value already includes more multipliers), at least one server tick
         /// (<see cref="Program.TickSeconds"/>: at most 30 attacks per second).</summary>
         public double AttackSeconds(IReadOnlyDictionary<uint, int>? player) =>
-            Math.Max(Program.TickSeconds, AttackMs / 1000.0 / Math.Max(0.01, 1 + IncreasedAttackSpeed(player) / 100.0));
+            Math.Max(Program.TickSeconds, AttackMs / 1000.0 / Math.Max(0.01, 1 + IncreasedAttackSpeed(player) / 100.0)
+                / Math.Max(.01, ActionSpeed.Multiplier(player, Program.Stats.Key)));
 
         /// <summary>
         /// The skill's final main-hand stats (client keys = Stats.dat row + 1). The server computes them, as the real one

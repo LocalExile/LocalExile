@@ -99,6 +99,7 @@ static class Flasks
         readonly List<Running> _running = [];
         readonly List<Running> _lastEnded = [];
         readonly Lock _lock = new();
+        double? advancedTo;
         const double Done = 1e-9;
 
         /// <summary>Whether any flask is recovering.</summary>
@@ -120,45 +121,70 @@ static class Flasks
             lock (_lock) return _running.FirstOrDefault(r => ReferenceEquals(r.Effect, effect))?.Remaining ?? 0;
         }
 
+        /// <summary>Projects the live queues from the last real advancement to publication time. Only copies are
+        /// advanced: the resource writer still owns all recovery, endpoints and its next advancement boundary.</summary>
+        public double ProjectedRemaining(Effect effect, double now, double expiryRate = 1)
+        {
+            lock (_lock)
+            {
+                if (!_running.Any(r => ReferenceEquals(r.Effect, effect))) return 0;
+                var projected = _running.Select(r => new Running(r.Effect) { Remaining = r.Remaining }).ToList();
+                double from = advancedTo ?? projected.Min(r => r.Effect.Started);
+                AdvanceRunning(projected, from, Math.Max(from, now), 1, expiryRate);
+                return projected.FirstOrDefault(r => ReferenceEquals(r.Effect, effect))?.Remaining ?? 0;
+            }
+        }
+
         /// <summary>The life and mana recovered between <paramref name="from"/> and <paramref name="to"/>, and the effects
         /// that ran out by <paramref name="to"/> (removed; one with mana at the end gives it then).</summary>
-        public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to)
+        public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to,
+            double manaRecoveryRate = 1, double expiryRate = 1)
         {
+            lock (_lock)
+            {
+                var result = AdvanceRunning(_running, from, to, manaRecoveryRate, expiryRate);
+                advancedTo = to;
+                return result;
+            }
+        }
+
+        // Real recovery and read-only projection use the same arbitration, future-start boundaries and endpoints.
+        static (double Life, double Mana, List<Effect> Ended) AdvanceRunning(List<Running> running, double from, double to,
+            double manaRecoveryRate, double expiryRate)
+        {
+            expiryRate = Math.Max(.25, expiryRate);
             double life = 0, mana = 0;
             List<Effect> ended = [];
             void Run(Running r, double seconds)
             {
                 life += r.Effect.LifePerSecond * seconds;
-                mana += r.Effect.ManaPerSecond * seconds;
-                r.Remaining -= seconds;
+                mana += r.Effect.ManaPerSecond * seconds * Math.Max(0, manaRecoveryRate);
+                r.Remaining -= seconds * expiryRate;
                 if (r.Remaining > Done) return;
                 mana += r.Effect.ManaAtEnd;
-                _running.Remove(r);
+                running.Remove(r);
                 ended.Add(r.Effect);
             }
-            lock (_lock)
-            {
-                foreach (var r in _running.Where(r => r.Effect.Queue == 0).ToList())
-                    Run(r, Math.Min(r.Remaining, Math.Max(0, to - Math.Max(from, r.Effect.Started))));
-                foreach (int queue in new[] { 1, 2 })
-                    for (double t = from; t < to - Done;)
+            foreach (var r in running.Where(r => r.Effect.Queue == 0).ToList())
+                Run(r, Math.Min(r.Remaining / expiryRate, Math.Max(0, to - Math.Max(from, r.Effect.Started))));
+            foreach (int queue in new[] { 1, 2 })
+                for (double t = from; t < to - Done;)
+                {
+                    var waiting = running.Where(r => r.Effect.Queue == queue).ToList();
+                    var now = waiting.Where(r => r.Effect.Started <= t + Done).ToList();
+                    double nextStart = waiting.Where(r => r.Effect.Started > t + Done).Select(r => r.Effect.Started).DefaultIfEmpty(to).Min();
+                    if (now.Count == 0)
                     {
-                        var waiting = _running.Where(r => r.Effect.Queue == queue).ToList();
-                        var now = waiting.Where(r => r.Effect.Started <= t + Done).ToList();
-                        double nextStart = waiting.Where(r => r.Effect.Started > t + Done).Select(r => r.Effect.Started).DefaultIfEmpty(to).Min();
-                        if (now.Count == 0)
-                        {
-                            if (nextStart >= to) break;
-                            t = nextStart;
-                            continue;
-                        }
-                        // The highest rate first; of equal ones the earlier.
-                        var first = now.OrderByDescending(r => r.Effect.Rate).ThenBy(r => r.Effect.Started).First();
-                        double seconds = Math.Min(first.Remaining, Math.Min(nextStart, to) - t);
-                        Run(first, seconds);
-                        t += seconds;
+                        if (nextStart >= to) break;
+                        t = nextStart;
+                        continue;
                     }
-            }
+                    // The highest rate first; of equal ones the earlier.
+                    var first = now.OrderByDescending(r => r.Effect.Rate).ThenBy(r => r.Effect.Started).First();
+                    double seconds = Math.Min(first.Remaining / expiryRate, Math.Min(nextStart, to) - t);
+                    Run(first, seconds);
+                    t += seconds;
+                }
             return (life, mana, ended);
         }
 

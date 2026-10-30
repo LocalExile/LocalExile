@@ -126,6 +126,18 @@ G = global / static data.
 | `0x142f496a0` | G | static initializer table entry (Positioned) |
 | `0x1445bb240`, `0x1445bb6f0`, `0x1445bbe50`, `0x1445bbd60`, `0x1445bb760`, `0x1445bbd10`, `0x1445ba850`, `0x1445bc610` | G | component pools (Positioned, Stats, Pathfinding, Life, Animated, Player, Inventories, Actor) |
 
+### Received effect clocks and action timing ([11](11-skills.md))
+
+| Address | Kind | What |
+|---|---|---|
+| `0x141f79160` | Fn | Derives Buff +0x20 elapsed rate from recipient stats ([11](11-skills.md)). |
+| `0x141e069d0` | Fn | Resolves BuffVisuals for updater guards ([11](11-skills.md)). |
+| `0x141e10520` | Fn | Buff frame updater consumes remaining base seconds at its derived elapsed rate. |
+| `0x141e105a2` | Code | Short branch before a live target; unsafe detour ([11](11-skills.md)). |
+| `0x141e105a4` | Code | External updater branches land here; retain the instruction ([11](11-skills.md)). |
+| `0x141e105dd` | Code | Loads Buff +0x20; multiply/subtract/store at +0x1c follows through `0x141e105ea`. |
+| `0x141dbc0d5` | Code | Actual R14 render multiply reads +0x1f8 ([Harbinger](../game/harbinger.md)). |
+
 ### Player Actor scale ([04](04-player-entity.md#41a-player-actor-scale-299))
 
 | Address | Kind | What |
@@ -138,7 +150,7 @@ G = global / static data.
 | `0x1400caf90` | Fn | Register final1973 evaluator `0x1427ecc30` |
 | `0x1427ecc30` | Fn | final1973 formula: raw720, capped1974, permyriad10778, optional limit1975 |
 | `0x141e9ca20` | Fn | Actor setup reads1973 at `0x141e9ccfd` and applies scale |
-| `0x141e9cf90` | Fn | Actor change observer compares key1973 at `0x141e9d031` |
+| `0x141e9cf90` | Fn | Actor observer: scale1973 and action speed3302 ([11](11-skills.md)). |
 | `0x141e9ce80` | Fn | Scale applicator writes Positioned +0x2b0 at `0x141e9cf6f` |
 | `0x14013d9f0` | Fn | Monster-specific optional scale coefficient lookup |
 | `0x1415f4710` | Fn | Render typeScale * uniform * independent stretch; interpolation at +0x358 |

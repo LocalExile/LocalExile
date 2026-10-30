@@ -14,6 +14,13 @@ static class AuraCatalog
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
     public static IEnumerable<byte[]> StartPackets(Aura aura, uint player, ushort? action)
     {
+        if (aura.EffectId == "TemporalChains")
+        {
+            yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
+                player, aura.SkillId, auraSource: true,
+                activeSkill: action is ushort curseHash ? (aura.SkillId, curseHash) : null);
+            yield break;
+        }
         if (aura.SourceBuff is ushort source)
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
                 player, aura.SkillId, auraSource: true, displayState: 0);
@@ -24,13 +31,14 @@ static class AuraCatalog
     public static IEnumerable<byte[]> EndPackets(Aura aura, uint player)
     {
         yield return GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(player, aura.Buff);
-        if (aura.SourceBuff is ushort source)
+        if (aura.EffectId != "TemporalChains" && aura.SourceBuff is ushort source)
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(player, source);
     }
 
     /// <summary>The BuffDefinitions row that draws each aura's visual and buff icon.</summary>
     private static readonly Dictionary<string, ushort> BuffRows = new()
     {
+        ["TemporalChains"] = 69,
         ["PurityOfElements"] = 144,
         ["PurityOfFire"] = 145,
         ["PurityOfIce"] = 146,

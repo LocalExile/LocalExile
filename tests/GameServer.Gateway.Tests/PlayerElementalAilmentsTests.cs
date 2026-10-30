@@ -4,6 +4,7 @@ namespace GameServer.Gateway.Tests;
 
 public class PlayerElementalAilmentsTests
 {
+    public PlayerElementalAilmentsTests() => TestSaves.Ensure();
     static int None(string _) => 0;
     static DamagePacket Fire(int damage) => DamagePacket.Of(DamageType.Fire, damage, damage);
 

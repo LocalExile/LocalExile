@@ -70,6 +70,11 @@ static class FlaskGrounds
     {
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
         public Dictionary<uint, ushort> Taunted { get; } = [];
+        public Dictionary<uint, SpawnedMonster> TauntRecipients { get; } = [];
+        public Dictionary<uint, EffectClock> TauntClocks { get; } = [];
+        public Dictionary<uint, double> PresentedTauntDeadlines { get; } = [];
+        public double ExpiryDeadline => Kind == Kind.Taunt && TauntClocks.Count > 0
+            ? TauntClocks.Values.Max(c => c.Deadline) : Ends;
     }
 
     /// <summary>One connection's flask grounds, the monsters blinded by smoke (with their buff ids), and whether the player
@@ -121,10 +126,20 @@ static class FlaskGrounds
         {
             lock (_lock)
             {
-                List<Ground> ended = [.. _grounds.Where(g => g.Ends <= now)];
+                List<Ground> ended = [.. _grounds.Where(g => g.ExpiryDeadline <= now)];
                 foreach (var g in ended) _grounds.Remove(g);
                 return ended;
             }
+        }
+
+        public Ground[] Taunts()
+        {
+            lock (_lock) return [.. _grounds.Where(g => g.Kind == Kind.Taunt)];
+        }
+
+        public bool Contains(Ground ground)
+        {
+            lock (_lock) return _grounds.Any(g => ReferenceEquals(g, ground));
         }
 
         /// <summary>Whether a ground of this kind covers the cell.</summary>

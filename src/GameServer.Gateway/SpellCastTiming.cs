@@ -13,16 +13,16 @@ readonly record struct SpellCastTiming(int BaseMilliseconds, int? DurationMillis
             if (catalog.Key(name) is uint key) stats[key] = value;
     }
 
-    public static SpellCastTiming? ForSkill(SkillCatalog skills, int effect, int increasedCastSpeed) =>
+    public static SpellCastTiming? ForSkill(SkillCatalog skills, int effect, int increasedCastSpeed, double actionSpeed = 1) =>
         skills.IsSpell(effect) && !skills.IsAttack(effect)
-            ? Calculate(skills.CastMs(effect), increasedCastSpeed, skills.IsInstant(effect)) : null;
+            ? Calculate(skills.CastMs(effect), increasedCastSpeed, skills.IsInstant(effect), actionSpeed) : null;
 
-    public static SpellCastTiming Calculate(int baseMilliseconds, int increasedCastSpeed, bool instant = false)
+    public static SpellCastTiming Calculate(int baseMilliseconds, int increasedCastSpeed, bool instant = false, double actionSpeed = 1)
     {
         if (instant || baseMilliseconds == 0) return new(baseMilliseconds, 0, 0);
         long factor = 100L + increasedCastSpeed;
-        if (baseMilliseconds < 0 || factor <= 0) return new(baseMilliseconds, null, 0);
-        decimal adjusted = baseMilliseconds * 100m / factor;
+        if (baseMilliseconds < 0 || factor <= 0 || !double.IsFinite(actionSpeed) || actionSpeed <= 0) return new(baseMilliseconds, null, 0);
+        decimal adjusted = baseMilliseconds * 100m / factor / (decimal)actionSpeed;
         // Numeric bounds for the existing integer-ms server timers, not an official cast-speed cap.
         if (adjusted > int.MaxValue) return new(baseMilliseconds, null, 0);
         int duration = Math.Max(1, (int)decimal.Round(adjusted));

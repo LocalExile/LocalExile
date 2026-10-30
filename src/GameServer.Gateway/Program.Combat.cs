@@ -295,6 +295,7 @@ partial class Program
     static async Task CastOn(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, SpawnedMonster m, double requestedAt)
     {
+        if (m.Companion is not null) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
@@ -491,6 +492,7 @@ partial class Program
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
                     channelGeneration = ++conn.ChannelGeneration;
+                    conn.HarbingerChannel = (skillId, action, channelGeneration.Value);
                     conn.ChannelSkill = skillId;
                     conn.ChannelSkillSequence = sequence;
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
@@ -535,6 +537,17 @@ partial class Program
                 if (!conn.Closed && PlayerActionCurrent(conn, action) && Current())
                     await OpenTownPortal(remote, stream, ciphers, conn, from.X, from.Y, "Portal skill");
             });
+            return true;
+        }
+        if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains")
+        {
+            await CastTemporalChains(remote, stream, ciphers, conn, skillId, to, action, conn.ProjectileEpoch);
+            return true;
+        }
+        if (gem.Name is not null && CompanionForEffect(conn, gem.Effect) is { } companion)
+        {
+            if (CastMs(conn, gem.Effect, skillId) is not int cast) return false;
+            await ActivateCompanion(remote, stream, ciphers, conn, companion, cast);
             return true;
         }
         if (gem.Name is not null && UseChargeSkillInstance(conn, skillId, gem.Effect, gem.Level, gem.Quality, from)) return true;
@@ -785,7 +798,10 @@ partial class Program
     {
         var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
-        return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
+        int CurseGet(string name) => name == "skill_area_of_effect_+%"
+            ? Get(name) + (Supports.Of(effect)?.Types.Contains(13) == true ? Get("curse_area_of_effect_+%") : 0) : Get(name);
+        return SkillArea.Radius(SkillsFor(conn).EffectId(effect) == "TemporalChains" ? 22
+            : SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), CurseGet, spell);
     }
 
     // A gem skill without a projectile (strikes, slams, area spells): a first, simple hit (2026-10-23). It lands once, after
@@ -1016,7 +1032,7 @@ partial class Program
     // The short state mutation is shared with projectile impact; no awaits under Monsters.
     static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage)
     {
-        if (m.Dead || m.Life == 0) return null;
+        if (m.Dead || m.Life == 0 || m.Companion is not null) return null;
         (m.Life, bool starts) = TakeDamageLocked(m, damage);
         conn.LastEnemyHitAt = ProjectileWorldTime(conn);
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
@@ -1118,6 +1134,7 @@ partial class Program
     // (BossFights; the stage is then taken, so it runs once).
     internal static (uint Life, bool StageStarts) TakeDamageLocked(SpawnedMonster m, int damage)
     {
+        if (m.Companion is not null) return (m.Life, false);
         // While the stage runs the boss cannot die: its life fills up at the end anyway.
         if (m.StageRunning) return ((uint)Math.Max(1, (long)m.Life - damage), false);
         var (life, starts) = BossFights.Damage(m.Life, m.MaxLife, damage, m.StageTaken ? null : m.Stage);

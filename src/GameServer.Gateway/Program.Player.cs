@@ -153,10 +153,14 @@ partial class Program
             ChargesOnDeath(conn);
             ClearBloodChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
+            conn.Companions?.Clear(conn.SummonLease);
         }
-        foreach (var (id, life) in RecoverRuthlessBossesOnDeath(conn))
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"Ruthless campaign boss 0x{id:x} recovers to {life} life after player death");
+        // Preserve mode death mutations before the first queued companion or boss publication.
+        var recoveredBosses = RecoverRuthlessBossesOnDeath(conn);
         PersistRuthlessVitals(conn, bestEffort: true);
+        await RefreshCompanions(remote, stream, ciphers, conn);
+        foreach (var (id, life) in recoveredBosses)
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"Ruthless campaign boss 0x{id:x} recovers to {life} life after player death");
         await SendVaalSouls(remote, stream, ciphers, conn);
         await SendRage(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
@@ -265,7 +269,8 @@ partial class Program
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(conn, skillId).Stats;
         int speed = CastSpeedPct(CharacterPlayerStats(conn));
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
-        return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed)?.DurationMilliseconds is int duration
+        return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed,
+            ActionSpeed.Multiplier(CharacterPlayerStats(conn), Stats.Key))?.DurationMilliseconds is int duration
             ? (int)Math.Min(int.MaxValue, Math.Ceiling(duration / PlayerActionFactor(conn))) : null;
     }
 
@@ -492,7 +497,7 @@ partial class Program
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
     static async Task RunResourceRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, last = conn.Clock.Elapsed.TotalSeconds;
+        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, bypassCarry = 0, last = conn.Clock.Elapsed.TotalSeconds;
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0;
         double nextVitalsSave = last + 5;
         Dictionary<uint, int> recoveryStats = [];
@@ -502,7 +507,6 @@ partial class Program
         {
             await Task.Delay(RecoveryStepMs);
             if (conn.Closed || conn.RageRetired) break;
-            await EndGracePeriod(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
             uint lifeBefore, lifeAfter, manaBefore, manaAfter, manaCap;
             bool dead, instantLifeChanged, instantManaChanged;
@@ -542,7 +546,10 @@ partial class Program
                 }
                 double recoveryFrom = last;
                 double life, mana;
-                (life, mana, ended) = conn.FlaskEffects.Advance(last, now);
+                double flaskExpiryRate = RecipientEffectRate(conn,
+                    EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot()).Sources, 4);
+                (life, mana, ended) = conn.FlaskEffects.Advance(last, now,
+                    Math.Max(0, 1 + RecoveryStat("mana_recovery_rate_+%") / 100.0), flaskExpiryRate);
                 last = now;
                 lifeBefore = conn.PlayerLife;
                 manaBefore = conn.PlayerMana;
@@ -554,11 +561,12 @@ partial class Program
                 dead = lifeBefore == 0;
                 if (dead)
                 {
-                    lifeCarry = manaCarry = burnCarry = 0;
+                    lifeCarry = manaCarry = burnCarry = bypassCarry = 0;
                     FortificationOf(conn).Clear();
                     leech.Clear(now);
                     conn.EnergyShield.Empty();
                     ClearAntiquarianOnDeath(conn);
+                    conn.Companions?.Clear(conn.SummonLease);
                     lifeAfter = lifeBefore;
                     manaAfter = manaBefore;
                 }
@@ -567,26 +575,42 @@ partial class Program
                     leech.ClearFull(now, lifeBefore >= conn.PlayerMaxLife, manaBefore >= manaCap,
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
-                    burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now)) * seconds;
+                    // Reconcile live recipient clocks/immunity without waiting for their presentation. A queued
+                    // companion/curse write must never postpone lethal damage or synchronous Hardcore persistence.
+                    var ailmentStats = CharacterPlayerStats(conn);
+                    int IncomingStat(string name) => Stats.Key(name) is uint key ? ailmentStats.GetValueOrDefault(key) : 0;
+                    burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now)) * seconds
+                        * Math.Max(0, 1 + IncomingStat("harbinger_channel_buff_damage_taken_+%_final") / 100.0);
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
-                    int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now);
+                    int lifeBurn = HarbingerDefences.DamageOverTime(conn.EnergyShield, burnWhole,
+                        IncomingStat("base_non_chaos_damage_bypass_energy_shield_%"), now, ref bypassCarry);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     conn.EnergyShield.Gain(leeched.EnergyShield);
                     double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, conn.PlayerMaxLife,
                         life + lifeRate * seconds + fortificationLife + leeched.Life + conn.Antiquarian.TakeRecovery(now)
                             + conn.EnduringCryRecovery.Take(now) - lifeBurn, ref lifeCarry, minimum: 1);
-                    AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
+                    AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, ailmentStats);
                     lifeAfter = conn.PlayerLife;
-                    if (lifeAfter == 0) ailmentDeathEpoch = conn.IncomingHitEpoch;
-                    conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
+                    if (lifeAfter == 0)
+                    {
+                        ailmentDeathEpoch = conn.IncomingHitEpoch;
+                        dead = true;
+                        lifeCarry = manaCarry = burnCarry = bypassCarry = 0;
+                        manaAfter = manaBefore;
+                        leech.Clear(now);
+                    }
+                    else conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
                         mana + manaRate * seconds + leeched.Mana, ref manaCarry);
-                    leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
+                    if (!dead) leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                 }
             }
             if (ailmentDeathEpoch is int lethalEpoch)
                 await PlayerDiedAtEpoch(remote, stream, ciphers, conn, "0x0055 lethal elemental ailment", lethalEpoch);
+            await RefreshTemporalChains(remote, stream, ciphers, conn);
+            await RefreshCompanions(remote, stream, ciphers, conn);
+            await EndGracePeriod(remote, stream, ciphers, conn);
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (dead)
             {

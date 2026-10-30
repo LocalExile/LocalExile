@@ -190,6 +190,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   Default Phrecia admission is gated; the explicit Gambler opt-in verifies installed graph bytes read-only.
   Docs: [Gambler checklist, scope and verification](../docs/game/gambler.md).
 
+- Harbinger: all eight actual-graph notables and eight small nodes execute through legal connected builds.
+  Native checks cover companions, paid Focus channels, recovery, cooldowns, typed ES bypass and Temporal Chains.
+  Canonical action/expiry consumers, finite countdown endpoints, paid refunds, travel, death, relog and restart pass.
+  The standalone automated candidate adapts frozen `59231e83` to exact main `704bf1d2`.
+  It retains raw panel/native caches, independent flask clocks, leech/loading and converted-charge mirrors.
+  Aristocrat, current monster AI and paid-channel generations retain their existing consumers.
+  Outgoing Ignite recipient clocks retain unscaled strongest/fallback damage and gate-time BASE timers.
+  Its verified installed-graph opt-in reads archive bytes without changing them.
+  Historical native checks at `4329decc` used the documented isolated legacy-Auth compatibility fixture.
+  No new native verification is claimed; refreshed 328/333/339 composition remains the parent's private check.
+  Charges and paid Basalt taunts preserve recipient base budgets, current-rate prefixes and native endpoints.
+  The taunt recovery payload and buff-specific updater guards have direct native verification.
+  Docs: [node checklist, evidence, source equivalence and engine limits](../docs/game/harbinger.md).
+
 ## Partly working
 
 - Aristocrat: every node in its installed graph has a server consumer (gem levels and quality, attribute requirements,
@@ -197,7 +211,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
-  Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
+  Phrecia game connections/selection are gated by default.
+  Antiquarian, Gambler and Harbinger have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
   The native Labyrinth/Altar flow is separate (#151); other Phrecia class gameplay remains separate work.
   Native ordinary command checks do not establish an expanded chooser or special class gameplay.
