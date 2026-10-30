@@ -1,4 +1,4 @@
-static class RuthlessGameplay
+static class LeagueGameplay
 {
     public static bool CanGainUtilityCharges(bool ruthless, bool active, bool exception) => !ruthless || !active || exception;
 

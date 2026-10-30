@@ -17,6 +17,7 @@
     <Project Path="Mods/Source/Hello/Hello.csproj" />
     <Project Path="Mods/Source/ItemQuantity/ItemQuantity.csproj" />
     <Project Path="Mods/Source/ItemRarity/ItemRarity.csproj" />
+    <Project Path="Mods/Source/Ruthless/Ruthless.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GameServer.Data.Tests/GameServer.Data.Tests.csproj" />

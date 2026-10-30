@@ -17,6 +17,7 @@ static class TestEnvironment
                     && Directory.Exists(Path.Combine(dir.FullName, "data", "tables")))
                 {
                     Directory.SetCurrentDirectory(dir.FullName);
+                    ServerLeagues.Add(new GameServer.Mods.Ruthless.RuthlessLeague(Path.Combine("config", "ruthless.json")));
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout with data/tables.");

@@ -349,6 +349,7 @@ public sealed class ModHostTests : IDisposable
         public bool Hardcore => false;
         public bool SoloSelfFound => false;
         public bool Ruthless => false;
+        public string LeagueId { get; set; } = "standard";
         public int Level => 12;
         public string AreaId => "1_1_1";
         public uint Seed => 7;

@@ -31,11 +31,11 @@ partial class Program
         lock (conn.Monsters)
         {
             if (HardcoreProgressBlocked(conn)) return null;
-            var ruthless = conn.Ruthless ? RuthlessSettings.Current : null;
+            var rules = LeagueFor(conn).Rules;
             var (before, after) = CharacterSaves.AddExperience(CharacterName(conn), conn.Experience,
                 // An older area may have stale pools. Scale against the shared ledger's current level, not that copy.
-                xp => Progression.AddExperience(xp, ruthless is null ? gain : RuthlessRules.Scale(gain,
-                    ruthless.ExperienceMultiplier(Progression.LevelFor(xp, CharacterStats.LevelStarts))), CharacterStats.LevelStarts));
+                xp => Progression.AddExperience(xp, LeagueRules.Scale(gain,
+                    rules.ExperienceMultiplier(Progression.LevelFor(xp, CharacterStats.LevelStarts))), CharacterStats.LevelStarts));
             if (after == before) return null;
             bool levelChanged = Progression.LevelFor(after, CharacterStats.LevelStarts) != conn.Pools.Level;
             if (levelChanged) CharacterSaves.SaveExperience(CharacterName(conn));

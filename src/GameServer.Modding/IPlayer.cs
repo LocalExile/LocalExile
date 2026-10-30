@@ -21,6 +21,9 @@ public interface IPlayer
     /// <summary>Ruthless.</summary>
     bool Ruthless { get; }
 
+    /// <summary>The league module this connection plays by (<see cref="ILeague.Id"/>), "standard" when none.</summary>
+    string LeagueId { get; }
+
     /// <summary>The character's level.</summary>
     int Level { get; }
 

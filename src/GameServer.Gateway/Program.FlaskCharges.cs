@@ -97,13 +97,14 @@ partial class Program
 
     internal static bool CanGainFlaskCharges(ClientState conn, InventoryItem flask)
     {
-        if (!conn.Ruthless || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
+        var rules = LeagueFor(conn).Rules;
+        if (rules.UtilityFlaskChargesWhileActive || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
             || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
         var active = conn.UtilityFlaskEffects.Of(flask.Id);
         bool running = active is not null && active.Ends > conn.Clock.Elapsed.TotalSeconds;
         bool exception = Stats.Key("hard_mode_utility_flask_gain_charges_while_active") is uint key
             && CharacterPlayerStats(conn).GetValueOrDefault(key) > 0;
-        return RuthlessGameplay.CanGainUtilityCharges(conn.Ruthless, running, exception);
+        return LeagueGameplay.CanGainUtilityCharges(!rules.UtilityFlaskChargesWhileActive, running, exception);
     }
 
     // A kill: 1 / 3.5 / 6 / 11 charges to every flask by the monster's rarity (FlaskCharges.KillCharges), or with

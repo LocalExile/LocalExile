@@ -73,6 +73,12 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         _watcher.EnableRaisingEvents = true;
     }
 
+    /// <summary>Whether a mod of this id is loaded.</summary>
+    public bool IsLoaded(string id)
+    {
+        lock (_gate) return _loaded.ContainsKey(id);
+    }
+
     public void Dispose()
     {
         _watcher?.Dispose();
@@ -413,6 +419,8 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         ImmutableInterlocked.Update(ref _commands, c => c.RemoveRange(c.Where(e => e.Value.Mod == mod).Select(e => e.Key)));
         _ticks.Remove(mod); _packets.Remove(mod); _areas.Remove(mod); _kills.Remove(mod);
         _drops.Remove(mod); _experience.Remove(mod); _stats.Remove(mod);
+        foreach (var league in mod.Leagues) ServerLeagues.Remove(league);
+        mod.Leagues.Clear();
     }
 
     void Fail(string id, string error)
@@ -497,6 +505,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         public string Folder { get; } = folder;
         public ModLoadContext Context { get; } = context;
         public List<IMod> Entries { get; } = [];
+        public List<ILeague> Leagues { get; } = [];
         /// <summary>The compiled scripts, for the scripts of the mods that depend on this one.</summary>
         public byte[]? ScriptImage;
         public int Hooks;
@@ -522,6 +531,26 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     {
         Action? _remove = remove;
         public void Dispose() => Interlocked.Exchange(ref _remove, null)?.Invoke();
+    }
+
+    // What a league's Load gets: the mod's context, with hooks that run only for that league's players.
+    sealed class LeagueScope(IModContext mod, string id) : IModContext
+    {
+        bool Mine(IPlayer player) => player.LeagueId.Equals(id, StringComparison.OrdinalIgnoreCase);
+        public ModManifest Manifest => mod.Manifest;
+        public string Folder => mod.Folder;
+        public void Log(string message) => mod.Log(message);
+        public IDisposable OnChatCommand(string name, string usage, Func<ChatCommand, Task> run) =>
+            mod.OnChatCommand(name, usage, c => Mine(c.Player) ? run(c) : c.Player.Tell($"/{c.Name} is only for the league {id}."));
+        public IDisposable OnTick(Func<IPlayer, double, Task> tick) => mod.OnTick((p, s) => Mine(p) ? tick(p, s) : Task.CompletedTask);
+        public IDisposable OnPacket(ushort opcode, Func<Packet, Task<bool>> handle) =>
+            mod.OnPacket(opcode, p => Mine(p.Player) ? handle(p) : Task.FromResult(false));
+        public IDisposable OnAreaGenerated(Func<IPlayer, Task> generated) => mod.OnAreaGenerated(p => Mine(p) ? generated(p) : Task.CompletedTask);
+        public IDisposable OnMonsterKilled(Func<MonsterKill, Task> killed) => mod.OnMonsterKilled(k => Mine(k.Player) ? killed(k) : Task.CompletedTask);
+        public IDisposable ModifyDrops(Action<DropRoll> modify) => mod.ModifyDrops(d => { if (Mine(d.Player)) modify(d); });
+        public IDisposable ModifyExperience(Action<ExperienceGain> modify) => mod.ModifyExperience(e => { if (Mine(e.Player)) modify(e); });
+        public IDisposable ModifyStats(Action<StatSheet> modify) => mod.ModifyStats(s => { if (Mine(s.Player)) modify(s); });
+        public IDisposable AddLeague(ILeague league) => mod.AddLeague(league);
     }
 
     // What a mod's Load gets. It refuses new hooks once its mod is unloaded (a task the mod left running).
@@ -562,5 +591,14 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         public IDisposable ModifyDrops(Action<DropRoll> modify) => Add(host._drops, modify);
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => Add(host._experience, modify);
         public IDisposable ModifyStats(Action<StatSheet> modify) => Add(host._stats, modify);
+
+        public IDisposable AddLeague(ILeague league)
+        {
+            if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
+            if (!ServerLeagues.Add(league)) throw new InvalidOperationException($"a league module already has {league.ClientLeagueName} or the id {league.Id}");
+            mod.Leagues.Add(league);
+            league.Load(new LeagueScope(this, league.Id));
+            return new Handle(() => { mod.Leagues.Remove(league); ServerLeagues.Remove(league); });
+        }
     }
 }

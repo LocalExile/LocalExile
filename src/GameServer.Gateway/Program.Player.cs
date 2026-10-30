@@ -536,7 +536,7 @@ partial class Program
                     ratesAt = double.NegativeInfinity;
                     continue;
                 }
-                if (conn.Ruthless && now >= nextVitalsSave)
+                if (LeagueFor(conn).Rules.PersistsVitals && now >= nextVitalsSave)
                 {
                     PersistRuthlessVitals(conn, bestEffort: true);
                     nextVitalsSave = now + 5;

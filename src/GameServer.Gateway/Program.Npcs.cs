@@ -48,7 +48,7 @@ partial class Program
         Console.WriteLine($"[gateway] {remote} <= 0x0024 npc {npc.Npc} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
-        if (conn.Ruthless && CanRefillRuthless(npc.Npc.Id))
+        if (LeagueFor(conn).Rules.VendorsRefillVitals && CanRefillRuthless(npc.Npc.Id))
         {
             lock (conn.Monsters)
             {
@@ -132,9 +132,9 @@ partial class Program
                     talk.OpensGuildHideouts ? 1u : 0u), $"0x007b open hideout selection ({(talk.OpensGuildHideouts ? "guild" : "character")})");
                 break;
             case "QuestReward" when talk.RewardOffer is { } offer:
-                var rewardCatalog = QuestRewardCatalog.Load(ruthless: conn.Ruthless);
+                var rewardCatalog = QuestRewardCatalog.Load(ruthless: LeagueFor(conn).HardMode);
                 var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
-                    .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), conn.Ruthless ? RollsFor(conn) : null)))
+                    .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), LeagueFor(conn).HardMode ? RollsFor(conn) : null)))
                     .Where(c => c.Item is not null).ToArray();
                 if (rewardCatalog.Find(offer) is not { } rewardOffer || conn.QuestFlags.Contains(rewardOffer.TakenFlag)
                     || rewardItems.Length == 0) break;
@@ -289,7 +289,7 @@ partial class Program
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(conn.TalkingTo);
         if (npc is null || !Npcs.Value.HasAvailableReward(npc.Npc, offer, Quests.Names(PlayerQuestFlags(conn)))) return;
-        var catalog = QuestRewardCatalog.Load(ruthless: conn.Ruthless);
+        var catalog = QuestRewardCatalog.Load(ruthless: LeagueFor(conn).HardMode);
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(conn);
         var claimed = QuestRewardCatalog.Claim(CharacterName(conn), data.TakenFlag, items, reward, ShapeOf);
@@ -425,7 +425,7 @@ partial class Program
         sale.QuoteError = null;
         VendorRecipes.Quote quote;
         try { quote = VendorSales.Value.Evaluate(offered,
-            ruthlessRewardMultiplier: conn.Ruthless ? RuthlessSettings.Current.VendorRewardMultiplier : null); }
+            ruthlessRewardMultiplier: LeagueFor(conn).Rules.VendorRewardMultiplier); }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
         {
             sale.QuoteError = ex.Message;
@@ -565,14 +565,14 @@ partial class Program
         // with the complete creatable assortment, including variants in ordinary mode; other vendors retain normal progression.
         var catalog = ItemsFor(conn);
         var gemVendor = GemVendorStock.Sells(npc.Npc.Id)
-            ? new GemVendorStock(catalog, QuestRewardCatalog.Load(ruthless: conn.Ruthless), Npcs.Value, SkillsFor(conn))
+            ? new GemVendorStock(catalog, QuestRewardCatalog.Load(ruthless: LeagueFor(conn).HardMode), Npcs.Value, SkillsFor(conn))
             : null;
-        var gemStock = gemVendor?.Stock(npc.Npc.Id, conn.ClassRow, conn.QuestFlagsSnapshot(), conn.Ruthless, conn.Pools.Level);
+        var gemStock = gemVendor?.Stock(npc.Npc.Id, conn.ClassRow, conn.QuestFlagsSnapshot(), LeagueFor(conn).HardMode, conn.Pools.Level, LeagueFor(conn).Rules);
         var tabs = NpcShops.Tabs(npc.Npc.Id, catalog, items.NewItemId, notes, gemStock: gemStock,
-            gemPrice: gemVendor is null ? null : gemVendor.Price, ruthless: conn.Ruthless,
-            fullGemStock: !conn.Ruthless && npc.Npc.Id.Equals("Metadata/NPC/Act1/Nessa", StringComparison.OrdinalIgnoreCase));
+            gemPrice: gemVendor is null ? null : gemVendor.Price, ruthless: LeagueFor(conn).HardMode,
+            fullGemStock: !LeagueFor(conn).HardMode && npc.Npc.Id.Equals("Metadata/NPC/Act1/Nessa", StringComparison.OrdinalIgnoreCase));
         var shopSource = Npcs.Value.TalkSource(npc.Npc);
-        int shopRow = conn.Ruthless ? shopSource.RuthlessShopRow : shopSource.ShopRow;
+        int shopRow = LeagueFor(conn).HardMode ? shopSource.RuthlessShopRow : shopSource.ShopRow;
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} shop {npc.Npc.Name}: {n}");
         // One manager-1 inventory per tab (S→C 0xc0), then 0x8c lists them with their names.
         var ids = tabs.Select((_, i) => NpcShops.FirstTabId + (uint)i).ToList();

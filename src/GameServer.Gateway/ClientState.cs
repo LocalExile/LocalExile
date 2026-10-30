@@ -178,6 +178,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool Hardcore { get; init; }
     public bool Ssf { get; init; }
     public bool Ruthless { get; init; }
+    /// <summary>The league this connection plays by (Program.LeagueFor); Ruthless above says what the character is.</summary>
+    internal LeagueRuntime? LeagueModule;
     public double RuthlessGemExperienceCarry;
     public bool RuthlessDeathHandled;
     public bool HardcoreDeathRecorded;

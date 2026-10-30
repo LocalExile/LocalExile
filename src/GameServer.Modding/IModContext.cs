@@ -50,4 +50,8 @@ public interface IModContext
     /// <summary>Stats added to the character's own (beside the passives' and auras'), by stat id
     /// (<c>Stats.dat</c>, as /set_stat takes them). Asked again whenever the server rebuilds the character's stats.</summary>
     IDisposable ModifyStats(Action<StatSheet> modify);
+
+    /// <summary>A league (<see cref="ILeague"/>): its characters play by its rules while this mod is loaded. Its client name
+    /// and id must be free.</summary>
+    IDisposable AddLeague(ILeague league);
 }

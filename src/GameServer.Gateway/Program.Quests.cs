@@ -163,7 +163,7 @@ partial class Program
 
     static async Task TrySpawnTutorialChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (conn.Ruthless) return;
+        if (!LeagueFor(conn).Rules.TutorialGifts) return;
         try
         {
             for (int retry=0; retry<20 && !conn.Closed; retry++)
@@ -231,7 +231,7 @@ partial class Program
 
     static async Task DropTutorialGem(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,bool support,int x,int y)
     {
-        if (conn.Ruthless && support) return;
+        if (!LeagueFor(conn).Rules.TutorialGifts && support) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial || (support ? tutorial.SupportClaimed : tutorial.SkillClaimed)) return;
         var item=CharacterSaves.FromSaved(support?tutorial.SupportGem:tutorial.SkillGem,Items);
         var ground=new WorldItemObject(x,y,item);
@@ -243,7 +243,7 @@ partial class Program
 
     static async Task OpenTutorialChest(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
     {
-        if (conn.Ruthless) return;
+        if (!LeagueFor(conn).Rules.TutorialGifts) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return;
         if (!TryBeginObjectWalk(conn, requestedAt, chest.X, chest.Y, 1, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;

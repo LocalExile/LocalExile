@@ -54,6 +54,7 @@ partial class Program
         public bool Hardcore => conn.Hardcore;
         public bool SoloSelfFound => conn.Ssf;
         public bool Ruthless => conn.Ruthless;
+        public string LeagueId => LeagueFor(conn).Id;
         public int Level => conn.Pools.Level;
         public string AreaId => conn.Layout.Id;
         public uint Seed => conn.Seed;

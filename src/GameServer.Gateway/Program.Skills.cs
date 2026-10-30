@@ -756,8 +756,8 @@ partial class Program
     static string? GemRequirementsUnmetAt(ClientState conn, Item? gem, GemRequirementSnapshot? snapshot)
     {
         if (gem is null || ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
-        if (conn.Ruthless && !RuthlessGemRules.AllowsBase(baseType.Id))
-            return $"{baseType.Name} is unavailable in Ruthless";
+        if (!LeagueFor(conn).Rules.AllowsGemBase(baseType.Id))
+            return $"{baseType.Name} is unavailable in {LeagueFor(conn).Name}";
         int level = ItemsFor(conn).GemLevel(gem);
         int effect = type.Variant(gem.GemVariant).Effect;
         if (effect < 0) return null;
@@ -847,8 +847,8 @@ partial class Program
     {
         if (ActorSkillDisabled(conn, effect) is { } restriction) return restriction;
         if (WeaponRestricted(conn, effect) is { } weapon) return weapon;
-        if (conn.Ruthless && !RuthlessGemRules.AllowsEffect(SkillsFor(conn).EffectId(effect)))
-            return "This skill is unavailable in Ruthless";
+        if (!LeagueFor(conn).Rules.AllowsGemEffect(SkillsFor(conn).EffectId(effect)))
+            return $"This skill is unavailable in {LeagueFor(conn).Name}";
         foreach (var place in PlayerInventories.For(CharacterName(conn), ItemsFor(conn)).SocketedGemPlaces())
             if (ItemsFor(conn).GemEffects(place.Gem).Contains(effect) && GemRequirementsUnmet(conn, place.Gem) is { } missing)
                 return missing;
@@ -899,17 +899,17 @@ partial class Program
     {
         string name = CharacterName(conn);
         return GemSkillEffectsAt(name, ItemsOf(conn).SocketedGemPlaces(),
-            InactiveItems.GetValueOrDefault(name), conn.Ruthless);
+            InactiveItems.GetValueOrDefault(name), LeagueFor(conn));
     }
 
     static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffectsAt(
         string? character, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places, IReadOnlySet<uint>? inactive,
-        bool ruthless)
+        LeagueRuntime league)
     {
-        var catalog = ruthless ? RuthlessItems.Value : Items;
+        var catalog = league.HardMode ? RuthlessItems.Value : Items;
         string name = string.IsNullOrEmpty(character) ? "Exile" : character;
         var gems = places
-            .Where(g => !ruthless || catalog.ByHash(g.Gem.TypeHash) is { } type && RuthlessGemRules.AllowsBase(type.Id))
+            .Where(g => catalog.ByHash(g.Gem.TypeHash) is not { } type ? !league.HardMode : league.Rules.AllowsGemBase(type.Id))
             .SelectMany(g => catalog.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
             .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect))], GemSkillIdPool.Value);

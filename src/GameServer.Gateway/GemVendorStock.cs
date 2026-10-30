@@ -42,7 +42,7 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
 
     /// <summary>The NPC's gem stock at character level/quest state: BaseItemTypes rows, in row order. Empty before the
     /// character has completed a quest that offers gems (or when Lilly/Siosa's own unlock is missing).</summary>
-    public IReadOnlyList<int> Stock(string npcId, int classRow, IReadOnlySet<string> flags, bool ruthless = false, int level = 100)
+    public IReadOnlyList<int> Stock(string npcId, int classRow, IReadOnlySet<string> flags, bool ruthless = false, int level = 100, LeagueRules? rules = null)
     {
         bool lilly = npcId.EndsWith("/Lilly", StringComparison.OrdinalIgnoreCase)
             || npcId.EndsWith("/Lilly2", StringComparison.OrdinalIgnoreCase);
@@ -51,7 +51,7 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
         // Siosa exchanges an Uncarved Gemstone for an active gem. Other Ruthless vendors sell no gems.
         if (ruthless)
             return !siosa ? [] : [.. sellable.Intersect(RuthlessGemRows(folder)).Where(row => items.Row(row) is { } type
-                && RuthlessGemRules.AllowsBase(type.Id)
+                && rules?.AllowsGemBase(type.Id) != false
                 && items.Gem(type) is { IsSupport: false, Variants.Count: > 0 } gem
                 && skills.PlayerLevelReq(gem.Variant(0).Effect, 1) <= level).Order()];
         bool ignoreClass = lilly || siosa;

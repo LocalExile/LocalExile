@@ -23,7 +23,7 @@ partial class Program
     static async Task OpenCraftingBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (conn.Ruthless) return;
+        if (!LeagueFor(conn).Rules.CraftingBench) return;
         if (!TryBeginObjectWalk(conn, requestedAt, conn.CraftingBenchAt.X, conn.CraftingBenchAt.Y, conn.StationaryInteractionSize(conn.CraftingBenchObject), out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 crafting bench ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
@@ -39,7 +39,7 @@ partial class Program
 
     static async Task MoveToBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint ItemId, bool IntoBench) request)
     {
-        if (conn.Ruthless || !conn.BenchOpen) return;
+        if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen) return;
         var items = ItemsOf(conn);
         if (ItemMoves.MoveToBench(items, request.ItemId, request.IntoBench, ShapeOf) is not { } move)
         {
@@ -54,7 +54,7 @@ partial class Program
 
     static async Task CraftBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Recipe, bool Bound) request)
     {
-        if (conn.Ruthless || !conn.BenchOpen || HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
+        if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen || HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
         var items = ItemsOf(conn);
         var stash = PersonalStashOf(conn);
         var result = ItemMoves.CraftAtBench(items, stash, Bench, request.Recipe, Random.Shared);
@@ -82,7 +82,7 @@ partial class Program
 
     static async Task RefreshBenchBalance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool clear = false)
     {
-        clear |= conn.Ruthless;
+        clear |= !LeagueFor(conn).Rules.CraftingBench;
         if (clear && !conn.BenchBalanceSent) return;
         IReadOnlyList<InventoryItem> snapshot = clear ? [] : Saves.Atomically(() => BenchBalance.Snapshot(PersonalStashOf(conn), Items, Bench));
         byte[] packet;

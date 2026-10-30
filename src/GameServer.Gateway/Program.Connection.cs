@@ -44,7 +44,7 @@ partial class Program
         level = LoadProgress(conn, level);
         NormalizePassiveJewels(conn);
         // Towns and hideouts refill the flasks, before the inventories go to the client.
-        if (!conn.Ruthless && (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
+        if (LeagueFor(conn).Rules.TownRefillsFlasks && (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
             && FillFlasks(startItems, int.MaxValue, catalog: ItemsFor(conn)).Count > 0)
             Console.WriteLine($"[gateway] {remote} flasks refilled in town");
         // A sale still open when the last connection ended (a disconnect, a crash) ended as a cancel: every offered

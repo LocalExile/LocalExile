@@ -55,7 +55,7 @@ partial class Program
             await RegisterStationaryCollision(remote, stream, ciphers, conn, guild, StashObject.GuildMetadataPath, gx, gy, guildRotation,
                 scene is not null ? "guild-stash" : null);
         }
-        if (!conn.Ruthless && scene?.Bench is { } bench
+        if (LeagueFor(conn).Rules.CraftingBench && scene?.Bench is { } bench
             && HideoutCatalog.TypeOf(bench.Type!) is var (components, states)
             && HideoutObject.CanSerialize(components))
         {

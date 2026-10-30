@@ -16,7 +16,7 @@ using GameServer.Core.Protocol.Instance;
 ///    unidentified, at the monster's level plus <see cref="ItemLevelBonus"/>.
 /// </summary>
 sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool ruthless = false, AtlasCatalog? maps = null,
-    UniqueCatalog? uniques = null)
+    UniqueCatalog? uniques = null, LeagueRules? league = null)
 {
     /// <summary>A dropped piece of equipment's chances by the monster's rarity, each of what the earlier ones left: first
     /// unique, then rare, then magic.</summary>
@@ -91,7 +91,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     sealed record Pools(List<(ItemCatalog.BaseType Type, double Weight)> Currency,
         Dictionary<string, List<ItemCatalog.BaseType>> Equipment, List<ItemCatalog.BaseType> Flasks, List<ItemCatalog.BaseType> Gems);
 
-    private readonly Lazy<Pools> _pools = new(() => Build(catalog, folder, ruthless));
+    private readonly Lazy<Pools> _pools = new(() => Build(catalog, folder, ruthless, league));
 
     // The uniques by base type Id, for the catalogue they were built from (the database may replace it while running).
     sealed record UniqueIndex(IReadOnlyList<UniqueCatalog.Definition> From, Dictionary<string, List<UniqueCatalog.Definition>> ByBase);
@@ -283,7 +283,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         return weighted[^1].Value;
     }
 
-    private static Pools Build(ItemCatalog catalog, string folder, bool ruthless)
+    private static Pools Build(ItemCatalog catalog, string folder, bool ruthless, LeagueRules? league)
     {
         var currency = new List<(ItemCatalog.BaseType, double)>();
         foreach (var (id, weight) in Currency)
@@ -304,7 +304,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         var pool = GemSources.DropPool(catalog, folder);
         var gems = new List<ItemCatalog.BaseType>();
         foreach (int row in pool)
-            if (catalog.Row(row) is { DropLevel: >= 1 } type && (!ruthless || RuthlessGemRules.AllowsBase(type.Id)))
+            if (catalog.Row(row) is { DropLevel: >= 1 } type && (!ruthless || league?.AllowsGemBase(type.Id) != false))
                 gems.Add(type);
         return new(currency, equipment, flasks, gems);
     }

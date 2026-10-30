@@ -142,14 +142,14 @@ partial class Program
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
         if (Environment.GetEnvironmentVariable("Game_DROPS") != "0")
         {
-            var balance = conn.Ruthless ? RuthlessSettings.Current : null;
+            var balance = LeagueFor(conn).Rules;
             var modded = ServerMods.Drops(killer, modMonster);
             List<ItemDrops.Drop> drops = [];
             if (modded is not { Cancel: true })
             {
                 drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
-                    (balance?.ItemDropMultiplier ?? 1) * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), (balance?.EquipmentRarityMultiplier ?? 1) * (modded?.Rarity ?? 1)));
-                if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, (balance?.GoldMultiplier ?? 1) * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
+                    balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             }
             foreach (string query in modded?.Items ?? [])
                 if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);

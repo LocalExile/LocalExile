@@ -12,7 +12,7 @@ partial class Program
     // once per row: CharacterPlayerStats asks on every hit, and resolving a stat set each time would cost a crowd's hits.
     static readonly ConcurrentDictionary<(bool Ruthless, int Effect), bool> BloodChargeEffects = new();
 
-    static bool UsesBloodCharges(ClientState conn, int effect) => BloodChargeEffects.GetOrAdd((conn.Ruthless, effect),
+    static bool UsesBloodCharges(ClientState conn, int effect) => BloodChargeEffects.GetOrAdd((LeagueFor(conn).HardMode, effect),
         key => BloodCharges.Uses(name => Stats.Key(name) is uint k
             ? SkillsFor(conn).EffectStats(key.Effect, 1).Where(s => s.Item1 == k).Select(s => s.Item2).FirstOrDefault() : 0));
 
