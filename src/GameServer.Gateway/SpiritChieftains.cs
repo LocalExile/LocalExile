@@ -113,14 +113,15 @@ partial class Program
 
     /// <summary>
     /// After a Unique monster's hit on the living player, under the Monsters lock: blocking it triggers Spirit of Kiloava,
-    /// taking it as a critical strike Spirit of Kahuturoa, and taking it as a Savage Hit (it removed at least 15% of
-    /// maximum Life; Energy Shield, Ward and Mana do not count, wiki Savage hit) Spirit of Utula. True when one triggered.
+    /// taking it as a critical strike Spirit of Kahuturoa, blocked or not (wiki Blocking: a block does not prevent the
+    /// defender's when-hit effects), and taking it as a Savage Hit (it removed at least 15% of maximum Life; Energy
+    /// Shield, Ward and Mana do not count, wiki Savage hit) Spirit of Utula. True when one triggered.
     /// </summary>
     internal static bool SpiritChieftainsWhenHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats, bool blocked,
         bool critical, long lifeLost)
     {
         if (conn.PlayerLife == 0) return false;
-        if (blocked) return TriggerSpiritChieftainLocked(conn, BlockFromUniqueTrigger, stats);
+        if (blocked && TriggerSpiritChieftainLocked(conn, BlockFromUniqueTrigger, stats)) return true;
         return critical && TriggerSpiritChieftainLocked(conn, CritByUniqueTrigger, stats)
             || lifeLost * 100 >= (long)conn.PlayerMaxLife * 15 && TriggerSpiritChieftainLocked(conn, SavageHitFromUniqueTrigger, stats);
     }

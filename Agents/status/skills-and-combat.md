@@ -188,9 +188,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   monster.
   Iron Reflexes converts all evasion to armour and drops dexterity's evasion bonus.
   `damage_reduction_rating_from_body_armour_doubled` doubles the body armour's armour (and, with Iron Reflexes, its
-  converted evasion) before the increases.
+  converted evasion) before the increases; Gateway coverage, not yet checked with the real client.
   `missing_unreserved_life_%_gained_as_life_before_hit` gains that share of missing Life before every non-evaded
-  monster swing and dev hit, blocked ones included (Life reservation is not modelled).
+  monster swing and dev hit, blocked ones included (Life reservation is not modelled); Gateway coverage, not yet
+  checked with the real client.
   Chaos Inoculation sets maximum life to 1 (after the life modifiers) and grants chaos immunity in the damage model
   and the panel's Immune row; energy shield remains the pool. The pre-CI life used for stun/ailment thresholds and the
   low-life condition are not modelled.
@@ -239,7 +240,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   applied on login, level, passive and area changes; `/set_speed` adds its percentage on top;
   only unconditional passive increases are modelled (no action speed, more multipliers, gear/buff movement or the 128
   cap yet).
-  `movement_speed_cannot_be_reduced_below_base` bounds the total below by 0, as the client does from the same flag.
+  `movement_speed_cannot_be_reduced_below_base` bounds the total below by 0, as the client does from the same flag;
+  Gateway coverage, not yet checked with the real client.
   Code: `CharacterStats.cs`, Gateway (`ApplyMovementSpeed`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
@@ -374,10 +376,14 @@ and can require explicit recipes.
   client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
   corpse and quest chests opening (Deathrattle).
   The explosion takes the player's global damage increases and conversion.
+  Warcries (every class's Enduring Cry) now use the generic one-use cooldown, with `warcry_cooldown_speed_+%` added to
+  its recovery as the client adds it; the live cooldown checks under "Instant skills and cooldowns" ran before
+  warcries took that path.
   Gateway coverage; not yet checked with the real client.
-  Flat added damage, on-hit effects, art and the client's 0.22 s wave delay are not modelled.
-  Code: `Program.Warcries.cs`, `UseChargeSkillCore`.
-  Docs: [11](../docs/protocol/11-skills.md) section 10c.
+  Global flat added damage and flat crit chance (the wiki's Explode page applies both), on-hit effects, art and the
+  client's 0.22 s wave delay are not modelled.
+  Code: `Program.Warcries.cs`, `UseChargeSkillCore`, `SingleUseCooldown.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10i.
 - Strike targeting: a melee Strike's spirit strikes (`melee_attack_number_of_spirit_strikes`) hit the monsters the
   client picks, mirrored from its scan and its seeded shuffle, for gem Strikes and the default attack.
   With `melee_strike_skill_strike_previous_location` a Strike also hits where its previous use landed, and the
@@ -385,6 +391,9 @@ and can require explicit recipes.
   strikes the previous location itself.
   Gateway coverage; not yet checked with the real client.
   Not mirrored: the client's line-of-sight test and its choice among more than 20 candidates.
+  Not for the Strike gems that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike, Wild Strike):
+  the server launches only their projectiles and has no melee hit for them, so the spirit strikes the client draws
+  for them deal no damage.
   Code: `StrikeTargets.cs`, `Program.Strikes.cs`.
   Docs: [11](../docs/protocol/11-skills.md) section 10d.
 - Passive enemy auras: a passive's BuffTemplates enemy aura puts its buff on hostile monsters in its radius, and its
@@ -397,6 +406,8 @@ and can require explicit recipes.
   Hit or blocked hit, spend their shared 20 s cooldown and give the chieftain's Leadership buff for 12 s, during which
   that cooldown does not recover; death ends the buff.
   Kahuturoa's share of armour against elemental and chaos hits and Kiloava's Life, Mana and ES on block act.
+  Server monsters have no base critical strike chance, so Kahuturoa's crit trigger fires only on a Unique with a
+  forced always-crit mod (`/mob_mods`), never in normal play.
   The chieftain rises beside the player as his minion and fights the monsters near him until the buff ends.
   Gateway coverage; not yet checked with the real client.
   Not modelled: the chieftain's skills past its first, the skills' records (the client shows only the buff), Utula's
@@ -474,8 +485,8 @@ and can require explicit recipes.
   `skill_is_instant`, so the client sends them as C→S 0x191 and keeps walking;
   the server applies them and answers S→C 0x1ce, which starts the skill bar's cooldown.
   Skill records retain GEPL Cooldown as the native base and carry the cooldown count.
-  Ordinary one-use spells, attacks and warcries now resolve player and skill generic recovery once (warcries add
-  `warcry_cooldown_speed_+%`), and the server keeps remaining base-time budget through stat changes and pause.
+  Ordinary one-use spells/attacks now resolve player and skill generic recovery once, and the server keeps remaining
+  base-time budget through stat changes and pause.
   Preflight reserves before action/movement/echo side effects; queued effects retain the original action/area ticket.
   Real-client Dash initial +100%/-50% recovery, early raw rejection without movement/echo/mana, and pause checks pass.
   The native positive-rate cache required an explicit cooldown-state refresh after skill-stat changes;
@@ -738,7 +749,8 @@ and can require explicit recipes.
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
-  `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze.
+  `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze (Gateway coverage,
+  not yet checked with the real client).
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
   Alternative ailments and hostile spell/projectile adapters remain unimplemented.
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.

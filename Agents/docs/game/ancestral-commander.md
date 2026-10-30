@@ -2,9 +2,12 @@
 
 Ancestral Commander is the Marauder's Phrecia Juggernaut identity (`Juggernaut`, 3.29.3b), start node 17765.
 No node grants passive points.
-The defensive, warcry, strike, enemy-aura, Spirit and totem nodes have server consumers with Gateway coverage
-(Deathrattle, four Spirits and Forest of Ancestors only partly: the chieftain minion is not summoned, and only
-Rejuvenation Totem places a totem); Spirit of Rakiata is still open, as the checklist says.
+Every node but Spirit of Rakiata has a server consumer with Gateway coverage.
+Deathrattle, Ancestral Reach, Ancestral Echo, four Spirits and Forest of Ancestors are partial: the Strike gems that
+are also Projectile skills get neither strike node, the chieftains fight with their first skill only, Kahuturoa's
+trigger needs a Unique that crits (server monsters crit only through a forced mod), only Rejuvenation Totem places a
+totem, and monsters do not attack totems.
+Spirit of Rakiata is open, as the checklist says.
 Native acceptance is open: it needs the reviewed combined graph installed (see Admission below).
 
 ## Node checklist
@@ -26,15 +29,15 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 37852 Toughened Skin | Action and Movement Speed cannot be modified to below base; Armour from equipped Body Armour is doubled | Ailment action floor, pool movement floor, body armour defences. |
 | 848 Ancestral Defiance | Gain 10% of missing unreserved Life before being Hit by an Enemy | Monster swings and dev enemy hits. |
 | 47491 Ancestral Spirit | Choice of one Spirit (no stats of its own) | Paid choice parent; its options are free choice effects with a paid refund. |
-| 59500 Spirit of Kahuturoa | Trigger level 20 Summon Spirit of Kahuturoa when you take a Critical Strike from a Unique | Partial: the trigger, the shared cooldown, Kahuturoa's Leadership (10% of Armour against elemental and chaos hits) and the chieftain fighting beside the player, with its first skill only. See below. |
+| 59500 Spirit of Kahuturoa | Trigger level 20 Summon Spirit of Kahuturoa when you take a Critical Strike from a Unique | Partial: the trigger, the shared cooldown, Kahuturoa's Leadership (10% of Armour against elemental and chaos hits) and the chieftain fighting beside the player, with its first skill only. Server monsters have no base critical strike chance, so a Unique crits only with a forced `always_crit` mod (`/mob_mods`); in normal play the trigger never fires. See below. |
 | 17511 Spirit of Utula | Trigger on taking a Savage Hit from a Unique | Partial: the trigger, cooldown, Utula's Leadership buff and its fighting chieftain (first skill only); its 50% instant leech has nothing to act on (no leech). |
 | 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Partial: the trigger, cooldown, Kiloava's Leadership (5% of Life, Mana and Energy Shield on block) and its fighting chieftain (first skill only). |
 | 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: the server has no Mark curses, so nothing can trigger it; its Leadership and chieftain rows are read and checked. |
-| 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Partial: the trigger, the shared cooldown, Kaom's Leadership (25% more of hits from the nearest totem) and its fighting chieftain (first skill only). See below. |
+| 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Partial: the trigger, the shared cooldown, Kaom's Leadership (25% of each hit taken from the nearest totem, 45% with Forest of Ancestors) and its fighting chieftain (first skill only). See below. |
 | 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
 | 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: Enduring Cry's release explodes the server's corpses, with the player's global damage and conversion, and opens quest chests; see below. |
-| 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Spirit strikes of gem Strikes and the default attack, picked as the client picks them; see below. |
-| 61282 Ancestral Echo | Strikes also target the previous location they were used | Partial: the server strikes the previous location and sends `skill_location_memory` with the first use's entry, from which the client strikes there itself; the target rules at the old place are the server's own, and the client's strike needs a live check. |
+| 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Partial: spirit strikes of melee gem Strikes and the default attack, picked as the client picks them; not for the Strikes that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike, Wild Strike), which the client draws but the server does not hit. See below. |
+| 61282 Ancestral Echo | Strikes also target the previous location they were used | Partial: the server strikes the previous location and sends `skill_location_memory` with the first use's entry, from which the client strikes there itself; the target rules at the old place are the server's own, the client's strike needs a live check, and the Projectile Strikes get nothing (no melee hit on the server). |
 | 32105 Born under Fire | Nearby Enemies convert 50% of their Physical Damage to Fire | Monster hits within 60 cells convert, and the aura's buff goes on those monsters. |
 | 16317 Forest of Ancestors | 20% of Damage from Hits is taken from your nearest Totem's Life before you; +1 maximum Totem | Monster and `/hit` hits, and the limit, for every totem the server places (only Rejuvenation Totem places one so far). See below. |
 
@@ -92,16 +95,18 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   Only Enduring Cry has an executor, so only it explodes corpses and opens chests so far.
   - Corpses: a monster killed in this area visit, at zero Life, whose Life type allows corpse use and that no
     explosion has consumed (`SpawnedMonster.CorpseConsumed`).
-    Each explodes once, is removed (S→C 0x2bb) and hits every living hostile monster within 22 cells of it (PoB's
+    Each explodes once, is removed (S→C 0x2bb, and from the server's monster list, so a projectile kill's later
+    removal does not send it again) and hits every living hostile monster within 22 cells of it (PoB's
     `EnemyExplode` radius, grown by area of effect; the game's radius is unverified) for 12% of its maximum Life as
     physical damage.
     The hit takes the player's `damage_+%`, `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage
     (poewiki Explode: global stats apply, attack and spell ones do not), then his global physical conversion and
     gain as extra damage (`DamageStats.Conversion` without the attack- and spell-only lines; increases apply first,
     as in every server hit), then the monster's mitigation.
-    It is neither an attack nor a spell, so it is not blocked or evaded and it does not crit (0% base).
+    It is neither an attack nor a spell, so it is not blocked or evaded, and its base critical strike chance is 0%.
     Kills give experience, loot and quest progress through `MonsterKilled`.
-    Not modelled: flat added damage (whether any applies to the explosion is unverified), on-hit effects and ailments,
+    Not modelled: global flat added damage and flat critical strike chance, which the wiki's Explode page says apply to
+    non-skill explosions (so on the server it never crits), on-hit effects and ailments,
     the explosion art, the client's wave delay (distance / radius × 0.22 s in `0x141abd490`; the wave list's consumer
     was not found) and the other warcries (only Enduring Cry has an executor).
   - Chests: the Twilight Strand support gem chest (saved `Tutorial.ChestOpened` first, as when walked up to) and the
@@ -110,8 +115,11 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
     The wiki's Deathrattle page says warcries also open reward chests and strongboxes; that they open these quest
     chests is consistent with it but unverified.
 - Ancestral Reach: `melee_attack_number_of_spirit_strikes` 2 and `extra_target_targeting_distance_+%` 50.
-  Each non-Vaal melee Strike use (Heavy Strike and the other Strike gems, and the default attack) also hits 2 living
-  hostile monsters 10 to 45 cells from the player, other than its target.
+  Each non-Vaal melee Strike use (Heavy Strike and the other melee Strike gems, and the default attack) also hits 2
+  living hostile monsters 10 to 45 cells from the player, other than its target.
+  The Strike gems that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their
+  transfigured gems) are left out: the server runs them through the projectile runtime, which has no melee hit, so
+  neither node does anything for them, while the client still draws their two spirit strikes, which deal no damage.
   The server picks them as the client does: the candidates in id order, shuffled by the client's generator seeded with
   the use's sequence and the player's id ([11](../protocol/11-skills.md) section 10d).
   Each extra hit is a full hit of the skill; a use grants one Fortification and one Rage gain.
@@ -142,7 +150,11 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   78491 Kahuturoa, 78485 Utula, 78509 Kiloava, 78494 Rakiata, 78482 Kaom; `PassiveGrantedSkills.cs`), triggered
   from the node's `has_trigger_on_*` stat, which the level row's AdditionalFlags name too ([11](../protocol/11-skills.md) section 10f).
   After a Unique monster's hit on the living player (`MonsterSwing`; dev hits have no monster):
-  - Kahuturoa: the hit was a critical strike and was not blocked (an evaded hit never gets here).
+  - Kahuturoa: the hit was a critical strike, blocked or not (an evaded hit never gets here): the wiki's Blocking page
+    says a block does not prevent the defender's when-hit effects; that a blocked crit counts is unverified.
+    Server monsters have no base critical strike chance (`MonsterModEffects.CriticalChance` is only `always_crit`,
+    which no Unique's innate mods and no Unique's rolled affixes give, since Uniques roll none), so outside a dev-forced
+    mod Kahuturoa never triggers; it waits for monster critical strikes.
   - Utula: the hit was a Savage Hit, one that removed at least 15% of maximum Life; Energy Shield, Ward and Mana do
     not count (wiki Savage hit, Module:Keyword).
   - Kiloava: the hit was blocked.
@@ -225,7 +237,8 @@ a `/spawn_mob <variety> unique`: a hit taking 15% of maximum Life shows Utula's 
 for 32 s.
 Kiloava (`16639`) needs a shield: blocking the unique shows Kiloava's Leadership, and the next block raises Life,
 Mana and Energy Shield by 5% each.
-Kahuturoa (`59500`) needs a unique that crits (a monster mod such as Deadliness); its buff lowers the next fire hit.
+Kahuturoa (`59500`) needs a unique that crits, which on the server takes a forced mod (`/mob_mods` with an always-crit
+affix such as of Deadliness); its buff lowers the next fire hit.
 Each trigger raises the chieftain beside the player: check that it shows as an ally, walks with him, swings at the
 monsters near him, that its hits lower their Life bars, and that it dies when the buff ends.
 For the totem nodes, use `/add_passive 19258 47491 17140 28454 16317` with a Rejuvenation Totem gem at character

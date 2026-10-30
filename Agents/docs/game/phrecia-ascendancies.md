@@ -10,5 +10,5 @@ Keep unsupported engine behavior explicit and preserve ordinary/unascended play.
 [Gambler](gambler.md) records the full node checklist, supported incoming ailment path, verified opt-in prerequisites
 and remaining engine limits for this branch.
 [Ancestral Commander](ancestral-commander.md) records its checklist and admission.
-Its totem nodes and Spirit of Rakiata are still open; Deathrattle, Ancestral Echo and three Spirits are partial.
+Spirit of Rakiata is open; Deathrattle, Ancestral Reach and Echo, Forest of Ancestors and four Spirits are partial.
 Other classes require their own acceptance; this change makes no claim about their completion.

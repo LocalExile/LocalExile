@@ -195,6 +195,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             var bytes = character == game ? (await game.EnduringCry(cry, Opened)).Bytes : (await character.WarcryRelease(here, 60)).Bytes;
             Assert.Equal(works ? 880u : 1000u, beside.Life);
             Assert.Equal(works, corpse.CorpseConsumed);
+            lock (state.Monsters) Assert.Equal(!works, state.Monsters.ContainsKey(50)); // removed once, here and for the client
             Assert.Equal(works, Opened());
             if (character == game) Assert.True(state.Clock.Elapsed.TotalSeconds - usedAt >= .8 / 3);
             else Assert.Equal(works, bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(50)) >= 0);
@@ -446,11 +447,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
         var chaos = DamagePacket.Of(DamageType.Chaos, 100, 100);
         string armourShare = PlayerHitMitigation.ArmourPercentToElemental;
 
-        // Spirit of Kahuturoa: a Unique's critical strike, not a Rare's and not a Unique's ordinary hit.
+        // Spirit of Kahuturoa: a Unique's critical strike, not a Rare's and not a Unique's ordinary hit. A blocked one counts
+        // (wiki Blocking: a block does not prevent the defender's when-hit effects).
         await kahuturoa.SpiritHit(fire, MonsterRarity.Rare, critical: true);
-        await kahuturoa.SpiritHit(fire, MonsterRarity.Unique);
+        await kahuturoa.SpiritHit(fire, MonsterRarity.Unique, block: true);
         Assert.Equal(0, Stat(kahuturoa, armourShare));
-        var bytes = (await kahuturoa.SpiritHit(fire, MonsterRarity.Unique, critical: true)).Bytes;
+        var bytes = (await kahuturoa.SpiritHit(fire, MonsterRarity.Unique, critical: true, block: true)).Bytes;
         ushort buff = kahuturoa.State.SpiritChieftains.SentInstance;
         Assert.True(buff != 0);
         Assert.True(bytes.AsSpan().IndexOf(InstanceEntities.AddBuff(Program.PlayerId, buff, 2273, Program.PlayerId).AsSpan(0, 22)) >= 0);

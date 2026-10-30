@@ -42,7 +42,8 @@ partial class Program
     }
 
     // Deathrattle: every corpse within the warcry's radius explodes and is consumed; each explosion hits the living hostile
-    // monsters around its corpse (not an attack or a spell: no block, no evasion, no crit at 0% base).
+    // monsters around its corpse (not an attack or a spell: no block, no evasion; 0% base crit, and flat crit chance and
+    // global added damage, which the wiki's Explode page says apply, are not modelled).
     static async Task ExplodeCorpses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get, DamageConversion conversion)
     {
@@ -55,7 +56,9 @@ partial class Program
             double now = ProjectileWorldTime(conn);
             foreach (var (id, corpse) in conn.Monsters.Where(e => IsCorpse(e.Value) && Dist(e.Value.Walk.Position(now), at) <= radius).ToList())
             {
+                // Gone for the client (0x2bb below), so gone here too: a later removal (a projectile kill's) must not send it again.
                 corpse.CorpseConsumed = true;
+                conn.Monsters.Remove(id);
                 consumed.Add((id, corpse.Label));
                 var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);
                 var centre = corpse.Walk.Position(now);

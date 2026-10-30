@@ -74,10 +74,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   effects or art, only Enduring Cry, and no chests beyond the quest ones.
   Ancestral Reach's spirit strikes hit the monsters the client picks; Ancestral Echo strikes the previous location on
   the server and sends the client the first location it needs to strike there too.
+  Neither acts for the Strike gems that are also Projectile skills (Frost Blades, Lightning Strike, Molten Strike,
+  Wild Strike): the server has no melee hit for them, though the client draws their spirit strikes.
   Born under Fire converts nearby monsters' physical hits and puts its debuff on them.
   Spirits of Kahuturoa, Utula and Kiloava trigger on a Unique's crit, Savage Hit or blocked hit, with the shared
   cooldown and their Leadership buff (Kahuturoa's armour share and Kiloava's block recovery act; Utula's leech has no
   leech to act on); each chieftain fights beside the player for the buff's duration, with its first skill only.
+  Server monsters have no base critical strike chance, so Kahuturoa triggers only on a Unique given an always-crit mod
+  through `/mob_mods`, never in normal play.
   Forest of Ancestors' +1 totem and its 20% of hits from the nearest totem act on Rejuvenation Totems, the one totem
   skill the server places; a totem killed while a Unique is near triggers Spirit of Kaom, whose Leadership adds 25%.
   Not yet: Spirit of Rakiata (no Marks), monsters attacking totems and other totem skills.
