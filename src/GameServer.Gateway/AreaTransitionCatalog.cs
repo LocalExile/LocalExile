@@ -33,6 +33,9 @@ static class AreaTransitionCatalog
             notes.Add(Atlas.Value is null ? $"no {AtlasFile} (run scripts/dev/extract-data.ps1)" : $"area 0x{hash:x4} is not in the atlas");
             return [];
         }
+        // A layout the Gateway generates itself knows each object's room and graph node: that decides (§8).
+        if (ServerLevels.For(id, seed) is { } level)
+            return [.. FromLayout(area, level, notes).Select((t, i) => (FirstId + (uint)i, t with { InTown = area.IsTown }))];
         var topologies = area.Topologies ?? [];
         var captured = LoadCapture(id, seed);
         var placed = new List<AreaTransitionObject>();
@@ -106,6 +109,72 @@ static class AreaTransitionCatalog
                 notes.Add($"no capture {Folder}/{id}_seed{seed}.transitions.json yet (run live.ps1 -Walkmaps)");
         }
         return [.. placed.Select((t, i) => (FirstId + (uint)i, t with { InTown = area.IsTown }))];
+    }
+
+    /// <summary>The exits of a generated layout (<see cref="ServerLevels.Level.Exits"/>, <c>AreaExits</c>): "entranceN" leads
+    /// to the area's Connections[N − 1], "teleportN" within the area to its "telepadN" node; an unused object and a
+    /// disabled entrance (an arrival point only, e.g. Lioneye's Watch's Twilight Strand marker) are not created. A
+    /// disabled teleport (an arena's way in that the real game unlocks, e.g. the Upper Prison's into Brutus's room) is
+    /// created open: the encounters that would unlock it are not modelled.</summary>
+    static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, List<string> notes) =>
+        FromExits(area.Id, area.Hash16, area.Connections ?? [], level.Exits, notes);
+
+    /// <summary><see cref="FromLayout"/> for an area's id, HASH16, WorldAreas connections and placed exits.</summary>
+    internal static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
+        IReadOnlyList<PlacedExit> exits, List<string> notes)
+    {
+        var placed = new List<AreaTransitionObject>();
+        foreach (var e in exits)
+        {
+            var o = e.Object;
+            string what = $"{o.Model.Split('/')[^1]} at ({o.X}, {o.Y})";
+            float? height = float.IsNaN(o.Z) ? null : o.Z;
+            // Delve's mine entrance and exit lead to areas no graph node names (Delve_Hub's hub.arm names no exit).
+            if (TryDelveEntrance(areaId, o.Model, out ushort delveDestination))
+            {
+                placed.Add(new AreaTransitionObject(o.X, o.Y, delveDestination, o.Model, Rotation: o.Rotation, Height: height));
+                notes.Add($"Delve entrance at ({o.X}, {o.Y}) → {IdOf(delveDestination)}");
+                continue;
+            }
+            switch (e.Kind)
+            {
+                case ExitKind.Entrance when !e.Enabled:
+                    notes.Add($"{what}: entrance{e.Number}disabled ({e.Why}), an arrival point only, not created");
+                    break;
+                case ExitKind.Entrance:
+                    if (connections.FirstOrDefault(c => c.Index == e.Number) is not { } to)
+                    {
+                        notes.Add($"{what}: entrance{e.Number} ({e.Why}), but the area has {connections.Count} connection(s), not created");
+                        break;
+                    }
+                    placed.Add(new AreaTransitionObject(o.X, o.Y, to.Hash16, o.Model, Rotation: o.Rotation, Height: height,
+                        Type: Resolve(o.Type, what, notes)));
+                    notes.Add($"{what} → {to.Id} (entrance{e.Number}, {e.Why})");
+                    break;
+                case ExitKind.Teleport when e.Target is { } target:
+                    placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
+                        Type: Resolve(o.Type, what, notes)) { TeleportTo = target });
+                    notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
+                    break;
+                case ExitKind.Teleport:
+                    notes.Add($"{what}: teleport{e.Number} ({e.Why}), not created");
+                    break;
+                default:
+                    notes.Add($"{what}: {e.Why}, not created");
+                    break;
+            }
+        }
+        return placed;
+    }
+
+    /// <summary>Where a player arriving from <paramref name="from"/> belongs in a generated layout: the named point of the
+    /// "entranceN" (enabled or not) whose connection is that area, e.g. The Submerged Passage's Depths return
+    /// (entrance4disabled) for a player coming up from The Flooded Depths.</summary>
+    public static (int X, int Y)? EntrancePoint(ushort hash, string id, uint seed, ushort from)
+    {
+        if (Atlas.Value?.GetValueOrDefault(hash)?.Connections is not { } connections || ServerLevels.For(id, seed) is not { } level) return null;
+        var numbers = connections.Where(c => c.Hash16 == from).Select(c => c.Index).ToHashSet();
+        return level.Entrances.Where(p => numbers.Contains(p.Number)).OrderBy(p => p.Enabled ? 1 : 0).Select(p => ((int, int)?)(p.X, p.Y)).FirstOrDefault();
     }
 
     internal static bool TryDelveEntrance(string area, string? model, out ushort destination)
@@ -228,7 +297,9 @@ static class AreaTransitionCatalog
 
     // Only the fields the Gateway uses; the serializer skips the rest of the atlas.
     sealed record AtlasFileData(List<AtlasArea>? Areas);
-    sealed record AtlasArea(string Id, string? Name, ushort Hash16, List<AtlasTopology>? Topologies, bool IsTown = false);
+    sealed record AtlasArea(string Id, string? Name, ushort Hash16, List<AtlasTopology>? Topologies, List<AtlasConnection>? Connections,
+        bool IsTown = false);
+    internal sealed record AtlasConnection(int Index, string Id, ushort Hash16);
     sealed record AtlasTopology(string Id, string? Kind, List<AtlasTransition>? Transitions);
     sealed record AtlasTransition(string? Model, string? ObjectType, bool? Enabled, string? Status, string? Destination,
         ushort? DestinationHash16, AtlasGrid? Grid);

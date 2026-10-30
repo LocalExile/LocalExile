@@ -14,6 +14,10 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
     public (uint Id, TransitionEffect Effect)[] Effects { get; init; } = [];
     public Func<int, int, int, bool>? Clearance { get; init; }
 
+    /// <summary>A generated layout's named entrance point for a player arriving from an area
+    /// (<see cref="AreaTransitionCatalog.EntrancePoint"/>), used when no exit leads back there (a one-way entrance).</summary>
+    public Func<ushort, (int X, int Y)?>? EntranceFrom { get; init; }
+
     /// <summary>Every cell's ground height, row by row (GridW × GridH), when the Gateway generated the layout itself
     /// (<see cref="ServerLevels"/>); null for a capture.</summary>
     public short[]? CellHeights { get; init; }
@@ -46,7 +50,8 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
         if (cameFrom is not { } from) return (SpawnX, SpawnY);
         if (OneWayArrivals.TryGetValue((Hash, from), out var point)) return point;
         foreach (var (_, t) in AreaTransitions)
-            if (t.DestinationHash16 == from) return Near((t.GridX, t.GridY));
+            if (t.DestinationHash16 == from && t.TeleportTo is null) return Near((t.GridX, t.GridY));
+        if (EntranceFrom?.Invoke(from) is { } entrance) return Near(entrance);
         return (SpawnX, SpawnY);
     }
 
@@ -117,7 +122,11 @@ static class AreaLayouts
     {
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
-            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height) with { CellHeights = generated.Heights };
+            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height) with
+            {
+                CellHeights = generated.Heights,
+                EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, id, seed, from),
+            };
         byte[]? cells = LoadCells(id, seed, out int w, out int h);
         return WithCells(hash, id, seed, cells, w, h);
     }

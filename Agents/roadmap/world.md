@@ -70,15 +70,6 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   (`0x141ec7220`: seed, node, difficulty).
 - **Done when:** any seed gets its layout without a capture.
 
-### Area transitions without a walk-map run
-
-- **Known:** every area gets its area transitions and destinations, but a generated area only has them once `live.ps1
-  -Walkmaps` captured its layout for that seed ([08](../docs/protocol/08-area-transitions.md) §7). 11 atlas
-  connections are unresolved, 41 are point-only, and four object types are sent as plain AreaTransition.
-- **Start:** reproduce the client's level generator (the atlas already parses graphs, rooms and tiles), or ship
-  captures for fixed seeds.
-- **Done when:** a new seed gets its area transitions without Frida.
-
 ## 3. Gameplay
 
 ### The game's start and resurrection

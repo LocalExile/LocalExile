@@ -28,6 +28,13 @@ static class ServerLevels
         /// <summary>The client's tile hash of the generated grid, and how long the generation took.</summary>
         public uint TileHash { get; init; }
         public long Milliseconds { get; init; }
+        /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
+        public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
+        /// <summary>Every area transition object of the layout with its role from its room's graph node
+        /// (<see cref="AreaExits"/>): what <see cref="AreaTransitionCatalog"/> creates.</summary>
+        public IReadOnlyList<PlacedExit> Exits { get; init; } = [];
+        /// <summary>Where each "entranceN" of the layout is (an arrival point, also for one-way entrances).</summary>
+        public IReadOnlyList<EntrancePoint> Entrances { get; init; } = [];
     }
 
     /// <summary>Where the supported list comes from (the repository root is the Gateway's directory; tests replace it).</summary>
@@ -138,7 +145,11 @@ static class ServerLevels
             Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} ({walk.Width}x{walk.Height} cells, " +
                 $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
-                AreaObjects.QuestObjects(files, result), walk.Projectile) { TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds };
+                AreaObjects.QuestObjects(files, result), walk.Projectile)
+            {
+                TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
+                Exits = AreaExits.Resolve(files, result), Entrances = AreaExits.Entrances(files, result),
+            };
         }
         catch (Exception ex)
         {

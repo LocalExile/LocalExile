@@ -36,15 +36,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: Gateway (`RunServerFrames`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §6.
 - Area transitions in every area, with their destinations, models (the arch highlighted on hover), rotation and
-  height: fixed layouts from the atlas, generated layouts from the walk-map recorder's capture;
+  height. In a layout the Gateway generates, each exit's destination comes from the graph node of the room it stands
+  in ("entranceN" → Connections[N − 1], "teleportN" → the "telepadN" slot, as gates within the area: the Upper Prison's
+  way to the Warden's Quarters, boss arenas); other areas use the walk-map recorder's capture and the atlas.
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
   Native requirement removal/restoration, four town/Coast transfers, spell payment, ES recovery and relog controls pass.
-  Code: Gateway (`AreaTransitionCatalog.cs`), `scripts/walkmaps`, `scripts/re/atlas`, Auth's instance registry.
-  Docs: [08](../docs/protocol/08-area-transitions.md), [09](../docs/protocol/09-area-change.md).
+  Code: Gateway (`AreaTransitionCatalog.cs`), `AreaExits.cs`, `scripts/walkmaps`, `scripts/re/atlas`, Auth's instance registry.
+  Docs: [08](../docs/protocol/08-area-transitions.md) §8, [09](../docs/protocol/09-area-change.md).
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
-  The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`;
+  The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance
+  arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
   Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
   Code: `AreaLayout.Arrival`, `TeleportTargets.cs`, Gateway.
@@ -146,6 +149,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Not working yet
 
 - Area transitions of a generated area the Gateway does not generate itself need a `-Walkmaps` capture for its seed.
+  Exits the game opens later are not modelled: "teleportNdisabled" gates (an arena's way in, a shortcut back) are
+  created open, and an "entranceN" whose room holds no object (the portal to town after Malachai, Kitava, the Brine
+  King) is not created. Two boss rooms have more gates than named points and pair them wrongly: The Cathedral
+  Rooftop (1_5_8, Kitava's arena) and The Harbour Bridge (2_8_13, the arena's inner gate)
+  ([08](../docs/protocol/08-area-transitions.md) §8).
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.

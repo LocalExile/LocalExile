@@ -53,4 +53,21 @@ public class AreaArrivalTests
     {
         Assert.Equal((123, 308), Layout(hash: Town).Arrival(cameFrom: Strand));
     }
+
+    // A generated layout's one-way entrance ("entranceNdisabled": The Submerged Passage's Depths return for a player
+    // coming up from The Flooded Depths) when no exit leads back; an in-area gate to the same area does not count.
+    [Fact]
+    public void A_one_way_entrance_of_a_generated_layout_is_the_arrival_from_its_area()
+    {
+        var layout = Layout() with
+        {
+            EntranceFrom = from => from == MudFlats ? (80, 60) : null,
+            AreaTransitions = [(0x2000, new AreaTransitionObject(GridX: 40, GridY: 20, DestinationHash16: Town)),
+                (0x2001, new AreaTransitionObject(GridX: 90, GridY: 90, DestinationHash16: Coast) { TeleportTo = (60, 10) })],
+        };
+        var (x, y) = layout.Arrival(cameFrom: MudFlats);
+        Assert.True(x >= 50, $"({x}, {y}) is not walkable");
+        Assert.InRange(Math.Max(Math.Abs(x - 80), Math.Abs(y - 60)), 6, 20);
+        Assert.Equal((70, 70), layout.Arrival(cameFrom: Coast));
+    }
 }

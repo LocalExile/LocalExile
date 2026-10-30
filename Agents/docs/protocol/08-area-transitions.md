@@ -307,7 +307,9 @@ The client spawns only its own doodads from these records; server types (AreaTra
 filter, which is why nothing in the client ever creates them. The Frida trace `scripts/re/frida/trace-tile-records.js`
 is the same hook for one-off use.
 
-**Where they lead.** `AreaTransitionCatalog` loads the atlas (§6) once and, per area:
+**Where they lead.** A layout the Gateway generates itself (`ServerLevels`, [re/011](../re/011-level-generation.md) §7)
+takes each exit's destination from the graph node of the room it stands in (§8); it wins over a capture of the same
+(area, seed), which has no rooms. For any other area `AreaTransitionCatalog` loads the atlas (§6) once and, per area:
 - with a capture: picks the graph variant (topology) whose transition models cover the captured models best, then
   gives each captured AreaTransition the destination of the same model in that topology (resolved and enabled). Per
   topology only 53 of 6 474 models lead to more than one place; those are logged and skipped. Disabled one-way links
@@ -329,3 +331,70 @@ behind that cave is in [12](12-quests.md).
 **Dev commands.** `/goto <area id or name> [seed]` changes area as if through an area transition (e.g. `/goto 1_1_3`; with a seed, into a new instance at that seed, e.g. `/goto 1_1_5 1384217569`);
 `/transition …` (§5) changes the first one.
 
+## 8. Exits of a generated layout: from the room's graph node
+
+State of 2026-10-30. Matching a placed object to the atlas by its model (§7) lost exits all over the campaign: The
+Cavern of Wrath and Anger's master has Reskin "corrupted", so their tiles place `corrupted_cave*_exit` records the atlas
+(built from the tile files) lists without the prefix; The Submerged Passage's depths entrance
+(`watery_depth_entrance_v01_01`) comes from no file the atlas reads; quest types ending in "Transition"
+(`MerveilExitTransition`, `BlockedPassageTransition`, `BossArenaEntranceTransition`) failed the name filter; one model
+used for two exits in one area (The Upper Prison's stairs down and up) was dropped as ambiguous or paired wrongly; and
+nothing paired an in-area gate with its arrival, so The Upper Prison's Warden's Quarters, every boss arena behind a
+gate and The Cavern of Anger's way on to Act 2 could not be reached.
+
+**What the client does** (static reading, addresses in Game.exe 3.29.3b):
+- It never maps a transition to a destination, a graph node or a room point. Node descriptions are read only while
+  generating (`0x142100be0`, `0x1420f9d50` mark the "important" ones: default, telepad, teleport, entrance, accessible,
+  sideentrance; `0x14204f590` "subarea="); `%areaname%` and the "-label" split do not occur in the binary.
+- The generator's object-created hook (`0x142044b60`, slot +0x30 of the generator vtable `0x1435c6988`) disables every
+  AreaTransition it is given and files it in a map at generator +0x220, keyed by the placed room's node descriptions
+  (room record +0x20) for room lines and by a per-tile value (tile map +0xa0) for tile records. It runs only when slot
+  +0x10 returns true, which in the client is `0x1400ed4a0` (false): this is the real server's path. So the server
+  derives each exit from the generated layout's nodes.
+- The client creates no server type itself (`0x14152d680`: BaseEvents `server_only`), and AreaTransition is
+  `server_only`: the server creates every tile `.tmd` record and every `.arm` object line whose type has the
+  AreaTransition component (also e.g. `DepthsReturnTransition`, a room line). A master's Reskin swaps the tile's
+  `.tmd` for `alttiles/<reskin>/<reskin>_<name>.tmd` (`0x141d7f700`, path `0x141d88810`); the virtual `.ao` name rule is
+  `0x1429fc0a0` (the record's own `.ao`, else `<folder>/<name>.ao` if it exists, else the name without the Reskin
+  prefix if that exists, else the reskinned name).
+- The AreaTransition component (debug dump `0x141e5bf20`): the flags' low nibble +0xb2 is the transition type (0
+  Normal, 1 Teleport, 2 SideArea, 3 SideAreaReturn, 4 LastTownReturn, 5 Labyrinth, 6 Menagerie, 7 SynthesisVoid, 8
+  Respawn; table `0x1435a5460`), bit 4 +0xb5 disabled (`0x141e5bd30`; enabled later by the delta `0x141e5bac0`), bit 6
+  +0xb7 and bit 7 +0xb8 Necropolis data (`0x1424d3070`). The destination variant: 0 = ClientStrings row + 1, 1 =
+  ClientStrings HASH32, 2 = WorldAreas HASH16; the label is the area's name, or the ClientStrings text
+  (`0x14166c790`), "Area Transition" without one. For type 1 the dump calls +0xa4 the telepad index.
+
+**What the server does** (`AreaExits` in `GameServer.Data/Terrain/Generation`, used by `ServerLevels` and
+`AreaTransitionCatalog.FromLayout`):
+1. The transition objects: the tiles' records (`AreaObjects.Transitions`) and the rooms' object lines
+   (`AreaObjects.RoomObjects`) whose `.ot` has the AreaTransition component, no waypoints or effects.
+2. Each stands in the last placed room whose footprint holds it; that room's node descriptions are its exits:
+   `entranceN` (→ WorldAreas Connections[N − 1]), `entranceNdisabled` (an arrival point only: not created, e.g. Lioneye's
+   Watch's Twilight Strand marker, The Submerged Passage's Depths return boat), `teleportN[disabled][-label]` (a gate
+   within the area to `telepadN`), `telepadN` (an arrival). A room whose node names none places no exit (a sewer grate of
+   a side area, an unused transition room's arch).
+3. Slots: a numbered room point (`entrance2`, `telepad1`) holds its own number; otherwise the k-th generic `entrance`
+   point holds the node's k-th enabled `entranceN` (enabled first: The Control Blocks' "entrance2disabled" "entrance1"),
+   and the k-th generic `telepad`/`teleport` point holds both its k-th `teleportN` (the gate) and its k-th `telepadN`
+   (the arrival), a telepad skipping the point of its own number's gate. So an arrival is next to the gate back, as in
+   The Harvest's boss1 ("telepad7" "teleport8" "teleport9" "telepad10": point 0 is the arrival from the core and the gate
+   back, point 1 the gate to boss2 and the arrival from it). An exit without a point of its kind takes a point left over
+   (The Upper Prison's stairs room: one "entrance" point, the node's only exit "teleport1-BrutusAreaName"); a telepad
+   without one arrives at its room's gate.
+4. Each slot takes the room's nearest object (closest pairs first); the room's other objects are not created (The Lower
+   Prison's entrance room: the wall hole by the "entrance" point, not the ceiling marker 190 cells away).
+5. A gate is an AreaTransition to the area itself with `TeleportTo` = the telepad's slot ([09](09-area-change.md):
+   the Gateway moves the player there, `AreaLayout.Near`). `teleportNdisabled` gates (an arena's way in or a shortcut
+   back, which the game unlocks; the Upper Prison's only door into Brutus's room is "teleport3disabled-BrutusArenaName")
+   are created open: the encounters that unlock them are not modelled.
+6. Arrivals: next to the exit back; through a one-way entrance, at that `entranceNdisabled` point
+   (`AreaTransitionCatalog.EntrancePoint`, `AreaLayout.EntranceFrom`).
+
+The model plays no part, so this covers the Reskin, the objects the atlas cannot see and shared models without any
+special case. The ad-hoc fixes for The Cavern of Wrath / Anger (Reskin prefix, "…Transition" types, an internal gate
+paired with its unused partner) and The Submerged Passage (the lone unnamed object takes the point-only exit) are not
+needed for generated layouts. Captures of areas the Gateway does not generate still go through §7's model matching.
+
+Not modelled: a gate or exit the game enables later is sent enabled (no Transitionable step, no disabled bit); an
+`entranceN` whose room holds no object is a portal or an NPC's travel in the game (the way to town after Malachai,
+Kitava, the Brine King; Weylam's boat) and is not created.
