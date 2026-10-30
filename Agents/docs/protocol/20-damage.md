@@ -555,14 +555,18 @@ ends sooner is dropped. A monster that dies keeps them; it no longer acts.
   `elementalist_...`, `0x142828e10`), `unique_vinktars_flask_shock_proliferation_radius`,
   `ascendancy_non_damaging_elemental_ailment_proliferation_radius` and `passive_mastery_shock_proliferation_radius`,
   and 15 with `shock_proliferation_radius_is_at_least_15`. Nothing else in the client reads the radius. The calculator
-  scales none of them by area of effect, and the server applies none; the wiki's general note that area modifiers
-  affect proliferation is not applied, because the node's own text is a fixed 1.5 m and the scaling is not verified.
+  scales none of them by area of effect; the server grows the radius by the area modifier like a skill's area
+  (`SpreadRadius`: × the square root of `SkillArea.Modifier`, truncated to two places), because the wiki's
+  Elemental proliferation page says modifiers to area of effect affect proliferation. A hit's shock uses the hitting
+  skill's area stats over the player's, a kill's shock the player's own. Whether the game scales Within the Tempest's
+  fixed 1.5 m this way is not verified beyond that general rule.
   Each AI tick (`ProliferateShocksLocked`), every living hostile monster within that radius (cells) of a monster with
   such a shock, a corpse included, has the strongest one at the same effect until it ends, like an aura (wiki
   Elemental proliferation). The copy does not spread again, does not count as inflicting, and goes as soon as the
   monster is out of range or the source shock ends. The receiving monster's immunity counts; its own
   `shocked_effect_on_self_+%` does not change the copy (not verified). Chill, freeze and ignite proliferation are not
-  modelled, nor a reflected shock spreading from the player.
+  modelled, nor a reflected shock spreading from the player. In the game a non-unique monster killed while frozen
+  shatters and leaves no corpse to spread from (wiki Freeze); Shatter is not modelled, so such a corpse still spreads.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
 effects but sends nothing, and shocks do not spread. A kind is re-sent only when its strongest magnitude changes: S→C 0x1c2 for the old instance,

@@ -48,7 +48,7 @@ sealed class MonsterElementalAilments
     /// virtual_shock_proliferation_radius as the client's calculator (0x142828340) builds it: the largest of the gloves',
     /// Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, itself the larger of its two sources),
     /// Vinktar's flask's, the ascendancy's and the mastery's radius, and 15 with shock_proliferation_radius_is_at_least_15
-    /// (Within the Tempest). The calculator scales none of them by area of effect.
+    /// (Within the Tempest). The calculator scales none of them by area of effect; <see cref="SpreadRadius"/> does.
     /// </summary>
     internal static int ShockSpreadRadius(Func<string, int> get) => new[]
     {
@@ -57,6 +57,12 @@ sealed class MonsterElementalAilments
         get("ascendancy_non_damaging_elemental_ailment_proliferation_radius"), get("passive_mastery_shock_proliferation_radius"),
         get("shock_proliferation_radius_is_at_least_15") != 0 ? 15 : 0, 0,
     }.Max();
+
+    /// <summary>The cells a shock spreads: that radius grown by the area of effect modifier <paramref name="area"/>
+    /// (SkillArea.Modifier) like a skill's area, × its square root truncated to two places (wiki Elemental proliferation:
+    /// the area of proliferation is affected by modifiers to area of effect).</summary>
+    internal static int SpreadRadius(Func<string, int> attacker, double area) =>
+        (int)Math.Floor(ShockSpreadRadius(attacker) * Math.Floor(100 * Math.Sqrt(Math.Max(0, area))) / 100);
 
     /// <summary>The strongest of this monster's own shocks that spreads, alive or a corpse.</summary>
     public Effect? Spreading(double now) => effects.Count == 0 ? null : effects
@@ -92,10 +98,10 @@ sealed class MonsterElementalAilments
     /// critical strike or chance_to_shock_% with lightning damage, and cold damage too with cold_damage_can_shock
     /// (Stormy Seas: the magnitude, not the chance), 2 s. <paramref name="attacker"/> gives the player's and the skill's
     /// summed stats, <paramref name="target"/> the monster's own. The effects added are returned. A chill carries the
-    /// attacker's Glacial Wave stats, a shock its proliferation radius.
+    /// attacker's Glacial Wave stats, a shock its proliferation radius grown by the hit's area modifier <paramref name="area"/>.
     /// </summary>
     public List<Effect> Inflict(double cold, double lightning, bool critical, double threshold, double now,
-        Func<string, int> attacker, Func<string, int> target, Random random)
+        Func<string, int> attacker, Func<string, int> target, Random random, double area = 1)
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
@@ -110,7 +116,7 @@ sealed class MonsterElementalAilments
         double shocking = lightning + (attacker("cold_damage_can_shock") != 0 ? cold : 0);
         if (shocking > 0 && (critical || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random)))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking, threshold, EffectModifier(Kind.Shock, attacker, target), 50))
-                { Spread = ShockSpreadRadius(attacker) });
+                { Spread = SpreadRadius(attacker, area) });
         return added;
     }
 
@@ -121,10 +127,10 @@ sealed class MonsterElementalAilments
 
     /// <summary>Within the Tempest (enemy_shock_on_kill): the shock a killed monster's corpse gets, 15% base for 2 s
     /// through the shock effect and duration modifiers (wiki Within the Tempest; the 15% of shocks without damage, wiki
-    /// Shock), up to 50%. It spreads like any shock the player inflicts.</summary>
-    public Effect? ShockOnKill(double now, Func<string, int> attacker, Func<string, int> target) =>
+    /// Shock), up to 50%. It spreads like any shock the player inflicts, by the player's area modifier <paramref name="area"/>.</summary>
+    public Effect? ShockOnKill(double now, Func<string, int> attacker, Func<string, int> target, double area = 1) =>
         Apply(new(Kind.Shock, now, now + 2, Math.Min(50, Math.Floor(15 * EffectModifier(Kind.Shock, attacker, target))))
-            { Spread = ShockSpreadRadius(attacker) }, attacker, target);
+            { Spread = SpreadRadius(attacker, area) }, attacker, target);
 
     static double EffectModifier(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
         Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_effect_+%") / 100.0)

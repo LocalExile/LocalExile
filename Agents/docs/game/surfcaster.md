@@ -18,7 +18,7 @@ Native acceptance is still open and needs the reviewed combined graph installed 
 | 52264 Brine Bound | Cannot be Frozen | Works: `cannot_be_frozen` blocks incoming freeze. |
 | | 50% chance to Freeze Enemies for 1 second when they Hit you; Enemies you Freeze remain Frozen for at least 1 second | Works: a monster hit that lands (blocked too) may freeze it for 1 s, and every freeze you inflict past the 0.3 s threshold lasts at least 1 s. |
 | 6252 Glacial Wave | Enemies Chilled by your Hits have Damage taken increased by Chill Effect; lessen their Damage dealt by half of Chill Effect | Works: on your hits and Righteous Fire, and on the monster's swings. Not modelled: the same chill reflected onto you by a Mirrored monster. |
-| 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Works: a kill shocks the corpse (15%, 2 s), and your shocks, the corpse's included, spread 15 cells to living enemies. |
+| 61246 Within the Tempest | Shocks you inflict spread to other Enemies within 1.5 metres; Enemies you kill are Shocked | Works: a kill shocks the corpse (15%, 2 s), and your shocks, the corpse's included, spread 15 cells, grown by area of effect, to living enemies. |
 | 52944 Changing Seasons | The Effect of Chill on you is reversed; All Damage Taken from Hits can Chill you | Works: any monster hit chills by its total damage, and the chill raises action speed instead; freeze is unchanged. |
 | 37553 Ghost of the Deep | Touched by a Tormented Illegal Fisherman: 23% increased Movement, Attack and Cast Speed; nearby Allies deal 23% increased Damage | Works: the Torment Touched buff gives the player all four 23% bonuses and shows its icon. No allies or tormented spirits exist to use the rest. |
 | 48926, 53922, 41643, 34767, 33031, 36782, 37534, 56184, 42290 | 4% increased Cast Speed | Works: `base_cast_speed_+%` reaches `cast_speed_+%`. |
@@ -121,11 +121,16 @@ Three legal eight-point builds cover all 18 non-start nodes:
   wiki's base for shocks without damage) for 2 s, through your shock effect and duration modifiers.
   `shock_proliferation_radius_is_at_least_15` gives every shock you inflict, the kill's included, a proliferation
   radius of at least 15 cells: the client's `virtual_shock_proliferation_radius` calculator (`0x142828340`) takes the
-  largest of five radius stats and 15 with this flag, scaled by nothing.
+  largest of five radius stats and 15 with this flag, and does not scale it.
+  The server grows that radius by area of effect like a skill's area (wiki Elemental proliferation: modifiers to area
+  of effect affect it): a hit's shock by the hitting skill's area stats over yours, a kill's shock by yours, so 100%
+  increased area of effect spreads 21 cells.
+  Whether the game scales this node's fixed 1.5 m that way is not verified beyond the wiki's general rule.
   On every AI tick a living enemy within that radius of the shocked monster, alive or a corpse, has the same shock
   until it ends, like an aura; the copy does not spread again ([20](../protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)).
-  The wiki's general note that area of effect scales proliferation is not applied (unverified for this fixed 1.5 m).
   A killing hit's own shock is not put on the corpse, only the on-kill one.
+  In the game a non-unique enemy killed while frozen shatters and leaves no corpse to spread from (wiki Freeze); Shatter
+  is not modelled, so here that corpse still spreads its shock.
 - **Sea Legs** already had its consumer (`ResistanceOvercap`, [11-skills](../protocol/11-skills.md) §12); the
   Gateway test compares the node with plain +40% cold and lightning resistance and both flags.
 
@@ -186,5 +191,6 @@ ailment model's floor, caps, freeze threshold and strongest effect; shock agains
 and freeze in the monster AI with their buffs; Mirrored and Unstoppable; Stormy Seas' cold critical strike shocking
 only with the node; Glacial Wave's damage taken, burn and the monster's swing against plain values; Brine Bound's
 freeze on a landed swing, the 1 s minimum and Cannot be Frozen against plain stats; Within the Tempest's kill shock
-from the default attack and a skill hit, and the 15-cell spread from a corpse and a hit shock), the buff layout in `InstanceEntitiesTests` and
+from the default attack and a skill hit, and the 15-cell spread from a corpse and a hit shock, 21 cells with 100%
+increased area of effect), the buff layout in `InstanceEntitiesTests` and
 `VerifiedGamblerGraphTests`.

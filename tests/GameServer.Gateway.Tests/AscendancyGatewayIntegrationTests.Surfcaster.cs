@@ -533,7 +533,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
     }
 
     // Within the Tempest (61246): a monster the character kills is shocked (15%, 2 s), and every shock the character
-    // inflicts, the corpse's too, spreads to living enemies within 15 cells; a spread shock does not spread again.
+    // inflicts, the corpse's too, spreads to living enemies within 15 cells, grown by area of effect; a spread shock does
+    // not spread again.
     [Fact]
     public async Task Surfcaster_Within_the_Tempest_shocks_kills_and_spreads_shocks_15_cells()
     {
@@ -541,6 +542,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
         int Spread(Func<string, int> get) => MonsterElementalAilments.ShockSpreadRadius(get);
         Assert.Equal((0, 15, 20), (Spread(_ => 0), Spread(n => n == "shock_proliferation_radius_is_at_least_15" ? 1 : 0),
             Spread(n => n is "shock_proliferation_radius_is_at_least_15" ? 1 : n == "gloves_shock_proliferation_radius" ? 20 : 0)));
+        // Area of effect grows it like a skill's area: 100% increased × 1.41, 50% increased × 1.22, half the area × 0.70.
+        static int Flag(string n) => n == "shock_proliferation_radius_is_at_least_15" ? 1 : 0;
+        Assert.Equal((15, 21, 18, 10), (MonsterElementalAilments.SpreadRadius(Flag, 1), MonsterElementalAilments.SpreadRadius(Flag, 2),
+            MonsterElementalAilments.SpreadRadius(Flag, 1.5), MonsterElementalAilments.SpreadRadius(Flag, .5)));
         using var game = Surfcaster();
         using var plain = Surfcaster();
         using var equivalent = Surfcaster();
@@ -584,5 +589,20 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal([15, 15, 15, 0, 0, 20, 20, 115], results[0]);
         Assert.Equal([0, 0, 0, 0, 0, 20, 0, 100], results[1]);
         Assert.Equal(results[0], results[2]);
+
+        // With 100% increased area of effect a kill's shock and a hit's reach 21 cells: 20 away gets it, 22 away does not.
+        SetDev(game.State, ("base_skill_area_of_effect_+%", 100));
+        Assert.Equal(100, SurfcasterStat(game.State, "skill_area_of_effect_+%"));
+        var corpse = SurfcasterTarget(game.State, 0x508, 100, life: 1);
+        var reached = SurfcasterTarget(game.State, 0x509, 120);
+        var beyond = SurfcasterTarget(game.State, 0x50a, 78);
+        var struck = SurfcasterTarget(game.State, 0x50b, 300, life: 1000);
+        var touched = SurfcasterTarget(game.State, 0x50c, 320);
+        lock (game.State.Monsters) Program.HitUnlessBlockedLocked(game.State, corpse, 5);
+        SurfcasterHit(game.State, struck, DamageType.Lightning, 102, true);
+        lock (game.State.Monsters) Program.MonsterAilmentChangesLocked(game.State, game.State.Clock.Elapsed.TotalSeconds);
+        double at = game.State.Clock.Elapsed.TotalSeconds;
+        Assert.Equal((true, 15, 0, 20), (corpse.Dead, Now(reached), Now(beyond), Now(touched)));
+        int Now(SpawnedMonster m) => (int)m.Ailments.Magnitude(Shock, at);
     }
 }

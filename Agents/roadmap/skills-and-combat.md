@@ -200,7 +200,7 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Check the chilled/frozen/shocked buffs, the sent `virtual_action_speed_+%` and the frozen pose with the real client,
   and find what 0x1c1's +0x82 u16 does.
   Shatter, unique/boss thresholds and the monster variety's own immunities remain open, as do chill, freeze and
-  ignite proliferation, area scaling of the shock proliferation radius (unverified) and a killing hit's own ailments
+  ignite proliferation, a native check of the shock proliferation radius's area scaling and a killing hit's own ailments
   on the corpse.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
 - Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.

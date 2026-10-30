@@ -12,15 +12,21 @@ partial class Program
         m.Mods.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now));
 
     /// <summary>Within the Tempest (enemy_shock_on_kill): a monster the player just killed (its life reached 0 from a hit
-    /// or Righteous Fire) is shocked through the player's modifiers, and its corpse spreads that shock. Under the Monsters
-    /// lock.</summary>
+    /// or Righteous Fire) is shocked through the player's modifiers, and its corpse spreads that shock by the player's own
+    /// area of effect. Under the Monsters lock.</summary>
     static void ShockOnKillLocked(ClientState conn, SpawnedMonster m)
     {
         var player = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         if (Get("enemy_shock_on_kill") != 0)
-            m.Ailments.ShockOnKill(ProjectileWorldTime(conn), Get, name => m.Mods.Effects[name]);
+            m.Ailments.ShockOnKill(ProjectileWorldTime(conn), Get, name => m.Mods.Effects[name], AilmentArea(Get, _ => 0, spell: false));
     }
+
+    /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
+    /// skill_area_of_effect_+% (which holds the player's base form, so that is left out, as AreaPlayerStats does) and the
+    /// skill's own stats.</summary>
+    static double AilmentArea(Func<string, int> player, Func<string, int> skill, bool spell) =>
+        SkillArea.Modifier(name => (name == SkillArea.BaseIncreased ? 0 : player(name)) + skill(name), spell);
 
     /// <summary>Shock proliferation, once per AI tick before the buffs are sent: every living hostile monster within a
     /// spreading shock's radius (cells, 10 to the metre) of the monster it is on, a corpse included, has the strongest
@@ -60,7 +66,8 @@ partial class Program
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         var added = m.Ailments.Inflict(mitigated[DamageType.Cold].Min * factor, mitigated[DamageType.Lightning].Min * factor,
-            critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill), name => m.Mods.Effects[name], random);
+            critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill), name => m.Mods.Effects[name], random,
+            AilmentArea(Player, Skill, spell));
         // Mirrored: the ailments act on the player as well (wiki Reflect), as they landed, then through the player's own
         // modifiers; the exact reflected magnitude is not verified.
         if (added.Count == 0 || conn.PlayerLife == 0
