@@ -38,7 +38,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
-  `Mods/Source/` has six examples; only `example` is on by default.
+  Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
+  Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
+  Leagues are modules: `LeagueFor(conn)` and `ILeague` replace the `conn.Ruthless` switches, `Mods/Source/Ruthless/` holds the
+  rules and tunables, and a character whose module is missing or disabled plays by Standard's rules with its saves untouched.
+  Not tried in the client: a Ruthless character with the module on, then off.
+  Harvest, Heist and Delve are built-in mods in `Features/`, reached through the mod hooks and switched by `/mod_disable`.
+  They still use Gateway internals, so they are not separate assemblies. Not tried in the client after the move.
+  `Mods/Source/` has seven: six examples, of which only `example` is on by default, and `ruthless`, on.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
   `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.
@@ -46,8 +53,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
   dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
   context being freed.
-  Missing: catalog overrides, and the hooks not yet tried with the client (drops, experience, stats, packets).
-  Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `Program.Mods.cs`, `Mods/Source/`.
+  Unit-tested as well: scripts (load, reload, compile errors, no server references, dependencies, unload), league modules
+  (fallback, required features, tunables, scoped hooks) and built-ins.
+  Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
+  Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
+  `Features/`, `Mods/Source/`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.

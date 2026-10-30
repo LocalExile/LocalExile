@@ -1,13 +1,14 @@
 # Mods
 
-A mod is a C# assembly the Gateway loads from `Mods/Binaries/<id>/` while it runs, and reloads when its files change, without a
-rebuild or restart of the Gateway. A mod sees only the `GameServer.Modding` API; the Gateway, Core and Data stay
+A mod is a C# assembly, or loose `.cs` files, the Gateway loads from `Mods/Binaries/<id>/` while it runs, and reloads when its
+files change, without a rebuild or restart of the Gateway. A mod sees only the `GameServer.Modding` API; the Gateway, Core and Data stay
 internal to the server.
 
 What is built and what is planned: [status](../../status/setup-and-tooling.md) ("Mods"),
-[roadmap](../../roadmap/setup-and-tooling.md) ("Mods", phases 3 to 5).
+[roadmap](../../roadmap/setup-and-tooling.md) ("Mods").
 Code: `src/GameServer.Modding/` (the API), `src/GameServer.Gateway/Modding/ModHost.cs` (loading, hooks),
-`ModLoadContext.cs`, `Program.Mods.cs` (what the Gateway shows a mod, where it calls the hooks).
+`ModLoadContext.cs`, `ModScripts.cs` (scripts), `ServerLeagues.cs` (leagues), `Program.Mods.cs` (what the Gateway shows a mod,
+where it calls the hooks), `Features/` (the built-in mods).
 
 ## A mod's folder
 
@@ -26,6 +27,28 @@ Mods/Binaries/<id>/
 - `Mods/Binaries/` is relative to the repository root, like `data/`, and gitignored. `Game_MODS_FOLDER` moves it;
   `Game_MODS=0` loads no mods.
 
+## Scripts
+
+Loose `.cs` files directly in `Mods/Binaries/<id>/` are compiled with Roslyn, in memory, when the mod loads, so saving one
+reloads it under the rules of [Reloading](#reloading) (about 0.4 s, plus a second or two for the first compile).
+
+```csharp
+// Mods/Binaries/ping/ping.cs
+public sealed class Ping : IMod
+{
+    public void Load(IModContext mod) => mod.OnChatCommand("ping", "/ping", c => c.Player.Tell("pong"));
+}
+```
+
+- A script's folder needs no `mod.json`: without one its kind is `script`, its version `0`. With one, `depends` and `enabled`
+  work as for any mod, and a `.dll` beside the scripts loads as well.
+- Every file has the usings of `System`, `System.Collections.Generic`, `System.IO`, `System.Linq`, `System.Threading`,
+  `System.Threading.Tasks` and `GameServer.Modding`, and nullable checks on. All the folder's `.cs` files are one assembly.
+- They compile against the framework, `GameServer.Modding`, the `.dll` files in the folder and the assemblies of the mods in
+  `depends`. Not the server's: `GameServer.Core` is an unknown namespace to them.
+- A compile error is the mod's reason in `/mod`, in the log and in chat (`file.cs(line,column): CS0000 text`, the first five).
+  The mod stays unloaded until the file compiles. A script runs with the Gateway's rights, like any mod's assembly.
+
 ## Writing one
 
 The source of a first-party mod lives in `Mods/Source/<Name>/` (in the solution); `Mods/Source/Directory.Build.props` builds
@@ -42,6 +65,7 @@ new folder's name in lower case.
 | `ItemRarity` | 10 times the chance of magic, rare and unique equipment | no |
 | `DoubleExperience` | twice the experience from kills | no |
 | `BossLoot` | an Exalted Orb from every unique monster: an extra drop by name | no |
+| `Ruthless` | the Ruthless league ([Leagues](#leagues)) | yes |
 
 ```csharp
 public sealed class MyMod : IMod
@@ -67,17 +91,54 @@ Each `IModContext` call returns a handle; disposing it removes that hook, and un
 | `OnTick(run)` | the player tick, about 4 a second in an area (not while paused), with the game seconds since the last one | |
 | `OnPacket(opcode, run)` | a C→S message with that opcode, before the Gateway's handler | `true` takes it: the Gateway's handler does not run |
 | `OnAreaGenerated(run)` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
+| `OnObjectUsed(run)` | a click on an object the Gateway's own objects did not take | `true`: it was this mod's |
+| `AddLeague(league)` | see [Leagues](#leagues) | |
 | `OnMonsterKilled(run)` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
 | `ModifyDrops(modify)` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
 | `ModifyExperience(modify)` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 
-A player (`IPlayer`) is one connection: character, account, league and its modes, level, area id and seed, position,
+A player (`IPlayer`) is one connection: character, account, league, its modes and the league module it plays by, level, area id and seed, position,
 `Tell` (chat lines) and `Send` (a raw S→C message). An area change is a new connection.
 A hook that throws is logged as `[mods] <id> <hook> failed (skipped)` with its stack trace; a failed command also tells
 the player. It does not stop the connection or the other mods.
 Hooks run on the players' connection tasks, several at once: keep shared state thread-safe, and keep the modifiers
 cheap (`ModifyStats` runs on every stat rebuild).
+
+## Leagues
+
+`Program.LeagueFor(conn)` is what the Gateway asks instead of switching on a league: the character's module, kept for the
+connection. A module implements `ILeague` and registers with `mod.AddLeague(league)`:
+
+| Member | What it is |
+|---|---|
+| `Id` | lower case, as `IPlayer.LeagueId` says it |
+| `ClientLeagueName` | the league in the client's list. `Ruthless` takes every Ruthless form; another name takes that league and its Hardcore and SSF forms |
+| `Rules` | a `LeagueRules`: multipliers and mechanics, read at each use, so a tunables file hot-reloads |
+| `RequiredFeatures` | mods that must be loaded (a built-in's id counts) |
+| `Catalogs` | which of the game files' data: `Standard` or `HardMode` |
+| `Load(league)` | the league's hooks: an `IModContext` whose hooks run only for this league's players |
+
+- Standard is built in. A character whose league has no module, or whose module lacks a required feature, plays by Standard's
+  rules and data until the next connection after the module is back. It keeps its league name, stash and saves, and the
+  client still shows the league; nothing is converted.
+- Disabling a module mid-session leaves a connection on its rules until its next area, because its items and skills came from
+  that league's data.
+- `Mods/Source/Ruthless/` is the first one. Its numbers stay in `config/ruthless.json` (`Game_RUTHLESS_RULES` moves it,
+  `config/ruthless.example.json` shows it), reread at most once a second, keeping the last good ones through a bad edit.
+  What is still the Gateway's: reading the `HardMode` tables and columns, the saved-vitals mechanism, and vendor rules that
+  use the `HardMode` data.
+- A new league's name must also be in `Game_LEAGUES`: the Auth server gives the client its list.
+
+## Built-in mods
+
+`src/GameServer.Gateway/Features/` holds server features moved out of the static `Program`, each an `IMod` the Gateway registers
+with `AddBuiltIn`: `harvest`, `heist` and `delve`. Their packets, object clicks, area setup and chat commands reach them through
+the same hooks a mod has, and `/mod` and `/mod_disable` treat them as mods. They load even with `Game_MODS=0`, and have no
+folder or load context, so they do not reload.
+Their bodies still call Gateway internals (`using static Program`, the connection from `ConnOf(player)`), so they cannot be
+built as separate assemblies yet: that needs contracts for items, stash and objects. With `harvest` or `heist` off the hideout
+does not place the station or the locker.
 
 ## Reloading
 
@@ -104,5 +165,5 @@ warning).
 
 - A mod can use the framework, `GameServer.Modding`, the assemblies of the mods it depends on and the files in its
   folder; any other `GameServer.*` assembly is refused when it loads.
-- Not built yet: catalog overrides, loose `.cs` scripts compiled on save, leagues as mods with Standard as the
-  fallback, and the existing systems moved behind the API ([roadmap](../../roadmap/setup-and-tooling.md)).
+- Not built yet: a mod replacing rows of the catalogs (`Catalogs` only picks between the game files' two sets), and the rest of
+  the systems moved behind the API ([roadmap](../../roadmap/setup-and-tooling.md)).
