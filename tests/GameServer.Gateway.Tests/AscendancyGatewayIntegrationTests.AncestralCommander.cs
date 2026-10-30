@@ -884,7 +884,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // A use of Enduring Cry through its release continuation, waiting for its effect.
         public Task<(string? Error, byte[] Bytes)> EnduringCry(int effect, Func<bool> released) => Exchange(async (stream, cipher) =>
         {
-            Assert.True(ProgramValue<bool>("UseChargeSkillCore", "warcry-integration", stream, cipher, State, effect, WarcryOwn(effect)));
+            Assert.True(ProgramValue<bool>("UseWarcry", "warcry-integration", stream, cipher, State, effect, WarcryOwn(effect)));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             while (!released()) await Task.Delay(10, timeout.Token);
             return null;

@@ -222,7 +222,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             Assert.Null((await Exchange(async (stream, cipher) =>
             {
                 await (Task)GatewayMethod("AreaSkillHit").Invoke(null, ["polytheist-integration", stream, cipher, State, skillId, gem,
-                    self, aim, true, (ushort)0, null, null, null])!;
+                    self, aim, true, (ushort)0, null, null, null, 0u])!;
                 return null;
             })).Error);
             State.Monsters.Remove(46);
@@ -367,7 +367,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             return monster.Life - 500;
         }
         void Hit() => typeof(Program).GetMethod("ApplyMonsterHitLocked", System.Reflection.BindingFlags.Static
-            | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, [state, monster, 0]);
+            | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, [state, monster, 0, null]);
         Hit();
         Assert.Equal(50u, Regenerated(.5));
 
@@ -839,7 +839,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // An area spell's sweep: Ice Nova's 7.5% with 1200% increased is 97.5%, and 100% against the Blinded monster.
         Set("spell_critical_strike_chance_+%", 1200);
         await Struck((stream, cipher) => ProgramValue<Task>("AreaSkillHit", "polytheist-integration", stream, cipher, state,
-            nova.Id, nova, at, at, true, (ushort)0, null, null, null));
+            nova.Id, nova, at, at, true, (ushort)0, null, null, null, 0u));
         // Abberath's Fury's footstep: its 5% with 1850% increased is 97.5%, and 100% against the Blinded monster.
         Set("spell_critical_strike_chance_+%", 1850);
         var skill = Assert.Single(Program.FootstepSkills(state, state.Clock.Elapsed.TotalSeconds));
