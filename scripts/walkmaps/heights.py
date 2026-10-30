@@ -9,10 +9,12 @@ under the entry's code, + terrain multiplier x the entry's height offset.
 
 import json
 import os
+import runpy
 import struct
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RUNTIME = str(runpy.run_path(os.path.join(REPO, "scripts", "dev", "client_paths.py"))["runtime_directory"](REPO))
 # Client tables (3.29.3b): 0x142fa04b0 (9 x 3 bytes, the code's axis choice) and 0x142fb7f98 (code byte -> row).
 CODES = bytes.fromhex("000101010001000000010100000001010000000100010101000101")
 CLAMP = bytes.fromhex("00030201040506070800000000000000")
@@ -63,7 +65,7 @@ def main():
         sys.exit(__doc__)
     with open(sys.argv[1], encoding="utf-8") as f:
         W, H, cells = grid(json.load(f))
-    stem = os.path.join(REPO, "data", "walkability", f"{sys.argv[2]}_seed{sys.argv[3]}")
+    stem = os.path.join(RUNTIME, "data", "walkability", f"{sys.argv[2]}_seed{sys.argv[3]}")
     with open(stem + ".heights.bin", "wb") as f:
         f.write(struct.pack(f"<{len(cells)}h", *cells))
     with open(stem + ".heights.json", "w", encoding="utf-8") as f:
