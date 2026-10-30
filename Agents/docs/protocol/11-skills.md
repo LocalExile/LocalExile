@@ -1577,6 +1577,47 @@ The client's cooldown virtual for a skill record (`0x14281dfa0`, checked against
 returns no recovery when the record's stats hold `skill_cooldown_does_not_tick`, the per-skill form of the Leadership
 buff's `ancestral_buff_cooldown_does_not_tick`.
 
+## 10g. Totems
+
+A totem skill's ActiveSkills row names its totem (`SkillTotemId`); SkillTotemVariations maps that id and a skin to a
+MonsterVarieties row, and skin 0 is the default (Rejuvenation Totem: 4 → `Metadata/Monsters/Totems/LifeRegenTotem`).
+The totem base type (`Metadata/Monsters/Totems/Totem`) reads only components the monster blob writer already has.
+Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement and give
+it `monster_inherent_damage_taken_+%_final` -80.
+
+The server (`Program.Totems.cs`) keeps the player's totems in `ClientState.Totems`, never in `Monsters`: area hits,
+monster AI, loot, experience and the instance save read only `Monsters`, so none of them sees a totem.
+- Placement: the gem's use pays its mana, then waits the GrantedEffects CastTime (0.6 s) over
+  `1 + summon_totem_cast_speed_+% / 100` and the action speed (the wiki's Totem page: cast speed does not apply).
+  If the use is still current and the player lives, the totem appears at the aimed cell, moved out of walls and
+  monsters as a spawn is.
+  The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2b9) and enters it
+  in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it.
+- Level and Life: the totem's level is the gem level's `PlayerLevelReq`, as PoB's totem level.
+  Its base Life is the variety's minion Life at that level (MonsterTypes `IsPlayerMinion`, `LifeMultiplier` 120:
+  24 at gem level 1), times `1 + totem_life_+% / 100`; the maximum goes on the object's stats when it differs.
+- Duration: `base_totem_duration` with `totem_duration_+%` only (the wiki: skill effect duration does not apply).
+- Limit: Character.ot's `base_number_of_totems_allowed` 1 plus `number_of_additional_totems_allowed`.
+  A summon past it kills the oldest living totem first.
+  The client computes the same limit itself (`FUN_1427b0a10` builds `number_of_totems_allowed` 0x3be) and refuses
+  a totem skill below one (`FUN_14195e420`).
+- Death: at Life 0, at the end of its duration, when replaced past the limit, or when the player dies (wiki Totem and
+  Soul Mantle).
+  The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bb) a second after.
+  An area change starts a new connection without totems.
+- Rejuvenation Totem: its aura (BuffDefinitions 172 `totem_aura_life_regen`, base radius 10 with aura and spell area)
+  gives the living player within the radius the skill's `base_life_regeneration_rate_per_minute` and the row's other
+  stats the skill holds, scaled by the player's aura effect.
+  The strongest covering totem counts; the player gets buff 172 (0x1c1, source the player) and his stats while it does.
+- Damage taken from the nearest totem: `damage_removed_from_your_nearest_totem_before_life_or_es_%` (Forest of
+  Ancestors, Kaom's Leadership) moves that share of each part of a monster or `/hit` hit, after mitigation and before
+  Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
+  The client never reads that stat, nor `base_presence_radius` (0x3ee0): both are server-side.
+
+Not modelled: the other totem skills (their gem use stays as before: a totem that does not use its skill is not
+placed), monsters attacking totems, placement range (`base_totem_range`), the totem's collision on the server's paths,
+and the totem as the aura buff's source.
+
 ## 11. The skill bar
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.

@@ -560,6 +560,11 @@ partial class Program
             });
             return true;
         }
+        if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
+        {
+            _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
+            return true;
+        }
         if (gem.Name is not null && UseChargeSkillInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);

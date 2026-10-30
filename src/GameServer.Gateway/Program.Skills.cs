@@ -159,6 +159,7 @@ partial class Program
         int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet).Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         AddSpiritLeadershipStats(conn, stats);
+        AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         Dictionary<uint, int> dev;

@@ -77,7 +77,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Spirits of Kahuturoa, Utula and Kiloava trigger on a Unique's crit, Savage Hit or blocked hit, with the shared
   cooldown and their Leadership buff (Kahuturoa's armour share and Kiloava's block recovery act; Utula's leech has no
   leech to act on); the chieftain minions are not summoned (no allied minions).
-  Not yet: Spirit of Rakiata (no Marks), Spirit of Kaom and Forest of Ancestors (no totems).
+  Forest of Ancestors' +1 totem and its 20% of hits from the nearest totem act on Rejuvenation Totems, the one totem
+  skill the server places; a totem killed while a Unique is near triggers Spirit of Kaom, whose Leadership adds 25%.
+  Not yet: Spirit of Rakiata (no Marks), monsters attacking totems and other totem skills.
   `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in; not yet checked with the real client.
   Docs: [Ancestral Commander checklist](../docs/game/ancestral-commander.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

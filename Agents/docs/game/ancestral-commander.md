@@ -2,9 +2,9 @@
 
 Ancestral Commander is the Marauder's Phrecia Juggernaut identity (`Juggernaut`, 3.29.3b), start node 17765.
 No node grants passive points.
-The defensive, warcry, strike, enemy-aura and Spirit nodes have server consumers with Gateway coverage (Deathrattle
-and three Spirits only partly: the chieftain minion is not summoned); Spirit of Rakiata and the totem nodes are still
-open, as the checklist says.
+The defensive, warcry, strike, enemy-aura, Spirit and totem nodes have server consumers with Gateway coverage
+(Deathrattle, four Spirits and Forest of Ancestors only partly: the chieftain minion is not summoned, and only
+Rejuvenation Totem places a totem); Spirit of Rakiata is still open, as the checklist says.
 Native acceptance is open: it needs the reviewed combined graph installed (see Admission below).
 
 ## Node checklist
@@ -30,13 +30,13 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 17511 Spirit of Utula | Trigger on taking a Savage Hit from a Unique | Partial: the trigger, cooldown and Utula's Leadership buff; its 50% instant leech has nothing to act on (no leech), and no minion. |
 | 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Partial: the trigger, cooldown and Kiloava's Leadership (5% of Life, Mana and Energy Shield on block); no minion. |
 | 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: the server has no Mark curses, so nothing can trigger it. |
-| 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Not yet: the server has no totems. |
+| 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Partial: the trigger, the shared cooldown and Kaom's Leadership (25% more of hits from the nearest totem); no minion. See below. |
 | 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
 | 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: the warcry release explodes the server's corpses and opens quest chests; see below. |
 | 40762 Ancestral Reach | Non-Vaal Strikes target 2 additional nearby Enemies, from 50% further away | Spirit strikes of gem Strikes and the default attack, picked as the client picks them; see below. |
 | 61282 Ancestral Echo | Strikes also target the previous location they were used | Partial: the server strikes the previous location and sends `skill_location_memory`; the client's own strike there needs a live check. |
 | 32105 Born under Fire | Nearby Enemies convert 50% of their Physical Damage to Fire | Monster hits within 60 cells convert, and the aura's buff goes on those monsters. |
-| 16317 Forest of Ancestors | 20% of Damage from Hits is taken from your nearest Totem's Life before you; +1 maximum Totem | Not yet: the server has no totems. |
+| 16317 Forest of Ancestors | 20% of Damage from Hits is taken from your nearest Totem's Life before you; +1 maximum Totem | Partial: monster and `/hit` hits, and the limit; only Rejuvenation Totem places a totem. See below. |
 
 Three legal eight-point builds, with the four other Spirit options, cover every node:
 
@@ -125,20 +125,35 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   A monster's hit within 60 cells at contact converts half its physical damage to fire, before mitigation, by the
   player's own conversion rules: fire resistance applies, and the fire can ignite on a critical hit.
   The generic passive enemy-aura path is [11](../protocol/11-skills.md) section 10e.
+- Forest of Ancestors: `number_of_additional_totems_allowed` 1 raises the totem limit to 2, as the client computes
+  it, and `damage_removed_from_your_nearest_totem_before_life_or_es_%` 20.
+  Once a monster's hit (or `/hit`, `/blockhit`) is mitigated, before Ward, Energy Shield and Life, 20% of each of
+  its parts (non-chaos and chaos) goes to the nearest living totem's Life, at most the Life it has left (PoB
+  `reducePoolsByDamage`; the rounding down is unverified).
+  The totem's own mitigation does not apply, as in PoB, and no distance limit applies.
+  A totem at 0 Life dies, which can trigger Spirit of Kaom.
+  Totems come only from Rejuvenation Totem so far ([11](../protocol/11-skills.md) section 10g): other totem gems
+  place nothing, and monsters do not attack totems, so only the redirect lowers a totem's Life.
 - Ancestral Spirit's options: each grants a level 20 Summon Spirit skill (PassiveSkills `GrantedEffectsPerLevel`
-  78491 Kahuturoa, 78485 Utula, 78509 Kiloava, 78494 Rakiata; `PassiveGrantedSkills.cs`), triggered from the node's
-  `has_trigger_on_*` stat, which the level row's AdditionalFlags name too ([11](../protocol/11-skills.md) section 10f).
+  78491 Kahuturoa, 78485 Utula, 78509 Kiloava, 78494 Rakiata, 78482 Kaom; `PassiveGrantedSkills.cs`), triggered
+  from the node's `has_trigger_on_*` stat, which the level row's AdditionalFlags name too ([11](../protocol/11-skills.md) section 10f).
   After a Unique monster's hit on the living player (`MonsterSwing`; dev hits have no monster):
   - Kahuturoa: the hit was a critical strike and was not blocked (an evaded hit never gets here).
   - Utula: the hit was a Savage Hit, one that removed at least 15% of maximum Life; Energy Shield, Ward and Mana do
     not count (wiki Savage hit, Module:Keyword).
   - Kiloava: the hit was blocked.
   - Rakiata: a critical strike against a Marked Unique; the server has no Marks, so it is never triggered.
+  Kaom triggers on a totem's death instead: its Life reaches 0, its duration ends or a new totem replaces it, while a
+  living hostile Unique monster is within the player's presence (Character.ot's fixed `base_presence_radius` 80
+  cells, the wiki's 8 metres), and the player lives.
+  The wiki's Soul Mantle page counts the end of the duration and a replacement as the totem dying; that Kaom's trigger
+  counts them too is unverified.
   A trigger spends the five skills' shared cooldown (CooldownGroup 24: 20 s, one use, with the player's cooldown
   recovery) and gives the player the chieftain's Leadership for the skill's 12 s (`base_skill_effect_duration`, with
   increased skill effect duration).
   The Leadership is the BuffTemplates row whose value stats are the skill's `ancestral_buff_*` stats (RongokuraisEmbrace
-  for Kahuturoa, KitavasEmbrace, ValakosEmbrace, TasaliosEmbrace): BuffDefinitions 2273, 2271, 2279 or 2274, each of
+  for Kahuturoa, KitavasEmbrace, ValakosEmbrace, TasaliosEmbrace, NgamahusEmbrace): BuffDefinitions 2273, 2271, 2279,
+  2274 or 2270, each of
   whose stats takes the skill's value.
   Its `ancestral_buff_cooldown_does_not_tick` stops the cooldown while it lasts, so the next trigger is 32 s after the
   last (`SpiritChieftains`).
@@ -152,6 +167,8 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
     rounding is unverified), in monster swings and `/blockhit`.
     The block that triggers the chieftain comes before its buff, so it recovers nothing.
   - Utula's Leadership: `leech_%_is_instant` 50; the server has no leech, so it changes nothing yet.
+  - Kaom's Leadership: `damage_removed_from_your_nearest_totem_before_life_or_es_%` 25, added to Forest of
+    Ancestors' 20, so 45% of each hit comes from the nearest totem while it lasts.
   The buff goes on the player (S→C 0x1c1 with its remaining seconds) and comes off at its end or at death (0x1c2), with
   the player's stats each time; its stats act only while the player lives.
   BuffDefinitions has CancelOnDeath false on these rows: the chieftain minion grants the buff, and the server ends it at
@@ -196,5 +213,11 @@ for 32 s.
 Kiloava (`16639`) needs a shield: blocking the unique shows Kiloava's Leadership, and the next block raises Life,
 Mana and Energy Shield by 5% each.
 Kahuturoa (`59500`) needs a unique that crits (a monster mod such as Deadliness); its buff lowers the next fire hit.
+For the totem nodes, use `/add_passive 19258 47491 17140 28454 16317` with a Rejuvenation Totem gem at character
+level 4 or higher: two totems stand at once and a third replaces the first, the player regenerates Life beside one,
+and a monster's hit takes 20% from the nearest totem's Life bar.
+With a `/spawn_mob <variety> unique` close by, a totem killed by those hits shows Kaom's Leadership for 12 s, during
+which 45% of each hit comes from the next totem.
+Check that the totems rise and die with their animation, and that the client lets a third be placed.
 
 Coverage: `AscendancyGatewayIntegrationTests.AncestralCommander` and `VerifiedGamblerGraphTests`.

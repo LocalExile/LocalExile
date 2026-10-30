@@ -515,6 +515,16 @@ and can require explicit recipes.
   Determination/Grace/Discipline (the base armour/evasion model exists, but their buffs and energy shield are not
   applied), Purity ailment immunity, Reservation masteries 1/2/6, supports, party/minion auras and life reservation
   ([11](../docs/protocol/11-skills.md) 13).
+- **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
+  a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
+  (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
+  Totems live apart from the monsters, so area hits, monster AI, loot and the instance save never see them.
+  A totem dies at Life 0, at the end of its duration, when replaced or when the player dies, and leaves a second later.
+  Its aura regenerates the player's Life within its radius, with buff 172.
+  `damage_removed_from_your_nearest_totem_before_life_or_es_%` moves that share of a monster or `/hit` hit, after
+  mitigation, to the nearest totem's Life (Forest of Ancestors, Spirit of Kaom); covered by Gateway tests.
+  Not yet: other totem skills (their use places nothing), monsters attacking totems, placement range and server-side
+  totem collision; not yet checked with the real client ([11](../docs/protocol/11-skills.md) §10g).
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The player's life, mana, accuracy, armour and evasion come from its class and level, with the attributes' bonuses

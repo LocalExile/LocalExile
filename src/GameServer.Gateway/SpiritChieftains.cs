@@ -85,10 +85,11 @@ sealed class SpiritChieftains
 partial class Program
 {
     // The node stats that name a Spirit chieftain trigger with an event the server has. Spirit of Rakiata's
-    // has_trigger_on_crit_vs_marked_unique needs Marks, which the server does not have; Spirit of Kaom's needs totems.
+    // has_trigger_on_crit_vs_marked_unique needs Marks, which the server does not have.
     internal const string CritByUniqueTrigger = "has_trigger_on_crit_by_unique_enemy",
         SavageHitFromUniqueTrigger = "has_trigger_on_taking_savage_hit_from_unique",
-        BlockFromUniqueTrigger = "has_trigger_on_block_hit_from_unique";
+        BlockFromUniqueTrigger = "has_trigger_on_block_hit_from_unique",
+        TotemDeathInPresenceOfUniqueTrigger = "has_trigger_on_totem_death_in_presence_of_unique";
 
     /// <summary>
     /// After a Unique monster's hit on the living player, under the Monsters lock: blocking it triggers Spirit of Kiloava,

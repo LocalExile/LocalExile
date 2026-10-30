@@ -68,7 +68,9 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   damage, area, speed, critical, cost and reservation calculations ([25](../docs/protocol/25-gem-supports.md)).
   Cyclone with Increased Area of Effect was checked with the real client.
 - **Next:** implement special execution mechanics separately: triggers, repeats, projectile branching,
-  totems, mines, minions, leech and conditional effects; verify each against native data and live behaviour.
+  totems that use their skill (only Rejuvenation Totem's aura has an executor, and monsters do not attack totems;
+  [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
+  native data and live behaviour.
 - **Done when:** Fireball linked with Arcane Surge shows the support's letter and pays the multiplied cost, a modelled
   support such as Faster Casting changes the skill, and the support crash is gone.
 

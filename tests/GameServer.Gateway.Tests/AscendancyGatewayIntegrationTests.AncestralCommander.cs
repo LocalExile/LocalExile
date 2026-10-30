@@ -491,6 +491,119 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(0u, none.State.EnergyShield.Current);
     }
 
+    // Rejuvenation Totem and Heavy Strike, unlinked, in a club; Spirit of Kaom and Forest of Ancestors.
+    static Item TotemClub() => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!) with
+    {
+        Sockets = [new(SocketColour.White, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemRejuvenationTotem")!)),
+            new(SocketColour.White, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemHeavyStrike")!))],
+        Links = [1, 1],
+    };
+    static readonly ushort[] KaomAndForest = [19258, 47491, 17140, 28454, 16317];
+
+    [Fact]
+    public async Task Ancestral_Commander_totems_keep_their_limit_and_aura_out_of_the_monsters()
+    {
+        if (!DataAvailable()) return;
+        using var forest = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest);
+        using var plain = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", level: 4); // the gem's level
+        foreach (var character in new[] { forest, plain }) character.Items.Add(PlayerInventories.Weapon1, 0, 0, TotemClub());
+        var state = forest.State;
+        var at = state.Walk.Position(state.Clock.Elapsed.TotalSeconds);
+        string regen = "base_life_regeneration_rate_per_minute";
+        int before = GamblerStat(state, regen);
+        // One totem without Forest of Ancestors, two with it; a third replaces the oldest.
+        Assert.Null((await plain.CastTotem(at)).Error); // the gem's use, after its summon time
+        Assert.Null((await plain.PlaceTotem(at)).Error);
+        Assert.Single(plain.State.Totems.Living(plain.State.Clock.Elapsed.TotalSeconds));
+        Assert.Equal(1, GamblerStat(state, "number_of_additional_totems_allowed"));
+        ushort buff = state.NextBuff;
+        var bytes = (await forest.PlaceTotem(at)).Bytes;
+        Assert.True(bytes.AsSpan().IndexOf(InstanceEntities.AddBuff(Program.PlayerId, buff, 172, Program.PlayerId)) >= 0);
+        await forest.PlaceTotem(at);
+        await forest.PlaceTotem(at);
+        var ids = state.Totems.All.Select(t => t.Id).ToArray();
+        double now = state.Clock.Elapsed.TotalSeconds;
+        Assert.Equal(ids[1..], state.Totems.Living(now).Select(t => t.Id));
+        Assert.All(state.Totems.All, t => Assert.Equal(24u, t.MaxLife)); // the variety's minion Life at the gem's level 4, 120%
+        // The aura: Rejuvenation Totem's level 1 regeneration while the player stands in it.
+        Assert.Equal(before + 514, GamblerStat(state, regen));
+        // The player's area hits and the instance save see the monsters only.
+        int heavy = Program.Skills.EffectRow("HeavyStrike");
+        await forest.HeavyStrike(heavy, at, at, sequence: 1, target: 0);
+        Assert.All(state.Totems.All, t => Assert.Equal(t.MaxLife, t.Life));
+        Assert.Empty(state.Monsters.Keys.Intersect(ids));
+        // At the end of their duration they die (Life 0) and the aura goes; a second later they leave.
+        buff = state.Totems.SentAuraInstance; // the oldest living totem's, re-sent when the third replaced the first
+        foreach (var t in state.Totems.All) t.Until = now;
+        bytes = Program.TotemPresentation(state)!;
+        Assert.All(ids[1..], id => Assert.True(bytes.AsSpan().IndexOf(InstanceProtocol.LifeUpdate(id, 0)) >= 0));
+        Assert.True(bytes.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, buff)) >= 0);
+        Assert.Equal(before, GamblerStat(state, regen));
+        foreach (var t in state.Totems.All) t.DiedAt -= TotemState.RemoveSeconds;
+        bytes = Program.TotemPresentation(state)!;
+        Assert.All(ids, id => Assert.True(bytes.AsSpan().IndexOf(InstanceProtocol.RemoveObject(id)) >= 0));
+        Assert.Empty(state.Totems.All);
+    }
+
+    [Fact]
+    public async Task Ancestral_Commander_forest_and_kaom_take_hits_from_the_nearest_totem()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest);
+        using var rare = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest);
+        using var plain = AncestralCommander();
+        lock (plain.State.Monsters) plain.State.PlayerStats[GamblerKey(Program.TotemRedirectStat)] = 20;
+        foreach (var character in new[] { game, rare, plain })
+        {
+            character.State.Pools = character.State.Pools with { Life = 1000, EnergyShield = 0, Armour = 0, ChaosResistance = 0 };
+            character.Items.Add(PlayerInventories.Weapon1, 0, 0, TotemClub());
+        }
+        var chaos = DamagePacket.Of(DamageType.Chaos, 20, 20);
+        TotemState.Totem? Nearest(GatewayCharacter c) =>
+            c.State.Totems.Nearest(c.State.Walk.Position(c.State.Clock.Elapsed.TotalSeconds), c.State.Clock.Elapsed.TotalSeconds);
+        async Task Place(GatewayCharacter c) => Assert.Null((await c.PlaceTotem(c.State.Walk.Position(c.State.Clock.Elapsed.TotalSeconds))).Error);
+        async Task<(uint Player, uint Totem)> Hit(GatewayCharacter c, MonsterRarity rarity, uint? totemLife = null)
+        {
+            c.State.PlayerLife = 1000;
+            var totem = Nearest(c);
+            if (totem is not null && totemLife is uint life) totem.Life = life;
+            uint had = totem?.Life ?? 0;
+            await c.SpiritHit(chaos, rarity);
+            return (1000 - c.State.PlayerLife, had - (totem?.Life ?? 0));
+        }
+
+        // Without a totem the hit is whole; with one, 20% of it comes from the totem's Life, as the plain stat does.
+        Assert.Equal((20u, 0u), await Hit(game, MonsterRarity.Normal));
+        foreach (var character in new[] { game, plain })
+        {
+            await Place(character);
+            Assert.Equal((16u, 4u), await Hit(character, MonsterRarity.Normal));
+        }
+        // /hit the same.
+        plain.State.PlayerLife = 1000;
+        object?[] devHit = [plain.State, DamageType.Chaos, 20, false, false, false, null, false];
+        Assert.True((bool)typeof(Program).GetMethod("TryDevEnemyHit", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, devHit)!);
+        Assert.Equal((16u, 16u), (1000 - plain.State.PlayerLife, Nearest(plain)!.Life));
+
+        // Spirit of Kaom: a totem killed (its share capped by its Life) while a Unique is near, not a Rare.
+        await Place(rare);
+        Assert.Equal((18u, 2u), await Hit(rare, MonsterRarity.Rare, totemLife: 2));
+        Assert.Equal((18u, 2u), await Hit(game, MonsterRarity.Unique, totemLife: 2));
+        Assert.Null(rare.State.SpiritChieftains.Active(rare.State.Clock.Elapsed.TotalSeconds));
+        Assert.Equal(2270, game.State.SpiritChieftains.Active(game.State.Clock.Elapsed.TotalSeconds)!.Row);
+        // Kaom's Leadership adds 25%; after it, 20% again.
+        await Place(game);
+        Assert.Equal((11u, 9u), await Hit(game, MonsterRarity.Normal));
+        game.State.SpiritChieftains.End(game.State.Clock.Elapsed.TotalSeconds);
+        Assert.Equal((16u, 4u), await Hit(game, MonsterRarity.Normal));
+        // The player's death kills every totem.
+        await Place(game);
+        Assert.Equal(2, game.State.Totems.Living(game.State.Clock.Elapsed.TotalSeconds).Count());
+        await game.SpiritHit(DamagePacket.Of(DamageType.Chaos, 5000, 5000), MonsterRarity.Normal);
+        Assert.Equal(0u, game.State.PlayerLife);
+        Assert.Empty(game.State.Totems.Living(game.State.Clock.Elapsed.TotalSeconds));
+    }
+
     sealed class ZeroRandom : Random
     {
         public override double NextDouble() => 0;
@@ -567,6 +680,25 @@ public sealed partial class AscendancyGatewayIntegrationTests
             lock (State.Monsters) State.Monsters[44] = monster;
             await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["spirit-integration", stream, cipher,
                 State, 44u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
+            return null;
+        });
+
+        // A Rejuvenation Totem summoned at a cell (the placement after its summon time).
+        public Task<(string? Error, byte[] Bytes)> PlaceTotem((int X, int Y) at) => Exchange(async (stream, cipher) =>
+        {
+            int effect = Program.Skills.EffectRow("RejuvenationTotem");
+            var gem = HeavyStrikeGem(effect);
+            return await Program.CreateTotem("totem-integration", stream, cipher, State, gem.Id, effect, gem.Level,
+                Program.TotemVariety(State, effect)!, at) is null ? "no totem" : null;
+        });
+
+        public Task<(string? Error, byte[] Bytes)> CastTotem((int X, int Y) at) => Exchange(async (stream, cipher) =>
+        {
+            var gem = HeavyStrikeGem(Program.Skills.EffectRow("RejuvenationTotem"));
+            Assert.True(await (Task<bool>)GatewayMethod("CastGemSkill").Invoke(null, ["totem-integration", stream, cipher, State, gem.Id,
+                at, at, 0u, (ushort)0, null, null, false])!);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (State.Totems.All.Count == 0) await Task.Delay(10, timeout.Token);
             return null;
         });
 

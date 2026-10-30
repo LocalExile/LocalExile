@@ -432,6 +432,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>The Spirit chieftain skills' shared cooldown and Leadership buff (SpiritChieftains). Guarded by the Monsters
     /// lock.</summary>
     public SpiritChieftains SpiritChieftains { get; } = new();
+    /// <summary>The player's summoned totems (Program.Totems.cs), kept apart from <see cref="Monsters"/>. Guarded by the
+    /// Monsters lock.</summary>
+    public TotemState Totems { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
     public ushort NextBuff = 1;
