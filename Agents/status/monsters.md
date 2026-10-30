@@ -73,7 +73,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Six integrated native cases at source `dbfe717`, recorded by `53edc77`, cover ordinary alive/dead, Raised Zombie
   false, Hillock life 1, sinking and an owned Spectral Wolf forced false by that source's separate summon runtime.
   This branch preserves the ordinary flag math and fields; it has no independent native pass or owned-actor runtime.
-  The Core helper retains an optional owned guard; corpse identity, final-death registration and consumption remain open.
+  The Core helper retains an optional owned guard; corpse identity and final-death registration remain open.
+  Deathrattle's warcry explosion is the first consumer: a dead zero-Life eligible monster explodes once and is marked
+  `SpawnedMonster.CorpseConsumed` and removed ([11](../docs/protocol/11-skills.md) section 10i).
   Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Program.Monsters.cs`, `ot_components.py`.
   Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
 - Monster mods' accuracy (of the Marksman, of Precision): the monster's accuracy is raised in its swing, but only the

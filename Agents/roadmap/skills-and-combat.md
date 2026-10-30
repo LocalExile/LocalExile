@@ -64,6 +64,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 - **Warcry restriction (#297):** shared actor admission has regression and seven real-client controls in Status.
   Blocked input, source clearing, paid retries and an accepted cry's release are verified.
   See [11](../docs/protocol/11-skills.md) section 10b; broader warcry engines and Phrecia enablement remain separate.
+  Warcry speed, one-use warcry cooldowns and the shared release effects (section 10i) run for Enduring Cry; the other
+  warcries need executors, and explosions need their global added damage, flat crit chance, on-hit effects and art.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
   The overcapped resistances' derived evasion and critical increases now follow that rule and are native-verified.
@@ -92,6 +94,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Native grey-icon prediction and persistent restricting equipment remain separate verification.
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
   Complete Lone Messenger, party auras and unsupported curse/enemy/banner/Vaal executors remain separate.
+  Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
+  the others (Overwhelm, the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
   Fire's); the combat auras (Anger, Hatred, Wrath, Zealotry, Pride), Heralds, banners, curse auras and
   Determination/Grace/Discipline's armour/evasion/ES effects.

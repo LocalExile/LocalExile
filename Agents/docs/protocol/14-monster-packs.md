@@ -114,7 +114,8 @@ The Tidal Island seed 1 (live 2026-10-25): `medicine_boat_1` captured at (138, 3
   / MonsterRare2 "148% / 390% more maximum Life", and "Additionally magic / rare monsters receive a life multiplier
   based on their level", whose tables match these two for all 100 levels. A rare Hungry Corpse at level 70 has
   4.9 × 2 × its base life.
-- **Hits:** DefaultMonsterStats `Damage` × DamageMultiplier × the attack time in seconds (unless MonsterTypes
+- **Hits:** DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion MonsterTypes row, PoB's
+  `monsterAllyDamageTable`) × DamageMultiplier × the attack time in seconds (unless MonsterTypes
   `BaseDamageIgnoresAttackSpeed`), spread ± MonsterTypes `DamageSpread`; then the rarity's monster mods:
   `monster_rarity_damage_+%_final` (magic 30, rare 50, unique 70) and
   `monster_rarity_attack_cast_speed_+%_and_damage_-%_final` (20, 33, 33: that much faster, that much less damage per

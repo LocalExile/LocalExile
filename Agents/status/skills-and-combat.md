@@ -365,6 +365,69 @@ and can require explicit recipes.
   Unsupported Vaal casts are refused before action echoes or cooldown reservation, including effective zero cost.
   No executor, Rage payment or SGP countdown is added.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
+- Warcry release (Enduring Cry, the only warcry executor): the cry's time follows warcry speed and action speed as the
+  client's does, and its release runs the shared warcry effects within its radius: corpse explosions that consume the
+  corpse and quest chests opening (Deathrattle).
+  The explosion takes the player's global damage increases and conversion.
+  Every one-use warcry, for every class (Enduring, Rallying, Intimidating, Seismic, Infernal, Ancestral, General's and
+  Battlemage's Cry), now uses the generic one-use cooldown, with `warcry_cooldown_speed_+%` added to
+  its recovery as the client adds it; the live cooldown checks under "Instant skills and cooldowns" ran before
+  warcries took that path.
+  Gateway coverage; not yet checked with the real client.
+  Global flat added damage and flat crit chance (the wiki's Explode page applies both), on-hit effects, art and the
+  client's 0.22 s wave delay are not modelled.
+  Code: `Program.Warcries.cs`, `UseChargeSkillCore`, `SingleUseCooldown.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10i.
+- Strike targeting: a melee Strike's spirit strikes (`melee_attack_number_of_spirit_strikes`) hit the monsters the
+  client picks, mirrored from its scan and its seeded shuffle, for gem Strikes and the default attack.
+  With `melee_strike_skill_strike_previous_location` a Strike also hits where its previous use landed, and the
+  server sends the `skill_location_memory` buff with that first use, from which the client records the later uses and
+  strikes the previous location itself.
+  Gateway coverage; not yet checked with the real client.
+  Not mirrored: the client's line-of-sight test and its choice among more than 20 candidates.
+  Not for the Strike gems typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their
+  transfigured gems except Frost Blades of Katabasis, which has no Projectile type and gets both):
+  the server launches only their projectiles and has no melee hit for them, so the spirit strikes the client draws
+  for them deal no damage.
+  Code: `StrikeTargets.cs`, `Program.Strikes.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10d.
+- Passive enemy auras: a passive's BuffTemplates enemy aura puts its buff on hostile monsters in its radius, and its
+  hit conversion converts their hits (Born under Fire).
+  Auras with stats the server does not apply yet are neither sent nor applied.
+  Gateway coverage; not yet checked with the real client.
+  Code: `PassiveBuffAuras.cs`, `MonsterSwing`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10e.
+- Passive-triggered skills: Ancestral Commander's Spirit chieftain options trigger on a Unique monster's crit, Savage
+  Hit or blocked hit, spend their shared 20 s cooldown and give the chieftain's Leadership buff for 12 s (with increased
+  skill effect and minion duration), during which
+  that cooldown does not recover; death ends the buff.
+  Kahuturoa's share of armour against elemental and chaos hits and Kiloava's Life, Mana and ES on block act.
+  Server monsters have no base critical strike chance, so Kahuturoa's crit trigger fires only on a Unique with a
+  forced always-crit mod (`/mob_mods`), never in normal play.
+  The chieftain rises beside the player as his minion and fights the monsters near him until the buff ends.
+  Gateway coverage; not yet checked with the real client.
+  Not modelled: the chieftain's skills past its first, the skills' records (the client shows only the buff), Utula's
+  leech and Rakiata's Mark trigger (see "Not working yet"), and carrying the buff, minion or cooldown through an area
+  change.
+  Code: `PassiveGrantedSkills.cs`, `SpiritChieftains.cs`, `MonsterSwing`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10f, [20](../docs/protocol/20-damage.md) section 2e.
+- Player minions that fight: a minion on the player's team, marked as his for the client, walks with him, goes for
+  the nearest hostile monster near both, swings its first skill with his minion modifiers (its base hit from
+  DefaultMonsterStats `MinionDamage`, the ally table), and its kills give him
+  experience and loot; the instance save, his area hits and his on-kill charges leave it out.
+  The Spirit chieftains are the only ones; no monster attacks a minion.
+  Gateway coverage; not yet checked with the real client.
+  Code: `PlayerMinions.cs`, `Program.MinionAttacks.cs`, `RunMonsterAi`.
+  Docs: [11](../docs/protocol/11-skills.md) section 10h.
+- Ancestral Commander defences: `damage_reduction_rating_from_body_armour_doubled` doubles the body armour's armour
+  (and, with Iron Reflexes, its converted evasion) before the increases.
+  `missing_unreserved_life_%_gained_as_life_before_hit` gains that share of missing Life before every non-evaded
+  monster swing and dev hit, blocked ones included (Life reservation is not modelled).
+  `movement_speed_cannot_be_reduced_below_base` bounds the movement speed total below by 0, as the client does from
+  the same flag.
+  Gateway coverage; not yet checked with the real client (move into the armour and movement speed entries under
+  Works after a live check).
+  Docs: [ancestral-commander.md](../docs/game/ancestral-commander.md).
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.
   Equipment contributes attributes before individual gem validation;
@@ -479,6 +542,16 @@ and can require explicit recipes.
   Determination/Grace/Discipline (the base armour/evasion model exists, but their buffs and energy shield are not
   applied), Purity ailment immunity, Reservation masteries 1/2/6, supports, party/minion auras and life reservation
   ([11](../docs/protocol/11-skills.md) 13).
+- **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
+  a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
+  (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
+  Totems live apart from the monsters, so area hits, monster AI, loot and the instance save never see them.
+  A totem dies at Life 0, at the end of its duration, when replaced or when the player dies, and leaves a second later.
+  Its aura regenerates the player's Life within its radius, with buff 172.
+  `damage_removed_from_your_nearest_totem_before_life_or_es_%` moves that share of a monster or `/hit` hit, after
+  mitigation, to the nearest totem's Life (Forest of Ancestors, Spirit of Kaom); covered by Gateway tests.
+  Not yet: other totem skills (their use places nothing), monsters attacking totems, placement range and server-side
+  totem collision; not yet checked with the real client ([11](../docs/protocol/11-skills.md) §10g).
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The player's life, mana, accuracy, armour and evasion come from its class and level, with the attributes' bonuses
@@ -682,6 +755,8 @@ and can require explicit recipes.
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
+  `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze (Gateway coverage,
+  not yet checked with the real client).
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
   Alternative ailments and hostile spell/projectile adapters remain unimplemented.
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.
@@ -716,6 +791,9 @@ and can require explicit recipes.
 - Projectile spawn height on platforms and doodads: the protocol carries no player z and the server has no
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
+- Leech and Mark curses (curses in general) do not exist yet.
+  Spirit of Utula's Leadership (`leech_%_is_instant`) therefore changes nothing, and Spirit of Rakiata (a crit against
+  a Marked Unique) is never triggered ([Ancestral Commander](../docs/game/ancestral-commander.md)).
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
   an effect object follows the player only by 0x1ba glides.
   Combat auras, Heralds and banners are not implemented; only the simple auras above use buffs.

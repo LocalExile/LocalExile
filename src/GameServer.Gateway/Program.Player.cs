@@ -149,6 +149,9 @@ partial class Program
             ClearRageOnDeath(conn);
             ChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
+            conn.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
+            conn.SpiritChieftains.End(conn.Clock.Elapsed.TotalSeconds);   // the chieftain minion dies with the player
+            conn.Totems.KillAll(conn.Clock.Elapsed.TotalSeconds);   // and his totems (the tick sends their deaths)
         }
         foreach (var (id, life) in RecoverRuthlessBossesOnDeath(conn))
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"Ruthless campaign boss 0x{id:x} recovers to {life} life after player death");
@@ -406,6 +409,8 @@ partial class Program
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
             }
             await SendAntiquarian(remote, stream, ciphers, conn);
+            await SendTotems(remote, stream, ciphers, conn);
+            await SendSpiritChieftain(remote, stream, ciphers, conn);
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;

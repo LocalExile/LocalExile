@@ -65,6 +65,28 @@ Part of [Status](../Status.md); what to build next in this area is in
   conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
+- Ancestral Commander: the defensive nodes have server consumers (Armour and Life, Ancestral Endurance, Toughened
+  Skin's action/movement floors and doubled body armour, Ancestral Defiance), with Gateway coverage of legal builds,
+  the paid Ancestral Spirit choice refund and reload.
+  Call of the Ancestors speeds Enduring Cry's release and slows its one-use cooldown, which the record and the client
+  derive the same way; Deathrattle explodes and consumes the server's corpses and opens the quest chests at the release.
+  The explosion takes the player's global damage and conversion; Deathrattle is partial: no added damage, on-hit
+  effects or art, only Enduring Cry, and no chests beyond the quest ones.
+  Ancestral Reach's spirit strikes hit the monsters the client picks; Ancestral Echo strikes the previous location on
+  the server and sends the client the first location it needs to strike there too.
+  Neither acts for the Strike gems typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and
+  their transfigured gems except Frost Blades of Katabasis): the server has no melee hit for them, though the client draws their spirit strikes.
+  Born under Fire converts nearby monsters' physical hits and puts its debuff on them.
+  Spirits of Kahuturoa, Utula and Kiloava trigger on a Unique's crit, Savage Hit or blocked hit, with the shared
+  cooldown and their Leadership buff (Kahuturoa's armour share and Kiloava's block recovery act; Utula's leech has no
+  leech to act on); each chieftain fights beside the player for the buff's duration, with its first skill only.
+  Server monsters have no base critical strike chance, so Kahuturoa triggers only on a Unique given an always-crit mod
+  through `/mob_mods`, never in normal play.
+  Forest of Ancestors' +1 totem and its 20% of hits from the nearest totem act on Rejuvenation Totems, the one totem
+  skill the server places; a totem killed while a Unique is near triggers Spirit of Kaom, whose Leadership adds 25%.
+  Not yet: Spirit of Rakiata (no Marks), monsters attacking totems and other totem skills.
+  `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in; not yet checked with the real client.
+  Docs: [Ancestral Commander checklist](../docs/game/ancestral-commander.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.

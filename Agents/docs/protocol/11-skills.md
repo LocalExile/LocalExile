@@ -321,6 +321,9 @@ See [the calculation boundaries and pending native checks](../game/power-of-purp
 passive/item flat evasion, to armour and removes dexterity's 1% per 5 evasion; the converted part keeps the armour,
 evasion and shared defence increases once each. Item mods, quality, local defence rolls, shields and auras are not counted
 yet; the base value is the armour row's minimum, which is the client's default when the item's Armour component is zero.
+`damage_reduction_rating_from_body_armour_doubled` is PoB's `Armour MORE 100` for the Body Armour slot: the body
+armour's local armour after the Ward conversion counts twice, and so does its evasion under Iron Reflexes.
+The client's own `physical_damage_reduction_rating` calculator (`0x142731060`) applies the same `(1 + flag)` factor.
 The final `physical_damage_reduction_rating` and `evasion_rating` (with their `_+%`) go to the client. Armour uses
 PoB's `armour / (armour + damage × 5) × 100`, rounded and capped at 90% (`DamageModel.ArmourReduction`); evasion uses
 the same hit-chance formula as accuracy, so the chance to evade is `100 - AccuracyHitChance(evasion, attacker accuracy)`
@@ -584,7 +587,8 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `SkillCatalog.FindByRow` takes the highest GEPL / GESSPL level at or below the monster's (Melee: level 1, GEPL 4394).
   Id 0x0102, like the player's (no ActionType masks to it).
 - **Stats.** The final attack stats (`MonsterAttack.Stats`): attack time = MonsterVarieties `AttackSpeed` (2400 ms),
-  reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` at the level × `DamageMultiplier` / 100
+  reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion
+  type) at the level × `DamageMultiplier` / 100
   with a ±20% spread (the spread is assumed), then the monster's mods (its rarity's, its affixes: damage, attack time,
   extra fire / cold / lightning / chaos; [14](14-monster-packs.md) §5). They go in the monster's Stats component and
   in the skill.
@@ -914,8 +918,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `skill_cooldown_time_override_ms` / `skill_cooldown_is_4_seconds`. With 0 there the client kept no cooldown and the
   bar showed none (Frida: no records, +0xc8 = 0; live 2026-10-21); `GrantedSkill.CooldownMs` now carries GEPL Cooldown.
   +0xd0 (the cooldown group) comes from the GEPL row's CooldownGroup (+0x30).
-  For ordinary one-use spells/attacks, the native base remains GEPL Cooldown; the final recovery percentage is
-  player-computed `virtual_cooldown_speed_+%` (3398) + the skill's own base (3397) and virtual (3398) inputs once.
+  For ordinary one-use spells, attacks and warcries, the native base remains GEPL Cooldown; the final recovery
+  percentage is player-computed `virtual_cooldown_speed_+%` (3398) + the skill's own base (3397) and virtual (3398)
+  inputs once.
+  A warcry adds the player's and the skill's `warcry_cooldown_speed_+%` (3640): PoB counts it as cooldown recovery
+  for the Warcry skill type, and the client's own virtual (`0x14281dfa0`, checked against the disassembly) adds
+  client stat 0xe38 when the skill has `is_warcry` (0xd7e), so the record's 3398 and the client's value agree.
   Dash quality 20 adds 10%; the player's base input is already included in its computed virtual value.
   `SingleUseCooldown` shares this resolution between granted skill stats and server readiness.
   The server retains remaining **base milliseconds**, subtracting elapsed game-clock time times the recovery rate;
@@ -1366,7 +1374,7 @@ Instant aliases retain their existing supported subset; this does not add instan
 The existing `CastGemSkill` check remains the cast admission boundary.
 A queued action echo can pass preflight and then fail that check before payment.
 After cast admission, a source change behind a queued paid mana packet does not add a late cancellation or refund.
-An accepted Enduring Cry still schedules its existing non-cancellable charge release in `UseChargeSkill`.
+An accepted Enduring Cry still schedules its existing non-cancellable charge release in `UseChargeSkillCore`.
 Later source or action changes do not cancel that release.
 Enduring Cry remains partial: this change adds no healing engine or other warcry mechanics.
 
@@ -1455,6 +1463,209 @@ Native grey-icon prediction, persistent restricting equipment and another client
 11881 is consumed only by this restriction; complete Lone Messenger, Rampager, Phrecia admission, party/minion auras,
 general reservations, banners, enemy auras and Vaal systems remain separate work.
 A foreign-source packet non-removal control establishes no party aura executor or gameplay behavior.
+
+## 10d. Strike skills: spirit strikes and the previous location
+
+A Strike is an ActiveSkills row typed `MeleeSingleTarget` (`SkillCatalog.IsStrike`).
+The default attack (`Melee`) is one.
+The client picks a Strike's extra targets itself when its melee action starts (`0x141c9c070` → `0x141c9ad30`) and
+draws their hits.
+The server makes the same choice as the swing starts (`StrikeExtrasLocked`, `StrikeTargets.cs`), so its damage lands
+on the monsters the client strikes.
+
+- Spirit strikes: the count is the client's `virtual_number_of_spirit_strikes` (`0x1428b12d0`).
+  It is 0 with `no_spirit_strikes`, for a non-melee attack, a non-Strike or a Vaal skill, else
+  `melee_attack_number_of_spirit_strikes`.
+  The scan radius is (100 + `extra_target_targeting_distance_+%`) / 100 × 30 cells in f32, truncated: 30, or 45 with
+  Ancestral Reach.
+  A candidate is a living hostile monster within that radius plus its own size of the player's cell, more than
+  9.95 cells away (squared distance over 99), and not the action's target.
+  The list holds at most 20 (`0x141ca3f30`).
+  The client sorts it by object id (`0x141a300b0`) and shuffles it front to back with TinyMT32 `init_by_array`, seeded
+  with the action's sequence and the player's object id (`0x1413cbe50`; one uniform draw per place, `0x140484fa0`).
+  The first N are struck.
+- Previous location: `melee_strike_skill_number_of_previous_locations_to_strike` (`0x142896310`) needs a melee main
+  hand, a Strike and `melee_strike_skill_strike_previous_location`.
+  The client keeps each Strike skill's locations in the `skill_location_memory` buff (BuffDefinitions 1451, invisible,
+  CancelOnDeath), which its melee action finds by skill id and the ActionTypes hash of the skill's bit-3 association.
+  The buff's behaviour (`Id2` RecordSkillUseLocations, made by `0x141e09ec0` → `0x14205a100`) is a ring of 6 entries:
+  u16 action sequence (action `+0x11a`), the player's cell and the target cell (i32 pairs; `0x80000000` is empty).
+  At its creation it takes its first entry from the 0x1c1 message's u32 list (buff `+0x80`) without checking its
+  length: sequence, player x, y, target x, y.
+  It then records each use of the skill as it starts (`0x14205a350`: the action's skill and ActionTypes hash match
+  the buff's; the target object's cell, else the aimed cell).
+  The melee action walks back from the current use's entry and strikes the earlier ones' target cells.
+  A location is skipped while the player stands within 5 cells of where it stood then (squared distance under 25,
+  `0x141ca6eb0`).
+  The server keeps the last player cell and hit centre per skill (`StrikeTargets.Memory`) and clears them at death.
+  At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill, its
+  active-skill hash and that use as the first entry).
+- Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
+  living hostile monster within the skill's radius of the old centre.
+  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their transfigured
+  gems except Frost Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes
+  through the projectile runtime (`ScheduleGemProjectile`), which launches only its
+  projectiles: the server has no melee hit for these gems, so it has no spirit strikes or previous location for them
+  either and sends them no `skill_location_memory`.
+  The client still picks and draws their spirit strikes (its virtual needs only melee and Strike), which deal no
+  damage on the server.
+  The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
+  nearest the old centre within the weapon's reach.
+  Every extra hit rolls accuracy, block, crit and on-hit effects as the main one does.
+  A use grants at most one Fortification and one Rage gain, and each monster takes at most one hit of a use.
+
+Not mirrored: the client's line-of-sight test (`0x141d87160`), which 20 candidates it keeps when more qualify (the
+server keeps the 20 lowest ids), and the unarmed term (`unarmed_attack_number_of_spirit_strikes`).
+Unverified: the client's strike at the previous location (a live check).
+The previous-location target rules (the radius for gem Strikes, the nearest monster for the default attack) and the
+one-hit-per-monster limit are the server's own and unverified.
+
+## 10e. Passive skills' enemy auras
+
+A passive's `PassiveSkillBuffs` lists BuffTemplates rows (`PassiveBuffAuras.cs`).
+A template names its BuffDefinitions row (`BuffDefinitionsKey`), the values of that row's `StatsKeys` in order
+(`Buff_StatValues`), its `AuraRadius` in cells and whom it affects (column 4).
+Column 4 holds 3 on every enemy debuff aura (Born under Fire, Overwhelm, the Occultist's) and 1, 2 or 10 on the self
+and ally ones (Tailwind); that reading comes from comparing the rows, not from the client code.
+
+Every 100 ms (`RunPassiveAuras`; not while paused or leaving the area) each living hostile monster within an enemy
+aura's radius of the living player gets the aura's buff (S→C 0x1c1, source the player).
+A monster that leaves the radius loses it (0x1c2); a dead or removed monster's buff is forgotten without a message.
+The stats act on the monster's hits at contact, by the radius at that moment: `MonsterSwing` converts the rolled hit
+and the ailment base with the auras' conversion stats (`EnemyAuraConversionLocked`, `DamageStats.Conversion`).
+Born under Fire (template 674, BuffDefinitions 2552, 60 cells) gives `base_physical_damage_%_to_convert_to_fire` 50:
+half of a nearby monster's physical hit is fire, which fire resistance lowers and which can ignite.
+
+Only an aura whose every stat the server applies is sent or applied (`EnemyAuraActs`; so far the hit conversions).
+The others, such as Overwhelm's crit multiplier, the Occultist's resistances and Kaom's Binding's
+`base_from_enemy_physical_damage_%_to_convert_to_fire`, wait for consumers: their buff would show an effect that
+does not happen.
+Self and ally auras are not modelled.
+
+## 10f. Skills that passives grant or trigger
+
+A passive's `GrantedEffectsPerLevel` (`GrantedEffectsPerLevelHardmode` in Ruthless) names the skill it grants and its
+level (`PassiveGrantedSkills.cs`).
+A triggered one names its trigger twice: a `has_trigger_on_*` stat on the node and the same `trigger_on_*` flag in its
+GrantedEffectStatSetsPerLevel row's AdditionalFlags; the server reads the node's stat (`TriggeredGrantsLocked`).
+Ancestral Commander's Spirit chieftain skills are the ones with a consumer so far (`SpiritChieftains.cs`): a Unique
+monster's crit, Savage Hit or blocked hit triggers its option's skill, whose shared cooldown, Leadership buff and
+fighting chieftain (section 10h) [Ancestral Commander](../game/ancestral-commander.md) describes.
+A blocked crit counts as taken (the wiki's Blocking page: a block does not prevent the defender's when-hit effects).
+Server monsters crit only with a forced `always_crit` mod, so the crit trigger waits for monster critical strikes.
+Their summon's buff is the BuffTemplates row whose `StatsKey` (the stats that give its values) the skill's own stats
+hold; each of the row's BuffDefinitions `StatsKeys` takes the matching value.
+The server sends no skill record for them: they have no bar use, and the client shows only the buff.
+The client's cooldown virtual for a skill record (`0x14281dfa0`, checked against the disassembly at `0x14281e084`)
+returns no recovery when the record's stats hold `skill_cooldown_does_not_tick`, the per-skill form of the Leadership
+buff's `ancestral_buff_cooldown_does_not_tick`.
+
+## 10g. Totems
+
+A totem skill's ActiveSkills row names its totem (`SkillTotemId`); SkillTotemVariations maps that id and a skin to a
+MonsterVarieties row, and skin 0 is the default (Rejuvenation Totem: 4 → `Metadata/Monsters/Totems/LifeRegenTotem`).
+The totem base type (`Metadata/Monsters/Totems/Totem`) reads only components the monster blob writer already has.
+Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement and give
+it `monster_inherent_damage_taken_+%_final` -80.
+
+The server (`Program.Totems.cs`) keeps the player's totems in `ClientState.Totems`, never in `Monsters`: area hits,
+monster AI, loot, experience and the instance save read only `Monsters`, so none of them sees a totem.
+- Placement: the gem's use pays its mana, then waits the GrantedEffects CastTime (0.6 s) over
+  `1 + summon_totem_cast_speed_+% / 100` and the action speed (the wiki's Totem page: cast speed does not apply).
+  If the use is still current and the player lives, the totem appears at the aimed cell, moved out of walls and
+  monsters as a spawn is.
+  The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2b9) and enters it
+  in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it.
+- Level and Life: the totem's level is the gem level's `PlayerLevelReq`, as PoB's totem level.
+  Its base Life is the variety's minion Life at that level (MonsterTypes `IsPlayerMinion`, `LifeMultiplier` 120:
+  24 at gem level 1), times `1 + totem_life_+% / 100`; the maximum goes on the object's stats when it differs.
+- Duration: `base_totem_duration` with `totem_duration_+%` only (the wiki: skill effect duration does not apply).
+- Limit: Character.ot's `base_number_of_totems_allowed` 1 plus `number_of_additional_totems_allowed`.
+  A summon past it kills the oldest living totem first.
+  The client computes the same limit itself (`FUN_1427b0a10` builds `number_of_totems_allowed` 0x3be) and refuses
+  a totem skill below one (`FUN_14195e420`).
+- Death: at Life 0, at the end of its duration, when replaced past the limit, or when the player dies (wiki Totem and
+  Soul Mantle).
+  The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bb) a second after.
+  An area change starts a new connection without totems.
+- Rejuvenation Totem: its aura (BuffDefinitions 172 `totem_aura_life_regen`, base radius 10 with aura and spell area)
+  gives the living player within the radius the skill's `base_life_regeneration_rate_per_minute` and the row's other
+  stats the skill holds, scaled by the player's aura effect.
+  The strongest covering totem counts; the player gets buff 172 (0x1c1, source the player) and his stats while it does.
+- Damage taken from the nearest totem: `damage_removed_from_your_nearest_totem_before_life_or_es_%` (Forest of
+  Ancestors, Kaom's Leadership) moves that share of each part of a monster or `/hit` hit, after mitigation and before
+  Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
+  The client never reads that stat, nor `base_presence_radius` (0x3ee0): both are server-side.
+
+Not modelled: the other totem skills (their gem use stays as before: a totem that does not use its skill is not
+placed), monsters attacking totems, placement range (`base_totem_range`), the totem's collision on the server's paths,
+and the totem as the aura buff's source.
+
+## 10h. Player minions that fight
+
+A player minion is a monster on the player's team kept in `ClientState.Monsters` and listed in `ClientState.Minions`
+(`PlayerMinions.cs`).
+The Spirit chieftains are the first (section 10f).
+- Spawn: `SpawnMonster` with `friendly: true` (Positioned team 0) and the stats `is_player_minion` and
+  `is_semantic_minion` 1 on its Stats component, which the client reads to treat it as the player's minion
+  (`0x141bf8490`).
+  The player's `minion_damage_+%`, minion attack speed (`minion_attack_speed_+%`, `minion_attack_and_cast_speed_+%`)
+  and `minion_movement_speed_+%` become its own damage, attack speed and movement mods at the summon.
+- Kept apart: the instance save (`InstanceMonsters`), the player's area hits and default attack, and the on-kill
+  charges skip it; an area change or logout drops it with the connection.
+- AI (`RunMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
+  A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
+  not one lurking unrisen.
+  In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
+  target's edge, re-ordered when the target moves 3 cells or, once there, every 0.5 s.
+- Swing (`MinionSwing`): S→C 0x1ab with its first skill aimed at the target (flags 0x0408 | 0x80), the contact at half
+  its attack time.
+  There the hit needs both alive and within reach + 2; it rolls the minion's accuracy (DefaultMonsterStats at its
+  level) against the target's evasion, then the target's block, then the target's mitigation (`MonsterTakesRolled`).
+  S→C 0x1af shows the hit (the minion as source, flags 0x4601), the target's Life follows, and a kill gives the
+  player experience and loot through `MonsterKilled` (no on-kill charges: the player did not kill it).
+  A minion's hit does not count as the player hitting.
+- End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
+  removed a second later (0x2bb).
+
+Not modelled: a minion's other skills (it uses its first granted effect, as every server monster), monsters
+attacking minions (only immortal minions exist so far), the minion's stats following the player's after the summon,
+minions crossing an area change, and minion commands.
+
+## 10i. Warcry release: timing and release effects
+
+A warcry's use time is its GrantedEffects CastTime over `1 + warcry_speed_+% / 100` (the player's and the gem's)
+and over action speed, at least one server tick (`WarcryCastSeconds`; PoB CalcOffence `calcWarcryCastTime`, whose
+0.8 s base is Enduring Cry's CastTime).
+The client's warcry action (`0x141abcaa0`) divides the same CastTime (GrantedEffects row offset `+0x5f`) by
+`1 + (warcry_speed_+% + warcry_speed_+%_if_not_warcried_recently + retaliation speed) / 100`; its animation runs at
+the actor's action speed.
+The two conditional terms are not modelled on the server.
+
+At the release, after its own effect, every warcry runs `WarcryReleased` within its own radius around the player.
+The client's action (`0x141abd120`) takes its wide scan (`0x141abff60` → `0x141abd490`) over that same radius
+(vtable +0x498) when `warcry_gain_mp_from_corpses` (0x2fe9), Deathrattle's corpse explosion (0x46b6), the corpse
+loot chance (0x4b75) or `open_nearby_chests_on_warcry` (0x4b74) is set.
+That scan lists Chest objects and eligible corpses with a delay of distance / radius × 0.22 s and counts living
+hostiles' power; which code consumes the list was not traced, so the server's removals and life updates stand.
+- Corpse explosion (`nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry`): every corpse in the
+  radius explodes once.
+  A corpse is a dead monster at zero Life whose Life type allows corpse use (`MonsterLifeData.IsUsableAsCorpse`) and
+  that no explosion has consumed (`SpawnedMonster.CorpseConsumed`).
+  The corpse is removed (S→C 0x2bb) and leaves `ClientState.Monsters`, so no later removal sends it again.
+  The explosion hits living hostile monsters within 22 cells of it (PoB `EnemyExplode`, grown by area of effect) for
+  the percentage of the corpse's maximum Life as physical damage, scaled by the player's `damage_+%`,
+  `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage (poewiki Explode).
+  Then the player's global conversion and gain as extra apply (`DamageStats.Conversion` without the attack- and
+  spell-only lines), after the increases as in every server hit.
+  It is neither an attack nor a spell: no block or evasion, and its base critical strike chance is 0%.
+  Kills go through `MonsterKilled`.
+  Not modelled: global flat added damage and flat critical strike chance, which the wiki's Explode page says apply to
+  non-skill explosions; on-hit effects, art and the 0.22 s wave delay.
+- Chests (`open_nearby_chests_on_warcry`): the quest chests the server has (the Twilight Strand support gem chest and
+  the Mud Flats Rhoa Nests) open through the same core as walking up to them, which saves first.
+
+Only Enduring Cry has a warcry executor; the hook sits in its release so later executors inherit it.
 
 ## 11. The skill bar
 
@@ -1911,8 +2122,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   killing hit a Power Charge, Flicker Strike's and Power Siphon's own on-hit chances count, and Enduring Cry grants an
   Endurance Charge per 5 power (`endurance_charge_granted_per_X_monster_power_during_endurance_warcry`) of the hostile
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
-  its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%`; a later action does not
-  cancel it (`cannot_cancel_skill_before_contact_point`).
+  its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%` and slowed by action speed
+  (§10i); a later action does not cancel it (`cannot_cancel_skill_before_contact_point`).
   The combat code only enqueues events (`ChargesOnHit` at the default attack, area and projectile hits, `ChargesOnKill`
   in `MonsterKilled`, `ChargesWhenHit` in `MonsterSwing` and `/blockhit`); `RunCharges` rolls them every 50 ms, with
   the character's stats worked out outside the Monsters lock and only while events wait.
@@ -2006,8 +2217,8 @@ hit time and ends immediately on movement/deadline even before the recovery loop
 It cannot reactivate by returning to the starting cell. No state is persisted across connections.
 
 While protected, the server grants immunity to every damage type, suppresses RF self-burning and outgoing
-RF pulses, and prevents hostile AI targeting and pending monster hits. Functional summoned-minion combat
-is not implemented; cosmetic pets have no incoming/outgoing damage to protect.
+RF pulses, and prevents hostile AI targeting and pending monster hits. The only fighting minions (section 10h) need a monster's
+hit to appear; cosmetic pets have no incoming/outgoing damage to protect.
 GGG's [3.25.0 patch notes](https://www.pathofexile.com/forum/view-thread/3531661) explicitly identify the
 Grace Period buff and protection from enemy targeting. The native buff metadata supplies the icon/name/stats;
 the requested 60-second duration and town/hideout exclusions are server policy. See also the

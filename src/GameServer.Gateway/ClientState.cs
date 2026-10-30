@@ -112,6 +112,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     // lock.
     public double FlinchUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
+    // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
+    public bool CorpseConsumed;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? CollisionPosition;
@@ -422,6 +424,17 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public SemaphoreSlim FlaskBarGate { get; } = new(1, 1);
     /// <summary>The smoke clouds, consecrated ground and taunts of flasks (FlaskGrounds).</summary>
     public FlaskGrounds.State FlaskGrounds { get; } = new();
+    /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Guarded by the Monsters lock.</summary>
+    public StrikeTargets.Memory StrikeLocations { get; } = new();
+    /// <summary>The buffs the player's passive enemy auras put on monsters (PassiveBuffAuras). Guarded by the Monsters
+    /// lock.</summary>
+    public PassiveBuffAuras.State PassiveAuras { get; } = new();
+    /// <summary>The Spirit chieftain skills' shared cooldown and Leadership buff (SpiritChieftains). Guarded by the Monsters
+    /// lock.</summary>
+    public SpiritChieftains SpiritChieftains { get; } = new();
+    /// <summary>The player's summoned totems (Program.Totems.cs), kept apart from <see cref="Monsters"/>. Guarded by the
+    /// Monsters lock.</summary>
+    public TotemState Totems { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
     public ushort NextBuff = 1;
@@ -493,6 +506,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Whether the open dialogue shows an NPCTalk row's talk (0x84 with its index) rather than the option list.
     public volatile bool InNpcTalk;
     public uint TutorialSceneId, TutorialChestId;
+    public int TutorialChestOpening;   // 1 once this connection opened the support gem chest (OpenTutorialChestCore)
     // a1q4 in The Mud Flats (GlyphQuest): the captured layout, the nests by object id (guarded by itself), the wall and the waterfall.
     public GlyphQuest.Layout? Glyphs;
     public readonly Dictionary<uint, GlyphQuest.Nest> GlyphNests = [];

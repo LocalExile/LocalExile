@@ -215,7 +215,7 @@ partial class Program
         var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
         int Input(string name) => Stats.Key(name) is uint key
             ? conn.PlayerStats.TryGetValue(key, out int set) ? set : sources.GetValueOrDefault(key) : 0;
-        var gear = EquippedBaseDefences(conn, Input);
+        var gear = EquippedBaseDefences(conn, Input, bonus.IronReflexes);
         bonus = bonus with { Armour = bonus.Armour + gear.Armour, Evasion = bonus.Evasion + gear.Evasion,
             EnergyShield = bonus.EnergyShield + gear.EnergyShield, Ward = bonus.Ward + gear.Ward };
         List<AuraCatalog.Aura> auras;
@@ -273,6 +273,10 @@ partial class Program
         // effect never counts twice.
         int MagebloodGet(string name) => Stats.Key(name) is uint k ? sources.GetValueOrDefault(k) : 0;
         bonus = UtilityFlasks.Apply(bonus, UtilityStats(conn, MagebloodGet));
+        // "Movement Speed cannot be modified to below Base Value" (PoB CalcDefence: max(mod, 1)). The client bounds
+        // movement_velocity_+% below by 0 instead of -100 from the same raw flag (0x14251cbd0).
+        if (Input("movement_speed_cannot_be_reduced_below_base") != 0)
+            bonus = bonus with { MovementVelocityPct = Math.Max(0, bonus.MovementVelocityPct) };
         if (conn.God)
             bonus = bonus with { Strength = bonus.Strength + 1000, Dexterity = bonus.Dexterity + 1000, Intelligence = bonus.Intelligence + 1000,
                 Life = bonus.Life + 10_000, AttackSpeedPct = bonus.AttackSpeedPct + 1000 };
@@ -705,8 +709,8 @@ partial class Program
                 conn.MasteryEffects = effectsNow;
                 conn.RefundPoints = refundsNow;
                 conn.SavedPassiveProgress = new(conn.MainAscendancy, now, effectsNow, refundsNow);
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                conn.ApplyMovementSpeed();
+                // Also reconciles an active chill or freeze with a gained or refunded action-speed floor.
+                RecomputePoolsAndSpeed(conn);
                 conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
