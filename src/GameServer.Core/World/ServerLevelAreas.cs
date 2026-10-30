@@ -12,6 +12,10 @@ public static class ServerLevelAreas
 {
     public const string BaselineFile = "scripts/re/levelgen/gate-baseline.json";
 
+    /// <summary>The baseline for the servers: a tracked file, while they run in the runtime directory, so it resolves
+    /// against Game_SOURCE_ROOT when the launcher sets one.</summary>
+    public static string BaselinePath => Path.Combine(Environment.GetEnvironmentVariable("Game_SOURCE_ROOT") ?? ".", BaselineFile);
+
     /// <summary>The supported areas of a gate baseline: each "capture &lt;area&gt;" whose tile hash, both grids, every
     /// draw the port makes, the doodads, the cell heights and the transitions match (a check without a capture does not
     /// count against it), with every "oracle &lt;area&gt; &lt;seed&gt;" of the area matching too. Empty without the file.</summary>

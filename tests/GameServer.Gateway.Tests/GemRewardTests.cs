@@ -7,7 +7,7 @@ public class GemRewardTests
 {
     static string Data()
     {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        for (var dir = new DirectoryInfo(TestEnvironment.RuntimeRoot); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, "data/tables/QuestRewardOffers.json"))) return Path.Combine(dir.FullName, "data");
         throw new DirectoryNotFoundException("QuestRewardOffers.json");
     }

@@ -95,7 +95,7 @@ static async Task Serve(LoginServerKeys keys)
     var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
         ? new HashSet<ushort>()
         : GameServer.Core.World.ServerLevelAreas.Hashes(Path.Combine("data", "tables", "WorldAreas.json"),
-            GameServer.Core.World.ServerLevelAreas.Load(GameServer.Core.World.ServerLevelAreas.BaselineFile, m => Console.WriteLine($"[auth] {m}")));
+            GameServer.Core.World.ServerLevelAreas.Load(GameServer.Core.World.ServerLevelAreas.BaselinePath, m => Console.WriteLine($"[auth] {m}")));
     Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s)");
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);
     var registry = new GameServer.Core.World.InstanceRegistry

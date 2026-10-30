@@ -10,6 +10,33 @@ Part of [Status](../Status.md); what to build next in this area is in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
   Code: `scripts/dev/extract-data.ps1`, `GameDataFiles.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 7.
+  Launcher, extraction and native client control also accept an external installation through ignored
+  `config/client.local.json` or `Game_CLIENT_DIR`; the default remains repository `Client/`.
+  Relative paths use the repository root, while generated data stays under `data/`.
+  Native validation reached the login screen from the external folder with the dedicated profile selected.
+  Read-only graph and item-type extraction succeeded against the relocated archive.
+  Automated controls cover default/external paths, spaces, invalid configuration, override precedence,
+  launch arguments/working directory and archive propagation to .NET/Python extraction.
+  Optional `buildDirectory` or `Game_BUILD_DIR` also separates Debug binaries and intermediate files using
+  .NET's artifacts layout; servers, gateway selection and all extraction helpers execute that same build.
+  Optional `runtimeDirectory` or `Game_RUNTIME_DIR` moves the working directory, data, logs and active extraction
+  caches outside source; omitted settings retain the original layout.
+  Startup creates required runtime directories and extraction dependencies.
+  Explicit migration verifies every copy before preserving the originals in a separate backup, refuses collisions
+  and running processes, and leaves the tracked schema in source.
+  A watched Gateway (hot reload) uses the same folders, and `stop.ps1` and the migration's running-process check
+  include it.
+  Automated controls exercise full startup, `-Only Gateway`, `-NoBuild`, `-NoHotReload`, `-ClientOnly` and
+  missing-DLL preflight.
+  Gateway test data helpers use the shared test environment's runtime root, allowing sibling build output
+  without moving data or changing production catalog paths.
+  Tracked files the servers read (the level generator's gate baseline, `config/ruthless.json`) resolve against the
+  source checkout; server-side level generation and capture tours use the configured client.
+  Native validation reached the login screen with external server DLLs and verified the actual server/client
+  working directories; read-only atlas and Python-to-GGPK extraction also ran from external DLLs.
+  See [external client folder](../GettingStarted.md#optional-external-client-folder) for configuration and limits.
+  See [separate build folder](../GettingStarted.md#optional-separate-build-folder) for build and test commands.
+  See [separate runtime folder](../GettingStarted.md#optional-separate-runtime-folder) for setup and migration.
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.

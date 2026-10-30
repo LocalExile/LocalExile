@@ -12,7 +12,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, amd_animations, amd_map, extends_of, fetch, read_text  # noqa: E402
+from ot_components import ROOT, amd_animations, amd_map, extends_of, fetch, read_text  # noqa: E402
 
 DEFAULT = re.compile(r'default_animation\s*=\s*"([^"]+)"')
 
@@ -54,8 +54,8 @@ def default_animation(ao):
 
 
 def main():
-    tables = os.path.join(REPO, "data", "tables")
-    dest = os.path.join(REPO, "data", "projectile-clips.json")
+    tables = os.path.join(ROOT, "data", "tables")
+    dest = os.path.join(ROOT, "data", "projectile-clips.json")
     with open(os.path.join(tables, "Projectiles.json"), encoding="utf-8") as f:
         rows = json.load(f)
     aos = sorted({row["AOFiles"][0] for row in rows if row.get("AOFiles")})

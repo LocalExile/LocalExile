@@ -24,7 +24,8 @@ static class CaptureTour
     /// elsewhere).</summary>
     public static string StateFile { get; set; } = "data/tour-left.txt";
     public static string FailuresFile { get; set; } = "data/walkability/tour-failures.txt";
-    public static string ClientLog { get; set; } = "Client/logs/Client.txt";
+    public static string ClientLog { get; set; } = Path.Combine(
+        Path.GetDirectoryName(Environment.GetEnvironmentVariable("Game_CLIENT_EXE")) ?? "Client", "logs", "Client.txt");
     /// <summary>Area id → HASH16 (the transition catalog; tests replace it).</summary>
     public static Func<string, ushort?> HashOf { get; set; } = AreaTransitionCatalog.HashOf;
 

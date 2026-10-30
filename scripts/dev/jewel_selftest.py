@@ -29,10 +29,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import client_control as cc
 
-ROOT = cc.ROOT
-GATEWAY = ROOT / "logs" / "live-gateway.log"
-CLIENT_LOG = ROOT / "Client" / "logs" / "LatestClient.txt"
-SAVE_DB = ROOT / "data" / "saves.db"
+GATEWAY = cc.GATEWAY_LOG
+CLIENT_LOG = cc.CLIENT.parent / "logs" / "LatestClient.txt"
+SAVE_DB = cc.RUNTIME / "data" / "saves.db"
 
 MAIN, PANE = 1, 24          # inventory ids in the protocol messages
 MAIN_ROW, PANE_ROW, CURSOR_ROW = "0", "23", "12"  # the save keeps inventories by row (Inventories.dat row = id - 1)

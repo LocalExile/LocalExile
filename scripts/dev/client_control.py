@@ -33,10 +33,13 @@ import struct
 import sys
 import time
 
+sys.dont_write_bytecode = True
 import frida
+from client_paths import client_directory, runtime_directory
 
 ROOT = Path(__file__).resolve().parents[2]
-CLIENT = ROOT / "Client" / "Game.patched.exe"
+RUNTIME = runtime_directory(ROOT)
+CLIENT = client_directory(ROOT) / "Game.patched.exe"
 AGENT = Path(__file__).with_name("client-control.js")
 
 
@@ -104,7 +107,7 @@ def flask_packet(request):
     return list(struct.pack(">HI", 0x70, slot)), slot
 
 
-GATEWAY_LOG = ROOT / "logs" / "live-gateway.log"
+GATEWAY_LOG = RUNTIME / "logs" / "live-gateway.log"
 # Program.Commands.cs logs every reply line it sends: `[gateway] <remote> => 0x0017 chat line "<text>": <hex>`.
 REPLY_LINE = re.compile(r'=> 0x0017 chat line "(.*)": [0-9A-F]+\s*$')
 
@@ -218,7 +221,7 @@ class ClientControl:
         try:
             identity = self.script.exports_sync.identity()
             if Path(identity["path"]).resolve() != CLIENT.resolve():
-                raise RuntimeError("Refusing a client outside this checkout's Client directory")
+                raise RuntimeError("Refusing a client outside this checkout's configured client directory")
         except Exception:
             self.close()
             if errors:
@@ -264,8 +267,8 @@ class ClientControl:
         env = dict(os.environ, HTTP_PROXY="http://127.0.0.1:1", HTTPS_PROXY="http://127.0.0.1:1",
                    ALL_PROXY="http://127.0.0.1:1", NO_PROXY="localhost,127.0.0.1,::1")
         env.pop("GGG_CONFIG_FILE_NAME", None)
-        log = ROOT / "logs" / "client-control-launch.log"
-        log.parent.mkdir(exist_ok=True)
+        log = RUNTIME / "logs" / "client-control-launch.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("w", encoding="utf-8") as output:
             subprocess.run(["powershell.exe", "-NoProfile", "-File", str(ROOT / "scripts/dev/live.ps1"),
                             "-ClientOnly"], cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT,

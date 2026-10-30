@@ -78,6 +78,7 @@ Set it in the PowerShell session before `live.ps1`, for example `$env:Game_TRACE
 dumps (`-Packets <n>`), `LatestClient.txt` and `info.txt` (revision, branch, local changes, last commits, .NET and
 Windows versions, the `Game_*` settings). `-Previous` adds the previous run's logs from `logs\archive`. It reads the logs
 without locking them, so run it while the servers and the client are still up.
+With `runtimeDirectory` configured, `logs\` is that folder's, and `LatestClient.txt` comes from the configured client.
 
 Account and character names, machine ids, digests and the Windows user name become `<account1>`, `<character1>`,
 `<redacted>` and `<user>`, names also in their hex forms (UTF-8 and UTF-16, as packet bytes show them, `<character1-hex>`);

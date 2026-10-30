@@ -1,7 +1,8 @@
 # usage: scripts/re/levelgen/gate.ps1 [-Save] [-NoTests] [gate options: --only <area regex> --no-oracle --jobs N]
 # The level generator's check before a commit: levelgen's gate (every seed-1 trace and every logged (area, seed),
 # compared with scripts/re/levelgen/gate-baseline.json; Gate.cs) and the three test suites. -Save makes this run the
-# baseline (commit gate-baseline.json with the change). Exit code 1 when the gate lost anything or a test failed.
+# baseline (commit gate-baseline.json with the change). Exit code 1 when the gate lost anything or a test failed, 2 when
+# it did not run: the traces are local (data/ is not in git), and without any there is nothing to compare.
 param([switch]$Save, [switch]$NoTests, [Parameter(ValueFromRemainingArguments = $true)][string[]]$GateArgs)
 # Not 'Stop': Windows PowerShell turns a native program's stderr into errors. Exit codes count.
 $ErrorActionPreference = 'Continue'
@@ -14,6 +15,10 @@ try {
     & (Join-Path $PSScriptRoot 'lg.ps1') @gate
     $gateCode = $LASTEXITCODE
     Remove-Item Env:LEVELGEN_LOCAL
+    if ($gateCode -eq 2) {
+        Write-Output 'gate: NOT RUN, which is not a pass (the baseline was not changed)'
+        exit 2
+    }
     $failed = @()
     if (-not $NoTests) {
         # The Gateway's own bin/ is locked while the Gateway server runs: build its tests elsewhere.

@@ -12,14 +12,16 @@ static class Shared
     static GameFileSystem? _fs;
     static TerrainCache? _files;
 
-    /// <summary>The game files (Client/Content.ggpk), opened on first use and kept open: callers do not dispose it.</summary>
+    /// <summary>The game files (the client's Content.ggpk), opened on first use and kept open: callers do not dispose it.</summary>
     public static GameFileSystem OpenGame()
     {
         if (_fs is not null) return _fs;
-        string root = Root();
-        var oodle = new NodeOodleDecoder("node", Path.Combine(root, @"Tools\ooz\ooz_worker.mjs"));
-        return _fs = GameFileSystem.Open(Path.Combine(root, "Client", "Content.ggpk"), oodle);
+        var oodle = new NodeOodleDecoder("node", Path.Combine(Root(), @"Tools\ooz\ooz_worker.mjs"));
+        return _fs = GameFileSystem.Open(Ggpk(), oodle);
     }
+
+    // The client's archive, as lg.ps1 configures it; Client/ under the repository root without it.
+    static string Ggpk() => Environment.GetEnvironmentVariable("Game_GGPK") ?? Path.Combine(Root(), "Client", "Content.ggpk");
 
     /// <summary>The terrain cache over <see cref="OpenGame"/>, shared by every command of the process.</summary>
     public static TerrainCache Files()
@@ -48,6 +50,9 @@ static class Shared
                 ?? throw new InvalidOperationException("Tools/ooz/ooz_worker.mjs not found above the build output");
         return root;
     }
+
+    /// <summary>The folder that holds data/, as lg.ps1 configures it; the repository root without it.</summary>
+    public static string RuntimeRoot() => Environment.GetEnvironmentVariable("Game_RUNTIME_DIR") ?? Root();
 
     /// <summary>The LCG draws that object scripts make when a doodad is created: 0x142063a60 (call site 0x142063b9c), an
     /// animated entity's random start time (rand() bits × length / 256); RandomElement in the Animated object actions
@@ -82,7 +87,7 @@ static class Shared
     /// same way matches the client as much as one that generates the same map.</summary>
     public static SortedDictionary<(string Area, uint Seed), (int Level, string Message)> LoggedFailures()
     {
-        string logs = Path.Combine(Root(), "Client", "logs");
+        string logs = Path.Combine(Path.GetDirectoryName(Ggpk())!, "logs");
         var paths = Directory.GetFiles(logs, "Client-*-archive.txt").Order().Append(Path.Combine(logs, "Client.txt"));
         var webRoot = new System.Text.RegularExpressions.Regex(@"\] Web root: (\S*)\s*$");
         var versioned = new System.Text.RegularExpressions.Regex(@"/([0-9][0-9.]*[0-9])/?$");
@@ -140,7 +145,7 @@ static class Shared
 
     public static SortedDictionary<(string Area, uint Seed), (int Level, uint Hash)> LoggedHashes(out string? version, out int otherVersions, string? only = null)
     {
-        string logs = Path.Combine(Root(), "Client", "logs");
+        string logs = Path.Combine(Path.GetDirectoryName(Ggpk())!, "logs");
         var paths = Directory.GetFiles(logs, "Client-*-archive.txt").Order().Append(Path.Combine(logs, "Client.txt"));
         var webRoot = new System.Text.RegularExpressions.Regex(@"\] Web root: (\S*)\s*$");
         var versioned = new System.Text.RegularExpressions.Regex(@"/([0-9][0-9.]*[0-9])/?$");

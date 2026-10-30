@@ -30,8 +30,8 @@ static class ServerLevels
         public long Milliseconds { get; init; }
     }
 
-    /// <summary>Where the supported list comes from (the repository root is the Gateway's directory; tests replace it).</summary>
-    public static string BaselineFile { get; set; } = GameServer.Core.World.ServerLevelAreas.BaselineFile;
+    /// <summary>Where the supported list comes from (the source tree's gate baseline; tests replace it).</summary>
+    public static string BaselineFile { get; set; } = GameServer.Core.World.ServerLevelAreas.BaselinePath;
 
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
     static readonly object Gate = new();
@@ -152,8 +152,11 @@ static class ServerLevels
     static TerrainCache Files()
     {
         if (_files is not null) return _files;
-        var oodle = new NodeOodleDecoder("node", Path.GetFullPath(Path.Combine("Tools", "ooz", "ooz_worker.mjs")));
-        _fs = GameFileSystem.Open(Path.GetFullPath(Path.Combine("Client", "Content.ggpk")), oodle);
+        // The source tree and the client archive as the launcher configures them (Game_SOURCE_ROOT, Game_GGPK; the
+        // repository root and Client/ by default), as in VerifiedGamblerGraph.
+        string source = Environment.GetEnvironmentVariable("Game_SOURCE_ROOT") ?? Directory.GetCurrentDirectory();
+        var oodle = new NodeOodleDecoder("node", Path.Combine(source, "Tools", "ooz", "ooz_worker.mjs"));
+        _fs = GameFileSystem.Open(Environment.GetEnvironmentVariable("Game_GGPK") ?? Path.GetFullPath(Path.Combine("Client", "Content.ggpk")), oodle);
         return _files = new TerrainCache(Read);
     }
 

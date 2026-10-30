@@ -1471,6 +1471,7 @@ the target open, so the recorder's write of the fourth object threw and left the
   builds into `bin/lg` only when a source changed and hands the command to the levelgen server (`levelgen serve`,
   started on first use from a copy of the build, replaced after a rebuild), which keeps the game files and the
   terrain cache open: ~0.5 s a call. `LEVELGEN_LOCAL=1` runs a command in its own process.
+  It reads `data/` and the client where `config/client.local.json` keeps them, as `live.ps1` does.
 - **Gate:** `scripts/re/levelgen/gate.ps1` before every commit to the generator: every seed-1 trace (tile hash,
   every draw the port makes, both grids, the doodads; a trace with no `.doodads.json` is counted apart, not as a
   doodad failure, and an empty one (the recorder writes it for an area that places none, such as HideoutTemplarLab and
@@ -1482,7 +1483,10 @@ the target open, so the recorder's write of the fourth object threw and left the
   against its own trace (every logged load has one since the capture tours), for its draws and first difference. It
   also prints the work queue: seed-1 traces grouped by the client's caller at the first difference, every wrong
   logged load the same way (the biggest causes by loads held back), and stops grouped by reason. `-Save` makes the run the baseline (commit it with
-  the change); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  the change), keeping any check the run did not cover; `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  The traces are local (`data/` is not in git) and only the results are committed, so a new machine has none: a full
+  run without seed-1 traces stops with `gate: NOT RUN` (exit 2) and changes nothing, which is not a pass.
+  Record them with `live.ps1 -Walkmaps` or a capture tour.
 - **Check:** `lg.ps1 hash <trace.gen.json>…` recomputes the tile hash from a
   traced grid. `… generate <area> <seed> [trace.gen.json]` runs the port and, with a trace, compares draw by draw
   (kind, argument, result; the first difference names the client's caller; the object scripts' LCG draws,

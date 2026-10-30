@@ -14,7 +14,7 @@
 import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, amd_animations, amd_map, animation_controller, extends_of, fetch, read_text  # noqa: E402
+from ot_components import ROOT, amd_animations, amd_map, animation_controller, extends_of, fetch, read_text  # noqa: E402
 
 
 def fetch_ao_chain(paths):
@@ -72,8 +72,8 @@ def act_takehit(act):
 
 
 def main():
-    dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "monster-takehit.json")
-    rows = json.load(open(os.path.join(REPO, "data", "tables", "MonsterVarieties.json"), encoding="utf-8"))
+    dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(ROOT, "data", "monster-takehit.json")
+    rows = json.load(open(os.path.join(ROOT, "data", "tables", "MonsterVarieties.json"), encoding="utf-8"))
     variants = [r for r in rows if isinstance(r, dict) and r.get("Id")]
 
     # One batch per kind of file: the per-file fetch opened the 69 GB GGPK for every row before.

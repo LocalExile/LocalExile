@@ -3,8 +3,11 @@ using GameServer.Core.Diagnostics;
 
 partial class Program
 {
+    // The active tuning file lives in the source tree's config/ (next to its tracked example), not in the runtime
+    // directory the server runs in: resolve it against Game_SOURCE_ROOT when the launcher sets one.
     internal static readonly RuthlessRulesFile RuthlessSettings = new(
-        Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES") ?? Path.Combine("config", "ruthless.json"), Console.WriteLine);
+        Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES")
+            ?? Path.Combine(Environment.GetEnvironmentVariable("Game_SOURCE_ROOT") ?? ".", "config", "ruthless.json"), Console.WriteLine);
     static readonly Lazy<ItemCatalog> RuthlessItems = new(() => new("data", ruthless: true));
     static readonly Lazy<SkillCatalog> RuthlessSkills = new(() => new("data", ruthless: true));
     static readonly Lazy<PassiveTree> RuthlessPassives = new(() => new("data", ruthless: true));

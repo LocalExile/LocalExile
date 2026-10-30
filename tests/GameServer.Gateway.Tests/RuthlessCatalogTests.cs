@@ -63,9 +63,8 @@ public class RuthlessCatalogTests
 
     static string Data()
     {
-        foreach (string start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
-            for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
-                if (Directory.Exists(Path.Combine(dir.FullName, "data", "tables"))) return Path.Combine(dir.FullName, "data");
+        for (var dir = new DirectoryInfo(TestEnvironment.RuntimeRoot); dir is not null; dir = dir.Parent)
+            if (Directory.Exists(Path.Combine(dir.FullName, "data", "tables"))) return Path.Combine(dir.FullName, "data");
         throw new DirectoryNotFoundException("data/tables");
     }
 

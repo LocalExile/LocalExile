@@ -34,10 +34,13 @@ static class HotReload
         Players[conn] = 0;
     }
 
+    // The servers run in the runtime directory, which need not hold the source tree.
+    internal static string SourceDirectory => Path.Combine(Environment.GetEnvironmentVariable("Game_SOURCE_ROOT") ?? ".", "src");
+
     static FileSystemWatcher? WatchSources()
     {
-        if (Environment.GetEnvironmentVariable("DOTNET_WATCH") != "1" || !Directory.Exists("src")) return null;
-        var watcher = new FileSystemWatcher("src", "*.cs") { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName };
+        if (Environment.GetEnvironmentVariable("DOTNET_WATCH") != "1" || !Directory.Exists(SourceDirectory)) return null;
+        var watcher = new FileSystemWatcher(SourceDirectory, "*.cs") { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName };
         watcher.Changed += (_, e) => OnSourceSaved(e.FullPath);
         watcher.Created += (_, e) => OnSourceSaved(e.FullPath);
         watcher.Renamed += (_, e) => OnSourceSaved(e.FullPath);

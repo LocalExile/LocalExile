@@ -1,0 +1,2 @@
+# Native client-control and walk-map helpers share this tested Frida API version.
+frida==17.24.3

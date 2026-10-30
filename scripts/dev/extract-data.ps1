@@ -12,12 +12,17 @@ $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+. (Join-Path $PSScriptRoot 'client-path.ps1')
+$clientPaths = Get-ClientPaths -RepositoryRoot $repo
+$buildDirectory = Get-BuildDirectory $repo
+$runtime = Get-RuntimeDirectory $repo
 
 # Name, outputs (the first is checked for presence and freshness), runner (dotnet | python), arguments, version, needs,
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
 $manifest = @(
     @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\UniqueStashLayout.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 1; Needs = @()
+       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', $clientPaths.Archive,
+           '--schema', (Join-Path $repo 'data\schema\schema.min.json')); Version = 1; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 4; Needs = @('tables')
@@ -26,13 +31,13 @@ $manifest = @(
        Args = @('scripts/re/ot_components.py', '--items', '--json', 'data/item-types.json'); Version = 1; Needs = @('tables')
        UsedBy = 'items: starting items, /item, drops, affix rolls (tags)' }
     @{ Name = 'area-transitions'; Outputs = @('data\area-transitions.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'data/area-transitions.json'); Version = 3; Needs = @('tables')
+       Args = @('run', '--project', 'scripts/re/atlas', '--', $clientPaths.Archive, 'data/area-transitions.json'); Version = 3; Needs = @('tables')
        UsedBy = 'area transitions of fixed layouts (08-area-transitions.md)' }
     @{ Name = 'room-points'; Outputs = @('data\room-points.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'room-points'); Version = 3; Needs = @('tables')
+       Args = @('run', '--project', 'scripts/re/atlas', '--', $clientPaths.Archive, 'room-points'); Version = 3; Needs = @('tables')
        UsedBy = 'unique bosses and named packs (14-monster-packs.md), quest room objects (12-quests.md)' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
+       Args = @('run', '--project', 'scripts/re/atlas', '--', $clientPaths.Archive, 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
        Args = @('scripts/re/anim_contacts.py'); Version = 3; Needs = @('tables')
@@ -52,7 +57,7 @@ $manifest = @(
        Args = @('scripts/re/projectile_clips.py'); Version = 1; Needs = @('tables')
        UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, and its .ao default animation (11-skills.md)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 5; Needs = @('tables')
+       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', $clientPaths.Archive, 'data/passive-skill-graphs.json'); Version = 5; Needs = @('tables')
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
 )
 
@@ -61,7 +66,7 @@ function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message
 $unknown = $Only | Where-Object { $n = $_; -not ($manifest | Where-Object { $_.Name -eq $n }) }
 if ($unknown) { throw "extract-data: unknown entry $($unknown -join ', '); entries: $(($manifest | ForEach-Object { $_.Name }) -join ', ')" }
 
-$stampFile = Join-Path $repo 'data\extract-stamps.json'
+$stampFile = Join-Path $runtime 'data\extract-stamps.json'
 $stamps = @{}
 if (Test-Path $stampFile) {
     try { (Get-Content $stampFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $stamps[$_.Name] = $_.Value } }
@@ -69,7 +74,7 @@ if (Test-Path $stampFile) {
 }
 
 function Why($e) {
-    $missing = $e.Outputs | Where-Object { -not (Test-Path (Join-Path $repo $_)) } | Select-Object -First 1
+    $missing = $e.Outputs | Where-Object { -not (Test-Path (Join-Path $runtime $_)) } | Select-Object -First 1
     if ($missing) { return "$missing missing" }
     $s = $stamps[$e.Name]
     if (-not $s) { return 'no stamp' }
@@ -98,14 +103,14 @@ foreach ($e in $manifest) {
 }
 if ($todo.Count -eq 0) { Write-Output 'game data up to date'; return }
 
-Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+Need (Test-Path $clientPaths.Archive) "$($clientPaths.Archive) missing: this needs the standalone client layout"
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Get-Command node -ErrorAction SilentlyContinue) 'Node.js not found (node): it decompresses the game bundles'
-Need (Test-Path (Join-Path $repo 'Tools\ooz\node_modules\ooz-wasm')) 'Tools\ooz\node_modules missing: cd Tools\ooz; npm install'
+& (Join-Path $PSScriptRoot 'setup-runtime.ps1') -Dependencies
 $python = $null
 if ($todo | Where-Object { $_.Runner -eq 'python' }) {
     # A virtual environment in the repository (.venv) wins over the python on PATH, as in live.ps1.
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $venv = Join-Path $runtime '.venv\Scripts\python.exe'
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
     Need $python 'Python 3.9+ not found (python)'
@@ -113,7 +118,7 @@ if ($todo | Where-Object { $_.Runner -eq 'python' }) {
     Need ($LASTEXITCODE -eq 0) "Python 3.9+ needed ($python)"
 }
 
-$logs = Join-Path $repo 'logs'
+$logs = Join-Path $runtime 'logs'
 New-Item -ItemType Directory -Force $logs | Out-Null
 
 # Runs $exe with its output in $log and $log.err and returns its exit code. Output goes to files: a pipe would keep
@@ -124,7 +129,7 @@ New-Item -ItemType Directory -Force $logs | Out-Null
 # set below keep those nodes from being left at all.
 function Invoke-Logged($exe, $exeArgs, $log) {
     $p = Start-Process $exe -ArgumentList ($exeArgs | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) `
-        -WorkingDirectory $repo -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+        -WorkingDirectory $runtime -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
     $null = $p.Handle  # keeps the handle open, or ExitCode reads as empty after the wait in PowerShell 5.1
     $p.WaitForExit()
     return $p.ExitCode
@@ -132,27 +137,36 @@ function Invoke-Logged($exe, $exeArgs, $log) {
 function Tail($log) { (Get-Content $log, "$log.err" -Tail 15 -ErrorAction SilentlyContinue) -join "`n" }
 
 $savedEnv = @{}
-foreach ($kv in @{ MSBUILDDISABLENODEREUSE = '1'; DOTNET_CLI_USE_MSBUILD_SERVER = '0' }.GetEnumerator()) {
+foreach ($kv in @{ MSBUILDDISABLENODEREUSE = '1'; DOTNET_CLI_USE_MSBUILD_SERVER = '0'; Game_GGPK = $clientPaths.Archive
+    Game_SOURCE_ROOT = $repo; Game_RUNTIME_DIR = $runtime }.GetEnumerator()) {
     $savedEnv[$kv.Key] = [Environment]::GetEnvironmentVariable($kv.Key)
     [Environment]::SetEnvironmentVariable($kv.Key, $kv.Value)
 }
 try {
-    # Build each dotnet project once, then run it with --no-build: the atlas entries share one project.
+    # Build each dotnet project once, then execute its DLL from that same layout.
     $projects = @($todo | Where-Object { $_.Runner -eq 'dotnet' } | ForEach-Object { $_.Args[2] } | Select-Object -Unique)
     foreach ($proj in $projects) {
         $log = Join-Path $logs "extract-build-$(Split-Path $proj -Leaf).log"
         Write-Output "building $proj ..."
-        $code = Invoke-Logged 'dotnet' @('build', $proj) $log
+        $code = Invoke-Logged 'dotnet' @(Get-DotnetBuildArguments (Resolve-RepositoryPath $repo $proj) $buildDirectory) $log
         if ($code -ne 0) { throw "extract-data: building $proj failed (exit $code; logs\$(Split-Path $log -Leaf)):`n$(Tail $log)" }
     }
     foreach ($e in $todo) {
         $log = Join-Path $logs "extract-$($e.Name).log"
         Write-Output "extracting $($e.Name) ($($reason[$e.Name])) ..."
         $started = Get-Date
-        $exe = 'dotnet'; $exeArgs = @('run', '--no-build') + $e.Args[1..($e.Args.Count - 1)]
-        if ($e.Runner -eq 'python') { $exe = $python; $exeArgs = @('-I') + $e.Args }
+        $exe = 'dotnet'
+        if ($e.Runner -eq 'python') {
+            $exe = $python
+            $exeArgs = @('-I', '-B', (Join-Path $repo $e.Args[0])) + $e.Args[1..($e.Args.Count - 1)]
+        }
+        else {
+            $assembly = Get-ProjectAssembly $repo $e.Args[2] $buildDirectory
+            Need (Test-Path -LiteralPath $assembly -PathType Leaf) "$assembly missing after build"
+            $exeArgs = @($assembly) + $e.Args[4..($e.Args.Count - 1)]
+        }
         $code = Invoke-Logged $exe $exeArgs $log
-        $output = Join-Path $repo $e.Outputs[0]
+        $output = Join-Path $runtime $e.Outputs[0]
         $fresh = (Test-Path $output) -and (Get-Item $output).LastWriteTime -ge $started.AddSeconds(-2)
         if ($code -ne 0 -or -not $fresh) {
             throw "extract-data: $($e.Name) failed (exit $code$(if (-not $fresh) { ", $($e.Outputs[0]) not written" }); logs\extract-$($e.Name).log):`n$(Tail $log)"
@@ -162,5 +176,10 @@ try {
         Write-Output "  done in $([int]((Get-Date) - $started).TotalSeconds) s"
     }
 }
-finally { foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k]) } }
+finally {
+    foreach ($k in $savedEnv.Keys) {
+        if ($null -eq $savedEnv[$k]) { Remove-Item -LiteralPath "Env:$k" -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k]) }
+    }
+}
 Write-Output "game data extracted: $(($todo | ForEach-Object { $_.Name }) -join ', ')"

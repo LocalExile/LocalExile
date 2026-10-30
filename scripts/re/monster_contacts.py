@@ -18,10 +18,10 @@
 import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, amd_map, animation_controller, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
+from ot_components import ROOT, amd_map, animation_controller, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
 from anim_contacts import act_tokens, closing_brace  # noqa: E402
 
-TABLES = os.path.join(REPO, "data", "tables")
+TABLES = os.path.join(ROOT, "data", "tables")
 NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
@@ -106,7 +106,7 @@ def act_pools(text, keys):
 
 
 def main():
-    dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "monster-contacts.json")
+    dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(ROOT, "data", "monster-contacts.json")
     keys = animation_keys()
     variants = [r for r in table("MonsterVarieties") if isinstance(r, dict) and r.get("Id")]
     acts = sorted({a for r in variants for a in (r.get("ACTFiles") or [])})

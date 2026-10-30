@@ -1,10 +1,14 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace GameServer.Gateway.Tests;
 
 static class TestEnvironment
 {
-    // Real dispatch tests use Program's production catalogs, whose paths are relative to the repository root.
+    internal static string RepositoryRoot { get; private set; } = null!;
+    internal static string RuntimeRoot { get; private set; } = null!;
+
+    // Real dispatch tests use Program's production catalogs, relative to the selected runtime directory.
     // Set this once before parallel tests or lazy catalogs initialize, rather than changing process CWD in a test.
     [ModuleInitializer]
     internal static void Initialize()
@@ -14,9 +18,26 @@ static class TestEnvironment
             for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
                 if (File.Exists(Path.Combine(dir.FullName, "AGENTS.md"))
                     && File.Exists(Path.Combine(dir.FullName, "src", "GameServer.Gateway", "GameServer.Gateway.csproj"))
-                    && Directory.Exists(Path.Combine(dir.FullName, "data", "tables")))
+                    && Directory.Exists(Path.Combine(dir.FullName, "data", "schema")))
                 {
-                    Directory.SetCurrentDirectory(dir.FullName);
+                    RepositoryRoot = dir.FullName;
+                    // As the launcher gives the servers: tracked files stay in the source tree.
+                    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Game_SOURCE_ROOT")))
+                        Environment.SetEnvironmentVariable("Game_SOURCE_ROOT", RepositoryRoot);
+                    string? runtime = Environment.GetEnvironmentVariable("Game_RUNTIME_DIR");
+                    string config = Path.Combine(RepositoryRoot, "config", "client.local.json");
+                    if (string.IsNullOrEmpty(runtime) && File.Exists(config))
+                    {
+                        using var json = JsonDocument.Parse(File.ReadAllText(config));
+                        if (json.RootElement.TryGetProperty("runtimeDirectory", out var value))
+                            runtime = value.GetString();
+                    }
+                    if (runtime is not null && string.IsNullOrWhiteSpace(runtime))
+                        throw new InvalidDataException("runtimeDirectory must not be whitespace.");
+                    RuntimeRoot = Path.GetFullPath(runtime ?? ".", RepositoryRoot);
+                    if (!Directory.Exists(Path.Combine(RuntimeRoot, "data", "tables")))
+                        throw new DirectoryNotFoundException("Gateway tests need data/tables in the configured runtime.");
+                    Directory.SetCurrentDirectory(RuntimeRoot);
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout with data/tables.");

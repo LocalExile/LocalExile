@@ -22,8 +22,11 @@ static class VerifiedGamblerGraph
         {
             // Use the same decoder as read-only extraction; the target's Mermaid chunks exceed the managed decoder.
             // Failure is a refusal, never a fallback to unverified exported JSON.
-            using var decoder = new NodeOodleDecoder("node", Path.GetFullPath("Tools/ooz/ooz_worker.mjs"));
-            using var fs = GameFileSystem.Open("Client/Content.ggpk", decoder);
+            // The source tree and the client archive as the launcher configures them (Game_SOURCE_ROOT, Game_GGPK; the
+            // repository root and Client/ by default), as in scripts/re/passive-graphs.
+            string source = Environment.GetEnvironmentVariable("Game_SOURCE_ROOT") ?? Directory.GetCurrentDirectory();
+            using var decoder = new NodeOodleDecoder("node", Path.Combine(source, "Tools", "ooz", "ooz_worker.mjs"));
+            using var fs = GameFileSystem.Open(Environment.GetEnvironmentVariable("Game_GGPK") ?? "Client/Content.ggpk", decoder);
             Verify(fs.ReadFile("metadata/passiveskillgraph.psg"),
                 fs.ReadFile("metadata/alternateskillgraphs/customascendancypassiveskillgraph.psg"), className);
         }

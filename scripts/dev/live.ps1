@@ -20,27 +20,50 @@ param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$out = Join-Path $repo 'logs'
+. (Join-Path $PSScriptRoot 'client-path.ps1')
+$clientPaths = Get-ClientPaths -RepositoryRoot $repo
+$buildDirectory = Get-BuildDirectory $repo
+$runtime = Get-RuntimeDirectory $repo
+& (Join-Path $PSScriptRoot 'setup-runtime.ps1')
+$client = $clientPaths.Directory
+$savedClientEnv = @{ Game_CLIENT_EXE = $env:Game_CLIENT_EXE; Game_GGPK = $env:Game_GGPK
+    Game_SOURCE_ROOT = $env:Game_SOURCE_ROOT; Game_RUNTIME_DIR = $env:Game_RUNTIME_DIR }
+try {
+$env:Game_CLIENT_EXE = $clientPaths.Executable
+$env:Game_GGPK = $clientPaths.Archive
+$env:Game_SOURCE_ROOT = $repo
+$env:Game_RUNTIME_DIR = $runtime
+$out = Join-Path $runtime 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
+function Server-Assembly([string]$Name) {
+    Get-ProjectAssembly $repo "src\GameServer.$Name" $buildDirectory
+}
+function Need-ServerAssembly([string]$Name) {
+    $assembly = Server-Assembly $Name
+    Need (Test-Path -LiteralPath $assembly -PathType Leaf) "$assembly missing: run live.ps1 without -NoBuild first"
+}
 function Select-LocalGateway {
     # The client can use a cached gateway list even when the patch welcome needs no download.
-    & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') gateway (Join-Path $repo 'Client\Content.ggpk') --login '127.0.0.1:20493' | Out-Null
+    Need-ServerAssembly 'Patch'
+    Push-Location $runtime
+    try { & dotnet (Server-Assembly 'Patch') gateway $clientPaths.Archive --login '127.0.0.1:20493' | Out-Null }
+    finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'could not select local login server; close all clients and retry' }
 }
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
-Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
-Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'
-Need (Test-Path (Join-Path $repo 'Client\Game.patched.exe')) 'Client\Game.patched.exe missing: run GameServer.Auth patch'
-Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+Need (Test-Path (Join-Path $runtime 'data\login-keys.json')) "$runtime\data\login-keys.json missing: see runtime setup in GettingStarted"
+Need (Test-Path $clientPaths.Executable) "$($clientPaths.Executable) missing: copy the client and its PathOfExile.exe"
+Need (Test-Path $clientPaths.PatchedExecutable) "$($clientPaths.PatchedExecutable) missing: run GameServer.Auth patch"
+Need (Test-Path $clientPaths.Archive) "$($clientPaths.Archive) missing: this needs the standalone client layout"
 
 # The control bridge can open a closed client without restarting the servers or touching an existing game.
 if ($ClientOnly) {
     if ($NoClient -or $Only -or $Walkmaps) { throw '-ClientOnly cannot be combined with -NoClient, -Only or -Walkmaps' }
     $existing = @(Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue)
     if ($existing.Count) {
-        Need ($existing.Count -eq 1 -and $existing[0].Path -eq (Join-Path $repo 'Client\Game.patched.exe')) 'another patched client is running'
+        Need ($existing.Count -eq 1 -and $existing[0].Path -eq $clientPaths.PatchedExecutable) 'another patched client is running'
         Write-Output "client already running: $($existing[0].Id)"
         return
     }
@@ -48,15 +71,24 @@ if ($ClientOnly) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
     Select-LocalGateway
-    $p = Start-Process (Join-Path $repo 'Client\Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory (Join-Path $repo 'Client') -PassThru
+    $p = Start-Process $clientPaths.PatchedExecutable -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory $client -PassThru
     Write-Output "client pid $($p.Id)"
     return
 }
 
+$servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
+if ($Only) { $NoClient = $true }
+# Hot reload (the Gateway under `dotnet watch`) unless -NoHotReload. A watched Gateway builds itself.
+$Watch = -not $NoHotReload -and $servers -contains 'Gateway'
+$prebuilt = @($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })
+# Fail before extraction or stopping a session when the selected layout has not been built.
+if ($NoBuild) { foreach ($s in $prebuilt) { Need-ServerAssembly $s } }
+
 $python = $null
 if ($Walkmaps) {
-    # A virtual environment in the repository (.venv) wins over the python on PATH.
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    & (Join-Path $PSScriptRoot 'setup-runtime.ps1') -PythonTools
+    # Native helpers share a managed environment in the selected runtime directory.
+    $venv = Join-Path $runtime '.venv\Scripts\python.exe'
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
     Need $python 'Python not found (needed for -Walkmaps)'
@@ -70,10 +102,6 @@ if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
 # Without this the Gateway stops after creating the player and the client never enters the area.
 if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
 
-$servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
-if ($Only) { $NoClient = $true }
-# Hot reload (the Gateway under `dotnet watch`) unless -NoHotReload.
-$Watch = -not $NoHotReload -and $servers -contains 'Gateway'
 $patchWebPort = if ($env:Game_PATCH_URL -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
 $ports = @{ Auth = @(20493); Patch = @(12995, $patchWebPort); Gateway = @(6112) }
 
@@ -127,10 +155,10 @@ $runs = @(Get-ChildItem (Join-Path $out 'archive') -Directory -ErrorAction Silen
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 if (-not $NoBuild) {
-    # A watched Gateway builds itself.
-    foreach ($s in ($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })) {
-        dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
+    foreach ($s in $prebuilt) {
+        $buildArgs = @(Get-DotnetBuildArguments (Join-Path $repo "src\GameServer.$s") $buildDirectory) + @('-v', 'q', '-nologo')
+        $buildOutput = & dotnet @buildArgs 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s`n$($buildOutput -join "`n")" }
     }
 }
 
@@ -140,10 +168,9 @@ if (-not $NoBuild) {
 # (ShellExecute) they inherit the environment (the Game_* settings) but no handles.
 function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err) {
     $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-    Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden
+    Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $runtime -WindowStyle Hidden
 }
 
-$bin = 'bin\Debug\net10.0'
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
 # The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
 $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
@@ -154,7 +181,7 @@ if (-not $NoClient) {
 }
 
 # Each connection's last packets go to a file when it closes (PacketHistory): the lead for a client crash. Relative to
-# the servers' working directory (this checkout), and only for them: the shell keeps its own value (0 turns it off).
+# the servers' working directory (the runtime directory), and only for them: the shell keeps its own value (0 turns it off).
 $dumpsBefore = $env:Game_PACKET_DUMPS
 if (-not $env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS = 'logs\packets' }
 # A watched Gateway reads `dotnet watch`'s own output (its stderr, below) to tell players about compile errors (HotReload.cs).
@@ -163,10 +190,10 @@ $env:Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } els
 try {
     foreach ($s in 'Patch', 'Gateway', 'Auth') {
         if ($servers -notcontains $s) { continue }
-        # `dotnet watch` runs the Gateway with this checkout as its working directory, like the plain start, so data\
-        # and logs\ resolve the same. --non-interactive restarts it on an edit hot reload cannot apply instead of asking.
-        $command = if ($Watch -and $s -eq 'Gateway') { @('watch', 'run', '--project', "src\GameServer.$s", '--non-interactive', '--') }
-            else { @("src\GameServer.$s\$bin\GameServer.$s.dll") }
+        # `dotnet watch` runs the Gateway with the runtime directory as its working directory, like the plain start, so
+        # data\ and logs\ resolve the same. --non-interactive restarts it on an edit hot reload cannot apply instead of asking.
+        $command = @(if ($Watch -and $s -eq 'Gateway') { Get-DotnetWatchArguments (Join-Path $repo "src\GameServer.$s") $buildDirectory }
+            else { Need-ServerAssembly $s; Server-Assembly $s })
         Start-Detached 'dotnet' ($command + $serverArgs[$s]) `
             (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
     }
@@ -216,8 +243,14 @@ if ($Walkmaps) {
 }
 
 if (-not $NoClient) {
-    $client = Join-Path $repo 'Client'
     $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory $client -PassThru
     Write-Output "client pid $($p.Id)"
 }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')" } else { 'servers up' })
+
+} finally {
+    foreach ($key in $savedClientEnv.Keys) {
+        if ($null -eq $savedClientEnv[$key]) { Remove-Item -LiteralPath "Env:$key" -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($key, $savedClientEnv[$key]) }
+    }
+}

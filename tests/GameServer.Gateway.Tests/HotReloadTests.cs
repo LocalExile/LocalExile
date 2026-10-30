@@ -24,4 +24,13 @@ public class HotReloadTests
     [Fact]
     public void A_line_without_a_compile_error_is_kept() =>
         Assert.Equal("dotnet watch 🔥 Unable to apply changes", CompileError("dotnet watch 🔥 Unable to apply changes"));
+
+    // The servers run in the runtime directory, so "src" beside the working directory is not the source tree.
+    [Fact]
+    public void Saved_sources_are_watched_in_the_source_tree()
+    {
+        var sources = (string)typeof(Program).Assembly.GetType("HotReload")!
+            .GetProperty("SourceDirectory", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        Assert.True(File.Exists(Path.Combine(sources, "GameServer.Gateway", "HotReload.cs")), sources);
+    }
 }

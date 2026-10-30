@@ -93,7 +93,7 @@ public class PenetrationTests : IDisposable
 
     static string? Data()
     {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        for (var dir = new DirectoryInfo(TestEnvironment.RuntimeRoot); dir is not null; dir = dir.Parent)
             if (Directory.Exists(Path.Combine(dir.FullName, "data", "tables")))
                 return Path.Combine(dir.FullName, "data");
         return null;

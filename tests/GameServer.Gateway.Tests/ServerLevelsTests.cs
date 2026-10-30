@@ -30,6 +30,10 @@ public class ServerLevelsTests : IDisposable
 
     [Fact] public void NoBaselineSupportsNothing() => Assert.Empty(ServerLevels.LoadSupported(_file + ".missing"));
 
+    // The servers run in the runtime directory, which can be outside the checkout that holds the baseline.
+    [Fact] public void TheBaselineIsFoundFromTheRuntimeDirectory() =>
+        Assert.True(File.Exists(GameServer.Core.World.ServerLevelAreas.BaselinePath));
+
     // A seed the port cannot generate is replaced by the same seeds for everyone entering the instance: distinct, in
     // Auth's range (2 … int.MaxValue), never the seed itself.
     [Theory]

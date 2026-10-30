@@ -10,14 +10,18 @@ import argparse, datetime, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-STATE = ROOT / "data" / "tour-left.txt"
-FAILURES = ROOT / "data" / "walkability" / "tour-failures.txt"
-LOG = ROOT / "logs" / "tourloop.log"
-RUNS = ROOT / "logs" / "tour-runs"
-RECORDS = ROOT / "data" / "tour-records" / "stops.jsonl"
-CLIENT_LOG = ROOT / "Client" / "logs" / "Client.txt"
-GATEWAY_LOG = ROOT / "logs" / "live-gateway.log"
-PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
+sys.path.insert(0, str(ROOT / "scripts" / "dev"))
+from client_paths import client_directory, runtime_directory  # noqa: E402
+
+RUNTIME = runtime_directory(ROOT)
+STATE = RUNTIME / "data" / "tour-left.txt"
+FAILURES = RUNTIME / "data" / "walkability" / "tour-failures.txt"
+LOG = RUNTIME / "logs" / "tourloop.log"
+RUNS = RUNTIME / "logs" / "tour-runs"
+RECORDS = RUNTIME / "data" / "tour-records" / "stops.jsonl"
+CLIENT_LOG = client_directory(ROOT) / "logs" / "Client.txt"
+GATEWAY_LOG = RUNTIME / "logs" / "live-gateway.log"
+PYTHON = RUNTIME / ".venv" / "Scripts" / "python.exe"
 CONTROL = ROOT / "scripts" / "dev" / "client_control.py"
 
 
@@ -137,7 +141,7 @@ def record_drop(current, reason):
 
 def keep_logs():
     """Copies the last run's server and recorder logs before live.ps1 deletes them."""
-    logs = [p for p in (ROOT / "logs").glob("live-*.*") if p.suffix in (".log", ".err")] + list((ROOT / "logs").glob("walkmaps.*"))
+    logs = [p for p in (RUNTIME / "logs").glob("live-*.*") if p.suffix in (".log", ".err")] + list((RUNTIME / "logs").glob("walkmaps.*"))
     logs = [p for p in logs if p.stat().st_size > 0]
     if not logs:
         return

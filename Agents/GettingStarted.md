@@ -129,6 +129,155 @@ Success: `Client\Game.exe` (about 79 MB) and `Client\Content.ggpk` exist.
   minutes.
 - Close the client before copying. A running client locks `Content.ggpk`.
 
+### Optional external client folder
+
+The default remains `<repository>\Client`. To use another installation, create `config/client.local.json` in the
+repository. This file is ignored by Git. For example:
+
+```json
+{
+  "clientDirectory": "F:\\poe\\Client"
+}
+```
+
+Move the whole client directory, including `config.json`, while the game and local servers are closed.
+The configured directory must contain `Game.exe`, `Game.patched.exe` and `Content.ggpk`.
+Relative paths resolve from the repository root. An optional `Game_CLIENT_DIR` environment variable takes precedence
+over the JSON file. Without either setting, the tools continue to use the repository's `Client` folder.
+Malformed local configuration stops the tools with an error rather than silently selecting another client.
+
+`live.ps1`, `extract-data.ps1` and the native client-control bridge use this location. The launcher passes resolved
+`Game_CLIENT_EXE` and `Game_GGPK` paths to its servers and restores the caller's environment when it exits.
+Existing explicit `Game_CLIENT_EXE` and `Game_GGPK` overrides retain precedence for their individual files.
+Extraction passes the same archive to .NET and Python generators.
+Generated server data stays under repository `data/` unless a separate runtime folder is configured below.
+Standalone server commands do not read `config/client.local.json`; use the existing file environment overrides for
+those.
+Other manual RE commands in this guide still need explicit external paths where their examples say `Client/...`.
+
+The client is launched with its own directory as its working directory, so its `config.json` continues to select
+its existing Documents profile. Moving the game directory does not move or replace that profile.
+Start it normally from a PowerShell terminal in the repository root:
+
+```powershell
+.\scripts\dev\live.ps1
+```
+
+### Optional separate build folder
+
+Add `buildDirectory` to the same ignored `config/client.local.json` to keep compiled programs and intermediate
+files outside the source checkout.
+For example, this layout puts the client and build output beside the repository:
+
+```json
+{
+  "clientDirectory": "../Client",
+  "buildDirectory": "../build"
+}
+```
+
+All folder settings are optional and resolve relative to the repository root, including paths containing spaces.
+`Game_BUILD_DIR` overrides `buildDirectory`, just as `Game_CLIENT_DIR` overrides `clientDirectory`.
+Without a build setting, the usual per-project `bin/Debug/net10.0` and `obj/` directories remain in use.
+The launcher and extraction tools build Debug with .NET's `--artifacts-path` option when configured.
+They execute the matching `bin/<project>/debug/<project>.dll`, including the gateway selector and Python's GGPK helper.
+They never fall back to an older DLL in the source tree.
+
+Run the launcher from the source repository as above.
+Servers and extractors use the repository as their working directory unless `runtimeDirectory` is configured below.
+The native client keeps its own working directory and Documents profile.
+`-Only Gateway` rebuilds and restarts only Gateway; `-NoBuild` uses existing DLLs in the selected layout.
+A missing DLL with `-NoBuild` stops startup before the launcher stops servers or clears their logs.
+Hot reload ([step 10](#10-play)) uses the same layout: `dotnet watch` builds the Gateway there, even
+with `-NoBuild`, and runs it in the runtime folder.
+`-ClientOnly` requires an already-built Patch DLL in the same layout and running local servers.
+
+Manual `dotnet` commands do not read the JSON file.
+For a full build and tests using the example layout, open PowerShell in the repository root and run:
+
+```powershell
+dotnet build GameServer.slnx --artifacts-path ../build
+dotnet test tests/GameServer.Core.Tests --artifacts-path ../build
+dotnet test tests/GameServer.Data.Tests --artifacts-path ../build
+dotnet test tests/GameServer.Gateway.Tests --artifacts-path ../build
+```
+
+Only `bin/` and `obj/` are disposable when the build folder also holds runtime data.
+
+### Optional separate runtime folder
+
+Use `runtimeDirectory` to keep the source checkout for code, documentation, and the tracked data schema.
+For example:
+
+```json
+{
+  "clientDirectory": "../Client",
+  "runtimeDirectory": "../build"
+}
+```
+
+The launcher builds into that runtime folder automatically unless an explicit `buildDirectory` or `Game_BUILD_DIR`
+selects another build folder.
+`Game_RUNTIME_DIR` overrides `runtimeDirectory`.
+Without a runtime setting, the original repository-relative layout is unchanged.
+The launcher creates runtime `data/`, `logs/` and extraction-cache folders on startup.
+Extraction installs its pinned Node dependency there if missing, while its worker and schema stay in the source tree.
+The first `control.ps1` or `live.ps1 -Walkmaps` call creates runtime `.venv/` and installs its pinned Frida package.
+Later calls reuse that environment; package downloads happen only when a required dependency is missing.
+Python helper processes suppress bytecode files in the source tree.
+`scripts/dev/bugreport.ps1` and `scripts/re/levelgen/lg.ps1` use the same configured folders.
+The runtime folder must be separate from the checkout and must not belong to another checkout.
+
+An existing installation needs one migration.
+Close the game window first, then stop this checkout's local services and migrate:
+
+```powershell
+.\scripts\dev\stop.ps1
+.\scripts\dev\setup-runtime.ps1 -Migrate
+.\scripts\dev\live.ps1
+```
+
+Migration refuses running client/server processes and preexisting destination files.
+It copies and verifies every runtime file by SHA256 before moving originals into a separate local backup beside
+the source checkout; the receipt records the backup and verification details.
+Saves, keys, generated tables, walk maps, logs, extraction packages and the active metadata cache are preserved.
+Obsolete per-project build folders are also preserved in the backup.
+Tracked `data/schema/` stays in source, and historical RE installations/artifacts are not moved.
+Later startup is idempotent and never repeats migration.
+If runtime data reappears in the source checkout, startup stops so that two databases cannot silently diverge.
+
+**Keep runtime `data/` when cleaning builds.**
+It contains saves, accounts and login keys.
+Delete or rebuild only `bin/` and `obj/`; do not delete the entire runtime folder.
+
+Use `scripts/dev/run.ps1` for individual server or maintenance commands so they use the configured working directory:
+
+```powershell
+.\scripts\dev\run.ps1 Patch gateway
+.\scripts\dev\run.ps1 Host
+```
+
+Direct `dotnet run` commands do not read the local path configuration.
+For initial key generation and executable patching with a separate runtime, use the configured client paths:
+
+```powershell
+. .\scripts\dev\client-path.ps1
+$client = Get-ClientPaths -RepositoryRoot (Get-Location).Path
+.\scripts\dev\run.ps1 Auth keygen $client.Executable
+.\scripts\dev\run.ps1 Auth patch $client.Executable $client.PatchedExecutable
+```
+
+Gateway tests use the same runtime selection through their shared test initializer.
+Production catalogs continue to read relative `data/` paths from the selected working directory.
+The native client's directory and Documents profile remain separate.
+
+To inspect extraction freshness, or rerun just the read-only graph analysis:
+
+```powershell
+.\scripts\dev\extract-data.ps1 -List
+.\scripts\dev\extract-data.ps1 -Only passive-graphs
+```
+
 ## 4. Generate your own login keys
 
 ```powershell
@@ -284,6 +433,9 @@ For every area its level generator port reproduces (the supported areas, [re/011
 it generates the layout itself from the seed: nothing to capture, and nothing is written to disk. Any other area needs
 a capture from your own client. This step is optional and only for those areas or for working on the generator; by
 default nothing is recorded.
+Captures stay on your machine (`data/` is not in Git), so a new install has none.
+That only matters for `scripts/re/levelgen/gate.ps1`, the check for generator changes, which needs them to compare
+against: without them it reports `gate: NOT RUN`.
 
 - **Without captures:** you can play every supported area. An area that is not supported tells you so in game; its
   layout is unknown to the server (you may spawn somewhere odd, and it has no area transitions).

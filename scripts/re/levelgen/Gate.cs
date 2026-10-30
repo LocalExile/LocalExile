@@ -11,10 +11,13 @@ namespace LevelGenTool;
 /// projectile grids, the doodads against the capture) and every (area, seed) the client logged (the oracle), run by
 /// worker processes that each open the game once. The results go to gate-latest.json beside this file and are compared
 /// with gate-baseline.json (committed): what was gained, what was lost, and the first-difference clusters to work on
-/// next. `--save` makes the results the new baseline; the exit code is 1 when anything was lost.
+/// next. `--save` makes the results the new baseline, keeping any check the run did not cover; the exit code is 1 when
+/// anything was lost, 2 when a full run has no seed-1 traces to compare with (nothing ran).
 /// Options: --jobs N, --only &lt;area regex&gt;, --no-oracle, --save.</summary>
 static class Gate
 {
+    const int NotRun = 2;
+
     /// <summary>One check's outcome. Capture checks fill all fields, oracle checks only <see cref="Hash"/>.
     /// <see cref="Captured"/> is -1 for a trace with no doodad capture (no .doodads.json); <see cref="Heights"/> (cells
     /// whose ground height differs) is -1 with no height capture (no .heights.bin).</summary>
@@ -59,7 +62,7 @@ static class Gate
                 case "--save": save = true; break;
             }
         var tasks = new List<string>();
-        foreach (var trace in Directory.GetFiles(Path.Combine(root, "data", "walkability"), "*_seed1.gen.json").Order())
+        foreach (var trace in Directory.GetFiles(Path.Combine(Shared.RuntimeRoot(), "data", "walkability"), "*_seed1.gen.json").Order())
         {
             string area = Path.GetFileName(trace)[..^"_seed1.gen.json".Length];
             if (System.Text.RegularExpressions.Regex.IsMatch(area, only)) tasks.Add($"capture\t{area}");
@@ -72,6 +75,17 @@ static class Gate
                 if (System.Text.RegularExpressions.Regex.IsMatch(area, only))
                     tasks.Add($"failure\t{area}\t{seed}\t{level}\t{Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(message))}");
 
+        // A partial run compares only what it ran.
+        bool partial = only != "." || !oracle;
+        // The traces stay on the machine that recorded them (data/ is not in git). Without any, every baseline check
+        // would read as lost and --save would empty the file the servers read their supported areas from.
+        if (!partial && !tasks.Any(t => t.StartsWith("capture\t", StringComparison.Ordinal)))
+        {
+            Console.WriteLine($"gate: no recordings in {Path.Combine(Shared.RuntimeRoot(), "data", "walkability")} (*_seed1.gen.json), so nothing was compared.");
+            Console.WriteLine("They are local: record them with live.ps1 -Walkmaps or a /tour (Agents/docs/re/011-level-generation.md).");
+            return NotRun;
+        }
+
         var clock = Stopwatch.StartNew();
         var results = RunWorkers(tasks, jobs);
         Console.WriteLine($"gate: {tasks.Count} checks with {jobs} workers in {clock.Elapsed.TotalSeconds:0}s");
@@ -81,16 +95,17 @@ static class Gate
         var baseline = File.Exists(baselinePath)
             ? JsonSerializer.Deserialize<SortedDictionary<string, Result>>(File.ReadAllText(baselinePath)) ?? new()
             : new SortedDictionary<string, Result>();
-        // A partial run compares only what it ran.
-        if (only != "." || !oracle)
+        if (partial)
             baseline = new(baseline.Where(b => results.ContainsKey(b.Key)).ToDictionary(b => b.Key, b => b.Value));
         Summary(results, baseline);
         int lost = Compare(results, baseline);
         Clusters(results);
         if (save)
         {
-            Write(baselinePath, only == "." && oracle ? results : Merge(baselinePath, results));
-            Console.WriteLine($"saved as the baseline ({Path.GetRelativePath(root, baselinePath)})");
+            // Some traces missing: what this run did not cover stays, whatever a full run would write.
+            int kept = baseline.Keys.Count(k => !results.ContainsKey(k));
+            Write(baselinePath, partial || kept > 0 ? Merge(baselinePath, results) : results);
+            Console.WriteLine($"saved as the baseline ({Path.GetRelativePath(root, baselinePath)})" + (kept > 0 ? $", keeping {kept} checks this run did not cover" : ""));
         }
         return lost > 0 ? 1 : 0;
     }
@@ -105,13 +120,13 @@ static class Gate
         int jobs = Math.Clamp(Environment.ProcessorCount / 2, 1, 8);
         for (int i = 0; i < args.Length; i++)
             if (args[i] == "--jobs") jobs = int.Parse(args[++i]);
-        using var areas = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
+        using var areas = JsonDocument.Parse(File.ReadAllText(Path.Combine(Shared.RuntimeRoot(), "data", "tables", "WorldAreas.json")));
         var tasks = new List<string>();
         foreach (var row in areas.RootElement.EnumerateArray())
         {
             string id = row.GetProperty("Id").GetString()!;
             if (row.GetProperty("TopologiesKeys").GetArrayLength() == 0) continue;
-            if (Directory.GetFiles(Path.Combine(root, "data", "walkability"), $"{id}_seed*.gen.json").Length > 0) continue;
+            if (Directory.GetFiles(Path.Combine(Shared.RuntimeRoot(), "data", "walkability"), $"{id}_seed*.gen.json").Length > 0) continue;
             tasks.Add($"survey\t{id}\t{Math.Max(1, row.GetProperty("AreaLevel").GetInt32())}");
         }
         var clock = Stopwatch.StartNew();
@@ -129,12 +144,11 @@ static class Gate
     /// tour until the client is restarted (1_1_3 seed 2042820024 fails in both at the same edge).</summary>
     public static int TourCheck(string[] args)
     {
-        string root = Shared.Root();
         int jobs = Math.Clamp(Environment.ProcessorCount / 2, 1, 8);
         string file = args[0];
         for (int i = 1; i < args.Length; i++)
             if (args[i] == "--jobs") jobs = int.Parse(args[++i]);
-        using var areas = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
+        using var areas = JsonDocument.Parse(File.ReadAllText(Path.Combine(Shared.RuntimeRoot(), "data", "tables", "WorldAreas.json")));
         var levels = areas.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("Id").GetString()!, r => Math.Max(1, r.GetProperty("AreaLevel").GetInt32()));
         var lines = File.ReadAllLines(file);
         var tasks = new List<string>();
@@ -172,7 +186,7 @@ static class Gate
         var tasks = new List<string>();
         foreach (var ((area, seed), (_, hash)) in Shared.LoggedHashes())
             if (seed != 1 && System.Text.RegularExpressions.Regex.IsMatch(area, only)
-                && File.Exists(Path.Combine(root, "data", "walkability", $"{area}_seed{seed}.gen.json")))
+                && File.Exists(Path.Combine(Shared.RuntimeRoot(), "data", "walkability", $"{area}_seed{seed}.gen.json")))
                 tasks.Add($"load\t{area}\t{seed}\t{hash}");
         var clock = Stopwatch.StartNew();
         var results = RunWorkers(tasks, jobs);
@@ -337,7 +351,7 @@ static class Gate
 
     static Result Oracle(string areaId, uint seed, int level, uint hash)
     {
-        string stem = Path.Combine(Shared.Root(), "data", "walkability", $"{areaId}_seed{seed}");
+        string stem = Path.Combine(Shared.RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}");
         bool traced = File.Exists(stem + ".gen.json");
         try
         {
@@ -353,7 +367,7 @@ static class Gate
     static Result Capture(string areaId, uint seed = 1, uint? loggedHash = null)
     {
         var files = Shared.Files();
-        string stem = Path.Combine(Shared.Root(), "data", "walkability", $"{areaId}_seed{seed}");
+        string stem = Path.Combine(Shared.RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}");
         using var trace = JsonDocument.Parse(File.ReadAllText(stem + ".gen.json"));
         var t = trace.RootElement;
         int level = t.TryGetProperty("level", out var l) ? l.GetInt32() : 1;

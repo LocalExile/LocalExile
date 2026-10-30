@@ -199,7 +199,7 @@ static int Dispatch(string[] args)
                 int at = Array.IndexOf(args, "--random");
                 bool supported = args.Contains("--supported");
                 var rest = args.Skip(1).Where((a, i) => i + 1 != at && i + 1 != at + 1 && a != "--supported").ToList();
-                TourList(rest.FirstOrDefault() ?? Path.Combine(Root(), "data", "tour.txt"), at > 0 ? int.Parse(args[at + 1]) : 0, supported);
+                TourList(rest.FirstOrDefault() ?? Path.Combine(RuntimeRoot(), "data", "tour.txt"), at > 0 ? int.Parse(args[at + 1]) : 0, supported);
             }
                 break;
             case "oracle":
@@ -225,12 +225,12 @@ static void TourList(string outFile, int randomSeeds, bool supportedOnly)
     var lines = new List<string> { $"# levelgen tourlist {DateTime.Now:s}: logged seeds the port does not match, without a trace" };
     int wrong = 0, random = 0;
     // Seeds the client itself failed to generate on an earlier tour (the Gateway's data/walkability/tour-failures.txt).
-    string failures = Path.Combine(root, "data", "walkability", "tour-failures.txt");
+    string failures = Path.Combine(RuntimeRoot(), "data", "walkability", "tour-failures.txt");
     var failed = File.Exists(failures)
         ? File.ReadLines(failures).Select(l => l.Split(' ')).Where(f => f.Length > 2).Select(f => $"{f[1]} {f[2].TrimEnd(':')}").ToHashSet()
         : [];
     // Towns and hideouts always get seed 1 (InstanceRegistry, Auth's SeedFor), so a tour stop at another seed never arrives.
-    string worldAreas = Path.Combine(root, "data", "tables", "WorldAreas.json");
+    string worldAreas = Path.Combine(RuntimeRoot(), "data", "tables", "WorldAreas.json");
     var towns = File.Exists(worldAreas)
         ? JsonDocument.Parse(File.ReadAllBytes(worldAreas)).RootElement.EnumerateArray()
             .Where(r => r.GetProperty("IsTown").GetBoolean() || r.TryGetProperty("IsHideout", out var h) && h.ValueKind == JsonValueKind.True)
@@ -244,7 +244,7 @@ static void TourList(string outFile, int randomSeeds, bool supportedOnly)
         var key = check.Name.Split(' ');
         if (supported is not null || towns.Contains(key[1])) continue;
         if (key[0] != "oracle" || check.Value.GetProperty("Hash").GetString() == "match") continue;
-        if (File.Exists(Path.Combine(root, "data", "walkability", $"{key[1]}_seed{key[2]}.gen.json"))) continue;
+        if (File.Exists(Path.Combine(RuntimeRoot(), "data", "walkability", $"{key[1]}_seed{key[2]}.gen.json"))) continue;
         if (failed.Contains($"{key[1]} {key[2]}")) continue;
         lines.Add($"{key[1]} {key[2]}  # {check.Value.GetProperty("Hash").GetString()}");
         wrong++;
@@ -320,13 +320,12 @@ static void Rooms(string filter)
     var pairs = LoggedHashes(out _, out _, null);
     var fs = OpenGame();
     var files = Files();
-    string root = Root();
     int loads = 0, same = 0, wrong = 0, rooms = 0, questLoads = 0, questSame = 0, quests = 0;
     foreach (var ((areaId, seed), (level, hash)) in pairs)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(areaId, filter)) continue;
-        string capture = Path.Combine(root, "data", "walkability", $"{areaId}_seed{seed}.rooms.json");
-        string questCapture = Path.Combine(root, "data", "walkability", $"{areaId}_seed{seed}.objects.json");
+        string capture = Path.Combine(RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}.rooms.json");
+        string questCapture = Path.Combine(RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}.objects.json");
         if (!File.Exists(capture) && !File.Exists(questCapture)) continue;
         GenerationResult result;
         try
@@ -378,12 +377,11 @@ static void Objects(string filter)
     var pairs = LoggedHashes(out _, out _, null);
     var fs = OpenGame();
     var files = Files();
-    string root = Root();
     int loads = 0, same = 0, missing = 0, extra = 0, moved = 0, objects = 0;
     foreach (var ((areaId, seed), (level, hash)) in pairs)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(areaId, filter)) continue;
-        string capture = Path.Combine(root, "data", "walkability", $"{areaId}_seed{seed}.transitions.json");
+        string capture = Path.Combine(RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}.transitions.json");
         if (!File.Exists(capture)) continue;
         GenerationResult result;
         try
@@ -431,19 +429,18 @@ static void Objects(string filter)
 
 static void Walk(string? areaId, uint seed)
 {
-    string root = Root();
     var fs = OpenGame();
     var files = Files();
     if (areaId is not null)
     {
-        WalkArea(fs, files, root, areaId, seed, verbose: true);
+        WalkArea(fs, files, areaId, seed, verbose: true);
         return;
     }
     // Every area with a seed-1 capture: whether the port's tile hash is the client's, and the cells that differ.
-    foreach (var bin in Directory.GetFiles(Path.Combine(root, "data", "walkability"), "*_seed1.bin").Order())
+    foreach (var bin in Directory.GetFiles(Path.Combine(RuntimeRoot(), "data", "walkability"), "*_seed1.bin").Order())
     {
         string id = Path.GetFileName(bin)[..^"_seed1.bin".Length];
-        try { WalkArea(fs, files, root, id, 1, verbose: false); }
+        try { WalkArea(fs, files, id, 1, verbose: false); }
         catch (Exception e)
         {
             Console.WriteLine($"{id} stop ({e.Message.Split('\n')[0]})");
@@ -455,7 +452,7 @@ static void Heights(string areaId, uint seed)
 {
     var fs = OpenGame();
     var files = Files();
-    string stem = Path.Combine(Root(), "data", "walkability", $"{areaId}_seed{seed}");
+    string stem = Path.Combine(RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}");
     int level = 1;
     if (File.Exists(stem + ".gen.json"))
         using (var head = JsonDocument.Parse(File.ReadAllText(stem + ".gen.json")))
@@ -482,10 +479,9 @@ static void Heights(string areaId, uint seed)
 
 static void Doodads(string areaId, uint seed)
 {
-    string root = Root();
     var fs = OpenGame();
     var files = Files();
-    string stem = Path.Combine(root, "data", "walkability", $"{areaId}_seed{seed}");
+    string stem = Path.Combine(RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}");
     using var trace = JsonDocument.Parse(File.ReadAllText(stem + ".gen.json"));
     var t = trace.RootElement;
     int level = t.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
@@ -544,9 +540,9 @@ static void Doodads(string areaId, uint seed)
         Console.WriteLine($"  capture only: {Path.GetFileName(c.Model)} ({c.X}, {c.Y}) {c.A:0.###} tile ({c.X / 23}, {c.Y / 23}) {grid[c.X / 23, c.Y / 23]?.Tile.Path}");
 }
 
-static void WalkArea(GameFileSystem fs, TerrainCache files, string root, string areaId, uint seed, bool verbose)
+static void WalkArea(GameFileSystem fs, TerrainCache files, string areaId, uint seed, bool verbose)
 {
-    string stem = Path.Combine(root, "data", "walkability", $"{areaId}_seed{seed}");
+    string stem = Path.Combine(RuntimeRoot(), "data", "walkability", $"{areaId}_seed{seed}");
     int level = 1;
     uint? clientHash = null;
     if (File.Exists(stem + ".gen.json"))

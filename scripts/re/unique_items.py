@@ -14,9 +14,11 @@ extracted BaseItemTypes table; malformed PoB blocks without a resolvable base ar
 import json
 import pathlib
 import re
+import runpy
 from collections import Counter, defaultdict
 
 ROOT = pathlib.Path(".")
+RUNTIME = runpy.run_path("scripts/dev/client_paths.py")["runtime_directory"](ROOT.resolve())
 EXPORT = ROOT / "Tools/PathOfBuilding/src/Export/Uniques"
 OUT = ROOT / "src/GameServer.Gateway/UniqueItemSeed.cs"
 
@@ -39,8 +41,8 @@ def blocks(path):
 
 
 def main():
-    base = json.load(open(ROOT / "data/tables/BaseItemTypes.json", encoding="utf-8"))
-    mods = json.load(open(ROOT / "data/tables/Mods.json", encoding="utf-8"))
+    base = json.load(open(RUNTIME / "data/tables/BaseItemTypes.json", encoding="utf-8"))
+    mods = json.load(open(RUNTIME / "data/tables/Mods.json", encoding="utf-8"))
     known_mods = {row["Id"] for row in mods}
     by_name = defaultdict(list)
     for row in base:

@@ -5,8 +5,10 @@ client. It calls existing client functions through [Frida RPC](https://frida.re/
 game thread. It uses the normal local authentication, character list, Play, instance connection, and Gateway command
 handlers. No screenshots, keyboard/mouse events, HTTP listener, save editing, or server authentication bypass are used.
 
-Start the local servers normally through `scripts/dev/live.ps1`. Python needs `frida` (the walk-map recorder's `.venv`
-already has it). Run from the repository root:
+Start the local servers normally through `scripts/dev/live.ps1`.
+`control.ps1` creates a Python environment in the configured runtime folder and installs the pinned `frida` package
+on first use; the walk-map recorder shares that environment.
+Run from the repository root:
 
 ```powershell
 .\scripts\dev\control.ps1 game:open
@@ -41,6 +43,13 @@ answered with, read from `logs/live-gateway.log` (its `=> 0x0017 chat line` entr
 one or `wait` seconds (default 1.5) in total. `replies` is null when the servers were not started by this checkout's
 `live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Replies of commands
 sent from the chat box meanwhile are mixed in; the bridge does not capture the HUD.
+
+The control bridge uses the launcher's ignored `config/client.local.json` settings for an external client and build folder.
+With `buildDirectory` configured, `game:open` uses that folder's existing Debug Patch DLL for gateway selection.
+Build once through `live.ps1` before using `game:open`; the bridge does not rebuild or fall back to source-tree DLLs.
+With `runtimeDirectory` configured, the bridge reads logs there and servers/extractors use its `data/` and `logs/`.
+Client processes continue to use the client folder and existing Documents profile.
+See [separate build folder](../../GettingStarted.md#optional-separate-build-folder) for configuration and commands.
 
 ## Persistent integration
 

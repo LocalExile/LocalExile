@@ -16,7 +16,8 @@ param([int]$Packets = 5, [switch]$Previous, [switch]$NoRedact)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$logs = Join-Path $repo 'logs'
+. (Join-Path $PSScriptRoot 'client-path.ps1')
+$logs = Join-Path (Get-RuntimeDirectory $repo) 'logs'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 # Byte for byte: the servers write the console's code page, the client UTF-8; Latin-1 reads and writes any byte unchanged.
 $latin1 = [Text.Encoding]::GetEncoding(28591)
@@ -48,7 +49,7 @@ if ($Packets -gt 0) {
         $files.Add(@{ From = $f.FullName; To = "packets\$($f.Name)" })
     }
 }
-$clientLog = Join-Path $repo 'Client\logs\LatestClient.txt'
+$clientLog = Join-Path (Get-ClientPaths -RepositoryRoot $repo).Directory 'logs\LatestClient.txt'
 if (Test-Path $clientLog) { $files.Add(@{ From = $clientLog; To = 'client\LatestClient.txt' }) }
 
 $texts = [ordered]@{}
