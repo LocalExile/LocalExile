@@ -294,6 +294,15 @@ static class PanelStats
         return result;
     }
 
+    /// <summary>The recovery inputs with the "while moving" stats added while the player moves (Devout of Garukhan; PoB
+    /// Condition Moving). Only the recovery finals read them; the raw inputs the player stats carry stay unchanged.</summary>
+    public static Func<string, int> WhileMoving(Func<string, int> get, bool moving) => !moving ? get : name => get(name) + name switch
+    {
+        "life_regeneration_rate_per_minute_%" => get("life_regeneration_rate_per_minute_%_while_moving"),
+        "mana_regeneration_rate_+%" => get("mana_regeneration_rate_+%_while_moving"),
+        _ => 0,
+    };
+
     /// <summary><c>base_life_regeneration_rate_per_minute</c> plus <c>life_regeneration_rate_per_minute_%</c> of maximum life.</summary>
     public static double LifePerMinute(Func<string, int> get, uint maxLife) =>
         get("base_life_regeneration_rate_per_minute") + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0;

@@ -7,7 +7,7 @@ static class VerifiedGamblerGraph
 {
     internal const string Normal = "82D82CD3CD2DAD81606AF0DA9D18FCD53B2E92CF006550947D65A4F7E102DC32";
     internal const string Combined = "F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A425196CC93D638";
-    // Aristocrat admits against the same reviewed graph; className only names the refusal.
+    // Aristocrat and Polytheist admit against the same reviewed graph; className only names the refusal.
     internal static void Verify(ReadOnlySpan<byte> ordinary, ReadOnlySpan<byte> alternate, string className = "Gambler")
     {
         if (Convert.ToHexString(SHA256.HashData(ordinary)) != Normal
@@ -16,8 +16,18 @@ static class VerifiedGamblerGraph
                 + $"Read-only verification failed; see Agents/docs/game/{className.ToLowerInvariant().Replace(' ', '-')}.md");
     }
 
+    /// <summary>Tests: the two graphs' bytes in place of the installed archive's (the admission is checked without the
+    /// 66 GB Client/Content.ggpk). Null in production.</summary>
+    internal static Func<(byte[] Ordinary, byte[] Alternate)>? InstalledGraphs;
+
     public static void RequireInstalled(string className = "Gambler")
     {
+        if (InstalledGraphs is { } installed)
+        {
+            var (ordinary, alternate) = installed();
+            Verify(ordinary, alternate, className);
+            return;
+        }
         try
         {
             // Use the same decoder as read-only extraction; the target's Mermaid chunks exceed the managed decoder.

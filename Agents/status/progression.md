@@ -100,6 +100,25 @@ Part of [Status](../Status.md); what to build next in this area is in
   Battle's less damage against other targets (monsters only hit the player).
   Not applied: a linked minion's flask phasing, and flask damage on a relic's explosion (unverified).
   Not yet checked with the real client. Docs: [Paladin checklist](../docs/game/paladin.md).
+- Polytheist: every node has a server consumer or a documented engine gap, with Gateway coverage of three legal
+  builds, paid refunds and reload.
+  The twelve small nodes (defences; light radius, which the client applies), Devout of the Brine King and Ralakesh's
+  minimum charges have consumers.
+  Devout of Garukhan (evasion and regeneration while moving, Unaffected by Shock) and Devout of Ryslatha (more maximum
+  attack damage, no regeneration on enemies hit recently) have consumers and Gateway coverage against a plain build.
+  So do Devout of Gruthkul (spells disabled and dealing no damage, life, regeneration, enemies that hit you attack
+  slower; whether their swing animation slows is unverified), Devout of Lunaris (Novas at the target, two more spell
+  projectiles, more spell area) and Devout of Solaris (a blind aura on nearby enemies, more critical chance against and
+  less damage from blinded enemies; their reduced critical chance has nothing to reduce, because monsters crit only
+  through `always_crit`, an override).
+  Devout of Abberath triggers Abberath's Fury on each footstep while walking (its radius comes from the explosion art
+  and is unverified), its hits ignite monsters, the client draws the burning hoofprints, and ignites on the player
+  deal nothing.
+  Devout of Yugul, Ralakesh's Corrupted Blood immunity and Garukhan's ground immunity wait for curses, reflected
+  damage, Corrupted Blood and hazardous ground.
+  `Game_VERIFIED_POLYTHEIST=1` opts in.
+  Not checked with the real client: that needs the reviewed combined graph installed.
+  Docs: [Polytheist checklist](../docs/game/polytheist.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.

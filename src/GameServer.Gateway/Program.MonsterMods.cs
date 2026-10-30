@@ -121,16 +121,20 @@ partial class Program
     internal static int CriticalMultiplierOn(SpawnedMonster m, int multiplier) =>
         m.Mods.Effects.NoExtraCriticalDamage ? 100 : multiplier;
 
-    /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time): less its fire resistance and its
-    /// damage taken, the player's debuffs on it included. Spell Resistant counts for hits only: its stat has no
-    /// description saying it covers damage over time.</summary>
-    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds)
+    /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
+    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds) =>
+        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTaken(m, burn.Type) }).Tick(seconds, m.Burn);
+
+    /// <summary>The share of damage over time of this type a monster takes (Righteous Fire's burn, ignites): less its
+    /// resistance (its type's base and its mods', as for hits, without penetration) and with its damage taken, the
+    /// player's debuffs on it included. Spell Resistant counts for hits only: its stat has no description saying it
+    /// covers damage over time.</summary>
+    internal static double MonsterDotTaken(SpawnedMonster m, DamageType type)
     {
-        var e = m.Mods.Effects;
+        var resistance = MonsterHitResistance(m, type, default);
         var (all, elemental) = m.TakenFromPlayer;
-        double factor = (100 - DamageModel.Capped(e.Resistance(burn.Type), MonsterModEffects.MaxResistance)) / 100.0
-            * e.DamageTaken(spell: false, all + (DamageTypes.IsElemental(burn.Type) ? elemental : 0));
-        return (burn with { DamagePerSecond = burn.DamagePerSecond * factor }).Tick(seconds, m.Burn);
+        return (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
+            * m.Mods.Effects.DamageTaken(spell: false, all + (DamageTypes.IsElemental(type) ? elemental : 0));
     }
 
     // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life
@@ -147,8 +151,7 @@ partial class Program
                 double now = conn.Clock.Elapsed.TotalSeconds, seconds = now - last;
                 last = now;
                 if (conn.Paused || seconds <= 0) continue;
-                List<(uint Id, uint Life)> changed;
-                using (ProjectileMutation(conn)) changed = RegenerateMonstersLocked(conn.Monsters, seconds);
+                var changed = RegenerateConnectionMonsters(conn, now, seconds);
                 // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
                 // revive the monster on the client.
                 foreach (var (id, life) in changed)
@@ -166,15 +169,34 @@ partial class Program
     internal static bool RegenStillCurrent(IReadOnlyDictionary<uint, SpawnedMonster> monsters, uint id, uint life) =>
         monsters.TryGetValue(id, out var m) && !m.Dead && m.Life == life;
 
+    internal const string EnemyRegenerationOnHit = "enemy_life_regeneration_rate_+%_for_4_seconds_on_hit";
+
+    /// <summary>The connection's regeneration step ending at <paramref name="now"/>, with the player's
+    /// <see cref="EnemyRegenerationOnHit"/> (Devout of Ryslatha, Pools.EnemyRegenerationOnHitPct) on the enemies it hit in
+    /// the last 4 s. The client does not step a monster's life from its regeneration stat (no life_recovery_per_minute is
+    /// sent: re/recovery-timing.md), so the 0x1b1 updates alone show it.</summary>
+    internal static List<(uint Id, uint Life)> RegenerateConnectionMonsters(ClientState conn, double now, double seconds)
+    {
+        int onHit = now - seconds - conn.LastEnemyHitAt <= RecentlySeconds ? conn.Pools.EnemyRegenerationOnHitPct : 0;
+        using (ProjectileMutation(conn)) return RegenerateMonstersLocked(conn.Monsters, seconds, now, onHit);
+    }
+
     /// <summary>One regeneration step over the living, damaged monsters (under the Monsters lock): the ones whose life
-    /// changed, with their new life.</summary>
-    internal static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double seconds)
+    /// changed, with their new life. The part of the step within 4 s of the player's last hit on a monster regenerates at
+    /// (1 + <paramref name="onHitPct"/> / 100) of its rate, at least 0.</summary>
+    internal static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double seconds,
+        double now = 0, int onHitPct = 0)
     {
         var changed = new List<(uint, uint)>();
         foreach (var (id, m) in monsters)
         {
             if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; continue; }
             double perSecond = m.Mods.Effects.LifeRegenPerSecond(m.MaxLife);
+            if (onHitPct != 0 && seconds > 0)
+            {
+                double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
+                perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
+            }
             if (perSecond <= 0) continue;
             double total = m.Regen + perSecond * seconds;
             uint whole = (uint)Math.Truncate(total);

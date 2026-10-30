@@ -60,5 +60,13 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   relic's explosion. The ordinary Guardian's Unwavering Crusade (19641) uses the same relic code and needs its own
   live check.
   See [Paladin](../docs/game/paladin.md).
+- **Known:** every Polytheist node has a consumer or a documented engine gap.
+  `Game_VERIFIED_POLYTHEIST=1` opts in.
+  **Next:** native acceptance on a client with the reviewed combined graph (including Gruthkul's slowed swing
+  animation, the point the client sends for a Nova with Lunaris, Solaris's blind on monsters, and Abberath's explosion
+  art, radius and display buff).
+  Yugul, Corrupted Blood immunity and Garukhan's ground immunity need curses, reflected damage, Corrupted Blood and
+  hazardous ground first.
+  See [Polytheist](../docs/game/polytheist.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
   Implementing all 19 Phrecia classes' special gameplay is separate from this selection lifecycle.

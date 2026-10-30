@@ -873,6 +873,7 @@ player stands (radii in cells):
 - Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Hostile monsters standing in it (not the
   player's minions) are blinded (buff 179 `blinded`): 20% less accuracy against the player (`MonsterSwing`) and 20% less evasion against the player's attacks
   (Path of Building's Blind; the tables have no default value for it). Live: Hillock's accuracy 14 → 11.
+  The same Blind as a passive's blind aura (`Program.Blinded`, [11](11-skills.md) §12); each keeps its own buff.
 - Sulphur (`local_consecrate_ground_on_flask_use_radius` 18): consecrated ground. Standing on it the player regenerates
   5% of maximum life per second (`life_regeneration_rate_per_minute_%` 300) and curses are 50% less effective (Path of
   Building; the stat's reminder text), with the `ground_consecration` buff (208) and the stats sent again.

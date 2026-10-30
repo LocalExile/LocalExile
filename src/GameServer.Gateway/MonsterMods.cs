@@ -80,6 +80,11 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         / Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 
+    /// <summary>An attack time of <see cref="AttackSeconds"/> with <paramref name="extraPct"/> more increased attack speed (a
+    /// debuff on the monster, additive with its own attack_speed_+%).</summary>
+    public double AttackSeconds(double seconds, int extraPct) => extraPct == 0 ? seconds
+        : seconds * Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0) / Math.Max(0.1, 1 + (this["attack_speed_+%"] + extraPct) / 100.0);
+
     /// <summary>The walk's movement_velocity_+% (base_movement_velocity_+% summed), sent to the client so both walk
     /// the monster at its base × (1 + value / 100) (0x141e7c0b0).</summary>
     public int MovementPct => this["base_movement_velocity_+%"];
@@ -170,14 +175,14 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "evasion_rating_+%", "accuracy_rating_+%", "always_crit",
         "life_regeneration_rate_per_minute_%", "rare_monster_mod_spell_damage_taken_+%_final", "base_damage_taken_+%",
         "monster_base_block_%", "base_cannot_be_stunned", "hit_damage_+%_per_10%_missing_enemy_life",
-        "self_take_no_extra_damage_from_critical_strikes",
+        "self_take_no_extra_damage_from_critical_strikes", "base_self_ignite_duration_-%",
     };
 
-    /// <summary>Stats that only stop something the server does not do to monsters yet (ailments on monsters, curses,
-    /// leech, slows): true as they stand. Each needs its effect when that system arrives.</summary>
+    /// <summary>Stats that only stop something the server does not do to monsters yet (chill, freeze and shock on
+    /// monsters, curses, leech, slows): true as they stand. Each needs its effect when that system arrives.</summary>
     public static readonly IReadOnlySet<string> Vacuous = new HashSet<string>
     {
-        "base_self_ignite_duration_-%", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
+        "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
         "shocked_effect_on_self_+%", "self_wither_duration_+%", "cannot_have_life_leeched_from", "hexproof",
         "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
         "reflect_hexes_chance_%", "reflect_non_damaging_ailments_%_chance",

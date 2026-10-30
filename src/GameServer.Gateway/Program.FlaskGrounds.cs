@@ -48,7 +48,8 @@ partial class Program
         return obj;
     }
 
-    // Every 100 ms of game time while a flask ground lasts or the player has a stationary radius (FlaskGroundsTick).
+    // Every 100 ms of game time while a flask ground lasts or the player has a stationary radius (FlaskGroundsTick):
+    // monsters standing in a smoke cloud are blinded (the blinded buff, Program.Blinded).
     static async Task RunFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try

@@ -8,10 +8,12 @@ sealed class PlayerElementalAilments
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
     internal const double MonsterCriticalAilmentMultiplier = 1.3;
     internal enum Kind { Ignite, Chill, Freeze, Shock }
-    sealed record Effect(Kind Kind, double From, double Until, double Magnitude);
+    // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
+    sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];
     double carry;
     double actionFloor, freezeEffect = 1;
+    bool unaffectedByShock, unaffectedByIgnite;
 
     public (bool Ignite, int Chill, bool Freeze, int Shock) Snapshot(double now) =>
         (Magnitude(Kind.Ignite, now) > 0, (int)Magnitude(Kind.Chill, now), Magnitude(Kind.Freeze, now) > 0,
@@ -27,7 +29,10 @@ sealed class PlayerElementalAilments
     }
     public double ActionFactor(double now) => Math.Max(actionFloor,
         1 - Math.Max(Magnitude(Kind.Freeze, now) * freezeEffect, Magnitude(Kind.Chill, now)) / 100);
-    public double DamageTakenFactor(double now) => 1 + Magnitude(Kind.Shock, now) / 100;
+    // Unaffected by Shock (PoB SelfShockEffect 100% less): the shock stays on the player and in is_shocked, with no effect.
+    // increasedPct: the hit's other increased damage taken (from a Blinded enemy), additive with the shock's.
+    public double DamageTakenFactor(double now, int increasedPct = 0) =>
+        Math.Max(0, 1 + ((unaffectedByShock ? 0 : Magnitude(Kind.Shock, now)) + increasedPct) / 100);
 
     static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
     static bool Immune(Kind kind, Func<string, int> get) => get($"immune_to_{Name(kind)}") != 0
@@ -39,6 +44,8 @@ sealed class PlayerElementalAilments
         {
             effects.RemoveAll(e => Immune(e.Kind, get));
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
+            unaffectedByShock = get("unaffected_by_shock") != 0;
+            unaffectedByIgnite = get("unaffected_by_ignite") != 0;
             actionFloor = get("action_speed_cannot_be_reduced_below_base") != 0
                 || get("not_affected_by_action_speed_modifiers") != 0 ? 1 : 0;
         }
@@ -47,7 +54,7 @@ sealed class PlayerElementalAilments
     // Damaging ailments use the pre-critical base, not damage taken. Non-damaging ailments use damage dealt
     // against the ordinary player's maximum-Life threshold. No enemy chance-to-ailment modifiers are invented.
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random)
+        Func<string, int> get, Random random, uint? source = null)
     {
         lock (effects)
         {
@@ -57,7 +64,7 @@ sealed class PlayerElementalAilments
                 seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
                 if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
                     || RandomRolls.Chance(get($"avoid_{Name(kind)}_%"), 100, random)) return;
-                effects.Add(new(kind, now, now + seconds, magnitude));
+                effects.Add(new(kind, now, now + seconds, magnitude, source));
             }
             if (critical) Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * MonsterCriticalAilmentMultiplier, 4);
             if (maxLife == 0) return;
@@ -76,8 +83,10 @@ sealed class PlayerElementalAilments
 
     // Integrate strongest ignite through every start/end boundary: a weaker, longer ignite can resume.
     // Resistance/immunity are live; hit luck, block, suppression and the 90% hit override never enter this pass.
+    // Unaffected by Ignite (PoB SelfIgniteEffect 100% less): the ignite stays on the player and in is_ignited, dealing nothing.
+    // takenFrom: the increased damage taken from the strongest ignite's source monster (a Blinded one), with the shock's.
     public int Advance(double from, double until, Func<string, int> get, int fireResistance, int maxFireResistance,
-        bool fireImmune)
+        bool fireImmune, Func<uint, int>? takenFrom = null)
     {
         lock (effects)
         {
@@ -89,8 +98,11 @@ sealed class PlayerElementalAilments
             for (int i = 1; i < boundaries.Length; i++)
             {
                 double at = (boundaries[i - 1] + boundaries[i]) / 2;
-                if (!fireImmune) damage += DamageModel.Mitigate(Magnitude(Kind.Ignite, at), fireResistance, maxFireResistance)
-                    * DamageTakenFactor(at) * (boundaries[i] - boundaries[i - 1]);
+                if (fireImmune || unaffectedByIgnite || effects.Where(e => e.Kind == Kind.Ignite && e.From <= at && at < e.Until)
+                        .MaxBy(e => e.Magnitude) is not { } ignite) continue;
+                int fromSource = ignite.Source is uint source && takenFrom is not null ? takenFrom(source) : 0;
+                damage += DamageModel.Mitigate(ignite.Magnitude, fireResistance, maxFireResistance)
+                    * DamageTakenFactor(at, fromSource) * (boundaries[i] - boundaries[i - 1]);
             }
             effects.RemoveAll(e => e.Until <= until);
             int whole = (int)Math.Min(int.MaxValue, Math.Floor(damage));

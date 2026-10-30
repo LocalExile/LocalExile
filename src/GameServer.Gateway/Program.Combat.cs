@@ -215,7 +215,7 @@ partial class Program
                         $"for the target ({(unique ? "unique target, " : "")}{(closeRange ? "in close range (20 units) " : "")}accuracy mastery more)");
                 evasion = m.Mods.Effects.Evasion(Monsters.BaseEvasion(m.Level) ?? 0);
             }
-            int hitChance = DamageModel.AccuracyHitChance(conn.FlaskGrounds.Evasion(targetId, evasion), accuracy);   // blinded in smoke
+            int hitChance = DamageModel.AccuracyHitChance(UnderBlind(conn, targetId, evasion), accuracy);
             if (!PlayerAlwaysHits(conn) && !DamageModel.Hits(hitChance, Random.Shared.Next(100)))
             {
                 Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} missed: accuracy {accuracy} vs evasion {evasion}, " +
@@ -261,7 +261,8 @@ partial class Program
                 // Impale is stored reflected damage, not part of the direct roll which can generate Fortification.
                 var rolled = stored > 0 ? ownRolled.Add(DamageType.Physical,
                     new DamageRange(Math.Floor(stored), Math.Floor(stored))) : ownRolled;
-                critical = RollCriticalStrike(conn, conn.Pools.AttackCriticalStrikeChance, ownPenetration);
+                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
+                    AttackCriticalChanceVsBlinded(conn, player)), ownPenetration);
                 int criticalMultiplier = CriticalMultiplierOn(m, AttackCriticalMultiplier(conn, player));
                 (damage, resistance) = MonsterDamage(m, rolled, critical, attack: true, resistanceMods, pen, gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
@@ -274,7 +275,7 @@ partial class Program
                     stageStarts = false;
                 }
                 life = m.Life;
-                conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+                conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 if (life == 0)
                 {
                     m.Aggro = false; m.Dead = true; m.Impale.Clear();
@@ -692,7 +693,7 @@ partial class Program
         {
             // Locked commit backstop: a source may have changed after dispatch/cooldown preflight.
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InTown(conn)
-                || OwnAuraRestrictionValue(conn) != 0) return false;
+                || OwnAuraRestrictionValue(conn) != 0 || CastingSpell(conn, effect) && SpellsDisabled(conn)) return false;
             if (conn.Auras.Remove(skillId, out var old))
                 ended = old;
             else if (conn.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same)
@@ -818,6 +819,15 @@ partial class Program
         return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
     }
 
+    // An area spell's centre: the aimed point, but a self-targeted spell (Ice Nova, Discharge, Vaal Cold Snap) goes off
+    // around the caster wherever it was aimed, as the client's action does (FUN_14193e290). A Nova among them goes off at
+    // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the
+    // targeted location instead of around you"; the client's 0x2a6e).
+    internal static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
+        !SkillsFor(conn).IsSelfTargeted(effect) || SkillsFor(conn).IsNova(effect)
+            && Stats.Key("nova_spells_cast_at_target_location") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0
+            ? to : from;
+
     // A gem skill without a projectile (strikes, slams, area spells): a first, simple hit (2026-10-23). It lands once, after
     // half the attack time (attacks) or the cast (spells), on every living monster within the skill's area radius
     // (active_skill_base_area_of_effect_radius, else AreaSkillRadius cells, grown by area of effect: SkillArea) of the aimed point, or of the player for a
@@ -849,8 +859,8 @@ partial class Program
         lock (conn.Monsters) delay = spell ? castDuration.Value / 1000.0
             : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false);
         int radius = SkillRadius(conn, skillStats, spell, gem.Effect);
-        // A melee skill aimed far away still lands in front of the player.
-        var centre = !spell && Dist(from, to) > radius + weapon.Range ? from : to;
+        // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
+        var centre = !spell && Dist(from, to) > radius + weapon.Range ? from : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         if (cooldownUse?.Instant != true && conn.ActionCount != action) return;
         // A Strike's spirit strikes and previous-location strike, chosen as it starts, as the client chooses them
@@ -902,6 +912,7 @@ partial class Program
         HitResistances.Mods mods = default;
         DamagePacket sweepHit = default!;
         int criticalChance = 0, sweepMultiplier = 0;
+        int? blindedCriticalChance = null;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work.
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         foreach (var (id, m) in targets)
@@ -912,9 +923,10 @@ partial class Program
             string? resistance;
             using (ProjectileMutation(conn))
             {
-                // Catch up earlier projectile contacts before reading Rage or any other live offensive input.
+                // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
+                // the sweep keeps the kills it already queued.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) return;
+                    || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) break;
                 if (m.Dead || m.Life == 0) continue;
                 if (MonsterBlocks(m, Random.Shared, spell))
                 {
@@ -929,11 +941,12 @@ partial class Program
                     mods = HitResistMods(stats, skillStats);
                     sweepHit = SupportedHit(conn, skillId);
                     criticalChance = SupportedCriticalChance(conn, skillId);
+                    blindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: false);
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                 }
                 var gambler = GamblerFor(player);
                 var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(sweepHit, Random.Shared);
-                critical = RollCriticalStrike(conn, criticalChance, skillStats, attack: !spell);
+                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, criticalChance, blindedCriticalChance), skillStats, attack: !spell);
                 int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
                 (damage, resistance) = MonsterDamage(m, rolled, critical, attack: !spell, mods, pen, gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -960,7 +973,7 @@ partial class Program
                 melee: !spell, sequence: sequence, deaths: deaths);
             ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
         }
-        foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
+        if (!conn.Closed) foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {sweep} monster(s) within {radius} cells of ({centre.X}, {centre.Y})" +
             $"{(targets.Count > sweep ? $" and {targets.Count - sweep} more by spirit strikes{(echo is { } previous ? $" and the previous location ({previous.X}, {previous.Y})" : "")}" : "")} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
     }
@@ -1040,7 +1053,7 @@ partial class Program
     {
         if (m.Dead || m.Life == 0) return null;
         (m.Life, bool starts) = TakeDamageLocked(m, damage);
-        if (allyAt is null) conn.LastEnemyHitAt = conn.Clock.Elapsed.TotalSeconds;
+        if (allyAt is null) conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
         if (m.Life == 0)
         {
             m.Aggro = false; m.Dead = true;
@@ -1214,10 +1227,15 @@ partial class Program
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
-        bool alive;
-        lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
+        bool alive, blocked;
+        lock (conn.Monsters)
+        {
+            at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0;
+            blocked = HardcoreProgressBlocked(conn);
+        }
         await SendVaalSouls(remote, stream, ciphers, conn);
-        if (m.Variety is not { } variety || !m.Hostile) return;
+        // A dead Hardcore character's kills (an ignite still burning) make no progress, as a projectile's (CommitProjectileKill).
+        if (blocked || m.Variety is not { } variety || !m.Hostile) return;
         if (!byMinion) ChargesOnKill(conn, m);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
             && CharacterSaves.Load(CharacterName(conn))?.Tutorial is { ZombieKilled: false })

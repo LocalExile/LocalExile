@@ -214,7 +214,7 @@ partial class Program
                         // In reach: stop and swing at the player (hostile monsters with an attack, while the player lives).
                         if (m.Hostile && m.Attack is { } a && d <= a.Range && conn.PlayerLife > 0)
                         {
-                            m.BusyUntil = now + a.Seconds;
+                            m.BusyUntil = now + MonsterSwingSeconds(conn, m, now);
                             m.LastTarget = null;
                             m.Walk.Order(mx, my, now);
                             swings.Add((id, m, (mx, my), conn.IncomingHitEpoch));
@@ -316,17 +316,19 @@ partial class Program
     {
         if (InGracePeriod(conn)) return;
         var a = m.Attack!;
+        double seconds;
         lock (conn.Monsters)
         {
             // AI work queued during a failed transfer must not become a new swing when admission resumes.
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || m.Dead || m.Life == 0 || !m.Hostile
                 || epoch != conn.IncomingHitEpoch
                 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(m, current) || InGracePeriod(conn)) return;
+            seconds = MonsterSwingSeconds(conn, m, ProjectileWorldTime(conn));
         }
         bool started = false;
         await Send(remote, stream, ciphers,
             InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, 0xffff, 0x0408, targetObjectId: PlayerId),
-            $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {a.Seconds:0.00} s", still: () =>
+            $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s", still: () =>
             {
                 lock (conn.Monsters)
                 {
@@ -338,7 +340,7 @@ partial class Program
                 }
             });
         if (!started) return;
-        await Task.Delay(TimeSpan.FromSeconds(a.Seconds / 2));
+        await Task.Delay(TimeSpan.FromSeconds(seconds / 2));
         uint life, mana, manaBefore;
         int rawDamage = 0, damage = 0, chaosDamage = 0;
         bool blocked, monsterCritical = false, spirit = false;
@@ -370,12 +372,13 @@ partial class Program
                 // The monster's accuracy comes from DefaultMonsterStats at its level. Evasion uses PoE's shared entropy
                 // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
                 // indefinitely). A new counter starts after 3.33 s without an attack.
-                int monsterAccuracy = conn.FlaskGrounds.Accuracy(id, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0));   // blinded in smoke
-                int hitChance = DamageModel.AccuracyHitChance(conn.Pools.Evasion, monsterAccuracy);
+                int monsterAccuracy = UnderBlind(conn, id, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0));
+                int evasion = PlayerEvasion(conn, now);
+                int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
                 if (EvadesLocked(conn, hitChance, now))
                 {
                     Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) evaded: accuracy {monsterAccuracy} " +
-                        $"vs evasion {conn.Pools.Evasion}, {hitChance}% chance to hit, entropy {conn.EvasionEntropy:0}");
+                        $"vs evasion {evasion}, {hitChance}% chance to hit, entropy {conn.EvasionEntropy:0}");
                     return;
                 }
                 GainLifeBeforeEnemyHitLocked(conn, stats);
@@ -401,7 +404,7 @@ partial class Program
                 rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
                 damage = 0;
                 var ailmentTaken = DamagePacket.Empty;
-                double shockFactor = conn.ElementalAilments.DamageTakenFactor(now);
+                double shockFactor = conn.ElementalAilments.DamageTakenFactor(now, DamageTakenFromBlindedPct(conn, id, stats));
                 foreach (var (type, range) in mitigated.Components)
                 {
                     int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
@@ -418,6 +421,7 @@ partial class Program
                 damage = FortificationDamageTaken(conn, damage);
                 chaosDamage = FortificationDamageTaken(conn, chaosDamage);
                 if (blocked) { damage = 0; chaosDamage = 0; }
+                else m.HitPlayerAt = now;
                 manaBefore = conn.PlayerMana;
                 var onBlock = blocked ? BlockRecovery(conn, stats) : default;
                 int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
@@ -428,7 +432,7 @@ partial class Program
                 conn.EnergyShield.Recover(onBlock.EnergyShield);
                 ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
                     new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
-                    monsterCritical, blocked, now, stats);
+                    monsterCritical, blocked, now, stats, source: id);
                 conn.RecentEnemyHits.Record(now);
                 ChargesWhenHit(conn, blocked);
                 if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
@@ -467,7 +471,43 @@ partial class Program
                 $"0x01b1 player mana {mana} ({(blocked ? $"+{(long)mana - manaBefore} on block" : "no block gain")})");
         if (life == 0)
             await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
-        else if (!blocked) await GainFlaskChargesWhenHit(remote, stream, ciphers, conn);
+        else if (!blocked)
+        {
+            await SendAttackerSlows(remote, stream, ciphers, conn);
+            await GainFlaskChargesWhenHit(remote, stream, ciphers, conn);
+        }
+    }
+
+    internal const string AttackerSlow = "enemies_that_hit_you_with_attack_recently_attack_speed_+%";
+
+    // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
+    // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
+    internal static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now) =>
+        m.Attack is not { } a ? 0
+        : now - m.HitPlayerAt <= RecentlySeconds ? m.Mods.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
+
+    // The attack stats on a monster's Stats component (it carries them from its creation, 11-skills.md §6) again when
+    // its attack time changes or goes back, so the client's swing can follow the server's. Called from the player tick
+    // and after a hit.
+    static async Task SendAttackerSlows(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var changed = new List<(uint Id, double Seconds, IReadOnlyList<(uint, int)> Stats)>();
+        lock (conn.Monsters)
+        {
+            double now = ProjectileWorldTime(conn);
+            bool slows = conn.Pools.AttackerSlowPct != 0;
+            foreach (var (id, m) in conn.Monsters)
+            {
+                if (m.Dead || m.Attack is not { } a || m.SwingSecondsSent is null && (!slows || now - m.HitPlayerAt > RecentlySeconds)) continue;
+                double seconds = MonsterSwingSeconds(conn, m, now);
+                if (seconds == (m.SwingSecondsSent ?? a.Seconds)) continue;
+                m.SwingSecondsSent = seconds == a.Seconds ? null : seconds;
+                changed.Add((id, seconds, (a with { Seconds = seconds }).Stats()));
+            }
+        }
+        foreach (var (id, seconds, stats) in changed)
+            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, stats),
+                $"0x01b3 monster 0x{id:x} attack time {seconds:0.000} s (enemies that hit you recently)");
     }
 
     // A spawned monster's id from the argument if it is 0x hex, else the last spawned one.

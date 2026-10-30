@@ -345,7 +345,12 @@ partial class Program
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life);
-        return pools with { FortificationRevision = FortificationOf(conn).Revision };
+        return pools with
+        {
+            FortificationRevision = FortificationOf(conn).Revision,
+            AttackerSlowPct = Input(AttackerSlow), EnemyRegenerationOnHitPct = Input(EnemyRegenerationOnHit),
+            VsBlindedCriticalPct = Input(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => Input(n) != 0),
+        };
     }
 
     // What the allocated passives add to the pools: attributes (base_* and additional_*, all attributes and the pairs),
@@ -475,6 +480,7 @@ partial class Program
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
             Armour: Get("base_physical_damage_reduction_rating"), ArmourPct: armourPct,
             Evasion: Get("base_evasion_rating"), EvasionPct: evasionPct,
+            EvasionWhileMovingPct: Get("evasion_rating_+%_while_moving"),
             SharedDefencesPct: defencesPct, IronReflexes: Get("keystone_iron_reflexes") != 0,
             MentalConditioning: Get(PowerOfPurpose.RawFlag) != 0,
             ChaosInoculation: Get("keystone_chaos_inoculation") != 0,

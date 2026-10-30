@@ -149,7 +149,7 @@ partial class Program
         hit = GemSupportDamage.Scale(hit, modifiers, types, afterConversion: false);
         hit = hit.Convert(DamageStats.Conversion(stats, Stats, attack));
         hit = GemSupportDamage.Scale(hit, modifiers, types, afterConversion: true);
-        if (attack) hit = RageStats.ApplyAttack(hit, Get);
+        if (attack) hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
         return suppress ? new SkillDamageContext(plan.Kind, caster).Hit(hit) : hit;
     }
 
@@ -158,7 +158,8 @@ partial class Program
     // A release retains the unprohibited offensive chance; the hit evaluates current owner prohibitions separately.
     static int SupportedReleaseCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, true);
 
-    static int SupportedCriticalChanceFor(ClientState conn, ushort skillId, bool release)
+    // extraIncrease: a target condition's increase (critical_strike_chance_+%_vs_blinded_enemies, Program.Blind).
+    static int SupportedCriticalChanceFor(ClientState conn, ushort skillId, bool release, long extraIncrease = 0)
     {
         var gem = SupportedSkill(conn, skillId);
         var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
@@ -174,12 +175,12 @@ partial class Program
             int basis = weapon.Unarmed && (!SkillsFor(conn).IsMelee(gem.Effect) || SkillsFor(conn).IsSpell(gem.Effect)) ? 0
                 : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weapon.Critical, Player);
             int totalBase = (int)Math.Clamp((long)basis + Own("additional_base_critical_strike_chance"), int.MinValue, int.MaxValue);
-            long increased = conn.Pools.CriticalStrikeChancePct
+            long increased = conn.Pools.CriticalStrikeChancePct + extraIncrease
                 + AttackBaseCriticalStrike.IncreasedSum(weapon, name => Own(name));
             return GameServer.Core.World.DamageModel.CriticalStrikeChancePerMyriad(totalBase, increased);
         }
         return SpellCriticalStrike.Chance((SkillsFor(conn).SpellCritChance(gem.Effect, gem.Level) ?? 0)
-            + Own("additional_base_critical_strike_chance"), Player, Own, conn.Pools.SpellCriticalStrikeChancePct);
+            + Own("additional_base_critical_strike_chance"), Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease);
     }
 
     static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)

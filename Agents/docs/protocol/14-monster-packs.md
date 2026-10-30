@@ -173,20 +173,21 @@ cells/s, a normal one every 0.125–0.133 s; the server walks it at the same spe
 | `physical_damage_%_to_add_as_fire` / `_cold` / `_lightning`, `non_chaos_damage_to_add_as_chaos_damage_%` | extra damage of that type in its hit, through the player's resistances |
 | `attack_speed_+%` (`base_cast_speed_+%` is the same on every mod) | its attack time |
 | `base_movement_velocity_+%` | its walk, on the client and in the server's estimate |
-| `base_*_damage_resistance_%`, `base_resist_all_elements_%` | the player's hits and Righteous Fire's burn, per type, capped at 75% |
+| `base_*_damage_resistance_%`, `base_resist_all_elements_%` | the player's hits, Righteous Fire's burn and the player's ignites, per type, capped at 75% |
+| `base_self_ignite_duration_-%` | the player's ignites on it last that much less (Fire and Ignite Resistant: 80%; [20](20-damage.md) §3) |
 | `base_additional_physical_damage_reduction_%` | the physical part of the player's hits (capped at 75%) |
 | `base_damage_taken_+%`, `rare_monster_mod_spell_damage_taken_+%_final` | the player's hits (the second only spell hits: the stat has no description, so it is not taken to cover Righteous Fire's burn) |
 | `monster_base_block_%` | blocks the player's attacks: rolled before the hit, a blocked one has no damage, impale, flinch or 0x1af (the client has no block result we know); the log says "blocked" |
 | `evasion_rating_+%`, `accuracy_rating_+%` | the player's chance to hit it, its chance to hit the player |
-| `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%) |
+| `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%). An override: the client's effective chance (`FUN_14275c050`) is 10000 under `virtual_always_crit` before any increase, so reduced critical strike chance (Devout of Solaris) does not lower it |
 | `hit_damage_+%_per_10%_missing_enemy_life` | its hit on a wounded player |
 | `self_take_no_extra_damage_from_critical_strikes` | the player's critical hits deal their normal damage |
-| `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1) |
+| `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1); the player's `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` scales it for 4 s after each player hit ([Polytheist](../game/polytheist.md)) |
 | `base_cannot_be_stunned` | no hit reaction (the flinch is the hit's stun) |
 
 **Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the
-server never does to monsters: Hexproof, of Congealment, Unstoppable, Mirrored, Reflector's, the ailment parts of the
-resistance mods) and 6 in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
+server never does to monsters: Hexproof, of Congealment, Unstoppable, Mirrored, Reflector's, the chill, freeze and
+shock parts of the resistance mods) and 6 in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
 Haste / of Damaging: the aura reaches only the monster itself; of Precision: its accuracy, not its increased critical
 strike chance, which raises a base of 0). The other 74 need a system the server does not have: an aura or buff without
 stats of its own, a granted or retaliation skill, a monster or ground on death, ailments, curses, blind or stun on the

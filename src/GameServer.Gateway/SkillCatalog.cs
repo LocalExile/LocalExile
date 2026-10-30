@@ -150,6 +150,9 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         // CharacterPanelStats gates spell rows on this final flag and hides the weapon rows while it is set.
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
         Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
+        // The Nova type's flag. The client casts a Nova at the cursor only when this, casting_spell and the caster's
+        // nova_spells_cast_at_target_location are all set (FUN_142896650); otherwise it stays around the caster.
+        if (IsNova(effectRow)) Put("skill_is_nova_skill", 1);
         if (gepl >= 0 && t.Cooldowns[gepl] is { Ms: > 0, Uses: > 0 } cooldown)
         {
             Put("base_cooldown_count", cooldown.Uses);
@@ -407,6 +410,15 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     /// <summary>ActiveSkillType Vaal (FlagStat <c>skill_is_vaal_skill</c>).</summary>
     public bool IsVaal(int effectRow) => _vaalEffects.Value.Contains(effectRow);
 
+    /// <summary>A Nova skill (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova, but also Shockwave Totem and
+    /// Stormblast Mine).</summary>
+    public bool IsNova(int effectRow) => _novaEffects.Value.Contains(effectRow);
+
+    /// <summary>A self-targeted skill (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Vaal Cold Snap), whose use
+    /// the client centres on the caster (FUN_14193e290). Totems, mines and traps are left out: their effect goes off at
+    /// the object they place.</summary>
+    public bool IsSelfTargeted(int effectRow) => _selfTargetedEffects.Value.Contains(effectRow);
+
     /// <summary>Aura metadata, including only supports already accepted by GemSupports.Resolve.</summary>
     public bool IsAura(int effectRow, IEnumerable<int>? acceptedSupports = null) =>
         _auraEffects.Value.Contains(effectRow)
@@ -421,6 +433,13 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     private readonly Lazy<HashSet<int>> _warcryEffects = new(() => EffectsOfType(folder, "Warcry"));
     private readonly Lazy<HashSet<int>> _strikeEffects = new(() => EffectsOfType(folder, "MeleeSingleTarget"));
     private readonly Lazy<HashSet<int>> _vaalEffects = new(() => EffectsOfType(folder, "Vaal"));
+    private readonly Lazy<HashSet<int>> _novaEffects = new(() => EffectsOfType(folder, "Nova"));
+    private readonly Lazy<HashSet<int>> _selfTargetedEffects = new(() =>
+    {
+        var self = EffectsOfTargetType(folder, 4, 10);
+        foreach (string placed in new[] { "SummonsTotem", "RemoteMined", "Trapped" }) self.ExceptWith(EffectsOfType(folder, placed));
+        return self;
+    });
     private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
     private readonly Lazy<HashSet<int>> _curseEffects = new(() => EffectsOfType(folder, "AppliesCurse"));
     private readonly Lazy<HashSet<int>> _addedAuraEffects = new(() => EffectsOfType(folder, "Aura", added: true));
@@ -450,6 +469,22 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
         return [.. effects.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(e => e.r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && instantSkills.Contains(a.GetInt32()))
+            .Select(e => e.i)];
+    }
+
+    /// <summary>The GrantedEffects rows whose ActiveSkill has one of these ActiveSkillTargetTypes.</summary>
+    static HashSet<int> EffectsOfTargetType(string folder, params int[] targetTypes)
+    {
+        string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
+        if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills"))) return [];
+        using var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills")));
+        var skills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
+            .Where(a => a.r.TryGetProperty("ActiveSkillTargetTypes", out var t) && t.ValueKind == JsonValueKind.Array
+                && t.EnumerateArray().Any(v => v.ValueKind == JsonValueKind.Number && targetTypes.Contains(v.GetInt32())))
+            .Select(a => a.i).ToHashSet();
+        using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+        return [.. effects.RootElement.EnumerateArray().Select((r, i) => (r, i))
+            .Where(e => e.r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && skills.Contains(a.GetInt32()))
             .Select(e => e.i)];
     }
 

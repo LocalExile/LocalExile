@@ -51,8 +51,10 @@ as in Path of Building. Gains are added to the destination without reducing the 
 
 A player hit on a monster rolls each type once and then takes the monster's own base resistance on each type
 (MonsterResistanceCatalog, §4), before the critical multiplier and the life update. A monster's attack on the player
-does the mirror pass through the player's resistances. Damage over time is outside this pass: it has no hit, and
-Righteous Fire's monster burn keeps its per-tick percentage-of-life model with no resistance or penetration.
+does the mirror pass through the player's resistances. Damage over time is outside this pass: it has no hit and no
+penetration. Righteous Fire's monster burn (its per-tick percentage-of-life model) and the player's ignites take the
+monster's capped resistance of their type, its base and its mods' as for hits, and its damage taken (`MonsterDotTaken`;
+before the ignites, the burn took only the mods' resistance).
 
 Penetration lowers the target's resistance before the damage is reduced. The server caps the monster's base
 resistance first (the 75 default, the 90 absolute maximum, the −200 floor) and subtracts the hit's penetration from
@@ -357,6 +359,20 @@ The real native Life reads and accepted-hit logs agree, with Gateway/Core/Storag
 RF, Ice Nova, relog and selected-panel controls above remain attributed to the original head.
 No native allocation of Rampager, owned-actor execution or whole-class acceptance is claimed.
 
+## 2g. More maximum attack damage
+
+`maximum_attack_damage_+%_final_from_ascendancy` (Devout of Ryslatha's 30%) scales the maximum of the attack's base and
+added damage, which for a hit is the maximum of every final component after conversion; minima and spells are unchanged
+(`MaximumAttackDamage`).
+It also scales the damaging ailments an attack inflicts (the wiki; PoB builds an ailment's base through the same
+`calcDamage`), so an attack's flat ailment packet must go through `MaximumAttackDamage.Apply` too (§3).
+PoB CalcOffence applies `MaxDamage` MORE to each type's own maximum and carries it through conversion, which is the same.
+It sits next to Rage's final multiplier at every attack site: the default attack and its panel rows, the native
+physical bounds, attack gems, `AttackSkillHit` and ordinary bows.
+The client multiplies its three sources (volatility support, ascendancy, graft) into
+`combined_maximum_attack_damage_+%_final` (`FUN_1425d25b0`); only the ascendancy one exists on the server.
+See [Polytheist](../game/polytheist.md).
+
 ## 3. Damage over time and ailments
 
 DoT is one damage type, has no hit, cannot critically strike and uses that type's resistance. `DamageOverTime` carries
@@ -376,8 +392,30 @@ The modelled damaging ailments are:
 increased/more modifiers**; the method's `increasedPct`/`more` arguments are the ailment-specific multipliers, so a
 caller cannot double-count hit modifiers. For a specific hit pass its rolled packet; for expected damage pass the
 average range. The caller applies the target's resistance. Non-damaging ailments (chill, freeze, shock), critical
-ailment damage, ailment chance/application and ailment duration stats are not modelled yet. Righteous Fire still uses
-its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
+ailment damage, ailment chance/application and ailment duration stats are not modelled yet, except for the player's
+ignites on monsters below. Righteous Fire still uses its existing per-tick percentage-of-life burn; it is a fire DoT
+but not an ignite.
+
+**The player's ignites on monsters** (`MonsterIgnites.cs`, the wiki's Ignite): `IgniteFromHit` decides a landed hit's
+ignite. A critical strike always ignites; otherwise `base_chance_to_ignite_%`, `chance_to_ignite_%` and
+`chance_to_freeze_shock_ignite_%` give the chance, and `never_ignite` stops it. The base is the hit's flat fire damage
+(base and added, after conversion, before increases), 90% per second (`Ailments.Ignite`) × (1 + the ignite increases:
+`damage_+%`, `damage_over_time_+%`, `elemental_damage_+%`, `fire_damage_+%`, `fire_damage_over_time_+%`,
+`burn_damage_+%`, `ignite_damage_+%`, `base_ailment_damage_+%`) × the Frenzy charges' more damage × (1 + the damage
+over time multipliers `dot_multiplier_+`, `fire_dot_multiplier_+`, `ignite_dot_multiplier_+`, and on a critical strike
+50 + `critical_ailment_dot_multiplier_+`). Hit-only modifiers (spell, area, attack damage, critical multiplier, lucky or
+triple damage, penetration) never reach it. It lasts 4 s × (1 + `ignite_duration_+%`) × (1 −
+`base_self_ignite_duration_-%` of the monster).
+The "deal Damage faster" modifiers (`faster_burn_%`, `damaging_ailments_deal_damage_+%_faster`) multiply its damage per
+second by (1 + their sum) and divide its duration by it.
+A monster keeps every ignite with its own duration, and only the strongest burns.
+The player tick (`BurnIgnites`, 250 ms) burns them through the monster's fire resistance and damage
+taken (`MonsterDotTaken`, shared with Righteous Fire's burn), sends 0x1b1 and kills, and the monster carries the
+`ignited` buff (BuffDefinitions 0, no values) while one burns. Only Abberath's Fury's footstep hits call it yet
+([Polytheist](../game/polytheist.md)): the default attack, gems, projectiles and bows build no flat packet for it, so
+they do not ignite. An attack's flat packet will go through `MaximumAttackDamage.Apply` (§2g) before it. The ignites
+burn on while the player is dead (unverified), and a dead Hardcore character's kills make no progress. Shaper of
+Flames-style ignites from other damage types, "deal damage faster" stats and ignite proliferation are not modelled.
 
 ## 4. What the server uses now
 
@@ -455,6 +493,9 @@ points, discards overflow at a full pool and negative carry at RF's one-life flo
 dead life. Only changed whole values generate 0x1b1. The original per-minute rate formulas and
 unreserved mana cap are unchanged. Stat aggregation is refreshed at the old 250 ms cadence, with
 an additional refresh when RF changes, instead of rebuilding the panel about 60 times a second.
+While the player walks, `life_regeneration_rate_per_minute_%_while_moving` and `mana_regeneration_rate_+%_while_moving`
+join the two formulas' inputs (`PanelStats.WhileMoving`); the player tick sends the regeneration finals again when a
+walk starts or ends ([Polytheist](../game/polytheist.md)).
 
 `RunPlayerTick` keeps the 250 ms cadence for RF on monsters, suppression conditions, waypoints,
 auto-loot and quests; its RF duration also uses elapsed game time. Instant damage and instant
@@ -515,4 +556,11 @@ Risk Aversion's final avoidance stats are consumed independently per eligible ai
 The resource writer integrates strongest ignite with live resistance, ES and lethal Life damage; RF remains nonlethal.
 Chill changes action timing/movement, freeze cancels/gates actions, and shock increases subsequent damage taken.
 `action_speed_cannot_be_reduced_below_base` floors the action factor at 1; a passive change reconciles it at once.
+`unaffected_by_shock` keeps the shock (duration, `is_shocked`) but leaves damage taken at 1, and
+`unaffected_by_ignite` keeps the ignite (duration, `is_ignited`) but its ticks deal nothing
+([Polytheist](../game/polytheist.md)).
+A hit from a monster the player has Blinded adds `damage_taken_+%_from_blinded_enemies` to the shock's increase
+(additive, `DamageTakenFactor(now, increasedPct)`).
+An ignite keeps the monster that applied it, and the burning ignite's ticks add the same value while that monster is
+Blinded (`PlayerElementalAilments.Advance`).
 See [Gambler's exact source, threshold, formula and presentation limits](../game/gambler.md).

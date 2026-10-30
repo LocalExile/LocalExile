@@ -98,8 +98,17 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public double Burn;
     // Life regeneration not yet applied (fractions of a point between ticks; RegenerateMonsters).
     public double Regen;
+    // When the player last hit it (Clock seconds): "enemies you've Hit Recently". Reset at the player's death.
+    public double PlayerHitAt = double.NegativeInfinity;
+    // When its attack last hit the player (Clock seconds; evaded and blocked attacks do not hit): "enemies that have Hit
+    // you with an Attack Recently". Reset at the player's death. Guarded by the Monsters lock.
+    public double HitPlayerAt = double.NegativeInfinity;
+    // The attack time its Stats component carries on the client (SendAttackerSlows), when it differs from Attack.Seconds.
+    public double? SwingSecondsSent;
     // The impales the player's attacks have left on it (Impale.cs); cleared when it dies.
     public readonly ImpaleState Impale = new();
+    // The ignites the player's hits have put on it (MonsterIgnites.cs); they end when it dies.
+    public readonly MonsterIgnites Ignites = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
     // The player's debuffs on it (Program.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
@@ -444,6 +453,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public TotemState Totems { get; } = new();
     /// <summary>The player's enemy auras and taunt increase, from the stats last sent (Program.EnemyDebuffsTick).</summary>
     public volatile EnemyDebuffs EnemyDebuffs = EnemyDebuffs.None;
+    /// <summary>The monsters a passive's blind aura blinds (PassiveBuffAuras).</summary>
+    public PassiveBuffAuras.State PassiveAuras { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
     public ushort NextBuff = 1;

@@ -109,17 +109,18 @@ partial class Program
         var list = weapon.Stats(stats, AttackHitConverted(weapon, stats, MeleeAttack(conn), conversion)).ToList();
         if (OffhandWeaponFor(conn) is { } off)
             list.AddRange(off.OffStats(stats, AttackHitConverted(off, stats, MeleeAttack(conn), conversion), WeaponProfileFor(conn).LocalAttackSpeedPct));
-        // Unarmed.Stats emits its physical bounds separately from the supplied final total. Rage must also reach
-        // those native bounds, without multiplying the already-final total or added elemental damage a second time.
+        // Unarmed.Stats emits its physical bounds separately from the supplied final total. Rage and more maximum attack
+        // damage must also reach those native bounds, without multiplying the already-final total or added elemental
+        // damage a second time.
         int Get(string name) => RageStat(stats, name);
-        if (Get("attack_damage_+%_final_from_rage") != 0)
+        if (Get("attack_damage_+%_final_from_rage") != 0 || Get(MaximumAttackDamage.FromAscendancy) != 0)
         {
-            var main = RageStats.ApplyAttack(weapon.HitDamage(stats), Get)[GameServer.Core.World.DamageType.Physical];
+            var main = MaximumAttackDamage.Apply(RageStats.ApplyAttack(weapon.HitDamage(stats), Get), Get)[GameServer.Core.World.DamageType.Physical];
             Replace(StatKeys.MainHandMinPhysical, (int)Math.Floor(main.Min));
             Replace(StatKeys.MainHandMaxPhysical, (int)Math.Floor(main.Max));
             if (OffhandWeaponFor(conn) is { } offhand)
             {
-                var other = RageStats.ApplyAttack(offhand.HitDamage(stats), Get)[GameServer.Core.World.DamageType.Physical];
+                var other = MaximumAttackDamage.Apply(RageStats.ApplyAttack(offhand.HitDamage(stats), Get), Get)[GameServer.Core.World.DamageType.Physical];
                 Replace(StatKeys.OffHandMinPhysical, (int)Math.Floor(other.Min));
                 Replace(StatKeys.OffHandMaxPhysical, (int)Math.Floor(other.Max));
             }
@@ -175,9 +176,13 @@ partial class Program
         var devSet = dev.Keys.ToHashSet();
         ActorScale.Project(stats, dev, CosmeticScaleSources(conn));
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below.
+        double statsAt = conn.Clock.Elapsed.TotalSeconds;
+        var recovery = PanelStats.WhileMoving(Get, statsAt < conn.Walk.ArrivesAt);
+        if (Stats.Key("evasion_rating") is uint evasionKey && !devSet.Contains(evasionKey)) stats[evasionKey] = PlayerEvasion(conn, statsAt);
         // Capture the unmodified recovery baseline from this same snapshot, before the temporary contribution.
         // The resource writer integrates Fortification separately across exact expiry boundaries.
-        baselineLifePerSecond = PanelStats.LifePerMinute(Get, conn.Pools.Life) / 60;
+        baselineLifePerSecond = PanelStats.LifePerMinute(recovery, conn.Pools.Life) / 60;
         lock (conn.Monsters)
         {
             // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
@@ -195,7 +200,7 @@ partial class Program
         var (mainLocal, offLocal) = HandLocalStats(conn);
         foreach (var (stat, value) in PanelStats.Compute(Get, n => mainLocal.GetValueOrDefault(n), n => offLocal.GetValueOrDefault(n))
             .Concat(PanelStats.FromPools(Get, conn.Pools))
-            .Concat(PanelStats.Recovery(Get, conn.Pools.Life, conn.Pools.Mana))
+            .Concat(PanelStats.Recovery(recovery, conn.Pools.Life, conn.Pools.Mana))
             .Concat(new[] { ("energy_shield_recovery_per_minute", (int)Math.Round(EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, conn.EnergyShield.Recharging))),
                 ("energy_shield_recharge_rate_per_minute", (int)Math.Round(EnergyShield.RechargePerMinute(conn.Pools.EnergyShield, Get))),
                 ("energy_shield_recharge_active", 0) })
@@ -278,7 +283,7 @@ partial class Program
         int Get(string name) => RageStat(stats, name);
         var hit = DamageStats.Added(weapon.HitDamage(stats), Get, spell: false, melee).Scale(ChargeDamageMore(stats));
         if (conversion is not null) hit = hit.Convert(conversion);
-        return RageStats.ApplyAttack(hit, Get).Scale(GamblerFor(stats).DamageFactor);
+        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
     }
 
     static double AddedEffectiveness(ClientState conn, int effect, int level) => SkillsFor(conn).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
@@ -487,6 +492,9 @@ partial class Program
             }
             stats[OwnAuraRestriction.BaseAura] = own.GetValueOrDefault(OwnAuraRestriction.BaseAura);
             OwnAuraRestriction.PublishSkill(stats, OwnAuraRestrictionValue(conn));
+            // Published like the own-aura reason (never zero over another); the client also derives it (FUN_1428cf770).
+            if (CastingSpell(conn, effect) && Stats.Key("your_spells_are_disabled") is uint spellsOff
+                && playerStats.GetValueOrDefault(spellsOff) != 0) stats[OwnAuraRestriction.SkillDisabled] = 1;
             if (Stats.Key(VaalSoulCost.Aura) is uint aura)
                 stats[aura] = VaalSoulInput(conn, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
@@ -641,6 +649,8 @@ partial class Program
     static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
     {
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
+        // Devout of Gruthkul: every spell, auras and triggered spells too (wiki: they cannot be cast or triggered).
+        if (CastingSpell(conn, effect) && SpellsDisabled(conn)) return "spells are disabled";
         return SkillsFor(conn).IsWarcry(effect) && Stats.Key("your_warcry_skills_are_disabled") is uint key
             && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0 ? "warcry skills are disabled" : null;
     }

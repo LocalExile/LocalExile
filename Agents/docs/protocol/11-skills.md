@@ -610,6 +610,17 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `base_self_critical_strike_multiplier_-%` (at least 100%; [14](14-monster-packs.md) §5). Live 2026-10-26: a normal
   Hungry Corpse never crit, one with of Deadliness every time. The hit then goes through the player's armour
   (`MitigatePhysical`) and block. `/defences` prints the reference values.
+  During a walk the roll uses the evasion rating with `evasion_rating_+%_while_moving` (`PlayerEvasion`;
+  [Polytheist](../game/polytheist.md)).
+- **Slowed by the player.** An attack that hits the player (not evaded, not blocked) records `HitPlayerAt` on the
+  monster. For 4 s after it, the player's `enemies_that_hit_you_with_attack_recently_attack_speed_+%` (Devout of
+  Gruthkul's -10) joins the monster's own increased attack speed (`MonsterModEffects.AttackSeconds`), so its next swings
+  take longer: the AI's busy time, the contact at half the attack time and the 0x1ab log use `MonsterSwingSeconds`.
+  The player's death ends it. The player tick (and the hit itself) sends the changed attack stats on the monster's Stats
+  component again (0x1b3 on the monster, `SendAttackerSlows`), and the plain ones when it ends.
+  Whether the client's swing animation follows them is unverified: the swing time is read through the action's stat
+  provider (`FUN_141c06ad0`: 0x221a over 1 + 0x126 / 100, via `FUN_14193b350`), which may be the skill's own stats in
+  the Actor component; those keep the unslowed time.
 - **Player life** (`ClientState.PlayerLife`, from the level/class/passive pools). At 0 the client plays the death
   animation and blocks moving. `/heal` sends full life: 0x1b1 from 0 runs the client's revive. The overhead life bar is
   hidden at 0 (`hide_mini_life_bar`, as for monsters) and shown again on revive.
@@ -1060,6 +1071,24 @@ weapon's local mods from the start (until 2026-10-23 it started with the unarmed
 `SendSkills`, brought the weapon's numbers).
 `base_deal_no_damage` skills (Portal) deal none. An attack's hit carries the skill's damage effectiveness (§9). Not
 modelled: the skills' shapes (waves, cones, chains, leaps), stun, and the accuracy roll. Being tested live.
+
+**Self-targeted spells** (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Shock Nova;
+`SkillCatalog.IsSelfTargeted`) go off around the caster wherever they are aimed (`SpellCentre`). Until 2026-10-29
+every area spell was centred on the aimed point, so an Ice Nova cast on a monster went off around the monster while
+the client drew it around the player. The client's own
+action does the same: for a self-targeted skill (target types 4 and 10) it replaces the aimed point with the caster
+unless `virtual_self_targeted_skills_target_location_instead` (0x2a6e) or `virtual_nova_spells_cast_at_marked_target`
+(0x5361) is set (`FUN_14193e290`).
+Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed, and so do
+Novas without a self target (Dark Pact, Ice Nova of Frostbolts).
+0x2a6e is `casting_spell` AND `skill_is_nova_skill` (0x2a6c) AND the caster's `nova_spells_cast_at_target_location`
+(0x2a6d) (`FUN_142896650`, registered by `FUN_1400dc5f0`), and the skill input handler `FUN_1401216d0` reads it for the
+skill it builds a use for.
+The Gateway therefore publishes `skill_is_nova_skill` = 1 in every Nova skill's record (ActiveSkillType Nova,
+`SkillCatalog.IsNova`, `SkillCatalog.EffectStats`), and a caster with `nova_spells_cast_at_target_location` (Devout of
+Lunaris) has its self-targeted Novas centred on the aimed point
+([Polytheist](../game/polytheist.md)). Which point the client sends for a Nova (a ground use at the cursor, or a self
+use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
@@ -1667,6 +1696,25 @@ hostiles' power; which code consumes the list was not traced, so the server's re
 
 Only Enduring Cry has a warcry executor; the hook sits in its release so later executors inherit it.
 
+## 10j. Actor restriction: spells disabled
+
+`your_spells_are_disabled` (0x1520; Devout of Gruthkul) disables every spell: the client's `skill_disabled_by_stat`
+(0x3db6, `FUN_1428cf770`, registered by `FUN_1400e4fc0`) is set when the caster has 0x1520 and the skill has
+`casting_spell` (0x1b6), the flag `SkillCatalog` publishes for Spell skills that are not attacks. Auras, Heralds,
+Righteous Fire, Portal and movement spells are spells too; warcries and attacks are not (wiki: they "cannot be cast or
+triggered").
+`ActorSkillDisabledCore` refuses such a use with "spells are disabled", read from the caster's raw sources
+(`SpellsDisabled`, as for the own-aura restriction, so pool builds cannot recurse). Every route that checks the warcry
+and own-aura restrictions checks it: ground 0x25, object/self 0x24, instant uses and `TryBeginCooldownUse`, the
+`CastGemSkill` backstop, channels, the aura activation commit and remembered-aura restoration. The skill record also
+carries 0x3db6 = 1, never written as 0 over another reason.
+Running spell auras are suspended like restricted own auras (§10c), keeping their saved intent; they come back once the
+node is refunded. This is the same LocalExile policy, not proven GGG behaviour.
+A Righteous Fire already burning keeps burning: it deals the enemies no damage (`spell_skills_deal_no_damage`, 20-damage
+§2f) and still burns the player, as the wiki describes for spells cast before Gruthkul's Pelt was equipped. Real-game
+handling of an aura that is running when the restriction starts is unverified.
+Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
+
 ## 11. The skill bar
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.
@@ -1721,6 +1769,44 @@ Only Enduring Cry has a warcry executor; the hook sits in its release so later e
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then
   × (1 + `active_skill_area_of_effect_radius_+%_final`), from the player's stats under the skill's (`SkillArea`).
   Conditional area stats (per charge, per attribute, "recently") are not modelled.
+- **Passive auras on enemies** (`PassiveBuffAuras.cs`): a passive's PassiveSkills `PassiveSkillBuffs` (`BuffsHardmode`
+  for a Ruthless alternate) name BuffTemplates rows: a BuffDefinitions row, its values (`Buff_StatValues`) and an
+  `AuraRadius` in cells. Only templates whose effect has consumers act. `SaboteurBlind` (Devout of Solaris, Born in the
+  Shadows) is `generic_buff_aura` (1521: invisible, no stats, CancelOnDeath) with radius 35 (3.5 m in the wiki's
+  distance table). Its effect is not in the definition: unnamed column `__col5` of the generic templates starts with an
+  effect code that matches their Ids (1 chilled, 2 shocked, 9 blinded, 12 malediction, 19 taunted), not checked in the
+  client; the server keys on the template Id. Every player tick (250 ms; not while paused, but while the player is
+  dead, so a death clears it) `TickPassiveAuras` puts the `blinded` buff (179) on each living hostile monster within
+  the radius of the living player with 0x1c1 and takes it off with 0x1c2 when it leaves, the player dies or the node
+  is refunded; a vanished monster is forgotten without a message. The invisible aura buff on the player is not sent:
+  nothing on the client reads it that we know of. `Program.Blinded` (smoke cloud or aura) is the one Blind condition
+  the hits read: 20% less monster accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's
+  increased critical chance against the target, `damage_taken_+%_from_blinded_enemies` on its hits
+  ([Polytheist](../game/polytheist.md)).
+- **Passive-granted skills** (`PassiveGrantedSkills.cs`): a passive's PassiveSkills `GrantedEffectsPerLevel`
+  (`GrantedEffectsPerLevelHardmode` for a Ruthless alternate) is a GrantedEffectsPerLevel row, which names the
+  GrantedEffects row and its level. Only effects whose trigger runs on the server act; the others do nothing, and none
+  joins the client's skill list. `RepeatingShockwave` (Abberath's Fury, Devout of Abberath's 45556: level 20, no cost,
+  no cooldown) is triggered by footsteps: `RunFootstepSkills` (a 50 ms poll per connection, stopped while paused) runs
+  a run-animation clock while the walk lasts (`Walk.ArrivesAt`), at `Walk.Speed` over the base walking speed, and
+  restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
+  footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
+  steps (the wiki: movement skills do not trigger it). The wiki's exception, Shield Charge (the player still walks,
+  faster), is a known gap: it is a Movement skill here and blinks too, so it triggers nothing. `TriggerFootstepSkill`
+  sends the explosion where the player
+  stands: an `EffectObject` with SkillArtVariations `repeating_shockwave`'s default (MiscAnimated 1173
+  `AbberathsHoovesImpact`, `Abberaths_Hooves_fireimpact.ao`, whose own SoundEvent is the step sound), its wake zone, and
+  a RemoveObject 700 ms later (the mesh's one 666 ms clip). It then hits every living hostile monster within the radius
+  as an area spell sweep without a gem (`AreaSkillHit`'s per-monster block, crit, damage, Rage, flask charges and
+  on-hit charges; deaths after every hit), and a landed hit can ignite the monster (its 25% chance or a critical
+  strike; [20](20-damage.md) §3). No stat gives the radius, so it is the explosion mesh's 7 cells (`disjunction.sm`
+  BoundingBox ±73.553 units, 6.8 cells), grown by spell area (`SkillArea`); unverified. The footprints are the
+  client's: `FUN_141ebd630` returns footprint variation 0x19 (Footprints row 24, `FootprintsGoat`) when the player
+  stats carry `goat_footprints_from_item` (0x1526) and no `footstep_effect_variation` (0x55f), and `FUN_14166a840`
+  draws it on the rig's footstep events. The client has its own `RepeatingShockwave` action, built by the generic
+  action factory (`FUN_141265460`, `FUN_14196d550`), but nothing here sends it one. The
+  `abberaths_hooves_display_buff` (BuffDefinitions 838, visible) is not sent: when the real game shows it is
+  unverified ([Polytheist](../game/polytheist.md)).
 - **A worn Righteous Fire effect** (its `skill_art_variation`, [23](23-microtransactions.md) §3) swaps both buffs'
   visuals through 0x1c1's BuffVisuals override and the ring's AO (`SkillArt`), also on the enemies' aura; NoRing
   draws no ring. A pick while the fire burns lights it again with the new art (casting again while it burns does

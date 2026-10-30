@@ -203,7 +203,7 @@ partial class Program
                     target.Rarity == MonsterRarity.Unique,
                     TargetAccuracy.InCloseRange(Dist(Conn.Walk.Position(at), target.Walk.Position(at))));
                 int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
-                if (!DamageModel.Hits(DamageModel.AccuracyHitChance(Conn.FlaskGrounds.Evasion(contact.Target.Id, evasion), accuracy), random.Next(100)))
+                if (!DamageModel.Hits(DamageModel.AccuracyHitChance(UnderBlind(Conn, contact.Target.Id, evasion), accuracy), random.Next(100)))
                     return ProjectileHitResult.Miss;
             }
             if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
@@ -222,7 +222,8 @@ partial class Program
                 if (shot.ImpaleChance > 0 && random.Next(100) < shot.ImpaleChance)
                     target.Impale.Apply(baseHit[DamageType.Physical].Max * more);
             }
-            int chance = contact.Projectile.Form > 0 ? shot.SecondFormCriticalChance ?? shot.CriticalChance : shot.CriticalChance;
+            int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
+                : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell);
             var (damage, _) = MonsterDamage(target, rolled, critical, !shot.Spell, shot.ResistanceMods, shot.Penetration, gambler.InvertsResistance(random));

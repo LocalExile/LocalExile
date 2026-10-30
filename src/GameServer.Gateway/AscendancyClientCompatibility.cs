@@ -36,6 +36,12 @@ static class AscendancyClientCompatibility
             VerifiedGamblerGraph.RequireInstalled("Paladin");
             return;
         }
+        if (selection is { Family: AscendancyFamily.Phrecia, Id: "Guardian", Revision: "3.29.3b" }
+            && Environment.GetEnvironmentVariable("Game_VERIFIED_POLYTHEIST") == "1")
+        {
+            VerifiedGamblerGraph.RequireInstalled("Polytheist");
+            return;
+        }
         if (selection?.Family == AscendancyFamily.Phrecia)
             throw new AscendancyRuleException("Phrecia play is gated pending an agreed client-compatible passive graph; " +
                 "the installed client archive is not changed. Ordinary ascendancies remain available. " +
