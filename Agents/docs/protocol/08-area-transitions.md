@@ -398,6 +398,15 @@ special case. The ad-hoc fixes for The Cavern of Wrath / Anger (Reskin prefix, "
 paired with its unused partner) and The Submerged Passage (the lone unnamed object takes the point-only exit) are not
 needed for generated layouts. Captures of areas the Gateway does not generate still go through §7's model matching.
 
+**Verified live 2026-10-30** (bridge `object:interact` on each object, Gateway log): The Cavern of Wrath → The Cavern
+of Anger (seed 1; both caverns' exits had been paired as one in-area gate), the gate into Merveil's Lair and Merveil's
+exit → The Southern Forest (arriving at its `entrance1disabled` point); The Submerged Passage → The Flooded Depths;
+The Upper Prison's stairs → the Warden's Quarters → Brutus's room (`teleport3disabled`) → Prisoner's Gate; Prisoner's
+Gate → The Ship Graveyard; Lioneye's Watch → The Coast (a town exit, with the compact int); The Grand Promenade's
+stair gates both ways and its exit to The Arsenal; The Harvest's core → Malachai's arenas and back; The Sarn
+Encampment's `entrance2`. The client took every Teleport-type gate (variant 1 labels) and every exit outside a town
+without the compact int with no error in its log.
+
 **The audit** (`scripts/re/exits`, from the repository root):
 
 ```bash
