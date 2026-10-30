@@ -76,9 +76,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   less damage from blinded enemies; their reduced critical chance has nothing to reduce, because monsters crit only
   through `always_crit`, an override).
   Devout of Abberath triggers Abberath's Fury on each footstep while walking (its radius comes from the explosion art
-  and is unverified), the client draws the burning hoofprints, and ignites on the player deal nothing.
-  Devout of Yugul, Ralakesh's Corrupted Blood immunity, Garukhan's ground immunity and Abberath's Fury's chance to
-  ignite wait for curses, reflected damage, Corrupted Blood, hazardous ground and player ignites on monsters.
+  and is unverified), its hits ignite monsters, the client draws the burning hoofprints, and ignites on the player
+  deal nothing.
+  Devout of Yugul, Ralakesh's Corrupted Blood immunity and Garukhan's ground immunity wait for curses, reflected
+  damage, Corrupted Blood and hazardous ground.
   `Game_VERIFIED_POLYTHEIST=1` opts in. Not checked with the real client: that needs the reviewed combined graph
   installed.
   Docs: [Polytheist checklist](../docs/game/polytheist.md).

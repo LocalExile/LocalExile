@@ -114,14 +114,17 @@ partial class Program
     internal static int CriticalMultiplierOn(SpawnedMonster m, int multiplier) =>
         m.Mods.Effects.NoExtraCriticalDamage ? 100 : multiplier;
 
-    /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time): less its fire resistance and its
-    /// damage taken. Spell Resistant counts for hits only: its stat has no description saying it covers damage over
-    /// time.</summary>
-    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds)
+    /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
+    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds) =>
+        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTaken(m, burn.Type) }).Tick(seconds, m.Burn);
+
+    /// <summary>The share of damage over time of this type a monster takes (Righteous Fire's burn, ignites): less its
+    /// resistance (its type's base and its mods', as for hits, without penetration) and with its damage taken. Spell
+    /// Resistant counts for hits only: its stat has no description saying it covers damage over time.</summary>
+    internal static double MonsterDotTaken(SpawnedMonster m, DamageType type)
     {
-        var e = m.Mods.Effects;
-        double factor = (100 - DamageModel.Capped(e.Resistance(burn.Type), MonsterModEffects.MaxResistance)) / 100.0 * e.DamageTaken(spell: false);
-        return (burn with { DamagePerSecond = burn.DamagePerSecond * factor }).Tick(seconds, m.Burn);
+        var resistance = MonsterHitResistance(m, type, default);
+        return (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0 * m.Mods.Effects.DamageTaken(spell: false);
     }
 
     // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life

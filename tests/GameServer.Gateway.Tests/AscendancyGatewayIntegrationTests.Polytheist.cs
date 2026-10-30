@@ -216,6 +216,16 @@ public sealed partial class AscendancyGatewayIntegrationTests
             return null;
         });
 
+        // One player tick of the monsters' ignites (BurnIgnites) over the last `seconds`, with these monsters.
+        public Task<(string? Error, byte[] Bytes)> PolytheistBurnIgnites(double seconds, params (uint Id, SpawnedMonster M)[] monsters) =>
+            Exchange(async (stream, cipher) =>
+            {
+                foreach (var (id, m) in monsters) State.Monsters[id] = m;
+                await Program.BurnIgnites("polytheist-integration", stream, cipher, State, seconds);
+                foreach (var (id, _) in monsters) State.Monsters.Remove(id);
+                return null;
+            });
+
         // One player tick of the passive auras (TickPassiveAuras).
         public Task<(string? Error, byte[] Bytes)> PolytheistAuraTick() => Exchange(async (stream, cipher) =>
         {
@@ -564,12 +574,14 @@ public sealed partial class AscendancyGatewayIntegrationTests
     }
 
     [Fact]
-    public async Task Polytheist_Abberath_footsteps_trigger_Abberaths_Fury_and_ignites_deal_nothing()
+    public async Task Polytheist_Abberath_footsteps_trigger_Abberaths_Fury_that_ignites_and_ignites_deal_nothing()
     {
         if (!DataAvailable()) return;
         using var game = new GatewayCharacter(classRow: 6, baseClass: 5, choice: "Polytheist", refundPoints: 40, level: 60);
         var state = game.State;
         state.PlayerStats[Program.Stats.Key("fire_damage_+%")!.Value] = 100;
+        // With the skill's 25% chance to ignite, every hit ignites.
+        state.PlayerStats[Program.Stats.Key("chance_to_ignite_%")!.Value] = 75;
         double now = state.Clock.Elapsed.TotalSeconds;
         var at = state.Walk.Position(now);
         state.Walk.Teleport(at.X, at.Y, now);
@@ -615,6 +627,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
         uint taken = near.MaxLife - near.Life;
         Assert.InRange(taken, 600u, 900u * (uint)state.Pools.SpellCriticalStrikeMultiplier / 100);
         Assert.Equal(far.MaxLife, far.Life);
+        // The hit ignites the monster it hits (90% of 300-450 fire per second, × 2 for the increase, × 1.5 on a critical
+        // strike) and shows it burning; the other is not ignited.
+        now = state.Clock.Elapsed.TotalSeconds;
+        Assert.InRange(near.Ignites.PerSecond(now), .9 * 300 * 2, .9 * 450 * 2 * 1.5);
+        Assert.True(bytes.AsSpan().IndexOf(Program.IgnitedBuff(48, near.Ignites.Shown!.Value)) >= 0);
+        Assert.True(far.Ignites.Idle);
         string art = Program.Art.Animated(PassiveGrantedSkills.ExplosionArtVariation, 0)!;
         Assert.Equal("Metadata/Effects/Microtransactions/Aura/Uniques/Disjunction/Abberaths_Hooves_fireimpact.ao", art);
         Assert.True(bytes.AsSpan().IndexOf(new EffectObject(at.X, at.Y, art).Blob()) >= 0);
@@ -640,5 +658,42 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Null((await game.Change([61900, 59443], false, refundPoints: true)).Error);
         Assert.Empty(Program.FootstepSkills(state, now));
         Assert.Equal(plainIgnite, Ignite());
+
+        // Ignites on monsters (wiki Ignite): a critical strike always ignites, +50% damage over time multiplier; a hit
+        // without one needs the chance. Fire and Ignite Resistant: 75% fire resistance and 80% shorter ignites.
+        int Doubled(string name) => name == "fire_damage_+%" ? 100 : 0;
+        SpawnedMonster Monster(MonsterModSet? mods = null, uint life = 100000) =>
+            new("Polytheist ignite target", new(at.X + 3, at.Y, 30), 0, 2, life) { Hostile = true, Mods = mods ?? MonsterModSet.None };
+        var resistant = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int>
+        {
+            ["base_fire_damage_resistance_%"] = 75, ["base_self_ignite_duration_-%"] = 80,
+        }));
+        Assert.Null(Program.IgniteFromHit(100, false, Doubled, 1, Monster(), new Random(1)));
+        Assert.Null(Program.IgniteFromHit(0, true, Doubled, 1, Monster(), new Random(1)));
+        var critical = Program.IgniteFromHit(100, true, Doubled, 1, Monster(), new Random(1))!.Value;
+        Assert.Equal((270.0, 4.0), (critical.DamagePerSecond, critical.RemainingSeconds));
+        var chanced = Program.IgniteFromHit(100, false, n => n == "base_chance_to_ignite_%" ? 100 : Doubled(n), 1, Monster(resistant),
+            new Random(1))!.Value;
+        Assert.Equal(180.0, chanced.DamagePerSecond);
+        Assert.Equal(.8, chanced.RemainingSeconds, 9);
+        // Only the strongest burns: 100/s for 4 s with 300/s in the second second.
+        var two = new MonsterIgnites();
+        two.Add(0, new(DamageType.Fire, 100, 4));
+        two.Add(1, new(DamageType.Fire, 300, 1));
+        Assert.Equal(600, two.Advance(0, 4, 1));
+        Assert.True(two.Idle);
+        // The player tick burns them: a quarter through 75% fire resistance; one that died is put out; the last point kills.
+        now = state.Clock.Elapsed.TotalSeconds;
+        var (burning, ended, dying) = (Monster(resistant), Monster(), Monster(life: 10));
+        ushort buff = Program.IgniteLocked(state, burning, new(DamageType.Fire, 100.5, 4), now - 1)!.Value;
+        ushort endedBuff = Program.IgniteLocked(state, ended, new(DamageType.Fire, 100, 1), now - 3)!.Value;
+        Program.IgniteLocked(state, dying, new(DamageType.Fire, 100, 4), now - 1);
+        var (burnError, burnt) = await game.PolytheistBurnIgnites(1, (50, burning), (51, ended), (52, dying));
+        Assert.Null(burnError);
+        Assert.Equal(burning.MaxLife - 25, burning.Life);
+        Assert.Equal((ended.MaxLife, true), (ended.Life, ended.Ignites.Idle));
+        Assert.True(burnt.AsSpan().IndexOf(InstanceEntities.RemoveBuff(51, endedBuff)) >= 0);
+        Assert.True(burnt.AsSpan().IndexOf(InstanceEntities.RemoveBuff(50, buff)) < 0);
+        Assert.Equal((0u, true, true), (dying.Life, dying.Dead, dying.Ignites.Idle));
     }
 }

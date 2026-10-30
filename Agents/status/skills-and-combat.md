@@ -412,9 +412,9 @@ and can require explicit recipes.
   player's feet with the skill's art and hits every living hostile monster within 7 cells (grown by spell area) as an
   area spell without a gem: 300-450 fire with the player's increases, critical strikes, block and the usual on-hit
   effects. Not in town, the grace period, while frozen, stunned or dead, nor with spells disabled; a movement skill's
-  blink is no walk. The radius comes from the explosion art (no table gives one), its 25% chance to ignite does nothing
-  (no player hit ignites monsters), and other passive-granted skills do nothing yet. Gateway coverage only, not checked
-  with the real client.
+  blink is no walk. A landed hit ignites the monster with its 25% chance or a critical strike (the player's ignites on
+  monsters below). The radius comes from the explosion art (no table gives one), and other passive-granted skills do
+  nothing yet. Gateway coverage only, not checked with the real client.
   Code: Gateway (`PassiveGrantedSkills`, `RunFootstepSkills`, `TriggerFootstepSkill`).
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - **Projectile modifiers.** Generic profiles consume resolved primary counts, speed, pierce/fork/chain/split/return
@@ -703,7 +703,12 @@ and can require explicit recipes.
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
   Maximum-mana added lightning has original-head native checks and resolved automated checks.
   Not yet: exposure, aura-dependent penetration, other added damage,
-  increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
+  increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)),
+  except the player's ignites on monsters: a critical strike or the chance ignites with 90% of the hit's flat fire per
+  second for 4 s, the ignite increases, damage over time multipliers (+50% on a critical strike) and duration stats;
+  only the strongest burns, through the monster's fire resistance, every player tick, with the `ignited` buff and kills.
+  Only Abberath's Fury's footstep hits ignite yet; Gateway coverage only, not checked with the real client
+  (`MonsterIgnites.cs`, [20](../docs/protocol/20-damage.md) §3).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.

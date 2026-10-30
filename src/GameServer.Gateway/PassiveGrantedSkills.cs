@@ -137,22 +137,30 @@ partial class Program
 
     // A granted spell's hit (no gem, no supports): its base damage with the player's increases, added damage and conversion,
     // as a supported spell's (SupportedHitFor); Spell Skills deal no Damage zeroes it (SkillDamageContext).
-    internal static DamagePacket GrantedSpellHit(ClientState conn, int effect, int level)
+    internal static DamagePacket GrantedSpellHit(ClientState conn, int effect, int level) => GrantedSpell(conn, effect, level).Hit;
+
+    // The hit, and what its ignite takes: the flat damage (base and added, after conversion, before any increase; wiki
+    // Ignite), the caster's and the skill's stats and the damage context.
+    internal static (DamagePacket Hit, DamagePacket Flat, Dictionary<uint, int> Stats, SkillDamageContext Context) GrantedSpell(
+        ClientState conn, int effect, int level)
     {
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, SkillsFor(conn).EffectStats(effect, level).ToDictionary(v => v.Item1, v => v.Item2));
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         var plan = SkillHitPlan.ForSkill(SkillsFor(conn), effect, level);
-        if (!plan.CanHit) return DamagePacket.Empty;
-        var hit = SpellDamage.Packet(plan.SpellBase, Get, AddedEffectiveness(conn, effect, level))
-            .Convert(DamageStats.Conversion(stats, Stats, attack: false));
-        return new SkillDamageContext(plan.Kind, caster).Hit(hit);
+        var context = new SkillDamageContext(plan.Kind, caster);
+        if (!plan.CanHit) return (DamagePacket.Empty, DamagePacket.Empty, stats, context);
+        var conversion = DamageStats.Conversion(stats, Stats, attack: false);
+        double effectiveness = AddedEffectiveness(conn, effect, level);
+        var hit = SpellDamage.Packet(plan.SpellBase, Get, effectiveness).Convert(conversion);
+        var flat = DamageStats.Added(plan.SpellBase, Get, spell: true, melee: false, effectiveness: effectiveness).Convert(conversion);
+        return (context.Hit(hit), flat, stats, context);
     }
 
     // One footstep's skill (Abberath's Fury): its explosion art where the player stands, and a spell hit on every living
     // hostile monster within its radius (FootstepExplosionRadius grown by area of effect, SkillArea) of the player, as an
     // area spell's sweep (AreaSkillHit) without a gem: no cost, no cast time, crits and rolls per monster, every hit before
-    // the sweep's deaths. Its 25% chance to ignite does nothing: no player hit ignites monsters yet.
+    // the sweep's deaths. A landed hit ignites a surviving monster with its 25% chance or a critical strike (IgniteFromHit).
     internal static async Task TriggerFootstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PassiveGrantedSkills.Granted skill)
     {
@@ -185,7 +193,10 @@ partial class Program
         var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
-        var hit = GrantedSpellHit(conn, skill.Effect, skill.Level);
+        var (hit, flat, merged, context) = GrantedSpell(conn, skill.Effect, skill.Level);
+        int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
+        var fire = flat[DamageType.Fire];
+        double igniteMore = ChargeDamageMore(merged);
         var pen = Penetration.Of(player, Stats, attack: false, own);
         var mods = HitResistMods(player, own);
         int baseChance = (SkillsFor(conn).SpellCritChance(skill.Effect, skill.Level) ?? 0) + Own("additional_base_critical_strike_chance");
@@ -202,6 +213,7 @@ partial class Program
             MonsterHit? applied;
             int damage;
             bool critical;
+            ushort? ignitedBuff = null;
             using (ProjectileMutation(conn))
             {
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) return;
@@ -217,7 +229,15 @@ partial class Program
                     applied = staged with { StageStarts = false };
                 }
                 if (applied is not null && !rageGranted) rageGranted = RageOnHitLocked(conn, attack: false, melee: false, critical, own);
+                // shortcut: the ignite's flat fire is rolled apart from the hit (the game takes the hit's own roll; the
+                // spread is the same, and lucky or triple damage never reaches it either way), until a rolled hit
+                // carries its roll position.
+                if (applied is not null && IgniteFromHit(fire.Min + Random.Shared.NextDouble() * (fire.Max - fire.Min), critical,
+                        Merged, igniteMore, m, Random.Shared) is { } ignite)
+                    ignitedBuff = IgniteLocked(conn, m, context.OverTime(ignite), ProjectileWorldTime(conn));
             }
+            if (ignitedBuff is ushort buff)
+                await Send(remote, stream, ciphers, IgnitedBuff(id, buff), $"0x01c1 monster 0x{id:x} ignited by {skill.Id}");
             if (applied is not { } landed) continue;
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, landed, damage,

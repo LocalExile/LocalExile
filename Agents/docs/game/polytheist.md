@@ -44,7 +44,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 25478 small (ring C) | Same as 27664. | Done |
 | 22056 Devout of Garukhan | Evasion, Life and Mana Regeneration while moving; Unaffected by Shock; ground immunity. | Done; ground immunity: engine gap |
 | 32742 Devout of Solaris | Nearby Enemies are Blinded; crit against and from Blinded enemies; less damage from them. | Done, except the enemies' reduced crit: no consumer, monsters have no base crit chance here (see below) |
-| 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Done; the explosion's 25% chance to ignite: engine gap; radius unverified |
+| 61900 Devout of Abberath | Triggers Level 20 Abberath's Fury; Burning Hoofprints; Unaffected by Ignite. | Done, its ignites included; radius and display buff unverified |
 | 64171 Devout of Yugul | Hex Reflection; Hexes affect Hexproof enemies; Immune to Reflected Damage; Unaffected by Curses. | Engine gap (all four) |
 | 43703 Devout of Lunaris | Nova spells at the target; Spells fire 2 additional Projectiles; 30% increased spell area. | Done |
 | 1830 Devout of Ralakesh | +3 to Minimum Frenzy, Power and Endurance Charges; Corrupted Blood cannot be inflicted on you. | Charges done; Corrupted Blood: engine gap |
@@ -115,7 +115,8 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 - **Devout of Gruthkul, Your Spells are disabled** (`your_spells_are_disabled`): every spell is refused before its
   action, cost or cooldown, on every route the warcry and own-aura restrictions use
   ([11](../protocol/11-skills.md) §10d). Spells are the skills the client marks `casting_spell`: auras, Heralds,
-  Righteous Fire, Portal and movement spells included; attacks and warcries stay usable. The client greys them itself
+  Righteous Fire, Portal and movement spells included; attacks and warcries stay usable (the wiki: spells cannot be cast
+  or triggered; auras, heralds, stances and banners are spells, warcries are not). The client greys them itself
   (`skill_disabled_by_stat` = 0x1520 AND `casting_spell`, `FUN_1428cf770`); the skill record also carries it.
   Running spell auras are suspended with their saved intent, as for "Your Aura Skills are disabled", and come back after
   a refund. A Righteous Fire already burning keeps burning the player and deals the enemies nothing. Both are local
@@ -166,10 +167,11 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   `virtual_always_crit` (0x2549, derived from `always_crit` by `FUN_14275ba00`) before it reads any chance or increase
   (checked in capstone: `0x14275c24c` jumps to `0x14275c694: mov eax, 0x2710`). PoB agrees: an always-crit enemy
   ignores increases (CalcDefence's `AlwaysCrit`). A blinded Deadliness monster therefore still crits. Whether
-  ordinary 3.29 monster attacks carry a base critical chance is unverified: the monster attacks' stat sets
-  (GrantedEffectStatSetsPerLevel of `Melee`, `MeleeAtAnimationSpeed` and the like) have `AttackCritChance` 0, but PoB
-  assumes 5% for an unconfigured enemy. If a base chance is added, this stat must join its increases; until then the
-  stat has no consumer. The client never reads 0x3099.
+  ordinary 3.29 monster attacks carry a base critical chance is unverified: of the 9 901 monster varieties with a
+  granted effect, none has a first effect whose stat sets (GrantedEffectStatSetsPerLevel) give an `AttackCritChance`
+  (`Melee`, `MeleeAtAnimationSpeed` and the like: 0); only 1 123 have a spell projectile with a `SpellCritChance` of
+  5-6%, and the server makes every monster hit an attack. PoB assumes 5% for an unconfigured enemy. If a base chance is
+  added, this stat must join its increases; until then the stat has no consumer. The client never reads 0x3099.
 - **Devout of Lunaris, Nova Spells Cast at the targeted location instead of around you**
   (`nova_spells_cast_at_target_location`): a Nova spell (ActiveSkillType Nova) is centred on the caster without it and
   on the aimed point with it (`SpellCentre` in `AreaSkillHit`). The client derives
@@ -195,6 +197,21 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   unknown).
   Devout of Gruthkul disables it (the wiki: taking both disables Abberath's Fury): `ActorSkillDisabledCore` refuses
   the spell, and Spell Skills deal no Damage would zero it.
+- **Abberath's Fury's 25% chance to Ignite** (`base_chance_to_ignite_%` in its level-20 row): a hit that lands ignites
+  the monster when it survives, with that chance (plus the player's `chance_to_ignite_%` and
+  `chance_to_freeze_shock_ignite_%`) or always on a critical strike (`IgniteFromHit`, the wiki's Ignite). The ignite
+  burns 90% of the hit's flat fire damage per second (300-450 with added fire damage and conversion, before any
+  increase) for 4 s. Only the increases the wiki lists for ignite count (damage, damage over time, elemental, fire,
+  burning, ignite and ailment damage; never spell or area damage), with the Frenzy charges' more damage and the damage
+  over time multipliers, +50% of them from a critical strike (the player's inherent bonus for ailments from critical
+  strikes). Increased ignite duration lengthens it, and the monster's `base_self_ignite_duration_-%` (Fire and Ignite
+  Resistant: 80%) shortens it. Several ignites can be on one monster; only the strongest burns
+  (`MonsterIgnites`). The player tick burns them (`BurnIgnites`, every 250 ms) through the monster's fire resistance
+  and damage taken, as Righteous Fire's burn, and kills with it; they burn on while the player is dead (no experience
+  then). The monster shows the `ignited` buff (BuffDefinitions 0) from the hit until the last one ends or it dies.
+  The ignite's flat fire is rolled apart from the hit's damage (the game takes the hit's own roll; the spread is the
+  same, a `shortcut:` in the code). Only this skill's hits ignite monsters yet: the default attack, gems and
+  projectiles do not ([20](../protocol/20-damage.md) §3).
 - **Devout of Abberath, Burning Hoofprints** (`goat_footprints_from_item`) is the client's: the player stats carry it,
   and `FUN_141ebd630` turns it into the goat footprint variation that `FUN_14166a840` draws on each footstep event
   ([11](../protocol/11-skills.md) §12). The server sends nothing else.
@@ -223,8 +240,6 @@ These effects are not faked. Each waits for an engine system that does not exist
   (Frostblink, the Aquamarine flask) do not create it either.
 - **Corrupted Blood cannot be inflicted on you** (Ralakesh): nothing inflicts Corrupted Blood.
   The only related code maps a flask's bleed-and-Corrupted-Blood immunity to `immune_to_bleeding`.
-- **Abberath's Fury's 25% chance to Ignite** (`base_chance_to_ignite_%` in its level-20 row): no player hit ignites
-  monsters yet, so the explosions deal their hit and nothing more.
 
 ## Admission
 
@@ -278,8 +293,11 @@ The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukha
 - Abberath: walk and watch the fire explode at the player's feet about twice a second, with the burning hoofprints
   behind; a monster within about 0.7 m of a step takes the hit ("hit by RepeatingShockwave (footstep)" in the Gateway
   log). Standing, casting or using a movement skill sets off nothing. Check the explosion art and size against the
-  real game, and whether the real game shows the Abberath's Hooves buff icon (it is not sent). A monster's critical
-  fire hit still ignites the player ("elemental ailments changed"), but life does not drop from it.
+  real game, and whether the real game shows the Abberath's Hooves buff icon (it is not sent). About one hit in four
+  ignites the monster: it shows the burning effect ("ignited by RepeatingShockwave" in the Gateway log when it starts
+  burning) and loses life for 4 s between the hits; a Fire and Ignite Resistant monster (`/mob_mods <id> MonsterModResistantToFire`) burns for
+  0.8 s and takes a quarter. A monster's critical fire hit still ignites the player ("elemental ailments changed"),
+  but life does not drop from it.
 - With Gruthkul (on another Polytheist Templar, `/add_passive 59443 61900 30769 5266`) nothing explodes; refund 5266
   and 30769 in the ascendancy tree and the explosions come back.
 

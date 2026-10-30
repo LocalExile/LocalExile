@@ -51,8 +51,10 @@ as in Path of Building. Gains are added to the destination without reducing the 
 
 A player hit on a monster rolls each type once and then takes the monster's own base resistance on each type
 (MonsterResistanceCatalog, §4), before the critical multiplier and the life update. A monster's attack on the player
-does the mirror pass through the player's resistances. Damage over time is outside this pass: it has no hit, and
-Righteous Fire's monster burn keeps its per-tick percentage-of-life model with no resistance or penetration.
+does the mirror pass through the player's resistances. Damage over time is outside this pass: it has no hit and no
+penetration. Righteous Fire's monster burn (its per-tick percentage-of-life model) and the player's ignites take the
+monster's capped resistance of their type, its base and its mods' as for hits, and its damage taken (`MonsterDotTaken`;
+before the ignites, the burn took only the mods' resistance).
 
 Penetration lowers the target's resistance before the damage is reduced. The server caps the monster's base
 resistance first (the 75 default, the 90 absolute maximum, the −200 floor) and subtracts the hit's penetration from
@@ -378,8 +380,26 @@ The modelled damaging ailments are:
 increased/more modifiers**; the method's `increasedPct`/`more` arguments are the ailment-specific multipliers, so a
 caller cannot double-count hit modifiers. For a specific hit pass its rolled packet; for expected damage pass the
 average range. The caller applies the target's resistance. Non-damaging ailments (chill, freeze, shock), critical
-ailment damage, ailment chance/application and ailment duration stats are not modelled yet. Righteous Fire still uses
-its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
+ailment damage, ailment chance/application and ailment duration stats are not modelled yet, except for the player's
+ignites on monsters below. Righteous Fire still uses its existing per-tick percentage-of-life burn; it is a fire DoT
+but not an ignite.
+
+**The player's ignites on monsters** (`MonsterIgnites.cs`, the wiki's Ignite): `IgniteFromHit` decides a landed hit's
+ignite. A critical strike always ignites; otherwise `base_chance_to_ignite_%`, `chance_to_ignite_%` and
+`chance_to_freeze_shock_ignite_%` give the chance, and `never_ignite` stops it. The base is the hit's flat fire damage
+(base and added, after conversion, before increases), 90% per second (`Ailments.Ignite`) × (1 + the ignite increases:
+`damage_+%`, `damage_over_time_+%`, `elemental_damage_+%`, `fire_damage_+%`, `fire_damage_over_time_+%`,
+`burn_damage_+%`, `ignite_damage_+%`, `base_ailment_damage_+%`) × the Frenzy charges' more damage × (1 + the damage
+over time multipliers `dot_multiplier_+`, `fire_dot_multiplier_+`, `ignite_dot_multiplier_+`, and on a critical strike
+50 + `critical_ailment_dot_multiplier_+`). Hit-only modifiers (spell, area, attack damage, critical multiplier, lucky or
+triple damage, penetration) never reach it. It lasts 4 s × (1 + `ignite_duration_+%`) × (1 −
+`base_self_ignite_duration_-%` of the monster). A monster keeps every ignite with its own duration, and only the
+strongest burns. The player tick (`BurnIgnites`, 250 ms) burns them through the monster's fire resistance and damage
+taken (`MonsterDotTaken`, shared with Righteous Fire's burn), sends 0x1b1 and kills, and the monster carries the
+`ignited` buff (BuffDefinitions 0, no values) while one burns. Only Abberath's Fury's footstep hits call it yet
+([Polytheist](../game/polytheist.md)): the default attack, gems, projectiles and bows build no flat packet for it, so
+they do not ignite. Shaper of Flames-style ignites from other damage types, "deal damage faster" stats and ignite
+proliferation are not modelled.
 
 ## 4. What the server uses now
 

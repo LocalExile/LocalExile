@@ -1581,7 +1581,8 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
   `AbberathsHoovesImpact`, `Abberaths_Hooves_fireimpact.ao`, whose own SoundEvent is the step sound), its wake zone, and
   a RemoveObject 700 ms later (the mesh's one 666 ms clip). It then hits every living hostile monster within the radius
   as an area spell sweep without a gem (`AreaSkillHit`'s per-monster block, crit, damage, Rage, flask charges and
-  on-hit charges; deaths after every hit). No stat gives the radius, so it is the explosion mesh's 7 cells (`disjunction.sm`
+  on-hit charges; deaths after every hit), and a landed hit can ignite the monster (its 25% chance or a critical
+  strike; [20](20-damage.md) §3). No stat gives the radius, so it is the explosion mesh's 7 cells (`disjunction.sm`
   BoundingBox ±73.553 units, 6.8 cells), grown by spell area (`SkillArea`); unverified. The footprints are the
   client's: `FUN_141ebd630` returns footprint variation 0x19 (Footprints row 24, `FootprintsGoat`) when the player
   stats carry `goat_footprints_from_item` (0x1526) and no `footstep_effect_variation` (0x55f), and `FUN_14166a840`
