@@ -311,7 +311,14 @@ is the same hook for one-off use.
 - with a capture: picks the graph variant (topology) whose transition models cover the captured models best, then
   gives each captured AreaTransition the destination of the same model in that topology (resolved and enabled). Per
   topology only 53 of 6 474 models lead to more than one place; those are logged and skipped. Disabled one-way links
-  (e.g. town → The Twilight Strand, `entrance1disabled`) are not created;
+  (e.g. town → The Twilight Strand, `entrance1disabled`) are not created. A model the topology does not list matches
+  the one it reskins: an area whose master has a `Reskin` places the tile's `<reskin>_<record>` (The Cavern of Wrath and
+  The Cavern of Anger: `corrupted_caveup_exit_v01_01_area_transition.ao`, the atlas's `caveup_exit_…`); before, both
+  caverns' exits were taken for an in-area gate pair, so The Cavern of Anger and Act 2 could not be reached. Quest exits
+  whose type ends in `Transition` with an `…area_transition.ao` model count as area transitions (Merveil's
+  `MerveilExitTransition` into The Southern Forest, Prisoner's Gate's `Spikes/BlockedPassageTransition`, the arena's
+  `BossArenaEntranceTransition`); an `internal` gate and its `unused` partner are paired as a gate within the area
+  (the cave's telepad and Merveil's arena);
 - without a capture: the atlas's static placement for fixed layouts (26 areas, the town among them);
 - the town keeps a built-in fallback when there is no atlas.
 The objects get ids 0x2000, 0x2001, …, their model, rotation and fixed height, and their own object type. After 0x7d

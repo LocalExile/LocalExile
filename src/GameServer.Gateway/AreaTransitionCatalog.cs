@@ -39,17 +39,22 @@ static class AreaTransitionCatalog
         if (captured is not null)
         {
             var local = new List<CapturedObject>();
+            var gates = new List<CapturedObject>();
             // The graph variant the client generated: the one whose transition models cover the capture best.
-            var best = topologies.MaxBy(t => captured.Count(o => t.Transitions?.Any(x => x.Model == o.Model) == true));
+            var best = topologies.MaxBy(t => captured.Count(o => t.Transitions?.Any(x => SameModel(x.Model, o.Model)) == true));
             foreach (var o in captured)
             {
                 var candidates = (best?.Transitions ?? []).Where(x => x.Model == o.Model).ToList();
+                if (candidates.Count == 0) candidates = [.. (best?.Transitions ?? []).Where(x => SameModel(x.Model, o.Model))];
                 var usable = candidates.Where(x => x.Enabled != false && x.DestinationHash16 is not null).ToList();
                 var destinations = usable.Select(x => x.DestinationHash16!.Value).Distinct().ToList();
                 string what = $"{o.Model?.Split('/')[^1]} at ({o.X}, {o.Y})";
                 if (destinations.Count != 1)
                 {
                     if (candidates.Count == 0) { local.Add(o); continue; }
+                    // A gate the atlas found leading within the area (status "internal": a sub-graph's arena entrance) or
+                    // not leading anywhere ("unused": its partner), paired below.
+                    if (destinations.Count == 0 && candidates.All(x => x.Status is "internal" or "unused")) { gates.Add(o); continue; }
                     notes.Add(candidates.Count == 0 ? $"{what}: not in topology {best?.Id}"
                         : destinations.Count == 0 ? $"{what}: {string.Join("/", candidates.Select(x => x.Enabled == false ? "disabled" : x.Status).Distinct())}, not created"
                         : $"{what}: ambiguous ({string.Join(", ", usable.Select(x => x.Destination).Distinct())}), not created");
@@ -63,7 +68,12 @@ static class AreaTransitionCatalog
             }
             // Gates no topology names lead within the area: a map's boss room has a pair (MapBeach2 boss_1.arm: points
             // teleport1-%areaname%, telepad1, teleport2-Arena, telepad2), into the arena and back. Two are paired, each
-            // to the other; any other number is left out.
+            // to the other; any other number is left out. So are an "internal" gate and its partner (The Cavern of Anger:
+            // the cave's telepad and Merveil's arena entrance, BossArenaEntranceTransition).
+            if (local.Count == 0 && gates.Count == 2 && gates.Any(g => (best?.Transitions ?? []).Any(x => SameModel(x.Model, g.Model) && x.Status == "internal")))
+                local = gates;
+            else
+                foreach (var o in gates) notes.Add($"{o.Model?.Split('/')[^1]} at ({o.X}, {o.Y}): unused or internal, not created");
             if (local.Count == 2)
                 for (int i = 0; i < 2; i++)
                 {
@@ -151,7 +161,7 @@ static class AreaTransitionCatalog
     // Quest exits extend AreaTransition under their own name (The Twilight Strand's SouthBeachTownEntrance). A generated
     // layout without any falls back to the atlas's fixed placement; a capture without any has none.
     static List<CapturedObject>? LoadCapture(string id, uint seed) =>
-        LoadObjects(id, seed)?.Where(o => o.ObjectType is { } t && IsTransition(t)).ToList() is { } exits
+        LoadObjects(id, seed)?.Where(o => o.ObjectType is { } t && IsTransition(t, o.Model)).ToList() is { } exits
             && (exits.Count > 0 || Captured(id, seed)) ? exits : null;
 
     // The tile objects of a capture or, without one, of the layout the Gateway generated itself, read the same way.
@@ -169,8 +179,25 @@ static class AreaTransitionCatalog
         }
     }
 
-    static bool IsTransition(string type) =>
-        (type.Contains("AreaTransition") || type.EndsWith("TownEntrance")) && !AreaObjects.IsEffect(type);
+    /// <summary>Whether a tile object is an area transition: AreaTransition and its quest types, by name (…AreaTransition,
+    /// …TownEntrance, or …Transition with an area transition model: Metadata/QuestObjects/MerveilExitTransition into Act 2,
+    /// Spikes/BlockedPassageTransition, BossArenaEntranceTransition, which were left out before).</summary>
+    internal static bool IsTransition(string type, string? model) =>
+        (type.Contains("AreaTransition") || type.EndsWith("TownEntrance")
+            || type.EndsWith("Transition", StringComparison.Ordinal) && model?.EndsWith("area_transition.ao", StringComparison.OrdinalIgnoreCase) == true)
+        && !AreaObjects.IsEffect(type);
+
+    /// <summary>Whether a placed model is the atlas's model, or its reskin: an area whose master has a Reskin places the
+    /// tile's "&lt;reskin&gt;_&lt;name&gt;" record (TerrainCache.ReskinObjects; The Cavern of Wrath and Anger:
+    /// corrupted_caveup_exit_v01_01_area_transition.ao) where the atlas, built from the tile files, lists "&lt;name&gt;".</summary>
+    internal static bool SameModel(string? atlas, string? placed)
+    {
+        if (atlas is null || placed is null) return false;
+        if (atlas == placed) return true;
+        string a = atlas[(atlas.LastIndexOf('/') + 1)..], p = placed[(placed.LastIndexOf('/') + 1)..];
+        int underscore = p.IndexOf('_');
+        return underscore > 0 && p[(underscore + 1)..].Equals(a, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>Server object ids of an area's transition effects: 0x2f80, 0x2f81, …</summary>
     public const uint FirstEffectId = 0x2f80;
