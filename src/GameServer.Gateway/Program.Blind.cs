@@ -38,8 +38,8 @@ partial class Program
     internal static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
         conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
 
-    // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a hit of this monster, which
-    // joins the hit's other increased damage taken (shock). Hits only: an ignite's ticks carry no source monster.
+    // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where
+    // it joins the other increased damage taken (shock), and the ticks of the ignite its hit inflicted (Advance's takenFrom).
     internal static int DamageTakenFromBlindedPct(ClientState conn, uint monster, IReadOnlyDictionary<uint, int> player) =>
         Blinded(conn, monster) ? StatOf(player, FromBlindedDamageTakenStat) : 0;
 }

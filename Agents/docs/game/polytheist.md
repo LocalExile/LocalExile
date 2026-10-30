@@ -217,7 +217,9 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   burning, ignite and ailment damage; never spell or area damage), with the Frenzy charges' more damage and the damage
   over time multipliers, +50% of them from a critical strike (the player's inherent bonus for ailments from critical
   strikes). Increased ignite duration lengthens it, and the monster's `base_self_ignite_duration_-%` (Fire and Ignite
-  Resistant: 80%) shortens it. Several ignites can be on one monster; only the strongest burns
+  Resistant: 80%) shortens it. The "deal Damage faster" modifiers the wiki lists for ignite (`faster_burn_%`,
+  `damaging_ailments_deal_damage_+%_faster`: Searing Heat, Wasting Affliction, Blowback) multiply its damage per second
+  and divide its duration by the same factor. Several ignites can be on one monster; only the strongest burns
   (`MonsterIgnites`). The player tick burns them (`BurnIgnites`, every 250 ms) through the monster's fire resistance
   and damage taken, as Righteous Fire's burn, and kills with it; they burn on while the player is dead (unverified: no
   source found), with no experience then, and a dead Hardcore character's kills make no progress (`MonsterKilled`'s

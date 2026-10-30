@@ -70,6 +70,7 @@ partial class Program
     /// chance_to_freeze_shock_ignite_%); never_ignite stops it. It burns 90% of that fire per second (Ailments.Ignite) ×
     /// the ignite increases × <paramref name="more"/> × the damage over time multipliers (with +50% from a critical strike),
     /// for 4 s × increased ignite duration × the monster's base_self_ignite_duration_-% (Fire and Ignite Resistant).
+    /// faster_burn_% and damaging_ailments_deal_damage_+%_faster multiply its damage per second and divide its duration.
     /// <paramref name="attacker"/> gives the player's and the skill's stats.
     /// </summary>
     internal static DamageOverTime? IgniteFromHit(double baseFire, bool critical, Func<string, int> attacker, double more,
@@ -82,9 +83,12 @@ partial class Program
             + (critical ? CriticalAilmentDotMultiplier + attacker("critical_ailment_dot_multiplier_+") : 0)) / 100.0;
         var ignite = GameServer.Core.World.Ailments.Ignite(DamagePacket.Of(DamageType.Fire, baseFire, baseFire),
             IgniteIncreases.Sum(attacker), more * multiplier);
-        double seconds = ignite.RemainingSeconds * Math.Max(0, 1 + attacker("ignite_duration_+%") / 100.0)
-            * Math.Max(0, 1 - m.Mods.Effects["base_self_ignite_duration_-%"] / 100.0);
-        return ignite.DamagePerSecond > 0 && seconds > 0 ? ignite with { RemainingSeconds = seconds } : null;
+        // Deal Damage faster: more damage per second, the inverse on the duration (wiki Ignite; PoB IgniteBurnFaster).
+        double faster = Math.Max(0, 1 + (attacker("faster_burn_%") + attacker("damaging_ailments_deal_damage_+%_faster")) / 100.0);
+        double seconds = faster > 0 ? ignite.RemainingSeconds * Math.Max(0, 1 + attacker("ignite_duration_+%") / 100.0)
+            * Math.Max(0, 1 - m.Mods.Effects["base_self_ignite_duration_-%"] / 100.0) / faster : 0;
+        return ignite.DamagePerSecond > 0 && seconds > 0
+            ? ignite with { DamagePerSecond = ignite.DamagePerSecond * faster, RemainingSeconds = seconds } : null;
     }
 
     /// <summary>Puts the ignite on a living monster (under the Monsters lock): the buff instance to send when it shows the

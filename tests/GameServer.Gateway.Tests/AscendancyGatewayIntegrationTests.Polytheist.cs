@@ -736,6 +736,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Null(Program.IgniteFromHit(0, true, Doubled, 1, Monster(), new Random(1)));
         var critical = Program.IgniteFromHit(100, true, Doubled, 1, Monster(), new Random(1))!.Value;
         Assert.Equal((270.0, 4.0), (critical.DamagePerSecond, critical.RemainingSeconds));
+        // Burning 100% faster: twice the damage per second for half the duration (wiki Ignite).
+        var faster = Program.IgniteFromHit(100, true, n => n == "faster_burn_%" ? 100 : Doubled(n), 1, Monster(), new Random(1))!.Value;
+        Assert.Equal((540.0, 2.0), (faster.DamagePerSecond, faster.RemainingSeconds));
         var chanced = Program.IgniteFromHit(100, false, n => n == "base_chance_to_ignite_%" ? 100 : Doubled(n), 1, Monster(resistant),
             new Random(1))!.Value;
         Assert.Equal(180.0, chanced.DamagePerSecond);

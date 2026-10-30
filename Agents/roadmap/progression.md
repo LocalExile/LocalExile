@@ -44,7 +44,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Aristocrat's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_ARISTOCRAT=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler.
   See [Aristocrat](../docs/game/aristocrat.md).
-- **Known:** every Polytheist node has a consumer or a documented engine gap. `Game_VERIFIED_POLYTHEIST=1` opts in.
+- **Known:** every Polytheist node has a consumer or a documented engine gap.
+  `Game_VERIFIED_POLYTHEIST=1` opts in.
   **Next:** native acceptance on a client with the reviewed combined graph (including Gruthkul's slowed swing
   animation, the point the client sends for a Nova with Lunaris, Solaris's blind on monsters, and Abberath's explosion
   art, radius and display buff).

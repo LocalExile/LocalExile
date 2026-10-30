@@ -396,8 +396,11 @@ ignite. A critical strike always ignites; otherwise `base_chance_to_ignite_%`, `
 over time multipliers `dot_multiplier_+`, `fire_dot_multiplier_+`, `ignite_dot_multiplier_+`, and on a critical strike
 50 + `critical_ailment_dot_multiplier_+`). Hit-only modifiers (spell, area, attack damage, critical multiplier, lucky or
 triple damage, penetration) never reach it. It lasts 4 s × (1 + `ignite_duration_+%`) × (1 −
-`base_self_ignite_duration_-%` of the monster). A monster keeps every ignite with its own duration, and only the
-strongest burns. The player tick (`BurnIgnites`, 250 ms) burns them through the monster's fire resistance and damage
+`base_self_ignite_duration_-%` of the monster).
+The "deal Damage faster" modifiers (`faster_burn_%`, `damaging_ailments_deal_damage_+%_faster`) multiply its damage per
+second by (1 + their sum) and divide its duration by it.
+A monster keeps every ignite with its own duration, and only the strongest burns.
+The player tick (`BurnIgnites`, 250 ms) burns them through the monster's fire resistance and damage
 taken (`MonsterDotTaken`, shared with Righteous Fire's burn), sends 0x1b1 and kills, and the monster carries the
 `ignited` buff (BuffDefinitions 0, no values) while one burns. Only Abberath's Fury's footstep hits call it yet
 ([Polytheist](../game/polytheist.md)): the default attack, gems, projectiles and bows build no flat packet for it, so
