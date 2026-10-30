@@ -406,6 +406,13 @@ and can require explicit recipes.
   (damage, resistances, energy shield), and party allies.
   Automated coverage only, not checked with the real client.
   See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
+  he has `link_skills_can_target_minions` (Deep Connections); with no party play there is nothing else to link.
+  A link lasts its duration, costs mana every second, breaks after 4 s out of range or when its cost is not paid, and
+  its target's death kills the player. `number_of_active_links` goes to the client; Absolution and Field Medicine use
+  the links. Not modelled: the beam, line of sight, the gems' effects on the target, and party allies.
+  Automated coverage only, not checked with the real client.
+  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md#link-skills).
 - Saved aura toggles (2026-10-25, awaiting client confirmation): active effects persist per character and restore on
   relog, area entry and server restart, subject to usable gems and available reservation.
   Helena's picker now receives all 103 exported personal hideouts, including MTX templates;

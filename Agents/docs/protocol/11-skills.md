@@ -1756,6 +1756,17 @@ hit-recently and on-kill charges do not count it, while experience and items do 
 The player's area skills and default attack skip friendly monsters. The instance save leaves minions out, so they never
 come back; an area change or a logout ends them with the connection. Monsters do not attack minions.
 
+**Link skills** (`LinkSkills`, `Program.LinkSkills.cs`). A link gem's cast (`CastLink` from `CastGemSkill`, on any cast
+route) links one target at the end of its cast time: the aimed object when it qualifies, else the nearest one. The
+target must pass the client's filter (0x141bf8490): within (100 + `link_skill_range_+%`) × 80 / 100 cells and, with
+`link_skills_can_target_minions`, one of the player's living minions; there are no party allies. The link sends the
+gem's source buff on the player and its target buff on the target (0x1c1), and `number_of_active_links` in 0x1b3, which
+the client's aura effect (0x142822db0) and `PassiveBonus` read for `non_curse_aura_effect_+%_while_linked`.
+`LinkSkillsTick` runs after `PlayerMinionsTick` in every minion step. It pays the links' `mana_cost_per_minute` (GEPL
+CostTypes 7) and breaks every link when that cannot be paid. It ends a link with its duration or after 4 s out of range,
+and kills the player through `PlayerDied` when a linked target died or ended. The beam effect is not sent. Rules,
+evidence and limits: [Paladin](../game/paladin.md#link-skills).
+
 - **Reservation is in the data.** `GrantedEffectsPerLevel` has `ManaReservationFlat` and
   `ManaReservationPercent` (permyriad: `5000` = 50%); `SkillCatalog.Reservation` reads them. Standard
   auras reserve 50%, Purity of Fire/Ice/Lightning and Discipline 35%, Heralds 25%; Clarity, Vitality and

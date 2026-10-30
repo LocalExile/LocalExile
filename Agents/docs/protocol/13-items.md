@@ -859,6 +859,11 @@ ailment, stun and curse ones (avoid, reduced effect or duration on you, immuniti
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not
 modelled).
 
+With `flasks_apply_to_your_linked_targets` (Paladin's Field Medicine), a non-unique utility flask also puts its buff
+(0x1c1, the player as source, the flask's duration) on each of the player's linked targets, and takes it off (0x1c2)
+when it ends or the target goes (`FlaskToLinkedTargets`, `LinkSkillsTick`). Its stats there have no consumer, and the
+Silver Flask's Onslaught is not sent to the target ([Paladin](../game/paladin.md#link-skills)).
+
 **What some flasks make on use** (`FlaskGrounds.cs`, `Program.FlaskGrounds.cs`), from their implicit mods, where the
 player stands (radii in cells):
 - Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Hostile monsters standing in it (not the

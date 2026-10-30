@@ -441,6 +441,132 @@ public sealed partial class AscendancyGatewayIntegrationTests
         ProgramValue<IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>>("GemSkillEffects", state)
             .Single(g => g.Effect == Program.Skills.EffectRow(effectId)).Id;
 
+    // A Soul Link gem (level 1) in a wand, a 50 ms cast and the gem's intelligence.
+    static async Task<ushort> PaladinSoulLink(GatewayCharacter character)
+    {
+        var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSoulLink")!);
+        character.Items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)
+            with { Sockets = [new(SocketColour.White, gem)] });
+        await character.Command("/set_stat cast_speed_+% 900");
+        await character.Command("/set_stat additional_intelligence 200");
+        return PaladinSkill(character.State, "SoulLink");
+    }
+
+    // A relic of the player's (a friendly minion) at (x, 32), the player standing at (32, 32).
+    static PlayerMinions.Minion PaladinRelic(ClientState state, uint id, int x)
+    {
+        SpawnedMonster m = new("PaladinRelic", new(x, 32, 30), 0, 2, 1000);
+        var relic = new PlayerMinions.Minion(id, m, "SummonElementalRelic", "Fire") { Until = state.Clock.Elapsed.TotalSeconds + 5 };
+        lock (state.Monsters) { state.Monsters[id] = m; state.Minions.Add(relic); }
+        return relic;
+    }
+
+    // Deep Connections lets a link gem take a relic and raises its level by 5 (a longer link, a higher cost); while
+    // linked, Absolution's 40% aura effect counts and number_of_active_links is 1. The cost is paid every step; out of
+    // range for 4 s, or unpaid, the link breaks without killing the player.
+    [Fact]
+    public async Task Paladin_links_take_relics_with_Deep_Connections_and_Absolution_counts_while_linked()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", level: 70, refundPoints: 100);
+        var state = game.State;
+        state.Clock.Stop();
+        double now = state.Clock.Elapsed.TotalSeconds;
+        ushort soul = await PaladinSoulLink(game);
+        var relic = PaladinRelic(state, 0x50, 60); // 28 cells away
+        Assert.False(await game.Link(soul, relic.Id)); // no link_skills_can_target_minions: allied players only
+        Assert.Equal(0, state.Links.Count);
+
+        Assert.Null((await game.Change([54067, 42396, 11127, 34448, 49271, 40171, 2134], true)).Error);
+        int unlinked = state.Pools.AuraEffectPct;
+        Assert.Equal(0, PaladinStat(state, "number_of_active_links"));
+        Assert.True(await game.Link(soul, 0)); // nothing aimed: the nearest qualifying target
+        var link = Assert.Single(state.Links.All);
+        Assert.Equal((relic.Id, 1, unlinked + 40), (link.Target, PaladinStat(state, "number_of_active_links"), state.Pools.AuraEffectPct));
+        uint seconds = BitConverter.SingleToUInt32Bits((float)(link.Until - now));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(Program.PlayerId, link.SourceBuff, 1946, Program.PlayerId, soul, u68: seconds)));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(relic.Id, link.TargetBuff, 1947, Program.PlayerId, soul, u68: seconds)));
+        // Level 1 + 5: level 6's duration and cost, longer and dearer than the gem's own level.
+        int row = Program.Skills.EffectRow("SoulLink");
+        int At(int level, string stat) => Program.Skills.EffectStats(row, level).Single(s => s.Item1 == Program.Stats.Key(stat)).Item2;
+        Assert.Equal(At(6, "base_skill_effect_duration") / 1000.0, link.Until - now, 6);
+        Assert.True(At(6, "base_skill_effect_duration") > At(1, "base_skill_effect_duration"));
+        Assert.Equal(At(6, "mana_cost_per_minute"), (int)link.ManaPerMinute);
+        Assert.True(At(6, "mana_cost_per_minute") > At(1, "mana_cost_per_minute"));
+
+        // One second costs a second's mana: whole points paid, the fraction carried.
+        uint mana = state.PlayerMana;
+        await game.LinksTick(now + 1);
+        Assert.Equal(link.ManaPerMinute / 60, mana - state.PlayerMana + state.Links.ManaCarry, 6);
+        // Out of range: the link holds for 4 s, then breaks; the player lives and the aura effect goes back.
+        relic.Monster.Walk = state.NewMonsterWalk(relic.Id, 200, 32, relic.Monster.Walk.Speed, 1, false);
+        await game.LinksTick(now + 1.1);
+        await game.LinksTick(now + 5);
+        Assert.Single(state.Links.All);
+        await game.LinksTick(now + 5.2);
+        Assert.Equal((0, unlinked, 0), (state.Links.Count, state.Pools.AuraEffectPct, PaladinStat(state, "number_of_active_links")));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(relic.Id, link.TargetBuff)));
+        Assert.True(state.PlayerLife > 0);
+        // Beyond the 80-cell range it cannot be linked; back in range it can, and a cost it cannot pay breaks the link.
+        Assert.False(await game.Link(soul, relic.Id));
+        relic.Monster.Walk = state.NewMonsterWalk(relic.Id, 60, 32, relic.Monster.Walk.Speed, 1, false);
+        Assert.True(await game.Link(soul, relic.Id));
+        state.PlayerMana = 0;
+        await game.LinksTick(now + 6);
+        Assert.Equal((0, unlinked), (state.Links.Count, state.Pools.AuraEffectPct));
+        Assert.True(state.PlayerLife > 0);
+    }
+
+    // A link cast on a relic (C→S 0x24) links it at the end of the cast. Field Medicine: a magic utility flask has 40%
+    // more effect on the player, as the plain stat gives, and its buff goes on the linked relic for its duration. The
+    // relic's duration running out while linked kills the player once, through the normal death path.
+    [Fact]
+    public async Task Paladin_linked_relic_ending_kills_the_player_and_Field_Medicine_flasks_reach_it()
+    {
+        if (!DataAvailable()) return;
+        using var game = new GatewayCharacter(choice: "Paladin", level: 70, refundPoints: 100);
+        using var plain = new GatewayCharacter(choice: "Paladin", level: 70);
+        var state = game.State;
+        // Field Medicine and Deep Connections, and Elemental Valiance so that relics stay for their duration.
+        Assert.Null((await game.Change([54067, 42396, 11127, 34448, 363, 13763, 29126, 40299], true)).Error);
+        var granite = Program.Items.UtilityFlaskOf(Program.Items.Find("Granite Flask")!)!;
+        var flask = ItemCatalog.Create(Program.Items.Find("Granite Flask")!) with { Rarity = ItemRarity.Magic, Charges = 60 };
+        IReadOnlyList<UtilityFlasks.Source> Effect(ClientState s) =>
+            UtilityFlasks.For(granite, flask, new Dictionary<string, int>(), name => PaladinStat(s, name)).Stats;
+        var unscaled = Effect(plain.State);
+        await plain.Command("/set_stat magic_utility_flask_effect_+% 40");
+        Assert.Equal(Effect(plain.State), Effect(state));
+        Assert.NotEqual(unscaled, Effect(state));
+
+        ushort soul = await PaladinSoulLink(game);
+        var relic = PaladinRelic(state, 0x50, 60);
+        await game.UseOnAndWait(relic.Id, soul, () => state.Links.Count == 1); // a paused game casts nothing
+        Assert.Equal(relic.Id, Assert.Single(state.Links.All).Target);
+        state.Clock.Stop(); // from here on game time moves only with the steps below
+        double now = state.Clock.Elapsed.TotalSeconds;
+
+        game.Items.Add(PlayerInventories.Flask, 0, 0, flask);
+        await game.Dispatch(new LoginWriter().U16(InstanceItems.UseFlaskId).U32(0).ToArray());
+        var buff = Assert.Single(state.Links.Flasks);
+        Assert.Equal(relic.Id, buff.Target);
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.AddBuff(relic.Id, buff.Buff, granite.BuffRow, Program.PlayerId,
+            u68: BitConverter.SingleToUInt32Bits((float)(buff.Until - now)))));
+        await game.LinksTick(buff.Until);
+        Assert.Empty(state.Links.Flasks);
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(relic.Id, buff.Buff)));
+
+        // The relic's duration runs out while linked: it ends (the minion step), and the link step kills the player once.
+        relic.Until = buff.Until;
+        int epoch = state.IncomingHitEpoch;
+        await game.MinionsTick(buff.Until + .1);
+        Assert.True(relic.Monster.Dead);
+        Assert.True(state.PlayerLife > 0);
+        await game.LinksTick(buff.Until + .1);
+        Assert.Equal((0u, 0, epoch + 1, epoch + 1), (state.PlayerLife, state.Links.Count, state.IncomingHitEpoch, state.DeathNotificationEpoch));
+        await game.LinksTick(buff.Until + .2);
+        Assert.Equal(epoch + 1, state.IncomingHitEpoch);
+    }
+
     [Fact]
     public void Paladin_stays_behind_the_closed_gate_and_its_refusal_names_its_checklist()
     {
@@ -480,6 +606,36 @@ public sealed partial class AscendancyGatewayIntegrationTests
         public Task MinionsTick(double now) => Exchange(async (stream, cipher) =>
         {
             await Program.PlayerMinionsTick("paladin-integration", stream, cipher, State, now);
+            return null;
+        });
+
+        // One step of the player's links at a chosen game time (Program.LinkSkillsTick).
+        public Task LinksTick(double now) => Exchange(async (stream, cipher) =>
+        {
+            await Program.LinkSkillsTick("paladin-integration", stream, cipher, State, now);
+            return null;
+        });
+
+        // A link skill's link once its cast is over (Program.StartLink): true when it linked.
+        public async Task<bool> Link(ushort skill, uint target)
+        {
+            bool linked = false;
+            await Exchange(async (stream, cipher) =>
+            {
+                linked = await Program.StartLink("paladin-integration", stream, cipher, State, skill, target);
+                return null;
+            });
+            return linked;
+        }
+
+        // C→S 0x24 on an object, the connection kept open until the cast's effect is there.
+        public Task UseOnAndWait(uint target, ushort skill, Func<bool> done) => Exchange(async (stream, cipher) =>
+        {
+            await (Task)GatewayMethod("OnUseObject").Invoke(null, ["paladin-integration", stream, cipher, State,
+                new InstanceTransfer.UseSkillOnObject(target, skill, 1, 0), State.Clock.Elapsed.TotalSeconds])!;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (!done()) await Task.Delay(10, timeout.Token);
+            await Task.Delay(100, timeout.Token); // the link's packets after it
             return null;
         });
 

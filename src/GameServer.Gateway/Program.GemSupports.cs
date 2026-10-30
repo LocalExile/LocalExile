@@ -64,13 +64,13 @@ partial class Program
             {
                 string stat = Stats.Name(key) ?? "";
                 if (stat is "base_spell_cast_time_ms" or "virtual_base_spell_cast_time_ms" or "hundred_times_casts_per_second"
-                    or "casting_spell" or "base_mana_cost" or "mana_cost") continue;
+                    or "casting_spell" or "base_mana_cost" or "mana_cost" or "base_mana_cost_per_minute" or "mana_cost_per_minute") continue;
                 own[key] = stat.EndsWith("_final", StringComparison.Ordinal) && own.TryGetValue(key, out int previous)
                     ? (int)Math.Round(100 * ((1 + previous / 100.0) * (1 + value / 100.0) - 1))
                     : own.GetValueOrDefault(key) + value;
             }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
-        foreach (string stat in new[] { "mana_cost", "base_mana_cost" })
+        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "mana_cost_per_minute", "base_mana_cost_per_minute" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
         // Global added damage on support gems applies to this skill, not to the character or other link groups.
         foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })

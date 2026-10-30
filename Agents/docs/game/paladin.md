@@ -2,8 +2,8 @@
 
 Paladin is the Duelist's Phrecia Champion identity (`Champion`, ascendancy row 11, 3.29.3b), start node 24984.
 The start is implicit and free and has no stats; its link to 50986 is the ordinary Duelist start, not a class node.
-The class is not complete yet. The small nodes, Anointed Champion, the Paladin Aura options, Light of Divinity, Bring
-the Battle and Elemental Valiance work; the other notables need link skills, which the engine does not have yet.
+Every node has a gameplay consumer. The parts the engine cannot have yet (party allies, curses, a death experience
+penalty) are named in the node's row. Nothing here has been checked with the real client yet.
 
 ## Node checklist
 
@@ -16,9 +16,9 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
 | 13763 Light of Divinity | Nearby (6 m) enemies take 25% increased Elemental Damage (BuffTemplate 672) | Done; see below. Augury of Penitence (2551) on the hostile monsters within 60 cells; their hits and burns read its `elemental_damage_taken_+%` (`MonsterTakesMitigated`, `MonsterBurn`). |
 | 40299 Elemental Valiance | 25% chance to trigger level 20 Summon Elemental Relic on your or a nearby ally's kill, or on hitting a Rare or Unique enemy | Done; see below. The player's kills and hits roll the trigger (`TriggerElementalRelicLocked`); the relic is an owned minion (`PlayerMinions`, `PlayerMinionsTick`) whose aura goes into the player's stats and whose death explosion hits monsters. Party allies' kills have no consumer: there is no party play. |
 | 46492 Bring the Battle | Warcries have infinite Power; enemies taunted by you take 20% increased damage and deal 20% less damage to other targets | Done; see below. Enduring Cry's power is 999999 (`UseWarcry`); the player's taunted monsters take 20% more of every type. The 20% less damage against other targets has no possible consumer: monsters only hit the player, who is the taunter. |
-| 42396 Field Medicine | Magic utility flasks applied to you have 40% increased effect; non-unique utility flasks you use apply to linked targets | Partly: the 40% is read for magic flasks (`UtilityFlasks`); there are no link skills to carry flasks to a target. |
-| 40171 Absolution | 40% increased effect of Non-Curse Auras while you have a linked target; curses go to you instead of linked targets | Not implemented yet: no link skills; no curse source exists for the redirect. |
-| 34448 Deep Connections | +5 to level of Link Skill Gems; no experience lost when a linked target's death kills you; link skills can target damageable minions | Partly: the +5 reaches the link gems' effective level (`SkillGemLevel`), but link skills have no executor; the engine has no death experience penalty. |
+| 42396 Field Medicine | Magic utility flasks applied to you have 40% increased effect; non-unique utility flasks you use apply to linked targets | Partly; see Link skills. The 40% is read for magic flasks (`UtilityFlasks.For`). A non-unique utility flask puts its buff on each linked target for its duration (`FlaskToLinkedTargets`); the buff's stats there have no consumer, because nothing reads a minion's buffs. |
+| 40171 Absolution | 40% increased effect of Non-Curse Auras while you have a linked target; curses go to you instead of linked targets | Done; see Link skills. The 40% counts in `Pools.AuraEffectPct` while `number_of_active_links` is nonzero (`PassiveBonus`). The curse redirect has no possible consumer: nothing in the engine casts curses. |
+| 34448 Deep Connections | +5 to level of Link Skill Gems; no experience lost when a linked target's death kills you; link skills can target damageable minions | Done; see Link skills. The +5 reaches the link gems' effective level (`SkillGemLevel`), so their duration and cost; `link_skills_can_target_minions` lets a link take the player's relics. The experience clause has no possible consumer: the engine has no death experience penalty. |
 | 44795 Paladin Aura | Choice shell: one paid point, one free option | Done: the allocation and refund rules (`AscendancyProgress`); no stats of its own. |
 | 58846 Determination | Grants level 30 Determination (GrantedEffectsPerLevel 17772) | Done; see below. Flat armour and its more armour (`AuraCatalog.Bonus`). |
 | 28569 Grace | Grants level 30 Grace (GrantedEffectsPerLevel 17460) | Done; see below. Flat evasion and its more evasion. |
@@ -172,6 +172,62 @@ Not modelled: the explosion's art, its aura's circle around the relic (only the 
 player's other minion modifiers (minion damage, resistances, energy shield), Combat Focus's element exclusions (the
 skill is RandomElement), and monsters attacking the relic (none do, so it ends only by its duration).
 
+## Link skills
+
+Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link (`LinkSkills`, `Program.LinkSkills.cs`).
+There is no party play, so a link can only take one of the player's minions, and only with Deep Connections.
+
+- **Cast.** Every cast route (0x24 on an object or on the player, 0x25 at the ground) ends in `CastGemSkill`. A link
+  gem links at the end of its cast time (500 ms, with cast speed) and costs nothing up front.
+- **Target.** The aimed object when it qualifies, else the nearest one that does, preferring one without a link. It
+  qualifies as in the client's filter (0x141bf8490): it is not the player, it is within (100 + `link_skill_range_+%`)
+  × 80 / 100 cells, and, with `link_skills_can_target_minions`, it is one of the player's living minions. With no
+  target the cast does nothing and the log says `no link target`.
+- **One link each.** A new link from the same skill, or onto a target that already has one of the player's links,
+  replaces the old one.
+- **Buffs.** The source buff goes on the player and the target buff on the target, both with the player as source,
+  the skill id and the duration. The BuffDefinitions rows are 1946/1947 Soul, 1948/1949 Flame, 1950/1951 Vampiric,
+  1952/1953 Protective, 1954/1955 Intuitive and 1956/1957 Destructive Link.
+  `number_of_active_links` (the source buffs' condition stat) is the number of links; it goes out in 0x1b3.
+- **Duration.** `base_skill_effect_duration` at the effective gem level, so Deep Connections' +5 counts: 8 s at level
+  1 and 0.1 s more per level. The skill duration modifiers and `link_skill_duration_+%` apply.
+- **Cost.** `mana_cost_per_minute` (GrantedEffectsPerLevel CostTypes 7, ManaPerMinute: 900 at level 1, 1200 at
+  level 6), with the supports' cost multipliers. It is fixed at the cast
+  (`skill_cost_over_time_is_not_removed_with_skill`) and paid from mana at every 100 ms minion step, with fractions
+  carried. When it cannot be paid, every link breaks.
+- **End.** A link ends with its duration, after 4 s with its target out of range (wiki Link skill), when its cost is
+  not paid and when the player dies. An area change or a logout ends it with the connection.
+- **The target's death.** A linked target that dies or ends kills the player through the normal death path
+  (`PlayerDied`), which is a real death in Hardcore. A relic's duration running out counts (wiki Link skill), and so
+  does refunding Elemental Valiance, which ends the relics.
+- **Absolution.** `non_curse_aura_effect_+%_while_linked` counts in `Pools.AuraEffectPct` only while
+  `number_of_active_links` is nonzero, as in the client's aura effect (0x142822db0). The pools and the auras' stats are
+  worked out again whenever a link starts or ends.
+- **Field Medicine.** With `flasks_apply_to_your_linked_targets`, a non-unique utility flask the player uses puts its
+  buff on every linked target for the flask's duration (`FlaskToLinkedTargets`; Path of Building's
+  nonUniqueFlasksApplyToMinion). The magic-flask 40% counts on the player only ("applied to you").
+
+Client evidence (decompile dump): the filter 0x141bf8490 also accepts a monster with `monster_is_valid_link_target`
+and refuses a minion with `cannot_be_damaged`; the relics have neither. The candidate list 0x141bf8080 is read only by
+0x141bf8020, which returns whether any target exists, so the server picks the target.
+The beam is MiscBeams 484 `SoulLinkBeam` and its siblings, through SkillArtVariations. Its client code (0x1414e6f50,
+`Link_Point`, `link_idle_01`) reads a byte stream, so the beam looks like a separate effect object. It is not
+reverse engineered and not sent.
+
+Not modelled:
+
+- The beam, line of sight (the engine has no line-of-sight test) and `link_to_X_additional_random_allies`.
+- Party allies and monsters with `monster_is_valid_link_target`.
+- Link-only cost modifiers.
+- The gems' effects on the target (damage sharing, added damage, leech, block, triggers, critical strikes): the only
+  targets are relics, which are never hit and deal only their explosion.
+- The stats of a flask's buff on the target and the Silver Flask's Onslaught there: nothing reads a minion's buffs.
+- Absolution's curse redirect: nothing in the engine casts curses.
+- Deep Connections' "no experience lost": the engine has no death experience penalty.
+
+Unverified: that the break range is the cast range, that one skill keeps one target, that the target buff's source
+is the player, that the client draws both buffs as sent, and whether the game checks mana for the cost at the cast.
+
 ## Admission
 
 The default Phrecia gate stays closed.
@@ -201,5 +257,18 @@ Wrath from it. Five seconds later the log shows `Relic … explodes`, and the mo
 For the Paladin Aura, reset and take `/add_passive 38874 44795 58846`: Determination appears on an empty skill-bar slot.
 Cast it: half the mana is reserved and the Defence tab's armour rises. Relog: it is still on. Refund 58846 (refund
 points) and take 39868: Determination ends, Discipline appears, and casting it adds 374 flat energy shield (356, 5% more from 38874).
+
+For the link skills, play softcore: a linked relic's end kills the player.
+Reset and take `/add_passive 363 13763 29126 40299 2134 40171 49271 34448` (Elemental Valiance, Absolution and Deep
+Connections), then socket a Soul Link gem and a Determination gem and cast Determination.
+Cast Soul Link with no relic near: nothing happens and the log says `no link target`.
+Fight until a relic appears, then cast Soul Link at it. The log shows `SoulLink links 0x… for 8.5 s at level 6, 20 mana
+per second`, the player and the relic show the Soul Link buffs, mana drains, and the armour on the Defence tab rises
+(aura effect 20% to 60%). Walk more than 80 cells away: the link breaks 4 s later and the armour drops back.
+Link again and let the relic run out: the player dies.
+For Field Medicine, reset and take `/add_passive 363 13763 29126 40299 54067 42396 11127 34448` and put a magic Granite
+Flask on the flask bar. Using it gives 2100 armour instead of 1500; with a relic linked, the relic shows the Granite
+Flask buff for the flask's duration.
+The three builds at the top have no Elemental Valiance, so their links have nothing to target.
 
 Coverage: `AscendancyGatewayIntegrationTests.Paladin`.

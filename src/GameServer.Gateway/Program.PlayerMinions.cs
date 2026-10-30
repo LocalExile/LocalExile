@@ -20,8 +20,8 @@ partial class Program
     /// is Path of Building's radius for Minion Instability, the other minion death explosion.</summary>
     internal const int RelicExplosionRadius = 22;
 
-    // Every 100 ms of game time from area entry (a pause holds it): PlayerMinionsTick. A failed step is logged and the next
-    // one runs; a closed connection ends the loop.
+    // Every 100 ms of game time from area entry (a pause holds it): PlayerMinionsTick, then LinkSkillsTick (a link to a
+    // minion that just ended sees it gone). A failed step is logged and the next one runs; a closed connection ends the loop.
     static async Task RunPlayerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         while (!conn.Closed)
@@ -31,7 +31,9 @@ partial class Program
             if (conn.Paused) continue;
             try
             {
-                await PlayerMinionsTick(remote, stream, ciphers, conn, conn.Clock.Elapsed.TotalSeconds);
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                await PlayerMinionsTick(remote, stream, ciphers, conn, now);
+                await LinkSkillsTick(remote, stream, ciphers, conn, now);
             }
             catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
             {
