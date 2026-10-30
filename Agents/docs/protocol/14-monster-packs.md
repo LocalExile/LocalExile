@@ -36,7 +36,13 @@ around them; members stand within 9 cells. The roll is seeded by (area hash, see
 
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2b9 with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
-attack). Its mods (§5) set its life, hit, speed and defences. Monsters are created after the player (0x7d →
+attack). Its mods (§5) set its life, hit, speed and defences.
+A magic or rare monster then gets its glow, a 0x1c1 buff with no optional fields (`MonsterRarityBuffs`):
+BuffDefinitions 66 `monster_magic_effect_buff` (BuffVisuals 58, `StatusAilments/monsters/champions/blue/blue.epk`)
+or 67 `monster_rare_effect_buff` (BuffVisuals 59, `champions/gold/gold.epk` and `gold_large.epk`). Both are
+invisible and cancel on death. No Mods.dat row grants them, and the rarity in ObjectMagicProperties alone drew no
+glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (parser 0x1421dda20) set a
+per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d →
 `SendPlayer` → skill bar → `PopulateArea`); towns and areas without a walk map get none.
 
 **An instance keeps its monsters** (#12), as in the real game. When a connection closes, the instance

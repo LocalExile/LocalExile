@@ -96,12 +96,32 @@ static class ItemMoves
 
     public sealed record BenchResult(InventoryItem Changed, IReadOnlyList<Price> Payments);
 
+    /// <summary>Where a bench Ctrl + click (C→S 0xe9) moved an item: out of <see cref="From"/>, now <see cref="Placed"/> in
+    /// <see cref="To"/>, keeping its id.</summary>
+    public sealed record BenchMove(byte From, byte To, InventoryItem Placed);
+
+    /// <summary>
+    /// Ctrl + click with the crafting bench open: an item of the main inventory onto the empty bench slot, or the bench's
+    /// item into the main inventory's first free cell. Null (nothing changes) when the item is not there, the slot is taken
+    /// or the inventory has no room.
+    /// </summary>
+    public static BenchMove? MoveToBench(PlayerInventories items, uint itemId, bool intoBench,
+        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+    {
+        byte from = intoBench ? Main : PlayerInventories.CraftingBench, to = intoBench ? PlayerInventories.CraftingBench : Main;
+        if (items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item || shapeOf(item.Item) is not { } shape) return null;
+        var cell = intoBench ? (items.Items(to).Count == 0 ? ((byte)0, (byte)0) : null)
+            : items.FreeCell(to, shape.Width, shape.Height, shapeOf);
+        if (cell is null || items.Remove(from, itemId) is not { } taken) return null;
+        return new(from, to, items.Put(to, taken with { X = cell.Value.X, Y = cell.Value.Y }));
+    });
+
     /// <summary>All currencies and the crafted item commit together, including multi-currency flask crafts.</summary>
     public static BenchResult? CraftAtBench(PlayerInventories items, AccountStash stash, BenchCrafting bench,
-        int recipe, bool replace, Random random) => Saves.Atomically<BenchResult?>(() =>
+        int recipe, Random random) => Saves.Atomically<BenchResult?>(() =>
     {
         var targets = items.Items(PlayerInventories.CraftingBench);
-        if (targets.Count != 1 || bench.Apply(recipe, targets[0].Item, replace, random) is not { } craft) return null;
+        if (targets.Count != 1 || bench.Apply(recipe, targets[0].Item, random) is not { } craft) return null;
         foreach (var (currency, amount) in craft.Costs)
             if (amount < 0 || (long)items.Count(Main, currency) + stash.CountOf(currency) < amount) return null;
         var payments = new List<Price>();

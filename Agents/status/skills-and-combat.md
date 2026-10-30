@@ -301,9 +301,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary bow ground/object attacks now share contact-time release and damage at the actual flight collision
   (#203, automated and native collision/release/pause checks pass).
   Object uses no longer also deal a melee contact hit.
-  The client spawns the primary projectiles of its own gem skill use itself, every one of a volley, from where it
+  The client spawns the primary projectiles of its own spell gem use itself, every one of a volley, from where it
   stands; the server simulates them but sends no object for them (one fireball was two, 2026-10-29). Their
   continuation children still get server objects.
+  An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
+  Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named

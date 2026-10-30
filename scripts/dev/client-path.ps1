@@ -58,6 +58,12 @@ function Get-DotnetBuildArguments([string]$Project, [string]$BuildDirectory) {
     if ($BuildDirectory) { @('--artifacts-path', $BuildDirectory) }
 }
 
+function Get-DotnetWatchArguments([string]$Project, [string]$BuildDirectory) {
+    @('watch', 'run', '--project', $Project, '--non-interactive')
+    if ($BuildDirectory) { @('--artifacts-path', $BuildDirectory) }
+    '--'
+}
+
 # These development projects use their project name as AssemblyName and target net10.0.
 function Get-ProjectAssembly([string]$RepositoryRoot, [string]$Project, [string]$BuildDirectory) {
     $projectPath = Resolve-RepositoryPath $RepositoryRoot $Project

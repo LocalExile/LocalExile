@@ -162,7 +162,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x00e6 | `0x1435c0098` / `0x141f987c0` | ≥ 6 |  | `0x142167ad0` |  |
 | 0x00e7 | `0x1435bfe98` / `0x141f98ab0` | ≥ 5 |  | `0x1407aff00` |  |
 | 0x00e8 | `0x1435bf928` / `0x141f98c30` | 11 |  | `0x142167da0` |  |
-| 0x00e9 | `0x1435c0158` / `0x141f98e80` | 7 |  | `0x142167ed0` |  |
+| 0x00e9 | `0x1435c0158` / `0x141f98e80` | 7 | Ctrl + click with the crafting bench open: u32 item id, flags (0x80 into the bench, 0x40 from ExpandedMainInventory1) | `0x142167ed0` | handled |
 | 0x00ea | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x140763510`, `0x142167f20` |  |
 | 0x00ef | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142167f70` |  |
 | 0x00f0 | `0x1435bf610` / `0x141f92b00` | 8 |  | `0x142167fc0` |  |

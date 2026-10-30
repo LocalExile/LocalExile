@@ -28,7 +28,7 @@ try {
     function Get-NetTCPConnection {}
     function Stop-Process {
         param($Id, [switch]$Force)
-        Assert ($Id -eq 99) 'stop helper targeted another installation'
+        Assert ($Id -in 97, 99, 101) 'stop helper targeted another installation'
         $global:liveBuildTestStops++
     }
     function Start-Sleep {}
@@ -58,6 +58,11 @@ try {
         if ($ArgumentList -match 'GameServer.Patch.dll') {
             Set-Content -LiteralPath (Join-Path $runtime 'logs\live-patch.log') -Value 'patching protocol on'
         }
+        if ($ArgumentList -match ' watch run ') {
+            Assert ($env:Game_HOT_RELOAD_LOG -eq (Join-Path $runtime 'logs\live-gateway.err')) 'hot reload reads the wrong log'
+            Assert ($env:Game_SOURCE_ROOT -eq $repo) 'a watched Gateway cannot find the source tree'
+            Set-Content -LiteralPath (Join-Path $runtime 'logs\live-gateway.log') -Value '[gateway] listening on 127.0.0.1:6112'
+        }
     }
     foreach ($externalRuntime in $false, $true) {
     $runtime = if ($externalRuntime) { Join-Path $fixture 'runtime with spaces' } else { $repo }
@@ -78,7 +83,7 @@ try {
         $config | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repo 'config\client.local.json') -Encoding utf8
         foreach ($noBuild in $false, $true) {
             $global:liveBuildTestBuilds.Clear(); $global:liveBuildTestLaunches.Clear()
-            & (Join-Path $repo 'scripts\dev\live.ps1') -NoClient -NoExtract -NoBuild:$noBuild
+            & (Join-Path $repo 'scripts\dev\live.ps1') -NoClient -NoExtract -NoBuild:$noBuild -NoHotReload
             Assert ($global:liveBuildTestBuilds.Count -eq $(if ($noBuild) { 0 } else { 3 })) 'wrong full build count'
             Assert ($global:liveBuildTestLaunches.Count -eq 3) 'wrong full server count'
             foreach ($s in 'Auth', 'Patch', 'Gateway') {
@@ -92,9 +97,21 @@ try {
         }
         foreach ($noBuild in $false, $true) {
             $global:liveBuildTestBuilds.Clear(); $global:liveBuildTestLaunches.Clear()
-            & (Join-Path $repo 'scripts\dev\live.ps1') -Only Gateway -NoExtract -NoBuild:$noBuild
+            & (Join-Path $repo 'scripts\dev\live.ps1') -Only Gateway -NoExtract -NoBuild:$noBuild -NoHotReload
             Assert ($global:liveBuildTestBuilds.Count -eq $(if ($noBuild) { 0 } else { 1 })) 'Only Gateway built other servers'
             Assert ($global:liveBuildTestLaunches.Count -eq 1 -and $global:liveBuildTestLaunches[0] -match 'GameServer.Gateway.dll') 'Only Gateway restarted other servers'
+        }
+        # Hot reload is the default: the watched Gateway builds itself into the selected layout.
+        foreach ($noBuild in $false, $true) {
+            $global:liveBuildTestBuilds.Clear(); $global:liveBuildTestLaunches.Clear()
+            & (Join-Path $repo 'scripts\dev\live.ps1') -NoClient -NoExtract -NoBuild:$noBuild
+            Assert ($global:liveBuildTestBuilds.Count -eq $(if ($noBuild) { 0 } else { 2 })) 'the launcher built the watched Gateway'
+            Assert ($global:liveBuildTestLaunches.Count -eq 3) 'wrong watched server count'
+            $watched = @($global:liveBuildTestLaunches | Where-Object { $_ -match ' watch run ' })
+            Assert ($watched.Count -eq 1 -and $watched[0].Contains('--project "' + (Join-Path $repo 'src\GameServer.Gateway') + '"')) 'wrong watched project or broken space quoting'
+            Assert ($watched[0] -notmatch 'GameServer.Gateway.dll') 'the Gateway started twice'
+            Assert ($watched[0].Contains('--artifacts-path') -eq [bool]$buildDirectory) 'wrong watched build layout'
+            if ($buildDirectory) { Assert ($watched[0].Contains('"' + $buildDirectory + '"')) 'wrong watched artifact directory' }
         }
     }
     }
@@ -106,11 +123,14 @@ try {
     Set-Content -LiteralPath $sentinel -Value 'preserve existing logs'
     $global:liveBuildTestLaunches.Clear()
     $failure = $null
-    try { & (Join-Path $repo 'scripts\dev\live.ps1') -Only Gateway -NoExtract -NoBuild }
+    try { & (Join-Path $repo 'scripts\dev\live.ps1') -Only Gateway -NoExtract -NoBuild -NoHotReload }
     catch { $failure = $_.Exception.Message }
     Assert ($failure -like "*$missing missing*") 'missing external DLL did not produce a clear error'
     Assert ($global:liveBuildTestLaunches.Count -eq 0 -and $global:liveBuildTestStops -eq 0) 'missing DLL changed running processes'
     Assert ((Get-Content -LiteralPath $sentinel) -eq 'preserve existing logs') 'missing DLL cleared existing logs'
+    # A watched Gateway builds itself, so its missing DLL is not a missing setup step.
+    & (Join-Path $repo 'scripts\dev\live.ps1') -Only Gateway -NoExtract -NoBuild
+    Assert ($global:liveBuildTestLaunches.Count -eq 1 -and $global:liveBuildTestLaunches[0] -match ' watch run ') 'NoBuild refused a watched Gateway'
     $global:liveBuildTestMaintenance=0
     & (Join-Path $repo 'scripts\dev\run.ps1') Patch -NoBuild gateway
     Assert ($global:liveBuildTestMaintenance -eq 1) 'maintenance wrapper did not execute'
@@ -118,10 +138,15 @@ try {
     $auth = Get-ProjectAssembly $repo 'src/GameServer.Auth' $buildDirectory
     $global:liveBuildTestCimTargets = @(
         [pscustomobject]@{ProcessId=99; CommandLine=('dotnet "' + $auth + '" serve')},
-        [pscustomobject]@{ProcessId=98; CommandLine='dotnet F:\AnotherInstallation\GameServer.Auth.dll serve'}
+        [pscustomobject]@{ProcessId=98; CommandLine='dotnet F:\AnotherInstallation\GameServer.Auth.dll serve'},
+        # A watched Gateway: without these `dotnet watch` keeps it listening after a stop.
+        [pscustomobject]@{ProcessId=97; CommandLine=('dotnet watch run --project "' + (Join-Path $repo 'src\GameServer.Gateway') + '" --non-interactive --')},
+        [pscustomobject]@{ProcessId=96; CommandLine='dotnet watch run --project F:\AnotherInstallation\src\GameServer.Gateway --non-interactive --'},
+        [pscustomobject]@{ProcessId=101; CommandLine=('"' + [IO.Path]::ChangeExtension((Get-ProjectAssembly $repo 'src/GameServer.Gateway' $buildDirectory), '.exe') + '"')},
+        [pscustomobject]@{ProcessId=95; CommandLine='"F:\AnotherInstallation\GameServer.Gateway.exe"'}
     )
     & (Join-Path $repo 'scripts\dev\stop.ps1')
-    Assert ($global:liveBuildTestStops -eq 1) 'stop helper did not select only this runtime'
+    Assert ($global:liveBuildTestStops -eq 3) 'stop helper did not select only this runtime'
     Write-Output 'Full launcher build/NoBuild/Only Gateway layouts and missing-DLL preflight passed.'
 } finally {
     Remove-Variable -Name liveBuildTestBuilds,liveBuildTestLaunches,liveBuildTestStops,liveBuildTestCimTargets,liveBuildTestMaintenance -Scope Global -ErrorAction SilentlyContinue

@@ -23,6 +23,9 @@ The setup and the log files themselves are in [GettingStarted](../../GettingStar
 - **Earlier runs.** `live.ps1` moves the previous run's logs to `logs\archive\<yyyyMMdd-HHmmss>\` instead of deleting
   them, so a crash noticed only after a restart still has its log. A `-Only` restart's folder ends in the servers it
   restarted (`…-gateway`); the newest 10 full runs and the newest 20 restarts are kept.
+- **Hot reload.** Under `dotnet watch` (the default) `live-gateway.log` records each save and applied reload
+  (`[gateway] hot reload …`), and `live-gateway.err` also holds `dotnet watch`'s own lines, its compile errors among
+  them. A line from before a reload ran the old code. Tips: [live testing](live-testing.md) ("hot reload").
 
 ## Packet history
 

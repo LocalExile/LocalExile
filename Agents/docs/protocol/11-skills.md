@@ -1460,14 +1460,17 @@ The older native evidence below records packet discoveries and the replaced impl
 send-gate damage commits, return overshoot/debug flags and fixed-gap controls are not current runtime behavior.
 Revalidate native gameplay against the current runtime; packet-layout evidence remains applicable.
 
-**The client predicts its own gem projectiles (Frida 2026-10-29).** One Fireball cast built two Projectile
+**The client predicts its own spell gem projectiles (Frida 2026-10-29, 2026-10-31).** One Fireball cast built two Projectile
 components: one from the 0x2b9 handler (`0x142187c8a` → `0x141ebe190`), one from the player's action
 (`0x141e938c0` → `0x1419eec90` → `0x141ebdf30`, a client-side object whose id the world assigns) with the same type,
 `Metadata/Projectiles/StygianFireball`, 160 ms before the server's. With `number_of_additional_projectiles` 2 the
 client built three before the server's three, so it predicts every primary projectile of the volley, from its own
-position. The server therefore sends no object for a gem use's primary projectiles (`ProjectileOffense.ClientPredicted`,
+position. The server therefore sends no object for a spell gem use's primary projectiles (`ProjectileOffense.ClientPredicted`,
 `ProjectileSession.Publish`) and still simulates them; continuation children and area effects still go out. The
-client made no explosion object of its own. Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
+client made no explosion object of its own.
+An attack gem is not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
+by `0x141e8cf10`) and created no projectile at all until the server's `0x2b9`, as the default attack's arrow; with
+no server object nothing was drawn. `ClientPredicted` is therefore set for spells only (`CaptureGemProjectile`). Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
 and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw no client-created projectile at all
 (only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). The
 default attack is not predicted the way a gem's volley is. Trace: `scripts/re/frida/trace-projectile-create.js`

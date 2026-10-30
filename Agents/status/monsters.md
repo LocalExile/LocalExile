@@ -54,6 +54,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Magic and rare monsters roll their mods from Mods.dat (monster domain, spawn weights by the monster's tags, level,
   one per family): magic one affix shared by the monsters of one name in an instance, rare two to four (poewiki
   "Rarity"), with a rare name from the Words.dat monster lists.
+  Magic monsters glow blue and rare ones gold: the server puts the hidden champion buff on them
+  (`MonsterRarityBuffs`, BuffDefinitions 66 / 67; [14](../docs/protocol/14-monster-packs.md) §2).
   The client shows them on hover (verified live 2026-10-25: "Gorewalker" / "Extra Life", "Quick Hungry Corpse" /
   "Hasted").
   Their life, hit, attack time, walk (sent as movement_velocity_+%, the client walks at the same speed), resistances,

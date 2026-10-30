@@ -188,6 +188,8 @@ Servers and extractors use the repository as their working directory unless `run
 The native client keeps its own working directory and Documents profile.
 `-Only Gateway` rebuilds and restarts only Gateway; `-NoBuild` uses existing DLLs in the selected layout.
 A missing DLL with `-NoBuild` stops startup before the launcher stops servers or clears their logs.
+Hot reload ([step 10](#10-play)) uses the same layout: `dotnet watch` builds the Gateway there, even
+with `-NoBuild`, and runs it in the runtime folder.
 `-ClientOnly` requires an already-built Patch DLL in the same layout and running local servers.
 
 Manual `dotnet` commands do not read the JSON file.
@@ -518,8 +520,22 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 `live.ps1` options:
 - `-NoClient` restarts the servers but keeps the running client.
 - `-Only Gateway` (or `Auth`, `Patch`, comma-separated) rebuilds and restarts only those servers; the client and the
-  other servers keep running. After a Gateway change this is all you need: the client drops to the login screen, log in
-  and Play again.
+  other servers keep running. After a Gateway change hot reload cannot apply this is all you need: the client drops to
+  the login screen, log in and Play again.
+- Hot reload is on by default: the Gateway runs under `dotnet watch`, and a saved edit to its code (or to Core, Data
+  and Storage) applies to the running Gateway with the client still in game (`[gateway] hot reload #n applied` in the
+  log).
+  Players in game read "Starting Hot-Reload" in chat when a file under `src\` is saved, and "Hot-reload is applied in
+  x.yz seconds." when it is (about 15 s for a Gateway file). A save that does not compile changes nothing; they read
+  "Hot-reload failed" with the compile errors instead.
+  A method's new body runs from its next call; per-connection setup (the chat command table) runs again at the next
+  area change; a loop already running keeps the old body until it returns; and static fields (the catalogs) keep the
+  values they were built with.
+  An edit hot reload cannot apply (a changed signature, a removed member) rebuilds and restarts the Gateway on its own,
+  which drops the client to the login screen as `-Only Gateway` does.
+  Auth and Patch are not watched.
+- `-NoHotReload` starts the built Gateway without `dotnet watch`; `-Only Gateway -NoHotReload` switches a running
+  setup over, and a later `-Only Gateway` switches back.
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
 

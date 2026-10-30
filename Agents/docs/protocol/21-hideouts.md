@@ -298,16 +298,31 @@ is used. The recipe rows' 130 distinct RecipeIds are league quest flags: unlock 
 publishes those flags with the player, making all active recipes available on this local server.
 
 The craft button (0x140c40720) sends **C→S 0x15d**, exactly four bytes. Serializer
-0x141f9b2e0 writes u16 message id and u16 recipe row, both big-endian; bit 15 of the row
-confirms replacing an existing crafted modifier. The target is the one item in Inventories row
+0x141f9b2e0 writes u16 message id and u16 recipe row, both big-endian. Bit 15 of the row is set
+only by the window's second button (+0x308), which first shows the Tencent "Bound Currency
+Crafting" confirmation (TencentBoundCurrencyCraftingConfirmationTitle); the local server ignores it. The target is the one item in Inventories row
 16, StrMasterCrafting (inventory id 17). Requests are served after opening the bench in a hideout.
+
+Ctrl + click with the bench open sends **C→S 0xe9** (7 bytes; 0x14030e3e0 → 0x142167ed0, serializer
+0x141f98e80): u16 id, u32 item id, then a flag byte. 0x80 is set when the clicked item is in the
+player's inventory (move it onto the bench), clear when it is the bench's item (row 16, move it back);
+0x40 marks an item in ExpandedMainInventory1 (row 84). The server moves the item, keeping its id, onto
+the empty bench slot or into the main inventory's first free cell, and answers with two 0xbf changes;
+a taken slot or a full inventory leaves it where it is. The same handler shape (0x142167f20,
+0x142167f70, 0x142167fc0) covers other crafting panels (rows 0x1b, 0x1f, 0x10 with class checks).
 
 Supported operations: add/replace crafted prefixes and suffixes; the three-crafted-modifier
 metamod and additional-crafted-mod enchantments; remove crafted mods; add/remove flask
 enchantments; exact socket count and link count; non-white socket recipes; rarity reroll; and
 one/three-affix rare-item rerolls. Affix slots and conflicting mod families are checked. Magic
 items have one prefix/suffix slot, rare equipment three; normal items become magic when a
-mod is crafted. Replacement needs confirmation and one extra Orb of Scouring. Unidentified,
+mod is crafted. Replacement needs no separate request: the client relabels the Craft button
+"Replace" (CraftingModReplace) and sends the ordinary 0x15d (verified live: bit 15 clear). The
+server removes the one crafted mod the new one conflicts with (same mod or shared family), or the
+single crafted mod when the crafted-mod limit is reached, and charges only the recipe's cost. More
+than one crafted mod to remove is refused (CannotReplaceMultipleModifiers); with the multimod
+(limit 3) only the conflicting craft is replaced and a fourth non-conflicting craft is refused.
+Fractured crafted mods are never replaced. A refused craft logs its recipe and the bench item. Unidentified,
 unique, fractured and protected items are checked according to the requested operation.
 Socket crafts bypass item-level socket caps but respect base capacity; occupied sockets are
 never discarded. Corrupted socket crafts add the same number of Vaal Orbs as the base cost.
@@ -338,7 +353,7 @@ ordinary stash kind **0x11**, while accepting currency-count kind **0x12**. Thus
 real stash inventories for vendors did not initialize the bench's balance.
 
 `BenchBalance` builds a client-only view of current personal stash totals for every recipe
-currency, including replacement Scouring and corrupted-socket Vaal costs. It is sent before
+currency, including corrupted-socket Vaal costs. It is sent before
 opening the bench using 0xc0, inventory id 0xfffffe00, kind 0x12, row 26. Row 26 deliberately
 does not overwrite the native manager's fixed inventory-slot lookup (0x141d625f0). The
 ordinary 0x1421f4cc0 reader/0x1421edc10 constructor supports this kind; no client files change.

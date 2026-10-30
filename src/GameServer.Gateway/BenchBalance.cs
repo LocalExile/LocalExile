@@ -6,8 +6,7 @@ static class BenchBalance
     public static IReadOnlyList<InventoryItem> Snapshot(AccountStash stash, ItemCatalog catalog, BenchCrafting bench)
     {
         var hashes = bench.All.SelectMany(r => r.Costs).Select(c => c.Currency).ToHashSet();
-        foreach (string id in new[] { CurrencyEffects.OrbOfScouring, CurrencyEffects.VaalOrb })
-            if (catalog.Find(id) is { } type) hashes.Add(type.Hash);
+        if (catalog.Find(CurrencyEffects.VaalOrb) is { } vaal) hashes.Add(vaal.Hash);
         return DisplayStacks(catalog, hashes.Select(hash => (hash, stash.CountOf(hash))));
     }
 

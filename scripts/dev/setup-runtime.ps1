@@ -70,8 +70,8 @@ if ($runtime -ne $repo) {
         if ($Migrate) { throw 'This runtime is already initialized; migration will not overwrite it.' }
     } elseif ($Migrate) {
         $running = @(Get-CimInstance Win32_Process | Where-Object {
-            $_.Name -eq 'Game.patched.exe' -or ($_.Name -eq 'dotnet.exe' -and
-                $_.CommandLine -match 'GameServer\.(Auth|Patch|Gateway|Host)\.dll')
+            $_.Name -in 'Game.patched.exe', 'GameServer.Gateway.exe' -or ($_.Name -eq 'dotnet.exe' -and
+                $_.CommandLine -match 'GameServer\.(Auth|Patch|Gateway|Host)\.dll|\bwatch\b.*GameServer\.Gateway')
         })
         if ($running.Count) { throw 'Close the client and stop local GameServer processes before migrating runtime files.' }
         $backup = Join-Path (Split-Path $repo -Parent) ('runtime-migration-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))

@@ -111,9 +111,11 @@ partial class Program
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
             ReturnMultiplier = ProjectileReturn.DamageMore(Get),
-            // The client's action spawns the gem's projectiles itself, every one of a volley, from where it stands (Frida
+            // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
             // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
-            ClientPredicted = true
+            // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's
+            // 0x2b9, as the default attack's arrow (Frida 2026-10-31).
+            ClientPredicted = spell
         };
         var use = new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), new(PlayerId, conn.ProjectileEpoch), 1, origin, target)
             { Payload = shot, ReturnAnchor = new(PlayerId, conn.ProjectileEpoch) };

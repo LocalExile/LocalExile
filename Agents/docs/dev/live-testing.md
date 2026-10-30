@@ -54,9 +54,38 @@ three (logs in `Tools/re/out/live-*.log`), waits for the patch server and launch
 2. log in as `devtester` and select DevWitch
 3. Play
 
-To restart only the Gateway (for example after changing it): stop the process on 6112, `dotnet build
-src/GameServer.Gateway`, start `src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll`. The client drops to
-the login screen and you log in again; the login server keeps running.
+To restart only the Gateway: `.\scripts\dev\live.ps1 -Only Gateway`. The client drops to the login screen and you
+log in again; the login server keeps running.
+
+## Changing the Gateway while it runs (hot reload)
+
+`live.ps1` runs the Gateway under `dotnet watch` unless `-NoHotReload` is given
+([GettingStarted](../../GettingStarted.md) step 10).
+These are suggestions that have worked well, for people and agents alike; use your judgment.
+
+- **Try saving before restarting.** Most behaviour edits (packet handlers, damage, drops, AI, chat commands) apply to
+  the running Gateway in about 15 s, and the player stays in game. A restart costs the player a login and the walk
+  back to what they were testing.
+- **Check that it applied.** `logs\live-gateway.log` gets `[gateway] hot reload: <file> saved` and then
+  `[gateway] hot reload #n applied in x.yz seconds`; players see the same two lines in chat.
+  `dotnet watch`'s own lines (`File updated`, `changes applied`, compile errors) are in `logs\live-gateway.err`.
+- **A compile error leaves the old code running.** `dotnet watch` reports it in `live-gateway.err` and waits for the
+  next save; nothing restarts. Players read "Hot-reload failed: n compile error(s)" in chat with the first three
+  errors (file, line, code). Fixing it and saving again is usually all that is needed; when the fix brings the code
+  back to what is running, `dotnet watch` applies nothing and players read "no code changes to apply".
+- **Group a multi-file change.** Each save that compiles starts a reload, so a half-done change across several files
+  can apply in between. Writing the files in quick succession (or in one tool call) keeps it to one reload.
+- **Know what needs more than a save.** Static fields and catalogs (`Items`, `Skills`, `Lazy<>` caches) keep the values
+  they were built with; new static fields start empty, not with their initializer. Per-connection setup (the chat
+  command table, character preparation) runs again on the next area change, which is a new connection. A loop that is
+  already running keeps its old body until it returns. For these, an area change or `live.ps1 -Only Gateway` helps.
+- **Some edits restart on their own.** A changed method signature or a removed member cannot be applied;
+  `dotnet watch` prints `Restart is needed to apply the changes`, rebuilds and restarts the Gateway, and the player
+  is back at the login screen (the Gateway tries to say so in chat first). It can be kind to tell the person playing
+  before saving such an edit.
+- **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
+  `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
+- **Auth and Patch are not watched.** Changes there still need `live.ps1 -Only Auth` or `-Only Patch`.
 
 ## What a good run looks like
 

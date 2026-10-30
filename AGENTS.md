@@ -11,6 +11,10 @@ All agent and contributor documentation is in [Agents/](Agents/). Read these fir
    per area in `Agents/roadmap/`).
 4. [Agents/docs/README.md](Agents/docs/README.md): the protocol reference and reverse-engineering notes.
 
+Tip: `live.ps1` runs the Gateway with hot reload, so a saved Gateway edit usually applies while the player stays in
+game; it may be worth trying before a restart.
+Suggestions for working with it are in [live testing](Agents/docs/dev/live-testing.md) ("hot reload").
+
 ## Rules
 
 - **Start the client only through `scripts/dev/live.ps1`, and only one at a time.** Any other launch contacts the

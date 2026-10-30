@@ -83,7 +83,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   are served.
   Payment combines main inventory and personal stash, including multiple tabs/currencies, and commits with the item
   atomically.
-  Tests cover each recipe/class and failed-payment/save cases.
+  Replacing an existing crafted mod (the Craft button relabelled "Replace", an ordinary request) costs only the
+  recipe; with the multimod only the conflicting craft is replaced.
+  Ctrl + click (C→S 0xe9) moves an inventory item onto the empty bench slot and the bench's item back.
+  Tests cover each recipe/class, replacement with and without the multimod, and failed-payment/save cases.
   See [21](../docs/protocol/21-hideouts.md), Ordinary bench recipes and payment.
 - Bench affordability correction: native bench counters exclude ordinary stash inventories.
   A separate, nonspendable currency-count view now publishes current personal stash totals on opening and refreshes

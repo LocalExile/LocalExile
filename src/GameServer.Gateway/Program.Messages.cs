@@ -547,6 +547,8 @@ partial class Program
                 await MoveHideoutObject(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadMove(bytes));
             else if (id == InstanceHideouts.SelectId)
                 await SelectHideout(remote, stream, ciphers, conn, InstanceHideouts.ReadSelect(bytes));
+            else if (id == InstanceBench.MoveId)
+                await MoveToBench(remote, stream, ciphers, conn, InstanceBench.ReadMove(bytes));
             else if (id == InstanceBench.CraftId)
                 await CraftBench(remote, stream, ciphers, conn, InstanceBench.ReadCraft(bytes));
             else if (id == InstanceHarvest.CraftId)
