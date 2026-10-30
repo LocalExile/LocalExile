@@ -152,8 +152,9 @@ static class AreaTransitionCatalog
                     notes.Add($"{what} → {to.Id} (entrance{e.Number}, {e.Why})");
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
+                    // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
                     placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
-                        Type: Resolve(o.Type, what, notes)) { TeleportTo = target });
+                        Type: Resolve(o.Type, what, notes)) { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label) });
                     notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
                     break;
                 case ExitKind.Teleport:
@@ -166,6 +167,29 @@ static class AreaTransitionCatalog
         }
         return placed;
     }
+
+    /// <summary>The ClientStrings HASH32 of a gate's label key (data/tables/ClientStrings.json), null for "%areaname%",
+    /// an unknown key or without the table.</summary>
+    static uint? LabelHash(string? key) => key is null or "%areaname%" ? null : ClientStrings.Value?.GetValueOrDefault(key);
+
+    static readonly Lazy<Dictionary<string, uint>?> ClientStrings = new(() =>
+    {
+        const string file = "data/tables/ClientStrings.json";
+        if (!File.Exists(file)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            var map = new Dictionary<string, uint>(StringComparer.Ordinal);
+            foreach (var r in doc.RootElement.EnumerateArray())
+                if (r.GetProperty("Id").GetString() is { } id && r.TryGetProperty("HASH32", out var h) && h.TryGetUInt32(out uint hash))
+                    map.TryAdd(id, hash);
+            return map;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    });
 
     /// <summary>Where a player arriving from <paramref name="from"/> belongs in a generated layout: the named point of the
     /// "entranceN" (enabled or not) whose connection is that area, e.g. The Submerged Passage's Depths return

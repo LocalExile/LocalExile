@@ -480,6 +480,15 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// has the same condition. Elsewhere the byte was left over at the blob's end.</summary>
     public bool InTown { get; init; }
 
+    /// <summary>The transition type, the low nibble of the component's flags (+0xb2; names in table 0x1435a5460): 0
+    /// Normal, 1 Teleport (a gate within the area), 2 SideArea, 3 SideAreaReturn, 4 LastTownReturn, 5 Labyrinth, 6
+    /// Menagerie, 7 SynthesisVoid, 8 Respawn.</summary>
+    public byte Kind { get; init; }
+
+    /// <summary>A ClientStrings HASH32 to show as the label instead of the destination area's name (destination variant 1,
+    /// resolved by 0x1424f7de0): a gate's "teleportN-&lt;key&gt;", e.g. BrutusAreaName "The Warden's Quarters".</summary>
+    public uint? Label { get; init; }
+
     /// <summary>Components that read data, in the order the client deserializes them for this type (traced live
     /// 2026-10-16: Positioned, BaseEvents (no data), Animated, AreaTransition (live vtable 0x14346de00), Stats,
     /// ObjectMagicProperties, MinimapIcon, InteractionAction, then two components the loop does not reach).</summary>
@@ -513,11 +522,13 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
                 // end with .ao"): the area transition's model, the white surface highlighted on hover. For a tile object it is the
                 // client's virtual "<.tdt folder>/<.tmd record name>.ao" around the record's fixed mesh.
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
-                // state 0, variant 2 = HASH16, then in a town (InTown) the compact int +0xa4, which nothing but the
-                // component's debug dump reads (Agents/docs/protocol/08-area-transitions.md §2).
+                // the type (0 normal, 1 teleport), the destination (variant 2 = HASH16, or variant 1 = a ClientStrings
+                // HASH32 label), then for type 0 in a town (InTown) the compact int +0xa4, which nothing but the
+                // component's debug dump reads (Agents/docs/protocol/08-area-transitions.md §2, §8).
                 case "AreaTransition":
-                    w.U8(0).U8(2).U16(DestinationHash16);
-                    if (InTown) w.CompactI(Index);
+                    w.U8((byte)(Kind & 0xf));
+                    if (Label is uint label) w.U8(1).U32(label); else w.U8(2).U16(DestinationHash16);
+                    if (InTown && Kind == 0) w.CompactI(Index);
                     break;
                 case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
                 // base magic properties first (0x142201d70: u16 flags, rarity = low 3 bits; u8 +0x7a; sections behind

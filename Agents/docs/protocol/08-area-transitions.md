@@ -383,8 +383,11 @@ gate and The Cavern of Anger's way on to Act 2 could not be reached.
    without one arrives at its room's gate.
 4. Each slot takes the room's nearest object (closest pairs first); the room's other objects are not created (The Lower
    Prison's entrance room: the wall hole by the "entrance" point, not the ceiling marker 190 cells away).
-5. A gate is an AreaTransition to the area itself with `TeleportTo` = the telepad's slot ([09](09-area-change.md):
-   the Gateway moves the player there, `AreaLayout.Near`). `teleportNdisabled` gates (an arena's way in or a shortcut
+5. A gate is an AreaTransition of type 1 (Teleport) with `TeleportTo` = the telepad's slot ([09](09-area-change.md):
+   the Gateway moves the player there, `AreaLayout.Near`). Its destination is the label: the description's
+   ClientStrings key as variant 1 (HASH32 from `data/tables/ClientStrings.json`, e.g. BrutusAreaName 0x169BA21A "The
+   Warden's Quarters", MerveilArenaName "Merveil's Lair"), else (`%areaname%`, no key, no table) the area itself as
+   variant 2; no compact int (type 1). `teleportNdisabled` gates (an arena's way in or a shortcut
    back, which the game unlocks; the Upper Prison's only door into Brutus's room is "teleport3disabled-BrutusArenaName")
    are created open: the encounters that unlock them are not modelled.
 6. Arrivals: next to the exit back; through a one-way entrance, at that `entranceNdisabled` point
