@@ -213,8 +213,9 @@ There is no party play, so a link can only take one of the player's minions, and
 - **The target's death.** A linked target that dies or ends kills the player through the normal death path
   (`PlayerDied`), which is a real death in Hardcore. A relic's duration running out counts (wiki Link skill).
   Refunding Elemental Valiance ends the relics and their links but does not kill the player (`PlayerMinionsTick` ends
-  the links first). Unverified: the wiki names only a minion expiring or being resummoned, so our rule keeps a
-  Hardcore character alive rather than kill it on a guess.
+  the links first). Refunding Deep Connections ends every link at the next link step (`LinkSkillsTick`: all targets
+  are minions) without a death. Unverified: the wiki names only a minion expiring or being resummoned, so our rule
+  keeps a Hardcore character alive in both cases rather than kill it on a guess.
 - **Absolution.** `non_curse_aura_effect_+%_while_linked` counts in `Pools.AuraEffectPct` only while
   `number_of_active_links` is nonzero, as in the client's aura effect (0x142822db0). The pools and the auras' stats are
   worked out again whenever a link starts or ends.

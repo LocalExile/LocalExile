@@ -137,7 +137,11 @@ partial class Program
                 if (flask.Extra is ushort extra) bytes.AddRange(InstanceEntities.RemoveBuff(flask.Target, extra));
             }
             foreach (uint target in spent.Select(f => f.Target).Distinct()) MinionFlaskSpeedLocked(conn, target, now, bytes);
-            string? all = conn.PlayerLife == 0 ? "the player died" : null;
+            // Every target is a minion (no party play), so without link_skills_can_target_minions (Deep Connections refunded)
+            // every link ends, without a death: our rule, as for an Elemental Valiance refund (paladin.md).
+            string? all = conn.PlayerLife == 0 ? "the player died"
+                : Stats.Key("link_skills_can_target_minions") is not uint can || player.GetValueOrDefault(can) == 0
+                    ? "link_skills_can_target_minions is gone" : null;
             if (all is null && links.All.FirstOrDefault(l => !LinkTargetAliveLocked(conn, l.Target)) is { } lost)
             {
                 all = $"its target 0x{lost.Target:x} died";

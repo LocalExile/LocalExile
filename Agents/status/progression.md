@@ -74,7 +74,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   flasks on linked targets, whose movement speed a relic walks at) have server consumers, with Gateway coverage of
   three legal builds, the Paladin Aura option swap, paid refunds and reload.
   `Game_VERIFIED_PALADIN=1` opts in on the reviewed combined graph.
-  No consumer: curses, party allies, a death experience penalty, and a linked minion's flask defences.
+  No consumer: curses, party allies, a death experience penalty, a linked minion's flask defences, and Bring the
+  Battle's less damage against other targets (monsters only hit the player).
   Not applied: a linked minion's flask phasing, and flask damage on a relic's explosion (unverified).
   Not yet checked with the real client. Docs: [Paladin checklist](../docs/game/paladin.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.

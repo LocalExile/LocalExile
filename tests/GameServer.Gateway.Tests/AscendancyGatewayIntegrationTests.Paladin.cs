@@ -140,6 +140,14 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(30, Regen());
         Assert.False(state.FlaskGrounds.Any);
 
+        // In play the player tick starts the grounds ticker on its own (Program.RunPlayerTick); no flask needed.
+        using var live = new GatewayCharacter(choice: "Paladin", level: 70);
+        Assert.Null((await live.Change([2437, 52104], true)).Error);
+        bool Consecrated() => live.State.FlaskGrounds.Covers(FlaskGrounds.Kind.ConsecratedGround,
+            live.State.Walk.Position(live.State.Clock.Elapsed.TotalSeconds));
+        await live.PlayerTicksUntil(Consecrated);
+        Assert.True(Consecrated());
+
         // A plain Sulphur Flask ground without the node: the base 300, gone with the ground (no linger).
         using var plain = new GatewayCharacter(choice: "Paladin", level: 70);
         var at = plain.State.Walk.Position(1);
@@ -558,6 +566,15 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await game.LinksTick(now + 6);
         Assert.Equal((0, unlinked), (state.Links.Count, state.Pools.AuraEffectPct));
         Assert.True(state.PlayerLife > 0);
+        // Refunding Deep Connections ends a link to a minion without a death (our rule, as for Elemental Valiance).
+        state.PlayerMana = mana;
+        Assert.True(await game.Link(soul, relic.Id));
+        var deep = state.Links.On(relic.Id)!;
+        Assert.Null((await game.Change([34448], false, refundPoints: true)).Error);
+        await game.LinksTick(now + 6.1);
+        Assert.Equal((0, false), (state.Links.Count, relic.Monster.Dead));
+        Assert.True(PaladinSent(game.LastBytes, InstanceEntities.RemoveBuff(relic.Id, deep.TargetBuff)));
+        Assert.True(state.PlayerLife > 0);
     }
 
     // A link cast on a relic (C→S 0x24) links it at the end of the cast. Field Medicine: a magic utility flask has 40%
@@ -662,6 +679,17 @@ public sealed partial class AscendancyGatewayIntegrationTests
             });
             return stop;
         }
+
+        // The real player tick loop (Program.RunPlayerTick) until done holds or 5 s pass; then the connection closes,
+        // which stops it and any ticker it started.
+        public Task PlayerTicksUntil(Func<bool> done) => Exchange(async (stream, cipher) =>
+        {
+            var tick = (Task)GatewayMethod("RunPlayerTick").Invoke(null, ["paladin-integration", stream, cipher, State])!;
+            for (int i = 0; i < 50 && !done(); i++) await Task.Delay(100);
+            State.Closed = true;
+            await tick;
+            return null;
+        });
 
         // One step of the player's debuffs on monsters at a chosen game time (Program.EnemyDebuffsTick).
         public Task DebuffsTick(double now) => Exchange(async (stream, cipher) =>

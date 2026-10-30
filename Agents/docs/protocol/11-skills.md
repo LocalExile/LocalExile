@@ -1625,7 +1625,8 @@ A foreign-source packet non-removal control establishes no party aura executor o
 
 ### The player's debuffs on monsters: passive enemy auras and taunt
 
-- **Passive enemy auras** (`PassiveBuffAuras`). PassiveSkills.dat `PassiveSkillBuffs` (`BuffsHardmode` in Ruthless)
+- **Passive enemy auras** (`PassiveBuffAuras`). PassiveSkills.dat `PassiveSkillBuffs` (in Ruthless
+  `BuffsHardmode` for a row with `HasHardmodeAlternate`)
   points at BuffTemplates rows: `BuffDefinitionsKey`, `Buff_StatValues` (the values of the definition's GrantedStats,
   in order), `AuraRadius` (cells) and `__col4`, read as the targets (1 self, 2 allies, 3 enemies: every Augury of
   Penitence, Occultist and Saboteur enemy aura is `[3]`, the monster pack auras `[1, 2]` or `[2]`). An allowed enemy
