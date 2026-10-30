@@ -140,37 +140,95 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Socket colours (3.29)".
   Not modelled: Tainted Chromatic/Jeweller's Orbs, Orb of Binding, the Locus of Corruption, the 25-roll bench reward,
   special item overrides.
-- **Orb of Alchemy, Chaos Orb, Divine Orb (verified live, 2026-10-21):** Alchemy makes a normal item an identified
-  rare with 4-6 random affixes and a rare name; Chaos rerolls all of a rare item's affixes (4-6, new tiers);
-  Divine keeps the affixes, tiers and order and rerolls only values.
-  Shift works for all three.
-  See [13](../docs/protocol/13-items.md), "Orb of Alchemy", "Chaos Orb", "Divine Orb".
+- **Orb of Alchemy:** a modifiable normal item becomes an identified rare with 4-6 weighted affixes (CoE's 2/3, 1/4,
+  1/12; jewels 3-4 with two per side) and a rare name. Flasks are magic-only; unknown/unsupported/unmodifiable,
+  non-normal, corrupted/mirrored and empty-pool targets are refused before spending.
+  CoE count/jewel checks, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
+  The old live check (2026-10-21) predates these rules; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Orb of Alchemy", and [evidence](../docs/re/alchemy-coe.md).
+- **Chaos Orb:** a modifiable rare item's unprotected affixes are rerolled (CoE 4/5/6 counts, jewels 3-4 with two per
+  side; new tiers, new rare name); prefix/suffix metamod locks keep their side. Flasks are magic-only; non-rare,
+  unmodifiable/unsupported and empty-pool targets are refused before spending.
+  CoE count/metamod checks, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
+  The old live check (2026-10-21) predates these rules; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Chaos Orb", and [evidence](../docs/re/chaos-coe.md).
+- **Divine Orb (verified live, 2026-10-21):** keeps the affixes, tiers and order and rerolls only values.
+  Shift works. See [13](../docs/protocol/13-items.md), "Divine Orb".
 - **Orb of Scouring (verified live, 2026-10-21):** a magic / rare / unique item becomes normal, only base mods stay.
   See [13](../docs/protocol/13-items.md), "Orb of Scouring".
-- **Orb of Transmutation (verified live, 2026-10-21):** a normal item becomes magic with 1-2 random affixes.
-  See [13](../docs/protocol/13-items.md), "Orb of Transmutation".
-- **Orb of Alteration (verified live, 2026-10-21):** a magic item gets 1-2 new affixes (one prefix, one suffix at
-  most).
-  See [13](../docs/protocol/13-items.md), "Orb of Alteration".
-- **Orb of Augmentation (verified live, 2026-10-21):** +1 affix on a magic item, up to one prefix and one suffix.
-  See [13](../docs/protocol/13-items.md), "Orb of Augmentation".
-- **Regal Orb (verified live, 2026-10-21):** magic → rare, affixes kept, +1 affix, rare name.
-  See [13](../docs/protocol/13-items.md), "Regal Orb".
-- **Exalted Orb (verified live, 2026-10-21):** +1 affix on a rare item, up to 6 (three of each kind).
-  See [13](../docs/protocol/13-items.md), "Exalted Orb".
-- **Orb of Annulment (verified live, 2026-10-21):** removes one random affix from a magic or rare item.
-  See [13](../docs/protocol/13-items.md), "Orb of Annulment".
+- **Orb of Transmutation:** normal to identified magic, targeting 1-2 weighted affixes at equal probability.
+  Unknown, unsupported, unmodifiable and empty-pool bases are refused before spending.
+  CoE count/pool comparisons, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
+  Framed native wand/flask upgrades, repeat/unmodifiable refusal and relog passed on 2026-10-29.
+  Fresh native Shift/stash and manual currency UI checks remain separate.
+  See [13](../docs/protocol/13-items.md), "Orb of Transmutation", and [evidence](../docs/re/transmutation-coe.md).
+- **Orb of Alteration:** a modifiable magic item gets 1-2 new weighted affixes (one prefix, one suffix at most),
+  with the same admission as the other affix currencies: unknown/unsupported/`Unmodifiable` bases, corrupted/mirrored
+  items and empty pools are refused before spending.
+  CoE count/flask checks, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
+  The old live check (2026-10-21) predates these admission rules; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Orb of Alteration", and [evidence](../docs/re/alteration-coe.md).
+- **Orb of Augmentation:** +1 weighted affix on a magic item, up to one prefix and one suffix, with the same admission
+  checks as Transmutation: a known, serializable, non-`Unmodifiable` base with Mods; corrupted/mirrored, full items
+  and open sides without ordinary affixes are refused before spending.
+  CoE beta pool and simulated-probability checks, ordinary/Shift inventory/stash dispatch and save reloads have
+  automated coverage. The old live check (2026-10-21) predates these admission checks; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Orb of Augmentation", and
+  [evidence](../docs/re/augmentation-coe.md).
+- **Regal Orb:** a modifiable magic item becomes rare, affixes kept, +1 weighted affix from the rare pool (max three
+  of each side), rare name. Flasks are refused (magic-only), as are unmodifiable/unsupported bases and no-fit targets,
+  without spending.
+  CoE rare-pool/apply checks, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
+  The old live check (2026-10-21) predates these admission rules; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Regal Orb", and [evidence](../docs/re/regal-coe.md).
+- **Exalted Orb:** +1 weighted affix on a modifiable rare item, up to 6 (three per side; jewels two per side), name
+  kept. Flasks, unmodifiable/unsupported bases, non-rare and full targets are refused before spending.
+  CoE pool/jewel checks, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
+  The old live check (2026-10-21) predates these rules; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Exalted Orb", and [evidence](../docs/re/exalted-coe.md).
+- **Orb of Annulment:** removes one random unprotected affix from a magic or rare item; rarity, name, implicits and
+  the other affixes stay. Metamod/fractured filters exclude protected affixes; corrupted/mirrored/unsupported/
+  `Unmodifiable` and no-eligible-explicit targets are refused before spending.
+  CoE rarity/metamod checks, ordinary/Shift inventory/stash dispatch and save reloads have automated coverage.
+  The old live check (2026-10-21) predates these rules; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Orb of Annulment", and [evidence](../docs/re/annulment-coe.md).
 - **Armourer's Scrap (verified live, 2026-10-21):** +1% quality on armour, up to 20%; Scouring resets it to 0.
   See [13](../docs/protocol/13-items.md), "Armourer's Scrap".
 - **Blacksmith's Whetstone (verified live, 2026-10-21):** +1% quality on weapons, up to 20%; Scouring resets it.
   See [13](../docs/protocol/13-items.md), "Blacksmith's Whetstone".
-- **Orb of Chance (verified live, 2026-10-21):** a normal weapon / armour piece → rare (30%, 4-6 affixes) or magic
-  (2-4 affixes).
-  See [13](../docs/protocol/13-items.md), "Orb of Chance".
-- **Vaal Orb and corruption (verified live, 2026-10-21):** weapons, armour and jewellery are always corrupted (Base
-  +0xc7 bit 0, saved); normal / magic → rare with 4-6 affixes, a rare item gets 1-5 or all affixes rerolled;
-  a corrupted item takes no currency but Wisdom.
-  See [13](../docs/protocol/13-items.md), "Vaal Orb and corruption".
+- **Orb of Chance:** the documented local rule: a normal weapon / armour piece → rare (30%, 4-6 affixes) or magic
+  (2-4 affixes, at most two per side), identified. Corrupted/mirrored/unsupported/`Unmodifiable` and empty-pool
+  targets are refused before spending.
+  CoE beta has no Chance handler, so official unique/rarity outcomes remain separate work.
+  Ordinary/Shift inventory/stash dispatch and save reloads have automated coverage; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Orb of Chance", and [admission](../docs/re/chance-coe.md).
+- **Vaal Orb and corruption:** the local rule corrupts a modifiable weapon, armour piece or jewellery (Base +0xc7
+  bit 0, saved); normal / magic → rare with 4-6 affixes, a rare item gets 1-5 or all affixes rerolled, one white socket
+  is coloured. Corrupted/mirrored/unique, unsupported/`Unmodifiable` and empty-pool targets are refused before
+  spending; a corrupted item takes no currency but Wisdom.
+  CoE's official Vaal outcome table remains separate work; the admission and boundary are documented.
+  Ordinary/Shift inventory/stash dispatch and save reloads have automated coverage; native re-acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Vaal Orb and corruption", and [admission](../docs/re/vaal-coe.md).
+- **Eldritch Ichors (Lesser, Greater, Grand, Exceptional):** add the tier's Eater of Worlds implicit to body armour,
+  boots, gloves or helmet, replacing every other implicit except Searing Exarch ones; normal/magic/rare only.
+  Unique/corrupted/mirrored, non-armour and unsupported/unmodifiable targets are refused before spending.
+  CoE base-key/tier/presence checks, all four tier suffixes and ordinary/Shift inventory/stash dispatch have automated
+  coverage. A separate Eldritch dominance state and the Ember/Conflict family remain separate, and native tooltip
+  acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Eldritch Ichors", and [evidence](../docs/re/eldritch-ichor-coe.md).
+- **Eldritch Embers (Lesser, Greater, Grand, Exceptional):** the Searing Exarch mirror of the Ichors; add the tier's
+  Exarch implicit to body armour, boots, gloves or helmet, keep Eater implicits and remove the other implicits;
+  normal/magic/rare only. Unique/corrupted/mirrored, non-armour and unsupported/unmodifiable targets are refused.
+  CoE base-key/tier/presence checks, all four tier suffixes and ordinary/Shift inventory/stash dispatch have automated
+  coverage. A separate Eldritch dominance state and the Orb of Conflict remain separate, and native tooltip
+  acceptance is pending.
+  See [13](../docs/protocol/13-items.md), "Eldritch Embers", and [evidence](../docs/re/eldritch-ember-coe.md).
+- **Visual client acceptance (2026-10-30):** the main successful uses of all implemented currencies were checked in
+  the 3.29.3b client: Transmutation, Augmentation, Regal, Alteration, Alchemy, Exalted, Chaos, Vaal, Chance,
+  Annulment, all four Eldritch Ichors and all four Eldritch Embers. Vaal turned normal items rare (yellow) and the
+  tooltip showed `Corrupted`; the Eater/Exarch implicit names, values and tiers were visible. No visual defects were
+  found. Vaal on jewels remains outside the local rule; official jewel/Vaal outcomes are separate work. Stash/Shift
+  and the remaining refusal paths stay under automated coverage.
 - **Glassblower's Bauble (verified live, 2026-10-21):** +1% flask quality up to 20%; Scouring resets it.
   See [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
 - **Fracturing Orb (verified live, 2026-10-21):** one random mod of a rare item with 4+ mods is fractured and kept by
@@ -192,9 +250,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
-- Most uniques and special mods (#60), and unique drops/chancing; only Mageblood has a definition so far;
+- Most uniques and special mods (#60), and unique drops/chancing; Mageblood and normal Crown of Eyes have definitions;
   currency other than Scroll of Wisdom, Chromatic Orb, Jeweller's Orb, Orb of Fusing, Orb of Alchemy, Chaos Orb,
   Divine Orb, Orb of Scouring, Orb of Transmutation, Orb of Alteration, Orb of Augmentation, Regal Orb, Exalted Orb,
-  Orb of Annulment, Armourer's Scrap, Blacksmith's Whetstone, Orb of Chance, Vaal Orb, Glassblower's Bauble,
-  Fracturing Orb, Mirror of Kalandra, Gemcutter's Prism and Orb of Regret;
+  Orb of Annulment, Armourer's Scrap, Blacksmith's Whetstone, Orb of Chance, Vaal Orb, the four Eldritch Ichors and
+  Embers, Glassblower's Bauble, Fracturing Orb, Mirror of Kalandra, Gemcutter's Prism and Orb of Regret;
   support gems and links ([13](../docs/protocol/13-items.md) "Open").

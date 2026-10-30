@@ -86,6 +86,12 @@ class BuildPathsTests(unittest.TestCase):
                         ot.fetch(["Metadata/Failure"])
                     self.assertEqual(1, child.call_count)
 
+    def test_extraction_scripts_keep_data_in_the_runtime_directory(self):
+        # ot_components.REPO is the source checkout; generated data goes through its ROOT, the runtime directory.
+        for script in ("anim_contacts", "monster_contacts", "monster_takehit", "projectile_clips"):
+            text = (ROOT / "scripts/re" / f"{script}.py").read_text(encoding="utf-8")
+            self.assertNotRegex(text, r'join\(REPO, "data"', script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -75,6 +75,11 @@ desktop.ini
 
 # --- Local agent handoff notes ---
 /HANDOFF.md
+/HANDOFF-history.md
+# levelgen's last gate run (the baseline beside it is committed)
+/scripts/re/levelgen/gate-latest.json
+/scripts/re/levelgen/survey-latest.json
+/scripts/re/levelgen/loads-latest.json
 
 # Per-checkout client installation path
 /client.local.json

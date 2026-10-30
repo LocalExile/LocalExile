@@ -43,6 +43,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the other player's notification, Accept opens the window on both, offered items appear on both sides, Accept
   greys the accepting side's offer for both players, and both accepting swaps the items in one transaction for both saves.
   Cancel, decline, a disconnect or leaving the area return every offered item. See [28](../docs/protocol/28-player-trade.md).
+- **Party** between players in one instance (two clients, 2026-10-29): "Invite to Party" shows the other player the
+  invite notice, and Accept puts both into the party, shown on both clients. "Leave Party" removes the player, and a
+  party left with one member is disbanded on both clients. Decline, kicks and disconnects are open.
+  See [28](../docs/protocol/28-player-trade.md) §5.
   Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
   Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.
 

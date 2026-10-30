@@ -43,7 +43,8 @@ static class CharacterSaves
     /// /cosmetic portal choice survives a relog. Cosmetics: what the Cosmetics tab (K) wears, MicrotransactionSlot Id →
     /// the picked record (<see cref="MtxCatalog"/>: a MtxTypes row + 1). SkillCosmetics: the Cosmetics tab's skill
     /// slots, <see cref="SkillCosmeticKey"/> (a gem's BaseItemTypes HASH32 and effect slot type) → the picked record
-    /// (every gem of that type wears it).</summary>
+    /// (every gem of that type wears it). ClusterPassives: the cluster jewel nodes the client allocated (its expansion
+    /// layout ids, not PassiveSkillGraphIds).</summary>
     public sealed record Save(Dictionary<byte, List<SavedPlacement>> Inventories, Dictionary<int, string>? SkillBar = null,
         uint? Experience = null, List<ushort>? Passives = null, List<string>? Waypoints = null, List<string>? Visited = null,
         List<string>? QuestFlags = null, ushort? ExtraPassivePoints = null,
@@ -52,7 +53,9 @@ static class CharacterSaves
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null,
         OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
-        uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null)
+        uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
+        ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
+        Dictionary<ushort, ushort>? TattooKeystones = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -93,6 +96,9 @@ static class CharacterSaves
         });
 
     public static void SetSelectedHideout(string character, string area) => Update(character, s => s with { SelectedHideout = area });
+
+    /// <summary>The character's Voltaxic Sulphite (the Delve gauge's current value).</summary>
+    public static void SetSulphite(string character, ushort amount) => Update(character, s => s with { Sulphite = amount });
 
     /// <summary>A Ruthless resource writer. Retired transfer owners retain their token so only that exact failed
     /// transfer can resume; a newer area's token can never be reclaimed by the old connection.</summary>
@@ -286,6 +292,20 @@ static class CharacterSaves
     public static void SetPassives(string character, IEnumerable<ushort> nodes, IReadOnlyDictionary<ushort, ushort> effects, ushort? refundPoints = null) =>
         Update(character, s => s with { Passives = [.. nodes], MasteryEffects = new(effects), RefundPoints = refundPoints ?? s.RefundPoints });
 
+    /// <summary>Records the cluster jewel nodes the client allocated, in the order it sent them.</summary>
+    public static void SetClusterPassives(string character, IEnumerable<ushort> nodes) =>
+        Update(character, s => s with { ClusterPassives = [.. nodes] });
+
+    /// <summary>Records the applied tattoos (passive node -> tattoo name). The map is independent of the allocated
+    /// passive list: unallocating a tattooed passive does not remove the tattoo.</summary>
+    public static void SetTattoos(string character, IReadOnlyDictionary<ushort, string> tattoos,
+        IReadOnlyDictionary<ushort, ushort>? keystones = null) =>
+        Update(character, s => s with
+        {
+            Tattoos = new(tattoos),
+            TattooKeystones = keystones is null ? s.TattooKeystones : new(keystones),
+        });
+
     /// <summary>
     /// Main ascendancy identity, its own nodes/point awards and any associated ordinary-node/refund changes commit in
     /// one transaction. Callers validate first and publish runtime state only after the outermost transaction commits.
@@ -404,14 +424,16 @@ static class CharacterSaves
             throw new UnknownSavedItemException($"item type 0x{s.Type:x8}" + (catalog.Error is { } e ? $" ({e})" : ""));
         bool emptyResonator = ItemCatalog.ResonatorSockets(t) > 0 && (s.Sockets ?? []).All(k => k.Gem is null);
         if (emptyResonator) t = catalog.EmptyResonatorType(t);
-        return ItemCatalog.Create(t) with
+        var item = ItemCatalog.Create(t) with
         {
             VisualIdentity = s.Visual ?? t.VisualIdentity,
             ItemLevel = s.ItemLevel, Quality = s.Quality, Charges = s.Charges, StackSize = s.StackSize, GemExperience = s.GemExperience, GemVariant = s.GemVariant, GemFlags = s.GemFlags,
             Sockets = emptyResonator ? ItemCatalog.ResonatorSocketList(t)
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
-        } is var item && s.Mods is null ? item : item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
+        };
+        if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
+        return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);
     }
 
     /// <summary>The mod again, by Id, or by an "0x…" hash when Mods.dat was not loaded at save time.</summary>

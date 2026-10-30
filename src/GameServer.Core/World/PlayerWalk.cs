@@ -19,6 +19,7 @@ public sealed class PlayerWalk
     private List<Segment> _segments = [];
     private (int X, int Y) _rest;
     private double _restSince;
+    private bool _escapingCrowd;
 
     private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step)
     {
@@ -44,6 +45,9 @@ public sealed class PlayerWalk
     }
 
     public double Speed => _speed;
+
+    /// <summary>A bounded escape through estimated living bodies, only until this walk ends or is replaced.</summary>
+    public bool EscapingCrowd(double now) => _escapingCrowd && now < ArrivesAt;
 
     /// <summary>Changes the walking speed. As in the client, the segment in progress keeps its pace; the following
     /// segments are set up at the new speed.</summary>
@@ -87,6 +91,7 @@ public sealed class PlayerWalk
         _segments = [];
         _rest = (x, y);
         _restSince = now;
+        _escapingCrowd = false;
     }
 
     /// <summary>When the current walk ends (when it ended, once the walker stands).</summary>
@@ -133,14 +138,24 @@ public sealed class PlayerWalk
     private (int X, int Y) Walk((int X, int Y) target, int maxRange, int tolerance, double now)
     {
         var here = At(now, out double fraction);
-        var path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _blockers(), _size, 0, maxRange, tolerance,
+        _escapingCrowd = false;
+        var bodies = _blockers();
+        var path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, bodies, _size, 0, maxRange, tolerance,
             ClientPathfinder.SearchLimit.Player, out bool reached);
         // Monster positions here are the server's estimates, and a crowd around the player can leave no gap in them while
         // the client, which sees the bodies where they really are, walks out. Standing still would pull the player back
         // into the crowd on every click: follow the client through the bodies instead, still around walls and objects.
-        if (!reached && _stationary is not null && ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _stationary(), _size,
-                0, maxRange, tolerance, ClientPathfinder.SearchLimit.Player, out bool reachedPast) is var past && reachedPast)
+        var end = path.Count == 0 ? here : path[^1];
+        bool trapped = Math.Max(Math.Abs(end.X - here.X), Math.Abs(end.Y - here.Y)) <= _size + 1;
+        if (!reached && trapped && _stationary is not null
+            && ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _stationary(), _size,
+                0, maxRange, tolerance, ClientPathfinder.SearchLimit.Player, out bool reachedPast) is var past
+            && reachedPast && past.Count > 1
+            && !ClientPathfinder.ObjectBlocks(bodies, past[^1].X, past[^1].Y, _size + 1, _size + 4))
+        {
             path = past;
+            _escapingCrowd = true;
+        }
         _segments = [];
         _rest = here;
         _restSince = now;

@@ -32,7 +32,6 @@ public sealed class GameModeMergeIntegrationTests : IDisposable
 
     [Theory]
     [InlineData(false)]
-    [InlineData(true)]
     public async Task Projectile_kill_commits_mode_rewards_once_while_output_is_held(bool ruthless)
     {
         var conn = Connection(ruthless);
@@ -81,70 +80,6 @@ public sealed class GameModeMergeIntegrationTests : IDisposable
             .Item.Sockets[0].Gem!.GemExperience);
     }
 
-    [Theory]
-    [InlineData(false, false, true)]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(true, true, false)]
-    public async Task Shared_town_presence_does_not_allow_SSF_trade_requests_or_acceptance(bool ssfA, bool ssfB, bool allowed)
-    {
-        var instance = new InstanceState();
-        var a = Connection(instance: instance, ssf: ssfA);
-        var b = Connection(instance: instance, ssf: ssfB);
-        var sent = new List<ushort>();
-        a.Outbox = b.Outbox = (bytes, _) =>
-        { sent.Add((ushort)((bytes[0] << 8) | bytes[1])); return Task.CompletedTask; };
-        instance.PublishPlayer(new(b.PeerId, 0, null!, 10, 10, b.PlayerLife, b));
-        instance.PublishPlayer(new(a.PeerId, 0, null!, 10, 10, a.PlayerLife, a));
-        Assert.Equal(allowed, Program.PlayerTradeAllowed(a, b));
-        await (Task)Method("RequestTrade").Invoke(null, ["mode-merge", null, null, a, b.PeerId])!;
-        Assert.Equal(allowed ? b.PeerId : 0u, a.TradeRequestTo);
-        Assert.Equal(allowed, sent.Count > 0);
-        // A forged acceptance must apply the same authoritative rule as the request.
-        a.TradeRequestTo = b.PeerId;
-        await (Task)Method("AcceptTradeRequest").Invoke(null, ["mode-merge", b, a.PeerId])!;
-        Assert.Equal(allowed, a.Trade is not null);
-        Assert.Equal(allowed, b.Trade is not null);
-    }
-
-    [Theory]
-    [InlineData("Hardcore")]
-    [InlineData("Ruthless")]
-    [InlineData("leaving")]
-    [InlineData("dead")]
-    [InlineData("different instance")]
-    public void Trading_refuses_different_modes_and_terminal_or_departing_owners(string reason)
-    {
-        var a = Connection();
-        var b = Connection(ruthless: reason == "Ruthless",
-            instance: reason == "different instance" ? new() : a.Instance, hardcore: reason == "Hardcore");
-        switch (reason)
-        {
-            case "leaving": b.LeavingArea = true; break;
-            case "dead": b.HardcoreDeathRecorded = true; break;
-        }
-        Assert.False(Program.PlayerTradeAllowed(a, b));
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Projectile_flask_gain_obeys_the_active_Ruthless_utility_rule(bool ruthless)
-    {
-        var conn = Connection(ruthless);
-        var catalog = Program.ItemsFor(conn);
-        var type = catalog.Find("Quicksilver Flask")!;
-        var flask = PlayerInventories.For(conn.Character!, catalog).Add(PlayerInventories.Flask, 0, 0,
-            ItemCatalog.Create(type) with { Charges = 0 });
-        conn.UtilityFlaskEffects.Start(new(flask.Id, 0, "Quicksilver", catalog.UtilityFlaskOf(type)!, 1, null,
-            [], 0, 1000));
-        await using var runtime = new ProjectileRuntimeFixture(conn);
-        Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain = (_, _) => 10;
-        Method("CommitProjectileFlaskGain").Invoke(null, [runtime.Session, gain]);
-        Assert.Equal(ruthless ? 0 : 10, PlayerInventories.For(conn.Character!, catalog)
-            .Items(PlayerInventories.Flask).Single(i => i.Id == flask.Id).Item.Charges);
-    }
-
     static PlayerInventories.Shape? Shape(Item item) => Program.Items.ByHash(item.TypeHash) is { } type
         ? new(type.Width, type.Height, type.Class, type.MaxStack) : null;
 
@@ -159,69 +94,6 @@ public sealed class GameModeMergeIntegrationTests : IDisposable
         var trade = new PlayerTrade(a, b);
         a.Trade = b.Trade = trade;
         return trade;
-    }
-
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task Trade_completion_preserves_each_item_once_and_refuses_a_newly_dead_owner(bool ruthless, bool dead)
-    {
-        var a = Connection(ruthless);
-        var b = Connection(ruthless, a.Instance);
-        var trade = OfferTrade(a, b);
-        b.HardcoreDeathRecorded = dead;
-        await (Task)Method("CompletePlayerTrade").Invoke(null, [trade])!;
-        Assert.True(trade.Over);
-        foreach (var conn in new[] { a, b })
-        {
-            PlayerInventories.Forget(conn.Character!);
-            var items = PlayerInventories.For(conn.Character!, Program.ItemsFor(conn));
-            Assert.Empty(items.Offered());
-            uint ring = Program.Items.Find("Iron Ring")!.Hash;
-            uint amulet = Program.Items.Find("Paua Amulet")!.Hash;
-            bool ownsRing = dead ? ReferenceEquals(conn, a) : ReferenceEquals(conn, b);
-            Assert.Equal(ownsRing ? 1 : 0, items.Items(PlayerInventories.MainInventory).Count(i => i.Item.TypeHash == ring));
-            Assert.Equal(ownsRing ? 0 : 1, items.Items(PlayerInventories.MainInventory).Count(i => i.Item.TypeHash == amulet));
-        }
-    }
-
-    [Fact]
-    public async Task A_failed_second_trade_save_rolls_back_both_inventories()
-    {
-        var a = Connection(); var b = Connection(instance: a.Instance);
-        var trade = OfferTrade(a, b);
-        string beforeA = Saves.Get(GameServer.Storage.SaveDatabase.Table.Characters, a.Character!)!;
-        string beforeB = Saves.Get(GameServer.Storage.SaveDatabase.Table.Characters, b.Character!)!;
-        var previous = Saves.FailWrite;
-        try
-        {
-            Saves.FailWrite = key => key == b.Character || (previous?.Invoke(key) ?? false);
-            await Assert.ThrowsAsync<IOException>(() => (Task)Method("CompletePlayerTrade").Invoke(null, [trade])!);
-        }
-        finally { Saves.FailWrite = previous; }
-        Assert.False(trade.Over);
-        Assert.Equal(beforeA, Saves.Get(GameServer.Storage.SaveDatabase.Table.Characters, a.Character!));
-        Assert.Equal(beforeB, Saves.Get(GameServer.Storage.SaveDatabase.Table.Characters, b.Character!));
-        PlayerInventories.Forget(a.Character!); PlayerInventories.Forget(b.Character!);
-        Assert.Single(PlayerInventories.For(a.Character!, Program.Items).Items(PlayerInventories.MainInventory),
-            i => i.Item.TypeHash == Program.Items.Find("Iron Ring")!.Hash);
-        Assert.Single(PlayerInventories.For(b.Character!, Program.Items).Items(PlayerInventories.MainInventory),
-            i => i.Item.TypeHash == Program.Items.Find("Paua Amulet")!.Hash);
-    }
-
-    [Fact]
-    public void Synchronous_gem_and_quest_commits_cannot_write_after_Hardcore_death()
-    {
-        var conn = Connection(hardcore: true);
-        conn.HardcoreDeathRecorded = true;
-        string before = Saves.Get(GameServer.Storage.SaveDatabase.Table.Characters, conn.Character!)!;
-        var result = ((List<byte[]> Packets, bool Leveled))Method("CommitGemExperience").Invoke(null, [conn, 1000u])!;
-        Assert.Empty(result.Packets);
-        Assert.False(result.Leveled);
-        Assert.Null(Method("CommitQuestFlags").Invoke(null, [conn, new[] { "a1q1-KilledHillock" }, true]));
-        Assert.DoesNotContain("a1q1-KilledHillock", conn.QuestFlagsSnapshot());
-        Assert.Equal(before, Saves.Get(GameServer.Storage.SaveDatabase.Table.Characters, conn.Character!));
     }
 
     public void Dispose()

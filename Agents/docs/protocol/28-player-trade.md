@@ -10,7 +10,9 @@ offer messages ([17](17-npcs.md) "Sell"); this file covers what is specific to t
 | **0xba** | 6 | u32 BE the other player's object id (as the sender sees it: its `PeerId`) | "Trade" on a player |
 | **0xb0** | 6 | u32 BE the requester's object id | Accept on the trade request notification |
 | 0xb1 | 7 | u32 BE the other party, u8 | Decline on the notification, Cancel on the waiting box, Cancel in the window |
-| **0x93** | var | wstr the character's name | "Invite to Party" (read, not answered yet) |
+| **0x93** | var | wstr the character's name | "Invite to Party" |
+| **0x95** | 6 | u32 BE the party id (from 0xa9) | Accept on the party invite notice |
+| **0x96** | 6 | u32 BE the party id | "Leave Party" |
 | **0x80** | var | wstr the character's name, u16 (0 from the context menu) | "Add Friend" (read, not answered yet) |
 
 The offer, accept and cancel messages of the open window are the sale's: C→S 0xb2 (drop / Ctrl + click, x = y = 0xff),
@@ -79,8 +81,44 @@ containing both inventory saves. Failed settlement leaves both durable inventori
 5. **Cancel:** 0xb1, a disconnect or leaving the area (`CancelPlayerTrade`) releases both reservations first, restores
    both views and closes both windows. The waiting box's Cancel and the notification's decline close the request.
 
+## 5. Party (live 2026-10-29, two clients in one town)
+
+Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs`: `PartyInvites`, `Parties`).
+
+- **S→C 0xa9** (class `0x1435dc860`, read `0x1421a18b0`, dispatcher case 0x2a at `0x14214c53c`) has this layout:
+  1. u32 party id (`+0x68`);
+  2. wstr leader character (`+0x28`);
+  3. wstr leader account (`+0x48`);
+  4. u32 party id again;
+  5. u8 `+0x6e`, the receiving player's own index in the member list (0xff none);
+  6. u8 `+0x6c`, u8 `+0x6d`, u8 `+0x6f`;
+  7. u8 count, then count × (wstr account name, u8 status).
+
+  `0x142149d80` maps a status byte 0 → 1, 1 → 2, 2 → 0, any other → 3 (none).
+- **The invite notice.** "{account} sent you a party invite" (ClientStrings `0x43f`) is built by `0x140aee190` through
+  `0x140dd0ad0` on the event at `+0x7f78` (case 0x2a's slot). It shows only when all of these hold:
+  - the party id is one the client doesn't know (`+0xc668`; a reused id only updates the entry);
+  - the second wstr is an account name in the known players (`0x1421669a0` → `0x142166a50`), so both sides get 0xa7 first;
+  - `+0x6c` is 0 and `+0x6d` is non-zero.
+
+  The Gateway sends a fresh id per invite, `+0x6d` = 1, and both members with status 0.
+- **Accept** is C→S 0x95. Accept and Decline call `0x142162ad0` and `0x142162a30` (C→S 0x80 with u16 0x200 / 0x100) only
+  for a non-empty name; live, Accept sent 0x95. Decline is not answered yet.
+- **The party.** Every member gets 0xa9 with its own `+0x6e`, the leader with status 2 and the others with 1, members by
+  account name.
+  - Every member, the player itself too, must be in the known players first.
+  - Without its own entry, the joining client threw (a huge string copy in `0x14020b230`) from the party-changed event
+    (`+0x7578`, raised by `0x142157450`).
+- **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435bf570`, read `0x141f9c0b0`, case 0x2b at
+  `0x14214cb45`): u32 party id, u8 reason.
+  - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
+  - S→C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
+  - With fewer than two members left, every member gets 0xaa (disbanded); otherwise the others get the smaller party.
+
 ## Open
 
-- Party (0x93) and friends (0x80): the answers, S→C 0xa9 party info and the friend list.
+- Party: Decline, kicking and promoting members, a member's disconnect or area change, the party panel's other fields
+  (`+0x6c`, `+0x6f`, the leader's character string), and parties across instances.
+- Friends (0x80 with u16 0): the friend list.
 - The exact meaning of 0xa7's other fields (class, league, online state) and of the request option `0x19`.
 - Trades across instances (the client only offers Trade on a player it sees).

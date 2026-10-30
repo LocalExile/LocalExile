@@ -312,22 +312,25 @@ public static class ClientPathfinder
     public static bool ObjectBlocks(IReadOnlyList<Blocker> blockers, int x, int y, int threshold, int radius)
     {
         if (blockers.Count == 0) return false;
+        if (blockers is IBlockerQuery indexed) return indexed.Blocks(x, y, threshold, radius);
         int tx0 = Math.Max(0, (x - radius) / Tile), tx1 = (x + radius) / Tile + 1;
         int ty0 = Math.Max(0, (y - radius) / Tile), ty1 = (y + radius) / Tile + 1;
-        // A BlockerSet yields only the blockers that can reach this cell; the others could not block it anyway.
-        foreach (var b in blockers is BlockerSet set ? set.Near(x, y, threshold) : blockers)
-        {
-            if (b.CollisionRadius is double hull)
-            {
-                double dx = b.X - x, dy = b.Y - y, clearance = hull + threshold;
-                if (dx * dx + dy * dy < clearance * clearance) return true;
-            }
-            int btx = b.X / Tile, bty = b.Y / Tile;
-            // Large bodies can extend across several tile buckets; their centre may be outside this query.
-            if ((btx < tx0 || btx >= tx1 || bty < ty0 || bty >= ty1) && b.Size + threshold <= radius) continue;
-            if (Math.Max(Math.Abs(b.X - x), Math.Abs(b.Y - y)) - b.Size < threshold) return true;
-        }
+        foreach (var b in blockers)
+            if (BlockerBlocks(b, x, y, threshold, radius, tx0, tx1, ty0, ty1)) return true;
         return false;
+    }
+
+    internal static bool BlockerBlocks(Blocker b, int x, int y, int threshold, int radius, int tx0, int tx1, int ty0, int ty1)
+    {
+        if (b.CollisionRadius is double hull)
+        {
+            double dx = b.X - x, dy = b.Y - y, clearance = hull + threshold;
+            if (dx * dx + dy * dy < clearance * clearance) return true;
+        }
+        int btx = b.X / Tile, bty = b.Y / Tile;
+        // Large bodies can extend across several tile buckets; their centre may be outside this query.
+        if ((btx < tx0 || btx >= tx1 || bty < ty0 || bty >= ty1) && b.Size + threshold <= radius) return false;
+        return Math.Max(Math.Abs(b.X - x), Math.Abs(b.Y - y)) - b.Size < threshold;
     }
 
     /// <summary>The cells of the client's line from <paramref name="a"/> to <paramref name="b"/>, both ends included

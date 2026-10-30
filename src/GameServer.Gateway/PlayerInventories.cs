@@ -11,7 +11,7 @@ sealed class PlayerInventories
 {
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Gloves = 8,
         Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14, Offhand2 = 15, CraftingBench = 16,
-        HarvestCrafting = 43, Cursor = InstanceInventories.CursorRow;
+        PassiveJewels = 23, HarvestCrafting = 43, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -420,7 +420,7 @@ sealed class PlayerInventories
         8 => itemClass == "Gloves",
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
-        MapDevice => itemClass is global::MapDevice.MapClass or global::MapDevice.FragmentClass,
+        MapDevice => itemClass is global::MapDevice.MapClass or global::MapDevice.MapKeyClass or global::MapDevice.FragmentClass,
         Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical",
         _ => true,
     };

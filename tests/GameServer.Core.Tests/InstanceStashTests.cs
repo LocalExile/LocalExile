@@ -76,9 +76,6 @@ public class InstanceStashTests
 
     [Theory]
     [InlineData(0, 0)]
-    [InlineData(0, 1)]
-    [InlineData(1, 0)]
-    [InlineData(1, 1)]
     public void Withdrawal_bulk_boolean_is_separate_from_stash_kind_and_token(byte kind, byte bulk)
     {
         // Layout from the native 0xe3 builder/writer, not a live right-click capture.

@@ -59,14 +59,16 @@ public sealed class InstanceRegistry(TimeProvider? clock = null)
         }
     }
 
-    /// <summary>Creates and joins a new instance (chooser "new instance"). For a town this joins the existing one.</summary>
-    public AreaInstanceState EnterNew(ushort area, string character, string? league = null, bool solo = false, string? soloIdentity = null)
+    /// <summary>Creates and joins a new instance (chooser "new instance"). For a town this joins the existing one.
+    /// <paramref name="seed"/> ≠ 0 is the new instance's seed instead of <see cref="SeedFor"/>'s (dev: capture tours).</summary>
+    public AreaInstanceState EnterNew(ushort area, string character, string? league = null, bool solo = false, string? soloIdentity = null,
+        uint seed = 0)
     {
         lock (_lock)
         {
             Prune();
             return Join(IsTown(area) ? TownLocked(area, league)
-                : CreateLocked(area, league, solo ? soloIdentity ?? character : null), character);
+                : CreateLocked(area, league, solo ? soloIdentity ?? character : null, seed), character);
         }
     }
 
@@ -136,11 +138,11 @@ public sealed class InstanceRegistry(TimeProvider? clock = null)
     private AreaInstanceState TownLocked(ushort area, string? league) =>
         _instances.Values.FirstOrDefault(i => i.AreaHash == area && i.League == LeagueKey(league)) ?? CreateLocked(area, league);
 
-    private AreaInstanceState CreateLocked(ushort area, string? league, string? soloOwner = null)
+    private AreaInstanceState CreateLocked(ushort area, string? league, string? soloOwner = null, uint requested = 0)
     {
         bool town = IsTown(area);
-        // Towns use seed 1 (their layout is fixed anyway); other areas a random non-zero seed.
-        uint seed = town ? 1u : SeedFor?.Invoke(area) ?? (uint)Random.Shared.Next(1, int.MaxValue);
+        // Towns use seed 1 (their layout is fixed anyway); other areas the requested seed, else SeedFor's, else random.
+        uint seed = town ? 1u : requested != 0 ? requested : SeedFor?.Invoke(area) ?? (uint)Random.Shared.Next(1, int.MaxValue);
         var inst = new AreaInstanceState(_nextId++, area, town, seed, _clock.GetUtcNow(), LeagueKey(league), soloOwner);
         _instances[inst.Id] = inst;
         return inst;

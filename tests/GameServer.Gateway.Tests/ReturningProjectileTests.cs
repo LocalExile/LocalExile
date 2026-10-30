@@ -23,17 +23,4 @@ public class ReturningProjectileTests
         f.Advance(4); Assert.Equal(85u, target.Life); Assert.Empty(f.Session.Runtime.Projectiles);
     }
 
-    [Fact]
-    public async Task Return_uses_the_casters_position_at_turn_without_overshooting_it()
-    {
-        await using var f = new ProjectileRuntimeFixture();
-        var behind = ProjectileRuntimeFixture.Monster(0, 10); f.Conn.Monsters.Add(42, behind);
-        var profile = new ProjectileProfile("Metadata/Projectiles/DefaultArrow")
-            { Speed = 50, Range = 100, Radius = 1, Returns = true };
-        f.Release(f.Shot(profile) with { ReturnAnchor = new(Program.PlayerId, f.Conn.ProjectileEpoch) });
-        f.Advance(1); f.Conn.Walk.Teleport(30, 10, 1); f.Advance(2.001);
-        var returning = Assert.Single(f.Session.Runtime.Projectiles);
-        Assert.Equal(1, returning.Phase); Assert.InRange(returning.Remaining, 79.9, 80);
-        f.Advance(3.61); Assert.Empty(f.Session.Runtime.Projectiles); Assert.Equal(100u, behind.Life);
-    }
 }

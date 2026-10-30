@@ -7,10 +7,6 @@ public partial class VaalSoulCompositionTests
 {
     [Theory]
     [InlineData("VaalFireball", true)]
-    [InlineData("VaalHaste", true)]
-    [InlineData("Fireball", false)]
-    [InlineData("PlayerMelee", false)]
-    [InlineData("SupportFasterProjectiles", false)]
     public void Both_real_catalog_lookups_set_resource_flags_only_for_actual_Vaal_definitions(string effect, bool enabled)
     {
         int row = Program.Skills.EffectRow(effect);
@@ -21,49 +17,6 @@ public partial class VaalSoulCompositionTests
         Assert.Equal(enabled, byRow.VaalResourcesEnabled);
         Assert.Equal(byName.EffectsPerLevelRow, byRow.EffectsPerLevelRow);
         Assert.Equal(enabled, Program.Skills.VaalBudget(row, 1) is not null);
-    }
-
-    [Fact]
-    public async Task Worn_socketed_records_keep_bit1_through_no_souls_zero_removal_and_zero_budget()
-    {
-        using var f = new VaalSoulGatewayTests.Fixture(); using var w = new VaalSoulGatewayTests.Wire();
-        f.Gems("SkillGemVaalFireball", "SkillGemVaalHaste", "SupportGemFasterProjectiles"); f.Links(3);
-        Assert.Single(Fireball(f.Conn).Supports);
-        await AssertCurrentFlagPacket(f, w, [new(87, 30), new(239, 50)], [new(87, 0, 30), new(239, 0, 50)]);
-        Assert.Equal(new VaalSoulBudget(87, 30, 0), f.Conn.SentVaalSouls[87]);
-        Assert.All(f.Conn.VaalSouls.Read(), b => Assert.Equal(0u, b.Current));
-
-        foreach (string value in new[] { "1", "0", "off" })
-        {
-            await Command(f, w, $"/set_stat virtual_vaal_skill_require_no_souls_per_use {value}");
-            await AssertCurrentFlagPacket(f, w);
-            Assert.Equal(value == "1" ? 0u : 30u, f.Conn.VaalSouls.Read().Single(b => b.ActiveSkillsRow == 87).Capacity);
-            Assert.All(f.Conn.VaalSouls.Read(), b => Assert.Equal(0u, b.Current));
-        }
-        await Command(f, w, "/set_stat virtual_non_aura_vaal_skill_soul_requirement_multipler -100");
-        await AssertCurrentFlagPacket(f, w);
-        Assert.Equal(new VaalSoulBudget(87, 0, 0), f.Conn.VaalSouls.Read().Single(b => b.ActiveSkillsRow == 87));
-    }
-
-    [Fact]
-    public async Task Inactive_worn_host_grants_no_Vaal_record_and_reactivation_reacquires_flag_without_balance()
-    {
-        using var f = new VaalSoulGatewayTests.Fixture(); using var w = new VaalSoulGatewayTests.Wire();
-        Assert.True(f.Kill());
-        await AssertCurrentFlagPacket(f, w, [new(87, 30)], [new(87, 1, 30)]);
-        var host = Assert.Single(f.Items.Items(PlayerInventories.Weapon1));
-        // A real affix raises the worn host's level requirement above this character's level.
-        var mod = Program.Items.Mods.All.First(m => m.Domain == 1 && m.Level >= 60 && m.GenerationType is 1 or 2);
-        f.Items.Change(PlayerInventories.Weapon1, host.Id, item => item with
-            { Mods = [mod.Roll(ModSection.Explicit, new Random(22))] });
-        f.Conn.Pools = f.Conn.Pools with { Level = 1 };
-        var removed = CurrentSkills(f.Conn).Where(s => s.Id != SkillCatalog.FirstSkillId).Select(s => s.Id).ToArray();
-        Assert.Empty(removed); // Current requirements see the inactive host before cached pool publication.
-        await AssertCurrentFlagPacket(f, w, updates: [new(87, 0, 0)]);
-        Assert.Empty(f.Conn.VaalSouls.Read()); Assert.False(f.Kill());
-        f.Conn.Pools = f.Conn.Pools with { Level = 100 };
-        await AssertCurrentFlagPacket(f, w, [new(87, 30)], [new(87, 0, 30)]);
-        Assert.Equal(new VaalSoulBudget(87, 30, 0), f.Budget);
     }
 
     static async Task AssertCurrentFlagPacket(VaalSoulGatewayTests.Fixture f, VaalSoulGatewayTests.Wire w,

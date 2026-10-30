@@ -15,10 +15,16 @@ sealed class SkillGemFamilies(string folder = "data")
 {
     readonly Lazy<Dictionary<int, HashSet<int>>> _members = new(() => Load(folder));
 
+    // A family keyed by no stat row: the gems carrying the GemTags "exceptional" tag (Empower, Enlighten, ...).
+    const int ExceptionalFamily = -1;
+
     /// <summary>Whether the Stats.dat row raises this gem's level: the gem's SkillGems row (the base item type's row)
     /// is in the stat's family. Unknown stats and rows are in no family.</summary>
     public bool Raises(int statRow, int gemRow) =>
         gemRow >= 0 && _members.Value.TryGetValue(statRow, out var rows) && rows.Contains(gemRow);
+
+    /// <summary>Whether the gem (its base item type's row) carries the Exceptional tag.</summary>
+    public bool IsExceptional(int gemRow) => Raises(ExceptionalFamily, gemRow);
 
     // A Stats.dat row -> the base item type rows of the gems it raises: those whose MinionGlobalSkillLevelStat is the
     // stat, and those with a variant whose GemTags row carries the stat in its Stat1..Stat4 columns.
@@ -38,6 +44,7 @@ sealed class SkillGemFamilies(string folder = "data")
         foreach (var t in tags.RootElement.EnumerateArray())
         {
             int[] stats = [.. new[] { Int(t, "Stat1"), Int(t, "Stat2"), Int(t, "Stat3"), Int(t, "Stat4") }.Where(s => s >= 0).Distinct()];
+            if (t.TryGetProperty("Id", out var id) && id.GetString() == "exceptional") stats = [ExceptionalFamily];
             if (stats.Length > 0) tagStats[row] = stats;
             row++;
         }

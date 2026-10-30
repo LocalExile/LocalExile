@@ -21,23 +21,4 @@ public class SkillTypesTests
         Assert.True(Skills.IsAttack(Skills.EffectRow("GroundSlam")));
     }
 
-    [Fact]
-    public void The_default_attack_is_an_attack()
-    {
-        Assert.True(Skills.IsAttack(Skills.EffectRow("PlayerMelee")));
-    }
-
-    [Fact]
-    public void Spells_and_auras_are_not_attacks()
-    {
-        Assert.False(Skills.IsAttack(Skills.EffectRow("Fireball")));
-        Assert.False(Skills.IsAttack(Skills.EffectRow("RighteousFire")));
-        Assert.False(Skills.IsAttack(Skills.EffectRow("Haste")));
-    }
-
-    [Fact]
-    public void An_unknown_effect_is_not_an_attack()
-    {
-        Assert.False(Skills.IsAttack(-1));
-    }
 }

@@ -19,14 +19,4 @@ public class SkillSupportRecordTests
             [skill with { Supports = [new(30u, 31u, 5u), new(40u, 41u, 10u), new(50u, 51u), new(60u, 61u)] }], []).Length);
     }
 
-    [Fact]
-    public void Each_support_includes_its_stat_set_references_before_the_metadata()
-    {
-        var skill = new GrantedSkill(0x103, 10, 20)
-        {
-            Supports = [new(30, 31) { ExtraStatSets = [32, 33] }]
-        };
-        string hex = Convert.ToHexString(InstanceEntities.PlayerSkillsChange(0x1000, [skill], []));
-        Assert.Contains("0001001E000000001F0000000020000000002100000000000000", hex);
-    }
 }

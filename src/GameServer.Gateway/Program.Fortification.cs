@@ -134,7 +134,7 @@ partial class Program
     internal static Task SendFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () =>
         {
-            lock (conn.Monsters)
+            using (conn.Performance.Lock(conn.Monsters, "fortification"))
             {
                 if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
                 var session = FortificationOf(conn);

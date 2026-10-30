@@ -15,11 +15,13 @@ static class ProjectileGrid
 
     static readonly ConcurrentDictionary<string, Grid?> Loaded = new();
 
-    /// <summary>Whether a cell stops projectiles (cells off the grid do), or null without a capture.</summary>
+    /// <summary>Whether a cell stops projectiles (cells off the grid do), or null without a capture or a level the
+    /// Gateway generates itself (ServerLevels).</summary>
     public static bool? Blocks(string areaId, uint seed, int x, int y)
     {
-        if (Loaded.GetOrAdd($"{areaId}_seed{seed}", Load) is not { } g) return null;
-        return x < 0 || y < 0 || x >= g.W || y >= g.H || g.Cells[y * g.W + x] == 0;
+        if (Loaded.GetOrAdd($"{areaId}_seed{seed}", Load) is { } g) return x < 0 || y < 0 || x >= g.W || y >= g.H || g.Cells[y * g.W + x] == 0;
+        if (ServerLevels.For(areaId, seed) is not { } level) return null;
+        return x < 0 || y < 0 || x >= level.Width || y >= level.Height || level.Projectile[y * level.Width + x] == 0;
     }
 
     static Grid? Load(string stem)

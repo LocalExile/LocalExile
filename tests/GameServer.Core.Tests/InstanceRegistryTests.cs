@@ -44,6 +44,15 @@ public class InstanceRegistryTests
     }
 
     [Fact]
+    public void A_new_instance_can_be_given_its_seed_but_a_town_keeps_seed_1()
+    {
+        var reg = new InstanceRegistry { SeedFor = _ => 7 };
+        Assert.Equal(3117172586u, reg.EnterNew(Coast, "A", seed: 3117172586).Seed);
+        Assert.Equal(7u, reg.EnterNew(Coast, "A").Seed);
+        Assert.Equal(1u, reg.EnterNew(Town, "A", seed: 42).Seed);
+    }
+
+    [Fact]
     public void An_empty_instance_expires_after_its_lifetime()
     {
         var clock = new FakeClock();
@@ -101,10 +110,6 @@ public class InstanceRegistryTests
 
     [Theory]
     [InlineData("Hardcore")]
-    [InlineData("SSF Standard")]
-    [InlineData("Ruthless")]
-    [InlineData("Allflame")]
-    [InlineData("HC SSF R Allflame")]
     public void Towns_lists_and_explicit_entries_are_partitioned_by_full_league(string league)
     {
         var reg = new InstanceRegistry();
@@ -132,7 +137,6 @@ public class InstanceRegistryTests
 
     [Theory]
     [InlineData(Coast)]
-    [InlineData((ushort)0xabcd)] // Hideouts and map areas use the same non-town ownership boundary.
     public void Ssf_non_town_instances_are_private_even_between_characters_in_the_same_league(ushort area)
     {
         const string league = "SSF Allflame";

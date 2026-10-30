@@ -25,7 +25,7 @@ partial class Program
     static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         Func<byte[]> packet, string? label) => Send(remote, stream, ciphers, [], label, atGate: () =>
         {
-            lock (conn.Monsters)
+            using (conn.Performance.Lock(conn.Monsters, "stats"))
             {
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
                 return WithOwnAuraChanges(conn, packet);

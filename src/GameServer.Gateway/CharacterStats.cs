@@ -28,7 +28,7 @@ static class CharacterStats
         int SpellSuppressionWhileFullLife = 0, int SpellSuppressionWhileMoving = 0, int SpellSuppressionIfHitRecently = 0,
         int MovementVelocityPct = 0, int BlockChance = 0, int SpellBlockChance = 0,
         int BlockChanceMax = DamageModel.DefaultMaxBlockChance, int SpellBlockChanceMax = DamageModel.DefaultMaxSpellBlockChance,
-        int BlockChanceBase = 0, int BlockChanceUncapped = 0,
+        int BlockChanceBase = 0, int BlockChanceUncapped = 0, int SpellBlockChanceUncapped = 0,
         int SpellBlockPer5AttackBlock = 0, int LifeGainedOnBlock = 0, int ManaGainedOnBlock = 0,
         bool VersatileCombatant = false, bool AttackBlockLucky = false, bool SpellBlockLucky = false,
         bool AttackBlockUnlucky = false, bool SpellBlockUnlucky = false,
@@ -96,9 +96,13 @@ static class CharacterStats
     public const int BaseResistance = 0;
 
     /// <summary>Strength, dexterity and intelligence from attribute stats: the single ones, all attributes and the
-    /// pairs, each in its base_ and additional_ form.</summary>
+    /// pairs, each in its base_ and additional_ form, then the percentage modifiers (individual and all-attributes)
+    /// applied to the summed flat value.</summary>
     public static (int Strength, int Dexterity, int Intelligence) Attributes(Func<string, int> get)
         => AttributeModifiers.From(get).Flat;
+
+    static int Percent(int value, int percent) =>
+        percent == 0 ? value : (int)Math.Floor(value * (100 + percent) / 100.0);
 
     /// <summary>Spell Suppression chance with the conditional passives whose condition holds now (on full life, moving,
     /// hit an enemy recently), capped at 100%. Energy shield is not modelled, so its full-ES stat is not counted.</summary>
@@ -199,6 +203,7 @@ static class CharacterStats
             MovementVelocityPct: b.MovementVelocityPct,
             BlockChance: b.BlockChance, SpellBlockChance: b.SpellBlockChance,
             BlockChanceMax: maxBlock, SpellBlockChanceMax: maxSpellBlock, BlockChanceUncapped: b.BlockChance,
+            SpellBlockChanceUncapped: b.SpellBlockChance,
             SpellBlockPer5AttackBlock: b.SpellBlockPer5AttackBlock, LifeGainedOnBlock: b.LifeGainedOnBlock,
             ManaGainedOnBlock: b.ManaGainedOnBlock, VersatileCombatant: b.VersatileCombatant,
             AttackBlockLucky: b.AttackBlockLucky, SpellBlockLucky: b.SpellBlockLucky,

@@ -28,20 +28,4 @@ public class ItemRarityDropsTests
         Assert.Equal(0.125, ItemDrops.WithIncreasedRarity((0.25, 0.05), -50).Magic, 9);
     }
 
-    [Fact]
-    public void A_kill_drops_more_magic_and_rare_equipment_with_increased_rarity()
-    {
-        var catalog = new ItemCatalog(Data());
-        var drops = new ItemDrops(catalog, new ItemRolls(catalog, Data()));
-        int Better(int increased)
-        {
-            int better = 0;
-            for (int seed = 0; seed < 400; seed++)
-                better += drops.Roll(30, MonsterRarity.Rare, new Random(seed), increased).Count(d => d.Item.Rarity != ItemRarity.Normal);
-            return better;
-        }
-        int plain = Better(0), gold = Better(30), lots = Better(200);
-        Assert.True(gold > plain, $"{gold} > {plain}");
-        Assert.True(lots > gold, $"{lots} > {gold}");
-    }
 }

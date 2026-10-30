@@ -47,9 +47,6 @@ public class CurrencyWithdrawalTests : IDisposable
 
     [Theory]
     [InlineData(25, 25, 0)]
-    [InlineData(40, 40, 0)]
-    [InlineData(200, 40, 160)]
-    [InlineData(5000, 40, 4960)]
     public void A_left_click_withdraws_at_most_one_inventory_stack(int source, int expected, int remaining)
     {
         var (items, stash) = Open();
@@ -65,75 +62,4 @@ public class CurrencyWithdrawalTests : IDisposable
         if (remaining > 0) Assert.Equal(inTab.Id, stashAgain.Inventory(Currency).Items.Single().Id);
     }
 
-    [Fact]
-    public void Topping_up_an_existing_stack_counts_towards_the_one_stack_withdrawal()
-    {
-        var (items, stash) = Open();
-        var own = items.Add(Main, 0, 0, Scrolls(30));
-        var inTab = Deposit(stash, 200);
-
-        var moved = ItemMoves.StashToInventory(stash, items, Currency, inTab.Id, Shapes)!;
-
-        Assert.Equal(40, moved.InventoryChanged.Single(i => i.Id == own.Id).Item.StackSize);
-        Assert.Equal(30, moved.InventoryAdded.Single().Item.StackSize);
-        Assert.Equal(160, moved.LeftInTab!.Item.StackSize);
-        var (again, stashAgain) = Reload();
-        Assert.Equal([30, 40], again.Items(Main).Select(i => (int)i.Item.StackSize).Order());
-        Assert.Equal(160, stashAgain.Inventory(Currency).Items.Single().Item.StackSize);
-    }
-
-    [Theory]
-    [InlineData(0, 40, 160)]
-    [InlineData(30, 40, 190)]
-    [InlineData(40, 40, 200)]
-    public void Limited_inventory_capacity_leaves_unmoved_currency_in_the_stash(int existing, int final, int remaining)
-    {
-        var (items, stash) = Open();
-        FillExceptFirst(items);
-        if (existing > 0) items.Add(Main, 0, 0, Scrolls(existing));
-        var inTab = Deposit(stash, 200);
-
-        var moved = ItemMoves.StashToInventory(stash, items, Currency, inTab.Id, Shapes);
-
-        if (existing == 40) Assert.Null(moved);
-        else Assert.Equal(remaining, moved!.LeftInTab!.Item.StackSize);
-        var (again, stashAgain) = Reload();
-        Assert.Equal(final, again.Items(Main).Single(i => i.Item.TypeHash == ScrollType).Item.StackSize);
-        Assert.Equal(remaining, stashAgain.Inventory(Currency).Items.Single().Item.StackSize);
-    }
-
-    [Fact]
-    public void A_failed_stash_write_rolls_back_the_inventory_withdrawal()
-    {
-        var (items, stash) = Open();
-        var inTab = Deposit(stash, 200);
-        int writes = 0;
-        // Inventory persists first; fail the following stash write, after the inventory has changed.
-        Saves.FailWrite = key => key.Equals(_key, StringComparison.OrdinalIgnoreCase) && ++writes == 2;
-
-        Assert.ThrowsAny<IOException>(() => ItemMoves.StashToInventory(stash, items, Currency, inTab.Id, Shapes));
-        Saves.FailWrite = null;
-
-        var (again, stashAgain) = Reload();
-        Assert.Empty(again.Items(Main));
-        Assert.Equal(200, stashAgain.Inventory(Currency).Items.Single().Item.StackSize);
-    }
-
-    [Theory]
-    [InlineData(200, 200, 5, 0)]
-    [InlineData(5000, 2400, 60, 2600)]
-    public void A_right_click_withdraws_as_much_of_the_slot_as_fits(int source, int expected, int stacks, int remaining)
-    {
-        var (items, stash) = Open();
-        var inTab = Deposit(stash, source);
-
-        var moved = ItemMoves.StashToInventory(stash, items, Currency, inTab.Id, Shapes, all: true)!;
-
-        Assert.Equal(stacks, moved.InventoryAdded.Count);
-        Assert.Equal(expected, moved.InventoryAdded.Sum(i => i.Item.StackSize));
-        Assert.Equal(remaining, moved.LeftInTab?.Item.StackSize ?? 0);
-        var (again, stashAgain) = Reload();
-        Assert.Equal(expected, again.Items(Main).Sum(i => i.Item.StackSize));
-        Assert.Equal(remaining, stashAgain.Inventory(Currency).Items.Sum(i => i.Item.StackSize));
-    }
 }

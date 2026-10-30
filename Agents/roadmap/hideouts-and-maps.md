@@ -29,9 +29,10 @@ bench.
 
 - **Known:** the 3.29 rules and the 20 generic map bases (`MapKeyTier1` … `MapKeyTier16` and four special ones) are in
   [game/maps.md](../docs/game/maps.md).
-  The map device and Nessa's shop use the older area-named maps (Beach Map).
-- **Start:** the Atlas panel's messages and how it stores progress; the map stash tab's layout (18 §7);
-  maps from the generic bases on the layout picked on the Atlas; drops by tier.
+  Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
+  are implemented; see Status. The native Atlas panel/progress and the map stash are not.
+- **Start:** Atlas saved progress, passives and Voidstones; the map stash tab's layout (18 A5); map-tier area levels and
+  the official drop pools.
 - **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
 
 ### Hideouts: decorations, editing and the map device

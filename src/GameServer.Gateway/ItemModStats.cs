@@ -21,7 +21,7 @@ static class ItemModStats
         var attributes = new Dictionary<string, long>();
         foreach (var (id, value) in Values(items, mods, local))
             if (AttributeModifiers.IsInput(id)) attributes[id] = attributes.GetValueOrDefault(id) + value;
-            else sum[id] = ActorScale.Add(id, sum.GetValueOrDefault(id), value);
+            else sum[id] = ArcaneMight.Combine(id, sum.GetValueOrDefault(id), value);
         // This int API is a bounded view for existing stat consumers, not an attribute calculation source.
         foreach (var (id, value) in attributes) sum[id] = AttributeModifiers.Signed(value);
         return sum;
@@ -150,7 +150,7 @@ static class ItemModStats
     public static Dictionary<uint, int> Plus(Dictionary<uint, int> a, Dictionary<uint, int> b)
     {
         var sum = new Dictionary<uint, int>(a);
-        foreach (var (k, v) in b) sum[k] = ActorScale.Add(k, sum.GetValueOrDefault(k), v);
+        foreach (var (k, v) in b) sum[k] = ArcaneMight.Combine(k, sum.GetValueOrDefault(k), v);
         return sum;
     }
 }

@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -152,6 +152,19 @@ public class ChargeGainsTests
         Assert.Equal([new ChargeGains.Gain(ChargeType.Endurance, 2, "gain_endurance_charge_per_second_if_have_been_hit_recently")],
             timers.Advance(0.4, get, hitRecently: true, false, rng).Where(g => g.Type == ChargeType.Endurance));
         Assert.Equal(0, rng.Asked);
+    }
+
+    [Fact]
+    public void A_negative_charge_per_second_stat_loses_one_charge()
+    {
+        // Replica Fragility, Replica Pacifism and Replica Powerlessness store -1 in the stat: the tooltip has no
+        // number ("Lose an Endurance Charge each second"), so the count is negative and takes a charge away.
+        var timers = new ChargeGains.Timers();
+        var get = Stats(("gain_X_endurance_charges_per_second", -1), ("gain_X_power_charges_per_second", -1));
+        var gains = timers.Advance(1.0, get, hitRecently: false, moving: false, new ScriptedRandom());
+        Assert.Equal([new ChargeGains.Gain(ChargeType.Endurance, -1, "gain_X_endurance_charges_per_second"),
+            new ChargeGains.Gain(ChargeType.Power, -1, "gain_X_power_charges_per_second")], gains);
+        Assert.Equal(2, timers.Advance(1.0, get, false, false, new ScriptedRandom()).Count);
     }
 
     [Fact]

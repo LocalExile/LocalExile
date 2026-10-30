@@ -14,8 +14,21 @@ partial class Program
         Console.WriteLine($"[gateway] {remote} <= 0x0024 {device.Name} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId),
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.HideoutMapDeviceUi, use.TargetId),
             "0x007b open the map device window", still: () => PlayerActionCurrent(conn, action));
+    }
+
+    // C→S 0x00e7: an Atlas map node picked in the hideout map device (u16 WorldAreas HASH16, u8). The layout becomes
+    // what the next generic map key opens.
+    static async Task SelectAtlasMap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Area, byte Mode) picked)
+    {
+        var layout = MapDevices.Value.Atlas?.ByHash16(picked.Area);
+        if (layout is not null && CharacterName(conn) is { } character)
+        {
+            MapDevices.Value.Atlas!.Select(character, layout);
+            Console.WriteLine($"[gateway] {remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} selected: {layout.Name} ({layout.Id}), mode 0x{picked.Mode:x2}");
+        }
+        else Console.WriteLine($"[gateway] {remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} (mode 0x{picked.Mode:x2}) is not a known layout");
     }
 
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): every slot must hold a map or a map fragment, and
@@ -32,7 +45,7 @@ partial class Program
         Task Tell(string text) => Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         if (device is null) { await Tell("There is no Map Device here."); return; }
         var area = MapDevices.Value.Check([.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
-            ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name) : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}"))], out string why);
+            ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name) : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}"))], CharacterName(conn), out string why);
         if (area is null)
         {
             Console.WriteLine($"[gateway] {remote} map device not activated: {why}");

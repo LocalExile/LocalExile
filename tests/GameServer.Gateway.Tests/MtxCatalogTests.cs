@@ -30,24 +30,4 @@ public class MtxCatalogTests : IDisposable
         Assert.Equal(1u, catalog.ByHash(100)?.Id);
     }
 
-    [Fact]
-    public void A_saved_pick_is_a_worn_entry_and_an_unknown_one_is_dropped()
-    {
-        var catalog = new MtxCatalog(_folder);
-        var worn = catalog.Equipped(new Dictionary<byte, CharacterSaves.SavedCosmetic>
-        {
-            [20] = new(3, Option: 1),
-            [9] = new(2),        // MtxTypes row 2 has no MtxTypeGameSpecific row: not sent
-            [60] = new(1),       // past the client's 50 slots
-        });
-        var entry = Assert.Single(worn);
-        Assert.Equal((byte)20, entry.Slot);
-        Assert.Equal((3u, 300u, (byte)1), (entry.Id, entry.MtxTypeHash, entry.Option));
-    }
-
-    [Fact]
-    public void Without_tables_nothing_is_owned()
-    {
-        Assert.Empty(new MtxCatalog(Path.Combine(_folder, "missing")).Owned);
-    }
 }

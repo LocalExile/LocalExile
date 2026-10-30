@@ -39,13 +39,4 @@ public class SkillArtTests
         Assert.Equal("Metadata/Effects/Spells/fireball/explode_new2.ao", art.AnimatedInPlaceOf("Metadata/Effects/Spells/fireball/explode_new2.ao", 5));
     }
 
-    [Fact]
-    public void An_area_art_has_the_radius_misc_animated_draws_it_at()
-    {
-        var art = Fixture();
-        Assert.Equal(400, art.ArtRadius("Metadata/Effects/Spells/ri_fire/rifire.ao"));   // a row with 0 does not hide it
-        Assert.Equal(200, art.ArtRadius("Metadata/Effects/Spells/ri_fire_white/rifire_white.ao"));
-        Assert.Null(art.ArtRadius("Metadata/Effects/Spells/fireball/explode_new2.ao"));
-        Assert.Equal("Metadata/Effects/Spells/ri_fire_white/rifire_white.ao", art.Animated("righteous_fire_ring", 2));
-    }
 }

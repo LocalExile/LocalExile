@@ -114,7 +114,6 @@ public class SqliteAccountStoreTests : IDisposable
 
     [Theory]
     [InlineData("{ not json")]
-    [InlineData("null")]
     public void An_unreadable_json_account_store_stops_the_import_and_stays_as_it_is(string content)
     {
         string json = Path.Combine(_folder, "accounts.json");

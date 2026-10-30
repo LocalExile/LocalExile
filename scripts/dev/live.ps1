@@ -1,12 +1,15 @@
 # One run against the official client (see Agents/GettingStarted.md):
 #   checks the one-time setup, stops anything on the dev ports and the patched client, builds Auth, Patch and Gateway,
 #   starts all three (logs in logs/live-*.log) and launches Client/Game.patched.exe through the local patching server.
+#   The previous run's logs move to logs/archive/<time>/ (the newest 10 full runs are kept), and the Gateway writes each
+#   connection's last packets to logs/packets/ when it closes (Game_PACKET_DUMPS; scripts/dev/bugreport.ps1 bundles both).
 #   -NoClient   keep a running client (it drops to the login screen; log in again)
 #   -NoBuild    skip the builds
 #   -NoExtract  skip scripts/dev/extract-data.ps1, which otherwise first extracts any missing or outdated game data into
 #               data/ (a quick check when nothing is missing)
 #   -Walkmaps   also run scripts/walkmaps/walkmaps.py (needs Python + `pip install frida`): captures the walk map of every
-#               area the client generates into data/walkability/
+#               area the client generates into data/walkability/, and lets the Gateway announce each load to it and run
+#               capture tours (Game_WALKMAPS=1). Without it nothing is recorded.
 #   -Only Gateway[,Auth,Patch]   rebuild and restart only these servers; the others and the client keep running (implies
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
@@ -92,7 +95,8 @@ if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
 # Without this the Gateway stops after creating the player and the client never enters the area.
 if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
 
-$ports = @{ Auth = @(20493); Patch = @(12995, 8080); Gateway = @(6112) }
+$patchWebPort = if ($env:Game_PATCH_URL -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
+$ports = @{ Auth = @(20493); Patch = @(12995, $patchWebPort); Gateway = @(6112) }
 
 if (-not $NoClient) { Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force }
 if (-not $Only) {
@@ -108,10 +112,27 @@ foreach ($port in ($servers | ForEach-Object { $ports[$_] })) {
     }
 }
 Start-Sleep -Milliseconds 500
-foreach ($s in $servers) {
-    Remove-Item (Join-Path $out "live-$($s.ToLower()).log"), (Join-Path $out "live-$($s.ToLower()).err") -ErrorAction SilentlyContinue
+# The previous run's logs move to logs\archive\<time>\ instead of being deleted: a crash noticed only after the
+# restart still has its log. Empty files go. A -Only restart's folder is <time>-<servers>; the newest 10 full runs and
+# the newest 20 restarts are kept, so restarting the Gateway while debugging does not push the full runs out.
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+if ($Only) { $stamp += '-' + (($Only | ForEach-Object { $_.ToLower() }) -join '-') }
+$archive = Join-Path (Join-Path $out 'archive') $stamp
+$previous = @($servers | ForEach-Object { "live-$($_.ToLower()).log", "live-$($_.ToLower()).err" })
+if (-not $Only) { $previous += 'walkmaps.log', 'walkmaps.err' }
+foreach ($name in $previous) {
+    $path = Join-Path $out $name
+    if (-not (Test-Path $path)) { continue }
+    if ((Get-Item $path).Length -gt 0) {
+        New-Item -ItemType Directory -Force $archive | Out-Null
+        Move-Item $path $archive -Force -ErrorAction SilentlyContinue
+    }
+    Remove-Item $path -ErrorAction SilentlyContinue
 }
-if (-not $Only) { Remove-Item (Join-Path $out 'walkmaps.*') -ErrorAction SilentlyContinue }
+$runs = @(Get-ChildItem (Join-Path $out 'archive') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+@($runs | Where-Object { $_.Name -match '^\d{8}-\d{6}$' } | Select-Object -Skip 10) +
+    @($runs | Where-Object { $_.Name -notmatch '^\d{8}-\d{6}$' } | Select-Object -Skip 20) |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 if (-not $NoBuild) {
     foreach ($s in $servers) {
@@ -131,18 +152,27 @@ function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [strin
 }
 
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
+# The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
+$env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
 # Select the local Auth explicitly before the patch server or client opens the GGPK.
 if (-not $NoClient) {
     Select-LocalGateway
 }
 
-foreach ($s in 'Patch', 'Gateway', 'Auth') {
-    if ($servers -notcontains $s) { continue }
-    Need-ServerAssembly $s
-    Start-Detached 'dotnet' (@((Server-Assembly $s)) + $serverArgs[$s]) `
-        (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
+# Each connection's last packets go to a file when it closes (PacketHistory): the lead for a client crash. Relative to
+# the servers' working directory (the runtime directory), and only for them: the shell keeps its own value (0 turns it off).
+$dumpsBefore = $env:Game_PACKET_DUMPS
+if (-not $env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS = 'logs\packets' }
+try {
+    foreach ($s in 'Patch', 'Gateway', 'Auth') {
+        if ($servers -notcontains $s) { continue }
+        Need-ServerAssembly $s
+        Start-Detached 'dotnet' (@((Server-Assembly $s)) + $serverArgs[$s]) `
+            (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
+    }
 }
+finally { $env:Game_PACKET_DUMPS = $dumpsBefore }
 
 # The patch server must read the GGPK root hash before the client locks the file.
 if ($servers -contains 'Patch') {

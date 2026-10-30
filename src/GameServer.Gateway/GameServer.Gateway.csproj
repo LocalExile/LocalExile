@@ -2,9 +2,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GameServer.Core\GameServer.Core.csproj" />
+    <ProjectReference Include="..\GameServer.Storage\GameServer.Storage.csproj" />
+    <!-- The game files and the level generator port (ServerLevels.cs). -->
     <ProjectReference Include="..\GameServer.Data\GameServer.Data.csproj" />
     <Compile Include="..\..\scripts\re\ggdump\NodeOodleDecoder.cs" Link="NodeOodleDecoder.cs" />
-    <ProjectReference Include="..\GameServer.Storage\GameServer.Storage.csproj" />
   </ItemGroup>
 
   <!-- The Gateway's types are internal (top-level program); its tests reach them. -->

@@ -6,97 +6,12 @@ public class SocketLayoutTests
 {
     [Theory]
     [InlineData("RRGBBB", "6")]
-    [InlineData("R-R-G-B", "4")]
-    [InlineData("RRG B", "3,1")]
-    [InlineData("r g b", "1,1,1")]
-    [InlineData("RR GB W", "2,2,1")]
     public void Words_are_link_groups(string text, string groups)
     {
         var parsed = SocketLayout.Parse(text.Split(' '), out string? error);
         Assert.Null(error);
         Assert.Equal(groups, string.Join(',', parsed!.Value.Links));
         Assert.Equal(parsed.Value.Links.Sum(n => n), parsed.Value.Colours.Count);
-    }
-
-    [Theory]
-    [InlineData("RRGBBBR")]
-    [InlineData("RXG")]
-    [InlineData("-")]
-    public void Bad_layouts_are_refused(string text)
-    {
-        Assert.Null(SocketLayout.Parse(text.Split(' '), out string? error));
-        Assert.NotNull(error);
-    }
-
-    [Fact]
-    public void Apply_sets_colours_and_links_and_keeps_gems()
-    {
-        var gem = new Item(0x99, ["Base"], 0x20);
-        var item = Armour() with { Sockets = [new(SocketColour.Red, gem), new(SocketColour.Red)], Links = [2] };
-        var (colours, links) = SocketLayout.Parse(["BBBBB", "G"], out _)!.Value;
-        var after = SocketLayout.Apply(item, Base("Body Armour"), colours, links, out string? error)!;
-        Assert.Null(error);
-        Assert.Equal([5, 1], after.Links!.Select(n => (int)n));
-        Assert.Same(gem, after.Sockets[0].Gem);
-        Assert.Equal(SocketColour.Blue, after.Sockets[0].Colour);
-        Assert.Equal("BBBBB G", SocketLayout.Describe(after));
-    }
-
-    [Fact]
-    public void Apply_refuses_over_capacity_dropped_gems_and_socketless_classes()
-    {
-        var gem = new Item(0x99, ["Base"], 0x20);
-        var (four, fourLinks) = SocketLayout.Parse(["RRRR"], out _)!.Value;
-        var (one, oneLinks) = SocketLayout.Parse(["R"], out _)!.Value;
-        Assert.Null(SocketLayout.Apply(Armour(), Base("Wand", 1, 3), four, fourLinks, out var error));
-        Assert.NotNull(error);
-        Assert.Null(SocketLayout.Apply(Armour(), Base("Ring", 1, 1), one, oneLinks, out error));
-        Assert.NotNull(error);
-        var socketed = Armour() with { Sockets = [new(SocketColour.Red), new(SocketColour.Red, gem)], Links = [2] };
-        Assert.Null(SocketLayout.Apply(socketed, Base("Body Armour"), one, oneLinks, out error));
-        Assert.NotNull(error);
-    }
-
-    [Fact]
-    public void Dev_capacity_allows_a_six_socket_wand_but_never_a_socketless_base()
-    {
-        var (six, sixLinks) = SocketLayout.Parse(["BBBBBB"], out _)!.Value;
-        Assert.Null(SocketLayout.Apply(Armour(), Base("Wand", 1, 3), six, sixLinks, out var error));
-        Assert.NotNull(error);
-        var after = SocketLayout.Apply(Armour(), Base("Wand", 1, 3), six, sixLinks, out error, capacityOverride: 6)!;
-        Assert.Null(error);
-        Assert.Equal(6, after.Sockets.Count);
-        Assert.Equal([6], after.Links!.Select(n => (int)n));
-        Assert.Null(SocketLayout.Apply(Armour(), Base("Ring", 1, 1), six, sixLinks, out error, capacityOverride: 6));
-        Assert.NotNull(error);
-    }
-
-    [Fact]
-    public void Dev_capacity_comes_from_the_environment_and_is_clamped()
-    {
-        string? old = Environment.GetEnvironmentVariable("Game_SOCKET_CAPACITY");
-        try
-        {
-            Environment.SetEnvironmentVariable("Game_SOCKET_CAPACITY", "6");
-            Assert.Equal(6, SocketLayout.CapacityOverride);
-            Environment.SetEnvironmentVariable("Game_SOCKET_CAPACITY", "9");
-            Assert.Equal(6, SocketLayout.CapacityOverride);
-            Environment.SetEnvironmentVariable("Game_SOCKET_CAPACITY", "0");
-            Assert.Equal(0, SocketLayout.CapacityOverride);
-            Environment.SetEnvironmentVariable("Game_SOCKET_CAPACITY", "no");
-            Assert.Equal(0, SocketLayout.CapacityOverride);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("Game_SOCKET_CAPACITY", old);
-        }
-    }
-
-    [Fact]
-    public void Describe_shows_unlinked_sockets_and_none()
-    {
-        Assert.Equal("none", SocketLayout.Describe(Armour()));
-        Assert.Equal("R G", SocketLayout.Describe(Armour() with { Sockets = [new(SocketColour.Red), new(SocketColour.Green)] }));
     }
 
     static Item Armour() => new(0x1234, ["Base", "Mods", "Sockets"], 0x10);

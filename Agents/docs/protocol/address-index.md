@@ -95,6 +95,7 @@ G = global / static data.
 | `0x1435dd8f8` (write `0x141fe04d0`, read `0x141fe0520`) | Cls | 0x2b9 create object |
 | `0x141f91f60` / `0x141f92000` | Fn | entity header write / read |
 | `0x141ebe190` | Fn | create object from blob |
+| `0x141ebdf30` | Fn | create a client-side object (id from the world): the client's own predicted projectiles ([11](11-skills.md#10-projectiles-experimental)) |
 | `0x141dea920` / `0x141ee00f0` | Fn | blob base data / tasks |
 | `0x142427510` | Fn | build components from the type |
 | `0x142475bd0`, `0x142476300`, `0x142476580` | Fn | `.ot` parser, extends, sections |
@@ -290,6 +291,8 @@ G = global / static data.
 | `0x1401ff190` | Fn | hideout panel shown or hidden by `0x14216c840` |
 | `0x1401fc880` | Fn | hideout panel (palette) constructor |
 | `0x142163420` case 5 | Fn | S→C 0x7b kind 5 → listeners at instance +0x1778 → `0x140dcd9a0` |
+| `0x142163420` case 0x2b | Fn | S→C 0x7b kind 0x2b (HideoutMapDeviceScreen) → listeners at instance +0x2278; opens the Atlas map device |
+| `0x00e7` | C→S | Atlas map node picked: u16 BE WorldAreas HASH16, u8 0x0d (21-hideouts.md §4) |
 | `0x140dcd9a0` / `0x140dce1f0` / `0x140dce290` | Fn | open the map device window (modes 0xd, 0x5e, 0x56; lists +0x1778, +0x17f8, +0x1878) |
 | `0x140c2a1c0` | Fn | map device window: Activate button (mode 0xd → `0x142166480`, mode 0x5e → C→S 0x296) |
 | `0x142166480` | Fn | C→S 0x00d8 Activate: u16 (target +0x7b), u8 (writer class `0x1435bff20`) |
@@ -452,10 +455,23 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x140221fd0` | Fn | mini life bar: visible? |
 | `0x141e8cf10` | Fn | Actor: start (queue) an action |
 | `0x141e8e060` | Fn | Actor: per-frame runner of the queued action |
+| `0x141e8d3d0` | Fn | Fresh local action sequence from Actor `+0x21a + 1` |
+| `0x141e8e92b..0x141e8e932` | Code | Action start: copy u16 sequence `+0x11a` to Actor RNG seed `+0x21c` |
+| `0x141ba3104..0x141ba3115` | Code | Animation seed: zero-extended action sequence plus intrinsic repeat count |
+| `0x141b6eb70` | Fn | Melee ctor: `attack_repeat_count` (stat 0x4eb) becomes action `+0x2d0` |
+| `0x1419e3960` | Fn | Melee completion: decrement intrinsic repeat count; previous zero ends action |
+| `0x140e0bec0` | Fn | Animation RNG initializer: literal uint32 recurrence and eight warm-up steps |
+| `0x140484fe0` | Fn | Native animation RNG next word: state transition and tempering |
+| `0x140484fa0` | Fn | Native bounded RNG draw: rejection sampling; bound one consumes no word |
+| `0x141e98c40` | Fn | Speed-based ACT animation eligibility and weighted reservoir selection |
+| `0x141e991e0` | Fn | Duration-based ACT animation eligibility and weighted reservoir selection |
 | `0x141fde9d0` | Fn | 0x1d1/0x1d2 reader: duration float, Animation.dat type byte, boolean |
 | `0x141e95e60` | Fn | 0x1d1 Actor animation: cancel prediction, select stance ACT, lock input during recovery |
+| `0x1421949c3` | Code | Actor 0x1d1 dispatch to virtual `+0xe0` recovery handler |
+| `0x141e8d900` | Fn | Action-start gate: Actor `+0x219` bit 2 blocks input during recovery |
 | `0x141e90740` | Fn | End local predicted action (Actor +0x1b8) |
 | `0x141e934b0` | Fn | End Actor animation recovery; clear +0x219 bit 2 and resume queued/idle actions |
+| `0x141e58ef0` | Fn | Generic Animated message handler: 0x1b2 kind zero plays a rig clip |
 | `0x141dba530` | Fn | Play(controller, resource pair, index in r8d, speed); main state at controller +0x180 |
 | `0x141938830` | Fn | Melee action begin = skill_is_non_pathing |
 | `0x14219f820` | Fn | S→C 0x55 death screen read |
@@ -467,6 +483,7 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x14319d870` | VT | skill bar UI (13 slots; `0x140ae04b0` subscribes it to instance +0xaf78 and +0xad78) |
 | `0x140ae0fb0` | Fn | skill bar vtable +0x390: rebuild from 13 skill ids (lookup in ActiveSkillManager +0x158, slot set +0x398, clear +0x3a0) |
 | `0x1435a0d10` | VT | Projectile component (0x20 bytes; slot 17 reads nothing, almost every slot a `ret`) |
+| `0x141e37850` | Fn | Projectile component constructor (writes `0x1435a0d10`) |
 | `0x141e30c90` | Fn | Positioned message handler: 0x1b7 teleport, 0x1b8, 0x1b9, 0x1ba move (height u32 +0x28, speed f32 +0x2c), 0x1bc |
 | `0x1419e7660` / `0x1419eef50` | Fn | Spell duration: virtual base milliseconds / 1000 / (1 + cast speed / 100) |
 | `0x1419e7500` / `0x1419e763c` | Fn / Code | Ordinary spell speed getter / read cast_speed_+% (296) |

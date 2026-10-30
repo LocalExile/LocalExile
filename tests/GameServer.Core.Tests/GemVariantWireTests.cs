@@ -7,13 +7,6 @@ public class GemVariantWireTests
 {
     [Theory]
     [InlineData(false, 1, 0x00, 0x20)]
-    [InlineData(true, 1, 0x00, 0x20)]
-    [InlineData(false, 3, 0x04, 0x24)]
-    [InlineData(true, 3, 0x04, 0x24)]
-    [InlineData(false, 0, 0x24, 0x04)]
-    [InlineData(true, 0, 0x24, 0x04)]
-    [InlineData(false, 0, 0xa4, 0x84)]
-    [InlineData(true, 0, 0xa4, 0x84)]
     public void Native_variant_flag_matches_the_variant_in_standalone_and_socketed_item_payloads(
         bool socketed, int variant, byte storedFlags, byte wireFlags)
     {

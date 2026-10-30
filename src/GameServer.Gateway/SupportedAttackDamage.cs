@@ -4,7 +4,7 @@ static class SupportedAttackDamage
 {
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
     {
-        var hit = DamagePacket.Of(DamageType.Physical, new(weapon.MinDamage, weapon.MaxDamage));
+        var hit = DamagePacket.Of(DamageType.Physical, new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
         double manaPhysical = DamageStats.ManaAddedPhysical(get);
         hit = hit.Add(DamageType.Physical, new(manaPhysical, manaPhysical));
         foreach (var type in DamageTypes.ConversionOrder)
@@ -23,7 +23,7 @@ static class SupportedAttackDamage
                 + (types.Contains(19) && type == DamageType.Physical ? get("melee_physical_damage_+%") : 0)
                 + (types.Contains(7) ? get("area_damage_+%") : 0)
                 + (types.Contains(2) ? get("projectile_damage_+%") : 0)
-                + DamageStats.SpellAttackIncrease(get);
+                + DamageStats.SpellAttackIncrease(get, weapon.WieldingWand, types.Contains(120));
             return DamageStats.IncreaseAttackRange(range, increased);
         });
     }

@@ -32,15 +32,23 @@ Part of [Status](../Status.md); what to build next in this area is in
   lurking Tide Striders on Tidal Island).
   Code: `MonsterEmerge.cs`, `Program.Emerge.cs`, Gateway.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §5.
-- Monster hit reaction: a hit that leaves a monster alive and takes at least a tenth of its max life plays one of its
-  rig's TakeHit clips with the clip's own sound (S→C 0x1b2 kind 0;
-  a pool picks one at random), and not again until that clip has played (at least 0.4 s);
-  a killing blow gets no flinch.
-  Verified live 2026-10-25 on the Sanctum zombie and the Goatman (melee and Holy Strike);
-  the damage and clip-length gates are not yet checked live.
+- Monster hit reaction: a positive hit that leaves a monster alive and takes at least a tenth of its maximum life
+  requests native Actor TakeHit recovery (S→C 0x1d1, animation type 5).
+  Stun immunity, an absent TakeHit profile or an existing recovery prevents it; a killing blow gets no flinch.
+  A randomly chosen extracted clip length supplies the duration profile, with a 0.4 s minimum.
+  The actor's native ACT selects and fits the presented clip; the server does not force a rig index.
+  Recovery stops server and client movement, holds AI and invalidates old ordinary swing echoes and contacts.
+  Historical LocalExile moving-Drowned samples held one cell through recovery, then resumed a fresh AI walk.
+  This standalone port has fresh automated coverage; native integration remains pending in the
+  [port record](../docs/dev/ranged-monster-actions-port.md).
+  Rig-only 0x1b2 did not stop locomotion; it is no longer used as the enemy's recovery packet.
+  Thresholds and duration profiles remain a bounded local policy rather than a complete official stun formula.
   The weapon impact sound and the target's blood come from S→C 0x1af "action hit", sent on melee and attack-gem hits
   and on monster hits on the player (2026-10-25; not yet checked live after the timing cap).
-  Code: `HitReaction.cs`, `MonsterCatalog.TakeHit`, Gateway (`SendFlinch`), `scripts/re/monster_takehit.py` →
+  GGG's server sends it too, but with the monster action's own sequence and skill index 2, where we send 0xffff and 0
+  (Sand Spitters, live capture 2026-10-30; [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
+  A level 1 Sand Spitter hits for 5–7 here and a constant 4 on live (5 on a crit); the cause is not known.
+  Code: `HitReaction.cs`, `MonsterCatalog.TakeHit`, Gateway (`SendMonsterFlinch`), `scripts/re/monster_takehit.py` →
   `data/monster-takehit.json`.
   Docs: [11](../docs/protocol/11-skills.md).
 - Magic and rare monsters roll their mods from Mods.dat (monster domain, spawn weights by the monster's tags, level,
@@ -55,6 +63,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   §5.
   Code: `MonsterMods.cs`, `Program.MonsterMods.cs`, `MagicProperties.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
+- Monster decisions use 50 ms of elapsed game time, with no catch-up burst after pauses or slow steps.
+  Chase repaths use a separate 100 ms budget and require at least three cells of Manhattan target change.
+  A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
+  30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
+  live 2026-10-29: Spitters came in close). `MinimumAttackDistance` is not read yet.
+  Attack busy time covers the full attack duration; pending swing and stage generations prevent duplicate work.
+  Three native AI-enable controls issued one chase each after 43, 38 and 50 ms.
+  Four deliberate turns produced four chase orders at 249 ms intervals without duplicate orders between turns.
+  Drowned attack starts remained 2432 and 2428 ms apart for a 2.4 s attack.
+  Actual Escape-menu pause held 30 samples at one cell without actions; resume continued the existing path.
+  Automated cadence, pause, interruption and stage-completion checks pass; quoted native controls are historical
+  LocalExile evidence, not a fresh run of this standalone port.
+  Code: `MonsterAiCadence.cs`, `Program.Monsters.cs`.
+  Evidence: `artifacts/wand-ai-validation/ai-native-response-*.json`, `ai-native-turns.json`,
+  `ai-native-attack-pacing.json` and `ai-native-menu-{paused,resumed}.json`.
+  Docs: [11](../docs/protocol/11-skills.md) §6.
 - Monsters fight back: their first granted effect as a non-pathing skill with MonsterVarieties attack time, reach and
   level damage; they swing (animated) when in reach and the player's life goes down after evasion, armour and block;
   only monsters with a critical strike chance from their data or mods crit (none from their data yet; of Deadliness);
@@ -76,6 +100,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Core helper retains an optional owned guard; corpse identity, final-death registration and consumption remain open.
   Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Program.Monsters.cs`, `ot_components.py`.
   Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+- Monster walk speed on the server includes the client's per-monster speed roll: Actor setup draws a uniform percent
+  in the MonsterVarieties row's range (the Goatmen ±5 %, the 7.60–8.40 band measured live for a base of 8; most rows
+  none) from a TinyMT32 state keyed by the object id and its type, and the walk estimate, swing range and contact
+  checks use that speed.
+  The range, the generator and the key order come from the decompile and pass the tests; whether the key's type word
+  is the 0x2b9 type hash, and so whether the exact value matches the client's, is not checked live yet
+  (`scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier).
+  Code: `MonsterSpeedRoll.cs`, `AnimationVariantSelector.cs`, `MonsterCatalog.cs`, Gateway (`SpawnMonster`).
+  Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5 ("Monsters on the client").
 - Monster mods' accuracy (of the Marksman, of Precision): the monster's accuracy is raised in its swing, but only the
   tests check it; live, the player was never evaded.
   Code: `MonsterMods.cs`.

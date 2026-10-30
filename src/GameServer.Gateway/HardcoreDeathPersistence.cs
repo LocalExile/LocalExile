@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using GameServer.Core.Accounts;
 using GameServer.Storage;
+using GameServer.Core.Diagnostics;
 
 /// <summary>Commits the terminal HC outcome together with the character's carried progress, before any death packets.
 /// Account stash rows are deliberately untouched: carried items migrate, the source league's bank does not.</summary>
@@ -60,6 +61,6 @@ static class HardcoreDeathPersistence
         string database = DatabaseKey(db);
         foreach (var pending in Pending.Values.Where(p => p.Database == database))
             try { RetryPendingCharacter(db, pending.Id); }
-            catch (Exception e) { Console.WriteLine($"[saves] Hardcore death of {pending.Character} still pending: {e.Message}"); }
+            catch (Exception e) { Console.WriteLine($"[saves] Hardcore death of {pending.Character} still pending: {ServerLog.Describe(e)}"); }
     }
 }

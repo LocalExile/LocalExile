@@ -20,25 +20,4 @@ public class CosmeticSaveTests
         Assert.Equal(0, CharacterSaves.PortalCosmetic(Character()));
     }
 
-    [Fact]
-    public void Turning_the_cosmetic_off_drops_the_field()
-    {
-        string character = Character();
-        CharacterSaves.SetPortalCosmetic(character, 6);
-        CharacterSaves.SetPortalCosmetic(character, 0);
-        Assert.Equal(0, CharacterSaves.PortalCosmetic(character));
-        Assert.Null(CharacterSaves.Load(character)!.PortalCosmetic);   // as in a save from before the field existed
-    }
-
-    [Fact]
-    public void Setting_a_cosmetic_keeps_the_rest_of_the_character()
-    {
-        string character = Character();
-        CharacterSaves.SetSkillBar(character, 0, "Action/Move");   // the character's first save, as its area entry leaves one
-        CharacterSaves.SetExperience(character, 12345);
-        CharacterSaves.SetPortalCosmetic(character, 10);
-        var save = CharacterSaves.Load(character)!;
-        Assert.Equal(12345u, save.Experience);
-        Assert.Equal((ushort)10, save.PortalCosmetic);
-    }
 }

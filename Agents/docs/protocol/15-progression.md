@@ -46,9 +46,10 @@ yet confirmed on screen).
   | u8 | +0x269 | |
   | u8 flags | | bit0 → +0x91, bit1 → no lists (then `0x141ef73e0` sets only the numbers) |
   | vec16 u16 | +0x180 | **allocated nodes**: PassiveSkills.dat `PassiveSkillGraphId`, raw (little-endian), **sorted** (§2 Gold respec) |
-  | vec16 u16, vec16 u16 | | (sent empty) |
+  | vec16 u16 | | (sent empty) |
+  | vec16 u16 | +0x1b0 | **the cluster jewel nodes** of the tree's expansion cells: the client's own small layout ids (202, 206 live for a Voices), not PassiveSkillGraphIds; sorted |
   | vec16 u32 | | mastery effects: node \| effect << 16, raw little-endian; effect is the `PassiveSkillMasteryEffects.dat` HASH16 |
-  | vec16 u32 | | (sent empty) |
+  | vec16 u32 | +0x1f8 | **applied tattoos**: node \| `PassiveSkillOverrides.dat` HASH16 << 16, raw little-endian; empty when no tattoo |
 
   The client's check `0x141ef3e60` logs "character passive skills allocated but only allowed {}.
   points_from_level={}, skill_points_from_passives={}, extra_skill_points={}" and drops unconnected nodes itself.
@@ -61,7 +62,16 @@ yet confirmed on screen).
   additionally require the selected class/family and exclusive-choice rules.
   Both ordinary and ascendancy allocations require graph connectivity.
   It saves the change
-  and answers with 0x33; a refused click gets the old tree back. Unsupported expansion/32-bit IDs are refused intact.
+  and answers with 0x33; a refused click gets the old tree back. With `expansion` 1 the node is a cluster jewel node
+  (its own small layout id, e.g. 202 and 206 for a Voices): the Gateway keeps it in the character's cluster list, saves
+  it and sends it back in 0x33's third list, and 0x36 with the flag refunds it. 32-bit ids are still refused intact.
+- **C->S 0x77** (12 bytes): an item used on a passive. u32 inventory id, u32 item id, u16 `PassiveSkillGraphId`,
+  all big-endian. The item type decides: `apply_passive_tattoo` applies a tattoo, `CurrencyConvertToNormal`
+  (Orb of Scouring) removes it. Captured `0077000000010000049C5335` = inventory 1, item 1180, node 21301.
+  The Gateway answers with 0xbf, 0x1b3 and 0x33; the tattoo is carried in 0x33's fifth list as
+  `node | PassiveSkillOverrides.dat HASH16 << 16`. It validates the target set, the 50-tattoo cap and the
+  `PassiveSkillOverrides.Limit` group (one per character; same-node replacement is allowed). Journey Tattoo of
+  Makanui sends the HASH16 of the keystone it saved in `TattooKeystones`, not the tattoo's own override row.
 - **C→S 0x123** (3 bytes, u8 1 / 0): a panel opened or closed (sent when the tree opens and closes).
 - **C->S 0x35** (6 bytes): u16 node (big-endian, PassiveSkillGraphId), u16 effect (big-endian,
   PassiveSkillMasteryEffects.dat HASH16). Captured `003598091194` = node 38921 (Block Mastery), effect 4500
@@ -104,6 +114,33 @@ yet confirmed on screen).
   0xbf and the tree's 0x33 are sent back. `/add_refund_points <n>` remains a dev shortcut. Expansion nodes are still
   refused.
 - `/passives` lists the ordinary passive and refund points; `/reset_passives` refunds ordinary nodes (free).
+
+### Passive tree jewel sockets
+
+The ordinary tree's 21 large jewel sockets are the client's `PassiveJewels1` inventory (Inventories.dat row 23,
+inventory id 24, 60x1). Pane cell `x` is the `PassiveJewelSlots.dat` row; that row's first column (`Slot`) is the
+`PassiveSkills.dat` row of the socket node. Rows 21-56 are cluster-jewel expansion slots and rows 57-59 are
+ascendancy charm sockets, so only slots 0-20 are ordinary jewel sockets. `PassiveTree.JewelNodeForSlot` and
+`JewelSlotForNode` expose this mapping from `PassiveJewelSlots.json` and `PassiveSkills.json`.
+
+A jewel is moved in like any inventory item: C->S 0x2a places the held item at (slot, 0), 0x4a swaps it onto an
+occupied cell, and 0x28 picks it up. The server checks that the slot is an ordinary socket, its node is allocated in
+`conn.Passives`, the item is ItemClasses `Jewel` and not a `Metadata/Items/Jewels/JewelPassiveTreeExpansion*` cluster
+jewel, and its level requirement is met. The jewel stays in `PassiveJewels1` (saved with the other inventories), and
+`CharacterStatSources` includes the jewels of allocated sockets in the worn-item stat pass, so their global mods reach
+the pools and the panel like equipment. `SendPassiveJewelStats` recomputes the pools and sends 0x1b3 after a move.
+
+Refunding a jewel socket that still holds a jewel is refused until the jewel is taken out; a level trim prefers
+non-jewel leaves and returns a jewel to the main inventory if the socket must be removed. Not modelled: unique-item
+generation, conditional mods, radius/area jewels other than timeless, cluster jewels and abyss sockets. Timeless jewels
+are implemented for the item, radius tree and node stats; `/timeless` creates them, and the conqueror keystones'
+special mechanics remain separate work. See [timeless-jewels.md](../game/timeless-jewels.md). The complete unique-jewel
+catalogue and the phased plan are in [unique-jewels.md](../game/unique-jewels.md).
+
+The Adorned is the pilot unique jewel: `/adorned [0-1000]` creates the corrupted unique Crimson Jewel with
+`CorruptedMagicJewelModEffectUnique__1` (HASH16 11126). While it is in an allocated ordinary socket, every corrupted
+magic jewel in the ordinary passive sockets has each mod value multiplied by `(100 + percent) / 100` before the global
+stat sum. Cluster sockets and the pre-3.25 50-150% variant are not covered.
 
 ### Ordinary-tree connectivity
 

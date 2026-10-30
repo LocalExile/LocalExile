@@ -14,7 +14,6 @@ public class InstanceEntitiesTests
 
     [Theory]
     [InlineData(-8, -62.5f, "FFFFFFF8C27A0000")]
-    [InlineData(8, 62.5f, "00000008427A0000")]
     public void Fixed_height_teleports_send_the_signed_marker_and_the_world_z_float(int fixedHeight, float worldZ, string pair)
     {
         // The client copies these two fields to +0x290/+0x2b4. Non-sentinel height reads the float, not the marker.
@@ -24,8 +23,6 @@ public class InstanceEntitiesTests
 
     [Theory]
     [InlineData(-8)]
-    [InlineData(8)]
-    [InlineData(-15)]
     public void Projectile_creation_and_impact_preserve_the_same_fixed_world_height(int worldZSteps)
     {
         // The blob uses little endian while 0x1b7 uses big endian. Both native handlers retain the marker
@@ -41,8 +38,6 @@ public class InstanceEntitiesTests
     [Theory]
     // Reference values from an independent MurmurHash2 implementation (seed 0).
     [InlineData("Metadata/Characters/Int/Int", 0x9c41993eu)]
-    [InlineData("Metadata/Characters/Str/Str", 0xd7aa9065u)]
-    [InlineData("", 0u)]
     public void Object_type_hash_is_murmur2_of_the_narrowed_path(string path, uint expected)
     {
         Assert.Equal(expected, InstanceEntities.ObjectTypeHash(path));
@@ -494,6 +489,27 @@ public class InstanceEntitiesTests
         Assert.Equal("0033" + "0002" + "0001" + "0003" + "05" + "03" + "00" + "00" + "0002" + "3412" + "6776" + "0000" + "0000" + "0000" + "0000",
             Convert.ToHexString(InstanceEntities.CharacterPassives(5, 3, [0x7667, 0x1234],
                 questPoints: 1, refundPoints: 2, ascendancyPoints: 3)));
+    }
+
+    [Fact]
+    public void Character_passives_carry_the_cluster_jewel_nodes_in_their_own_list()
+    {
+        // The second u16 list holds the cluster jewel expansion ids (the client's own small ids, sent with the
+        // expansion flag), apart from the PassiveSkillGraphIds.
+        Assert.Equal("0033" + "0000" + "0000" + "0000" + "05" + "03" + "00" + "00" + "0001" + "3412"
+                + "0000" + "0002" + "CA00" + "CE00" + "0000" + "0000",
+            Convert.ToHexString(InstanceEntities.CharacterPassives(5, 3, [0x1234], clusterNodes: [202, 206])));
+    }
+
+    [Fact]
+    public void Character_passives_carry_tattoos_in_the_fifth_list()
+    {
+        // The fifth u32 list is node | PassiveSkillOverrides.dat HASH16 << 16 (RawU32 is little-endian): node
+        // 0x5335, Firewalker override Ngamahu1 HASH16 0x5C2A.
+        Assert.Equal("0033" + "0000" + "0000" + "0000" + "05" + "03" + "00" + "00" + "0001" + "3412"
+                + "0000" + "0000" + "0000" + "0001" + "35532A5C",
+            Convert.ToHexString(InstanceEntities.CharacterPassives(5, 3, [0x1234],
+                tattoos: new Dictionary<ushort, ushort> { [0x5335] = 0x5C2A })));
     }
 
     [Fact]

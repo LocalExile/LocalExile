@@ -29,11 +29,34 @@ features.
   Open issues: enchants / crafted / corrupted / influences / uniques (#60), area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
-- **Start:** other currency through C→S 0x71 (13 §4: Orb of Transmutation, Alteration, Augmentation, Regal, Alchemy,
+- **Start:** other currency through C→S 0x71 (13 §4: Alteration, Augmentation, Regal, Alchemy,
   Chaos, Scouring can reuse `ItemRolls`); the other uniques and special mods (#60, 13 §2e: `UniqueCatalog` defines
   Mageblood; each remaining unique needs its base type, mod rows and ranges curated), unique drops/chancing, and
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant,
   Enkindling).
+  Transmutation's CoE comparison and admission checks are implemented; recheck Shift/stash and manual UI use natively.
+  See [the evidence limits](../docs/re/transmutation-coe.md).
+  Augmentation uses the same validated entry point and CoE-checked weighted pools; recheck its admission and
+  Shift/stash paths natively. See [the evidence](../docs/re/augmentation-coe.md).
+  Regal uses the same entry point and opens the rare pool after the upgrade; flasks are refused. Recheck it natively.
+  See [the evidence](../docs/re/regal-coe.md).
+  Alteration rerolls 1-2 affixes through the same entry point and refuses empty pools; CoE's 300-apply count and
+  flask checks agree. Recheck it natively. See [the evidence](../docs/re/alteration-coe.md).
+  Alchemy uses the same entry point and CoE's 4/5/6 and jewel 3/4 rare counts; flasks are refused. Recheck it
+  natively. See [the evidence](../docs/re/alchemy-coe.md).
+  Exalted adds one rare affix within the base's cap (jewels 2 per side), keeps the name and refuses flasks. Recheck
+  it natively. See [the evidence](../docs/re/exalted-coe.md).
+  Chaos rerolls the same rare pool, keeps metamod locks and refuses flasks/empty pools. Recheck it natively. See
+  [the evidence](../docs/re/chaos-coe.md).
+  Vaal's local outcome rule has validated admission (corrupted/mirrored/unique/unsupported/empty refused); official
+  CoE Vaal outcomes remain separate. See [the boundary](../docs/re/vaal-coe.md).
+  Chance's local 30/70 rule has validated admission; CoE beta has no Chance handler, so official unique/rarity
+  outcomes remain separate. See [the boundary](../docs/re/chance-coe.md).
+  Annulment's removal rule has validated admission and CoE metamod/rarity checks; recheck it natively. See
+  [the evidence](../docs/re/annulment-coe.md).
+  The four Eldritch Ichors and Embers add tiered Eater/Exarch implicits and have CoE base/tier checks. The Orb of
+  Conflict and a separate dominance/influence state remain separate. See [the Ichor evidence](../docs/re/eldritch-ichor-coe.md)
+  and [the Ember evidence](../docs/re/eldritch-ember-coe.md).
 - **Socket colours (3.29):** the 3.29 rules are in (white by default with an item-level colour chance, the
   Chromatic and non-white bench crafts, white sockets from Jeweller's/bench socket adds, Vaal colouring one white
   socket; [13](../docs/protocol/13-items.md), "Socket colours (3.29)", Status).

@@ -14,6 +14,7 @@ using SaveFiles = GameServer.Core.Saves.SaveFiles;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
+using GameServer.Core.Diagnostics;
 
 // GameServer.Gateway — the instance (game) server the client connects to after login 0x14, or after 0x27 on an area
 // change (Agents/docs/protocol/02, 09).
@@ -24,6 +25,7 @@ using DamageOverTime = GameServer.Core.World.DamageOverTime;
 // Port: Game_GATEWAY_PORT (default 6112). Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET), shared with
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
 
+ServerLog.Install("gateway");
 int port = int.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var p) ? p : 6112;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
@@ -54,7 +56,7 @@ catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteExcept
 // Every item sent carries its level requirement (13-items.md §2d): the client shows and checks the byte it receives.
 // Gems have their own (GrantedEffectsPerLevel), which the client reads from the SkillGem component instead. Maps have
 // none, as in the game: their drop level is where they drop, not who may run them.
-Item.LevelRequirementOf = item => !item.Components.Contains("SkillGem") && Items.ByHash(item.TypeHash) is { Class: not MapDevice.MapClass } t
+Item.LevelRequirementOf = item => !item.Components.Contains("SkillGem") && Items.ByHash(item.TypeHash) is { Class: not (MapDevice.MapClass or MapDevice.MapKeyClass) } t
     ? ItemModStats.LevelRequirement(item, t.DropLevel, Items.Mods) : 0;
 
 // Local play only by default; Game_BIND=0.0.0.0 to accept other machines (then also set Game_GATEWAY_HOST).
@@ -197,7 +199,7 @@ sealed partial class Program
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> GemSkillIdsOf = new(StringComparer.OrdinalIgnoreCase);
     internal static readonly Lazy<ushort[]> GemSkillIdPool = new(() => [.. Skills.SkillIds().Skip(1).Where(Skills.IsGemSkill)]);
     // Maps.dat: which area each map opens (MapDevice.cs); loaded with the first Activate.
-    internal static readonly Lazy<MapDevice> MapDevices = new(() => MapDevice.Load("data", row => Items.Row(row)?.Hash));
+    internal static readonly Lazy<MapDevice> MapDevices = new(() => MapDevice.Load("data", row => Items.Row(row)?.Hash, Items));
     // The map device's portals are MultiplexPortals of the player type (1): the map device type (3) is only drawn after an
     // open transition, which hung or crashed the client (21-hideouts.md §5). Game_MAP_PORTAL_TYPE overrides it.
     internal static readonly byte MapPortalType = byte.TryParse(Environment.GetEnvironmentVariable("Game_MAP_PORTAL_TYPE"), out byte t) ? t : MapPortalObject.PlayerPortal;
@@ -214,12 +216,13 @@ sealed partial class Program
     internal static readonly EssenceCrafting Essences = new(Items, Rolls);
     internal static readonly BenchCrafting Bench = new(Items, Rolls);
     internal static readonly HarvestCrafting Harvest = new(Items, Rolls);
-    internal static readonly ItemDrops Drops = new(Items, Rolls);
+    internal static readonly ItemDrops Drops = new(Items, Rolls, maps: MapDevices.Value.Atlas);
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.
     internal static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
     // The passive tree's nodes (PassiveSkills.dat by PassiveSkillGraphId).
     internal static readonly PassiveTree Passives = new();
+    internal static readonly TimelessJewelEngine TimelessJewels = new();
     internal static readonly OrdinaryPassiveRules OrdinaryPassives = new();
     internal static readonly AscendancyCatalog Ascendancies = new();
     internal static readonly AscendancyRules AscendancyRules = new(Ascendancies);
@@ -276,9 +279,10 @@ sealed partial class Program
     internal static readonly double WalkSpeed =
         double.TryParse(Environment.GetEnvironmentVariable("Game_WALK_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 37;
 
-    // Game_MOVE_TRACE=1 logs "[move-trace] qpc=…" for the client's 0x24/0x25/0x191 as read and the server's
-    // 0x1ab/0x1b7/0x1ba as written, on the machine's QPC clock (scripts/re/frida/trace-movement.js uses the same clock).
-    internal static readonly bool MoveTrace = Environment.GetEnvironmentVariable("Game_MOVE_TRACE") == "1";
+    // Game_TRACE=move (or the older Game_MOVE_TRACE=1) logs "[move-trace] qpc=…" for the client's 0x24/0x25/0x191 as read
+    // and the server's 0x1ab/0x1b7/0x1ba as written, on the machine's QPC clock (scripts/re/frida/trace-movement.js uses
+    // the same clock).
+    internal static readonly bool MoveTrace = ServerTrace.Move;
 
     // The server frame length (ms, S→C 0x2b6): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
     internal static readonly byte FrameMs =

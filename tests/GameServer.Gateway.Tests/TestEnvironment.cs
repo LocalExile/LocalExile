@@ -21,6 +21,9 @@ static class TestEnvironment
                     && Directory.Exists(Path.Combine(dir.FullName, "data", "schema")))
                 {
                     RepositoryRoot = dir.FullName;
+                    // As the launcher gives the servers: tracked files stay in the source tree.
+                    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Game_SOURCE_ROOT")))
+                        Environment.SetEnvironmentVariable("Game_SOURCE_ROOT", RepositoryRoot);
                     string? runtime = Environment.GetEnvironmentVariable("Game_RUNTIME_DIR");
                     string config = Path.Combine(RepositoryRoot, "client.local.json");
                     if (string.IsNullOrEmpty(runtime) && File.Exists(config))

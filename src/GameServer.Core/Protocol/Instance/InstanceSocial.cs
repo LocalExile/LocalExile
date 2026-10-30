@@ -10,6 +10,23 @@ public static class InstanceSocial
     public const ushort TradeRequestId = 0xba, TradeRequestAcceptId = 0xb0, PartyInviteId = 0x93, FriendAddId = 0x80;
     public const int TradeRequestLength = 6, TradeRequestAcceptLength = 6;
 
+    /// <summary>C→S 0x95 (6 bytes): the party invite notification's Accept: u32 BE the party id from S→C 0xa9 (live
+    /// 2026-10-29: 0x103, 0x104 for the invites sent).</summary>
+    public const ushort PartyAcceptId = 0x95;
+    public const int PartyAcceptLength = 6;
+    public static uint ReadPartyAccept(ReadOnlySpan<byte> m) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+
+    /// <summary>C→S 0x96 (6 bytes): "Leave Party": u32 BE the party id (live 2026-10-29: 0x101).</summary>
+    public const ushort PartyLeaveId = 0x96;
+    public const int PartyLeaveLength = 6;
+
+    /// <summary>S→C 0xaa (class 0x1435bf570, read 0x141f9c0b0; dispatcher case 0x2b, 0x14214cb45): u32 BE a party id,
+    /// u8 a reason. For the client's current party (+0xc680) it resets the party (0x142157450 with an empty one) and fires
+    /// its event with the reason; another id is dropped from the known parties (+0xc668). (0xab, case 0x2c, only clears a
+    /// pending invite, +0xc730.)</summary>
+    public const ushort PartyRemoveId = 0xaa;
+    public static byte[] PartyRemove(uint party, byte reason = 0) => new LoginWriter().U16(PartyRemoveId).U32(party).U8(reason).ToArray();
+
     /// <summary>C→S 0xba (6 bytes): "Trade" on another player: u32 BE that player's object id as the sender sees it.</summary>
     public static uint ReadTradeRequest(ReadOnlySpan<byte> m) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
 
@@ -51,7 +68,20 @@ public static class InstanceSocial
     /// request..." (ClientStrings 0x2bd) for the u32 other party; both bits open the trade window.</summary>
     public const byte TradeRequestFlag = 0x02;
 
-    public const ushort KnownPlayerId = 0xa7, ForgetPlayerId = 0xa8;
+    public const ushort KnownPlayerId = 0xa7, ForgetPlayerId = 0xa8, PartyInfoId = 0xa9;
+
+    /// <summary>S→C 0xa9 (class 0x1435dc860, write 0x1421a1620, read 0x1421a18b0; dispatcher case 0x2a): u32 +0x68, wstr
+    /// +0x28, wstr +0x48, u32 +0x68 again, u8 +0x6e, u8 +0x6c, u8 +0x6d, u8 +0x6f, u8 member count, then per member a
+    /// wstr name (an account name: looked up in the known players, 0xa7) and a u8 status. +0x68 is the party id; +0x6e the
+    /// receiving player's own index in the list (0xff none); the second wstr the leader's account name.</summary>
+    public static byte[] PartyInfo(uint u68, string s28, string s48, byte b6e, byte b6c, byte b6d, byte b6f,
+        IReadOnlyList<(string Name, byte Status)> members)
+    {
+        var w = new LoginWriter().U16(PartyInfoId).U32(u68).WStr(s28).WStr(s48).U32(u68).U8(b6e).U8(b6c).U8(b6d).U8(b6f)
+            .U8((byte)members.Count);
+        foreach (var (name, status) in members) w.WStr(name).U8(status);
+        return w.ToArray();
+    }
 
     /// <summary>
     /// S→C 0xa7 (class 0x1435dbda8, 0xd0 bytes, write 0x1421a11a0 → 0x141f8f580; dispatcher case 0x28): adds or updates a

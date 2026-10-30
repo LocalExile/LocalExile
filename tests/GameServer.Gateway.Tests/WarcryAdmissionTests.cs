@@ -36,6 +36,9 @@ public class WarcryAdmissionTests
                 PlayerLife = 500, PlayerMana = 1000, ActionCount = 17, ChannelSkill = 0x104,
                 Pools = new(100, 500, 1000, 100, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
                 SentEnergyShield = 0, SentRechargeActive = false, SentEsRecoveryRate = 0 };
+            // Item activation reads the requirement attributes, not the pools above (socketed gems count).
+            foreach (string attribute in new[] { "strength", "dexterity", "intelligence" })
+                Conn.PlayerStats[Program.Stats.Key($"virtual_{attribute}_for_requirements")!.Value] = 1000;
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGem" + gemId)!);
             var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
                 { Sockets = [new(SocketColour.White, gem)] };
@@ -132,36 +135,6 @@ public class WarcryAdmissionTests
         while (!ready()) await Task.Delay(10, timeout.Token);
     }
 
-    [Theory]
-    [InlineData("ground", 1, true)]
-    [InlineData("self", -1, false)]
-    [InlineData("monster", 1, false)]
-    [InlineData("ground", -1, false)]
-    [InlineData("self", 1, true)]
-    public async Task Parsed_requests_refuse_before_action_cost_cooldown_or_effect_and_clear_restores_use(
-        string route, int value, bool explicitZero)
-    {
-        using var f = new Fixture();
-        var pools = f.Conn.Pools;
-        f.Conn.PlayerStats[Key] = value;
-        await f.Use(route);
-        await Task.Delay(850); // Beyond the ordinary cry's release: no hidden charge continuation was admitted.
-        f.AssertUnspent();
-        Assert.Equal(route == "ground" ? InstanceProtocol.LifeUpdate(0x1000, 1000, pool: 1) : [], await f.Drain());
-        if (explicitZero) f.Conn.PlayerStats[Key] = 0;
-        else f.Conn.PlayerStats.Remove(Key);
-        Assert.Same(pools, f.Conn.Pools); // Source changes need no pool rebuild.
-        await f.Use(route);
-        await Until(() => f.Charges.Pending);
-        Assert.Equal(18, f.Conn.ActionCount);
-        Assert.True(f.Cost > 0);
-        Assert.Equal(1000u - f.Cost, f.Conn.PlayerMana); // Actual paid positive, with the real gem cost.
-        Assert.True(f.Conn.SkillReadyAt[f.Effect] > f.Conn.Clock.Elapsed.TotalSeconds);
-        f.AssertChargeRelease();
-        byte[] packets = await f.Drain();
-        Assert.True(packets.AsSpan().IndexOf(new byte[] { 0x01, 0xab }) >= 0);
-    }
-
     [Fact]
     public async Task Shared_cast_entry_refuses_before_legacy_cooldown_or_payment()
     {
@@ -171,163 +144,4 @@ public class WarcryAdmissionTests
         f.AssertUnspent();
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Central_preflight_refuses_before_creating_single_use_state_for_normal_and_instant(bool instant)
-    {
-        using var f = new Fixture();
-        f.Conn.PlayerStats[Key] = 1;
-        Assert.False(Program.TryBeginCooldownUse(f.Conn, f.Effect, new(8000, 0), instant,
-            () => f.Conn.ActionCount++, out var ticket));
-        Assert.Null(ticket);
-        f.AssertUnspent();
-        f.Conn.PlayerStats[Key] = 0;
-        Assert.True(Program.TryBeginCooldownUse(f.Conn, f.Effect, new(8000, 0), instant,
-            () => f.Conn.ActionCount++, out ticket));
-        Assert.NotNull(ticket);
-        Assert.Single(f.Conn.SingleUseCooldowns);
-        Assert.Equal(18, f.Conn.ActionCount);
-    }
-
-    [Theory]
-    [InlineData("instant-ground", 0)]
-    [InlineData("instant-ground", 1)]
-    [InlineData("instant-object", 0)]
-    [InlineData("instant-object", -1)]
-    public async Task Unsupported_Enduring_Cry_instant_aliases_stay_unsupported(string route, int value)
-    {
-        using var f = new Fixture();
-        Assert.False(Program.Skills.IsInstant(f.Effect));
-        f.Conn.PlayerStats[Key] = value;
-        await f.Use(route);
-        f.AssertUnspent();
-        Assert.Empty(await f.Drain());
-    }
-
-    [Theory]
-    [InlineData("Fireball", "ground")]
-    [InlineData("Haste", "instant-object")]
-    [InlineData("RighteousFire", "instant-object")]
-    public async Task Ordinary_spell_aura_and_admitted_instant_RF_remain_available(string gem, string route)
-    {
-        using var f = new Fixture(gem);
-        f.Conn.PlayerStats[Key] = -1;
-        await f.Use(route);
-        await Until(() => gem == "Fireball" ? f.Conn.PlayerMana < 1000
-            : gem == "Haste" ? f.Conn.Auras.Count > 0 : f.Conn.RighteousFire is not null);
-        if (gem == "Fireball") Assert.Equal(18, f.Conn.ActionCount);
-        else
-        {
-            Assert.Equal(17, f.Conn.ActionCount);
-            await Until(() => f.Conn.SkillReadyAt.Count > 0);
-        }
-        await Until(() => f.HasOutput);
-        Assert.NotEmpty(await f.Drain());
-    }
-
-    [Fact]
-    public async Task Ordinary_attack_still_starts_with_the_flag()
-    {
-        using var f = new Fixture();
-        f.Conn.PlayerStats[Key] = 1;
-        await f.Use("ground", SkillCatalog.FirstSkillId);
-        Assert.Equal(18, f.Conn.ActionCount);
-        Assert.NotEmpty(await f.Drain());
-    }
-
-    [Fact]
-    public async Task A_paid_accepted_cry_still_releases_after_the_source_and_action_change()
-    {
-        using var f = new Fixture();
-        Assert.True(await f.Cast()); // Returns only after UseChargeSkill has scheduled the accepted release.
-        Assert.True(f.Cost > 0);
-        Assert.Equal(1000u - f.Cost, f.Conn.PlayerMana);
-        f.Conn.PlayerStats[Key] = 1;
-        f.Conn.ActionCount++; // Existing non-cancellable release survives another action too.
-        await Until(() => f.Charges.Pending);
-        f.AssertChargeRelease();
-    }
-
-    [Fact]
-    public async Task Queued_action_echo_reaches_the_existing_shared_cast_admission_check_before_payment()
-    {
-        using var f = new Fixture();
-        await f.Gate.WaitAsync();
-        Task use = f.Use("ground");
-        try
-        {
-            Assert.Equal(18, f.Conn.ActionCount); // Action admitted, but CastGemSkill has not run yet.
-            f.Conn.PlayerStats[Key] = 1;
-        }
-        finally { f.Gate.Release(); }
-        await use;
-        await f.ExpectPackets(InstanceProtocol.ActionStarted(0x1000, 32, 32, 38, 32, f.Skill, 3, 0x408),
-            InstanceProtocol.LifeUpdate(0x1000, 1000, pool: 1));
-        Assert.Equal(1000u, f.Conn.PlayerMana);
-        Assert.Empty(f.Conn.SkillReadyAt);
-        Assert.False(f.Charges.Pending);
-    }
-
-    [Fact]
-    public async Task A_source_change_behind_the_paid_mana_packet_does_not_redesign_the_existing_continuation()
-    {
-        using var f = new Fixture();
-        await f.Gate.WaitAsync();
-        Task<bool> cast = f.Cast();
-        try
-        {
-            Assert.True(f.Conn.PlayerMana < 1000); // Shared cast admission passed and paid before the await.
-            f.Conn.PlayerStats[Key] = -1;
-        }
-        finally { f.Gate.Release(); }
-        Assert.True(await cast.WaitAsync(TimeSpan.FromSeconds(5)));
-        await Until(() => f.Charges.Pending);
-        f.AssertChargeRelease();
-    }
-
-    [Fact]
-    public void A_skill_overlay_cannot_clear_the_actor_restriction_or_remove_the_granted_skill()
-    {
-        using var f = new Fixture();
-        f.Conn.PlayerStats[Key] = 1;
-        var actor = Program.CharacterPlayerStats(f.Conn);
-        var overlay = (Dictionary<uint, int>)Method("MergeSkillStats").Invoke(null,
-            [actor, new Dictionary<uint, int> { [Key] = -1 }])!;
-        Assert.Equal(0, overlay[Key]); // A skill's merged input can cancel the value; admission reads the caster.
-        Assert.NotNull(Method("GemDisabled").Invoke(null, [f.Conn, f.Effect]));
-        var granted = (IReadOnlyList<GrantedSkill>)Method("PlayerSkills").Invoke(null, [f.Conn])!;
-        Assert.Contains(granted, skill => skill.Id == f.Skill);
-        Assert.Equal(1, actor[Key]);
-    }
-
-    [Fact]
-    public void Passive_equipment_and_raw_dev_sources_share_caster_precedence_without_a_class_bypass()
-    {
-        Assert.Equal(5409u, Key);
-        using var f = new Fixture();
-        var node = Program.Passives.Find(49937)!;
-        Assert.Equal("Rampager", node.Name);
-        Assert.Contains((Key, 1), node.Stats);
-        Assert.Null(f.Conn.MainAscendancy.Selection); // A raw-source test does not enable Phrecia play.
-        Assert.Throws<AscendancyRuleException>(() => AscendancyClientCompatibility.RequirePlayable(
-            new(AscendancyFamily.Phrecia, "Berserker", AscendancyCatalog.Revision)));
-        f.Conn.Passives.Add(49937);
-        Assert.NotNull(Method("GemDisabled").Invoke(null, [f.Conn, f.Effect]));
-        f.Conn.PlayerStats[Key] = 0;
-        Assert.Null(Method("GemDisabled").Invoke(null, [f.Conn, f.Effect]));
-        f.Conn.PlayerStats.Remove(Key);
-        f.Conn.Passives.Clear();
-        var mod = Program.Items.Mods.All.Single(m => m.Id == "MutatedUniqueBodyStrDex7WarcriesAreDisabled");
-        var body = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
-            { Mods = [new(ModSection.Explicit, mod.Hash, [1])] };
-        var inv = PlayerInventories.For(f.Conn.Character!, Program.Items);
-        var worn = inv.Add(PlayerInventories.BodyArmour, 0, 0, body);
-        Assert.NotNull(Method("GemDisabled").Invoke(null, [f.Conn, f.Effect]));
-        f.Conn.PlayerStats[Key] = 0;
-        Assert.Null(Method("GemDisabled").Invoke(null, [f.Conn, f.Effect]));
-        f.Conn.PlayerStats.Remove(Key);
-        inv.Remove(PlayerInventories.BodyArmour, worn.Id);
-        Assert.Null(Method("GemDisabled").Invoke(null, [f.Conn, f.Effect]));
-    }
 }

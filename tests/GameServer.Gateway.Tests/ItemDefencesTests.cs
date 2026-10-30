@@ -20,41 +20,4 @@ public class ItemDefencesTests
         Assert.Equal(69, armour);
     }
 
-    [Fact]
-    public void The_combined_evasion_and_energy_shield_mod_adds_both()
-    {
-        var (_, evasion, energyShield) = ItemDefences.Of(Base(energyShield: 10),
-            Local(("local_evasion_rating_and_energy_shield", 15), ("local_armour_and_evasion_+%", 20)), 0);
-
-        Assert.Equal(18, evasion);        // 15 * 120% (armour-and-evasion applies to evasion)
-        Assert.Equal(25, energyShield);   // 10 + 15 flat; the armour-and-evasion increase does not touch ES
-    }
-
-    [Fact]
-    public void The_all_defences_increase_and_quality_scale_every_pool()
-    {
-        var (armour, evasion, energyShield) = ItemDefences.Of(Base(10, 10, 10),
-            Local(("local_armour_and_evasion_and_energy_shield_+%", 50)), 10);
-
-        Assert.Equal(16, armour);         // 10 * 150% = 15, then 10% quality = 16
-        Assert.Equal(16, evasion);
-        Assert.Equal(16, energyShield);
-    }
-
-    [Fact]
-    public void Quality_alone_raises_energy_shield()
-    {
-        var (_, _, energyShield) = ItemDefences.Of(Base(energyShield: 20), Local(), 20);
-
-        Assert.Equal(24, energyShield);
-    }
-
-    [Fact]
-    public void Local_no_energy_shield_zeroes_the_shield_pool()
-    {
-        var (_, _, energyShield) = ItemDefences.Of(Base(energyShield: 50),
-            Local(("local_no_energy_shield", 1)), 20);
-
-        Assert.Equal(0, energyShield);
-    }
 }

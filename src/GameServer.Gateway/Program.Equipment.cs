@@ -69,7 +69,8 @@ partial class Program
     {
         var unarmed = SkillsFor(conn).UnarmedFor(conn.ClassRow);
         if (hand is not var (item, type) || type is null || SkillsFor(conn).WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
-        return ItemWeapons.Of(ms, min, max, Math.Max(range, unarmed.Range), ItemModStats.Local(item, ItemsFor(conn).Mods), item.Quality);
+        return ItemWeapons.Of(ms, min, max, Math.Max(range, unarmed.Range), ItemModStats.Local(item, ItemsFor(conn).Mods), item.Quality)
+            with { WieldingWand = type.Class == "Wand", Melee = type.Class is not ("Wand" or "Bow") };
     }
 
     // The off-hand weapon of a dual-wielded attack (the active set's Offhand1), with the same values WeaponIn gives the main

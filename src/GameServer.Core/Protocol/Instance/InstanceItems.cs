@@ -88,7 +88,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e03d0, when an item's mods change on its side) and shows it in the
@@ -151,6 +151,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // 0x1423f3f10 (write 0x1423f3e60): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.
                 case "Map": w.U8(0).U8(0).U8(0); break;
+                // MapKey 0x1424ae7c0 reads a flag byte, then optional u32/u16/u8. The generic map base already names its
+                // tier; 0 sends no overrides.
+                case "MapKey": w.U8(0); break;
                 // 0x14246eb00: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x14246fa50
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
                 // IndexableSupportGems index (0: none).
@@ -440,6 +443,22 @@ public static class InstanceItems
     {
         var r = new LoginReader(m[2..]);
         return new(r.U32(), r.U32(), r.U32(), r.U32());
+    }
+
+    public const ushort UseItemOnPassiveId = 0x77;
+    public const int UseItemOnPassiveLength = 12;
+
+    /// <summary>
+    /// C→S 0x77 (12 bytes, live 2026-10-29): a tattoo used on a passive. Captured after right-clicking
+    /// Tattoo of the Ngamahu Firewalker and clicking an allocated small Strength node:
+    /// <c>0077 00000001 0000049C 5335</c> — u32 inventory id, u32 item id, u16 PassiveSkillGraphId, all big-endian.
+    /// </summary>
+    public sealed record UseItemOnPassive(uint InventoryId, uint ItemId, ushort Node);
+
+    public static UseItemOnPassive ReadUseItemOnPassive(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32(), r.U16());
     }
 
     public const int ItemActionLength = 14;

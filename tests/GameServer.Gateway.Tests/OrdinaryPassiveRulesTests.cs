@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace GameServer.Gateway.Tests;
 
@@ -99,6 +99,37 @@ public sealed class OrdinaryPassiveRulesTests : IDisposable
         Assert.Throws<AscendancyRuleException>(() => Rules.Validate(1, AscendancyFamily.Normal, [10, 200, 20]));
         Assert.Throws<AscendancyRuleException>(() => Rules.Validate(1, AscendancyFamily.Normal, [100, 10]));
         Assert.Throws<AscendancyRuleException>(() => Rules.Validate(2, AscendancyFamily.Normal, [10]));
+    }
+
+    [Fact]
+    public void A_bypass_node_is_allowed_but_does_not_bridge_its_neighbours()
+    {
+        Assert.Throws<AscendancyRuleException>(() => Rules.Validate(1, AscendancyFamily.Normal, [20, 21]));
+        // 20 may be allocated through the jewel, but 21 (outside the bypass set) is not connected to the tree.
+        Assert.Throws<AscendancyRuleException>(() =>
+            Rules.Validate(1, AscendancyFamily.Normal, [20, 21], bypassNodes: new HashSet<ushort> { 20 }));
+        Rules.Validate(1, AscendancyFamily.Normal, [20], bypassNodes: new HashSet<ushort> { 20 });
+        Rules.Validate(1, AscendancyFamily.Normal, [90], bypassNodes: new HashSet<ushort> { 90 });
+        Assert.Throws<AscendancyRuleException>(() => Rules.Validate(1, AscendancyFamily.Normal, [90]));
+        // A bypass node adjacent to the normal component is a normal bridge and may propagate.
+        Rules.Validate(1, AscendancyFamily.Normal, [10, 11], bypassNodes: new HashSet<ushort> { 10 });
+        Assert.Throws<AscendancyRuleException>(() =>
+            Rules.Validate(1, AscendancyFamily.Normal, [100], bypassNodes: new HashSet<ushort> { 100 }));
+        Assert.Throws<AscendancyRuleException>(() =>
+            Rules.Validate(1, AscendancyFamily.Normal, [14], bypassNodes: new HashSet<ushort> { 14 }));
+        Assert.Throws<AscendancyRuleException>(() =>
+            Rules.Validate(1, AscendancyFamily.Normal, [97], bypassNodes: new HashSet<ushort> { 97 }));
+    }
+
+    [Fact]
+    public void A_bypass_node_requires_a_connected_provider_socket()
+    {
+        Assert.Throws<AscendancyRuleException>(() => Rules.Validate(1, AscendancyFamily.Normal, [20],
+            bypassNodes: new HashSet<ushort> { 20 },
+            bypassProviders: new Dictionary<ushort, HashSet<ushort>> { [20] = [90] }));
+        Rules.Validate(1, AscendancyFamily.Normal, [10, 20],
+            bypassNodes: new HashSet<ushort> { 10, 20 },
+            bypassProviders: new Dictionary<ushort, HashSet<ushort>> { [10] = [100], [20] = [10] });
     }
 
     [Fact]

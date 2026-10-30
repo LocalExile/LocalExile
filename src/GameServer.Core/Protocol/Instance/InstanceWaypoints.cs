@@ -8,7 +8,11 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceWaypoints
 {
-    public const ushort WaypointsId = 0x4c, OpenUiId = 0x7b, TravelId = 0x4d, VisitHideoutId = 0x17a;
+    public const ushort WaypointsId = 0x4c, OpenUiId = 0x7b, TravelId = 0x4d, VisitHideoutId = 0x17a, VisitDelveHubId = 0x17d;
+
+    /// <summary>C→S 0x17d: the World panel's Mine Encampment pin (SpecialMapPins DelveHub), 6 bytes: u32 BE the waypoint
+    /// object the panel was opened from (live 2026-10-30: <c>017D 00002F00</c>).</summary>
+    public const int VisitDelveHubLength = 6;
 
     /// <summary>
     /// C→S 0x17a: the World panel's Hideout button, opened from a waypoint (live 2026-10-20). u16 n + n bytes UTF-8: the
@@ -35,10 +39,17 @@ public static class InstanceWaypoints
     /// +0xff8 → 0x140dcd570 → 0x140ab1440 → each panel's 0x140a97330).</summary>
     public const byte WorldPanelUi = 0;
 
-    /// <summary>S→C 0x7b kind that opens the map device window (case 5 → listeners at instance +0x1778 → HUD 0x140dcd9a0:
-    /// the window at HUD +0x7d8, mode 0xd). Kinds for its other modes go to +0x17f8 (0x140dce1f0, mode 0x5e) and +0x1878
-    /// (0x140dce290, mode 0x56). 21-hideouts.md §4.</summary>
+    /// <summary>S→C 0x7b kind 5: the older map device window (listeners at instance +0x1778 → HUD 0x140dcd9a0;
+    /// mode 0xd). It has no Atlas node selection; kind 0x2b opens the hideout's Atlas map device instead.
+    /// 21-hideouts.md §4.</summary>
     public const byte MapDeviceUi = 5;
+
+    /// <summary>S→C 0x7b kind 0x2b: HideoutMapDeviceScreen, the Atlas map device with the four starting nodes
+    /// (C→S 0x00e7 picks one). 21-hideouts.md §4.</summary>
+    public const byte HideoutMapDeviceUi = 0x2b;
+
+    /// <summary>S→C 0x7b kind 0x11: the Atlas **passive tree** screen (HUD +0x668, listener 0x140dcdf80), not the map screen.</summary>
+    public const byte AtlasUi = 0x11;
 
     /// <summary>S→C 0x7b kind 0x33: instance +0x22f8 → HUD virtual +0x8e0 (0x140ddb5c0) → 0x140c3e600.
     /// The first u32 is the CraftingBenchTypes row (0: ordinary bench, 1: runesmithing), not an object id.</summary>

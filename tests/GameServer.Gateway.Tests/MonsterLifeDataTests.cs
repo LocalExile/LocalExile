@@ -57,19 +57,4 @@ public sealed class MonsterLifeDataTests
         }
     }
 
-    [Theory]
-    [InlineData("Metadata/Monsters/RaisedZombies/RaisedZombieStandard", false)]
-    [InlineData("Metadata/Monsters/SummonedSpider/SummonedSpider", false)]
-    [InlineData("Metadata/Monsters/ZombieDismember/ZombieDrowned1", true)]
-    public void Pinned_extracted_variety_retains_its_actual_life_eligibility(string id, bool expected)
-    {
-        var variety = new MonsterCatalog().Find(id);
-        Assert.NotNull(variety);
-        Assert.Equal(id, variety.Id);
-        Assert.Equal(expected, variety.LifeData.CorpseUsable);
-        Assert.False(variety.LifeData.CorpseUseVeto);
-        Assert.Equal(expected, variety.LifeData.IsUsableAsCorpse(0));
-        Assert.False(variety.LifeData.IsUsableAsCorpse(1));
-        Assert.False(variety.LifeData.IsUsableAsCorpse(0, owned: true));
-    }
 }

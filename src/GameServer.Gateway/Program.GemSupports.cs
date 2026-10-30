@@ -8,7 +8,12 @@ partial class Program
 
     static SupportedGem SupportedSkill(ClientState conn, ushort skillId)
     {
-        lock (conn.Monsters) return SupportedSkillAt(conn, skillId, null);
+        if (BuildScopeOf(conn) is not { } scope)
+            lock (conn.Monsters) return SupportedSkillAt(conn, skillId, null);
+        // Within one PlayerSkills build each gem is resolved once; callers get their own copy of its stats.
+        if (!scope.Supported.TryGetValue(skillId, out var gem))
+            lock (conn.Monsters) scope.Supported[skillId] = gem = SupportedSkillAt(conn, skillId, null);
+        return gem with { Stats = new(gem.Stats) };
     }
 
     static SupportedGem SupportedSkillAt(ClientState conn, ushort skillId, GemRequirementSnapshot? requirements)
@@ -41,14 +46,15 @@ partial class Program
             {
                 var variant = gem.Variant(p.Gem.GemVariant);
                 foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
-                    candidates.Add(new(effect, ItemsFor(conn).GemLevel(p.Gem), Quality(p.Socket, p.Gem), p.Socket));
+                    candidates.Add(new(effect, EffectiveGemLevel(conn, p.Gem, 0), Quality(p.Socket, p.Gem), p.Socket));
             }
         var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
         int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
         var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass);
         int Value(string stat) => Stats.Key(stat) is uint k ? supports.Sum(s => s.Stats.Where(v => v.Key == k).Sum(v => v.Value)) : 0;
         int level = EffectiveGemLevel(conn, selected.Place.Gem, Value("supported_active_skill_gem_level_+"));
-        int quality = Quality(selected.Place.Socket, selected.Place.Gem) + Value("supported_active_skill_gem_quality_%");
+        int quality = Quality(selected.Place.Socket, selected.Place.Gem) + Value("supported_active_skill_gem_quality_%")
+            + GemQualityBonus(conn, selected.Place.Gem);
         var own = SkillsFor(conn).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var support in supports)
             foreach (var (key, value) in support.Stats)
@@ -93,7 +99,8 @@ partial class Program
             bool replace = stat is "mana_cost" or "base_mana_cost" or "casting_spell" or "virtual_base_spell_cast_time_ms"
                 or "base_spell_cast_time_ms" or "hundred_times_casts_per_second" || stat.Contains("_base_", StringComparison.Ordinal)
                 && (stat.StartsWith("spell_minimum", StringComparison.Ordinal) || stat.StartsWith("spell_maximum", StringComparison.Ordinal));
-            result[key] = replace ? value : result.GetValueOrDefault(key) + value;
+            result[key] = replace ? value : ArcaneMight.IsGrant(key)
+                ? ArcaneMight.Combine(key, result.GetValueOrDefault(key), value) : result.GetValueOrDefault(key) + value;
         }
         return result;
     }

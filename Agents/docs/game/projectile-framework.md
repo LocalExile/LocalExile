@@ -92,13 +92,28 @@ Native description templates choose the wording and visibility.
 
 `ProjectilePresentation` supplies flight mesh/clip, second-form clip and event effects. Non-gem sources may
 supply presentation directly through `ProjectileOffense`. The common host owns object lifecycle, terrain
-height, arcs, redirects and effect cleanup. Core actor/team contracts are source-neutral; the current Gateway
-damage adapter targets monsters. Live hostile projectile adapters remain unimplemented.
+height, arcs, redirects and effect cleanup. Core actor/team contracts are source-neutral. The Gateway has two
+damage adapters: the player's shots hit monsters, and a monster's shot (`HostileProjectileOffense`, team 2:
+`Program.ProjectileHostile.cs`) hits the player through the monster's own contact pipeline, as a mortar landing on
+the aimed cell with a splash (`Game_MONSTER_MORTAR_RADIUS`, default 10 cells) or a straight shot's first contact.
+Monster projectiles are known for mortar skills (`SkillCatalog.MonsterProjectile`); weapon-projectile skills still
+hit instantly at half the attack time. A mortar leaves at its clip's contact keyframe and from that keyframe's point
+(`MonsterRelease`, `data/monster-contacts.json`), no closer to the monster than the skill's minimum range; an ordinary
+arrow or bolt leaves from the class clip's keyframe (`data/animation-contacts.json` positions). Objects are created at
+the release point and their first move runs from there; the visual trails the simulation by the output delay and
+catches up at the stop. GGG's server sends no object for a player's bow shot, default attack or gem: the live client
+draws its own arrows, which fly about 308 cells/s after a release about 258 ms into the attack. It sends none for a
+Sand Spitter's mortar either ([port record](../dev/ranged-monster-actions-port.md), "Live reference").
+A flight that has already ended when its creation snapshot runs is still created when its stop keeps the object
+(impact clip, stuck arrow), so
+a short shot on a busy connection appears at its impact instead of not at all; other ended flights are skipped.
 Area event effects use the actual event radius and the selected art's exported radius to set uniform native scale.
 Both callback and payload effects use this conversion; art without a known radius keeps its native scale.
 Endpoint logs include the stop reason, position and projectile-grid state; area logs include art, radius and scale.
-Straight flights use `(captured terrain height ?? 0) + Game_PROJECTILE_HEIGHT` as their fixed height marker.
-The integer setting defaults to 5 steps (39.0625 world units upward), including for an invalid setting.
+Straight flights use `(captured terrain height ?? 0) + the release point's height` as their fixed height marker:
+the releasing clip's contact keyframe in steps (`ProjectilePresentation.LaunchHeight`: the Ranger's bow 16, a wand 12,
+the Sand Spitter's spit 9), else `Game_PROJECTILE_HEIGHT`, whose integer setting defaults to 5 steps (39.0625 world
+units upward), including for an invalid setting.
 Creation, glide and stop retain the same signed height. Missing captures use the bare offset as a provisional
 absolute height, preserving the main flight contract; this is not client-sampled terrain plus a relative offset.
 Lobbed arcs use the configured lift for the initial start when both ground endpoints are known; later bounces

@@ -34,6 +34,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   2), one per account until there are guilds (verified live).
   Code: `AccountStash.cs`, `StashCatalog.cs`, `InstanceStash.cs`, Gateway (`OpenStash`, `SendStashTab`).
   Docs: [18](../docs/protocol/18-stash.md).
+- **Fast stash opens.** The client keeps only the stash tab it shows loaded: picking a tab unloads the others (S→C 0xc1)
+  and resends the tab list with them marked not loaded. Area entry preloads only the tabs with shop currency.
+  Before, each open got slower with every loaded tab (about 1.5 s with full currency, essence, fragment, gem and
+  divination tabs). The user confirmed in the real client (2026-10-29) that opens became much faster, with no crash.
+  Gateway tests cover the unload, the price tab that stays, the first open's two requests and the 0xc1 bytes.
+  See protocol/18-stash.md §3.
 - **Dev tab fill (`/item_tab <tab name> <count>`).** On a currency, essence, fragment, delve, blight, delirium or divination tab it
   adds up to `count` more, at most 1000 per command, of every item type that has its own slot, as far as each slot holds.
   Divination cards are filled to complete sets, which is what that tab shows.

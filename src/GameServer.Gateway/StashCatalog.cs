@@ -9,11 +9,20 @@ static class StashCatalog
 
     static readonly Dictionary<ushort, Placement> Towns = new()
     {
-        // Lioneye's Watch: next to Nessa (346, 270), the place the user picked (2026-10-19).
-        [AreaLayouts.LioneyesWatch] = new(319, 272, 0),
-        // The Azurite Mine Encampment (Delve_Hub): across the waypoint (333, 402) from Niko (342, 410); our own cell
-        // (2026-10-21). It also gets the guild stash (Program.SpawnTownStash).
-        [DelveHub] = new(322, 412, 0),
+        // Lioneye's Watch: placed live with /stash_place 327 270 0 (2026-10-30).
+        [AreaLayouts.LioneyesWatch] = new(327, 270, 0),
+        // The Azurite Mine Encampment (Delve_Hub): placed live with /stash_place 355 295 180 (2026-10-30). It also gets
+        // the guild stash (Program.SpawnTownStash), at TownGuildStashes.
+        [DelveHub] = new(355, 295, MathF.PI),
+    };
+
+    /// <summary>A town's guild stash where it has a place of its own (else next to the stash), placed live with
+    /// /guild_stash_place (2026-10-30): the Mine Encampment 344 295 180, Lioneye's Watch 317 270 0.</summary>
+    public static Placement? GuildIn(ushort areaHash) => areaHash switch
+    {
+        DelveHub => new(344, 295, MathF.PI),
+        AreaLayouts.LioneyesWatch => new(317, 270, 0),
+        _ => null,
     };
 
     /// <summary>HASH16 of the Azurite Mine Encampment (WorldAreas Delve_Hub).</summary>

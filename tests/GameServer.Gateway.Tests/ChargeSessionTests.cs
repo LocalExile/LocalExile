@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -99,6 +99,26 @@ public class ChargeSessionTests
         Assert.Equal(shown.Add, gone.Remove);
         Assert.Equal(0, gone.Add);
         Assert.Equal(0, gone.Count);
+    }
+
+    [Fact]
+    public void A_losing_per_second_jewel_takes_a_charge_each_second_and_keeps_the_minimum()
+    {
+        // Replica Fragility, Replica Pacifism and Replica Powerlessness: "Lose an Endurance Charge each second",
+        // stored as gain_X_endurance_charges_per_second = -1.
+        var s = new ChargeSession();
+        var c = new Character(("gain_X_endurance_charges_per_second", -1), ("base_minimum_endurance_charges", 1));
+        Step(s, 0, c);
+        s.Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, 3, "test"));
+        Step(s, 0.05, c);
+        Assert.Equal(3, s.Effective(ChargeType.Endurance));
+        Step(s, 1.05, c);
+        Assert.Equal(2, s.Effective(ChargeType.Endurance));
+        Step(s, 2.05, c);
+        Assert.Equal(1, s.Effective(ChargeType.Endurance));
+        // The minimum never goes, whatever the jewel takes.
+        Step(s, 3.05, c);
+        Assert.Equal(1, s.Effective(ChargeType.Endurance));
     }
 
     [Fact]

@@ -288,9 +288,8 @@ His death drops the chest where he fell, unless Nessa has one already, this char
 instance's ground; a chest lost any other way drops again from the next Hailrake.
 The stash is not counted: it is the account's, so another character's stashed chest must not block this one (whose
 tracker would still say "Find the Medicine Chest"); a character that stashes its own chest can get a second one.
-Hailrake, and so the quest, needs the area's captures (`1_1_2a_seed<seed>.doodads.json` and `.rooms.json`, from
-`live.ps1 -Walkmaps`): seed 1 has them; with `Game_RANDOM_SEEDS=1` or without them he is not placed and the quest can't
-be finished.
+Hailrake is placed from the area's doodads and rooms: the captures (`1_1_2a_seed<seed>.doodads.json` and `.rooms.json`,
+from `live.ps1 -Walkmaps`) when there are some, else the Gateway's own generation of the seed (`ServerLevels`).
 
 **The item.** BaseItemTypes 1534 `Metadata/Items/QuestItems/MedicineSet1`, "Medicine Chest", 2×3, item class 31.
 Its `.it` Quest component has `grant_flag = "a1q5minusHaveMedicineChest"` and

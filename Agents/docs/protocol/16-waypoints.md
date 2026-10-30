@@ -95,7 +95,24 @@ Pins are MapPins.dat rows (140); each pin widget computes two states every frame
   (`0x140797750`): every QuestFlags row in its WorldAreas list at +0x54 (`EndQuestFlags` in the extracted table) is set,
   e.g. `a1q1-KilledHillock` for Lioneye's Watch and The Coast, `a1q4-PlacedGlyphs` for The Submerged Passage.
 
-A pin with neither is hidden. A connection line (`0x140a9a7d0` → `0x140a9aa90`) is drawn only between two shown pins
+A pin with neither is hidden.
+
+**Special pins** (the column on the right and the Hideout/Guild buttons) are SpecialMapPins.dat rows; `0x140a9bd50`
+decides each one (row bytes: +0x10 i32, +0x14 QuestFlag, +0x24 WorldArea, +0x34 i32, +0x39 bool, +0x3a bool):
+
+- the i32 at +0x10 (`__col2`) is a league quest flag id (Player +0x1d0, tested as bit id − 1); above 0x776 (1911) means
+  none. The Gateway gives every character the ten in use (`Quests.League.WorldPanelPins`): 1033 HaveGuildHideout,
+  409 MenagerieUnlocked, 9 NikoHaveMinedSulphite (the Mine Encampment), 414 SanctumIntroNewGivenTexts,
+  608 VillageKingsmarchUnlocked, 736 HeistVisitedHub, 636 ChayulaLeagueAreaUnlocked, 677 AncestralHallsOfDeadUnlocked,
+  419 NecropolisAreaUnlocked, 1834 DeepwaterBoatUnlocked;
+- a WorldArea (+0x24) needs that area's waypoint bit (0x4c): the Labyrinth pin's Labyrinth_Airlock, which the Gateway
+  always sends as activated (and accepts as a 0x4d destination);
+- the i32 at +0x34 (`__col5`), when 1-59, must equal the current area's value at `(+0xc278)+0xd0`;
+- +0x3a set hides the pin (SynthesisHub); +0x39 needs the Hideouts key (Player +0x1f8);
+- the DelveHub row (index 4) also compares a level (`0x140a9c080`), which the tested character passed.
+
+Live 2026-10-30, all pins were shown. The Mine Encampment pin sends C→S **0x17d** (6 bytes: u32 BE the waypoint object
+id, `017D 00002F00`), which the Gateway answers by moving the player to Delve_Hub, as Niko's Visit Mine Encampment. A connection line (`0x140a9a7d0` → `0x140a9aa90`) is drawn only between two shown pins
 of the act, so an unrevealed area in the middle (The Mud Flats) cut the line between The Coast and The Submerged Passage.
 
 A visit flag is the area's MapPins `QuestFlagVisit` (the same as its WorldAreas `StartQuestFlags` where both exist).

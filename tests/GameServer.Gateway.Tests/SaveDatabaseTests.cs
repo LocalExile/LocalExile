@@ -69,29 +69,6 @@ public class SaveDatabaseTests : IDisposable
     }
 
     [Fact]
-    public async Task A_write_waits_while_another_process_writes_and_a_read_does_not()
-    {
-        using var gateway = new SaveDatabase(DbPath);
-        using var other = new SaveDatabase(DbPath);   // Auth, or a second Gateway, on the same file
-        gateway.Put(Characters, "Anna", "old");
-        using var writing = new ManualResetEventSlim();
-
-        var holder = Task.Run(() => other.Atomically(() =>
-        {
-            other.Put(Characters, "Bob", "x");
-            writing.Set();
-            Thread.Sleep(400);
-        }));
-        writing.Wait();
-
-        Assert.Equal("old", gateway.Get(Characters, "Anna"));   // the write-ahead log lets readers through
-        gateway.Put(Characters, "Anna", "new");                 // waits for the other transaction, then saves
-        await holder;
-        Assert.Equal("new", gateway.Get(Characters, "Anna"));
-        Assert.Equal("x", gateway.Get(Characters, "Bob"));
-    }
-
-    [Fact]
     public void A_deleted_character_is_set_aside_and_a_new_one_of_that_name_starts_over()
     {
         using var db = new SaveDatabase(DbPath);

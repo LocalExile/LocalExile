@@ -170,7 +170,7 @@ They refuse paused, leaving, closed or dead owners before combat mutation.
 | `/god` | toggles 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, +10 000 life, +1000 to each attribute ([11](11-skills.md) §12) |
 | `/death_screen [hex flags]` | S→C 0x55 with these flags (default: the league's; 2 hides it), [11](11-skills.md) §7 |
 | `/quest_flag [<QuestFlags Id> [off]]` | lists the character's quest flags, or sets or clears one (saved); the quest's room objects follow ([12](12-quests.md) §5) |
-| `/goto <area id or name>` | change area as if through an area transition (e.g. `/goto 1_1_3`; ids from the atlas), [08](08-area-transitions.md) §7 |
+| `/goto <area id or name> [seed]` | change area as if through an area transition (e.g. `/goto 1_1_3`; ids from the atlas; a seed makes a new instance at it, towns keep 1), [08](08-area-transitions.md) §7 |
 | `/tp <x> <y> \| <+dx> <+dy> \| <id> \| <name> [n] \| list [filter]` | dev: 0x1b7 teleports the player within the area, for testing without walking. A cell lands on itself when walkable, else on the nearest walkable cell; a value with + or - is relative to the player on that axis. A name (whole, else a part, any case) or id lands next to a monster, NPC, area transition (`transition to <area>`), the `waypoint`, the `arrival` point or an object of the area's walk-map capture (`RhoaChest`, `GlyphWall`: the last part of its object type); `n` picks the n-th of equal names. `/tp list` shows them. The current action ends and the server's position estimate moves with the player (`TeleportTargets.cs`) |
 | `/transition [pos … \| rot <deg> \| z <z \| none> \| model <path \| none> \| index <n>]` | show or change the first area transition (re-created), [08](08-area-transitions.md) §5 |
 | `/mobs` | lists the monsters spawned on this connection; emerge monsters that have not risen are marked "(buried)" or "(lurking)" |
@@ -340,13 +340,18 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   animation, along the client's own path around walls, on the terrain height**. Alternatives: **0x1ba** (Positioned
   move) only slides it in a straight line through walls, at `duration = cell distance / value` (value ≈ cells per
   second; `0x141e30c90` → `0x141e34120`), keeping the old height; **0x1b7** teleports it.
-- **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 100 ms (`MonsterAiTickMs`) per connection: a monster within
+- **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
   its MonsterVarieties `MaxAgroRange` (taken as grid cells: 60 for Hungry Corpse, 105 for most) of the server's estimate
   of the player starts chasing: a Move action (0x1ab, 0x2909) to its own cell around the player, re-sent when that cell
   moves by 3+ cells; beyond twice the range it gives up (a Move to where it stands). The cells come from
   `MonsterSurround`: the nearest chasers choose first, each takes the free cell on the innermost ring (its size + 3
   cells from the player) closest to its bearing, bodies never overlap, and a full ring sends the rest one ring out to
-  wait. A ring-0 slot is kept while it stays free and on the ring. Before, every monster aimed at the cell on the line
+  wait. Candidates must also clear the player's square collision footprint, including when a ring-0 slot is reused.
+  Inner candidates respect the monster's actual attack reach; stationary footprints and other players also exclude cells.
+  A short native path is retried after arrival at a bounded half-second cadence.
+  Occupancy queries use a spatial index; ring trigonometry is cached and candidate searches do not allocate per cell.
+  Monsters with negative footprints chase directly without taking a slot; stationary objects and walls still block them.
+  A ring-0 slot is kept while it stays free and on the ring. Before, every monster aimed at the cell on the line
   toward itself, so a pack from one side queued in a wedge and only the front ones attacked. The server follows each monster's walk with
   a `WalkEstimator` (A* on the walk map) at MonsterVarieties `MovementSpeed` cells/s (8 for Hungry Corpse, 44 for Haku)
   and reports that position as the action's start; live, the chase showed no snapping, so the estimate keeps up. All

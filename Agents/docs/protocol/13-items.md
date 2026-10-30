@@ -54,6 +54,7 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 | SkillGem | `0x143637298` | `0x14246eb00` | i32 experience (-1: one level over the cap), u32 +0x3c the variant, u8 +0x10 flags (bit 2: level locked), u16 +0x40 |
 | Sockets | `0x1435df9a0` | `0x1421e2e20` | u8 = bit0/bit1 (special: nothing more) \| socket count << 2 \| link group count << 5; per socket u8 colour << 1 \| has gem, then the gem's item data **without** the length prefix; then a u8 per link group (its socket count). Colours: 1 red, 2 green, 3 blue, 4 white (all seen live 2026-10-26) |
 | Armour | `0x14363ad40` | `0x1424affc0` | u8 0..0x20 (stored at +0x28; 0x20 also sets +0x2a) |
+| MapKey | `0x14363abd8` | `0x1424ae7c0` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
 | LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x14363ab88`, `0x1435dfb80` … | `ret` | nothing |
 
 Minimal item the server sends: flags 0, Base with only the visual identity, Mods identified and normal with no mods.
@@ -294,7 +295,7 @@ u8   1 → 4 × u32 follow (the 0xc0 flag-bit-4 block)
 ```
 
 Removal runs before addition, so "remove id N, add id N" replaces an item in place (sockets). The other inventory
-messages: 0xc1 removes an inventory ("…inventory set remove…", class `0x1435c0898`: u8 manager, u32 id), 0xc2 sets
+messages: 0xc1 removes an inventory ("…inventory set remove…", class `0x1435c0898`: u8 manager, u32 id; the Gateway unloads stash tabs with it, [18](18-stash.md) §3), 0xc2 sets
 +0x160/+0x161 ("…permissions change…", class `0x1435dc660`: u8, u32, u8, u8).
 
 ## 4. Moving items (C→S)
@@ -464,18 +465,28 @@ drawn and accepted, Chromatic leaves one socket non-white and the rest white, Je
 adds white ones, and the matching-colour +10% quality changes the gem's stats; the stat path is in
 `Program.GemSupports.cs` (`Quality`). The probabilities remain an approximation.
 
-### Orb of Alchemy (2026-10-21, verified live)
+### Orb of Alchemy (2026-10-21, verified live; CoE-checked 2026-10-30)
 
-`CurrencyUpgradeToRare` goes through the same 0x71/0x72 handler. `CurrencyEffects.Alchemy` takes only a normal item with
-a Mods component and makes it rare and identified: implicits kept, 4-6 explicit affixes rolled by `ItemRolls.Roll`
-(weighted by Mods.dat spawn weights, each mod's values rolled within its tier), and a Words.dat rare name. Anything
-else is refused and nothing is spent.
+`CurrencyUpgradeToRare` goes through the same 0x71/0x72 handler. `CurrencyEffects.Alchemy` delegates to
+`ItemRolls.Alchemy`: a modifiable normal item becomes rare and identified, implicits kept, with 4-6 explicit affixes
+from the ordinary pool (`ItemRolls.Roll`, weighted by Mods.dat spawn weights, values within each tier) and a Words.dat
+rare name.
+The shared rare count table is now CoE's: 4 affixes 2/3, 5 affixes 1/4, 6 affixes 1/12; jewel classes get 3 or 4 with
+at most two per side.
+Flasks are magic-only and refused. Unknown/unmodifiable bases, non-normal items, corrupted/mirrored items and empty
+pools are refused before spending.
+The 300-apply sample and jewel caps are in [the source comparison](../re/alchemy-coe.md).
 
-### Chaos Orb (2026-10-21, verified live)
+### Chaos Orb (2026-10-21, verified live; CoE-checked 2026-10-30)
 
-`CurrencyRerollRare`, same handler (0x71, and 0x72 with Shift for repeated use). `CurrencyEffects.Chaos` takes only a
-rare item with a Mods component: every explicit affix is replaced by a fresh `ItemRolls.Roll` (4-6 affixes, new tiers
-and values), a new rare name, implicits kept; the item ends identified. Anything else is refused and nothing is spent.
+`CurrencyRerollRare`, same handler (0x71, and 0x72 with Shift for repeated use). `CurrencyEffects.Chaos` delegates to
+`ItemRolls.Chaos`: a modifiable rare item's unprotected explicit affixes are replaced by a fresh `ItemRolls.Roll`
+(4-6 affixes, new tiers and values; jewel classes 3-4 with two per side), a new rare name is drawn, implicits stay and
+the item ends identified. Prefix/suffix metamod locks keep their side.
+Flasks are magic-only and a rare flask is refused.
+The base must be known and serializable, with Mods and not `Unmodifiable`; non-rare, corrupted/mirrored and empty-pool
+targets are refused before spending.
+CoE's 300-applies counts, jewel limits and prefix-lock result are in [the source comparison](../re/chaos-coe.md).
 
 ### Divine Orb (2026-10-21, verified live)
 
@@ -501,39 +512,74 @@ and nothing is spent.
 ### Orb of Transmutation (2026-10-21, verified live)
 
 `CurrencyUpgradeToMagic`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Transmutation` makes a normal item with
-a Mods component magic and identified: 1-2 affixes (at most one prefix and one suffix) rolled by `ItemRolls.Roll`, each
-tier drawn by weight; implicits kept. Anything else is refused and nothing is spent.
+a Mods component magic and identified through `ItemRolls.Transmute`: 1-2 target affixes, 50/50, at most one prefix
+and one suffix, each tier drawn by weight; implicits, enchants, quality, sockets, gems and charges stay.
+An unavailable second side or conflicting family can leave only one affix, as on a level-1 Small Life Flask.
+The base must be known and serializable, with Mods and neither its base nor its class marked `Unmodifiable`.
+Corrupted, mirrored, non-normal and empty-pool targets are refused before spending.
+The empty-pool refusal is LocalExile safety policy; other currencies are unchanged.
+The pinned CoE beta count model and two native pools agree with the existing ordinary generator.
+Framed real-client 0x71 upgrade/refusal and relog checks passed on 2026-10-29; Shift/stash combinations have automated
+production-dispatch coverage, not fresh native acceptance.
+See [the source comparison and evidence limits](../re/transmutation-coe.md).
 
-### Orb of Alteration (2026-10-21, verified live)
+### Orb of Alteration (2026-10-21, verified live; CoE-checked 2026-10-30)
 
-`CurrencyRerollMagic`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Alteration` rerolls a magic item's
-affixes as the official orb: 1-2, at most one prefix and one suffix, each tier drawn by weight (`ItemRolls.Roll`).
-Anything but a magic item with mods is refused, nothing spent.
+`CurrencyRerollMagic`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Alteration` delegates to
+`ItemRolls.Alter`: a modifiable magic item rerolls its explicit affixes as the official orb, 1-2 with at most one
+prefix and one suffix, each tier drawn by weight (`ItemRolls.Roll`, metamod locks respected).
+The base must be known, serializable, with Mods and not `Unmodifiable`; corrupted/mirrored, non-magic and empty-pool
+targets are refused before spending.
+The empty-pool refusal is LocalExile safety policy: otherwise a missing-data target would lose all affixes for an orb.
+CoE beta's 300-applies count distribution and flask pool agree; see
+[the source comparison](../re/alteration-coe.md).
 
-### Orb of Augmentation (2026-10-21, verified live)
+### Orb of Augmentation (2026-10-21, verified live; CoE-checked 2026-10-30)
 
-`CurrencyAddModToMagic`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Augmentation` adds one affix to a magic
-item (`ItemRolls.AddAffix`): drawn by weight from the base's pool, no family already on it, at most one prefix and one
-suffix (the magic limit, as the Orb of Alteration). Old affixes and rarity stay. A full item, or anything
-but a magic item, is refused and nothing is spent.
+`CurrencyAddModToMagic`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Augmentation` delegates to
+`ItemRolls.Augment`: a magic item with a free prefix or suffix gets one affix drawn by weight from the ordinary pool
+(`ItemRolls.AffixesToAdd`: no family already on it, at most one prefix and one suffix, as the Orb of Alteration).
+Old affixes, rarity, implicits, quality, sockets, gems and charges stay.
+The base must be known and serializable, with Mods and neither its base nor its class marked `Unmodifiable`;
+corrupted and mirrored items are refused too.
+A full item, a non-magic item, or a base whose open side has no ordinary affix is refused before spending.
+That last refusal is LocalExile policy: CoE's engine still spends the orb and adds nothing on such an item.
+The level-1 Driftwood Wand pools and simulated probabilities agree with CoE beta; see
+[the source comparison](../re/augmentation-coe.md).
 
-### Regal Orb (2026-10-21, verified live)
+### Regal Orb (2026-10-21, verified live; CoE-checked 2026-10-30)
 
-`CurrencyUpgradeMagicToRare`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Regal` makes a magic item rare:
-its affixes stay, one more is added (`ItemRolls.AddAffix`, at most three prefixes and three suffixes) and it gets a rare
-name. Anything but a magic item, or one where no affix fits, is refused and nothing is spent.
+`CurrencyUpgradeMagicToRare`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Regal` delegates to
+`ItemRolls.Regal`: a modifiable magic item becomes rare, keeps its affixes, gets one more from the rare pool
+(`ItemRolls.AddAffix`, at most three prefixes and three suffixes) and a rare name.
+Flasks are magic-only and cannot become rare, so they are refused.
+The base must be known and serializable, with Mods and neither its base nor its class marked `Unmodifiable`;
+corrupted/mirrored, non-magic and no-fit targets are refused before spending.
+CoE's rare-pool applies open both sides after the upgrade (12 candidates, total 6983, for a level-1 wand with one
+prefix), unlike its `pool` operation, which still evaluates the magic item. See
+[the source comparison](../re/regal-coe.md).
 
-### Exalted Orb (2026-10-21, verified live)
+### Exalted Orb (2026-10-21, verified live; CoE-checked 2026-10-30)
 
-`CurrencyAddModToRare`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Exalted` adds one affix to a rare item
-(`ItemRolls.AddAffix`, at most three prefixes and three suffixes); its affixes and name stay. Anything but a rare item,
-or a full one, is refused and nothing is spent.
+`CurrencyAddModToRare`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Exalted` delegates to
+`ItemRolls.Exalted`: a modifiable rare item keeps its affixes and name and gets one more weighted affix within its
+rare limits (three prefixes and three suffixes, two of each for jewels).
+Flasks are magic-only and a rare flask is refused.
+The base must be known and serializable, with Mods and not `Unmodifiable`; corrupted/mirrored, non-rare and full
+targets are refused before spending.
+The four-mod wand pool (nine candidates, weight 5150) and the jewel 2+2 refusal are in
+[the source comparison](../re/exalted-coe.md).
 
-### Orb of Annulment (2026-10-21, verified live)
+### Orb of Annulment (2026-10-21, verified live; CoE-checked 2026-10-30)
 
-`CurrencyRemoveMod`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Annulment` removes one random explicit
-affix from a magic or rare item; implicits, the other affixes, rarity and name stay. Anything else, or an item without
-explicit affixes, is refused and nothing is spent.
+`CurrencyRemoveMod`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Annulment` delegates to `ItemRolls.Annul`:
+one random unprotected explicit affix leaves a magic or rare item; implicits, the other affixes, rarity and name stay.
+Prefix/suffix locks and cannot-roll attack/caster crafts filter the candidates, and fractured affixes are never
+removed.
+Corrupted/mirrored items, unsupported/unknown or `Unmodifiable` bases, and items without an eligible explicit are
+refused before spending.
+CoE confirms the magic/rare rarity stays and the metamod candidate rule; see
+[the source comparison](../re/annulment-coe.md).
 
 ### Armourer's Scrap (2026-10-21, verified live)
 
@@ -547,12 +593,15 @@ accepts a normal armour piece with quality). Other items, or 20%, are refused an
 `CurrencyWeaponQuality`, the same as Armourer's Scrap for items with a Weapon component (`CurrencyEffects.Whetstone`):
 +1% quality, any rarity, up to 20%, Shift included; the Orb of Scouring sets a weapon's quality back to 0 as well.
 
-### Orb of Chance (2026-10-21, verified live)
+### Orb of Chance (2026-10-21, verified live; CoE boundary 2026-10-30)
 
 `CurrencyUpgradeRandomly`, same handler (0x71, 0x72 with Shift). A server rule, not the official one (which can also
-make uniques): `CurrencyEffects.Chance` turns a normal weapon or armour piece (Weapon or Armour component) rare with a
-30% chance (4-6 affixes, rare name) and magic otherwise (2-4 affixes, at most two prefixes and two suffixes, a server
-rule above the normal magic limit); the item ends identified. Anything else is refused and nothing is spent.
+make uniques): `CurrencyEffects.Chance` delegates to `ItemRolls.Chance`, which turns a normal weapon or armour piece
+(Weapon or Armour component) rare with a 30% chance (4-6 affixes, rare name) and magic otherwise (2-4 affixes, at most
+two prefixes and two suffixes, a server rule above the normal magic limit); the item ends identified.
+Corrupted/mirrored items, unsupported/unknown or `Unmodifiable` bases and empty pools are refused before spending.
+The CoE beta method tree has no Chance handler, so the official unique/rarity outcome remains separate work; see
+[the admission check and boundary](../re/chance-coe.md).
 
 ### Glassblower's Bauble (2026-10-21, verified live)
 
@@ -599,10 +648,28 @@ it and is saved with the item. A corrupted item takes no currency but a Scroll o
 currency yet), and nothing removes corruption.
 
 `CurrencyCorrupt`, same handler (0x71, 0x72 with Shift). A server rule, not the official one: `CurrencyEffects.Vaal`
-takes a weapon, armour piece or jewellery (ring, amulet, belt) that is not corrupted or unique, and always corrupts it.
+delegates to `ItemRolls.Vaal`, which takes a modifiable weapon, armour piece or jewellery (ring, amulet, belt) that is
+not unique, corrupted or mirrored, and always corrupts it.
 A normal or magic item becomes rare with 4-6 new affixes and a rare name. A rare item has 1, 2, 3 or 4 random affixes
 replaced (20% each), 5 (10%) or all of them rerolled (10%: 4-6, new name) (`ItemRolls.ReplaceAffixes`: the replaced
 ones come back through `AddAffix`, at most three of each kind, so the count stays).
+Unknown/unsupported or `Unmodifiable` bases and empty pools are refused before spending.
+Official CoE Vaal outcomes are separate work; see [the admission check and boundary](../re/vaal-coe.md).
+
+### Eldritch Ichors and Embers (2026-10-30)
+
+`CurrencyEldritchIchor1..4` (Lesser, Greater, Grand, Exceptional), same 0x71/0x72 handler.
+`CurrencyEffects.EldritchIchor` delegates to `ItemRolls.EldritchIchor`: a normal, magic or rare body armour, boots,
+gloves or helmet gains one Eater of Worlds implicit of the ichor's tier (1-4), replacing every other implicit modifier
+except Searing Exarch ones; explicit affixes, quality, sockets, links, rarity and name stay.
+The tier selects the `...EldritchImplicitN` row, including the Unique/Pinnacle Presence variants where the base allows.
+Uniques, corrupted/mirrored items, non-armour classes and unsupported/unmodifiable bases are refused before spending.
+The item stores the implicit in its normal implicit list; a separate Eldritch dominance/influence state and the
+Orb of Conflict are not modelled.
+The four `CurrencyEldritchEmber1..4` are the Searing Exarch mirror: `CurrencyEffects.EldritchEmber` adds the tier's
+Exarch implicit and replaces every other implicit except Eater of Worlds ones, with the same classes, rarity and
+admission.
+See [the Ichor comparison](../re/eldritch-ichor-coe.md) and [the Ember comparison](../re/eldritch-ember-coe.md).
 
 ### Orb of Fusing (2026-10-21, verified live)
 

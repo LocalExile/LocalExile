@@ -9,20 +9,15 @@ using DamageType = GameServer.Core.World.DamageType;
 /// </summary>
 static class DamageStats
 {
-    public const string SpellDamageIncreasesApplyToAttacks150 =
-        "additive_spell_damage_modifiers_apply_to_attack_damage_at_150%_value";
+    public const string SpellDamageIncreasesApplyToAttacks150 = ArcaneMight.Fixed150;
 
     // This stat is a flag. Transfer increased/reduced spell damage into the attack's increased bucket,
     // retaining half-percent values; spell-only more multipliers and speed never enter this contribution.
-    public static double SpellAttackIncrease(Func<string, int> get) =>
-        get("spell_damage_+%") * Math.Max(get(SpellDamageIncreasesApplyToAttacks150) != 0 ? 150 : 0,
-            get("active_skill_additive_spell_damage_modifiers_apply_to_attack_damage_at_%_value")) / 100.0;
+    public static double SpellAttackIncrease(Func<string, int> get, bool wieldingWand = false, bool retaliation = false) =>
+        ArcaneMight.Increase(get, wieldingWand, retaliation);
 
-    public static double SpellAttackIncrease(IReadOnlyDictionary<uint, int>? stats) =>
-        SpellAttackIncrease(stats?.GetValueOrDefault(StatKeys.SpellDamageIncreasesApplyToAttacks150) ?? 0,
-            stats?.GetValueOrDefault(StatKeys.SpellDamagePct) ?? 0);
-
-    static double SpellAttackIncrease(int enabled, int increased) => enabled != 0 ? increased * 1.5 : 0;
+    public static double SpellAttackIncrease(IReadOnlyDictionary<uint, int>? stats, bool wieldingWand = false,
+        bool retaliation = false) => ArcaneMight.Increase(stats, wieldingWand, retaliation);
 
     public static DamageRange IncreaseAttackRange(DamageRange range, double increased)
     {
@@ -46,7 +41,7 @@ static class DamageStats
             ? mana * (get("added_physical_damage_to_attacks_equal_to_%_maximum_mana") / 100.0) : 0;
 
     public static DamagePacket Added(DamagePacket hit, Func<string, int> get, bool spell, bool melee,
-        double effectiveness = 1)
+        double effectiveness = 1, bool wieldingWand = false)
     {
         foreach (var type in Types)
         {
@@ -74,7 +69,7 @@ static class DamageStats
                 double increased = (double)get("damage_+%") + get("attack_damage_+%") + (melee ? get("melee_damage_+%") : 0)
                     + get($"{slug}_damage_+%")
                     + (DamageTypes.IsElemental(type) ? get("elemental_damage_+%") : 0)
-                    + SpellAttackIncrease(get);
+                    + SpellAttackIncrease(get, wieldingWand);
                 range = IncreaseAttackRange(range, increased);
             }
             hit = hit.Add(type, range.Scale(effectiveness));

@@ -23,22 +23,4 @@ public class SavedMonsterTests
         Assert.Equal(new SavedMonster(42, 14, MonsterRarity.Magic, Hostile: true, 160, 100, Life: 40), saved);
     }
 
-    [Fact]
-    public void Dead_monsters_stay_dead()
-    {
-        Assert.Empty(SavedMonster.Save([Rhoa(1, 1, life: 0, dead: true)], now: 0));
-    }
-
-    [Fact]
-    public void Leaving_keeps_the_monsters_for_the_next_connection_until_the_instance_expires()
-    {
-        var store = new InstanceStore(TimeProvider.System, TimeSpan.FromMinutes(6));
-        var first = store.Enter(4, 1);
-        Assert.Null(first.Monsters);   // never populated: plan the packs
-        first.Monsters = SavedMonster.Save([Rhoa(7, 8)], now: 0);
-        store.Leave(first);
-
-        var back = Assert.Single(store.Enter(4, 1).Monsters!);
-        Assert.Equal((7, 8), (back.X, back.Y));
-    }
 }

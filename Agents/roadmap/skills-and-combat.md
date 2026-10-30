@@ -125,6 +125,10 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   armour/evasion mitigate monster hits (Status: Armour and Evasion).
   Ordinary physical monster melee can now trigger native player hit recovery with matching server cancellation.
   Copied-save live checks verified walking, pending cast cancellation, released flight and a stun-immune control.
+  Enemy TakeHit recovery uses native Actor type 5, stops movement and invalidates old swing generations.
+  Historical LocalExile controls cover the 50 ms planner, bounded repaths, pacing and menu pause.
+  Fresh native validation of this standalone port remains pending.
+  Automated regressions retain the full attack duration and guard pending swings and boss-stage completion.
   Selected Antiquarian now has native Ward/Adrenaline, Turtle Shell, always-hit/Far Shot and shield controls.
   Whaletooth extends actual Enduring Cry recovery; see [its model and evidence](../docs/game/antiquarian.md).
 - **Known:** both sides still have flat damage ranges ([11](../docs/protocol/11-skills.md) 5, 6);
@@ -132,8 +136,12 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Added damage has its first stat: the attack's added lightning gets
   `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` percent of the maximum mana pool
   (Whisperer "we know all", [20](../docs/protocol/20-damage.md) §2b).
-  Whisperer's 150% spell-increase transfer has shared attack regression coverage and native hit/panel checks.
-  Remaining conditional modifier sources are separate; see [20](../docs/protocol/20-damage.md) §2c.
+  Arcane Might's six modern contracts share attack/panel consumers, maximum independent grants and skill quality.
+  Normal Crown and mastery lifecycle have automated coverage; their native acceptance remains pending.
+  Earlier Whisperer raw-stat native checks do not establish this expanded composition's native behavior.
+  Iron Will/Strength provenance and missing upstream conditional spell producers require separate work.
+  Unsupported skill/variant execution and unrelated Crown leech remain separate; see
+  [Arcane Might boundaries](../docs/game/arcane-might.md) and [20](../docs/protocol/20-damage.md) §2c.
   Steel Willed's attack increase from complete groups of final armour has shared regression and native coverage.
   Boolean chaos-hit armour has native raw-source Life-loss controls and shared incoming-hit regressions.
   Mixed monster packets and ES/block/suppression/Fortification have automated coverage; recheck them natively.
@@ -197,7 +205,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 
 - Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.
   Finish dedicated native buff icons and source/threshold/conditional-immunity parity before claiming a general ailment engine.
-  Hostile projectile/spell adapters and alternative-ailment sources remain separate work.
+  Hostile spell adapters and alternative-ailment sources remain separate work; monster mortar shots already run the
+  contact pipeline at their landing (status: Skills and combat, "Monster projectiles").
   See [Gambler](../docs/game/gambler.md).
 
 ### Rage extensions
@@ -235,17 +244,41 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 ### Skill projectiles
 
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production projectile routing and the
-  only Core simulator. Catalog-known gems and ordinary bows have basic straight flight and resolved modifiers;
-  [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB clusters.
-  Clustering converts quantity to explosions and forbids Split; the internal AltY row is a compatibility alias.
+  only Core simulator. Catalog-known gems and ordinary bows and wands have basic straight flight and resolved
+  modifiers; [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB
+  clusters. Clustering converts quantity to explosions and forbids Split; the internal AltY row is a compatibility alias.
   Direct admission, independent explosion overlap and supported area scaling have automated runtime/input coverage.
   Chronological contacts, hit quotas, pause/transfer, release snapshots and held-output independence have automated
   production-input coverage, including raw item modifiers, scoped area damage and continuation/lifetime boundaries.
+  Ordinary wand ground/object attacks share the bow's release path, the native main-hand contact and the bolt's rig
+  impact animation; wand main-hand variation follows each class ACT pool and the native input-seeded selector
+  (extraction manifest version 2 supplies the ordered stance pools and exact rig contacts for all seven classes).
+  Complete off-hand timing/damage and nonzero intrinsic attack repeats remain open.
   Basic catalog flight does not implement all special skill behavior; unknown metadata is refused before costs.
   Earlier native packet/collision controls need retesting on the new path; actor positions still use integer walk
   estimates and shared projectile radii; Gateway actor radii are zero, making area coverage center-based even
   for large monsters. Calibrate combat body geometry against the available movement `ObjectSize` data.
-  Live hostile projectile adapters remain future work.
+  Monster projectiles beyond mortars: `monster_projectile_weapon`, `monster_snipe` and `monster_puncture` skills
+  (109 varieties' first effect) take their projectile from the monster's weapon art (MonsterVarieties
+  `Weapon1_ItemVisualIdentityKeys`, e.g. `SkeletonArrow1`), a link the server does not read yet, so those monsters
+  still hit instantly at half the attack time with no visible shot. Monster spell projectiles
+  (`MonsterProjectileSpell`) are a separate adapter. The mortar splash radius is a development default and
+  `projectile_spread_radius` (3) is not modelled. Mortars release at their clip's contact keyframe and point
+  (`data/monster-contacts.json`); melee swings still land at half the attack time although the same pools carry
+  `Melee` keyframes. Open: whether the client seeds a monster action's clip choice from the 0xffff sequence (the
+  Spitter's attack2 would spit 75 ms earlier and 1.3 cells farther back), the grid handedness of a keyframe's lateral
+  offset (not applied), MonsterVarieties `MinimumAttackDistance` (6 for the Spitter) and the minimum-range dead zone,
+  all to check live.
+- **Live reference** ([port record](../docs/dev/ranged-monster-actions-port.md) "Live reference", 2026-10-29/30): GGG's
+  server sends no object for a player's bow shot or a Sand Spitter's mortar, and the client draws both.
+  Find what stops our client from drawing its own (try live-style skill ids, `0x4000` for the default attack, and the
+  live `0x1af` fields: main-hand `0x0200`, skill index 2, the header u32/u16), then drop the server arrow objects.
+  For monsters, try real action sequences (live `0x80bc`…) instead of `0xffff` in the attack's `0x1ab` and its `0x1af`
+  (skill index 2), and see whether the client then draws the mortar.
+  Explain the hit-timing fit (ours releases at the table's 299.9 cells/s, close to live's 308, yet hits arrive
+  2.72 ms per cell against live's 3.25) and add the 300 ms stun bit on hits.
+  Find why a level 1 Sand Spitter hits for 5–7 here and a constant 4 on live.
+  Decode S→C `0x1b4` (player only, the attack's skill id and a point list).
 - **Start:** user-run Fireball/KB checks from the skill guide, including return, terrain and overlapping explosions.
   Calibrate cluster radial distribution, counter-clockwise sequence timing and native art against client evidence.
   Build a server-side surface-height/world model for platforms and doodads (#182), height grids for more areas

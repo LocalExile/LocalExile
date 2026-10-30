@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 namespace GameServer.Gateway.Tests;
 
 public class MonsterSurroundTests
@@ -28,20 +30,25 @@ public class MonsterSurroundTests
         Assert.Contains(inner, c => c.X < 100);
     }
 
+    // A ranged chaser (a Sand Spitter: MonsterVarieties MaximumAttackDistance 30) stands off just inside its reach, where
+    // its attack covers the player, instead of walking to the melee contact ring; a melee body beside it still does.
     [Fact]
-    public void A_slot_stays_while_it_is_free_and_the_player_stands()
+    public void A_ranged_chaser_stands_off_just_inside_its_reach_while_a_melee_one_comes_to_the_contact_ring()
     {
-        var first = MonsterSurround.Assign([new(1, 130, 100, 1, null)], (100, 100), [], Open)[1];
-        var again = MonsterSurround.Assign([new(1, first.X + 1, first.Y, 1, first)], (100, 100), [], Open)[1];
-        Assert.Equal(first, again);
-    }
+        var spitter = new MonsterSurround.Asker(1, 160, 100, 1, null, Reach: 30, Ranged: true);
+        var melee = new MonsterSurround.Asker(2, 160, 104, 1, null, Reach: 8);
+        var slots = MonsterSurround.Assign([spitter, melee], (100, 100), [], Open);
 
-    [Fact]
-    public void Standing_bodies_and_unwalkable_cells_are_never_given_out()
-    {
-        var slot = MonsterSurround.Assign([new(1, 130, 100, 1, null)], (100, 100), [(104, 100, 1)],
-            (x, y, _) => y >= 100)[1];
-        Assert.True(slot.Y >= 100);
-        Assert.True(Math.Max(Math.Abs(slot.X - 104), Math.Abs(slot.Y - 100)) >= 4);
+        static double Distance((int X, int Y) c) => Math.Sqrt(Math.Pow(c.X - 100, 2) + Math.Pow(c.Y - 100, 2));
+        Assert.InRange(Distance(slots[1]), 28, 30);
+        Assert.True(slots[1].X > 100, "on its own side of the player");
+        int contact = MonsterSurround.ContactRadius(1);
+        Assert.InRange(Distance(slots[2]), contact - 1, contact + 1.5);
+
+        // The stand-off slot is kept while it is still in range; a ranged body whose reach is the contact ring rings outward.
+        var again = MonsterSurround.Assign([spitter with { Last = slots[1] }], (100, 100), [], Open);
+        Assert.Equal(slots[1], again[1]);
+        var pointBlank = MonsterSurround.Assign([new MonsterSurround.Asker(3, 160, 100, 1, null, Reach: 4, Ranged: true)], (100, 100), [], Open);
+        Assert.InRange(Distance(pointBlank[3]), contact - 1, contact + 1.5);
     }
 }

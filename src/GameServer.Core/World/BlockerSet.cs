@@ -2,43 +2,114 @@ using System.Collections;
 
 namespace GameServer.Core.World;
 
-/// <summary>
-/// Blockers bucketed by cell, so <see cref="ClientPathfinder.ObjectBlocks"/> reads only those that can reach the queried
-/// cell instead of every blocker. A blocker can block only within its reach (size, or collision radius) plus the
-/// threshold, so the answer is the same as scanning the whole list. Living collision and monster paths query it per cell.
-/// </summary>
-public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>
+internal interface IBlockerQuery
+{
+    bool Blocks(int x, int y, int threshold, int radius);
+}
+
+/// <summary>A cell index for a simulation snapshot. Frame-local updates and exclusion views avoid rebuilding it per mover.</summary>
+public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlockerQuery
 {
     const int Bucket = 16;
-    readonly List<ClientPathfinder.Blocker> _all;
-    readonly Dictionary<long, List<ClientPathfinder.Blocker>> _buckets = [];
-    readonly int _reach;
+    readonly List<ClientPathfinder.Blocker> all = [];
+    readonly Dictionary<long, List<int>> buckets = [];
+    int reach;
 
     public BlockerSet(IEnumerable<ClientPathfinder.Blocker> blockers)
     {
-        _all = [.. blockers];
-        foreach (var b in _all)
-        {
-            _reach = Math.Max(_reach, Math.Max(b.Size, b.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
-            long key = Key(Floor(b.X), Floor(b.Y));
-            if (!_buckets.TryGetValue(key, out var list)) _buckets[key] = list = [];
-            list.Add(b);
-        }
+        foreach (var blocker in blockers) Add(blocker);
     }
 
-    public int Count => _all.Count;
-    public ClientPathfinder.Blocker this[int index] => _all[index];
-    public IEnumerator<ClientPathfinder.Blocker> GetEnumerator() => _all.GetEnumerator();
+    public int Add(ClientPathfinder.Blocker blocker)
+    {
+        int index = all.Count;
+        all.Add(blocker);
+        Index(index, blocker);
+        return index;
+    }
+
+    void Index(int index, ClientPathfinder.Blocker blocker)
+    {
+        reach = Math.Max(reach, Math.Max(blocker.Size,
+            blocker.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
+        long key = Key(Floor(blocker.X), Floor(blocker.Y));
+        if (!buckets.TryGetValue(key, out var list)) buckets[key] = list = [];
+        list.Add(index);
+    }
+
+    public void Replace(int index, ClientPathfinder.Blocker blocker)
+    {
+        var previous = all[index];
+        long oldKey = Key(Floor(previous.X), Floor(previous.Y)), newKey = Key(Floor(blocker.X), Floor(blocker.Y));
+        all[index] = blocker;
+        if (oldKey != newKey)
+        {
+            var old = buckets[oldKey]; old.Remove(index);
+            if (old.Count == 0) buckets.Remove(oldKey);
+            Index(index, blocker);
+        }
+        // An overestimate after a smaller replacement only visits extra buckets; it never loses a blocker.
+        reach = Math.Max(reach, Math.Max(blocker.Size,
+            blocker.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
+    }
+
+    public int Count => all.Count;
+    public ClientPathfinder.Blocker this[int index] => all[index];
+    public IEnumerator<ClientPathfinder.Blocker> GetEnumerator() => all.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    /// <summary>The blockers whose Chebyshev distance to (x, y) may be below <paramref name="threshold"/> + their reach.</summary>
-    internal IEnumerable<ClientPathfinder.Blocker> Near(int x, int y, int threshold)
+    public IReadOnlyList<ClientPathfinder.Blocker> Without(int first, int second = -1)
     {
-        int range = _reach + threshold;
+        if ((uint)first >= (uint)Count) throw new ArgumentOutOfRangeException(nameof(first));
+        if (second == first) second = -1;
+        if (second < -1 || second >= Count) throw new ArgumentOutOfRangeException(nameof(second));
+        if (second >= 0 && second < first) (first, second) = (second, first);
+        return new Excluding(this, first, second);
+    }
+
+    sealed class Excluding(BlockerSet owner, int first, int second) : IReadOnlyList<ClientPathfinder.Blocker>, IBlockerQuery
+    {
+        public int Count => owner.Count - (second < 0 ? 1 : 2);
+        public ClientPathfinder.Blocker this[int index]
+        {
+            get
+            {
+                if ((uint)index >= (uint)Count) throw new ArgumentOutOfRangeException(nameof(index));
+                if (index >= first) index++;
+                if (second >= 0 && index >= second) index++;
+                return owner[index];
+            }
+        }
+        public IEnumerator<ClientPathfinder.Blocker> GetEnumerator()
+        {
+            for (int i = 0; i < owner.Count; i++) if (i != first && i != second) yield return owner[i];
+        }
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        public bool Blocks(int x, int y, int threshold, int radius) => owner.Query(x, y, threshold, radius, first, second, false);
+    }
+
+    bool IBlockerQuery.Blocks(int x, int y, int threshold, int radius) => Query(x, y, threshold, radius, -1, -1, false);
+
+    /// <summary>Square-footprint occupancy without native tile pruning or circular hulls (surround reservations).</summary>
+    public bool OverlapsFootprint(int x, int y, int threshold) => Query(x, y, threshold, 0, -1, -1, true);
+
+    bool Query(int x, int y, int threshold, int radius, int first, int second, bool footprintOnly)
+    {
+        int range = reach + threshold;
+        int tx0 = Math.Max(0, (x - radius) / 23), tx1 = (x + radius) / 23 + 1;
+        int ty0 = Math.Max(0, (y - radius) / 23), ty1 = (y + radius) / 23 + 1;
         for (int bx = Floor(x - range); bx <= Floor(x + range); bx++)
             for (int by = Floor(y - range); by <= Floor(y + range); by++)
-                if (_buckets.TryGetValue(Key(bx, by), out var list))
-                    foreach (var b in list) yield return b;
+                if (buckets.TryGetValue(Key(bx, by), out var list))
+                    foreach (int index in list)
+                    {
+                        if (index == first || index == second) continue;
+                        var b = all[index];
+                        if (footprintOnly
+                            ? Math.Max(Math.Abs(b.X - x), Math.Abs(b.Y - y)) - b.Size < threshold
+                            : ClientPathfinder.BlockerBlocks(b, x, y, threshold, radius, tx0, tx1, ty0, ty1)) return true;
+                    }
+        return false;
     }
 
     static int Floor(int v) => (int)Math.Floor(v / (double)Bucket);

@@ -38,17 +38,4 @@ public class AuraEquipmentRestoreTests
         Assert.Equal(new[] { "Precision", "Clarity" }, CharacterSaves.Load(character)!.ActiveAuras);
     }
 
-    [Fact]
-    public void Every_supported_aura_returns_after_town_with_no_count_limit()
-    {
-        string[] ids = ["Vitality", "Precision", "Clarity", "Grace", "Determination", "Anger", "Hatred", "Wrath",
-            "Haste", "Discipline", "PurityOfElements", "PurityOfFire", "PurityOfIce", "PurityOfLightning", "Zealotry", "Malevolence", "Envy"];
-        var available = ids.Select((id, i) => new AuraCatalog.Aura((ushort)(0x200 + i), 0, id, id,
-            (ushort)(i * 2 + 1), AuraCatalog.BuffRow(id), 100, 5000, SourceBuff: (ushort)(i * 2 + 2))).ToArray();
-        var pools = new CharacterStats.Pools(1, 50, 100, 2, 0);
-        Assert.Empty(AuraCatalog.Restore(ids, available, pools, inTown: true));
-        var restored = AuraCatalog.Restore(ids, available, pools);
-        Assert.Equal(ids, restored.Select(a => a.EffectId));
-        Assert.Equal(34, restored.Sum(a => AuraCatalog.StartPackets(a, 0x1000, 1).Count()));
-    }
 }

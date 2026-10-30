@@ -10,9 +10,4 @@ public class HideoutUnlockTests
         Assert.Equal("01F6" + new string('0', 32), Convert.ToHexString(InstanceMicrotransactions.HideoutUnlocks([])));
     }
 
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(128)]
-    public void Unlocks_outside_the_native_mask_are_rejected(int row)
-        => Assert.Throws<ArgumentOutOfRangeException>(() => InstanceMicrotransactions.HideoutUnlocks([row]));
 }

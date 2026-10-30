@@ -11,7 +11,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - Continuous player recovery has its own 16 ms elapsed-game-time loop (regeneration, flasks and self RF);
   implemented, awaiting real-client visual verification.
   See Status and protocol/20-damage.md.
-- **Known:** `Program.TickRate` (30/s) only bounds attack times; hits use timers, the AI a 500 ms loop.
+- **Known:** `Program.TickRate` (30/s) only bounds attack times; hits use timers, the AI a 100 ms loop.
+  Queue/lock/send timings and shared per-pass blocker indexes are implemented; there is no unified instance loop yet.
 - **Done when:** one 30 Hz loop per instance drives movement estimates, AI and combat.
 
 ### Remaining client-message layouts
@@ -32,6 +33,31 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   the map ([16](../docs/protocol/16-waypoints.md) "Open").
 - **Start:** a dev command that walks the WorldAreas list with `/goto` and waits for each capture.
 - **Done when:** every act area has its seed-1 capture, and every waypoint area its waypoint in it.
+
+### Server-side level generation
+
+- **Known:** the port reproduces the client's generator for every recorded trace and logged load
+  ([re/011](../docs/re/011-level-generation.md), [status/world.md](../status/world.md)).
+  `/tour <file>` with `live.ps1 -Walkmaps` records new (area, seed) loads; `levelgen tourlist` writes the lists.
+- **Start:** the supported areas get random seeds, and a 5-seed tour of them found 4 loads the port gets wrong
+  (1_2_15 at `0x14211532d`, 1_2_14_2 at `0x142031e88`, [re/011](../docs/re/011-level-generation.md) §8 Random seeds)
+  and 202 seeds it cannot generate (the Gateway plays a new instance at such a seed at a replacement seed it can,
+  `ServerLevels.PlayableSeed`; fixing the generator errors gives those seeds back).
+- **To be implemented with their leagues (out of scope for now):** the 202 areas whose level the client builds from
+  data the server sends (`data/areas-unavailable.txt`). They come with each league's server side, not with the
+  generator:
+  - Delve (82): the mine cells and biomes (`Delve_*`); the client fails without the cell data.
+  - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
+  - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
+  - Incursion (10): the temples (`Incursion_Temple*`); the client needs the room hash of the opened and upgraded
+    rooms ("Unknown Incursion Temple room hash").
+  - Sanctum (4): the floors (`SanctumCellar`, `SanctumCrypt`, `SanctumNave`, `SanctumVaults`); the client rebuilds
+    the floor graph from the rooms the server sends.
+  - Deepwater (2): the 3.29 league's DeepwaterEncounter and DeepwaterEncounterVoyage, built from a biome grid the
+    server sends; the only seed-1 traces the port does not match.
+- For a daily labyrinth: port the rest of `0x1424e30f0` (connections, secrets) and send the layout message
+  (`0x141ec7220`: seed, node, difficulty).
+- **Done when:** any seed gets its layout without a capture.
 
 ### Area transitions without a walk-map run
 
@@ -88,7 +114,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Server-side world simulation** (monsters, combat): no project for it yet; add one when it is needed.
 - **Several players** in one instance: player presence, poses, life, departure and body blockers are published.
   Verify two authenticated connections together, then add party admission to private instances and shared combat.
-  Party invites (C→S 0x93) and friend requests (C→S 0x80) are read but not answered: next, S→C 0xa9 party info and the
-  friend list ([28](../docs/protocol/28-player-trade.md) "Open"). Trade between players works.
+  Trade between players and party invite / accept / leave work. Next: friend requests (C→S 0x80) and the friend list,
+  and party Decline, kicks and disconnects ([28](../docs/protocol/28-player-trade.md) "Open").
   The native remote-player body and normal/unique monster clearance have single-client checks.
   See [status/world.md](../status/world.md) and [07](../docs/protocol/07-latency-visibility-movement.md).

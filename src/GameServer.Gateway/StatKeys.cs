@@ -51,6 +51,11 @@ static class StatKeys
     public const uint DamagePct = 0x19, PhysicalDamagePct = 0x1b, MeleeDamagePct = 0x558, MeleePhysicalDamagePct = 0x1ed;
     // 3.29.3b Stats.dat rows 25 and 11810; Whisperer node 50932 enables the fixed 150% transfer.
     public const uint SpellDamagePct = 26, SpellDamageIncreasesApplyToAttacks150 = 11811;
+    public const uint SpellDamageIncreasesApplyToAttacks = 2493, SpellDamageIncreasesApplyToAttacksRatio = 11810,
+        SpellDamageIncreasesApplyToAttacksWithWand = 11812, SpellDamageIncreasesApplyToRetaliation = 11813,
+        SkillSpellDamageIncreasesApplyToAttacks = 11814;
+    public const uint FireDamagePct = 43, ColdDamagePct = 50, LightningDamagePct = 57,
+        ChaosDamagePct = 64, ElementalDamagePct = 489;
     // 3.29.3b Stats.dat row 5340; Rampager node 49937 supplies 1 on the caster.
     public const uint SpellSkillsDealNoDamage = 5341;
     // 3.29.3b Stats.dat row 2654: generic increased attack damage, including final-armour-derived contributions.

@@ -85,7 +85,22 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   0x11) and the tab's size (the register `0x141d625f0` files every row but 26 under its row, so any number of tabs share
   it), then **S→C 0xc8** (class `0x1435dc680`, read `0x1421a45b0`, case 0x3b): u16 BE tab index, u32 BE inventory id
   (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87740`), which builds the
-  page. The Gateway sends 0xc0 once per connection and tab, 0xc8 every time.
+  page. The Gateway sends 0xc0 when the client doesn't have the tab, and 0xc8 every time.
+- **Only the shown tab stays loaded.** The client keeps every tab it was sent, and each stash open walks all of them as
+  the panel becomes visible (`0x1418ab220`, the element show/hide). Opening therefore got slower with every loaded item.
+  Live 2026-10-29: about 1.5 s once the currency, essence, fragment, gem and divination tabs were all loaded.
+  - When the player picks a tab (a 0xc7 outside the first open's two requests), the Gateway unloads every other loaded
+    tab with **S→C 0xc1** (u8 manager, u32 inventory id).
+  - It then sends the tab list (0x136) again with those tabs' loaded bit clear, so the panel asks for them (0xc7) when
+    they are shown again.
+  - The tabs with shop currency stay (below).
+  - During the first open, the panel's old tab is asked for after the forced one; unloading the shown tab then crashed
+    the client on the next open, so nothing is unloaded in that window.
+  - Live 2026-10-29: the stash opened much faster after the heavy tabs were visited, with no crash.
+- **Area entry preloads only shop currency.** Vendors price items against the currency the client knows of, so the
+  tabs that can hold it (a currency tab or a grid tab) go out on area entry when they hold class `StackableCurrency`
+  (`Program.PreloadsForPrices`). Before, every tab with a stackable item went out: a full divination tab alone is
+  470 items.
 - Sizes (`AccountStash.Types`): StashType StorageSlots × column 4: Normal and Premium 12 × 12, Quad 24 × 24; the special
   tabs (Currency 142 × 4, Essence 110 × 4, Fragment 255 × 9, Map 12 × 6, Flask 250 × 4, Gem 250 × 2, Delve 41 × 4,
   Blight 83 × 4, Delirium 88 × 1, Divination 255 × 2, Ultimatum 62 × 5, Breach 1 × 1) are cells x = the layout's slot

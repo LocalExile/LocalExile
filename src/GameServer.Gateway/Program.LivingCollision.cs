@@ -93,16 +93,15 @@ partial class Program
 
     static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(conn, phase: "collision"))
         {
             double now = ProjectileWorldTime(conn);
             var player = conn.Walk.Position(now);
             var peers = conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Life > 0).ToArray();
             // Every living body's cell and size once per frame (kept current as bodies are moved below), instead of
             // recomputing each other monster's position for every monster: the overlap test was O(n²) walk queries.
-            var bodies = new List<(uint Id, int X, int Y, int Size)>(conn.Monsters.Count);
-            foreach (var (id, m) in conn.Monsters)
-                if (LivingCollision.Blocks(m)) { var p = m.Walk.Position(now); bodies.Add((id, p.X, p.Y, LivingCollision.Size(m))); }
+            using var frame = conn.BeginMonsterBlockerFrame(now, includePrevious: true);
+            var bodies = frame.Bodies;
             int index = 0;
             foreach (var (id, m) in conn.Monsters)
             {
@@ -131,10 +130,11 @@ partial class Program
                     // and paths again when a walk ends short (07 §5), so an ActionEnded + Teleport here only made the
                     // monster stop and jump on screen. Like the client, the estimate then paths again to the same target.
                     m.Walk.Teleport(stop.X, stop.Y, now);
+                    frame.Move(id, stop.X, stop.Y);
                     if (m.LastTarget is { } target) m.Walk.Order(target.X, target.Y, now);
-                    bodies[self] = (id, stop.X, stop.Y, size);
                 }
                 m.CollisionPosition = stop;
+                frame.CompleteCorrection(id, stop.X, stop.Y);
             }
         }
         return Task.CompletedTask;

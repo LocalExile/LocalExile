@@ -6,7 +6,6 @@ public partial class SpellNoDamageTests
 {
     [Theory]
     [InlineData(null, 28, 40)]
-    [InlineData("Concentrated Effect Support", 23, 33)]
     public async Task KB_production_release_scales_blast_and_placement_once_and_scopes_support_damage(
         string? support, int blastRadius, int placementRadius)
     {

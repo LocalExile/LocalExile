@@ -74,6 +74,7 @@ raw64 +0xd0, raw64 +0xd8, raw64 +0xc8, bytes[3] +0xe0..e2, u8 +0xc0, u8 +0xc1, r
 
 | Id | Class / writer | Sender | Fields (wire order) |
 |---|---|---|---|
+| 0x01 | inline | 0x14213e210 | — (keepalive, every 10 s; that function's `this` is the login object's +8 base, so it reaches the socket as `+0xdc8`) |
 | 0x02 | 0x1435c0038 | 0x14213e610 | blob key, blob signature (empty) |
 | 0x03 | 0x1435d8b88 / 0x14213c660 (read 0x14213c7c0) | 0x14213ea10, 0x140d05f70 | u32 version (2), str account, bytes[32] machine id A (`0x14213e970`), bytes[32] password digest, bytes[32] machine id B (`0x14299b130`), bool, bool, u8 realm\|0x40, u8 |
 | 0x05 | 0x1435d8b30 / 0x14213c1c0 | 0x14213eda0 | u8 realm\|0x40, bytes[32] id B, bytes[32] id A, u8, blob token |
@@ -92,15 +93,18 @@ raw64 +0xd0, raw64 +0xd8, raw64 +0xc8, bytes[3] +0xe0..e2, u8 +0xc0, u8 +0xc1, r
 | 0x3d | 0x1435d8b68 / 0x14213cee0 | 0x142140890 | wstr, wstr, bool |
 | 0x3f, 0x40 | 0x1435bf650 (inline) | 0x142140d70, 0x142140e60 | wstr |
 | 0x42 | inline | 0x142140810 | u8 |
+| 0x45 | inline (class 0x1435c01b8's layout) | 0x1400f50f0 | blob string. Sent when not in an instance; in an instance the same function sends instance 0x2fa with the string |
 | 0x46 | inline | 0x140d14690 | u32 (0) |
 
 The account login (0x03) is written field by field. MachineIdA (struct +0x54) comes **before** the password digest
 (+0x34) on the wire.
 
 ## Limits / next steps
-- The C→S list covers only senders that reference `+0xdd0` directly. A sender that reaches the socket some other way
-  would be missed. `FindSenders` only records ids passed to `htons` as immediates; ids loaded from a class field were
-  found through the class vtables instead.
+- The C→S list is complete: every caller of the stream flush `0x140dfb8c0` was accounted for (generated list with
+  the other connections: [../protocol/c2s.md](../protocol/c2s.md)). The S→C read sequences are in
+  [../protocol/schema.md](../protocol/schema.md) (login group); the factory's 27 classes are exactly its switch cases.
+- Open: 0x08 goes through `*(global+0x350)+0xdd0`, not the login object `*(global+0x358)`; which connection that is
+  is not known.
 - Field meanings beyond what the dispatch code shows are unknown, and the C# field names reflect that (`U16_30`,
   `B49`, …).
 - Next: run a patched client against `GameServer.Auth serve` (it now logs decoded messages). The

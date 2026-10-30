@@ -19,6 +19,14 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public int? SecondFormCriticalChance { get; init; }
     public string? AreaVisual { get; init; }
     public string? FlightVisual { get; init; }
+    /// <summary>The client spawns this use's primary projectiles itself (its own skill use), so the server sends no object
+    /// for them; continuation children still get one.</summary>
+    public bool ClientPredicted { get; init; }
     public Program.ProjectilePresentation? Presentation { get; init; }
+    /// <summary>Send S→C 0x1af on each contact (the target's blood and particles), as the melee default attack does.
+    /// <see cref="ActionSequence"/> is the shot's action, so the client matches the package to it (kind 3,
+    /// action-hit-packet-3.29.3b.md §3); without one the fabricated 0xffff still plays immediately.</summary>
+    public bool HitPacket { get; init; }
+    public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
 }

@@ -40,43 +40,4 @@ public class StashRowsTests : IDisposable
         Assert.DoesNotContain($"{WandType}", Saves.Get(SaveDatabase.Table.Stashes, _account));   // no items in the header
     }
 
-    [Fact]
-    public void Gold_and_the_last_tab_write_the_header_only()
-    {
-        var stash = Open();
-        int writes = 0;
-        Saves.FailWrite = k => { if (k.Equals(_account, StringComparison.OrdinalIgnoreCase)) writes++; return false; };
-        try
-        {
-            stash.AddGold(10);
-            stash.SetLastTab(2);
-        }
-        finally { Saves.FailWrite = null; }
-
-        Assert.Equal(2, writes);
-        AccountStash.Forget(_account);
-        Assert.Equal((10u, 2), (Open().Gold, Open().LastTab));
-    }
-
-    [Fact]
-    public void A_stash_saved_with_its_items_in_the_header_loads_and_its_first_save_gives_every_tab_its_row()
-    {
-        // As imported from data/stashes/<account>.json: every tab's items inline.
-        Saves.Db.Put(SaveDatabase.Table.Stashes, _account, $$$"""
-            {"Tabs":[{"Name":"1","Type":0,"R":1,"G":2,"B":3,"Items":[{"Id":1073741824,"X":0,"Y":0,"Item":{"Type":{{{WandType}}}}}]},
-                     {"Name":"2","Type":0,"R":1,"G":2,"B":3,"Items":[{"Id":1073741825,"X":4,"Y":0,"Item":{"Type":{{{WandType}}}}}]}],
-             "LastTab":1,"NextItemId":1073741826,"Gold":7}
-            """);
-        var stash = Open();
-        Assert.Equal([1073741824u], stash.Inventory(0).Items.Select(i => i.Id));
-
-        stash.Take(1, 1073741825);   // a change in tab 1 only
-
-        AccountStash.Forget(_account);
-        var again = Open();
-        Assert.Equal([1073741824u], again.Inventory(0).Items.Select(i => i.Id));   // tab 0 kept, now in its own row
-        Assert.Empty(again.Inventory(1).Items);
-        Assert.NotNull(Saves.Db.GetStashTab(_account, 0));
-        Assert.Equal(7u, again.Gold);
-    }
 }

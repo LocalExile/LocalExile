@@ -294,9 +294,11 @@ static class PanelStats
         return result;
     }
 
-    /// <summary><c>base_life_regeneration_rate_per_minute</c> plus <c>life_regeneration_rate_per_minute_%</c> of maximum life.</summary>
+    /// <summary><c>base_life_regeneration_rate_per_minute</c> plus <c>life_regeneration_rate_per_minute_%</c> of
+    /// maximum life, raised by <c>life_regeneration_rate_+%</c>.</summary>
     public static double LifePerMinute(Func<string, int> get, uint maxLife) =>
-        get("base_life_regeneration_rate_per_minute") + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0;
+        (get("base_life_regeneration_rate_per_minute") + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0)
+        * Math.Max(0, 1 + get("life_regeneration_rate_+%") / 100.0);
 
     /// <summary>
     /// Character.ot's <see cref="BaseManaRegenPctPerMinute"/> plus <c>mana_regeneration_rate_per_minute_%</c> of maximum

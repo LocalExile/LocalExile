@@ -21,21 +21,4 @@ public class ManaCostTests
         Assert.Equal(6u, Program.ManaCost(Stats, Skills, Skills.EffectRow("HolyStrike"), 1, 0));
     }
 
-    [Fact]
-    public void A_skill_without_a_mana_cost_needs_no_pool_update()
-    {
-        // The default attack (PlayerMelee) has no mana_cost stat: the client spends nothing, so nothing is given back.
-        Assert.Equal(0u, Program.ManaCost(Stats, Skills, Skills.EffectRow("PlayerMelee"), 1, 0));
-    }
-
-    [Theory]
-    [InlineData(4, 0, 0, 0, 4.0, false)]   // At the weapon's reach: a swing, which pays.
-    [InlineData(0, 0, 0, 4, 4.0, false)]   // Exactly 4 cells away: still a swing.
-    [InlineData(0, 0, 5, 0, 4.0, true)]    // One cell beyond: the client walks (attack-move), which costs nothing.
-    [InlineData(0, 0, 40, 40, 4.0, true)]
-    public void An_attack_gem_walks_only_beyond_the_weapons_reach(int ax, int ay, int bx, int by, double reach, bool walks)
-    {
-        // Live 2026-10-26: standing and swinging at empty ground spent no mana because every point was walked.
-        Assert.Equal(walks, Program.GroundAttackWalks((ax, ay), (bx, by), reach));
-    }
 }

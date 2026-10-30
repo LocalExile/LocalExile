@@ -41,6 +41,7 @@ if (args.Length > 0 && args[0] is "root-hash" or "gateway")
     }
 }
 
+GameServer.Core.Diagnostics.ServerLog.Install("patch");
 bool passthroughFlag = args.Contains(PatchServerConfig.PassthroughFlag);
 args = args.Where(a => a != PatchServerConfig.PassthroughFlag).ToArray();
 var builder = WebApplication.CreateBuilder(args);
@@ -175,7 +176,7 @@ static async Task ServePatchProtocol(int port, string ggpkPath, string webRoot, 
         }
         catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException)
         {
-            Console.WriteLine($"[patch] {peer} error: {ex.Message}");
+            Console.WriteLine($"[patch] {peer} error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
         }
         Console.WriteLine($"[patch] {peer} disconnected");
     }

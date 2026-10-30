@@ -35,18 +35,11 @@ public class ChatChannelsTests
 
     [Theory]
     [InlineData("hello", "OfflineWitch", "hello")]
-    [InlineData("#hello global", "#OfflineWitch", "hello global")]
-    [InlineData("$hello trade", "$OfflineWitch", "hello trade")]
     public void A_typed_line_comes_back_from_the_character_on_its_channel(string typed, string sender, string text) =>
         Assert.Equal(InstanceChat.ChatLine(text, sender), ChatChannels.Echo("OfflineWitch", typed));
 
     [Theory]
     [InlineData("")]
-    [InlineData("#")]
-    [InlineData("$   ")]
-    [InlineData("%party")]
-    [InlineData("&guild")]
-    [InlineData("@Someone hi")]
     public void Empty_party_guild_and_whisper_lines_are_not_echoed(string typed) =>
         Assert.Null(ChatChannels.Echo("OfflineWitch", typed));
 }

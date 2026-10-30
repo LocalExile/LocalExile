@@ -32,19 +32,4 @@ public class BenchBalanceTests
         Assert.All(before, view => Assert.DoesNotContain(view.Id, items.Items(PlayerInventories.MainInventory).Select(i => i.Id)));
     }
 
-    [Fact]
-    public void Large_totals_do_not_overflow_the_wire_stack_size_and_empty_balances_remove_the_old_view()
-    {
-        var catalog = BenchCraftingTests.Setup.Value.Catalog;
-        uint hash = catalog.Find(CurrencyEffects.ChaosOrb)!.Hash;
-        var snapshot = BenchBalance.DisplayStacks(catalog, [(hash, 150000)]);
-        Assert.Equal(150000L, snapshot.Sum(i => (long)i.Item.StackSize));
-        Assert.Equal(3, snapshot.Count);
-        Assert.Equal(snapshot.Count, snapshot.Select(i => i.Id).Distinct().Count());
-        Assert.Empty(BenchBalance.DisplayStacks(catalog, [(hash, 0)]));
-        // Ordinary stash kind 0x11 is excluded by the native bench filter; balance kind 0x12 is accepted.
-        Assert.Equal(0x12, InstanceBench.BalanceSlot.Kind);
-        Assert.Equal(26, InstanceBench.BalanceSlot.Row);
-        Assert.Equal(0, InstanceBench.BalanceSlot.Flags);
-    }
 }

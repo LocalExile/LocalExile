@@ -6,7 +6,8 @@ Usage (started for you by `scripts/dev/live.ps1 -Walkmaps`):
 Needs: pip install frida  (Python 3.9+). Attaches to the running client, waits for it if it is not running yet,
 and writes data/walkability/<area>_seed<seed>.bin plus <area>_seed<seed>.json ({"w":..,"h":..}), and <area>_seed<seed>.projectile.bin (what stops projectiles), and the layout's area
 transitions and waypoints (grid position, rotation, height, model) to <area>_seed<seed>.transitions.json, and every placed
-doodad (model, grid cell, angle) to <area>_seed<seed>.doodads.json (for the rooms' monster points).
+doodad (model, grid cell, angle) to <area>_seed<seed>.doodads.json (for the rooms' monster points; an empty list when
+the area places none).
 Rhoa Nests/Glyph Wall (research only) and tutorial tile objects are recorded in <area>_seed<seed>.objects.json.
 Placed .arm rooms are recorded in <area>_seed<seed>.rooms.json; the Strand support-gem chest uses its named room point. The area and
 seed come from data/walkability/current.json, which GameServer.Gateway writes on every connection. Existing walk maps are
@@ -34,6 +35,17 @@ RUNTIME = str(runpy.run_path(os.path.join(REPO, "scripts", "dev", "client_paths.
 
 def log(text):
     print(f"[walkmaps] {text}", flush=True)
+
+
+def replace(tmp, path):
+    """os.replace, retried while another process (the Gateway reading the capture) has the target open on Windows."""
+    for _ in range(40):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+    os.replace(tmp, path)
 
 
 def main():
@@ -101,6 +113,14 @@ def on_message(message, data, out):
         save_quest_object(out, payload)
     elif kind == "doodads":
         save_doodads(out, payload.get("doodads") or [])
+    elif kind == "generation":
+        save_generation(out, payload)
+    elif kind == "generation-failed":
+        save_failed_generation(out, payload)
+    elif kind == "probe":
+        save_probe(out, payload)
+    elif kind == "cell-heights" and data is not None:
+        save_cell_heights(out, payload, data)
     elif kind == "room":
         save_room(out, payload)
 
@@ -125,7 +145,7 @@ def save(out, w, h, cells):
         return
     with open(stem + ".bin.tmp", "wb") as f:
         f.write(cells)
-    os.replace(stem + ".bin.tmp", stem + ".bin")
+    replace(stem + ".bin.tmp", stem + ".bin")
     with open(stem + ".json", "w", encoding="utf-8") as f:
         json.dump({"w": w, "h": h}, f)
     log(f"saved {os.path.basename(stem)}.bin ({w}x{h})")
@@ -142,7 +162,7 @@ def save_projectile(out, w, h, cells):
         return
     with open(stem + ".projectile.bin.tmp", "wb") as f:
         f.write(cells)
-    os.replace(stem + ".projectile.bin.tmp", stem + ".projectile.bin")
+    replace(stem + ".projectile.bin.tmp", stem + ".projectile.bin")
     log(f"saved {os.path.basename(stem)}.projectile.bin ({w}x{h})")
 
 
@@ -160,7 +180,7 @@ def save_object(out, obj):
     stem = os.path.join(out, f"{area['id']}_seed{area['seed']}")
     with open(stem + ".transitions.json.tmp", "w", encoding="utf-8") as f:
         json.dump({"area": area["id"], "seed": area["seed"], "objects": found}, f, indent=1)
-    os.replace(stem + ".transitions.json.tmp", stem + ".transitions.json")
+    replace(stem + ".transitions.json.tmp", stem + ".transitions.json")
     log(f"{os.path.basename(stem)}: {obj.get('objectType', '').rsplit('/', 1)[-1]} at ({obj.get('x')}, {obj.get('y')}) "
         f"z {obj.get('z')} (raw {obj.get('rawZ')}, height offset {obj.get('heightOffset')})")
 
@@ -186,7 +206,7 @@ def save_quest_object(out, obj):
     stem = os.path.join(out, f"{area['id']}_seed{area['seed']}")
     with open(stem + ".objects.json.tmp", "w", encoding="utf-8") as f:
         json.dump({"area": area["id"], "seed": area["seed"], "objects": found}, f, indent=1)
-    os.replace(stem + ".objects.json.tmp", stem + ".objects.json")
+    replace(stem + ".objects.json.tmp", stem + ".objects.json")
     log(f"{os.path.basename(stem)}: quest object {obj['objectType'].rsplit('/', 1)[-1]} at ({obj.get('x')}, {obj.get('y')})")
 
 
@@ -211,7 +231,7 @@ def save_room(out, obj):
     stem=os.path.join(out,f"{area['id']}_seed{area['seed']}")
     with open(stem+".rooms.json.tmp","w",encoding="utf-8") as f:
         json.dump({"area":area["id"],"seed":area["seed"],"rooms":found},f)
-    os.replace(stem+".rooms.json.tmp",stem+".rooms.json")
+    replace(stem+".rooms.json.tmp",stem+".rooms.json")
 
 
 def save_doodads(out, batch):
@@ -227,9 +247,62 @@ def save_doodads(out, batch):
     with open(stem + ".doodads.json.tmp", "w", encoding="utf-8") as f:
         json.dump({"area": area["id"], "seed": area["seed"], "models": models,
                    "doodads": [[index[d[0]], d[1], d[2], round(d[3], 4)] for d in found]}, f)
-    os.replace(stem + ".doodads.json.tmp", stem + ".doodads.json")
+    replace(stem + ".doodads.json.tmp", stem + ".doodads.json")
     if len(found) == len(batch) or len(found) // 1000 != (len(found) - len(batch)) // 1000:
         log(f"{os.path.basename(stem)}: {len(found)} doodads")
+
+
+def save_cell_heights(out, info, cells):
+    """Every cell's ground height (i16, row by row, the client's 0x141d84a10) of one generated area:
+    <area>_seed<seed>.heights.bin, named like the generation trace."""
+    if not info.get("area"):
+        return
+    stem = os.path.join(out, f"{info['area']}_seed{info['seed']}")
+    with open(stem + ".heights.bin.tmp", "wb") as f:
+        f.write(cells)
+    replace(stem + ".heights.bin.tmp", stem + ".heights.bin")
+    log(f"{os.path.basename(stem)}: cell heights {info.get('w')}x{info.get('h')}, map +0x104 {info.get('storey')}, "
+        f"{info.get('rects')} height rectangles, {info.get('clipped')} clipped to i16")
+
+
+def save_failed_generation(out, gen):
+    """A generation that threw: the trace up to the throw, <area>_seed<seed>.failtrace.json (not .gen.json, so the gate
+    does not take it for a finished load); each later throw of the same load rewrites it."""
+    if not gen.get("area"):
+        return
+    stem = os.path.join(out, f"{gen['area']}_seed{gen['seed']}")
+    with open(stem + ".failtrace.json.tmp", "w", encoding="utf-8") as f:
+        json.dump(gen, f)
+    replace(stem + ".failtrace.json.tmp", stem + ".failtrace.json")
+    log(f"{os.path.basename(stem)}: failed generation trace, {len(gen.get('draws') or [])} draws, {len(gen.get('tiles') or [])} tiles")
+
+
+def save_probe(out, probe):
+    """One probe record (walkmaps.js PROBE_AREAS), appended to probes.jsonl."""
+    with open(os.path.join(out, "probes.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps(probe) + "\n")
+
+
+def save_generation(out, gen):
+    """The level generator's trace of one area load (random draws, placed tiles): <area>_seed<seed>.gen.json, named by
+    the area and seed the client generated (a retry with another seed gets its own file)."""
+    if not gen.get("area"):
+        return
+    stem = os.path.join(out, f"{gen['area']}_seed{gen['seed']}")
+    with open(stem + ".gen.json.tmp", "w", encoding="utf-8") as f:
+        json.dump(gen, f)
+    replace(stem + ".gen.json.tmp", stem + ".gen.json")
+    log(f"{os.path.basename(stem)}: generation trace, {len(gen.get('draws') or [])} draws, {len(gen.get('tiles') or [])} tiles, "
+        f"{gen.get('w')}x{gen.get('h')}, tile hash {gen.get('tileHash')}")
+    # An area that places no doodads sends no batch: write its empty list, so a load with none is told apart from one
+    # not captured. Batches that come after the trace (flushed on a timer) rewrite it with the whole list.
+    area = current_area(out)
+    if (area is not None and area["id"] == gen["area"] and str(area["seed"]) == str(gen["seed"])
+            and area.get("nonce") not in DOODADS and time.time() - float(area.get("written", 0)) <= FRESH_SECONDS):
+        DOODADS[area.get("nonce")] = []
+        with open(stem + ".doodads.json.tmp", "w", encoding="utf-8") as f:
+            json.dump({"area": gen["area"], "seed": gen["seed"], "models": [], "doodads": []}, f)
+        replace(stem + ".doodads.json.tmp", stem + ".doodads.json")
 
 
 def current_area(out):

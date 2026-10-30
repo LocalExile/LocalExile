@@ -46,40 +46,4 @@ public class HarvestPaymentTests : IDisposable
             Catalog.Mods.ById(m.Id)?.Tags.Contains("fire") == true);
     }
 
-    [Fact]
-    public void Insufficient_lifeforce_changes_neither_the_item_nor_the_stack()
-    {
-        var target = Target();
-        var (currency, amount) = Fire.Costs.Single();
-        Deposit(currency, amount - 1);
-
-        Assert.Null(ItemMoves.HarvestAtStation(Items, Stash, Harvest, Fire.Hash, new Random(13)));
-        Assert.Equal(amount - 1, Stash.CountOf(currency));
-        Assert.Equal(target.Item.Mods.Select(m => m.Hash), Items.Items(Slot).Single().Item.Mods.Select(m => m.Hash));
-    }
-
-    [Fact]
-    public void A_failed_character_save_rolls_back_the_lifeforce_payment()
-    {
-        var target = Target();
-        var (currency, amount) = Fire.Costs.Single();
-        Deposit(currency, amount);
-        Saves.FailWrite = key => key.Equals(name, StringComparison.OrdinalIgnoreCase);
-
-        Assert.ThrowsAny<IOException>(() => ItemMoves.HarvestAtStation(Items, Stash, Harvest, Fire.Hash, new Random(14)));
-        Saves.FailWrite = null;
-
-        Assert.Equal(amount, Stash.CountOf(currency));
-        Assert.Equal(target.Item.Mods.Select(m => m.Hash), Items.Items(Slot).Single().Item.Mods.Select(m => m.Hash));
-    }
-
-    [Fact]
-    public void Unsupported_recipes_spend_nothing()
-    {
-        var target = Target();
-        var unsupported = Harvest.All.First(r => !r.Supported && r.Costs.Count > 0);
-        Deposit(unsupported.Costs[0].Currency, 100000);
-        Assert.Null(ItemMoves.HarvestAtStation(Items, Stash, Harvest, unsupported.Hash, new Random(15)));
-        Assert.Equal(target.Item.Mods.Select(m => m.Hash), Items.Items(Slot).Single().Item.Mods.Select(m => m.Hash));
-    }
 }

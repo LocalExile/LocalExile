@@ -7,15 +7,16 @@ static class VerifiedGamblerGraph
 {
     internal const string Normal = "82D82CD3CD2DAD81606AF0DA9D18FCD53B2E92CF006550947D65A4F7E102DC32";
     internal const string Combined = "F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A425196CC93D638";
-    internal static void Verify(ReadOnlySpan<byte> ordinary, ReadOnlySpan<byte> alternate)
+    // Aristocrat admits against the same reviewed graph; className only names the refusal.
+    internal static void Verify(ReadOnlySpan<byte> ordinary, ReadOnlySpan<byte> alternate, string className = "Gambler")
     {
         if (Convert.ToHexString(SHA256.HashData(ordinary)) != Normal
             || Convert.ToHexString(SHA256.HashData(alternate)) != Combined)
-            throw new AscendancyRuleException("Gambler needs the separately reviewed 3.29.3b combined passive graph. "
-                + "Read-only verification failed; see Agents/docs/game/gambler.md");
+            throw new AscendancyRuleException($"{className} needs the separately reviewed 3.29.3b combined passive graph. "
+                + $"Read-only verification failed; see Agents/docs/game/{className.ToLowerInvariant()}.md");
     }
 
-    public static void RequireInstalled()
+    public static void RequireInstalled(string className = "Gambler")
     {
         try
         {
@@ -27,13 +28,13 @@ static class VerifiedGamblerGraph
             using var decoder = new NodeOodleDecoder("node", Path.Combine(source, "Tools", "ooz", "ooz_worker.mjs"));
             using var fs = GameFileSystem.Open(Environment.GetEnvironmentVariable("Game_GGPK") ?? "Client/Content.ggpk", decoder);
             Verify(fs.ReadFile("metadata/passiveskillgraph.psg"),
-                fs.ReadFile("metadata/alternateskillgraphs/customascendancypassiveskillgraph.psg"));
+                fs.ReadFile("metadata/alternateskillgraphs/customascendancypassiveskillgraph.psg"), className);
         }
         catch (AscendancyRuleException) { throw; }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException
             or InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
         {
-            throw new AscendancyRuleException("Gambler installed-graph verification failed: " + ex.Message);
+            throw new AscendancyRuleException($"{className} installed-graph verification failed: " + ex.Message);
         }
     }
 }

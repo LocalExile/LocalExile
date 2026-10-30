@@ -56,12 +56,15 @@ def main():
         pid = pick_pid(device, args.target)
     session = device.attach(pid)
     log = open(args.log, "a", encoding="utf-8") if args.log else None
+    stop = threading.Event()
+    lock = threading.Lock()   # Frida's callbacks run on its own threads
 
     def emit(line):
-        print(line, flush=True)
-        if log:
-            log.write(line + "\n")
-            log.flush()
+        with lock:
+            print(line, flush=True)
+            if log:
+                log.write(line + "\n")
+                log.flush()
 
     def on_message(message, data):
         emit(json.dumps(message, ensure_ascii=False))
@@ -72,9 +75,15 @@ def main():
         script.on("message", on_message)
         script.load()
         emit(json.dumps({"loaded": path}))
-    emit(json.dumps({"attached": pid, "message": "listening; Ctrl-C detaches"}))
+    # A crashed or closed client ends the session: say why ("process-terminated") and stop. Our own detach (Ctrl-C,
+    # --seconds) is reported below.
+    def detached(reason, crash):
+        if reason != "application-requested":
+            emit(json.dumps({"detached": pid, "reason": reason, "crash": str(crash) if crash else None}))
+        stop.set()
 
-    stop = threading.Event()
+    session.on("detached", detached)
+    emit(json.dumps({"attached": pid, "message": "listening; Ctrl-C detaches"}))
 
     def timer():
         time.sleep(args.seconds)

@@ -14,10 +14,11 @@ partial class Program
     // refused (GemDisabled).
     static IReadOnlyList<GrantedSkill> PlayerSkills(ClientState conn)
     {
-        // One build reads one snapshot of the character's stats: every gem's cast time and panel rows used to recompute
-        // the whole calculation (CharacterPlayerStats) per gem, inside the send gate.
+        // One build reads one snapshot of the character's stats, final stats and supported gems: every gem's cast time,
+        // hit, crit and panel rows used to recompute them (CharacterPlayerStats, FinalPlayerStats, SupportedSkill) five or
+        // six times per gem, 180-270 ms per build in the Debug server, inside the send gate.
         var outer = StatsScope.Value;
-        if (outer is null) StatsScope.Value = (conn, CharacterPlayerStatsCore(conn, out _));
+        if (outer is null) StatsScope.Value = new(conn, CharacterPlayerStatsCore(conn, out _));
         try
         {
             var player = FinalPlayerStats(conn).ToList();
@@ -26,8 +27,19 @@ partial class Program
         finally { if (outer is null) StatsScope.Value = null; }
     }
 
-    /// <summary>The character's stats for the PlayerSkills build running on this flow, reused instead of recomputed.</summary>
-    static readonly AsyncLocal<(ClientState Conn, Dictionary<uint, int> Stats)?> StatsScope = new();
+    /// <summary>The PlayerSkills build running on this flow: what it computed once and reuses instead of recomputing.</summary>
+    sealed class SkillBuildScope(ClientState conn, Dictionary<uint, int> stats)
+    {
+        public ClientState Conn => conn;
+        public Dictionary<uint, int> Stats => stats;
+        public List<(uint, int)>? Final;
+        public readonly Dictionary<ushort, SupportedGem> Supported = [];
+    }
+
+    static readonly AsyncLocal<SkillBuildScope?> StatsScope = new();
+
+    static SkillBuildScope? BuildScopeOf(ClientState conn) =>
+        StatsScope.Value is { } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
 
     // The player's stats as the server sets them: what /set_stat set, then the attack's final values computed from them
     // (the client derives nothing itself: 11-skills.md §4).
@@ -47,7 +59,21 @@ partial class Program
         return stats;
     }
 
+    const string LowestAttributeDamage = "damage_+%_per_5_of_your_lowest_attribute";
+    static readonly (string Conditional, string Plain, string Higher, string Lower)[] AttributeAilmentConditions =
+    [
+        ("cannot_be_ignited_with_strength_higher_than_dex", "cannot_be_ignited", "strength", "dexterity"),
+        ("cannot_be_frozen_with_dex_higher_than_int", "cannot_be_frozen", "dexterity", "intelligence"),
+        ("cannot_be_shocked_with_int_higher_than_strength", "cannot_be_shocked", "intelligence", "strength"),
+    ];
+
     static IEnumerable<(uint, int)> FinalPlayerStats(ClientState conn)
+    {
+        if (BuildScopeOf(conn) is not { } scope) return FinalPlayerStatsCore(conn);
+        return [.. scope.Final ??= [.. FinalPlayerStatsCore(conn)]];
+    }
+
+    static IEnumerable<(uint, int)> FinalPlayerStatsCore(ClientState conn)
     {
         var stats = CharacterPlayerStats(conn);
         // Quivers are gated by main_hand_weapon_type on the client, independently of the model's weapon stance. Only the
@@ -103,7 +129,7 @@ partial class Program
     // What /set_stat set, then the class's attributes and pools and the passives' stats for the stats it did not set.
     internal static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
     {
-        if (StatsScope.Value is { } scope && ReferenceEquals(scope.Conn, conn)) return new(scope.Stats);
+        if (BuildScopeOf(conn) is { } scope) return new(scope.Stats);
         return CharacterPlayerStatsCore(conn, out _);
     }
 
@@ -177,6 +203,15 @@ partial class Program
         if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))
             stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
                 Get("strength"), Get(SkillDurationModifiers.PerTenStrength));
+        // Dreadful Attitude: increased damage per complete 5 of the lowest final attribute, from this snapshot only.
+        if (Get(LowestAttributeDamage) is int perFive and not 0 && Stats.Key("damage_+%") is uint damageKey && !devSet.Contains(damageKey))
+            stats[damageKey] = (int)Math.Clamp(Get("damage_+%") + (long)perFive
+                * (Math.Min(Get("strength"), Math.Min(Get("dexterity"), Get("intelligence"))) / 5), int.MinValue, int.MaxValue);
+        // Aristocrat: "cannot be X if A is higher than B" becomes the plain cannot_be_X while it holds (strictly higher),
+        // which the Defence tab shows and the ailment consumer reads.
+        foreach (var (conditional, plain, higher, lower) in AttributeAilmentConditions)
+            if (Get(conditional) != 0 && Get(higher) > Get(lower) && Stats.Key(plain) is uint plainKey && !devSet.Contains(plainKey))
+                stats[plainKey] = 1;
         // The Offence tab's per-hand damage rows (issue #75): the hit the default attack actually swings with, so the panel
         // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
         // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
@@ -231,7 +266,8 @@ partial class Program
         bool melee, GameServer.Core.World.DamageConversion? conversion)
     {
         int Get(string name) => RageStat(stats, name);
-        var hit = DamageStats.Added(weapon.HitDamage(stats), Get, spell: false, melee).Scale(ChargeDamageMore(stats));
+        var hit = DamageStats.Added(weapon.HitDamage(stats), Get, spell: false, melee,
+            wieldingWand: weapon.WieldingWand).Scale(ChargeDamageMore(stats));
         if (conversion is not null) hit = hit.Convert(conversion);
         return RageStats.ApplyAttack(hit, Get).Scale(GamblerFor(stats).DamageFactor);
     }
@@ -424,7 +460,7 @@ partial class Program
                 var damageRows = hitPlan.Kind == SkillHitKind.Spell
                     ? SpellPanelStats.Compute(hitPlan, supportedHit, Get("hundred_times_casts_per_second"),
                         includeMainHand: true)
-                    : PanelStats.HandDamage(supportedHit, "main_hand");
+                    : AttackPanelStats.Compute(hitPlan, supportedHit, Get("hundred_times_attacks_per_second"));
                 foreach (var (key, value) in damageRows)
                     if (Stats.Key(key) is uint statKey) stats[statKey] = value;
                 var display = SpellDamage.Display((supportedHit.MinTotal, supportedHit.MaxTotal), 1 / seconds);
@@ -554,12 +590,28 @@ partial class Program
 
     // A gem's attribute requirements at its level: each SkillGems percentage through SkillCatalog.GemAttributeRequirement.
     static (int Str, int Dex, int Int) GemAttributeRequirements(ClientState conn, Item gem, ItemCatalog.GemType type, int effect)
+        => GemAttributeRequirements(conn, gem, type, effect, AttributeRequirementsPct(conn));
+
+    static (int Str, int Dex, int Int) GemAttributeRequirements(ClientState conn, Item gem, ItemCatalog.GemType type, int effect, int pct)
     {
         int level = Math.Clamp(ItemsFor(conn).GemLevel(gem), 1, Math.Max(1, type.MaxLevel));
         int needs = SkillsFor(conn).PlayerLevelReq(effect, level);
-        return (SkillCatalog.GemAttributeRequirement(type.StrengthPercent, needs, type.IsSupport),
-            SkillCatalog.GemAttributeRequirement(type.DexterityPercent, needs, type.IsSupport),
-            SkillCatalog.GemAttributeRequirement(type.IntelligencePercent, needs, type.IsSupport));
+        return (ScaledRequirement(SkillCatalog.GemAttributeRequirement(type.StrengthPercent, needs, type.IsSupport), pct),
+            ScaledRequirement(SkillCatalog.GemAttributeRequirement(type.DexterityPercent, needs, type.IsSupport), pct),
+            ScaledRequirement(SkillCatalog.GemAttributeRequirement(type.IntelligencePercent, needs, type.IsSupport), pct));
+    }
+
+    // The requirements a gem socketed in a worn item adds to that item (the client shows the item red when they are not
+    // met): the level its skill needs at the gem's level, and its attribute requirements. Pure catalog data, so the
+    // equipment resolver can read it before the pools exist.
+    static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(ClientState conn, Item gem, int attributePct)
+    {
+        if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return default;
+        int effect = type.Variant(gem.GemVariant).Effect;
+        if (effect < 0) return default;
+        int level = SkillsFor(conn).PlayerLevelReq(effect, ItemsFor(conn).GemLevel(gem));
+        var (str, dex, intel) = GemAttributeRequirements(conn, gem, type, effect, attributePct);
+        return (level, str, dex, intel);
     }
 
     // The value the client's requirement checks compare (virtual_*_for_requirements, 13-items.md §2d): what /set_stat set,
@@ -636,7 +688,7 @@ partial class Program
     // GainGemExperience) and quality. A transfigured or Trarthan gem grants its variant's skill, a Vaal gem its Vaal skill and
     // its base skill (ItemCatalog.GemEffects). Each skill keeps its id while its gem stays socketed (GemSkillIds): the client
     // binds skill bar keys by skill id. A gem whose requirements the character does not meet makes its item inactive
-    // (CharacterStatSources), so it grants nothing here; a use that still arrives is refused (GemDisabled).
+    // (EquipmentStatSources), so it grants nothing here; a use that still arrives is refused (GemDisabled).
     static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(ClientState conn)
     {
         string name = CharacterName(conn);

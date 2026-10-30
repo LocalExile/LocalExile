@@ -18,6 +18,16 @@ sealed class MonsterCatalog(string folder = "data")
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
+        /// <summary>
+        /// The row's movement speed roll range in percent: the two unnamed i32 columns before the f32 that precedes
+        /// AilmentThreshold (<c>__col75</c>, <c>__col76</c>; (0, 0) for most rows, (−5, 5) for the Goatmen, (−10, 10)
+        /// for many others). The client draws each monster's roll in it (MonsterSpeedRoll.cs).
+        /// </summary>
+        public int SpeedRollMin { get; init; }
+        public int SpeedRollMax { get; init; }
+        /// <summary>The row's ModelSizeMultiplier as a factor (100 → 1): the client scales the model, and a skill with
+        /// <c>use_scaled_contact_offset</c> scales its release offset with it.</summary>
+        public double ModelScale { get; init; } = 1;
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
         public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
@@ -233,6 +243,8 @@ sealed class MonsterCatalog(string folder = "data")
         bool RangedWeapon(JsonElement row) => new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }
             .Any(name => row.TryGetProperty(name, out var values) && values.ValueKind == JsonValueKind.Array
                 && values.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.Number && rangedVisuals.Contains(value.GetInt32())));
+        static int Column(JsonElement row, string name) =>
+            row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
         var rows = new List<Variety>();
         using (var doc = JsonDocument.Parse(File.ReadAllBytes(varieties)))
         {
@@ -251,7 +263,11 @@ sealed class MonsterCatalog(string folder = "data")
                     r.GetProperty("AttackSpeed").GetInt32(), r.GetProperty("MaximumAttackDistance").GetInt32(),
                     r.GetProperty("DamageMultiplier").GetInt32(), r.GetProperty("ExperienceMultiplier").GetInt32(),
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
-                    { LifeData = lifeData.GetValueOrDefault(baseType) ?? new(null, null, null), RangedWeapon = RangedWeapon(r) });
+                    {
+                        LifeData = lifeData.GetValueOrDefault(baseType) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
+                        SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
+                        ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
+                    });
             }
         }
         // With object-types.json, a type missing from it has no .ot: do not guess.

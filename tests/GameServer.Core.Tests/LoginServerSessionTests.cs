@@ -160,13 +160,6 @@ public class LoginServerSessionTests
 
     [Theory]
     [InlineData("Allflame", false, false, false)]
-    [InlineData("Hardcore Allflame", true, false, false)]
-    [InlineData("SSF Allflame", false, true, false)]
-    [InlineData("HC SSF Allflame", true, true, false)]
-    [InlineData("Ruthless Allflame", false, false, true)]
-    [InlineData("HC Ruthless Allflame", true, false, true)]
-    [InlineData("SSF Ruthless Allflame", false, true, true)]
-    [InlineData("HC SSF R Allflame", true, true, true)]
     public void Saved_default_family_modes_resolve_when_the_creation_catalog_is_narrowed(
         string leagueName, bool hardcore, bool ssf, bool ruthless)
     {

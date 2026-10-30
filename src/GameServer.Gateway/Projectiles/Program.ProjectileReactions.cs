@@ -22,8 +22,22 @@ partial class Program
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
             session.Packet(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
-        if (HitReaction.TryFlinch(target, damage, now, random) is { } flinch)
-            session.Packet(InstanceProtocol.AnimationUpdate(id, 0, (uint)flinch.Index, 1));
+        // Native Actor TakeHit recovery (0x1d1), as the melee path sends: a rig-only clip (0x1b2) leaves the client
+        // monster walking while the server's estimate has stopped (11-skills.md "Hit reaction").
+        if (HitReaction.TryFlinch(target, damage, now, random) is not null)
+            session.Packet(InstanceProtocol.ActorAnimation(id, (float)(target.FlinchUntil - now), PlayerHitRecovery.TakeHitAnimation));
+        if (shot.HitPacket)
+        {
+            // S→C 0x1af before the life update, as the melee default attack sends it: an immediate package (kind 3) for the
+            // shot's action with blood (0x0001), the generic particles (0x4000) of its largest damage type, the critical
+            // bit when it crit, and the main-hand bit (0x0200: the weapon's own effect and stat selection), which GGG's
+            // server sets on every bow hit (live capture 2026-10-29, ranged-monster-actions-port.md "Live reference").
+            // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
+            var direction = contact.Projectile.Direction;
+            ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
+            session.Packet(InstanceProtocol.ActionHit(PlayerId, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
+                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000))));
+        }
         session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
             $"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"

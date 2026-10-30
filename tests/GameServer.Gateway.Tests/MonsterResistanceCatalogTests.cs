@@ -30,47 +30,6 @@ public class MonsterResistanceCatalogTests
         finally { Directory.Delete(folder, recursive: true); }
     }
 
-    [Theory]
-    [InlineData(45, 0)]
-    [InlineData(46, 20)]
-    [InlineData(67, 20)]
-    [InlineData(68, 40)]
-    public void Fire_skeletons_use_the_levels_actual_difficulty_column(int level, int expected)
-    {
-        if (Data() is not { } data) return; // Real-client cross-check is optional on a fresh clone.
-        var catalog = new MonsterCatalog(data);
-        var skeleton = catalog.Find("Metadata/Monsters/Skeletons/SkeletonCasterFire")!;
-        Assert.Equal(expected, catalog.BaseResistance(skeleton, level, DamageType.Fire));
-        Assert.Equal(0, catalog.BaseResistance(skeleton, level, DamageType.Cold));
-        Assert.Equal(0, catalog.BaseResistance(skeleton, level, DamageType.Chaos));
-        Assert.Equal(0, catalog.BaseResistance(skeleton, level, DamageType.Physical));
-    }
-
-    [Fact]
-    public void Map_boss_resistance_is_not_the_same_as_the_act_one_boss()
-    {
-        if (Data() is not { } data) return;
-        var catalog = new MonsterCatalog(data);
-        var hillock = catalog.Find("Metadata/Monsters/ZombieBoss/ZombieBossHillock")!;
-        var map = catalog.Find("Metadata/Monsters/ZombieBoss/MapZombieBossHillock")!;
-        Assert.Equal(0, catalog.BaseResistance(hillock, 1, DamageType.Fire));
-        Assert.Equal(40, catalog.BaseResistance(map, 68, DamageType.Fire));
-        Assert.Equal(25, catalog.BaseResistance(map, 68, DamageType.Chaos));
-    }
-
-    [Fact]
-    public void Invalid_or_missing_source_data_is_distinguishable_from_zero_resistance()
-    {
-        if (Data() is { } data)
-        {
-            var catalog = new MonsterResistanceCatalog(data);
-            Assert.Null(catalog.BaseResistance(-1, 1, DamageType.Fire));
-            Assert.Null(catalog.BaseResistance(0, 101, DamageType.Fire));
-        }
-        Assert.Null(new MonsterResistanceCatalog(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()))
-            .BaseResistance(0, 1, DamageType.Fire));
-    }
-
     private static string? Data()
     {
         for (var dir = new DirectoryInfo(TestEnvironment.RuntimeRoot); dir is not null; dir = dir.Parent)

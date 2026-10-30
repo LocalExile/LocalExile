@@ -47,6 +47,26 @@ whose packets evaluate game state in their `still`/`atGate` callbacks. Those cal
 a crowd of 148 monsters they held the send gate for up to 4 s, so the answers queued behind them and the meter jumped
 to 0.5–4 s. Measured afterwards: no 0x1c later than 50 ms in a crowded Coast session.
 
+Tick latency does not measure queued gameplay work.
+`ConnectionPerformance` separately records socket-read-to-handler queue age, handler duration, send-gate wait/hold,
+wire-gate wait/hold, socket writes, hot combat-lock wait/hold, channel lateness, surround time and blocker-index builds.
+The `LocalExile.Gateway` meter exports duration histograms in milliseconds, surround allocations in bytes and pending
+input batches; tags contain operation names, never character or account identifiers.
+Closed connections discard their abandoned backlog so its depth does not remain in the process total.
+At most one `[latency]` log summary is emitted per connection every ten seconds when an interval sample reaches 50 ms.
+Set `$env:Game_TRACE = 'latency'` (or the older `$env:Game_LATENCY_METRICS = '1'`) in the PowerShell session before
+starting `scripts/dev/live.ps1` to log every interval instead ([debugging](../dev/debugging.md)); read
+`logs/live-gateway.log` for `pending-batches` and each phase's `interval-max-ms`.
+The logging flag does not change gameplay or the client's latency display.
+
+The full player stat and Actor refreshes (aura, charge, Fortification and Rage changes) build the whole skill list
+(`PlayerSkills`) inside the send gate, so every echo and monster packet waits for it. In 2026-10 one build of a 10-gem
+level 100 Witch cost 180–270 ms in the Debug Gateway (45–65 ms Release), and an aura toggle ran two or three of them:
+move handlers logged 400–730 ms in an empty hideout. Each gem resolved its links and supports (`SupportedSkill`) and the
+final player stats five or six times, and every gem requirement check scanned the whole GrantedEffectStatSetsPerLevel
+requirement list. One build now resolves each once (`SkillBuildScope`) and the requirements are indexed by stat set:
+5–10 ms per build in Debug and Release alike.
+
 ## 2. HNC, the hidden side channel
 
 The 0x1c u32 is not free data. `0x141fa0720` feeds its bits 9..31 then 0..8 (LSB first) into a byte accumulator on the
@@ -169,8 +189,17 @@ still differ by one cell.
 server sent it (median 17 ms), and the client paths it at once (1,235 of 1,235 recorded monster paths match
 `ClientPathfinder` with `SearchLimit.Expansions100`, all other objects as blockers and the size's walk threshold). When a
 walk ends short of the target the client paths again on its own, and monsters far from the player keep their walk but do
-not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8); the Actor roll is 1 for these, so the source
-is still open.
+not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8): the Actor's run-speed roll `+0x1a8`. Actor
+setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
+u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns before `AilmentThreshold` (`__col75`,
+`__col76`) differ, draws a uniform integer in that range (`0x1404d03d0`); the roll multiplies the Pathfinding speed by
+1 + roll / 100. Of the 10 691 rows, 8 694 have (0, 0), 875 (−10, 10) and 855 (−5, 5) (every plain Goatman: 8 × 0.95
+to 1.05 is the band measured), then (−5, 10), (0, 10), (−30, 15), (−5, 8), (−15, 15). The server draws the same roll
+(`MonsterSpeedRoll.cs`, `AnimationVariantSelector.NativeRandom`) with the monster's 0x2b9 type hash as the type word
+and walks its estimate at that speed (the Gateway's create log prints the speed and the roll). The range is certain;
+that the type word is the type hash, and so the exact value, is the research branch's reading of the type loader and
+is not yet checked live: `scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier.
+Decompiled in the research branch's `re/server-gaps-3.29.3b.md` §3.
 
 **Server side.** `PlayerWalk` runs `ClientPathfinder` from the player's cell on every order and steps the result at the
 client's step times; walk-ups to NPCs, stashes, waypoints and area transitions use the client's range
@@ -207,10 +236,21 @@ and crawled (~1 cell per 1.5 s), so it is not sent for the local player (`Game_M
 
 `LivingCollision` uses `MonsterVarieties.ObjectSize - 1` as the positioned footprint, including unique bosses.
 Negative footprints do not block; zero is a valid small body.
+Monsters with a negative footprint still chase directly without reserving surround slots or avoiding living bodies.
 `AreaLayout.WalkableFor` retains the captured terrain clearance values instead of treating every actor as player-sized.
 Monster `WalkEstimator` orders use the bounded native pathfinder with the client's budget: 1000 expansions for a
 unique, 100 for any other monster (`0x141e4d890`).
 Their blockers include stationary objects, other living monsters, the local player and published instance players.
+Surround candidates, including retained slots, must clear the player's Chebyshev footprint.
+The circular ring alone is insufficient: its diagonal cells can lie inside the player's blocker for larger monsters.
+Inner slots must also lie within the monster's attack reach when space permits.
+Stationary blockers and published players are excluded from candidate slots.
+The native path budget can end a valid route short; an arrived chaser retries at most twice a second.
+Each AI/collision pass owns one combat-locked body snapshot and indexed self-exclusion views for all mover paths.
+Collision corrections update both current and previous-position indexes before later movers use them.
+The indexes are discarded after the pass; normal/unique expansion budgets, stationary hulls and phasing remain intact.
+AI and correction passes advance prior projectile contacts before taking the body snapshot, using the shared
+projectile mutation scope and its experience-before-combat lock order.
 The 50 ms correction loop checks each traversed cell, stops movement through newly occupied cells and moves only the
 server's estimate (then paths it again to the same target, as the client does when a walk ends short). It used to send
 ActionEnded followed by Teleport: 1,608 corrections in one crowded session, each a visible stop and jump, although the
@@ -221,6 +261,11 @@ jump either. The overlap test reads every body's cell once per frame, and `Block
 The player's own path treats estimated monster bodies as blockers too; when they leave no way to the clicked cell but
 the stationary blockers do (`PlayerWalk`'s fallback), the server follows the client through the crowd instead of
 pulling the player back on every click.
+This escape is allowed only when the original path cannot get beyond the immediate footprint and the alternate end
+cell is free of living bodies; clicking an occupied destination does not grant an escape.
+While that walk is in progress, player correction ignores estimated monster bodies but still enforces terrain,
+stationary blockers and peer arbitration.
+Arrival, a replacement order or a teleport ends the escape; a new stationary obstruction still cancels and corrects it.
 Alive friendly monsters also block; corpses and removed objects do not.
 Phasing removes living bodies from the local player's path checks.
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.
@@ -291,8 +336,9 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
-- Monsters on the server still walk on `WalkEstimator`. `ClientPathfinder` paths them as the client does (§5), but the
-  client's monster controller (its own re-paths, frozen far monsters), the speed variance and the 5–50 ms until the
-  client applies an order are not reproduced; their estimated positions are what the player's path avoids.
+- Monsters on the server still walk on `WalkEstimator`. `ClientPathfinder` paths them as the client does (§5) and the
+  estimate walks at the client's rolled speed, but the client's monster controller (its own re-paths, frozen far
+  monsters) and the 5–50 ms until the client applies an order are not reproduced; their estimated positions are what
+  the player's path avoids.
 - The client's walk-up arguments for melee attacks, item pickups and the map device (`Approach`).
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

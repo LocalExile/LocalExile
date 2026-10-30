@@ -12,6 +12,9 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
 {
     public const int Prefix = 1, Suffix = 2;
 
+    /// <summary>Mods.dat GenerationType for the two Eldritch influences: Searing Exarch and Eater of Worlds.</summary>
+    public const int ExarchImplicit = 28, EaterImplicit = 29;
+
     /// <summary>A Words.dat row: the key the client looks it up by (HASH32), its text and spawn weights.</summary>
     public sealed record Word(uint Key, string Text, int List, IReadOnlyList<(string Tag, int Weight)> SpawnWeights);
 
@@ -23,6 +26,167 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
         _pools.GetOrAdd((t.Row, itemLevel), _ => [.. catalog.Mods.All
             .Where(m => m.Domain == t.ModDomain && m.GenerationType is Prefix or Suffix && m.Level <= itemLevel && !m.EssenceOnly)
             .Select(m => (m, m.WeightFor(t.Tags))).Where(p => p.Item2 > 0)]);
+
+    /// <summary>The item and its base accept affix changes: the item is not corrupted or mirrored, has Mods, and its
+    /// base is known, serializable, has Mods and is not unmodifiable.</summary>
+    bool TryModifiable(Item item, out ItemCatalog.BaseType type)
+    {
+        type = null!;
+        if (item.Corrupted || item.Mirrored || !item.Components.Contains("Mods") ||
+            catalog.ByHash(item.TypeHash) is not { } found || !found.Supported || !found.Components.Contains("Mods") ||
+            found.Unmodifiable) return false;
+        type = found;
+        return true;
+    }
+
+    /// <summary>Transmutation's validated normal-to-magic upgrade. Refused targets return null before rolling or
+    /// spending: no unknown/unmodifiable bases or empty ordinary affix pools. Ordinary magic counts stay 50/50.</summary>
+    public Item? Transmute(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Normal || !TryModifiable(item, out var type) ||
+            Pool(type, item.ItemLevel).Count == 0) return null;
+        return Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
+    }
+
+    /// <summary>Augmentation's validated one-affix addition to a magic item. Refused targets return null before
+    /// rolling or spending: no unknown/unmodifiable bases, and no free weighted affix (a full item, or an open side
+    /// with no eligible mods).</summary>
+    public Item? Augment(Item item, Random random) =>
+        item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffix(item, 1, random) : null;
+
+    /// <summary>Regal Orb's validated magic-to-rare upgrade: the magic affixes stay, one more comes from the rare
+    /// pool (at most three of each side), and a rare name is drawn. Flasks are magic-only and cannot become rare.</summary>
+    public Item? Regal(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Magic || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
+            return null;
+        return AddAffix(item, MaxAffixesPerSide(type), random) is not { } added ? null
+            : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
+    }
+
+    /// <summary>Alteration's validated magic reroll: 1-2 new affixes, at most one of each side, each drawn by weight.
+    /// Refused targets return null before rolling or spending: no unknown/unmodifiable bases and no empty ordinary
+    /// pool (which would otherwise leave a magic item with no affixes).</summary>
+    public Item? Alter(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Magic || !TryModifiable(item, out var type) ||
+            Pool(type, item.ItemLevel).Count == 0) return null;
+        return Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
+    }
+
+    /// <summary>Alchemy's validated normal-to-rare upgrade: 4-6 weighted affixes and a rare name. Flasks are
+    /// magic-only and cannot become rare.</summary>
+    public Item? Alchemy(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Normal || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
+            Pool(type, item.ItemLevel).Count == 0) return null;
+        return Roll(item, ItemRarity.Rare, random) with { Identified = true };
+    }
+
+    /// <summary>Exalted Orb's validated rare addition: the affixes and name stay and one more weighted affix is
+    /// added within the base's rare limits. Flasks are magic-only and cannot be rare.</summary>
+    public Item? Exalted(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
+            return null;
+        return AddAffix(item, MaxAffixesPerSide(type), random);
+    }
+
+    /// <summary>Chaos Orb's validated rare reroll: every unprotected explicit affix is replaced by 4-6 new weighted
+    /// ones, a new rare name is drawn, and metamod-protected affixes stay. Flasks are magic-only and cannot be
+    /// rare.</summary>
+    public Item? Chaos(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
+            Pool(type, item.ItemLevel).Count == 0) return null;
+        return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
+    }
+
+    /// <summary>The rare per-side limit: jewel classes allow two prefixes and two suffixes, other rare bases three.</summary>
+    static int MaxAffixesPerSide(ItemCatalog.BaseType type) => type.Class is "Jewel" or "AbyssJewel" ? 2 : 3;
+
+    /// <summary>The Eater of Worlds implicits an Eldritch Ichor of this tier can add.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> EldritchIchorPool(ItemCatalog.BaseType type, int tier) =>
+        EldritchPool(type, EaterImplicit, tier);
+
+    /// <summary>The Searing Exarch implicits an Eldritch Ember of this tier can add.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> EldritchEmberPool(ItemCatalog.BaseType type, int tier) =>
+        EldritchPool(type, ExarchImplicit, tier);
+
+    /// <summary>The tier's ordinary and Unique/Pinnacle Presence variants of one Eldritch influence that the base's
+    /// tags allow.</summary>
+    IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> EldritchPool(ItemCatalog.BaseType type, int influence, int tier)
+    {
+        if (tier is < 1 or > 4) return [];
+        return [.. catalog.Mods.All
+            .Where(m => m.GenerationType == influence && IsEldritchTier(m.Id, tier))
+            .Select(m => (m, m.WeightFor(type.Tags))).Where(p => p.Item2 > 0)];
+    }
+
+    static bool IsEldritchTier(string id, int tier) =>
+        id.EndsWith($"EldritchImplicit{tier}") || id.EndsWith($"UniquePresence{tier}") ||
+        id.EndsWith($"PinnaclePresence{tier}");
+
+    /// <summary>Eldritch Ichor: adds an Eater of Worlds implicit of the ichor's tier to eligible armour, replacing the
+    /// other implicit modifiers except Searing Exarch ones.</summary>
+    public Item? EldritchIchor(Item item, ItemCatalog.BaseType type, int tier, Random random) =>
+        EldritchImplicit(item, type, tier, EaterImplicit, ExarchImplicit, random);
+
+    /// <summary>Eldritch Ember: adds a Searing Exarch implicit of the ember's tier to eligible armour, replacing the
+    /// other implicit modifiers except Eater of Worlds ones.</summary>
+    public Item? EldritchEmber(Item item, ItemCatalog.BaseType type, int tier, Random random) =>
+        EldritchImplicit(item, type, tier, ExarchImplicit, EaterImplicit, random);
+
+    Item? EldritchImplicit(Item item, ItemCatalog.BaseType type, int tier, int influence, int keptInfluence, Random random)
+    {
+        if (tier is < 1 or > 4 || item.Rarity is not (ItemRarity.Normal or ItemRarity.Magic or ItemRarity.Rare) ||
+            type.Class is not ("Helmet" or "Body Armour" or "Gloves" or "Boots") ||
+            !TryModifiable(item, out _)) return null;
+        var pool = EldritchPool(type, influence, tier);
+        if (pool.Count == 0) return null;
+        var chosen = Pick(pool, random);
+        var kept = item.Mods.Where(m => m.Section != ModSection.Implicit ||
+            catalog.Mods.ByHash(m.Hash)?.GenerationType == keptInfluence).ToList();
+        int at = kept.FindLastIndex(m => m.Section == ModSection.Implicit) + 1;
+        kept.Insert(at, chosen.Roll(ModSection.Implicit, random));
+        return item with { Mods = kept };
+    }
+
+    /// <summary>Orb of Chance, the documented LocalExile rule: a modifiable normal weapon or armour piece becomes
+    /// rare (30%, 4-6 affixes and a rare name) or magic (2-4 affixes, at most two of each side). Refused targets
+    /// return null before rolling or spending, including missing/empty pools.</summary>
+    public Item? Chance(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Normal ||
+            !(item.Components.Contains("Weapon") || item.Components.Contains("Armour")) ||
+            !TryModifiable(item, out var type) || Pool(type, item.ItemLevel).Count == 0) return null;
+        return (random.Next(100) < 30 ? Roll(item, ItemRarity.Rare, random)
+            : Roll(item, ItemRarity.Magic, random, (random.Next(2, 5), 2))) with { Identified = true };
+    }
+
+    /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
+    /// that is modifiable, not unique and not corrupted/mirrored is always corrupted. A normal or magic item becomes
+    /// rare with 4-6 affixes; a rare one replaces 1-5 affixes or rerolls all of them. One white socket is coloured.
+    /// Refused targets return null before rolling or spending, including missing/empty pools.</summary>
+    public Item? Vaal(Item item, ItemCatalog.BaseType type, (int Str, int Dex, int Int) requirements, Random random)
+    {
+        bool target = item.Components.Contains("Weapon") || item.Components.Contains("Armour") ||
+            type.Class is "Ring" or "Amulet" or "Belt";
+        if (!target || item.Rarity == ItemRarity.Unique || !TryModifiable(item, out _) ||
+            Pool(type, item.ItemLevel).Count == 0) return null;
+        int roll = random.Next(100);
+        Item result = item.Rarity != ItemRarity.Rare || roll >= 90 ? Roll(item, ItemRarity.Rare, random)
+            : ReplaceAffixes(item, roll switch { < 20 => 1, < 40 => 2, < 60 => 3, < 80 => 4, _ => 5 }, random);
+        var sockets = result.Sockets.ToArray();
+        var whites = Enumerable.Range(0, sockets.Length).Where(i => sockets[i].Colour == SocketColour.White).ToArray();
+        if (whites.Length > 0)
+        {
+            int at = whites[random.Next(whites.Length)];
+            sockets[at] = sockets[at] with { Colour = SocketColours.Colour(requirements, random) };
+            result = result with { Sockets = sockets };
+        }
+        return result with { Corrupted = true, Identified = true };
+    }
 
     /// <summary>The item with this rarity and freshly rolled affixes (its implicits and other lists kept, earlier
     /// explicits replaced); a rare item also gets a name. Types without a Mods component, or normal / unique
@@ -52,9 +216,13 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
         var result = item with { Rarity = rarity, Mods = kept, NameWords = [] };
         if (catalog.ByHash(item.TypeHash) is not { } t || !t.Components.Contains("Mods") || rarity is not (ItemRarity.Magic or ItemRarity.Rare))
             return result;
+        // CoE beta rare counts: affixNumberGeneration[6] = [2/3, 1/4, 1/12] for 4, 5 or 6 affixes.
+        // Jewel classes cap at 4 (2 per side), affixNumberGeneration[4] = [.65,.35] for 3 or 4 affixes.
         var (count, maxEach) = shape ?? (rarity == ItemRarity.Magic
             ? (rng.Next(1, 3), 1)
-            : (rng.Next(12) switch { < 7 => 4, < 11 => 5, _ => 6 }, 3));
+            : t.Class is "Jewel" or "AbyssJewel"
+                ? (rng.Next(20) < 13 ? 3 : 4, MaxAffixesPerSide(t))
+                : (rng.Next(12) switch { < 8 => 4, < 11 => 5, _ => 6 }, MaxAffixesPerSide(t)));
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel))
             .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();
@@ -108,9 +276,12 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
         return item with { Mods = kept, Rarity = rarity, Identified = true, NameWords = rarity == ItemRarity.Rare ? item.NameWords : [] };
     }
 
+    /// <summary>Annulment's validated explicit-affix removal: one random unprotected explicit leaves a magic or rare
+    /// item; rarity and name stay. Refused targets return null before removing or spending: non-magic/rare,
+    /// corrupted/mirrored, unknown/unsupported/unmodifiable bases and items with no eligible explicit.</summary>
     public Item? Annul(Item item, Random rng)
     {
-        if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare)) return null;
+        if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare) || !TryModifiable(item, out _)) return null;
         var rules = new MetacraftRules(item, catalog.Mods);
         var candidates = Enumerable.Range(0, item.Mods.Count).Where(i => item.Mods[i].Section == ModSection.Explicit && !rules.Protected(i)
             && (catalog.Mods.ByHash(item.Mods[i].Hash) is not { } mod || rules.Allows(mod))).ToArray();
@@ -135,13 +306,22 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
     public Item? AddTaggedAffix(Item item, int maxEach, Random rng, string tag, bool respectMetamods = true) =>
         AddAffixCore(item, maxEach, rng, respectMetamods, tag);
 
-    Item? AddAffixCore(Item item, int maxEach, Random rng, bool respectMetamods, string? requiredTag)
+    /// <summary>The affixes <see cref="AddAffix"/> may add: the base's pool at the item's level, without families
+    /// already on the item, without a side that already has <paramref name="maxEach"/>, and filtered by the item's
+    /// metamods and an optional Tags.dat tag.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> AffixesToAdd(Item item, int maxEach, bool respectMetamods = true,
+        string? requiredTag = null)
     {
-        if (catalog.ByHash(item.TypeHash) is not { } t) return null;
+        if (catalog.ByHash(item.TypeHash) is not { } t) return [];
         var have = item.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         var rules = new MetacraftRules(item, catalog.Mods);
-        var allowed = Pool(t, item.ItemLevel).Where(p => (!respectMetamods || rules.Allows(p.Mod)) && have.Count(h => h.GenerationType == p.Mod.GenerationType) < maxEach &&
-            !have.Any(h => h.Families.Intersect(p.Mod.Families).Any()) && (requiredTag is null || p.Mod.Tags.Contains(requiredTag))).ToList();
+        return [.. Pool(t, item.ItemLevel).Where(p => (!respectMetamods || rules.Allows(p.Mod)) && have.Count(h => h.GenerationType == p.Mod.GenerationType) < maxEach &&
+            !have.Any(h => h.Families.Intersect(p.Mod.Families).Any()) && (requiredTag is null || p.Mod.Tags.Contains(requiredTag)))];
+    }
+
+    Item? AddAffixCore(Item item, int maxEach, Random rng, bool respectMetamods, string? requiredTag)
+    {
+        var allowed = AffixesToAdd(item, maxEach, respectMetamods, requiredTag);
         if (allowed.Count == 0) return null;
         var added = Pick(allowed, rng);
         // Prefixes before suffixes, as Roll orders them.

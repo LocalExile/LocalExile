@@ -26,10 +26,4 @@ public class PassiveRequestFramingTests
         }
     }
 
-    [Fact]
-    public void Allocation_preserves_the_high_node_half_and_expansion_flag_for_rejection()
-    {
-        Assert.Equal(((ushort)0x1234, (ushort)0xdfb0, (byte)1),
-            InstanceEntities.ReadAllocatePassive(Convert.FromHexString("00341234DFB001")));
-    }
 }

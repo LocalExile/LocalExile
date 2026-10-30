@@ -118,6 +118,21 @@ static class Charges
             return (before, Effective(type, limits));
         }
 
+        /// <summary>
+        /// Loses <paramref name="count"/> charges of a type (Replica Fragility, Replica Pacifism and Replica
+        /// Powerlessness take one each second): the gained ones go first, never below the minimum the character keeps.
+        /// The duration of what is left stays as it was. Returns the effective count before and after.
+        /// </summary>
+        public (int Before, int After) Lose(ChargeType type, int count, Limits limits)
+        {
+            int before = Effective(type, limits);
+            if (count <= 0) return (before, before);
+            int i = (int)type;
+            held[i] = Math.Clamp(before - count, 0, Math.Max(0, limits.Maximum));
+            if (held[i] == 0) expiresAt[i] = double.NegativeInfinity;
+            return (before, Effective(type, limits));
+        }
+
         /// <summary>Sets a type's charges directly (the /charges command): <paramref name="count"/> held, lasting their
         /// full duration from now. 0 removes them.</summary>
         public void Set(ChargeType type, int count, double now, Limits limits)

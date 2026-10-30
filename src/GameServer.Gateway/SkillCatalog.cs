@@ -204,8 +204,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 40;
         int statSet = t.StatSets[effectRow];
         int max = 0;
-        foreach (var (ss, level, req) in t.GemLevelReqs)
-            if (ss == statSet && req <= charLevel && level > max) max = level;
+        foreach (var (level, req) in t.LevelReqsOf(statSet))
+            if (req <= charLevel && level > max) max = level;
         return max > 0 ? max : 1;
     }
 
@@ -215,16 +215,15 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     {
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 0;
         int statSet = t.StatSets[effectRow], req = 0;
-        foreach (var (ss, lvl, r) in t.GemLevelReqs)
-            if (ss == statSet && lvl <= level && r > req) req = r;
+        foreach (var (lvl, r) in t.LevelReqsOf(statSet))
+            if (lvl <= level && r > req) req = r;
         return req;
     }
 
     /// <summary>
-    /// A skill's damage effectiveness at a level (GrantedEffectStatSetsPerLevel DamageEffectiveness, permyriad: Flicker
-    /// Strike 7730 at level 1, 30890 at 20, 69600 at 40): an attack's share of the weapon's damage, the gem's "Deals
-    /// 77.3% of base Attack Damage" line. 0 when its row has none (the default attack) or carries a negative one, which a
-    /// few skills do; callers scale nothing then. A spell's own base damage is already final (see SpellDamage).
+    /// A skill's resolved damage effectiveness in permyriad. The exported value is an offset from 100%:
+    /// Kinetic Blast's 4000 means 14000 (140%), and Cyclone's -1840 means 8160 (81.6%). Missing data returns 0
+    /// for the callers' identity fallback. A spell's own base damage is already final (see SpellDamage).
     /// </summary>
     public int DamageEffectiveness(int effectRow, int level)
     {
@@ -386,6 +385,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     public bool FamilyStatRaises(string stat, int gemRow) =>
         _stats.Key(stat) is uint key && _families.Value.Raises((int)key - 1, gemRow);
 
+    public bool IsExceptional(int gemRow) => _families.Value.IsExceptional(gemRow);
+
     readonly Lazy<SkillGemFamilies> _families = new(() => new(folder));
 
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
@@ -465,12 +466,17 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     }
 
     // Granted effects whose Projectiles.dat row is not named after them, by effect Id. Kinetic Blast's effect is
-    // ClusterBurst (the skill data names no row); it uses the wand attack's projectile at the same 3260 speed.
+    // ClusterBurst (the skill data names no row); it uses the wand attack's projectile at the same 3260 speed. Tornado
+    // Shot's arrow is TornadoShotArrow (2173); without it every use was refused while the client had stopped to shoot,
+    // and the server walked on (live 2026-10-29).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltX"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltY"] = "Metadata/Projectiles/WandProjectile",
+        ["TornadoShot"] = "Metadata/Projectiles/TornadoShotArrow",
+        ["TornadoShotAltX"] = "Metadata/Projectiles/TornadoShotArrow",
+        ["TornadoShotAltY"] = "Metadata/Projectiles/TornadoShotArrow",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
@@ -486,6 +492,195 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { } id)
                 result.TryAdd(id, r.GetProperty("ProjectileSpeed") is { ValueKind: JsonValueKind.Number } v ? v.GetInt32() : 0);
+        return result;
+    });
+
+    /// <summary>A data file's JSON, or null, with one warning, when it is missing or unreadable: the feature stays off
+    /// rather than faulting the projectile pump or a spawn, which closes the connection, and the cached fault would repeat
+    /// it on every later one (review 2026-10-30). The generators write atomically, so a truncated file means a crash
+    /// elsewhere.</summary>
+    static JsonDocument? DataFile(string path)
+    {
+        if (!File.Exists(path)) return null;
+        try { return JsonDocument.Parse(File.ReadAllBytes(path)); }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            Console.WriteLine($"[gateway] WARNING: {path} is unreadable ({ex.GetType().Name}: {ex.Message}); its feature is off until"
+                + " scripts/dev/extract-data.ps1 regenerates it");
+            return null;
+        }
+    }
+
+    /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
+    /// and whether it plays once (data/projectile-clips.json, scripts/re/projectile_clips.py).</summary>
+    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once);
+
+    /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
+    /// if it declares one (the wand bolt's <c>projectile_01</c>: it flies by itself), the flight clip (Projectiles.dat
+    /// LoopAnimationIds, the Sand Spitter mortar's <c>proj</c>: the object is invisible until it plays) and the impact
+    /// clip (ImpactAnimationIds, <c>end</c>).</summary>
+    public sealed record ProjectileClips(string? DefaultAnimation, ProjectileClip? Flight, ProjectileClip? Impact);
+
+    public ProjectileClips? Clips(string projectileId) =>
+        _projectileClips.Value.TryGetValue(projectileId, out var clips) ? clips : null;
+
+    private readonly Lazy<Dictionary<string, ProjectileClips>> _projectileClips = new(() =>
+    {
+        string path = Path.Combine(folder, "projectile-clips.json");
+        var result = new Dictionary<string, ProjectileClips>();
+        using var d = DataFile(path);
+        if (d is null) return result;
+        foreach (var entry in d.RootElement.EnumerateObject())
+        {
+            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
+            ProjectileClip? Clip(string key) =>
+                entry.Value.TryGetProperty(key, out var c) && c.ValueKind == JsonValueKind.Object
+                    && c.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                    && c.TryGetProperty("index", out var i) && i.ValueKind == JsonValueKind.Number && i.TryGetUInt32(out uint index)
+                    && c.TryGetProperty("ms", out var ms) && ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out int length)
+                    ? new(n.GetString() ?? "", index, length, c.TryGetProperty("once", out var once) && once.ValueKind == JsonValueKind.True)
+                    : null;
+            string? fallback = entry.Value.TryGetProperty("default", out var def) && def.ValueKind == JsonValueKind.String ? def.GetString() : null;
+            result[entry.Name] = new(fallback, Clip("flight"), Clip("impact"));
+        }
+        return result;
+    });
+
+    /// <summary>A monster skill's projectile (Projectiles.dat Id, speed in world units per second, whether it is lobbed at
+    /// the aim, collision radius in cells). Speed is the row's ProjectileSpeed; <c>Lobbed</c> flights land where they were
+    /// aimed and damage an area there.</summary>
+    public sealed record MonsterProjectileInfo(string Metadata, int Speed, bool Lobbed, double CollisionRadius)
+    {
+        /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
+        /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
+        public string? AnimationKey { get; init; }
+        /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
+        /// to the monster than this. 0 without the stat.</summary>
+        public int MinimumRange { get; init; }
+    }
+
+    /// <summary>One clip of a monster's attack pool (data/monster-contacts.json, scripts/re/monster_contacts.py): its name,
+    /// its index in the rig's animation list, its length, and its contact keyframe's time and position when it has one
+    /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
+    public sealed record MonsterClipContact(string Animation, uint Index, int LengthMs, int? ContactMs, ContactPoint? Point)
+    {
+        /// <summary>The contact as a fraction of the clip, clamped to it: an .ao event time is independent of the rig's
+        /// clip length, and a release past the attack's end would miss its busy period.</summary>
+        public double? ContactFraction => ContactMs is int ms && LengthMs > 0 ? Math.Clamp((double)ms / LengthMs, 0, 1) : null;
+    }
+
+    /// <summary>The clip the client plays for a monster's action: the variety's ACT pool for the skill's animation key
+    /// (<c>SpellProjectile</c> for the Spitter's mortar), chosen as the client chooses it, with the native selector seeded
+    /// by the action's sequence (AnimationVariantSelector; the Gateway's monster actions send 0xffff, so the choice is the
+    /// same for every swing). Null without data for the variety or key.</summary>
+    public MonsterClipContact? MonsterContact(string varietyId, string animationKey, ushort sequence)
+    {
+        if (!_monsterContacts.Value.TryGetValue(varietyId, out var pools) || !pools.TryGetValue(animationKey, out var pool)
+            || pool.Length == 0) return null;
+        // Equal weights for every clip; the pool's size comes from a data file, so only a small one lives on the stack.
+        Span<uint> weights = pool.Length <= 32 ? stackalloc uint[pool.Length] : new uint[pool.Length];
+        weights.Fill(1);
+        return pool[AnimationVariantSelector.Select(sequence, weights)];
+    }
+
+    private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
+    {
+        string path = Path.Combine(folder, "monster-contacts.json");
+        var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
+        using var d = DataFile(path);
+        if (d is null) return result;
+        foreach (var variety in d.RootElement.EnumerateObject())
+        {
+            if (variety.Value.ValueKind != JsonValueKind.Object
+                || !variety.Value.TryGetProperty("pools", out var pools) || pools.ValueKind != JsonValueKind.Object) continue;
+            var byKey = new Dictionary<string, MonsterClipContact[]>(StringComparer.Ordinal);
+            foreach (var pool in pools.EnumerateObject())
+            {
+                if (pool.Value.ValueKind != JsonValueKind.Array) continue;
+                var clips = new List<MonsterClipContact>();
+                foreach (var c in pool.Value.EnumerateArray())
+                {
+                    if (c.ValueKind != JsonValueKind.Object
+                        || !c.TryGetProperty("animation", out var name) || name.ValueKind != JsonValueKind.String
+                        || !c.TryGetProperty("index", out var index) || index.ValueKind != JsonValueKind.Number || !index.TryGetUInt32(out uint clipIndex)
+                        || !c.TryGetProperty("length", out var length) || length.ValueKind != JsonValueKind.Number || !length.TryGetInt32(out int lengthMs)
+                        || lengthMs <= 0) continue;
+                    int? contact = c.TryGetProperty("contact", out var ms) && ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out int contactMs)
+                        ? contactMs : null;
+                    var point = c.TryGetProperty("position", out var position) ? AnimationContacts.Point(position) : null;
+                    clips.Add(new(name.GetString() ?? "", clipIndex, lengthMs, contact, point));
+                }
+                if (clips.Count > 0) byKey[pool.Name] = [.. clips];
+            }
+            if (byKey.Count > 0) result[variety.Name] = byKey;
+        }
+        return result;
+    });
+
+    /// <summary>The projectile of a monster's granted effect: for a mortar skill (ActiveSkills Id <c>monster_mortar*</c>)
+    /// the GrantedEffects row's SkillID is the MonsterMortar row that names it (every Sand Spitter variant: SkillID 183 →
+    /// MonsterMortar 183 → <c>Metadata/Projectiles/SandspitterMortarProjectile</c>, 1170). Weapon projectile attacks
+    /// (<c>monster_projectile_weapon</c>, <c>monster_snipe</c>: SkillID 0 for all) take their projectile from the monster's
+    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact.</summary>
+    public MonsterProjectileInfo? MonsterProjectile(int effectRow) =>
+        _monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)
+            ? projectile with { MinimumRange = MonsterProjectileMinimumRange(effectRow) } : null;
+
+    /// <summary>The skill's <c>projectile_minimum_range</c> (a constant of its stat set, so level 1 reads it), 0 without.</summary>
+    private int MonsterProjectileMinimumRange(int effectRow)
+    {
+        if (_stats.Key("projectile_minimum_range") is not uint key) return 0;
+        foreach (var (statKey, value) in EffectStats(effectRow, 1)) if (statKey == key) return value;
+        return 0;
+    }
+
+    private readonly Lazy<Dictionary<int, MonsterProjectileInfo>> _monsterProjectiles = new(() =>
+    {
+        string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
+        var result = new Dictionary<int, MonsterProjectileInfo>();
+        if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills"))
+            || !File.Exists(TablePath("MonsterMortar")) || !File.Exists(TablePath("Projectiles"))) return result;
+        using var projectiles = JsonDocument.Parse(File.ReadAllBytes(TablePath("Projectiles")));
+        var rows = projectiles.RootElement.EnumerateArray().Select(r => (
+            Id: r.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "",
+            Speed: r.TryGetProperty("ProjectileSpeed", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetInt32() : 0,
+            Radius: r.TryGetProperty("CollisionRadius", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 1)).ToList();
+        // Animation.dat Ids: a mortar row's Animation names the ACT key of the clips the client plays for the skill.
+        var animationIds = new List<string>();
+        if (File.Exists(TablePath("Animation")))
+        {
+            using var animations = JsonDocument.Parse(File.ReadAllBytes(TablePath("Animation")));
+            foreach (var r in animations.RootElement.EnumerateArray())
+                animationIds.Add(r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() ?? "" : "");
+        }
+        using var mortars = JsonDocument.Parse(File.ReadAllBytes(TablePath("MonsterMortar")));
+        var mortarRows = new Dictionary<int, (int Projectile, string? AnimationKey)>();
+        foreach (var r in mortars.RootElement.EnumerateArray())
+            if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
+                && r.TryGetProperty("Projectile", out var p) && p.ValueKind == JsonValueKind.Number)
+            {
+                string? key = r.TryGetProperty("Animation", out var a) && a.ValueKind == JsonValueKind.Number
+                    && a.GetInt32() >= 0 && a.GetInt32() < animationIds.Count && animationIds[a.GetInt32()].Length > 0
+                    ? animationIds[a.GetInt32()] : null;
+                mortarRows.TryAdd(id.GetInt32(), (p.GetInt32(), key));
+            }
+        using var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills")));
+        var mortarSkills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
+            .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() is { } name
+                && name.StartsWith("monster_mortar", StringComparison.Ordinal))
+            .Select(a => a.i).ToHashSet();
+        using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+        int row = -1;
+        foreach (var e in effects.RootElement.EnumerateArray())
+        {
+            row++;
+            if (!e.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number || !mortarSkills.Contains(a.GetInt32())) continue;
+            if (!e.TryGetProperty("SkillID", out var k) || k.ValueKind != JsonValueKind.Number
+                || !mortarRows.TryGetValue(k.GetInt32(), out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
+            var p = rows[mortar.Projectile];
+            if (p.Id.Length == 0 || p.Speed <= 0) continue;
+            result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius)) { AnimationKey = mortar.AnimationKey };
+        }
         return result;
     });
 
@@ -559,6 +754,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         /// <summary>The weapon's own added elemental/chaos damage (its local added damage mods, ItemWeapons), added to
         /// every hit it makes; empty for unarmed and for weapons without such mods.</summary>
         public DamagePacket LocalAdded { get; init; } = DamagePacket.Empty;
+        public bool WieldingWand { get; init; }
+        public bool Melee { get; init; } = true;
 
         /// <summary>Unarmed attacks alternate hands, i.e. count as dual wielding, and the client adds dual wielding's 10%
         /// attack speed to the skill's main_hand_attack_speed_+% (live 2026-10-17: the skill read 10 that the server never
@@ -612,19 +809,36 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         public long IncreasedDamage(IReadOnlyDictionary<uint, int>? player)
         {
             long increased = 0;
-            foreach (uint k in (uint[])[StatKeys.DamagePct, StatKeys.AttackDamagePct, StatKeys.PhysicalDamagePct,
-                StatKeys.MeleeDamagePct, StatKeys.MeleePhysicalDamagePct])
+            foreach (uint k in (uint[])[StatKeys.DamagePct, StatKeys.AttackDamagePct, StatKeys.PhysicalDamagePct])
                 increased += player?.GetValueOrDefault(k) ?? 0;
+            if (Melee) increased += (long)(player?.GetValueOrDefault(StatKeys.MeleeDamagePct) ?? 0)
+                + (player?.GetValueOrDefault(StatKeys.MeleePhysicalDamagePct) ?? 0);
             return increased;
         }
 
         /// <summary>The physical hit packet: Characters.dat MinDamage..MaxDamage × (1 + increased / 100).</summary>
         public DamagePacket HitDamage(IReadOnlyDictionary<uint, int>? player)
         {
-            double increased = IncreasedDamage(player) + DamageStats.SpellAttackIncrease(player);
+            double transfer = DamageStats.SpellAttackIncrease(player, WieldingWand);
+            double increased = IncreasedDamage(player) + transfer;
             var hit = DamagePacket.Of(DamageType.Physical,
                 DamageStats.IncreaseAttackRange(new(MinDamage, MaxDamage), increased));
-            return hit.Add(LocalAdded);
+            return hit.Add(LocalAdded.Select((type, range) =>
+            {
+                int Get(uint key) => player?.GetValueOrDefault(key) ?? 0;
+                uint typed = type switch
+                {
+                    DamageType.Physical => StatKeys.PhysicalDamagePct,
+                    DamageType.Fire => StatKeys.FireDamagePct,
+                    DamageType.Cold => StatKeys.ColdDamagePct,
+                    DamageType.Lightning => StatKeys.LightningDamagePct,
+                    _ => StatKeys.ChaosDamagePct,
+                };
+                double localIncrease = (double)Get(StatKeys.DamagePct) + Get(StatKeys.AttackDamagePct) + Get(typed)
+                    + (DamageTypes.IsElemental(type) ? Get(StatKeys.ElementalDamagePct) : 0)
+                    + (Melee ? Get(StatKeys.MeleeDamagePct) : 0) + transfer;
+                return DamageStats.IncreaseAttackRange(range, localIncrease);
+            }));
         }
 
         /// <summary>The hit's damage range: Characters.dat MinDamage..MaxDamage × (1 + increased / 100), rounded down,
@@ -732,7 +946,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     // StatSets: each GrantedEffects row's StatSet1 (-1 when none). Effects: per GrantedEffects row its StatSet1 and CastTime.
     // StatSetBase: per GrantedEffectStatSets row its ImplicitStats and (ConstantStats, ConstantStatsValues).
     // StatSetLevelStats: per GESSPL row its (FloatStats, BaseResolvedValues) and (AdditionalStats, AdditionalStatsValues).
-    // Effectiveness: per GESSPL row its DamageEffectiveness (permyriad, the attack's share of the weapon's damage).
+    // Effectiveness: resolved permyriad, 10000 + the GESSPL DamageEffectiveness offset; 0 for missing data.
     // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0.
     // Reservations: per GEPL row the ManaReservationFlat and ManaReservationPercent (permyriad), parallel to PerLevel.
     // Cooldowns: per GEPL row its Cooldown (ms) and StoredUses, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
@@ -745,6 +959,14 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers)
     {
+        // GemLevelReqs by stat set: every gem's requirement check (twice per linked gem per skill build) scanned the whole
+        // table before.
+        Dictionary<int, (int GemLevel, int PlayerLevelReq)[]>? _levelReqsBySet;
+        public (int GemLevel, int PlayerLevelReq)[] LevelReqsOf(int statSet) =>
+            LazyInitializer.EnsureInitialized(ref _levelReqsBySet, () => GemLevelReqs.GroupBy(r => r.StatSet)
+                .ToDictionary(g => g.Key, g => g.Select(r => (r.GemLevel, r.PlayerLevelReq)).ToArray()))
+                .GetValueOrDefault(statSet, []);
+
         public static Tables? Load(string folder)
         {
             string Table(string name) => Path.Combine(folder, "tables", name + ".json");
@@ -824,7 +1046,10 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
             foreach (var r in s.RootElement.EnumerateArray())
             {
                 setLevels.Add((Int(r, "StatSet"), Int(r, "GemLevel")));
-                effectiveness.Add(Int(r, "DamageEffectiveness"));
+                // PoB Export/Scripts/skills.lua: raw / 10000 + 1. Zero is 100%, negatives are real reductions.
+                effectiveness.Add(r.TryGetProperty("DamageEffectiveness", out var effectivenessValue)
+                    && effectivenessValue.TryGetInt32(out int offset)
+                        ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
                 int crit = Int(r, "SpellCritChance");
                 spellCritChances.Add(crit >= 0 ? crit : null);
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),

@@ -22,10 +22,17 @@ static class TutorialObjects
             return new(point.Name,X+cx,Y+cy,(angle%turn+turn)%turn);
         }
     }
-    public static List<RoomPlacement> RoomPlacements(string area,uint seed,string path,string folder="data/walkability")
+    /// <summary>The captured placements of one room in (area, seed); without a capture, or with <paramref name="generated"/>,
+    /// those of the Gateway's own generation (ServerLevels) when it generates the area.</summary>
+    public static List<RoomPlacement> RoomPlacements(string area,uint seed,string path,string folder="data/walkability",bool generated=false)
     {
         string file=Path.Combine(folder,$"{area}_seed{seed}.rooms.json");
-        if(!File.Exists(file)) return [];
+        // Without a capture, an area the Gateway generates itself has the same rooms from the port (ServerLevels).
+        if(generated || !File.Exists(file))
+            return ServerLevels.InPlaceOf(folder,area,seed) is { } level
+                ? level.Rooms.Where(r=>string.Equals(r.Path,path,StringComparison.OrdinalIgnoreCase))
+                    .Select(r=>new RoomPlacement(r.X,r.Y,r.Width,r.Height,r.Code)).Distinct().ToList()
+                : [];
         // It runs while the area's layout is built (room points): a broken capture means no placement, not an error.
         try
         {
@@ -69,7 +76,11 @@ static class TutorialObjects
     public static Placement? ChestPlacement(string area, uint seed, string folder = "data/walkability")
     {
         string file = Path.Combine(folder, $"{area}_seed{seed}.objects.json");
-        if (!File.Exists(file)) return null;
+        // Without a capture, an area the Gateway generates itself has the same chest from the port (ServerLevels).
+        if (!File.Exists(file))
+            return ServerLevels.InPlaceOf(folder, area, seed)?.QuestObjects.FirstOrDefault(o => o.Type == Chest) is { } made
+                ? new(Chest, made.Model, made.X, made.Y, made.Rotation)
+                : null;
         using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
         var root = doc.RootElement;
         if (root.GetProperty("area").GetString() != area || root.GetProperty("seed").GetUInt32() != seed) return null;

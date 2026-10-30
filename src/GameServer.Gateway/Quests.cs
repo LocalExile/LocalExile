@@ -77,9 +77,10 @@ static class Quests
     /// 2026-10-20); MapDeviceActive, the map device's per-player "active" state (its .ot:
     /// per_player_quest_flag_state_active_1). ThisIsMyHideout (row 717): hideout NPCs' own options need it in NPCTalk
     /// QuestFlag1 (Niko's View Subterranean Chart and Visit Mine Encampment); without it the client lists their
-    /// "not my hideout" rows (717 in QuestFlag2). Every hideout here is the player's own.</summary>
+    /// "not my hideout" rows (717 in QuestFlag2). Every hideout here is the player's own. EndGameAvailable is the
+    /// epilogue flag the client requires before an Atlas map can be activated.</summary>
     public static readonly string[] EveryCharacter = ["HideoutUnlocked", "HideoutJukeboxEnabled", "CanEditHideout", "MapDeviceActive",
-        CompletedAllTutorials, ThisIsMyHideout];
+        CompletedAllTutorials, ThisIsMyHideout, EndGameAvailable];
 
     /// <summary>QuestFlags row 717, sent only while the player is in a hideout (Program.PlayerQuestFlags).</summary>
     public const string ThisIsMyHideout = "ThisIsMyHideout";
@@ -89,6 +90,10 @@ static class Quests
     /// ("Enter through the gate for a reward").</summary>
     public const string CompletedAllTutorials = "CompletedAllTutorials";
 
+    /// <summary>CharacterStartQuestState/QuestStates EpilogueAtlasDemo flag: without it the client refuses to activate an
+    /// Atlas map ("You do not have the required Quest State to access this area"; live 2026-10-29).</summary>
+    public const string EndGameAvailable = "EndGameAvailable";
+
     /// <summary>
     /// League quest flags: a set of their own, kept in the Player component's second flag set (+0x1d0). They are not a
     /// table: the client has the names built in, sorted, with their ids (0x142fca900, 0x776 entries; lookup
@@ -97,13 +102,20 @@ static class Quests
     /// </summary>
     public static class League
     {
-        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, UnlockedMapDevice = 350;
+        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296, UnlockedMapDevice = 350;
 
         /// <summary>Niko met in a map: his Delve options (View Subterranean Chart, Visit Mine Encampment) need it. NPCTalk
         /// columns 15-18 are league quest flag ids (16 required, 18 refused: the first-meeting "Talk to Niko" has 68 there).</summary>
         public const int DelveEncounterComplete = 68;
 
-        public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, UnlockedMapDevice, DelveEncounterComplete];
+        /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
+        /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
+        /// VillageKingsmarchUnlocked, HeistVisitedHub, ChayulaLeagueAreaUnlocked, AncestralHallsOfDeadUnlocked,
+        /// NecropolisAreaUnlocked, DeepwaterBoatUnlocked (0x140a9bd50).</summary>
+        public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419, 1834];
+
+        public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UnlockedMapDevice, DelveEncounterComplete,
+            .. WorldPanelPins];
 
         /// <summary>The bits the client keeps for these ids (id − 1).</summary>
         public static IEnumerable<int> Bits(IEnumerable<int> ids) => ids.Where(id => id > 0).Select(id => id - 1);

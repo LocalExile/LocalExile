@@ -133,6 +133,12 @@ function execute(request) {
       credentials = {account: request.account, digest: request.digest}; loginSubmitted = false;
       connect(loginObject(), string('127.0.0.1', true, keep), string(String(request.port), true, keep));
       return {submitted: true};
+    case 'connectSaved':
+      // The client's own login form (its remembered account and saved credential) goes out after the handshake.
+      if (current.screen !== 'login' || current.loginState !== 0) throw new Error('Connect requires a disconnected login screen');
+      lastLoginResult = null; credentials = null; loginSubmitted = false;
+      connect(loginObject(), string('127.0.0.1', true, keep), string(String(request.port), true, keep));
+      return {submitted: true};
     case 'login': {
       // Login's handshake listener may already have submitted the form in the same frame as the 0x02 reply.
       if (loginSubmitted) return {alreadySubmitted: true};

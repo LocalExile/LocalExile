@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Instance;
 /// monster's level as its item level. Equipment is magic or rare by <see cref="EquipmentRarity"/> (our own chances),
 /// raised by the player's increased item rarity (<see cref="WithIncreasedRarity"/>), with affixes from <see cref="ItemRolls"/>.
 /// </summary>
-sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool ruthless = false)
+sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool ruthless = false, AtlasCatalog? maps = null)
 {
     /// <summary>Chances (magic, rare) of a dropped piece of equipment by the monster's rarity: our own numbers until the
     /// game's are known.</summary>
@@ -98,6 +98,18 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         (int)Math.Floor(GoldAmount(monsterLevel, rarity, rng) * Math.Clamp(multiplier, 0, 1)) is int amount and > 0 && catalog.Find(GoldId) is { Supported: true } type
             ? new Drop(ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(amount, ushort.MaxValue) }, type) : null;
 
+    /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the campaign). Our own
+    /// rates until the game pools are known.</summary>
+    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng)
+    {
+        double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
+        if (maps is null || rng.NextDouble() >= chance) return null;
+        int tier = Math.Clamp(mapTier > 0 ? mapTier : 1, 1, 16);
+        if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
+        var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) };
+        if (rolls is not null && rng.NextDouble() < 0.10) item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = true };
+        return new(item, type);
+    }
     Drop? RollOne(int level, MonsterRarity monster, Random rng, int increasedRarity = 0, double rarityMultiplier = 1)
     {
         var (currency, equipment, flasks, gems) = _pools.Value;

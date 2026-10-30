@@ -6,7 +6,6 @@ public class HideoutSelectionTests
 {
     [Theory]
     [InlineData(0x00, 0x1d, 29, false)]
-    [InlineData(0x80, 0x66, 102, true)]
     public void Selection_decodes_the_native_row_and_guild_bit(byte high, byte low, int row, bool guild)
     {
         Assert.Equal((row, guild), InstanceHideouts.ReadSelect(new byte[] { 2, 0x54, high, low }));

@@ -27,6 +27,30 @@ public class PlayerWalkTests
     }
 
     [Fact]
+    public void Clicking_an_occupied_destination_does_not_enable_crowd_escape()
+    {
+        var w = new PlayerWalk(50, 50, 37, blockers: () => [new(60, 50, 3)], stationary: () => []);
+        w.Order(60, 50, 0);
+        Assert.NotEqual((60, 50), w.Destination);
+        Assert.False(w.EscapingCrowd(0));
+    }
+
+    [Fact]
+    public void Crowd_escape_ends_on_arrival_teleport_or_replacement_order()
+    {
+        var w = new PlayerWalk(50, 50, 37, blockers: () => Ring(50, 50), stationary: () => []);
+        w.Order(80, 50, 0);
+        Assert.True(w.EscapingCrowd(0));
+        Assert.False(w.EscapingCrowd(w.ArrivesAt));
+        w.Teleport(50, 50, 1);
+        Assert.False(w.EscapingCrowd(1));
+        w.Order(80, 50, 1);
+        Assert.True(w.EscapingCrowd(1));
+        w.Order(50, 50, 1);
+        Assert.False(w.EscapingCrowd(1));
+    }
+
+    [Fact]
     public void Steps_one_cell_per_step_time()
     {
         // 37 cells along x at 37 cells/s: one step every 1/37 s, whole cells only.

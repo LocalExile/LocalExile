@@ -2,12 +2,12 @@ using GameServer.Core.World;
 
 sealed partial class ClientState
 {
-    public IReadOnlyList<ClientPathfinder.Blocker> CorrectionBlockers()
+    public IReadOnlyList<ClientPathfinder.Blocker> CorrectionBlockers(bool includeMonsters = true)
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
         if (Phasing) return result;
         double now = Clock.Elapsed.TotalSeconds;
-        lock (Monsters)
+        if (includeMonsters) lock (Monsters)
             foreach (var m in Monsters.Values.Where(LivingCollision.Blocks))
             {
                 var p = m.Walk.Position(now);
@@ -19,27 +19,23 @@ sealed partial class ClientState
         return new BlockerSet(result);
     }
 
-    public IReadOnlyList<ClientPathfinder.Blocker> MonsterBlockers(uint self, bool includePrevious = false)
+    public IReadOnlyList<ClientPathfinder.Blocker> CrowdEscapeBlockers()
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
-        double now = Clock.Elapsed.TotalSeconds;
-        lock (Monsters)
-            foreach (var (id, m) in Monsters)
-            {
-                if (id == self || !LivingCollision.Blocks(m)) continue;
-                var p = m.Walk.Position(now);
-                result.Add(new(p.X, p.Y, LivingCollision.Size(m)));
-                if (includePrevious && m.CollisionPosition is { } previous && previous != p)
-                    result.Add(new(previous.X, previous.Y, LivingCollision.Size(m)));
-            }
-        if (PlayerSent && PlayerLife > 0 && !Phasing)
-        {
-            var p = Walk.Position(now);
-            result.Add(new(p.X, p.Y, LivingCollision.PlayerSize));
-        }
         foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
             if (peer.Life > 0) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
         return new BlockerSet(result);
+    }
+
+    public IReadOnlyList<ClientPathfinder.Blocker> MonsterBlockers(uint self, bool includePrevious = false)
+    {
+        lock (Monsters)
+        {
+            if (monsterFrame is { } frame && (!includePrevious || frame.IncludesPrevious))
+                return frame.For(self, includePrevious);
+            using var snapshot = BeginMonsterBlockerFrame(Clock.Elapsed.TotalSeconds, includePrevious);
+            return snapshot.For(self, includePrevious);
+        }
     }
 
     public WalkEstimator NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique) =>

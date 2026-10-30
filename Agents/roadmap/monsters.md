@@ -15,6 +15,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation
   ([status](../status/monsters.md#partly-working)); integrated native evidence is scoped in
   [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+  Native TakeHit recovery stops locomotion and invalidates ordinary pending attacks for the same recovery interval.
+  AI decisions now use 50 ms game-time steps with 100 ms bounded repaths and full-duration attack busy periods.
+  Historical LocalExile controls verify chase response, turning, pacing and native pause; this port awaits a rerun.
+  Automated cadence and lifecycle checks retain interruption and stage-completion guards.
 - **Start:** the systems the 74 unsupported monster mods need (auras on allies, retaliation and on-death skills, ailments and
   curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), stages of other bosses (`BossFights.cs` has Hillock's), pack
   `Grounds`, the 346 varieties with NPC / ControlZone / BlightTower … components (each needs its deserializer, schema.md).
@@ -28,6 +32,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 ## 4. Server design
 
 - **Monster movement on the client's pathfinder:** monsters still use the fitted `WalkEstimator`.
-  `ClientPathfinder` already paths them exactly as the client does;
-  still missing are the client's monster controller (its own re-paths, frozen far monsters), the speed variance and
-  the 5–50 ms until the client applies an order ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
+  `ClientPathfinder` already paths them exactly as the client does.
+  The decision loop now uses 50 ms game time and repaths no faster than 100 ms after a three-cell target change.
+  Native response, turning, attack pacing and pause controls pass; official monster controller rules remain separate.
+  The estimate walks at the client's rolled speed (the status's monster walk speed entry).
+  Still missing are the client's monster controller (its own re-paths, frozen far monsters) and the 5–50 ms until the
+  client applies an order ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").

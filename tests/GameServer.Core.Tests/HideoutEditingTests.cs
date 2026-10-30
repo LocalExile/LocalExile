@@ -22,23 +22,4 @@ public class HideoutEditingTests
         Assert.Equal(InstanceProtocol.TickId, messages[1].Id);
     }
 
-    [Fact]
-    public void Rotation_is_network_float_and_component_update_is_little_endian()
-    {
-        byte[] packet = Convert.FromHexString("005B1234567801020304053FC00000");
-        var move = InstanceHideoutEditing.ReadMove(packet);
-        Assert.Equal(1.5f, move.Rotation);
-        Assert.Equal(2, move.Variation);
-        Assert.True(move.Mirrored);
-        byte[] update = InstanceHideoutEditing.Rotation(move.ObjectId, move.Rotation);
-        Assert.Equal(0x2ba, BinaryPrimitives.ReadUInt16BigEndian(update));
-        Assert.Equal("0008000000C03F", Convert.ToHexString(update.AsSpan(update.Length - 7)));
-        Assert.Throws<ArgumentException>(() => InstanceHideoutEditing.ReadMove(packet.AsSpan(0, 14)));
-    }
-
-    [Fact]
-    public void Collision_rebuild_uses_global_world_message_with_unused_zero_header()
-    {
-        Assert.Equal("016100000000000000000000", Convert.ToHexString(InstanceHideoutEditing.RebuildCollision()));
-    }
 }

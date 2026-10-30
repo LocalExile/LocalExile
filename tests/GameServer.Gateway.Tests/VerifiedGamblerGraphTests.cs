@@ -7,5 +7,7 @@ public class VerifiedGamblerGraphTests
     {
         Assert.Throws<AscendancyRuleException>(() => VerifiedGamblerGraph.Verify([], []));
         Assert.Throws<AscendancyRuleException>(() => VerifiedGamblerGraph.Verify([1, 2, 3], [4, 5, 6]));
+        Assert.Contains("aristocrat.md", Assert.Throws<AscendancyRuleException>(
+            () => VerifiedGamblerGraph.Verify([], [], "Aristocrat")).Message);
     }
 }

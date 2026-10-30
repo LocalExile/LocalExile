@@ -209,8 +209,10 @@ match, their .tmd).
    `AreaTransition`, or when its .ot has an `AreaTransition` component. That includes quest exits like
    `Metadata/QuestObjects/SouthBeachTownEntrance` and `…/Act4/MineEntranceTransition`. The model is §5's virtual
    `<.tdt folder>/<record name>.ao`, with the folder spelled as the .tst writes it (e.g. `BeachToSwamp`).
-7. **Point ↔ object:** the named point (any except `default`) inside the transition tile's slot rectangle, else the
-   nearest one. `matched` says which, with the distance; more than 80 cells adds a "guess" note.
+7. **Point ↔ object:** the named point (any except `default` and the monster and object spawn points named by a
+   `Metadata/…` path) inside the transition tile's slot rectangle, else the nearest one. The Climb's `prison.arm` has
+   `Metadata/Monsters/CorpseWheel/CorpseWheelAggroCharge` beside its `entrance`: counted, one of the tile's two
+   orientations put the exit to The Lower Prison nearest to it, and the exit was left unresolved. `matched` says which, with the distance; more than 80 cells adds a "guess" note.
 8. **Point ↔ graph name:**
    - Matching: the same name, or the name + `disabled`. A generic room point (`entrance`) takes the one numbered node
      name no other room point has (Coast `town_entrance_exclude.arm`: `entrance` ↔ node `entrance1`). With several
@@ -229,7 +231,9 @@ match, their .tmd).
       first);
     - rotation = `Angle(room ∘ tile, record angle)`; the .tmd's 5th field is the record angle (f32, π/2 on Highgate's
       `AscentTransition`);
-    - z = the record's z. Text .tmd (version 8) gives no z.
+    - z = the record's z. Text .tmd (version 8) records are `cellX cellY hasPos [x y] z angle qx qy qz qw ? scale
+      "ao" "name" "mesh" "type" [n]` (all 3 345 records in the game files; the `.ao` comes first, empty for none), so
+      they give z and the angle too (before 2026-10-23 the parser took z as the angle).
 
 ### Results (run of 2026-10-17)
 
@@ -248,15 +252,15 @@ Coverage:
 |---|---|
 | WorldAreas rows | 1932 (1915 with a topology, 340 with connections) |
 | area × topology | 5736 generated, 2909 fixed-graph (.dgr with several nodes), 316 fixed (310 areas, all fixed) |
-| connections (area → destination, 720) | **438 resolved** (an enabled transition object in every topology), 230 disabled (only `…disabled`: one-way back links), 41 point-only, **11 unresolved** |
-| transition objects (area × topology × room, 23891) | 11730 resolved, 270 point-only, 6693 in-area teleports, 3711 unused by their node, 1487 unresolved |
+| connections (area → destination, 720) | **439 resolved** (an enabled transition object in every topology), 230 disabled (only `…disabled`: one-way back links), 40 point-only, **11 unresolved** |
+| transition objects (area × topology × room, 23884) | 11737 resolved, 263 point-only, 6747 in-area teleports, 3584 unused by their node, 1553 unresolved |
 | with grid placement | 72 objects in 24 fixed areas |
 
 Unresolved objects, by reason:
 - 1291 "the area has no connections" (maps and league areas, whose exits are not in `Connections`);
 - 151 "the room has no named point" (mostly side-area and sub-area links);
 - 25 generic points with a different number of node names;
-- 20 tiles whose possible orientations put them nearest to different points.
+- 14 tiles whose possible orientations put them nearest to different points.
 
 877 objects also note that the tile key fits several orientations. That is harmless for generated areas, where only
 the destination and model matter; a fixed layout gets no grid position then. 162 objects note a nearest-point pairing
@@ -322,6 +326,6 @@ post-create event (`0x141ded7b9`); a Transitionable byte appended to the blob wa
 Underflow). `data/object-types.json` now also lists the atlas's tile-object types (`ot_components.py --all`). The quest
 behind that cave is in [12](12-quests.md).
 
-**Dev commands.** `/goto <area id or name>` changes area as if through an area transition (e.g. `/goto 1_1_3`);
+**Dev commands.** `/goto <area id or name> [seed]` changes area as if through an area transition (e.g. `/goto 1_1_3`; with a seed, into a new instance at that seed, e.g. `/goto 1_1_5 1384217569`);
 `/transition …` (§5) changes the first one.
 

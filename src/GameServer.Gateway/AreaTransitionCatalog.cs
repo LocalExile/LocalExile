@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Data.Terrain.Generation;
 
 /// <summary>
 /// Every area's area transitions: where they are (the client's generated layout, captured per (area, seed) by
@@ -147,20 +148,39 @@ static class AreaTransitionCatalog
 
     static string CaptureFile(string id, uint seed) => $"{Folder}/{id}_seed{seed}.transitions.json";
 
-    static List<CapturedObject>? LoadCapture(string id, uint seed)
+    // Quest exits extend AreaTransition under their own name (The Twilight Strand's SouthBeachTownEntrance). A generated
+    // layout without any falls back to the atlas's fixed placement; a capture without any has none.
+    static List<CapturedObject>? LoadCapture(string id, uint seed) =>
+        LoadObjects(id, seed)?.Where(o => o.ObjectType is { } t && IsTransition(t)).ToList() is { } exits
+            && (exits.Count > 0 || Captured(id, seed)) ? exits : null;
+
+    // The tile objects of a capture or, without one, of the layout the Gateway generated itself, read the same way.
+    static List<CapturedObject>? LoadObjects(string id, uint seed)
     {
         try
         {
-            if (!Captured(id, seed)) return null;
-            var file = JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(CaptureFile(id, seed)), Json);
-            // Quest exits extend AreaTransition under their own name (The Twilight Strand's SouthBeachTownEntrance).
-            return file?.Objects?.Where(o => o.ObjectType is { } t && (t.Contains("AreaTransition") || t.EndsWith("TownEntrance"))).ToList();
+            if (!Captured(id, seed))
+                return ServerLevels.For(id, seed)?.Objects.Select(o => new CapturedObject(o.Type, o.Model, o.X, o.Y, o.Rotation, o.Z)).ToList();
+            return JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(CaptureFile(id, seed)), Json)?.Objects;
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
             return null;
         }
     }
+
+    static bool IsTransition(string type) =>
+        (type.Contains("AreaTransition") || type.EndsWith("TownEntrance")) && !AreaObjects.IsEffect(type);
+
+    /// <summary>Server object ids of an area's transition effects: 0x2f80, 0x2f81, …</summary>
+    public const uint FirstEffectId = 0x2f80;
+
+    /// <summary>The AreaTransitionEffects a tile places beside an entrance (Act 5's crater glow and ground shatter in The
+    /// Slave Pens), from the capture or the generated layout. Their .ot are <c>server_only</c>: the client draws them
+    /// only when the server creates them.</summary>
+    public static (uint Id, TransitionEffect Effect)[] Effects(string id, uint seed) =>
+        [.. (LoadObjects(id, seed) ?? []).Where(o => o.ObjectType is { } t && AreaObjects.IsEffect(t) && o.Model is not null)
+            .Select((o, i) => (FirstEffectId + (uint)i, new TransitionEffect(o.ObjectType!, o.Model!, o.X, o.Y, o.Rotation, o.Z)))];
 
     static Dictionary<ushort, AtlasArea>? Load()
     {
@@ -192,4 +212,27 @@ static class AreaTransitionCatalog
     sealed record AtlasGrid(int X, int Y, float Rotation, float? Z);
     sealed record CaptureFileData(List<CapturedObject>? Objects);
     sealed record CapturedObject(string? ObjectType, string? Model, int X, int Y, float Rotation, float? Z);
+}
+
+/// <summary>An AreaTransitionEffects object (GlowyFX, SlavePensIntroGround): Positioned, Animated, BaseEvents,
+/// Transitionable (<c>num_states 3</c>: 1 hidden or paused at the start, 2 plays, 3 at the animation's end).</summary>
+sealed record TransitionEffect(string Type, string Model, int X, int Y, float Rotation, float? Z)
+{
+    /// <summary>Created at its end state: the crater as it stands after the arrival's animation. Whether the real server
+    /// plays state 2 on the first arrival is not captured.</summary>
+    public const byte State = 3;
+
+    /// <summary>The 0x2b9 blob: Positioned (the record's height), Animated (the type's model), Transitionable (u8 state),
+    /// tasks; BaseEvents writes nothing (as the a1q4 waterfall's).</summary>
+    public byte[] Blob()
+    {
+        var w = new BlobWriter().U8(0).U8(0);
+        w.I32(X).I32(Y).F32(Rotation).U16(0).U8((byte)(Z is null ? 0 : 0x04)).U8(2);
+        if (Z is float h) w.I32((int)MathF.Round(h / 7.8125f)).F32(h);
+        w.U8(0).U8(1);
+        w.U8(1).WStr32(Model);
+        return w.U8(State).U8(0).ToArray();
+    }
+
+    public override string ToString() => $"{Type.Split('/')[^1]} at ({X}, {Y})";
 }

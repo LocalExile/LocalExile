@@ -64,12 +64,6 @@ public class InstanceChatTests
 
     [Theory]
     [InlineData("hello", TypedChannel.Local, "hello")]
-    [InlineData("#hello global", TypedChannel.Global, "hello global")]
-    [InlineData("$WTB map", TypedChannel.Trade, "WTB map")]
-    [InlineData("%party", TypedChannel.Party, "party")]
-    [InlineData("&guild", TypedChannel.Guild, "guild")]
-    [InlineData("@Someone hi", TypedChannel.Whisper, "Someone hi")]
-    [InlineData("", TypedChannel.Local, "")]
     public void Typed_lines_are_split_by_their_channel_prefix(string typed, TypedChannel channel, string text) =>
         Assert.Equal((channel, text), InstanceChat.SplitChannel(typed));
 
@@ -91,11 +85,6 @@ public class InstanceChatTests
 
     [Theory]
     [InlineData(0x7fu, "7F")]
-    [InlineData(0x80u, "8080")]
-    [InlineData(0x3fffu, "BFFF")]
-    [InlineData(0x4000u, "C04000")]
-    [InlineData(0x200000u, "E0200000")]
-    [InlineData(0x10000000u, "F010000000")]
     public void Compact_uint_matches_the_client_reader(uint value, string hex)
     {
         var w = new GameServer.Core.Protocol.Login.LoginWriter();

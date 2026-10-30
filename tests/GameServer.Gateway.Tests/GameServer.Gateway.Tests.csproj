@@ -15,6 +15,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <!-- No cap on xUnit's threads: with one per core, tests holding a thread synchronously (a fixture's TCP accept, a
+         first catalog load) left the others' async continuations queued, and the whole run stalled (~13 s, 2026-10-29). -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
   </ItemGroup>
 </Project>

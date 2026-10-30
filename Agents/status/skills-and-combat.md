@@ -108,6 +108,27 @@ Part of [Status](../Status.md); what to build next in this area is in
   the dead monster's life bar hides.
   Code: `GrantedSkill`, `SkillCatalog.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md).
+- Local combat package: stationary default melee attacks no longer take the 150 ms walk-in offset.
+  Native evidence in this entry belongs to LocalExile; the standalone destination port has automated validation
+  and still needs a native rerun, as recorded in the [port record](../docs/dev/ranged-monster-actions-port.md).
+  An in-range unarmed attack had no approach and its authoritative hit arrived 312 ms after the action echo
+  (757 ms attack, attack1 contact baseline); positive walk-ins retain compensation.
+  Ordinary ground/object wand attacks create native WandProjectile bolts, apply damage at the first actual collision,
+  and play the native 500 ms impact clip before removal.
+  Class ACT pools and the native action-seeded selector choose the correct main-hand clip and release contact.
+  Sixteen ground RMB inputs matched native Witch clips 31/36/39/42; object sequence 4113 matched clip 39.
+  Release was 6.1 to 31.4 ms after the selected contact in 15 ground samples; the first cold sample was 55.6 ms late.
+  Enemy flinches now cancel movement and ordinary pending swings, hold AI for the requested native TakeHit recovery,
+  and invalidate old queued contacts permanently. Moving-Drowned native samples held one cell through recovery;
+  AI movement resumed afterward. The original rig-only hurt animation did not stop locomotion; projectile hits
+  (`CommitProjectileHit`) send the same native recovery instead of that clip.
+  The faster monster planner issued its first chase after 38 to 50 ms in native controls, without duplicate orders.
+  Turn tracking, full 2.4 s Drowned attack pacing and actual Escape-menu pause/resume were also verified.
+  Full off-hand timing/damage and nonzero intrinsic attack repeats are not implemented.
+  Code: `Program.Combat.cs`, `Program.RangedAttacks.cs`, `AnimationContacts.cs`, `AnimationVariantSelector.cs`,
+  `Program.Monsters.cs`, `HitReaction.cs`.
+  Evidence: `artifacts/combat-validation/`, `artifacts/wand-ai-validation/wand-native-summary.json`
+  and `wand-after-object.json`; docs: [11](../docs/protocol/11-skills.md).
 - Impale: a physical hit that rolls `impale_on_hit_%_chance` stores 10% of the hit's physical damage on the monster
   (five stacks, five hits each), and every later physical hit on it takes the stored damage again as extra physical
   before the roll; five stacks add half the impaling hit's damage — the mechanic behind the panel's Chance to Impale
@@ -133,7 +154,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native panel and target-life checks verify 100 to 250, additive 230, a half-percent endpoint of 203 and reductions.
   Removal and relog clear the effect; ordinary bows retain release snapshots and supported spells remain isolated.
   The native check uses development stat inputs; Phrecia node selection and the rest of Whisperer remain separate.
-  Code: `DamageStats`, `SkillCatalog.Unarmed.HitDamage`, `SupportedAttackDamage`.
+  These native results are historical raw-stat checks; expanded Arcane Might coverage is listed under Partly working.
+  Code: `ArcaneMight`, `DamageStats`, `SkillCatalog.Unarmed.HitDamage`, `SupportedAttackDamage`.
   Docs: [20](../docs/protocol/20-damage.md) §2c.
 - Behemoth Steel Willed: each complete group of 450 final armour adds 2% increased attack damage.
   The contribution joins raw attack increases once and feeds weapon physical, added damage and supported attacks.
@@ -206,8 +228,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary bow ground/object attacks now share contact-time release and damage at the actual flight collision
   (#203, automated and native collision/release/pause checks pass).
   Object uses no longer also deal a melee contact hit.
-  Projectiles spawn at the captured terrain height + `Game_PROJECTILE_HEIGHT` (5 steps = torso) on natural ground;
-  without a capture they use the bare offset.
+  The client spawns the primary projectiles of its own gem skill use itself, every one of a volley, from where it
+  stands; the server simulates them but sends no object for them (one fireball was two, 2026-10-29). Their
+  continuation children still get server objects.
+  GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
+  2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
+  Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
+  after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); it is the
+  basic straight-flight arrow only: the secondary arrows from the target point are not modelled yet.
+  Projectiles spawn at the captured terrain height + the releasing clip's keyframe height (the bow 16 steps, a wand
+  12, the Sand Spitter's spit 9; `Game_PROJECTILE_HEIGHT`, 5 steps, without rig data) on natural ground; without a
+  capture they use the bare offset.
   An attack gem at the ground swings (and pays its mana) when the point is within the weapon's reach, and only walks
   (attack-move, no mana) beyond it; the client spends the mana itself on either use, so the Gateway answers an
   attack-move with the authoritative mana.
@@ -258,6 +289,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Live 2026-10-25: gains when hit, on non-critical hit and on kill, refresh, expiry, death, area change, minimum
   charges, 3 Power Charges taking attack crit 8.3% → 20.75%, a Frenzy Charge shortening the attack, 3 Endurance
   Charges taking 12% off physical and fire hits; towns draw no charge icons.
+  Replica Fragility, Replica Pacifism and Replica Powerlessness ("Lose ... Charge each second", the stat stored as
+  `-1`) take one charge each second down to the minimum: the negative count used to be skipped, so nothing happened.
   The maximum rows (with the maximum-charge mods) were verified on the native Charges tab at `0 / 3` before this;
   the current counts there and Enduring Cry and the timed gains are not live-checked.
   Code: `Charges.cs`, `ChargeGains.cs`, `ChargeEffects.cs`, `ChargeSession.cs`, `ChargeBuffs.cs`,
@@ -334,6 +367,18 @@ The generic [projectile framework](../docs/game/projectile-framework.md) owns pr
 the sole 30 Hz runtime. Catalog fallback provides basic flight; registered skill definitions supply special rules
 and can require explicit recipes.
 
+- Arcane Might (#364) shares one highest-eligible-ratio consumer across current attacks and damage panels.
+  Normal Crown of Eyes, Whisperer's existing consumer and wand mastery use the six modern stat contracts.
+  Independent grants do not stack; skill base plus quality still adds before the maximum comparison.
+  Weapon-local damage now scales in ordinary and supported attacks; restricted types are cleared from skill panels.
+  Automated cases cover actual direct/area target Life loss, snapshots, mastery refund and Crown persistence/removal.
+  All 24 inventoried numeric skill constants and three quality records have calculation/data checks.
+  Those checks do not enable unsupported skills, variants, mercenaries or Phrecia allocation.
+  Iron Will/Strength provenance, missing upstream spell inputs and unrelated leech remain outside this consumer.
+  Native user checks confirm ordinary Crown ratios, KB non-stacking and Fireball isolation in the damage panels.
+  KB's absolute damage exposed an effectiveness-offset decoding error; raw 4000 now resolves to 140%, not 40%.
+  Corrected absolute damage and mastery lifecycle still need native verification.
+  See [scope and coverage](../docs/game/arcane-might.md) and [20](../docs/protocol/20-damage.md) §2c.
 - Ruthless resolves native skill/gem, passive and mod alternatives per connection, including zero-valued overrides.
   Ordinary characters in the same Gateway keep ordinary catalogs.
   Hardcore death is terminal for the old connection; a queued level-up cannot revive it.
@@ -607,12 +652,51 @@ and can require explicit recipes.
   Missing projectile metadata allows generic panel parameters while executable release remains unavailable.
   Release captures position and offense; target movement, evasion, defenses and impales resolve on contact.
   Pause freezes the game horizon, transfer/retirement invalidates epochs, and released shots survive later actions.
+  Ordinary bows and wands share one release path on that runtime: the shot is scheduled at the accepted input's weapon
+  contact (`attack1_bow`, or the wand clip the native ACT selects for the input's sequence) and the action echo follows
+  it; a cancelled action, death, freeze or hit recovery releases nothing. The wand bolt plays its rig's impact clip where
+  it stops and is removed after that clip on the same game clock, so pause holds it and a transfer drops the removal.
+  The arrow stays a second where it hit (`ArrowStuckSeconds`) before removal. Both send `0x1af` (kind 3, the shot's
+  action sequence, flags 0x4201 plus the critical bit, code by damage type) on contact for the target's blood and
+  particles; the main-hand bit follows the live capture, the skill index and header words it also fills stay zero. Projectile objects are created at their release point and their first move runs from there: the lazy
+  snapshot used to create them where the simulation already had them, one to ten cells past the bow in a live log
+  (2026-10-29). A Frida trace the same day saw the client create no projectile of its own for the default attack
+  (40 arrows) nor for a monster's action, so these server objects are the only visible shots on our server.
+  On GGG's server the same shots have no objects and the client draws them; what in our answer stops it is open
+  (skill ids `0x102`/`0x103` against live `0x4000`/`0x8002`, and the `0x1af` fields, are the candidates).
+  The live hit-timing fit put our arrows at 367 cells/s against live's 308, but the Gateway releases DefaultArrow at
+  the table's 3260 units/s = 299.9 cells/s (logged on every release), so the fit's slope measures something else
+  (the roadmap). They leave from the
+  releasing clip's contact keyframe (`data/animation-contacts.json` positions, `anim_contacts.py` v3): the Ranger's
+  bow 5.5 cells ahead along the aim at 16 steps up, a wand's tip 7.5 cells ahead at 12 (the 5-step default, tuned on a
+  fireball, had the arrow trail start at the hip, live 2026-10-29); the keyframe's lateral part is not applied.
+  Monster projectiles: a mortar skill's shot (Sand Spitter, `monster_mortar_attack` via GrantedEffects SkillID →
+  MonsterMortar → Projectiles) is a server object on the same runtime, released at the clip the client plays for the
+  skill (MonsterMortar.Animation → the ACT's `SpellProjectile` pool, the native selector on the action's 0xffff
+  sequence: attack1, contact at 37.5 % of the attack) from that clip's keyframe (4.2 cells behind the body that faces
+  away, so toward the player, 9 steps up: `projectile_uses_contact_position`; `data/monster-contacts.json`,
+  `scripts/re/monster_contacts.py`), lobbed at the player's cell but no closer than the skill's
+  `projectile_minimum_range` (4.6 cells), team 2, and its landing splash (`Game_MONSTER_MORTAR_RADIUS`, default 10
+  cells) runs the monster contact pipeline (`HostileProjectileOffense`, `Program.ProjectileHostile.cs`). Not checked
+  live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. The object plays its rig's flight
+  clip from spawn and its impact clip where it lands (`data/projectile-clips.json`, `scripts/re/projectile_clips.py`:
+  every Projectiles row's clip indexes and lengths, and its .ao default animation), without which a mortar is
+  invisible (its .ao declares no default animation, the wand bolt's does). The data loaders turn their feature off
+  with one warning on an unreadable file instead of faulting the pump, and monster ACT pools come from the root block
+  only (a nested stance's entries had replaced them for 191 varieties; review 2026-10-30). Weapon-projectile monsters
+  (`monster_projectile_weapon`, SkillID 0) still hit instantly with no shot; see the roadmap.
+  Wand main-hand variation follows each class ACT pool and the native input-seeded selector; sixteen actual ground
+  inputs covered all four Witch clips with matching selection and an object input also matched (historical LocalExile
+  evidence on the earlier flight loop; the runtime path still needs a native recheck). Complete off-hand timing/damage
+  and nonzero intrinsic attack repeats remain open.
   Real-input held-output, moving-target, wall, evasion, pierce, return, pause, transfer, impale and actor-scale checks
   exercise this same runtime. Native bow/skill controls and animation alignment still require client validation.
-  Straight flight uses captured ground plus `Game_PROJECTILE_HEIGHT` (default 5); missing captures use the bare offset.
+  Straight flight uses captured ground plus the release keyframe's height, else `Game_PROJECTILE_HEIGHT` (default 5);
+  missing captures use the bare offset.
   Creation, glide and stop retain the same height; independent effects still follow client terrain.
   Platforms/doodads still need a surface model (#182). Integer walk estimates and shared radius remain approximations.
-  Code: Core `Projectiles/`, Gateway `Projectiles/`, `Program.Bows.cs`, `Program.Combat.cs` and `ClientState.cs`.
+  Code: Core `Projectiles/`, Gateway `Projectiles/` (`Program.ProjectileRanged.cs`), `Program.RangedAttacks.cs`,
+  `OrdinaryRangedAttack.cs`, `OrdinaryRangedShot.cs`, `Program.Combat.cs` and `ClientState.cs`.
   Docs: [framework](../docs/game/projectile-framework.md), [11](../docs/protocol/11-skills.md) section 10.
 - **Combat.** The player's default attack kills monsters with server-side damage (no monster armour yet; each damage
   type of a hit takes the monster's own base resistance with the hit's penetration subtracted from the capped value,
@@ -623,6 +707,8 @@ and can require explicit recipes.
   Ordinary physical melee hits can trigger native player TakeHit recovery through 0x1d1.
   Native proof stopped predictive walking and casting, blocked new actions, and cleared the recovery flag afterward.
   Server recovery cancels pending actions and channel hits and stops the walk estimate for the same interval.
+  Recovery or a freeze also suspends a running channel: it pays and sweeps nothing until the player recovers.
+  That channel suspension has automated coverage only, with no native check yet.
   Actual physical monster hits stopped walking and cancelled a slow cast before release in copied-save live checks.
   Released Fireball flight continued, and a stun-immune control took damage without recovery.
   With a bow equipped, a hit cancelled pending Burning Arrow, blocked an ordinary arrow during recovery,
@@ -631,8 +717,11 @@ and can require explicit recipes.
   ES builds, substituted thresholds and unsupported conditional stun defences are skipped conservatively.
   See [11](../docs/protocol/11-skills.md), player hit recovery, for scope and protocol evidence.
   The player's life comes from the class/level/passive pools.
-  The server has no simulation loop: hits use timers, attacks are bounded by a 30/s tick (`TickRate`), the AI runs
-  every 500 ms.
+  The server has no shared simulation loop: hits use timers and attack time is bounded by a 30/s tick (`TickRate`).
+  Monster decisions use 50 ms game-time steps, a separate 100 ms repath budget and a three-cell target threshold.
+  Full attack duration, pending-swing generations and stage completion guard the faster planner against duplicate work.
+  Native controls verified initial response, deliberate turns, full attack pacing and actual menu pause/resume.
+  Core, Data and Gateway suites pass, including cadence, pending-swing and stage-completion regressions.
   Item mods count through the global item stats;
   346 varieties with NPC / ControlZone / ... components are refused.
 - **Critical-strike elemental resistance rules (Inevitable Judgement).** The hit's
@@ -681,7 +770,8 @@ and can require explicit recipes.
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
-  Alternative ailments and hostile spell/projectile adapters remain unimplemented.
+  Alternative ailments and hostile spell adapters remain unimplemented; monster mortar shots land through the same
+  contact pipeline ("Monster projectiles" below).
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.
   Unconditional penetration works on the player's outgoing hits (general per-element and elemental stats, the
   attack-only variants, the cannot-penetrate flag; DoT and physical take none).

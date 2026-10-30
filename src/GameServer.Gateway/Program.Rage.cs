@@ -87,7 +87,7 @@ partial class Program
     // Executed inside the connection's send gate so a queued refresh cannot resurrect a dead/retired balance or buff.
     internal static byte[]? RagePresentation(ClientState conn, RagePrepared? prepared = null)
     {
-        lock (conn.Monsters)
+        using (conn.Performance.Lock(conn.Monsters, "rage"))
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
             // Reconcile before all Rage reads/snapshots, even when the Rage value itself has not changed.
@@ -114,7 +114,8 @@ partial class Program
         }
         bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
         // The skill list prepared before the gate for this very value, else built here (a value that moved meanwhile).
-        var skills = prepared is { } p && p.Value == value ? p.Skills : PlayerSkills(conn);
+        var skills = prepared is { } p && p.Value == value && p.Inputs?.Matches(conn, stats) == true
+            ? p.Skills : PlayerSkills(conn);
         bytes.AddRange(InstanceEntities.PlayerSkillsChange(PlayerId, skills, []));
         conn.SentRage = value;
         Console.WriteLine($"[gateway] {CharacterName(conn)} Rage {value.Current}/{value.Maximum}, "
@@ -124,10 +125,34 @@ partial class Program
     }
 
     /// <summary>A Rage value and the skill list built for it ahead of the send gate.</summary>
-    internal sealed record RagePrepared(RageState.Value Value, IReadOnlyList<GrantedSkill> Skills);
+    internal sealed record RagePrepared(RageState.Value Value, IReadOnlyList<GrantedSkill> Skills,
+        SkillSnapshotInputs? Inputs = null);
+
+    // A Rage value alone cannot identify a skill list: gems, equipment, conditional stats, pools and art also matter.
+    internal sealed record SkillSnapshotInputs(Dictionary<uint, int> Stats,
+        InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
+        CharacterStats.Pools Pools, uint Life)
+    {
+        public static SkillSnapshotInputs Capture(ClientState conn, Dictionary<uint, int> stats) =>
+            new(new(stats), [.. ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item)],
+                new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife);
+
+        public bool Matches(ClientState conn, Dictionary<uint, int> stats)
+        {
+            if (Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
+                || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
+            var equipment = ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item).ToArray();
+            if (equipment.Length != Equipment.Length) return false;
+            for (int i = 0; i < equipment.Length; i++)
+                if (equipment[i].Id != Equipment[i].Id || !ReferenceEquals(equipment[i].Item, Equipment[i].Item)) return false;
+            var cosmetics = CharacterSaves.SkillCosmetics(CharacterName(conn));
+            return cosmetics.Count == Cosmetics.Count && Cosmetics.All(kv => cosmetics.TryGetValue(kv.Key, out var value) && value == kv.Value);
+        }
+    }
 
     // The skill list is the expensive part of a Rage change (every gem's panel damage): build it before the send gate, so
-    // the gate, which every hit and echo waits on, holds only the cheap comparison and the packet assembly.
+    // the gate, which every hit and echo waits on, normally holds only comparison and packet assembly. Changed inputs
+    // fall back to a current build rather than publishing the prepared list under the wrong owner state.
     internal static Task SendRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         RagePrepared? prepared = null;
@@ -140,7 +165,13 @@ partial class Program
                 var value = conn.Rage.Read(conn.Clock.Elapsed.TotalSeconds, RageStats.Inputs(name => RageStat(stats, name)));
                 if (conn.SentRage != value) changed = value;
             }
-        if (changed is { } next) prepared = new(next, PlayerSkills(conn));
+        if (changed is { } next)
+        {
+            var inputs = SkillSnapshotInputs.Capture(conn, stats);
+            var skills = PlayerSkills(conn);
+            // A change during the build cannot be cached under the earlier inputs.
+            if (inputs.Matches(conn, CharacterPlayerStats(conn))) prepared = new(next, skills, inputs);
+        }
         return Send(remote, stream, ciphers, [], null, atGate: () => RagePresentation(conn, prepared));
     }
 

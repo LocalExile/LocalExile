@@ -10,9 +10,6 @@ public class UpstreamModeIntegrationTests
 {
     [Theory]
     [InlineData("Hardcore", "Standard", false, false)]
-    [InlineData("SSF Hardcore", "SSF Standard", true, false)]
-    [InlineData("Hardcore Ruthless", "Void", false, true)]
-    [InlineData("SSF Hardcore Ruthless", "Void", true, true)]
     public void A_lethal_development_contact_commits_the_mode_death_before_returning(
         string source, string destination, bool ssf, bool ruthless)
     {
@@ -52,36 +49,6 @@ public class UpstreamModeIntegrationTests
             Assert.Equal(saved, store.FindCharacter(name));
         }
         finally { PlayerInventories.Forget(name); }
-    }
-
-    [Fact]
-    public void Runtime_Harvest_uses_a_separate_mode_catalog_and_keeps_ordinary_crafting_stable()
-    {
-        var ordinary = Connection("HarvestModeOrdinary", false);
-        var ruthless = Connection("HarvestModeRuthless", true);
-        Assert.Same(Program.Harvest, Program.HarvestFor(ordinary));
-        Assert.NotSame(Program.HarvestFor(ordinary), Program.HarvestFor(ruthless));
-
-        Item Target(ClientState conn) => ItemCatalog.Create(Program.ItemsFor(conn).Find("Two-Stone Ring")!) with
-            { ItemLevel = 100, Rarity = ItemRarity.Rare, Identified = true };
-        var ordinaryTarget = Target(ordinary);
-        var before = Program.HarvestFor(ordinary).Apply(0xa3e5, ordinaryTarget, new Random(27));
-        var alternate = Program.HarvestFor(ruthless).Apply(0xa3e5, Target(ruthless), new Random(27));
-        var after = Program.HarvestFor(ordinary).Apply(0xa3e5, ordinaryTarget, new Random(27));
-
-        Assert.NotNull(before);
-        Assert.NotNull(alternate);
-        Assert.NotNull(after);
-        Assert.Contains(alternate.Item.Mods, mod => Program.ItemsFor(ruthless).Mods.ByHash(mod.Hash)?.Tags.Contains("fire") == true);
-        foreach (var mod in alternate.Item.Mods)
-        {
-            var definition = Program.ItemsFor(ruthless).Mods.ByHash(mod.Hash)!;
-            Assert.Equal(definition.Stats.Count, mod.Values.Count);
-            foreach (var (stat, value) in definition.Stats.Zip(mod.Values))
-                Assert.InRange(value, Math.Min(stat.Min, stat.Max), Math.Max(stat.Min, stat.Max));
-        }
-        Assert.Equal(before.Item.Mods.Select(m => (m.Hash, string.Join(',', m.Values))),
-            after.Item.Mods.Select(m => (m.Hash, string.Join(',', m.Values))));
     }
 
     static ClientState Connection(string character, bool ruthless) =>

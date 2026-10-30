@@ -148,9 +148,9 @@ static class ChargeGains
     /// </summary>
     public static readonly IReadOnlyList<Periodic> Periodics =
     [
-        new("gain_X_endurance_charges_per_second", ChargeType.Endurance, PeriodicCondition.Always, v => (1, v)),
-        new("gain_X_frenzy_charges_per_second", ChargeType.Frenzy, PeriodicCondition.Always, v => (1, v)),
-        new("gain_X_power_charges_per_second", ChargeType.Power, PeriodicCondition.Always, v => (1, v)),
+        new("gain_X_endurance_charges_per_second", ChargeType.Endurance, PeriodicCondition.Always, EachSecond),
+        new("gain_X_frenzy_charges_per_second", ChargeType.Frenzy, PeriodicCondition.Always, EachSecond),
+        new("gain_X_power_charges_per_second", ChargeType.Power, PeriodicCondition.Always, EachSecond),
         new("body_armour_implicit_gain_endurance_charge_every_x_ms", ChargeType.Endurance, PeriodicCondition.Always, v => (v / 1000.0, 1)),
         new("body_armour_implicit_gain_frenzy_charge_every_x_ms", ChargeType.Frenzy, PeriodicCondition.Always, v => (v / 1000.0, 1)),
         new("body_armour_implicit_gain_power_charge_every_x_ms", ChargeType.Power, PeriodicCondition.Always, v => (v / 1000.0, 1)),
@@ -161,6 +161,14 @@ static class ChargeGains
         new("gain_random_charge_per_second_while_stationary", null, PeriodicCondition.Stationary, v => (1, v)),
         new("gain_a_frenzy_charge_every_X_seconds_while_moving", ChargeType.Frenzy, PeriodicCondition.Moving, v => (v, 1)),
     ];
+
+    /// <summary>
+    /// The "gain X ... Charges per second" jewels: Replica Fragility, Replica Pacifism and Replica
+    /// Powerlessness store <c>-1</c>, and the tooltip has no number ("Lose an Endurance Charge each
+    /// second"): the value is the count, one charge each second, negative for the loss. Live 2026-10-27
+    /// no charge was gained or lost, because a timer only ran for a value above zero.
+    /// </summary>
+    static (double Period, int Count) EachSecond(int value) => (1, value);
 
     /// <summary>The timers of the <see cref="Periodics"/> of one character.</summary>
     public sealed class Timers
@@ -176,15 +184,18 @@ static class ChargeGains
             {
                 var p = Periodics[i];
                 int value = get(p.Stat);
-                bool holds = value > 0 && p.Condition switch
+                // Not zero rather than above zero: the per-second jewel stats store -1 for their one charge.
+                bool holds = value != 0 && p.Condition switch
                 {
                     PeriodicCondition.HitRecently => hitRecently,
                     PeriodicCondition.Stationary => !moving,
                     PeriodicCondition.Moving => moving,
                     _ => true,
                 };
-                var (period, count) = value > 0 ? p.Rate(value) : (0, 0);
-                if (!holds || period <= 0 || count <= 0) { elapsed[i] = 0; continue; }
+                var (period, count) = value != 0 ? p.Rate(value) : (0, 0);
+                // A negative count takes charges away (Replica Fragility and its two siblings); a random type
+                // ("gain X random charges") only ever adds them.
+                if (!holds || period <= 0 || count == 0 || (p.Type is null && count < 0)) { elapsed[i] = 0; continue; }
                 elapsed[i] += Math.Max(0, seconds);
                 while (elapsed[i] >= period)
                 {

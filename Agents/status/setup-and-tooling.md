@@ -27,6 +27,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Automated controls exercise full startup, `-Only Gateway`, `-NoBuild`, `-ClientOnly` and missing-DLL preflight.
   Gateway test data helpers use the shared test environment's runtime root, allowing sibling build output
   without moving data or changing production catalog paths.
+  Tracked files the servers read (the level generator's gate baseline, `config/ruthless.json`) resolve against the
+  source checkout; server-side level generation and capture tours use the configured client.
   Native validation reached the login screen with external server DLLs and verified the actual server/client
   working directories; read-only atlas and Python-to-GGPK extraction also ran from external DLLs.
   See [external client folder](../GettingStarted.md#optional-external-client-folder) for configuration and limits.
@@ -48,6 +50,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   This standalone layer has no new native launch proof; client archive mutation requires separate agreement.
   Code: `PassiveSkillGraph.cs`, `AdditionalAscendancyGraph.cs`, `GameFileSystem.cs`, `scripts/re/passive-graphs`.
   Docs: [passive graph data guide](../docs/dev/passive-graph-data.md).
+
+- Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its
+  messages), the reason on every `DISCONNECT` line, archived logs of the last 10 full runs, each connection's last 256
+  packets (printed after an error or an unexplained disconnect, dumped to `logs\packets`, `/lastpackets`), `Game_TRACE`
+  categories, `scripts/dev/bugreport.ps1` and `scripts/re/frida/trace-crash.js`.
+  Unit-tested (`ServerLogTests`, `PacketHistoryTests`), the archive pruning and the bug report (logs held open, names
+  in every form) checked with scripts; a live run that catches a client crash with the dumps and `trace-crash.js` is
+  still to do, and so is checking that `trace-crash.js` reads the client's receive pump right.
+  Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
+  Docs: [debugging](../docs/dev/debugging.md).
 
 ## Not working yet
 
@@ -76,6 +88,13 @@ our own tools in `Tools/`, and how to install the third-party ones in [GettingSt
 ("Third-party tools").
 The full reverse-engineering setup has not yet been rebuilt from a fresh clone;
 if something is missing, fix the guide.
+
+Every network message of the client is listed, in both directions, generated from the binary.
+S→C: [schema.md](../docs/protocol/schema.md), the four factories (instance 272, world 63, login 27, patch 6 classes),
+each equal to its factory switch's explicit cases.
+C→S: [c2s.md](../docs/protocol/c2s.md), instance 352, login 28 and patch 4 ids, from every caller of the stream flush.
+Its exact lengths match all 61 comparable ids of the Gateway's `KnownClientLength`.
+Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_md.py`, `c2s_md.py`.
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated
 UI input.

@@ -63,7 +63,6 @@ public class QuestTests
         Assert.Null(Quests.FlagToEnter(Town, Strand));
     }
 
-
     [Fact]
     public void Quest_flags_go_to_the_client_as_their_QuestFlags_rows()
     {

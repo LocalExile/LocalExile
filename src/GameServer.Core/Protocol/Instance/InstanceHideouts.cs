@@ -47,10 +47,13 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
 /// </summary>
 public static class InstanceMapDevice
 {
-    public const ushort ActivateId = 0x00d8;
-    public const int ActivateLength = 5;
+    public const ushort ActivateId = 0x00d8, SelectMapId = 0x00e7;
+    public const int ActivateLength = 5, SelectMapLength = 5;
 
     public static (ushort Target, byte Index) ReadActivate(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
+
+    /// <summary>C→S 0x00e7: an Atlas map node picked in the hideout map device. u16 BE WorldAreas HASH16, u8 0x0d.</summary>
+    public static (ushort Area, byte Mode) ReadSelectMap(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
 
     public const ushort PortalsId = 0x008f;
 

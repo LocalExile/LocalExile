@@ -61,6 +61,87 @@ partial class Program
             await SendTo(c, InstanceInventories.AddInventory(inv, NpcShops.Offer, NpcShops.Manager), $"0x00c0 trade offer {inv}");
     }
 
+    /// <summary>0xa9 member bytes (0x142149d80 maps them: 0 → invited, 1 → member, 2 → leader as the handler uses
+    /// them, anything else → none), as live 2026-10-29.</summary>
+    const byte PartyInvited = 0, PartyMember = 1, PartyLeader = 2;
+    static int _nextPartyId = 0x100;
+
+    // C→S 0x93: "Invite to Party" with the other character's name. Both sides learn each other (0xa7); the invited player
+    // gets a party list (0xa9) with the inviter and themself.
+    static async Task InviteToParty(string remote, ClientState conn, string name)
+    {
+        var other = conn.Instance.Presence.PlayersExcept(0).Select(p => p.Owner)
+            .FirstOrDefault(o => o is { Outbox: not null } && !ReferenceEquals(o, conn) && string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase));
+        if (other is null) { Console.WriteLine($"[gateway] {remote} <= 0x0093 party invite to \"{name}\": not here"); return; }
+        string me = CharacterName(conn), them = CharacterName(other);
+        await Introduce(conn, other);
+        await Introduce(other, conn);
+        // The client keeps the parties it knows by id (+0xc668): only an id it doesn't know yet shows the invite. It finds
+        // the inviter by the second string (an account name, 0x142166a50) among the known players, and shows the notice
+        // (0x140dd0ad0) only with +0x6c clear and +0x6d set.
+        uint party = unchecked((uint)Interlocked.Increment(ref _nextPartyId));
+        var info = InstanceSocial.PartyInfo(party, me, conn.Account ?? me, 0, 0, 1, 0, [(me, PartyInvited), (them, PartyInvited)]);
+        Console.WriteLine($"[gateway] {remote} <= 0x0093 party invite: {me} -> {them} (party 0x{party:x})");
+        PartyInvites[party] = (conn, other);
+        await SendTo(other, info, $"0x00a9 party info for {them} (invited by {me})");
+    }
+
+    /// <summary>Open invites by party id: the inviter (leader) and the invited player.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (ClientState Leader, ClientState Invited)> PartyInvites = new();
+
+    // C→S 0x95: Accept on the invite. Both players get the party (0xa9) with themselves at their own index (+0x6e).
+    static async Task AcceptParty(string remote, ClientState conn, uint party)
+    {
+        if (!PartyInvites.TryRemove(party, out var invite) || !ReferenceEquals(invite.Invited, conn))
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0095 accept party 0x{party:x}: no such invite");
+            return;
+        }
+        var leader = invite.Leader;
+        string lead = CharacterName(leader), member = CharacterName(conn);
+        Console.WriteLine($"[gateway] {remote} <= 0x0095 accept party 0x{party:x}: {member} joins {lead}");
+        Parties[party] = [leader, conn];
+        await SendParty(party);
+    }
+
+    /// <summary>The parties formed here by id: the leader first, then the members in joining order.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, List<ClientState>> Parties = new();
+
+    // The party (0xa9) to each member, with that member's own index (+0x6e). Members are listed by account name, the key
+    // of the known-player table (0xa7) the client resolves them in, and every member, the player too, must be in it:
+    // without the player's own entry the joining client crashed building its party panel (live 2026-10-29).
+    static async Task SendParty(uint party)
+    {
+        if (!Parties.TryGetValue(party, out var list)) return;
+        ClientState[] members;
+        lock (list) members = [.. list];
+        var leader = members[0];
+        string lead = CharacterName(leader);
+        (string, byte)[] entries = [.. members.Select((m, i) => (m.Account ?? CharacterName(m), i == 0 ? PartyLeader : PartyMember))];
+        for (int i = 0; i < members.Length; i++)
+        {
+            var to = members[i];
+            foreach (var m in members) await Introduce(to, m);
+            await SendTo(to, InstanceSocial.PartyInfo(party, lead, leader.Account ?? lead, (byte)i, 0, 0, 0, entries),
+                $"0x00a9 party 0x{party:x} for {CharacterName(to)}: {string.Join(", ", members.Select(CharacterName))}");
+        }
+    }
+
+    // C→S 0x96: "Leave Party". The player gets the party removed (0xaa); with fewer than two left the party is disbanded
+    // for everyone, otherwise the others get the smaller party (the next member leads when the leader leaves).
+    static async Task LeaveParty(string remote, ClientState conn, uint party)
+    {
+        if (!Parties.TryGetValue(party, out var list)) { Console.WriteLine($"[gateway] {remote} <= 0x0096 leave party 0x{party:x}: no such party"); return; }
+        ClientState[] left;
+        lock (list) { list.Remove(conn); left = [.. list]; }
+        Console.WriteLine($"[gateway] {remote} <= 0x0096 {CharacterName(conn)} leaves party 0x{party:x}: {left.Length} left");
+        await SendTo(conn, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (left)");
+        if (left.Length >= 2) { await SendParty(party); return; }
+        Parties.TryRemove(party, out _);
+        foreach (var m in left)
+            await SendTo(m, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (disbanded)");
+    }
+
     // C→S 0xba: "Trade" on another player in the same instance. The requester sees the waiting notice (0xb8 without
     // flags) and the other player the request (0xb8 with TradeRequestFlag and the requester's name), answered by 0xb0.
     static async Task RequestTrade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint target)

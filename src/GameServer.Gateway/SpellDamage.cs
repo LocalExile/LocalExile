@@ -63,8 +63,8 @@ static class SpellDamage
         * ChargeEffects.DamageMore(get, spell: true);
 
     /// <summary>
-    /// An attack's hit scaled by the skill's damage effectiveness (GrantedEffectStatSetsPerLevel DamageEffectiveness,
-    /// permyriad): Flicker Strike's "Deals 77.3% of base Attack Damage" at level 1 is 7730. The weapon's hit already
+    /// An attack's hit scaled by the skill's resolved damage effectiveness in permyriad:
+    /// Flicker Strike's "Deals 177.3% of base Attack Damage" at level 1 is 17730. The weapon's hit already
     /// holds the increases, which multiply the base the same way, so scaling the total is the same as scaling the base
     /// first. 0 leaves the hit alone (the default attack has no effectiveness) and so does 10000. A spell's own base
     /// damage is already final: its effectiveness only multiplies added damage in Packet/Hit.

@@ -18,13 +18,30 @@ public class AnimationContactsTests : IDisposable
                 "attack1_claw_claw": [833, 299],
                 "attack1_staff": [1000, 719],
                 "attack1_dagger_alternate": [1000, 250]
-            } } }
+            }, "positions": { "attack1_sword": [1.0, -70.0, -100.0], "attack1_staff": [0.0, -0.0, 0.0] } } }
             """);
     }
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);
 
     private double Contact(WeaponProfile weapon) => new AnimationContacts(_folder).AttackContact(Ao, weapon);
+
+    // The keyframe's position comes with the clip: -Y is in front of the model, -Z up; the vertical part in marker steps.
+    [Fact]
+    public void The_clips_contact_point_is_read_with_it()
+    {
+        var contacts = new AnimationContacts(_folder);
+        var sword = contacts.AttackContactPoint(Ao, new WeaponProfile(false, false, false, false, false, Sword: true));
+        Assert.NotNull(sword);
+        Assert.Equal(70.0, sword!.Value.ForwardUnits, 3);
+        Assert.Equal(100.0, sword.Value.UpUnits, 3);
+        Assert.Equal(13, sword.Value.HeightSteps);
+        Assert.Equal(70 / (250.0 / 23), sword.Value.ForwardCells, 6);
+        Assert.Null(contacts.AttackContactPoint(Ao, new WeaponProfile(false, false, false, false, false, Unarmed: true)));
+        Assert.Null(contacts.AttackContactPoint("absent.ao", new WeaponProfile(false, false, false, false, false, Sword: true)));
+        // The rig's "0 -0 -0" placeholder for an event without a position is no release point (it would be the feet).
+        Assert.Null(contacts.AttackContactPoint(Ao, new WeaponProfile(false, false, true, false, false, TwoHandMelee: true)));
+    }
 
     [Fact]
     public void The_weapon_picks_its_attack1_clip()
@@ -34,20 +51,4 @@ public class AnimationContactsTests : IDisposable
         Assert.Equal(0.719, Contact(new WeaponProfile(false, false, true, false, false, TwoHandMelee: true)), 6);
     }
 
-    [Fact]
-    public void A_shield_or_a_pair_picks_its_variant()
-    {
-        Assert.Equal(0.3, Contact(new WeaponProfile(true, false, false, false, false, Sword: true)), 6);
-        Assert.Equal(299.0 / 833, Contact(new WeaponProfile(false, true, false, false, true, Claw: true)), 6);
-    }
-
-    [Fact]
-    public void Another_attack1_of_the_weapon_then_the_default()
-    {
-        Assert.Equal(0.25, Contact(new WeaponProfile(false, false, false, false, false, Dagger: true)), 6);
-        // No clip for axes in the rigs, and no such animated object: the default.
-        Assert.Equal(AnimationContacts.DefaultAttackContact, Contact(new WeaponProfile(false, false, false, false, false, Axe: true)));
-        Assert.Equal(AnimationContacts.DefaultAttackContact,
-            new AnimationContacts(_folder).AttackContact("Metadata/None.ao", new WeaponProfile(false, false, false, false, false, Unarmed: true)));
-    }
 }

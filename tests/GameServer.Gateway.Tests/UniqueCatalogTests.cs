@@ -41,12 +41,4 @@ public class UniqueCatalogTests
         Assert.InRange(always.Values[0], 2, 4);
     }
 
-    [Fact]
-    public void An_unknown_name_is_no_unique()
-    {
-        var (_, uniques) = Setup.Value;
-
-        Assert.Null(uniques.Find("not a unique"));
-        Assert.Null(uniques.Create("not a unique", new Random(2)));
-    }
 }

@@ -18,6 +18,11 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             ["DexterityUnique__3", "FireResistUnique__24", "ColdResistUnique__34",
              "MagicUtilityFlasksCannotUseUnique__1____", "MagicUtilityFlasksCannotRemoveUnique__1",
              "MagicUtilityFlasksAlwaysApplyUnique__1"]),
+        // Crown of Eyes (3.29): use the current attack-leech mods, not the old physical-only variants.
+        new("Crown of Eyes", "Metadata/Items/Armours/Helmets/HelmetInt7",
+            ["IncreasedAccuracyUniqueHelmetInt7", "LocalIncreasedEnergyShieldUniqueHelmetInt7",
+             "FireResistUniqueHelmetInt7", "LifeLeechPermyriadUniqueHelmetInt7",
+             "ManaLeechPermyriadUniqueHelmetInt7", "SpellDamageModifiersApplyToAttackDamageUniqueHelmetInt7"]),
     ];
 
     readonly Lazy<Dictionary<string, UniqueName>> _names = new(() => LoadNames(folder));

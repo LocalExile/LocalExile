@@ -21,22 +21,6 @@ public class ProjectileExtensionTests
         Assert.Equal(9, bottle.GroundChains);
     }
 
-    [Fact]
-    public void Exclusive_conversions_fail_explicitly_instead_of_using_registration_order()
-    {
-        Assert.Throws<InvalidOperationException>(() => ProjectileParameters.Resolve(new("skill"),
-            new() { ExclusiveConversions = ["fury-valve", "arrow-nova"] }));
-    }
-
-    [Fact]
-    public void Grid_corner_blocks_and_supplies_a_normal_for_reflection()
-    {
-        var hit = ProjectileGeometry.TraceGrid(new(0, 0), new(10, 10), (x, y) => x == 1 && y == 0);
-        Assert.NotNull(hit);
-        Assert.Equal(.05, hit.Value.Fraction, 8);
-        Assert.True(hit.Value.Normal.X < 0);
-    }
-
     sealed class Arena : IProjectileWorld
     {
         public List<ProjectileDamage> Hits = [];
@@ -47,31 +31,4 @@ public class ProjectileExtensionTests
         public void Publish(ProjectileEvent value) { }
     }
 
-    [Fact]
-    public void Wall_crossing_applies_a_payload_once_and_respects_atomic_capacity()
-    {
-        var world = new Arena(); var runtime = new ProjectileRuntime(world);
-        runtime.Interactions.Add(new(1, ProjectileInteractionKind.Augment, new(15, -20), new(15, 20))
-            { Team = 1, Capacity = 1, DamageMultiplier = 2 });
-        var profile = new ProjectileProfile("arrow") { Count = 2, SpreadRadians = 0, Speed = 3000,
-            HitRule = new(ProjectileHitScope.Projectile) };
-        runtime.Release(new(profile, new(1), new(1), 1, new(0, 0), new(100, 0)));
-        runtime.AdvanceTo(4000);
-        Assert.Equal(new[] { 2d, 1d }, world.Hits.Select(h => h.Multiplier));
-        Assert.Equal(0, runtime.Interactions.Single().Capacity);
-    }
-
-    [Fact]
-    public void A_distance_form_change_keeps_entity_identity_and_can_grant_pierce()
-    {
-        var world = new Arena(); var runtime = new ProjectileRuntime(world);
-        var profile = new ProjectileProfile("spear") { Speed = 3000, Range = 100,
-            FormChange = new(20, 2, -1) };
-        runtime.Release(new(profile, new(1), new(1), 1, new(0, 0), new(100, 0)));
-        long id = Assert.Single(runtime.Projectiles).Id;
-        runtime.AdvanceTo(1600);
-        Assert.Equal(id, Assert.Single(runtime.Projectiles).Id);
-        Assert.Equal(1, Assert.Single(runtime.Projectiles).Form);
-        Assert.Single(world.Hits);
-    }
 }

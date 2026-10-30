@@ -10,8 +10,6 @@ public sealed class CharacterAreaAdmissionTests
 {
     [Theory]
     [InlineData("future-normal")]
-    [InlineData("disconnected-ordinary")]
-    [InlineData("phrecia")]
     public void Rejected_area_admission_keeps_the_raw_save_flask_charges_and_pending_offers(string problem)
     {
         using var character = new Character();

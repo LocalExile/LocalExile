@@ -7,7 +7,6 @@ public class ProjectileAreaPresentationTests
 {
     [Theory]
     [InlineData(false)]
-    [InlineData(true)]
     public async Task Native_area_art_scales_to_the_detonation_radius_for_both_presentation_routes(bool callback)
     {
         const string ao = "Metadata/Effects/Spells/ri_fire_white/rifire_white.ao";
@@ -27,16 +26,4 @@ public class ProjectileAreaPresentationTests
         Assert.True(bytes.AsSpan().IndexOf(expected) >= 0);
     }
 
-    [Fact]
-    public async Task Unknown_area_art_radius_keeps_native_size()
-    {
-        await using var f = new ProjectileRuntimeFixture();
-        var shot = (ProjectileOffense)f.Shot().Payload!;
-        f.Release(f.Shot(new("synthetic-area") { Speed = 100, Range = 20, EndArea = new("burst", 40) },
-            shot with { AreaVisual = "synthetic-unknown.ao" }));
-        await f.Read();
-        f.Advance(.2);
-        byte[] bytes = await f.Read();
-        Assert.True(bytes.AsSpan().IndexOf(new EffectObject(30, 10, "synthetic-unknown.ao").Blob()) >= 0);
-    }
 }

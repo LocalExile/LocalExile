@@ -52,7 +52,7 @@ u8                      +0x29   (bool)
 `AddInventory(id, slot)` = `00C0 00 <id BE> <kind> <row> <w> <h> 00 00 00 00`. The Gateway sends ids 1..117, one per
 row, after 0x2b9 and before 0x21. Live: all 117 registered, and no lookup returned null afterwards.
 
-The other inventory messages: 0xc1 (case 0x36, `0x141d62700` → `0x141d623b0`, probably remove), 0xc2 (case 0x37,
+The other inventory messages: 0xc1 (case 0x36, `0x141d62700` → `0x141d623b0`, removes an inventory and notifies its listeners; used for stash tabs), 0xc2 (case 0x37,
 `0x141d62710`), 0xc3 (case 0x38, `0x142173fc0`: walks inventories for socketed skill gems, "Sockets"/"SkillGem"),
 0xc4 (case 0x39, a list of 4-byte entries (u8 at +0, u16 at +2) → `0x142174500` each), 0xc6 (case 0x3a, type 0xb lookup).
 

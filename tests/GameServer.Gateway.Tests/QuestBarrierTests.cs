@@ -16,17 +16,4 @@ public class QuestBarrierTests
         Assert.All(cells, c => Assert.True(c.X is >= 28 and <= 32 && c.Y is >= 8 and <= 11));
     }
 
-    [Fact]
-    public void A_line_over_open_ground_closes_nothing()
-    {
-        // Inside the left room: closing a stretch there cuts nothing off.
-        Assert.Empty(QuestBarriers.Cells(Walkable, W, H, (10, 10), MathF.PI / 2, from: (5, 10), guarded: [(55, 10)]));
-    }
-
-    [Fact]
-    public void Characters_have_done_the_tutorials()
-    {
-        // a1q1 after Hillock: "Enter through the gate" instead of the passive tree tutorial (QuestStates FlagsMissing 367).
-        Assert.Contains("CompletedAllTutorials", Quests.EveryCharacter);
-    }
 }

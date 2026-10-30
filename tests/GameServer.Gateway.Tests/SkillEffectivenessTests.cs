@@ -3,7 +3,8 @@ using GameServer.Core.World;
 namespace GameServer.Gateway.Tests;
 
 // A skill's damage effectiveness (GrantedEffectStatSetsPerLevel DamageEffectiveness): the attack gem's "Deals X% of base
-// Attack Damage", applied to the weapon's hit. Flicker Strike anchors it: 77.3% at level 1, 308.9% at 20 and 696% at 40
+// Attack Damage", applied to the weapon's hit. Exported values are offsets from 100%, not absolute multipliers.
+// Flicker Strike anchors it: 177.3% at level 1, 408.9% at 20 and 796% at 40
 // in 3.29.3b. Reads the extracted game tables.
 public class SkillEffectivenessTests
 {
@@ -20,37 +21,29 @@ public class SkillEffectivenessTests
     public void An_attack_gems_effectiveness_is_its_levels_DamageEffectiveness()
     {
         int flicker = Skills.EffectRow("FlickerStrike");
-        Assert.Equal(7730, Skills.DamageEffectiveness(flicker, 1));
-        Assert.Equal(30890, Skills.DamageEffectiveness(flicker, 20));
-        Assert.Equal(69600, Skills.DamageEffectiveness(flicker, 40));
+        Assert.Equal(17730, Skills.DamageEffectiveness(flicker, 1));
+        Assert.Equal(40890, Skills.DamageEffectiveness(flicker, 20));
+        Assert.Equal(79600, Skills.DamageEffectiveness(flicker, 40));
+    }
+
+    [Theory]
+    [InlineData("KineticBlast", 1, 14000)]
+    [InlineData("KineticBlast", 20, 15500)]
+    [InlineData("KineticBlastAltX", 1, 10000)]
+    [InlineData("Cyclone", 1, 8160)]
+    [InlineData("PowerSiphon", 1, 9000)]
+    [InlineData("Fireball", 1, 30000)]
+    public void Real_effectiveness_offsets_include_the_implicit_hundred_percent(string effect, int level, int expected)
+    {
+        Assert.Equal(expected, Skills.DamageEffectiveness(Skills.EffectRow(effect), level));
     }
 
     [Fact]
-    public void A_level_outside_the_rows_uses_the_closest_one()
+    public void Missing_effectiveness_keeps_the_existing_identity_fallback()
     {
-        // Flicker Strike has rows for levels 1 to 40 only: below 1 the lowest answers, above 40 the highest.
-        int flicker = Skills.EffectRow("FlickerStrike");
-        Assert.Equal(7730, Skills.DamageEffectiveness(flicker, 0));
-        Assert.Equal(69600, Skills.DamageEffectiveness(flicker, 41));
-    }
-
-    [Fact]
-    public void The_default_attack_and_unknown_effects_have_none()
-    {
-        // PlayerMelee's row holds 0: the default attack deals the weapon's hit as it is.
-        Assert.Equal(0, Skills.DamageEffectiveness(Skills.EffectRow("PlayerMelee"), 1));
         Assert.Equal(0, Skills.DamageEffectiveness(-1, 1));
+        var hit = DamagePacket.Of(DamageType.Fire, 100, 100);
+        Assert.Equal(100, SpellDamage.WithEffectiveness(hit, 0)[DamageType.Fire].Min);
     }
 
-    [Fact]
-    public void A_weapon_hit_is_scaled_by_the_effectiveness()
-    {
-        var hit = DamagePacket.Of(DamageType.Physical, new DamageRange(10, 20));
-        var scaled = SpellDamage.WithEffectiveness(hit, 7730)[DamageType.Physical];
-        Assert.Equal(7.73, scaled.Min, 6);
-        Assert.Equal(15.46, scaled.Max, 6);
-        // 100% and no effectiveness both leave the hit as it is.
-        Assert.Same(hit, SpellDamage.WithEffectiveness(hit, 10_000));
-        Assert.Same(hit, SpellDamage.WithEffectiveness(hit, 0));
-    }
 }

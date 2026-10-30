@@ -88,7 +88,8 @@ Nothing yet.
   (percent/100)^0.9 * k + 0.5)`, `k` 0.7 for a skill and 0.5 for a support, none below 14;
   fitted against 570 poedb tooltip cells with no mismatch: Haste 20 is 155 Dex, Clarity 20 119 Int, Fireball 20 155).
   Socketing a gem the character is too low or too weak for is refused (0x30, `GemRequirementsUnmet`), and a gem its
-  requirements above the character's makes its item inactive, as a worn item the character is too low for is: the
+  requirements above the character's makes its item inactive (the item's requirements are the highest of its own and its
+  gems', `EquipmentStatSources`; lost in PR #175, restored 2026-10-29), as a worn item the character is too low for is: the
   client reds it ("Requires level 70"), the item's mods stop counting and its skills leave the Actor list, so there is
   nothing to cast; a use that arrives anyway is refused without the action (no 0x1ab, and the mana pool again so the
   client's predicted cost comes back; `GemDisabled`).

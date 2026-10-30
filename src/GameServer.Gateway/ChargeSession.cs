@@ -122,6 +122,14 @@ sealed class ChargeSession
     void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log)
     {
         var current = limits[(int)gain.Type];
+        if (gain.Count < 0)
+        {
+            // A per-second loss (Replica Fragility, Replica Pacifism, Replica Powerlessness).
+            var (lost, left) = State.Lose(gain.Type, -gain.Count, current);
+            limits[(int)gain.Type] = Charges.LimitsOf(gain.Type, Observed, left);
+            log.Add($"{gain.Source}: {Charges.Name(gain.Type)} charges {lost} -> {left}/{limits[(int)gain.Type].Maximum}");
+            return;
+        }
         int after = Math.Min(current.Maximum, State.Effective(gain.Type, current) + gain.Count);
         // The duration of charges counted per Frenzy Charge (frenzy_charge_duration_+%_per_frenzy_charge) uses the count
         // the gain leaves.

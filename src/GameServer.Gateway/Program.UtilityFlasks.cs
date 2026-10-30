@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -105,7 +106,7 @@ partial class Program
                 }
                 catch (Exception ex)
                 {
-                    if (!conn.Closed) Console.WriteLine($"[gateway] {remote} utility flasks: {ex.Message}");
+                    if (!conn.Closed) Console.WriteLine($"[gateway] {remote} utility flasks: {ServerLog.Describe(ex)}");
                 }
             }
         }

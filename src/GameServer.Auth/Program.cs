@@ -76,6 +76,7 @@ static async Task Serve(LoginServerKeys keys)
 {
     var accounts = new AccountService(SqliteAccountStore.Open());
     Console.OutputEncoding = System.Text.Encoding.UTF8; // decoded wide strings
+    GameServer.Core.Diagnostics.ServerLog.Install("auth");   // after the encoding: it wraps the console writer as it is
     int port = int.TryParse(Environment.GetEnvironmentVariable("Game_LOGIN_PORT"), out var p) ? p : 20493;
     // Local play only by default; Game_BIND=0.0.0.0 to accept other machines.
     var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
@@ -84,16 +85,24 @@ static async Task Serve(LoginServerKeys keys)
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
     // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
     var towns = GameServer.Core.World.WorldAreaTowns.Load(Path.Combine("data", "tables", "WorldAreas.json"));
-    // Non-town seeds are pinned to 1 (the Gateway only knows a generated layout from a per-seed client dump);
-    // Game_RANDOM_SEEDS=1 gives every new instance its own random seed, except hideouts (a fixed layout: always 1).
+    // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
+    // keeps seed 1, the seed its captures were dumped at. Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns
+    // the Gateway's generation off) pins them all to 1. Hideouts have a fixed layout: always 1.
     var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(Path.Combine("data", "tables", "WorldAreas.json"));
+    // Game_SEED=<n> (dev) gives every new non-hideout instance that seed instead, for generation traces of one seed.
+    uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
     var hideoutAreas = GameServer.Core.World.WorldAreaHideouts.LoadAreas(Path.Combine("data", "tables", "WorldAreas.json"));
+    var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
+        ? new HashSet<ushort>()
+        : GameServer.Core.World.ServerLevelAreas.Hashes(Path.Combine("data", "tables", "WorldAreas.json"),
+            GameServer.Core.World.ServerLevelAreas.Load(GameServer.Core.World.ServerLevelAreas.BaselinePath, m => Console.WriteLine($"[auth] {m}")));
+    Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s)");
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);
     var registry = new GameServer.Core.World.InstanceRegistry
     {
-        SeedFor = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "1"
-            ? area => hideouts.Contains(area) ? 1u : (uint)Random.Shared.Next(1, int.MaxValue)
-            : _ => 1,
+        SeedFor = fixedSeed is { } seed
+            ? area => hideouts.Contains(area) ? 1u : seed
+            : area => randomAreas.Contains(area) && !hideouts.Contains(area) ? (uint)Random.Shared.Next(1, int.MaxValue) : 1u,
         Towns = towns.Select(t => t.Hash16).ToHashSet(),
     };
     Console.WriteLine($"[auth] towns: {towns.Count} ({string.Join(", ", towns.Select(t => t.Id))})");
@@ -159,7 +168,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
     }
     catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException or System.Security.Cryptography.CryptographicException)
     {
-        Console.WriteLine($"[auth] {peer} error: {ex.Message}");
+        Console.WriteLine($"[auth] {peer} error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
     }
     Console.WriteLine($"[auth] {peer} disconnected");
 }

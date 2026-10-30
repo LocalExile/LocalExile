@@ -222,6 +222,7 @@ Extraction installs its pinned Node dependency there if missing, while its worke
 The first `control.ps1` or `live.ps1 -Walkmaps` call creates runtime `.venv/` and installs its pinned Frida package.
 Later calls reuse that environment; package downloads happen only when a required dependency is missing.
 Python helper processes suppress bytecode files in the source tree.
+`scripts/dev/bugreport.ps1` and `scripts/re/levelgen/lg.ps1` use the same configured folders.
 The runtime folder must be separate from the checkout and must not belong to another checkout.
 
 An existing installation needs one migration.
@@ -339,7 +340,9 @@ A second run prints `game data up to date`.
 | `data\area-transitions.json` | the area transitions of fixed layouts |
 | `data\room-points.json` | unique bosses |
 | `data\hideouts.json` | hideouts |
-| `data\animation-contacts.json` | each class's spell timing (the Witch's is used) |
+| `data\animation-contacts.json` | each class's spell timing and where its arrows and wand bolts leave |
+| `data\monster-contacts.json` | when and from where monster projectiles leave (the Sand Spitter's mortar) |
+| `data\projectile-clips.json` | the flight and impact clips of projectile objects (monster mortars are invisible without them) |
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
@@ -395,16 +398,19 @@ Every reply should contain `"ok":true`; the last one lists your character.
 
 ## 9. (Optional) Walk maps
 
-The Gateway estimates where your character is so it can answer the client's moves. For that it needs each area's walk
-map: which cells are walkable. Walk maps are not shipped. You capture them from your own client.
+The Gateway needs each area's layout: which cells are walkable, the area transitions, the rooms with monster points.
+For every area its level generator port reproduces (the supported areas, [re/011](docs/re/011-level-generation.md)),
+it generates the layout itself from the seed: nothing to capture, and nothing is written to disk. Any other area needs
+a capture from your own client. This step is optional and only for those areas or for working on the generator; by
+default nothing is recorded.
 
-- **Without walk maps:** you can still play. In town, position estimates assume every cell is walkable. In other
-  areas you may spawn somewhere odd, for example in the sea on The Coast.
-- **With walk maps:** `live.ps1 -Walkmaps` attaches a small Frida script to the client, which saves each area's map
-  and its area transitions (`<area>_seed<seed>.transitions.json`) the first time the client generates it. The Gateway
-  picks both up during that same load. Without a capture, a generated area has no area transitions. It also saves the
-  doodads the client places (`<area>_seed<seed>.doodads.json`), from which the Gateway finds the rooms with monster
-  points: without that file an area has its packs but no unique boss.
+- **Without captures:** you can play every supported area. An area that is not supported tells you so in game; its
+  layout is unknown to the server (you may spawn somewhere odd, and it has no area transitions).
+- **With captures:** `live.ps1 -Walkmaps` attaches a small Frida script to the client, which saves each area's walk
+  map, its area transitions (`<area>_seed<seed>.transitions.json`), the doodads and rooms it places (from which the
+  Gateway finds the rooms with monster points) and its generation trace into `data/walkability/` the first time the
+  client generates it. The Gateway picks them up during that same load. Only with `-Walkmaps` does the Gateway write
+  anything per load (`current.json`, which tells the recorder the area) and accept `/tour`.
 
 ```powershell
 python -m pip install frida
@@ -474,7 +480,9 @@ In game:
 - **Commands:** type in chat with Enter, for example `/commands` (or `/com`), `/set_speed 200`.
 
 Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and `walkmaps.log`), plus the client's own
-`Client\logs\Client.txt`.
+`Client\logs\Client.txt`. Every line starts with the time; the previous run's logs are in `logs\archive\`, and each
+connection's last packets in `logs\packets\`. `Game_TRACE` adds dev traces, and `.\scripts\dev\bugreport.ps1` zips it
+all for an issue ([debugging](docs/dev/debugging.md)).
 
 `live.ps1` options:
 - `-NoClient` restarts the servers but keeps the running client.
@@ -503,9 +511,10 @@ Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and 
 | In town, but your character is invisible and clicks do nothing | Network Mode is lockstep ("auto" picks it on localhost); the Gateway log says `lockstep movement` | Options → Game → Network Mode → Predictive, then log out to the character screen and Play again |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
 | `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3b | use the right client version |
-| Spawn on The Coast is in the sea | no walk map for that area yet | use `-Walkmaps` (step 9) and enter the area again |
+| Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
 | Esc → "Exit to character selection" hangs | not implemented yet | run `.\scripts\dev\live.ps1 -NoClient` (the client drops to the login screen) |
+| The client closes or crashes by itself | usually a message the server sent wrong or left out | read the `DISCONNECT` line and the `last … packet(s)` block above it in `live-gateway.log`; attach `scripts/re/frida/trace-crash.js` and reproduce; report it with `scripts\dev\bugreport.ps1` ([debugging](docs/dev/debugging.md)) |
 | Windows Firewall prompt | should not happen (servers bind to 127.0.0.1) | if it does, deny: nothing needs outside access |
 
 ## Configuration
@@ -521,7 +530,9 @@ Environment variables, read when each server starts:
 | `Game_GATEWAY_HOST` | 127.0.0.1 | address sent to the client for area changes |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port (localhost only) |
 | `Game_CLIENT_EXE` | `Client/Game.exe` | client executable the Gateway reads protocol constants from |
-| `Game_RANDOM_SEEDS` | unset | `1` = random seeds for new non-town instances (each needs its own walk map) |
+| `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere |
+| `Game_WALKMAPS` | unset | set by `live.ps1 -Walkmaps`: the Gateway announces each area load to the walk-map recorder and runs capture tours (`/tour`); unset, it records nothing |
+| `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |
 | `Game_LEAGUE` | `standard` | `hardcore` shows the hardcore death screen (a single Exit button) |
 | `Game_LEAGUES` | `Standard,Allflame` | base leagues; each offers its Hardcore/SSF/Ruthless combinations |
 | `Game_RUTHLESS_RULES` | `config/ruthless.json` | Ruthless tuning file; valid edits apply during play |
@@ -535,6 +546,9 @@ Environment variables, read when each server starts:
 | `Game_SAVES_DB` | `data/saves.db` | character saves and stashes (Gateway, Auth) |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | instance key secret (created on first start) |
 | `Game_PATCH_URL` | `http://127.0.0.1:8080/` | patch web server address |
+| `Game_TRACE` | unset | dev traces, a comma list: `move`, `latency`, `ticks`, `ai`, `packets`, or `all` ([debugging](docs/dev/debugging.md)) |
+| `Game_PACKET_DUMPS` | `logs\packets` (given by `live.ps1` to the servers it starts) | folder for each connection's last packets, written when it closes; `0` = none |
+| `Game_LOG_TIMESTAMPS` | unset | `0` = no time at the start of each log line |
 
 ## Files you will have afterwards
 

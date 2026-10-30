@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -273,7 +274,7 @@ partial class Program
             }
             catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
             {
-                if (!conn.Closed) Console.WriteLine($"[gateway] {remote} charges: {ex.Message}");
+                if (!conn.Closed) Console.WriteLine($"[gateway] {remote} charges: {ServerLog.Describe(ex)}");
             }
             catch (Exception) { break; }   // the connection has gone
         }

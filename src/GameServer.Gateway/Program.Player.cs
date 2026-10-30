@@ -7,6 +7,12 @@ using DamageOverTime = GameServer.Core.World.DamageOverTime;
 
 partial class Program
 {
+    /// <summary>Whether a stash tab goes out on area entry, so shop prices see the currency in it: a currency or grid tab
+    /// (the only ones that hold shop currency) with currency (class StackableCurrency) in it.</summary>
+    internal static bool PreloadsForPrices(byte? tabType, IEnumerable<InventoryItem> inside, ItemCatalog catalog) =>
+        tabType is byte type && (type == StashRules.Currency || StashRules.IsGrid(type))
+        && inside.Any(i => catalog.ByHash(i.Item.TypeHash)?.Class == "StackableCurrency");
+
     static async Task SetGod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool on)
     {
         lock (conn.Monsters)
@@ -820,6 +826,9 @@ partial class Program
         foreach (var (id, transition) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Transition)))
             messages.Add(($"0x02b9 create area transition 0x{id:x} {transition}",
                 InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob())));
+        foreach (var (id, effect) in layout.Effects)
+            messages.Add(($"0x02b9 create transition effect 0x{id:x} {effect}",
+                InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(effect.Type), effect.Blob())));
         if (layout.Waypoint is { } waypoint)
             messages.Add(($"0x02b9 create waypoint 0x{WaypointCatalog.ObjectId:x} {waypoint}",
                 InstanceEntities.CreateObject(WaypointCatalog.ObjectId, InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), waypoint.Blob())));
@@ -829,15 +838,25 @@ partial class Program
             bool secondSet = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn)).WeaponSet == 1;
             messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), last {PersonalStashOf(conn).LastTab}, weapon set {(secondSet ? 2 : 1)}",
                 InstanceProtocol.EnterArea(tabs, secondSet)));
+            // The Delve data (0x228) in the Azurite Mine Encampment and the mine: the gauge and the Subterranean Chart
+            // read the character's sulphite from it.
+            if (layout.Id.StartsWith("Delve", StringComparison.Ordinal))
+            {
+                ushort sulphite = CharacterSaves.Load(CharacterName(conn))?.Sulphite ?? 0;
+                messages.Add(($"0x0228 Delve data: {sulphite} sulphite", InstanceDelve.DelveData(sulphite)));
+            }
             // The contents of every stash tab with currency in it (stackable items), as 0xc7 would send them (0xc0, no 0xc8:
             // the panel is not open). The client checks a shop price against the currency it knows of, the inventory's and
             // the loaded stash tabs' (3.29 vendors take it from the stash): without this a price was red, and no 0x88 came,
-            // until the stash had been opened in that area (live 2026-10-23, Nessa in the hideout).
+            // until the stash had been opened in that area (live 2026-10-23, Nessa in the hideout). Shop prices are in
+            // currency (class StackableCurrency), which only a currency tab or a grid tab can hold: every other loaded tab
+            // made each stash open slower by its item count (a full divination tab alone is 470 items, fragments 255), and
+            // those tabs still load when the panel shows them (0xc7).
             var personal = PersonalStashOf(conn);
             for (int t = 0; t < personal.Count; t++)
             {
                 var (slot, inside) = personal.Inventory(t);
-                if (!inside.Any(i => i.Item.Components.Contains("Stack")) || !conn.StashTabsSent.Add(t)) continue;
+                if (!PreloadsForPrices(personal.TabType(t), inside, ItemsFor(conn)) || !conn.StashTabsSent.Add(t)) continue;
                 messages.Add(($"0x00c0 stash tab {t} inventory {personal.InventoryOf(t)}: {inside.Count} item(s) (currency for shop prices)",
                     InstanceInventories.AddInventory(personal.InventoryOf(t), slot, 0, inside)));
             }
@@ -845,6 +864,8 @@ partial class Program
             messages.Add(("0x01a9 player enters wake zone", InstanceProtocol.EnterWakeZone(PlayerId)));
             foreach (var (id, _) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Transition)))
                 messages.Add(($"0x01a9 area transition 0x{id:x} enters wake zone", InstanceProtocol.EnterWakeZone(id)));
+            foreach (var (id, _) in layout.Effects)
+                messages.Add(($"0x01a9 transition effect 0x{id:x} enters wake zone", InstanceProtocol.EnterWakeZone(id)));
             if (layout.Waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId)));
             // The attributes once more as a stats update. UI built on entering caches them (0x141e802d0 reads the Stats
             // component's getter); live 2026-10-18 the cache held 0 while the getter returned 14/14/32.

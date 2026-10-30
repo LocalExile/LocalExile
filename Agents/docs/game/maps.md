@@ -55,10 +55,16 @@ When a Voidstone is socketed into the Atlas:
 
 ## In this server today
 
-- **Not implemented:** the Atlas, its progress and passives, map tiers from the generic bases, Voidstones, map drops
-  from monsters.
+- **Implemented first slice (2026-10-27):** generic `MapKeyTierN` items (MapKey component) carry their map tier and can
+  be created with `/item Map (Tier N)`; the map device accepts them, the native Atlas panel selects a starting layout
+  (C?S 0x00e7), and the device opens that layout at the map tier. Every character has the epilogue flag
+  `EndGameAvailable` that the client requires for Atlas activation. Basic map drops from monsters use a local
+  approximation.
+- **Not implemented:** Atlas progress/passives, Voidstones, map stash placement and the official drop pools.
 - **The map device** ([21](../protocol/21-hideouts.md) §5) opens a map's area from Maps.dat's `Regular_WorldAreasKey`,
   which only the old area-named maps have, and Nessa sells Beach Maps. Both follow the old system: with the generic
-  bases, the area comes from the layout picked on the Atlas instead.
+  bases, the area comes from the layout picked on the Atlas instead. Generic maps now use `MapKeys.dat` for their tier
+  and the selected Atlas layout for the area; the area level still follows the layout's WorldAreas row rather than the
+  map tier.
 - **The map stash tab** takes nothing yet: the client lists its maps by tier, and how it places them is not known
   ([18](../protocol/18-stash.md) §7).

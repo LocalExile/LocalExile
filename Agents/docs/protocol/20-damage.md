@@ -140,33 +140,46 @@ Clearing the attack increase left the ranged wand at 60–60 despite the melee i
 Clearing the grant removed the lightning rows' damage, and relog restored the baseline maximum mana and damage.
 These checks validate the generic damage consumer; ascendancy allocation remains in its separate lifecycle change.
 
-## 2c. Whisperer: spell increases also apply to attacks
+## 2c. Arcane Might: spell increases also apply to attacks
 
-Whisperer's "your mind is destroyed" (PassiveSkills graph node 50932) grants
-`additive_spell_damage_modifiers_apply_to_attack_damage_at_150%_value` with value 1.
-For this 3.29.3b data, its stat key is 11811; `spell_damage_+%` is key 26.
-The flag enables a fixed 150% transfer of the resolved spell increase/reduction into the attack's increased bucket.
-It is additive with the existing increases: base 100, generic increased 100% and spell increased 20% produce 230.
-One percent spell increase contributes 1.5%, retained until the existing panel/hit rounding stages.
-Spell-only more multipliers and cast speed do not transfer, and a spell keeps its ordinary spell-damage calculation.
+`ArcaneMight` selects the highest eligible grant from six modern client stat contracts, then multiplies the
+resolved `spell_damage_+%` (key 26) by that ratio.
+The result joins the attack's increased/reduced bucket; it is not a more multiplier.
+At 150%, base 100, generic increased 100% and spell increased 20% produce 230.
+One percent spell increase contributes 1.5%; -20% contributes -30%, retained until existing rounding stages.
+A fixed-150 flag value of 2 still enables 150%, and independent 150% sources never combine to 300%.
+See the [source inventory, contracts and boundaries](../game/arcane-might.md).
 
-`DamageStats.SpellAttackIncrease` feeds weapon physical damage, added attack ranges and supported attack packets.
-This includes maximum-mana lightning; effectiveness, restrictions and conversion retain their existing order.
-Ordinary bows capture the resulting packet at release.
-The current consumer reads resolved `spell_damage_+%`; new conditional source evaluators remain separate work.
-Path of Building's pinned
-[PoB](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82/src/Modules/CalcOffence.lua#L618)
-copies increased/reduced modifiers into attacks using the configured multiplier.
+Independent item/passive/actor/skill grants use maximum numeric ratios or boolean flag union.
+A skill's own base ratio and quality contribution still add before comparing it with those independent grants.
+Weapon snapshots carry active wand and melee context; supported attacks obtain retaliation eligibility from
+ActiveSkillType 120, with ordinary attacks ineligible.
+An inactive wand cannot enable the wand mastery.
+The resolver consumes the supplied resolved spell increase; it does not implement Iron Will or track modifier origins.
+Spell-only flat damage, more multipliers and cast speed do not transfer.
 
-Automated checks cover the real node, signed/fractional/additive cases, weapon and added ranges, bow snapshots,
-effectiveness/conversion, and socketed Burning Arrow, Cyclone, Fireball and Brutality consumers.
-Nine native checks on a fresh unascended Witch used this raw flag and read the actual target's life after each hit.
-Fixed 100 chaos damage became 250 with 100% spell increase; generic 100% plus spell 20% produced 230.
-Base 200 with 1% spell increase produced exactly 203 in both the native panel and the hit.
-Generic 100% and spell -20% produced 170, and a flag value of 2 still used the fixed 150% transfer.
-Spell-only more/cast-speed inputs added no attack damage; removing the flag and relogging cleared the derived effect.
-These checks verify the raw-stat consumer, not allocation/refund of a Phrecia node on the unmodified client.
-Class selection and Phrecia client compatibility are separate work; this does not enable a new ascendancy chooser.
+`DamageStats.SpellAttackIncrease` feeds weapon physical/local damage, added attack ranges and supported packets.
+Local weapon elemental damage now enters supported attacks before increases, effectiveness, restrictions and conversion.
+Maximum-mana additions keep their existing order and receive the contribution once.
+Final skill panels clear damage types removed by support restrictions, including Brutality's elemental exclusion.
+Ordinary bows and gem direct/area packets retain release snapshots; later calculations use the current resolved input.
+Panel projection neither mutates raw spell inputs nor compounds the derived contribution.
+Normal Crown of Eyes has a curated definition with current real item mods; unrelated leech remains unsupported.
+
+Automated checks cover all six contracts, real item/passive/mastery sources, 24 skill constants and three quality records.
+Gateway regressions cover mastery refund, active/inactive weapons, Crown persistence/removal, stronger-grant fallback,
+repeated panels, local weapon damage/support restrictions, spell isolation and actual direct/area target Life loss.
+Data coverage does not enable unsupported variants, retaliation skills, mercenaries or Phrecia allocation.
+The pinned [PoB calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L650)
+uses maximum ratios and copies increased/reduced modifiers with provenance; exact 3.29.3b parity is unverified.
+This bounded scalar consumer does not reproduce PoB's Strength anti-double-dipping.
+
+Historical native checks on a fresh unascended Witch used Whisperer's raw fixed-150 flag (node 50932, key 11811).
+Fixed 100 chaos became 250 with 100% spell increase; generic 100% plus spell 20% produced 230.
+Base 200 with 1% spell increase produced 203 in both panel and target Life; spell -20% with generic 100% produced 170.
+A flag value of 2 still used 150%; removal/relog cleared it and spell more/cast-speed inputs added no attack damage.
+Those checks belong to the earlier raw-stat consumer, not this expanded implementation's native acceptance.
+Crown, mastery and current composition still need client verification by the user.
 
 ## 2d. Behemoth: attack damage from final armour
 

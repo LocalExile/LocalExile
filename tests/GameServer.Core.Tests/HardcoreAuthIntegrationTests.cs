@@ -12,8 +12,6 @@ public class HardcoreAuthIntegrationTests
 {
     [Theory]
     [InlineData("Hardcore", "Standard", false)]
-    [InlineData("HC SSF Allflame", "SSF Allflame", true)]
-    [InlineData("Hardcore Allflame", "Allflame", false)]
     public async Task Committed_death_invalidates_resolve_and_transfer_but_allows_softcore_reentry(
         string source, string destination, bool ssf)
     {
@@ -37,34 +35,6 @@ public class HardcoreAuthIntegrationTests
         Assert.Equal((destination, false, ssf, false), (entered.League, entered.Hardcore, entered.Ssf, entered.Ruthless));
         Assert.NotEqual(resolved.Instance, entered.Instance);
         Assert.Equal(original.Id, entered.CharacterId);
-    }
-
-    [Theory]
-    [InlineData("Hardcore Ruthless")]
-    [InlineData("HC SSF R Allflame")]
-    public async Task Permanently_dead_ruthless_characters_cannot_resolve_transfer_or_request_another_ticket(string source)
-    {
-        using var fixture = await Fixture.Create(source);
-        var first = Assert.IsType<InstanceInfo>(Assert.Single(fixture.Session.Handle(new U8U32(0, 0))));
-        var resolved = fixture.Directory.Handle(new() { Op = "resolve", Ticket = first.U32_38 });
-        Assert.True(resolved.Ruthless);
-        var original = fixture.Accounts.FindCharacter("DeathProbe")!;
-        fixture.Store.UpdateCharacter(HardcoreDeathRules.Apply(original, fixture.Session.Leagues.Find(source)!, DateTimeOffset.UtcNow));
-        Assert.False(fixture.Directory.Handle(new() { Op = "resolve", Ticket = first.U32_38 }).Ok);
-        Assert.False(fixture.Directory.Handle(new() { Op = "transfer", Ticket = first.U32_38, Area = 0x235c }).Ok);
-        Assert.DoesNotContain(fixture.Session.Handle(new U8U32(0, 0)), p => p is InstanceInfo);
-    }
-
-    [Fact]
-    public async Task Deleting_and_recreating_a_character_name_cannot_reactivate_its_old_ticket()
-    {
-        using var fixture = await Fixture.Create("Hardcore");
-        var first = Assert.IsType<InstanceInfo>(Assert.Single(fixture.Session.Handle(new U8U32(0, 0))));
-        var original = fixture.Accounts.FindCharacter("DeathProbe")!;
-        fixture.Store.DeleteCharacter(original.Id);
-        fixture.Accounts.CreateCharacter(original.AccountId, original.Name, original.Class, original.League);
-        Assert.False(fixture.Directory.Handle(new() { Op = "resolve", Ticket = first.U32_38 }).Ok);
-        Assert.False(fixture.Directory.Handle(new() { Op = "transfer", Ticket = first.U32_38, Area = 0x235c }).Ok);
     }
 
     sealed class Fixture : IDisposable

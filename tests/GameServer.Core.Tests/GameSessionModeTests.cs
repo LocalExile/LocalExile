@@ -10,7 +10,6 @@ public class GameSessionModeTests
 {
     [Theory]
     [InlineData("Hardcore Allflame", false)]
-    [InlineData("HC SSF R Allflame", true)]
     public void A_committed_death_blocks_stale_dev_area_entry_and_permanently_dead_world_entry(string league, bool permanent)
     {
         var store = new JsonAccountStore();

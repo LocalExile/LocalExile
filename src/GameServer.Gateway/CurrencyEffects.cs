@@ -19,38 +19,67 @@ static class CurrencyEffects
     public const string RegalOrb = "Metadata/Items/Currency/CurrencyUpgradeMagicToRare";
     public const string ExaltedOrb = "Metadata/Items/Currency/CurrencyAddModToRare";
     public const string OrbOfAnnulment = "Metadata/Items/Currency/CurrencyRemoveMod";
+    public const string LesserEldritchIchor = "Metadata/Items/Currency/CurrencyEldritchIchor1";
+    public const string GreaterEldritchIchor = "Metadata/Items/Currency/CurrencyEldritchIchor2";
+    public const string GrandEldritchIchor = "Metadata/Items/Currency/CurrencyEldritchIchor3";
+    public const string ExceptionalEldritchIchor = "Metadata/Items/Currency/CurrencyEldritchIchor4";
+    public const string LesserEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber1";
+    public const string GreaterEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber2";
+    public const string GrandEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber3";
+    public const string ExceptionalEldritchEmber = "Metadata/Items/Currency/CurrencyEldritchEmber4";
 
-    /// <summary>Orb of Annulment: one random explicit affix leaves a magic or rare item; implicits, the other affixes,
-    /// rarity and name stay. Refused for anything else, or an item without explicit affixes.</summary>
+    /// <summary>The Eater of Worlds implicit tier an Eldritch Ichor adds (Lesser 1 … Exceptional 4).</summary>
+    public static int? EldritchIchorTier(string id) => id switch
+    {
+        LesserEldritchIchor => 1, GreaterEldritchIchor => 2, GrandEldritchIchor => 3, ExceptionalEldritchIchor => 4,
+        _ => null,
+    };
+
+    /// <summary>The Searing Exarch implicit tier an Eldritch Ember adds (Lesser 1 … Exceptional 4).</summary>
+    public static int? EldritchEmberTier(string id) => id switch
+    {
+        LesserEldritchEmber => 1, GreaterEldritchEmber => 2, GrandEldritchEmber => 3, ExceptionalEldritchEmber => 4,
+        _ => null,
+    };
+
+    /// <summary>Eldritch Ichor: adds an Eater of Worlds implicit to body armour, boots, gloves or a helmet, replacing
+    /// the other implicit modifiers except Searing Exarch ones. Normal, magic and rare items only.</summary>
+    public static Item? EldritchIchor(Item item, ItemCatalog.BaseType type, int tier, ItemRolls rolls, Random random) =>
+        rolls.EldritchIchor(item, type, tier, random);
+
+    /// <summary>Eldritch Ember: adds a Searing Exarch implicit to body armour, boots, gloves or a helmet, replacing
+    /// the other implicit modifiers except Eater of Worlds ones. Normal, magic and rare items only.</summary>
+    public static Item? EldritchEmber(Item item, ItemCatalog.BaseType type, int tier, ItemRolls rolls, Random random) =>
+        rolls.EldritchEmber(item, type, tier, random);
+
+    /// <summary>Orb of Annulment: one random unprotected explicit affix leaves a magic or rare item; implicits, the
+    /// other affixes, rarity and name stay. Corrupted/mirrored/unsupported/unmodifiable bases and items without an
+    /// eligible explicit are refused before the inventory handler spends an orb.</summary>
     public static Item? Annulment(Item item, ItemRolls rolls, Random random) => rolls.Annul(item, random);
 
-    /// <summary>Exalted Orb: a rare item keeps its affixes and name and gets one more (at most three prefixes and three
-    /// suffixes). Refused for anything else, or when the item is full.</summary>
-    public static Item? Exalted(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Rare || !item.Components.Contains("Mods") ? null : rolls.AddAffix(item, 3, random);
+    /// <summary>Exalted Orb: a modifiable rare item keeps its affixes and name and gets one more within its rare
+    /// limits (three per side, two for jewels). Flasks are magic-only; non-rare items, unknown/unmodifiable bases and
+    /// full items are refused before the inventory handler spends an orb.</summary>
+    public static Item? Exalted(Item item, ItemRolls rolls, Random random) => rolls.Exalted(item, random);
 
-    /// <summary>Regal Orb: a magic item becomes rare with its affixes kept, one more affix (at most three of each kind)
-    /// and a rare name. Refused for anything else, or when no affix fits.</summary>
-    public static Item? Regal(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Magic || !item.Components.Contains("Mods") || rolls.AddAffix(item, 3, random) is not { } added ? null
-            : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = rolls.RareName(item, random) };
+    /// <summary>Regal Orb: a modifiable magic item becomes rare with its affixes kept, one more affix from the rare
+    /// pool (at most three of each kind) and a rare name. Flasks are magic-only; anything else, or no affix that
+    /// fits, is refused before the inventory handler spends the orb.</summary>
+    public static Item? Regal(Item item, ItemRolls rolls, Random random) => rolls.Regal(item, random);
 
-    /// <summary>Orb of Augmentation: a magic item with a free prefix or suffix (at most one of each) gets one more affix;
-    /// its affixes and rarity stay. Anything else is refused.</summary>
-    public static Item? Augmentation(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Magic || !item.Components.Contains("Mods") ? null : rolls.AddAffix(item, 1, random);
+    /// <summary>Orb of Augmentation: a modifiable magic item with a free prefix or suffix (at most one of each) gets
+    /// one more affix from the ordinary weighted pool; its affixes and rarity stay. Anything else is refused before
+    /// the inventory handler spends an orb.</summary>
+    public static Item? Augmentation(Item item, ItemRolls rolls, Random random) => rolls.Augment(item, random);
 
-    /// <summary>Orb of Alteration (as the official one): a magic item with mods gets new affixes, 1-2 with at most one
-    /// prefix and one suffix, each tier drawn by weight. Anything else is refused.</summary>
-    public static Item? Alteration(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Magic || !item.Components.Contains("Mods") ? null
-            : rolls.Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
+    /// <summary>Orb of Alteration: a modifiable magic item gets new affixes, 1-2 with at most one prefix and one
+    /// suffix, each tier drawn by weight. Unknown/unmodifiable bases, non-magic items and empty pools are refused
+    /// before the inventory handler spends an orb.</summary>
+    public static Item? Alteration(Item item, ItemRolls rolls, Random random) => rolls.Alter(item, random);
 
-    /// <summary>Orb of Transmutation: a normal item with mods becomes an identified magic one with 1-2 random affixes
-    /// (<see cref="ItemRolls.Roll"/>); anything else is refused.</summary>
-    public static Item? Transmutation(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Normal || !item.Components.Contains("Mods") ? null
-            : rolls.Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
+    /// <summary>Orb of Transmutation: a modifiable normal item becomes identified magic, with 1-2 weighted affixes.
+    /// Admission and the ordinary pool are validated before the inventory handler spends an orb.</summary>
+    public static Item? Transmutation(Item item, ItemRolls rolls, Random random) => rolls.Transmute(item, random);
 
     /// <summary>Remove unprotected explicit mods, preserving quality, sockets and locked affixes.</summary>
     public static Item? Scouring(Item item, ItemRolls rolls) => rolls.Scour(item);
@@ -66,27 +95,12 @@ static class CurrencyEffects
 
     public const string VaalOrb = "Metadata/Items/Currency/CurrencyCorrupt";
 
-    /// <summary>Vaal Orb (this server's rule): a weapon, armour piece or jewellery (ring, amulet, belt) that is not
-    /// corrupted or unique becomes corrupted, always. A normal or magic item becomes rare with 4-6 new affixes; a rare one
-    /// keeps its name and has 1 (20%), 2 (20%), 3 (20%), 4 (20%) or 5 (10%) affixes replaced, or all of them rerolled
-    /// (10%, 4-6 affixes, new name). 3.29: corruption also turns one white socket coloured (13-items.md).</summary>
-    public static Item? Vaal(Item item, ItemCatalog.BaseType type, (int Str, int Dex, int Int) requirements, ItemRolls rolls, Random random)
-    {
-        bool target = item.Components.Contains("Weapon") || item.Components.Contains("Armour") || type.Class is "Ring" or "Amulet" or "Belt";
-        if (!target || item.Corrupted || item.Rarity == ItemRarity.Unique || !item.Components.Contains("Mods")) return null;
-        int roll = random.Next(100);
-        Item result = item.Rarity != ItemRarity.Rare || roll >= 90 ? rolls.Roll(item, ItemRarity.Rare, random)
-            : rolls.ReplaceAffixes(item, roll switch { < 20 => 1, < 40 => 2, < 60 => 3, < 80 => 4, _ => 5 }, random);
-        var sockets = result.Sockets.ToArray();
-        var whites = Enumerable.Range(0, sockets.Length).Where(i => sockets[i].Colour == SocketColour.White).ToArray();
-        if (whites.Length > 0)
-        {
-            int at = whites[random.Next(whites.Length)];
-            sockets[at] = sockets[at] with { Colour = SocketColours.Colour(requirements, random) };
-            result = result with { Sockets = sockets };
-        }
-        return result with { Corrupted = true, Identified = true };
-    }
+    /// <summary>Vaal Orb, the documented LocalExile rule: a modifiable weapon, armour piece or jewellery (ring,
+    /// amulet, belt) that is not unique or corrupted/mirrored is always corrupted. Normal/magic become rare; rare
+    /// items replace 1-5 affixes or reroll all of them. One white socket is coloured. Missing/empty pools and
+    /// unsupported or unmodifiable bases are refused before the inventory handler spends an orb.</summary>
+    public static Item? Vaal(Item item, ItemCatalog.BaseType type, (int Str, int Dex, int Int) requirements, ItemRolls rolls, Random random) =>
+        rolls.Vaal(item, type, requirements, random);
 
     public const string GlassblowersBauble = "Metadata/Items/Currency/CurrencyFlaskQuality";
 
@@ -128,13 +142,11 @@ static class CurrencyEffects
 
     public const string OrbOfChance = "Metadata/Items/Currency/CurrencyUpgradeRandomly";
 
-    /// <summary>Orb of Chance (this server's rule, not the official one): a normal weapon or armour piece becomes rare
-    /// (30%: 4-6 affixes and a rare name) or magic (2-4 affixes, at most two of each kind), identified. Refused for
-    /// anything else.</summary>
-    public static Item? Chance(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Normal || !item.Components.Contains("Mods") || !(item.Components.Contains("Weapon") || item.Components.Contains("Armour")) ? null
-        : (random.Next(100) < 30 ? rolls.Roll(item, ItemRarity.Rare, random)
-            : rolls.Roll(item, ItemRarity.Magic, random, (random.Next(2, 5), 2))) with { Identified = true };
+    /// <summary>Orb of Chance, the documented LocalExile rule (not the official unique outcome table): a modifiable
+    /// normal weapon or armour piece becomes rare (30%: 4-6 affixes and a rare name) or magic (2-4 affixes, at most
+    /// two of each kind), identified. Corrupted/mirrored/unsupported/unmodifiable targets and empty pools are refused
+    /// before the inventory handler spends an orb.</summary>
+    public static Item? Chance(Item item, ItemRolls rolls, Random random) => rolls.Chance(item, random);
 
     public const string BlacksmithsWhetstone = "Metadata/Items/Currency/CurrencyWeaponQuality";
 
@@ -144,17 +156,15 @@ static class CurrencyEffects
         !item.Components.Contains("Weapon") || !item.Components.Contains("Quality") || item.Quality >= MaximumQuality ? null
             : item with { Quality = (byte)(item.Quality + 1) };
 
-    /// <summary>Orb of Alchemy: a normal item with mods becomes an identified rare one with 4-6 new random affixes and
-    /// a rare name (<see cref="ItemRolls.Roll"/>); anything else is refused.</summary>
-    public static Item? Alchemy(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Normal || !item.Components.Contains("Mods") ? null
-            : rolls.Roll(item, ItemRarity.Rare, random) with { Identified = true };
+    /// <summary>Orb of Alchemy: a modifiable normal item becomes an identified rare one with 4-6 new weighted
+    /// affixes (CoE's 2/3, 1/4, 1/12) and a rare name. Flasks are magic-only; unknown/unmodifiable bases, non-normal
+    /// items and empty pools are refused before the inventory handler spends an orb.</summary>
+    public static Item? Alchemy(Item item, ItemRolls rolls, Random random) => rolls.Alchemy(item, random);
 
-    /// <summary>Chaos Orb: a rare item with mods gets all its explicit affixes rerolled (4-6 new ones, new tiers and
-    /// values) and a new rare name; implicits stay. Anything else is refused.</summary>
-    public static Item? Chaos(Item item, ItemRolls rolls, Random random) =>
-        item.Rarity != ItemRarity.Rare || !item.Components.Contains("Mods") ? null
-            : rolls.Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
+    /// <summary>Chaos Orb: a modifiable rare item gets all unprotected explicit affixes rerolled (4-6 new ones, new
+    /// tiers and values) and a new rare name; implicits stay. Flasks are magic-only; non-rare items, unknown/
+    /// unmodifiable bases and empty pools are refused before the inventory handler spends an orb.</summary>
+    public static Item? Chaos(Item item, ItemRolls rolls, Random random) => rolls.Chaos(item, random);
 
     /// <summary>Change only links; socket colours, gems and all other properties stay intact.</summary>
     public static Item? Fusing(Item item, ItemCatalog.BaseType type, Random random)

@@ -13,18 +13,23 @@ sealed class MapDevice
     public const int PortalCount = 6;
 
     /// <summary>ItemClasses Ids the slots take.</summary>
-    public const string MapClass = "Map", FragmentClass = "MapFragment";
+    public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment";
 
     /// <summary>The area a map item opens: WorldAreas HASH16, Id and name, and the map's tier.</summary>
     public sealed record MapArea(ushort Hash16, string Id, string Name, int Tier);
 
     private readonly Dictionary<uint, MapArea> _byItemType;
+    private readonly AtlasCatalog? _atlas;
 
-    public MapDevice(IReadOnlyDictionary<uint, MapArea> byItemType) => _byItemType = new(byItemType);
+    public MapDevice(IReadOnlyDictionary<uint, MapArea> byItemType, AtlasCatalog? atlas = null)
+    {
+        _byItemType = new(byItemType);
+        _atlas = atlas;
+    }
 
     /// <summary>Maps.dat: each map's BaseItemTypes row, by its HASH32 (<paramref name="hashOfRow"/>), to its regular area.
     /// Empty when the tables are missing.</summary>
-    public static MapDevice Load(string folder, Func<int, uint?> hashOfRow)
+    public static MapDevice Load(string folder, Func<int, uint?> hashOfRow, ItemCatalog? catalog = null)
     {
         var byType = new Dictionary<uint, MapArea>();
         string maps = Path.Combine(folder, "tables", "Maps.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
@@ -43,15 +48,18 @@ sealed class MapDevice
                     wa.GetProperty("Name").GetString() ?? "", row.GetProperty("Tier").GetInt32()));
             }
         }
-        return new MapDevice(byType);
+        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder));
     }
+
+    public AtlasCatalog? Atlas => _atlas;
 
     public int Count => _byItemType.Count;
 
     public MapArea? AreaOf(uint itemType) => _byItemType.GetValueOrDefault(itemType);
 
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
-    public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16);
+    public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16) ||
+        _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true;
 
     /// <summary>One item in the slots: its type hash and ItemClasses Id.</summary>
     public readonly record struct Slot(uint TypeHash, string Class, string Name);
@@ -60,19 +68,29 @@ sealed class MapDevice
     /// What Activate does with these slots: only maps and map fragments may be in them, and exactly one map (fragments
     /// alone open nothing yet). Returns the map's area, or null with the reason the player is told.
     /// </summary>
-    public MapArea? Check(IReadOnlyList<Slot> slots, out string why)
+    public MapArea? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, out why);
+
+    public MapArea? Check(IReadOnlyList<Slot> slots, string? character, out string why)
     {
         why = "";
-        if (slots.FirstOrDefault(s => s.Class is not (MapClass or FragmentClass)) is { Class: not null } wrong)
+        if (slots.FirstOrDefault(s => s.Class is not (MapClass or MapKeyClass or FragmentClass)) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
             return null;
         }
-        var maps = slots.Where(s => s.Class == MapClass).ToList();
+        var maps = slots.Where(s => s.Class is MapClass or MapKeyClass).ToList();
         if (maps.Count == 0) { why = "Put a map into the Map Device first."; return null; }
         if (maps.Count > 1) { why = "Only one map can be activated at a time."; return null; }
-        if (AreaOf(maps[0].TypeHash) is not { } area) { why = $"{maps[0].Name} opens no known area."; return null; }
-        return area;
+        if (AreaOf(maps[0].TypeHash) is { } area) return area;
+        if (_atlas?.TierOf(maps[0].TypeHash) is int tier)
+        {
+            if (_atlas.Selected(character) is { } layout)
+                return new(layout.Hash16, layout.Id, layout.Name, tier);
+            why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";
+            return null;
+        }
+        why = $"{maps[0].Name} opens no known area.";
+        return null;
     }
 
     /// <summary>A character's opened map: its area, its instance (0 until the first portal is taken) and the places around

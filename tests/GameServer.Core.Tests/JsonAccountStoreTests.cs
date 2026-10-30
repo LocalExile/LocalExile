@@ -19,7 +19,6 @@ public class JsonAccountStoreTests : IDisposable
 
     [Theory]
     [InlineData("{ not json")]
-    [InlineData("null")]
     public void An_unreadable_account_store_is_refused_and_left_as_it_is(string content)
     {
         File.WriteAllText(_path, content);

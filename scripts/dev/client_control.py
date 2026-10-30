@@ -3,12 +3,16 @@
     .venv/Scripts/python.exe scripts/dev/client_control.py game:status
     .venv/Scripts/python.exe scripts/dev/client_control.py game:open
     .venv/Scripts/python.exe scripts/dev/client_control.py login:offline --password-stdin
+    .venv/Scripts/python.exe scripts/dev/client_control.py login:saved
     .venv/Scripts/python.exe scripts/dev/client_control.py character:list
     .venv/Scripts/python.exe scripts/dev/client_control.py character:play:OfflineWitch
     .venv/Scripts/python.exe scripts/dev/client_control.py command "/hit physical 100"
     .venv/Scripts/python.exe scripts/dev/client_control.py chat "#hello"
     .venv/Scripts/python.exe scripts/dev/client_control.py tp "RhoaChest 2"
     .venv/Scripts/python.exe scripts/dev/client_control.py flask:use 1
+    .venv/Scripts/python.exe scripts/dev/client_control.py passive:allocate 202
+    .venv/Scripts/python.exe scripts/dev/client_control.py passive:refund 202
+    echo '{"command":"inventory:pickup","inventoryId":1,"id":1027}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
 
 Use --stdio for persistent JSON-lines RPC (one request/result per line). Each request is
 {"command":"character:play","name":"OfflineWitch"}; login takes account/password fields.
@@ -68,7 +72,7 @@ def normalize(request):
         raise ValueError("command must be a string")
     if command.startswith("character:play:"):
         result.update(command="character:play", name=command[len("character:play:"):])
-    elif command.startswith("login:"):
+    elif command.startswith("login:") and command != "login:saved":
         result.update(command="login", account=command[len("login:"):])
     return result
 
@@ -315,6 +319,20 @@ class ClientControl:
             if result.get("loginState") != 3:
                 raise RuntimeError(f"Local login rejected (result {result.get('lastLoginResult')})")
             return self.wait(lambda s: s.get("screen") == "characters", "character selection")
+        if command == "login:saved":
+            # The client's own remembered login (Remember Password): no password goes through this bridge.
+            current = self.ready()
+            if current.get("screen") == "game":
+                self.execute({"command": "character:select"})
+                current = self.status()
+            if current.get("loginState") != 0 or current.get("screen") != "login":
+                self.rpc("logout")
+                self.wait(lambda s: s.get("screen") == "login" and s.get("loginState") == 0, "login screen")
+            self.rpc("connectSaved", port=int(os.environ.get("Game_LOGIN_PORT", "20493")))
+            result = self.wait(lambda s: s.get("loginState") == 3 or s.get("lastLoginResult") is not None, "login result")
+            if result.get("loginState") != 3:
+                raise RuntimeError(f"Saved login rejected (result {result.get('lastLoginResult')})")
+            return self.wait(lambda s: s.get("screen") == "characters", "character selection")
         if command == "character:list":
             return self.rpc("characters")
         if command == "character:play":
@@ -379,6 +397,17 @@ class ClientControl:
         if command == "flask:use":
             packet, slot = flask_packet(request)
             return {**self.rpc("interaction", bytes=packet), "slot": slot}
+        if command in ("passive:allocate", "passive:refund"):
+            node = int(request["node"])
+            expansion = bool(request.get("expansion", True))
+            if not 0 < node <= 0xffff:
+                raise ValueError("Passive node must be a positive uint16")
+            flags = 1 if expansion else 0
+            if command == "passive:allocate":
+                packet = [0x00, 0x34, 0x00, 0x00, node >> 8, node & 0xff, flags]
+            else:
+                packet = [0x00, 0x36, 0x00, 0x00, node >> 8, node & 0xff, flags, 0]
+            return self.rpc("chat", bytes=packet)
         raise ValueError(f"Unknown command: {command}")
 
 
@@ -425,6 +454,8 @@ def main():
                     request.update(x=int(parts[0]), y=int(parts[1]))
         if request["command"] == "login":
             request["password"] = sys.stdin.readline().rstrip("\r\n") if options.password_stdin else getpass.getpass("Local password: ")
+        if request["command"] in ("passive:allocate", "passive:refund") and options.text is not None:
+            request["node"] = int(request.pop("text"))
         result = run_request(control, request)
         print(json.dumps(result, ensure_ascii=True), flush=True)
         return 0 if result["ok"] else 1

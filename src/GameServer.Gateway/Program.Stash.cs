@@ -38,8 +38,9 @@ partial class Program
         // Hideouts, Lioneye's Watch and the Mine Encampment also get a guild stash.
         if (HideoutCatalog.ByArea(conn.Layout.Hash) is null
             && conn.Layout.Hash is not (StashCatalog.DelveHub or AreaLayouts.LioneyesWatch)) return;
-        var (gx, gy) = scene?.Guild ?? conn.Layout.Near((at.X, at.Y));
-        float guildRotation = SavedHideoutPlacements(conn)?.GetValueOrDefault("guild-stash")?.Rotation ?? at.Rotation;
+        var townGuild = scene is null ? StashCatalog.GuildIn(conn.Layout.Hash) : null;
+        var (gx, gy) = scene?.Guild ?? (townGuild is { } tg ? (tg.X, tg.Y) : conn.Layout.Near((at.X, at.Y)));
+        float guildRotation = SavedHideoutPlacements(conn)?.GetValueOrDefault("guild-stash")?.Rotation ?? townGuild?.Rotation ?? at.Rotation;
         if (!conn.Ssf)
         {
             uint guild = conn.NextObjectId++;
@@ -138,11 +139,32 @@ partial class Program
             (chosen ? "" : $" (the panel's tab before it opened on {conn.StashForcedTab}: not kept as the last tab)"));
         if (chosen) stash.SetLastTab(tab);
         uint inventory = stash.InventoryOf(tab);
-        if (TabsSentOf(conn, stash).Add(tab))
+        byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
+        var sent = TabsSentOf(conn, stash);
+        // Every loaded tab makes each later stash open slower by its item count (the panel walks them all as it shows), so
+        // when the player picks a tab the others the panel doesn't show are unloaded (0xc1), and the tab list goes out
+        // again with them marked not loaded, so the panel asks for them (0xc7) when shown again. Never during the first
+        // open's two requests (the shown tab would go), and never the tabs with shop currency (PreloadsForPrices).
+        var unload = chosen && !forcedOpen
+            ? sent.Where(o => o != tab && (stash.IsGuild || !PreloadsForPrices(stash.TabType(o), stash.Inventory(o).Items, ItemsFor(conn)))).ToList()
+            : [];
+        foreach (int other in unload)
+        {
+            sent.Remove(other);
+            await Send(remote, stream, ciphers, InstanceInventories.RemoveInventory(stash.InventoryOf(other), manager),
+                $"0x00c1 unload stash tab {other} inventory {stash.InventoryOf(other)} (the panel shows tab {tab})");
+        }
+        if (sent.Add(tab))
         {
             var (slot, items) = stash.Inventory(tab);
-            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(inventory, slot, stash.IsGuild ? InstanceStash.GuildManager : (byte)0, items),
+            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(inventory, slot, manager, items),
                 $"0x00c0 stash tab {tab} inventory {inventory} ({slot.Width} x {slot.Height}): {items.Count} item(s)");
+        }
+        if (unload.Count > 0)
+        {
+            var tabs = stash.Records(null, sent);
+            await Send(remote, stream, ciphers, InstanceStash.TabList(tabs, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal),
+                $"0x0136 stash tab list again ({tabs.Count} tabs): {unload.Count} unloaded tab(s) marked not loaded");
         }
         await Send(remote, stream, ciphers, InstanceStash.TabLoaded(tab, inventory, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded");
     }

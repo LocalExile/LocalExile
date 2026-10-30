@@ -21,6 +21,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Automated tests cover raw rows/costs, every supported operation family, payment, insufficient funds and save
   rollback; station, window and the request were confirmed live.
   See [21](../docs/protocol/21-hideouts.md), Horticrafting Station.
+- Generic 3.29 maps, first slice (2026-10-27): `MapKeyTierN` items serialize their MapKey component and `/item Map
+  (Tier N)` creates one; the map device accepts them and uses `MapKeys.dat` for the tier. The native hideout Atlas
+  window (S?C 0x7b kind 0x2b) shows the four starting layouts; a node click (C?S 0x00e7) selects one and Activate opens
+  it. Every character has the epilogue quest flag `EndGameAvailable`, without which the client refuses Atlas activation.
+  Live 2026-10-29: selecting Estuary opened Estuary; Cells is the default.
+  Basic monster map drops use a local approximation.
+  Atlas progress/passives, Voidstones, map stash placement, official drop pools and map-tier area levels remain open.
+  Code: `AtlasCatalog.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
+  Docs: [21](../docs/protocol/21-hideouts.md), [maps](../docs/game/maps.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
@@ -96,8 +105,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   first mine section (the other fields are being worked out with `/delve_chart`).
   Visit Mine Encampment goes to Delve_Hub, which has its tile's waypoint (still drawn inactive: no 0x4c bit), Niko,
   the stash and the guild stash.
+  The World panel's special pins are all shown (league quest flags for every character, the Labyrinth's waypoint
+  always activated); the Mine Encampment pin (C→S 0x17d) leads to Delve_Hub, the Hideout pin to the hideout.
   The mine itself is not implemented.
+  See [16](../docs/protocol/16-waypoints.md) §4.
   See [21](../docs/protocol/21-hideouts.md).
+- **Delve sulphite and the Crawler (verified live, 2026-10-29).**
+  - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
+    shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
+  - The HUD gauge shows only in WorldAreas type 27, the mine areas; the encampment is type 15 in the client data, so
+    there the gauge is the chart's.
+  - `/delve_crawler [x y degrees]` creates the Crawler (DelveRobot) in the encampment, or moves and turns it. A click on
+    it opens the chart (the Crawler showed live; the click is not checked yet).
+  - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
+    guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
+    The user placed all of these live (2026-10-30).
+  - `/stash_place` and `/guild_stash_place <x> <y> <degrees>` move the stash and the guild stash of any area until the
+    player leaves it, to find their places.
+  - See [21](../docs/protocol/21-hideouts.md) "Delve".
 - **Hideout crafting bench placement (2026-10-25).** Personal hideout selection now handles the native 0x254 request,
   saves the selected WorldAreas Id per character and transfers immediately.
   Auth uses the saved choice on login; world-panel travel, `/hideout` and map return portals use the same home.

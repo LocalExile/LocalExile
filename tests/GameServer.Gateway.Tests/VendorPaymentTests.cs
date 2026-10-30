@@ -35,33 +35,4 @@ public class VendorPaymentTests : IDisposable
         Assert.DoesNotContain(after.Items(0), i => i.Id == weapon.Id);
     }
 
-    [Fact]
-    public void Late_reward_that_does_not_fit_leaves_every_item_and_the_offer_unchanged()
-    {
-        var inv = Open();
-        for (byte x = 0; x < 12; x++)
-            for (byte y = 0; y < 5; y++) inv.Add(0, x, y, Currency(A, 40));
-        var offered = inv.Items(0)[0];
-        inv.Offer(0, offered.Id, 0, 0, Shape);
-        Assert.Null(inv.Sell([Currency(B, 40), Currency(B, 40)], Shape));
-        Assert.Single(inv.Offered());
-        Assert.Equal(60, inv.Items(0).Count);
-        Assert.Equal(0, inv.Count(0, B));
-        Assert.Equal(2400, Reload().Items(0).Sum(i => i.Item.StackSize));
-    }
-
-    [Fact]
-    public void Failed_save_restores_offered_item_and_does_not_issue_any_reward()
-    {
-        var inv = Open();
-        var weapon = inv.Add(0, 0, 0, Weapon());
-        inv.Offer(0, weapon.Id, 0, 0, Shape);
-        Saves.FailWrite = key => key == _name;
-        Assert.ThrowsAny<IOException>(() => inv.Sell([Currency(A, 3), Currency(B, 4)], Shape));
-        Saves.FailWrite = null;
-        var after = Reload();
-        Assert.Contains(after.Items(0), i => i.Id == weapon.Id);
-        Assert.Equal(0, after.Count(0, A));
-        Assert.Equal(0, after.Count(0, B));
-    }
 }

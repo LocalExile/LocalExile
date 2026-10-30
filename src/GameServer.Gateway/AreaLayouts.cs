@@ -10,7 +10,21 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
 {
     /// <summary>The area's waypoint (WaypointCatalog), if it has one and its place is known.</summary>
     public WaypointObject? Waypoint { get; init; }
+    /// <summary>The area transitions' effects (<see cref="AreaTransitionCatalog.Effects"/>).</summary>
+    public (uint Id, TransitionEffect Effect)[] Effects { get; init; } = [];
     public Func<int, int, int, bool>? Clearance { get; init; }
+
+    /// <summary>Every cell's ground height, row by row (GridW × GridH), when the Gateway generated the layout itself
+    /// (<see cref="ServerLevels"/>); null for a capture.</summary>
+    public short[]? CellHeights { get; init; }
+
+    /// <summary>Whether the Gateway generated this layout from the seed (<see cref="ServerLevels"/>).</summary>
+    public bool ServerGenerated => CellHeights is not null;
+
+    /// <summary>The ground height at a cell in world units (the client's 0x141d84be0 at the cell's centre: the cell's
+    /// height × 7.8125), or null without heights or outside the grid.</summary>
+    public float? GroundHeight(int x, int y) =>
+        CellHeights is { } h && x >= 0 && y >= 0 && x < GridW && y < GridH ? h[y * GridW + x] * 7.8125f : null;
     public bool WalkableFor(int x, int y, int size) => Clearance?.Invoke(x, y, size)
         ?? (Walkable?.Invoke(x, y) != false);
 
@@ -80,17 +94,37 @@ static class AreaLayouts
 
     const string Folder = "data/walkability";
 
+    static string IdOf(ushort hash) =>
+        Ids.GetValueOrDefault(hash) ?? AreaTransitionCatalog.IdOf(hash) ?? HideoutCatalog.ByArea(hash)?.AreaId ?? $"0x{hash:x4}";
+
+    /// <summary>The seed the instance's layout is generated and played at (<see cref="ServerLevels.PlayableSeed"/>).</summary>
+    public static uint PlayableSeed(ushort hash, uint seed) => ServerLevels.PlayableSeed(IdOf(hash), seed);
+
     public static AreaLayout For(ushort hash, uint seed)
     {
         var hideout = HideoutCatalog.ByArea(hash);
-        string id = Ids.GetValueOrDefault(hash) ?? AreaTransitionCatalog.IdOf(hash) ?? hideout?.AreaId ?? $"0x{hash:x4}";
+        string id = IdOf(hash);
         // A hideout's waypoint is one of its decoration's doodads (21-hideouts.md §2), not a tile object.
         return WithoutWaypoint(hash, id, seed) with { Waypoint = hideout is null ? WaypointCatalog.For(hash, id, seed) : HideoutCatalog.Waypoint(hideout) };
     }
 
     static AreaLayout WithoutWaypoint(ushort hash, string id, uint seed)
     {
+        // An area the port reproduces is generated here from the seed; any other needs the client's capture.
+        if (ServerLevels.For(id, seed) is { } generated)
+            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height) with { CellHeights = generated.Heights };
         byte[]? cells = LoadCells(id, seed, out int w, out int h);
+        return WithCells(hash, id, seed, cells, w, h);
+    }
+
+    static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h)
+    {
+        var layout = WithTransitions(hash, id, seed, cells, w, h);
+        return layout with { Effects = AreaTransitionCatalog.Effects(id, seed) };
+    }
+
+    static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h)
+    {
         var notes = new List<string>();
         var transitions = AreaTransitionCatalog.For(hash, id, seed, notes);
         foreach (var n in notes) Console.WriteLine($"[gateway] area {id} seed {seed}: {n}");
@@ -114,9 +148,16 @@ static class AreaLayouts
         return new AreaLayout(hash, id, 0, 0, 197, 261, null, transitions);
     }
 
-    /// <summary>Tells scripts/walkmaps which area the next generated grid belongs to (data/walkability/current.json).</summary>
+    /// <summary>Dev: the walk-map recorder runs beside the Gateway (live.ps1 -Walkmaps sets Game_WALKMAPS=1). Only then does
+    /// the Gateway write anything for an area load (<see cref="Announce"/>) and run capture tours (/tour, CaptureTour,
+    /// TourRecords); by default it records nothing.</summary>
+    public static readonly bool Recording = Environment.GetEnvironmentVariable("Game_WALKMAPS") == "1";
+
+    /// <summary>Tells scripts/walkmaps which area the next generated grid belongs to (data/walkability/current.json),
+    /// when it runs (<see cref="Recording"/>).</summary>
     public static void Announce(AreaLayout layout, uint seed)
     {
+        if (!Recording) return;
         // A read-only data folder (a container image) has no recorder to tell; stop instead of waiting on every entry.
         if (!folderWritable.Value) return;
         try

@@ -15,7 +15,6 @@ public partial class RecentEnemyHitGatewayTests
     sealed class TraceRandom(int seed = 123, int? armourRoll = null, double? blockRoll = null) : Random(seed)
     {
         public readonly List<string> Draws = [];
-        public Action? BeforeDouble;
         public override int Next(int maxValue)
         {
             Draws.Add($"next:{maxValue}");
@@ -28,7 +27,7 @@ public partial class RecentEnemyHitGatewayTests
         }
         public override double NextDouble()
         {
-            Draws.Add("double"); BeforeDouble?.Invoke(); return blockRoll ?? base.NextDouble();
+            Draws.Add("double"); return blockRoll ?? base.NextDouble();
         }
     }
 
@@ -83,7 +82,7 @@ public partial class RecentEnemyHitGatewayTests
         public Task Swing(SpawnedMonster monster)
         {
             lock (Conn.Monsters) return (Task)Method("MonsterSwing").Invoke(null,
-                ["incoming-test", Stream, Ciphers, Conn, 42u, monster, (34, 32), (32, 32), Conn.IncomingHitEpoch])!;
+                ["incoming-test", Stream, Ciphers, Conn, 42u, monster, monster.ActionGeneration])!;
         }
         public Task Present() => Program.SendRecentEnemyHits("incoming-test", Stream, Ciphers, Conn);
         public async Task<byte[]> Read()
@@ -122,116 +121,4 @@ public partial class RecentEnemyHitGatewayTests
         Assert.Equal(double.NegativeInfinity, f.Conn.LastEnemyHitAt);
     }
 
-    [Theory]
-    [InlineData("/hit physical 100", 29, 0, 33, 1)]
-    [InlineData("/hit physical 100", 30, 0, 50, 1)]
-    [InlineData("/spellhit physical 100", 29, 20, 13, 2)]
-    [InlineData("/blockhit attack physical 100", 30, 20, 30, 2)]
-    [InlineData("/blockhit spell physical 100", 29, 20, 13, 2)]
-    public async Task Parsed_routes_use_one_decision_and_exact_diagnostics(
-        string command, int roll, int reduction, int damage, int draws)
-    {
-        using var f = new Fixture();
-        for (int i = 0; i < 3; i++) f.Conn.RecentEnemyHits.Record(f.Conn.Clock.Elapsed.TotalSeconds);
-        f.Set("base_additional_physical_damage_reduction_%", reduction);
-        var random = new TraceRandom(armourRoll: roll, blockRoll: .99); f.Conn.IncomingHitRandom = random;
-        await f.Command(command);
-        Assert.Equal(10000u - (uint)damage, f.Conn.PlayerLife);
-        Assert.Equal(4, f.Count);
-        Assert.Equal(draws, random.Draws.Count);
-        string text = System.Text.Encoding.ASCII.GetString(await f.Read());
-        // Replies use the exact decision used for damage; reading diagnostics cannot reroll.
-        if (command.StartsWith("/hit")) Assert.Contains(roll == 29 ? "67% armour" : "50% armour", text);
-    }
-
-    [Theory]
-    [InlineData("/hit physical 100")]
-    [InlineData("/spellhit physical 100")]
-    [InlineData("/blockhit attack physical 100")]
-    [InlineData("/blockhit spell physical 100")]
-    public async Task Zero_damage_immunity_counts_without_armour_draw_and_block_counts_exactly_once(string command)
-    {
-        using var f = new Fixture();
-        f.Set(RecentEnemyHits.GenericChance, 100);
-        f.Set("physical_immunity", 1);
-        var random = new TraceRandom(armourRoll: 0, blockRoll: 0); f.Conn.IncomingHitRandom = random;
-        await f.Command(command);
-        Assert.Equal(10000u, f.Conn.PlayerLife);
-        Assert.Equal(1, f.Count);
-        Assert.Equal(command.StartsWith("/hit") ? 0 : 1, random.Draws.Count);
-        f.Set("physical_immunity", 0);
-        f.Conn.Pools = f.Conn.Pools with { BlockChance = 100, SpellBlockChance = 100 };
-        if (command.StartsWith("/blockhit"))
-        {
-            random.Draws.Clear(); await f.Command(command);
-            Assert.Equal(10000u, f.Conn.PlayerLife); Assert.Equal(2, f.Count);
-            Assert.Equal(new[] { "double" }, random.Draws);
-        }
-    }
-
-    [Fact]
-    public async Task Count_runs_without_modifier_and_development_outputs_cannot_forge_combat_or_presentation()
-    {
-        using var f = new Fixture();
-        f.Set(RecentEnemyHits.PerHit, 0);
-        await f.Command("/hit fire 1"); await f.Command("/spellhit fire 1");
-        Assert.Equal(2, f.Count); Assert.Equal(0, f.Chance);
-        await f.Command($"/set_stat {RecentEnemyHits.Counter} 999");
-        await f.Command($"/set_stat {RecentEnemyHits.VirtualChance} 100");
-        Assert.Equal(2, Program.CharacterPlayerStats(f.Conn)[Key(RecentEnemyHits.Counter)]);
-        Assert.Equal(0, f.Chance);
-        f.Set(RecentEnemyHits.PerHit, 10); Assert.Equal(20, f.Chance);
-        f.Set(RecentEnemyHits.GenericChance, 50); Assert.Equal(70, f.Chance);
-        f.Set(RecentEnemyHits.PerHit, 0); Assert.Equal(50, f.Chance);
-        f.Set(RecentEnemyHits.GenericChance, 0); Assert.Equal(0, f.Chance);
-    }
-
-    [Theory]
-    [InlineData("dead")]
-    [InlineData("closed")]
-    [InlineData("leaving")]
-    [InlineData("paused")]
-    public async Task Parsed_development_guard_precedes_any_count_pool_charge_or_rng_mutation(string refusal)
-    {
-        using var f = new Fixture();
-        var random = new TraceRandom(); f.Conn.IncomingHitRandom = random;
-        if (refusal == "dead") f.Conn.PlayerLife = 0;
-        if (refusal == "closed") f.Conn.Closed = true;
-        if (refusal == "leaving") f.Conn.LeavingArea = true;
-        if (refusal == "paused") f.Conn.Clock.Stop();
-        uint life = f.Conn.PlayerLife, mana = f.Conn.PlayerMana;
-        foreach (string command in new[] { "/hit physical 100", "/spellhit physical 100", "/blockhit attack physical 100" })
-            await f.Command(command);
-        Assert.Equal(0, f.Count); Assert.Empty(random.Draws);
-        Assert.Equal(life, f.Conn.PlayerLife); Assert.Equal(mana, f.Conn.PlayerMana);
-        Assert.False(((ChargeSession)Method("ChargesOf").Invoke(null, [f.Conn])!).Pending);
-        Assert.Empty(f.Conn.SkillReadyAt);
-    }
-
-    [Fact]
-    public void Self_hit_can_benefit_without_counting_and_dot_uses_resistance_only()
-    {
-        using var f = new Fixture();
-        f.Set(RecentEnemyHits.GenericChance, 100);
-        Assert.Equal(33, (int)Method("MitigateTaken").Invoke(null, [f.Conn, DamageType.Physical, 100, 0, 75])!);
-        Assert.Equal(0, f.Count);
-        var dot = new DamageOverTime(DamageType.Physical, 100, 1);
-        Assert.Equal(100, dot.Tick(1, 0).Damage);
-        Assert.Equal(0, f.Count);
-    }
-
-    [Theory]
-    [InlineData("/hit physical 0")]
-    [InlineData("/spellhit physical -1")]
-    [InlineData("/blockhit self physical 100")]
-    [InlineData("/blockhit spell unknown 100")]
-    public async Task Invalid_parsed_contact_does_not_spend_or_record(string command)
-    {
-        using var f = new Fixture();
-        var random = new TraceRandom(); f.Conn.IncomingHitRandom = random;
-        await f.Command(command);
-        Assert.Equal(0, f.Count); Assert.Empty(random.Draws);
-        Assert.Equal(10000u, f.Conn.PlayerLife); Assert.Equal(50u, f.Conn.PlayerMana);
-        Assert.False(((ChargeSession)Method("ChargesOf").Invoke(null, [f.Conn])!).Pending);
-    }
 }

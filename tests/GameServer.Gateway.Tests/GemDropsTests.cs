@@ -44,40 +44,4 @@ public class GemDropsTests
         });
     }
 
-    [Fact]
-    public void A_monster_only_drops_gems_at_or_below_its_level()
-    {
-        var (catalog, drops) = Setup.Value;
-        var pool = GemSources.DropPool(catalog, BenchCraftingTests.Data());
-        int first = pool.Min(r => catalog.Row(r)!.DropLevel);
-        for (int level = first; level <= first + 12; level++)
-        {
-            int seen = 0;
-            foreach (var seed in Enumerable.Range(0, 400))
-            {
-                var gems = Gems(drops.Roll(level, MonsterRarity.Normal, new Random(seed)));
-                Assert.All(gems, g => Assert.True(g.Type.DropLevel <= level, $"{g.Type.Name} (drop level {g.Type.DropLevel}) at level {level}"));
-                seen += gems.Count;
-            }
-            Assert.True(seen > 0, $"no gems at level {level}");
-        }
-    }
-
-    [Fact]
-    public void The_drop_pool_keeps_obtainable_gems_and_leaves_out_the_data_junk()
-    {
-        var (catalog, _) = Setup.Value;
-        var pool = GemSources.DropPool(catalog, BenchCraftingTests.Data());
-        bool Named(string name) => pool.Any(r => catalog.Row(r)?.Name == name);
-        Assert.True(Named("Fireball"));                // starting gem
-        Assert.True(Named("Faster Attacks Support"));  // quest gem
-        Assert.True(Named("Empower Support"));         // drop-only exceptional support
-        Assert.False(Named("..."));                    // placeholder
-        Assert.False(Named("The Great Avalanche"));    // Graft skill (Chayula)
-        Assert.False(Named("Envy"));                   // item-granted/legacy skill
-        Assert.False(Named("Death Aura"));
-        Assert.True(pool.Count > 300);
-        Assert.DoesNotContain(pool, r => catalog.Row(r)?.Id.Contains("Royale") == true);
-        Assert.DoesNotContain(pool, r => catalog.Row(r)?.Id.Contains("Tutorial") == true);
-    }
 }

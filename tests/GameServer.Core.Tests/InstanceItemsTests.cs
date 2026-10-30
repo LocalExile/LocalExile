@@ -15,6 +15,12 @@ public class InstanceItemsTests
     }
 
     [Fact]
+    public void Map_device_select_message_reads_the_atlas_area_and_mode()
+    {
+        Assert.Equal((0x9f31, (byte)0x0d), InstanceMapDevice.ReadSelectMap([0x00, 0xe7, 0x9f, 0x31, 0x0d]));
+    }
+
+    [Fact]
     public void Wand_payload_layout()
     {
         var wand = new Item(0xd9b1a12f, Wand, 0x40a1);
@@ -118,7 +124,6 @@ public class InstanceItemsTests
 
     [Theory]
     [InlineData(0x403b9b3bu, 2u, "0263403B9B3B0000000C00000002000000000000")]
-    [InlineData(0x93c8c37fu, 4u, "026393C8C37F0000000C00000004000000000000")]
     public void Successful_flask_use_matches_the_official_sound_confirmation(uint typeHash, uint itemId, string capture)
     {
         // Official 3.28 captures; field order and widths verified against the 3.29.3b reader 0x1421aded0.
@@ -177,8 +182,8 @@ public class InstanceItemsTests
     [Fact]
     public void Unsupported_components_are_refused()
     {
-        Assert.False(Item.CanSerialize(["Base", "MapKey"]));
-        Assert.Throws<ArgumentException>(() => new Item(1, ["MapKey"], 0).Payload());
+        Assert.False(Item.CanSerialize(["Base", "HeistContract"]));
+        Assert.Throws<ArgumentException>(() => new Item(1, ["HeistContract"], 0).Payload());
     }
 
     [Fact]

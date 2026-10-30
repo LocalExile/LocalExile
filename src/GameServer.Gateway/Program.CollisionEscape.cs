@@ -15,7 +15,8 @@ partial class Program
             from = conn.Walk.Position(now);
             bool Walkable(int x, int y) => conn.Layout.Walkable?.Invoke(x, y) != false && !conn.Barrier.Contains((x, y));
             if (CollisionEscape.Find(from, conn.Layout.GridW, conn.Layout.GridH, Walkable,
-                living ? conn.CorrectionBlockers() : conn.StationaryBlockers) is not { } free) return;
+                living ? conn.CorrectionBlockers(includeMonsters: !conn.Walk.EscapingCrowd(now))
+                    : conn.StationaryBlockers) is not { } free) return;
             to = free;
             Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;

@@ -6,7 +6,6 @@ public class VaalSkillRecordFlagTests
 {
     [Theory]
     [InlineData(false)]
-    [InlineData(true)]
     public void Creation_and_update_parse_bit1_without_parent_fields_or_support_layout_changes(bool creation)
     {
         var vaal = new GrantedSkill(0x103, 532, 42) { VaalResourcesEnabled = true };

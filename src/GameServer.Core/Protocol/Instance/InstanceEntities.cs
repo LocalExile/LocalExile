@@ -145,17 +145,29 @@ public static class InstanceEntities
     /// → 0x1409de680 with 0; traced live 2026-10-19 after Apply refunds).
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
-        ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null)
+        ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
             .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
-        w.U16(0).U16(0);
+        // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
+        // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
+        w.U16(0);
+        var cluster = (clusterNodes ?? []).Order().ToList();
+        w.U16(checked((ushort)cluster.Count));
+        foreach (ushort n in cluster) w.U8((byte)n).U8((byte)(n >> 8));
         var effects = masteryEffects is null ? [] : masteryEffects
             .Where(kv => nodes?.Contains(kv.Key) == true).OrderBy(kv => kv.Key).ToList();
         w.U16(checked((ushort)effects.Count));
         foreach (var (node, effect) in effects) w.RawU32(node | ((uint)effect << 16));
-        return w.U16(0).ToArray();
+        // The fifth list is the applied tattoos: node | PassiveSkillOverrides.HASH16 << 16. The client stores it at
+        // tree +0x1f8 and looks the override up in PassiveSkillOverrides.dat for the replacement passive's name,
+        // icon and stats.
+        var applied = (tattoos ?? new Dictionary<ushort, ushort>()).OrderBy(kv => kv.Key).ToList();
+        w.U16(checked((ushort)applied.Count));
+        foreach (var (node, row) in applied) w.RawU32(node | ((uint)row << 16));
+        return w.ToArray();
     }
 
     /// <summary>S→C 0x22 (u32, dispatcher case 0xb): the local player's entity id (world+0x980, setter 0x142186fa0).</summary>
@@ -413,6 +425,13 @@ public static partial class InstanceInventories
         foreach (var it in items ?? []) w.U32(it.Id).U8(it.X).U8(it.Y).Bytes(it.Item.Wire());
         return w.U8(0).U8(0).ToArray();
     }
+
+    /// <summary>S→C 0xc1 (dispatcher case 0x36, 0x141d62700 → 0x141d623b0, class 0x1435c0898): remove an inventory the
+    /// client has: u8 manager, u32 inventory id. Used to unload stash tabs the panel no longer shows.</summary>
+    public static byte[] RemoveInventory(uint inventoryId, byte manager = 0) =>
+        new LoginWriter().U16(RemoveInventoryId).U8(manager).U32(inventoryId).ToArray();
+
+    public const ushort RemoveInventoryId = 0xc1;
 }
 
 /// <summary>

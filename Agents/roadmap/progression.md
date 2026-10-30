@@ -12,6 +12,16 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** gold respec at Bestel (C→S 0x36 / 0x37) and masteries (0x35) work.
 - **Known:** refunds with refund points (0x36 flag 0; 0x33's first u16) work;
   Orbs of Regret (right-click, 0x58) add them.
+- **Known:** the ordinary tree's 21 large jewel sockets accept ordinary, magic and rare jewels (pane placement,
+  save/load, global mods, refund guard); unique jewels use the same path but have no item source yet.
+  See [unique-jewels.md](unique-jewels.md) for the 185-entry catalogue and the phased unique-jewel plan.
+- **Next:** tattoos: all 100 items, protocol, target/limit rules and interactions are documented in
+  [tattoos.md](../docs/game/tattoos.md). The client flow, 32 plain stats, nine Makanga gates, three Journey
+  tattoos and Journey Makanui are client-verified (Hinekora/Kitava Makanga are inert; Ancestral Bloodlines is
+  partial): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring removal. The five
+  `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. Next: the
+  35 condition/skill rows and Loyalty; the seven Forbidden ascendancy tattoos use a separate client flow. Also
+  still open: replace/reallocation and the 50-tattoo cap.
 - **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
   for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),
   [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, +500 / -2 per
@@ -40,6 +50,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Other Daughter of Oshabi mechanics and Phrecia client admission remain separate work.
 - **Known:** family gem levels for Herald, Vaal, Link and Raise Zombie reach the common effective skill level.
   Connected allocation/refund/reload has automated coverage (#244).
-  Family-specific execution engines, global gem bonuses and Phrecia client admission remain separate work.
+  Family-specific execution engines and Phrecia client admission remain separate work.
+- **Known:** Aristocrat's nodes all have server consumers and Gateway coverage; `Game_VERIFIED_ARISTOCRAT=1` opts in.
+  **Next:** native acceptance on a client with the reviewed combined graph, as for Gambler.
+  See [Aristocrat](../docs/game/aristocrat.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
   Implementing all 19 Phrecia classes' special gameplay is separate from this selection lifecycle.

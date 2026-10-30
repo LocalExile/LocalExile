@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -96,7 +97,7 @@ partial class Program
         }
         catch (Exception ex)
         {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask grounds: {ex.Message}");
+            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask grounds: {ServerLog.Describe(ex)}");
         }
         state.TickerExited();
     }

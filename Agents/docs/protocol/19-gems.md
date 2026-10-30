@@ -100,8 +100,13 @@ the transfigured item-name display still needs a native retest.
   for is drawn red, "Requires level 70", and the item it is socketed in with it (checked live 2026-10-23: a level 20
   Fireball in an equipped wand, then `/set_level 10`). It still sends uses of the skill, though — it plays the cast
   animation and takes the mana off its bar before the server hears of it — so the server is the one that refuses. The
-  server treats the item as inactive, as it does a worn item the character is too low for (`CharacterStatSources`,
-  `InactiveItems`): its mods and its gems do nothing and its skills leave the Actor skill list, so the client has
+  server treats the item as inactive, as it does a worn item the character is too low for: `EquipmentStatSources`
+  raises each worn item's level and attribute requirements to the highest of its socketed gems' before resolving the
+  inactive items (`SocketedGemRequirements`, from catalog data and the resolver's own attribute totals, never the
+  pools, which may not exist yet at login; a `/set_stat virtual_*_for_requirements` replaces the attribute there as
+  it does for the client), and `InactiveItems` keeps the result. PR #175 had dropped this rule, so the
+  gems stayed on the skill bar and every use was refused (restored 2026-10-29). Its mods and its gems do nothing and
+  its skills leave the Actor skill list, so the client has
   nothing to cast (`GemSkillEffects`); a use that arrives anyway is refused before the action is started — no 0x1ab so
   the cast does not run, and the mana pool goes out again so the cost comes back (`GemDisabled`, logged "(disabled,
   action not started)"). Socketing a gem the character is too low for is refused (0x30, `GemRequirementsUnmet`), and a

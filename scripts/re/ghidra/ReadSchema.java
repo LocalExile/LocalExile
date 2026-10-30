@@ -1,4 +1,4 @@
-// Usage: -postScript ReadSchema.java <out.json> <components.json> [factory:0x1421b5c40+0x1421c6150] [only:0xfunc+...]
+// Usage: -postScript ReadSchema.java <out.json> <components.json> [factory:0x1421b5c40+0x1421c6150+0x14219c350+0x1428f74d0] [only:0xfunc+...]
 // (no "=" or ",": cmd.exe splits arguments there)
 //
 // Read-sequence summaries for
@@ -72,7 +72,7 @@ public class ReadSchema extends GhidraScript {
         String[] a = getScriptArgs();
         mem = currentProgram.getMemory();
         for (Object[] p : PRIMS) prims.put((Long) p[0], p);
-        List<Long> factories = new ArrayList<>(List.of(0x1421b5c40L, 0x1421c6150L));
+        List<Long> factories = new ArrayList<>(List.of(0x1421b5c40L, 0x1421c6150L, 0x14219c350L, 0x1428f74d0L));
         for (int i = 2; i < a.length; i++) {
             if (a[i].startsWith("factory:")) {
                 factories.clear();
@@ -219,13 +219,17 @@ public class ReadSchema extends GhidraScript {
         return out;
     }
 
-    /** Walk a case body (fallthrough only, stop at an unconditional jump or return): the last vtable it stores at
-     *  offset 0 of a register, else the same in the first non-allocator function it calls (the constructor). */
+    /** Walk a case body (fallthrough, stop at a return): the last vtable it stores at offset 0 of a register, else the
+     *  same in the first non-allocator function it calls (the constructor). An unconditional jump before any vtable
+     *  store is followed inside the factory: cases that share a constructor tail set their id and jump into it
+     *  (login 0x24/0x25/0x26/0x28 jump into 0x29's). */
     String[] caseClass(Address start) throws Exception {
         Instruction i = getInstructionAt(start);
+        Function owner = getFunctionContaining(start);
+        Set<Address> seen = new HashSet<>();
         List<Function> calls = new ArrayList<>();
         String vt = null;
-        for (int k = 0; k < 80 && i != null; k++, i = i.getNext()) {
+        for (int k = 0; k < 120 && i != null && seen.add(i.getAddress()); k++) {
             String m = i.getMnemonicString();
             String v = zeroStoreVt(i);
             if (v != null) vt = v;
@@ -233,7 +237,14 @@ public class ReadSchema extends GhidraScript {
                 Function c = callee(i);
                 if (c != null) calls.add(c);
             }
-            if (m.equals("JMP") || m.equals("RET")) break;
+            if (m.equals("RET")) break;
+            if (m.equals("JMP")) {
+                Address t = i.getFlows().length == 1 ? i.getFlows()[0] : null;
+                if (vt != null || t == null || owner == null || !owner.getBody().contains(t)) break;
+                i = getInstructionAt(t);
+                continue;
+            }
+            i = i.getNext();
         }
         if (vt != null) return new String[] { vt, "case" };
         for (Function c : calls) {

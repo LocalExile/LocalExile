@@ -170,7 +170,7 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                     ? registry.EnterExisting(req.Instance, info.Character, info.League?.Name, info.League?.Ssf ?? false,
                         req.Area, info.CharacterId?.ToString("N"))
                     : req.New ? registry.EnterNew(req.Area, info.Character, info.League?.Name, info.League?.Ssf ?? false,
-                        info.CharacterId?.ToString("N"))
+                        info.CharacterId?.ToString("N"), req.Seed)
                     : registry.Enter(req.Area, info.Character, info.League?.Name, info.League?.Ssf ?? false,
                         info.CharacterId?.ToString("N"));
                 if (inst is null) return new ControlResponse { Ok = false, Error = $"instance {req.Instance} unavailable in this league" };

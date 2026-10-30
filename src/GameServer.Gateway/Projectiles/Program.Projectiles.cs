@@ -25,6 +25,12 @@ partial class Program
             public bool Created, Ended, SecondFormStarted;
             public ProjectileArc? Arc;
             public int MotionVersion;
+            // Where the object is created (the release point) and whether its first move has been sent from there.
+            public ProjectileVector SpawnedAt;
+            public bool Glided;
+            // An ended flight whose stop keeps the object (an impact clip, a stuck arrow) is still created when its
+            // creation snapshot runs late: the shot then appears at its impact rather than not at all.
+            public bool StaysAfterEnd;
         }
         readonly Dictionary<long, Visual> visuals = [];
         readonly Dictionary<SpawnedMonster, int> generations = new(ReferenceEqualityComparer.Instance);
@@ -91,7 +97,7 @@ partial class Program
                             var use = release() with { Seed = ++seed };
                             long useId = Runtime.Release(use);
                             Console.WriteLine($"[gateway] {remote} projectile release use={useId} "
-                                + $"skill={(use.Payload as ProjectileOffense)?.Label} metadata={use.Profile.Id} count={use.Profile.Count} "
+                                + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
                                 + $"origin={use.Origin} aim={use.Aim} speed={use.Profile.Speed:0.###}");
                         }
                         catch (InvalidOperationException ex)
@@ -168,6 +174,10 @@ partial class Program
             return new(id, value);
         }
 
+        /// <summary>The actor key a monster has in this session's world: a monster's own shot names it as owner, so its
+        /// flight never contacts the monster itself.</summary>
+        internal ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
+
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
             var result = new List<ProjectileActor>();
@@ -192,7 +202,10 @@ partial class Program
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
         {
-            if (!Active || contact.Projectile.Use.Payload is not ProjectileOffense shot) return ProjectileHitResult.Miss;
+            if (!Active) return ProjectileHitResult.Miss;
+            // A monster's shot: the player is the target and the monster's damage pipeline commits the hit.
+            if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
+            if (contact.Projectile.Use.Payload is not ProjectileOffense shot) return ProjectileHitResult.Miss;
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
@@ -248,19 +261,30 @@ partial class Program
             if (presentation.EventEffect?.Invoke(value) is { } eventEffect)
                 Effect(x, y, eventEffect, presentation.EffectLifetime,
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null);
+            // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
+            // areas and continuation children, which do get objects).
+            if (value.Kind == ProjectileEventKind.Spawn && p.ParentId == 0
+                && p.Use.Payload is ProjectileOffense { ClientPredicted: true }) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
                 uint id = Conn.NextObjectId++;
                 var height = ProjectileHeight.Flight(TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
-                    Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"));
-                var visual = new Visual(id, height);
+                    Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
+                var visual = new Visual(id, height) { SpawnedAt = value.Position };
                 visuals[p.Id] = visual; Conn.ProjectileObjects.Add(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
                 Packet(() =>
                 {
-                    if (visual.Ended) return null;
-                    var obj = new ProjectileObject(p.Profile.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y),
+                    // A flight that ended before this snapshot is created only when its stop keeps the object (the impact
+                    // clip or stuck arrow then shows where it hit); otherwise a create followed by its removal is a flash.
+                    if (visual.Ended && !visual.StaysAfterEnd) return null;
+                    // Created where it was released, not where the simulation has it when this snapshot is taken: an arrow
+                    // covers a cell every 3 ms, so the late snapshot put it one to ten cells past the bow (live 2026-10-29).
+                    // The first glide starts here too; the visual trails the simulation by the output delay and catches
+                    // up at its stop.
+                    var at = visual.SpawnedAt;
+                    var obj = new ProjectileObject(p.Profile.Id, (int)Math.Round(at.X), (int)Math.Round(at.Y),
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
@@ -268,13 +292,13 @@ partial class Program
                     visual.Created = true;
                     if (p.ParentId == 0)
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
-                            + $" metadata={p.Profile.Id} release={value.Position} shown={p.Position} direction={p.Direction}"
-                            + $" ageMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
+                            + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
+                            + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(p.Profile.Id), obj.Blob(), headerU32: 0xffffffff);
                 });
                 Packet(() => visual.Created ? InstanceProtocol.EnterWakeZone(id) : null);
                 if (presentation.FlightClip is { } clip)
-                    Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, 1) : null);
+                    Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
                 UpdateForm(p, visual);
                 Glide(p, visual);
             }
@@ -284,15 +308,41 @@ partial class Program
                 UpdateForm(p, redirect);
                 Glide(p, redirect);
             }
-            else if (value.Kind == ProjectileEventKind.End && visuals.Remove(p.Id, out var end))
+            else if (value.Kind == ProjectileEventKind.End && visuals.TryGetValue(p.Id, out var end) && !end.Ended)
             {
                 end.Ended = true;
+                // A lobbed shot's landing is its impact too (the mortar's "end" clip plays where it comes down).
+                end.StaysAfterEnd = (presentation.ImpactClip is not null || presentation.StayOnImpact)
+                    && value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing;
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : end.Height;
-                Packet(() =>
+                if (end.StaysAfterEnd)
                 {
-                    Conn.ProjectileObjects.Remove(end.Id);
-                    return end.Created ? [.. height.StopAt(end.Id, x, y), .. InstanceProtocol.RemoveObject(end.Id)] : null;
-                });
+                    // The stop ends the glide and the object stays for ImpactLifetime of game time: for the rig's own impact
+                    // clip (an ordinary wand bolt, with its particles and sound), or as the arrow left in its target or a
+                    // wall. Its removal follows on the same pause- and transfer-aware game clock as an effect's lifetime.
+                    Packet(() => !end.Created ? null
+                        : presentation.ImpactClip is { } impactClip
+                            ? [.. height.StopAt(end.Id, x, y), .. InstanceProtocol.AnimationUpdate(end.Id, 0, impactClip, 1)]
+                            : height.StopAt(end.Id, x, y));
+                    Runtime.Schedule(Runtime.Now + presentation.ImpactLifetime, () =>
+                    {
+                        visuals.Remove(p.Id);
+                        Packet(() =>
+                        {
+                            Conn.ProjectileObjects.Remove(end.Id);
+                            return end.Created ? InstanceProtocol.RemoveObject(end.Id) : null;
+                        });
+                    });
+                }
+                else
+                {
+                    visuals.Remove(p.Id);
+                    Packet(() =>
+                    {
+                        Conn.ProjectileObjects.Remove(end.Id);
+                        return end.Created ? [.. height.StopAt(end.Id, x, y), .. InstanceProtocol.RemoveObject(end.Id)] : null;
+                    });
+                }
             }
             else if (value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
                 Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
@@ -354,7 +404,8 @@ partial class Program
                 return;
             }
             int start = p.GroundBounces == 0
-                ? ProjectileHeight.Flight(startGround, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT")).Marker
+                ? ProjectileHeight.Flight(startGround, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"),
+                    PresentationFor(p).LaunchHeight).Marker
                 : startGround;
             var arc = new ProjectileArc(p.Distance, p.Remaining, start, endGround);
             visual.Arc = arc;
@@ -388,12 +439,25 @@ partial class Program
                 if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceTerrain(p.Position, end) is { } wall)
                     end = p.Position + (end - p.Position) * wall.Fraction;
                 if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
-                float duration = (float)Math.Max(.001, (end - p.Position).Length / p.Speed);
-                return [.. startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)),
-                    .. endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration)];
+                // The first move starts where the object was created (the release point), without a stop there and with
+                // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)
+                // first stop at the simulated position.
+                bool first = !visual.Glided;
+                visual.Glided = true;
+                var start = first ? visual.SpawnedAt : p.Position;
+                float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
+                byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
+                return first ? move
+                    : [.. startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), .. move];
             });
         }
         internal static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
+        static string? PayloadLabel(object? payload) => payload switch
+        {
+            ProjectileOffense offense => offense.Label,
+            HostileProjectileOffense hostile => hostile.Label,
+            _ => null,
+        };
     }
 
     static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -411,18 +475,20 @@ partial class Program
 
     // Advance and replace actor motion/life in the same critical section. A flush followed by a separate
     // Monsters lock leaves a race in which the pump can consume the replacement as historical movement.
-    internal static IDisposable ProjectileMutation(ClientState conn, bool advance = true) => new ProjectileMutationScope(conn, advance);
+    internal static IDisposable ProjectileMutation(ClientState conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
     internal static double ProjectileWorldTime(ClientState conn) => conn.ProjectileRuntime is { Active: true } session
         ? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond : conn.Clock.Elapsed.TotalSeconds;
 
     sealed class ProjectileMutationScope : IDisposable
     {
         readonly System.Threading.Lock experience;
-        readonly object actors;
-        public ProjectileMutationScope(ClientState conn, bool advance)
+        readonly ConnectionPerformance.LockScope actorLock;
+        public ProjectileMutationScope(ClientState conn, bool advance, string? phase)
         {
-            experience = LevelUpdatesFor(conn).Gate; actors = conn.Monsters;
-            experience.Enter(); Monitor.Enter(actors);
+            experience = LevelUpdatesFor(conn).Gate;
+            experience.Enter();
+            try { actorLock = conn.Performance.Lock(conn.Monsters, phase ?? "projectile"); }
+            catch { experience.Exit(); throw; }
             try
             {
                 if (advance && !conn.Paused && conn.ProjectileRuntime is { Active: true } session)
@@ -430,7 +496,7 @@ partial class Program
             }
             catch { Dispose(); throw; }
         }
-        public void Dispose() { Monitor.Exit(actors); experience.Exit(); }
+        public void Dispose() { try { actorLock.Dispose(); } finally { experience.Exit(); } }
     }
 
 }

@@ -67,6 +67,9 @@ sealed class ItemCatalog
         /// row + 1 (11-skills.md "Weapon restrictions").</summary>
         public int ClassRow { get; init; } = -1;
 
+        /// <summary>BaseItemTypes or ItemClasses forbids modification of this base.</summary>
+        public bool Unmodifiable { get; init; }
+
         public bool Supported => Components.Count > 0 && Item.CanSerialize(Components);
         /// <summary>Several of the type share one cell (a Stack component and a CurrencyItems StackSize above 1).</summary>
         public bool Stackable => MaxStack > 1;
@@ -477,12 +480,15 @@ sealed class ItemCatalog
         }
         var classes = new List<string>();
         var stances = new List<byte>();
+        var unmodifiableClasses = new List<bool>();
         string classesPath = Path.Combine(folder, "tables", "ItemClasses.json");
         if (File.Exists(classesPath))
         {
             using var doc = JsonDocument.Parse(File.ReadAllBytes(classesPath));
             classes = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
             stances = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("ItemStance") is { ValueKind: JsonValueKind.Number } s ? (byte)s.GetInt32() : (byte)0xff)];
+            unmodifiableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
+                r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True)];
         }
         List<string> tagIds = [];
         string tagsPath = Path.Combine(folder, "tables", "Tags.json");
@@ -517,6 +523,9 @@ sealed class ItemCatalog
                         .. r.GetProperty("TagsKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k < tagIds.Count).Select(k => tagIds[k])]),
                     ModDomain = r.GetProperty("ModDomain").GetInt32(),
                     ClassRow = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cr ? cr.GetInt32() : -1,
+                    Unmodifiable = r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True ||
+                        r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } uc &&
+                        uc.GetInt32() >= 0 && uc.GetInt32() < unmodifiableClasses.Count && unmodifiableClasses[uc.GetInt32()],
                 });
             }
         }

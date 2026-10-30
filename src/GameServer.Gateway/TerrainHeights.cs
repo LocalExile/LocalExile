@@ -18,18 +18,23 @@ static class TerrainHeights
 
     static readonly ConcurrentDictionary<string, Grid?> Loaded = new();
 
-    /// <summary>The height (steps of 7.8125) of a cell, or null without a capture for the area and seed.</summary>
+    /// <summary>The height (steps of 7.8125) of a cell, or null without a capture for the area and seed or a level the
+    /// Gateway generates itself (ServerLevels).</summary>
     public static int? At(string areaId, uint seed, int x, int y)
     {
-        var g = Loaded.GetOrAdd($"{areaId}_seed{seed}", Load);
+        var g = Of(areaId, seed);
         if (g is null || x < 0 || y < 0 || x >= g.W || y >= g.H) return null;
         short v = g.Cells[y * g.W + x];
         return v == Unknown ? null : v;
     }
 
-    /// <summary>The grid's size in cells, or null without a capture.</summary>
-    public static (int W, int H)? Size(string areaId, uint seed) =>
-        Loaded.GetOrAdd($"{areaId}_seed{seed}", Load) is { } g ? (g.W, g.H) : null;
+    /// <summary>The grid's size in cells, or null without a capture or a generated level.</summary>
+    public static (int W, int H)? Size(string areaId, uint seed) => Of(areaId, seed) is { } g ? (g.W, g.H) : null;
+
+    // Only captures are kept here: a generated level stays in ServerLevels' own bounded cache.
+    static Grid? Of(string areaId, uint seed) =>
+        Loaded.GetOrAdd($"{areaId}_seed{seed}", Load)
+        ?? (ServerLevels.For(areaId, seed) is { } level ? new Grid(level.Width, level.Height, level.Heights) : null);
 
     static Grid? Load(string stem)
     {

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -105,7 +106,7 @@ partial class Program
         }
         catch (Exception e) when (bestEffort)
         {
-            Console.WriteLine($"[ruthless] {CharacterName(conn)}: resource pools not saved; will retry: {e.Message}");
+            Console.WriteLine($"[ruthless] {CharacterName(conn)}: resource pools not saved; will retry: {ServerLog.Describe(e)}");
         }
     }
 
