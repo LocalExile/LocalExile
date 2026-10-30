@@ -37,13 +37,20 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Known:** Antiquarian's complete supported node consumers and three legal builds have native acceptance (#98).
   Whaletooth scales actual Enduring Cry recovery; paid refunds, transient effects and durable class progress pass.
   See [Status](../status/progression.md) and the [model/evidence audit](../docs/game/antiquarian.md).
+- **Known:** Harbinger's eight notables and eight small nodes have supported gameplay and native acceptance.
+  Legal builds, paid refunds, canonical clocks/action consumers and restart/relog are checked on the documented pins.
+  The automated candidate adapts frozen `59231e83` to main `704bf1d2`, including its outgoing Ignite pipeline.
+  Historical native `4329decc` and older private composition do not verify that new candidate.
+  Parent still needs exact refreshed 328/333/339 integration and native acceptance before publishing readiness.
+  Finite charge/taunt corrections include native updater/endpoints and the taunt recovery-word layout.
+  See [the class audit and explicit engine limits](../docs/game/harbinger.md).
 - **Known:** Gambler's complete supported graph consumers and both Block Luck choices have native acceptance.
   Ordinary incoming elemental ailments give Risk Aversion an actual avoidance consumer.
   Current-base tests and exact related-head composition pass; preserve the manual lethal-ignite Recoup resolution
   when composing Whisperer, as recorded in [Gambler](../docs/game/gambler.md).
 - **Start:** quest passive/refund rewards and the native Labyrinth/Altar flow (#151).
-  Phrecia play stays gated by default; Gambler's explicit opt-in verifies the separately installed graph read-only.
-  Other Phrecia classes retain their default gate; Antiquarian requires its exact verified installed graph opt-in.
+  Phrecia play stays gated by default; accepted class opt-ins verify the separately installed graph read-only.
+  Antiquarian, Gambler and Harbinger require their exact verified installed graph opt-ins; other classes stay gated.
   Do not add automatic archive writes or require the alternate graph for ordinary characters.
 - **Known:** Forest Tracking derives attack damage from complete groups of final evasion (#243).
   It composes with Steel Willed; allocation/refund/reload, Iron Reflexes and supported damage have automated coverage.

@@ -24,11 +24,17 @@ partial class Program
                 ground = new(kind, at.X, at.Y, radius, now + FlaskGrounds.TauntSeconds);
                 lock (conn.Monsters)
                     foreach (var (id, m) in conn.Monsters)
-                        if (!m.Dead && m.Life > 0 && m.Hostile && ground.Covers(m.Walk.Position(now))) ground.Taunted[id] = conn.NextBuff++;
-                uint taunt = BitConverter.SingleToUInt32Bits((float)FlaskGrounds.TauntSeconds);
-                foreach (var (id, buff) in ground.Taunted)
-                    await Send(remote, stream, ciphers, InstanceEntities.AddBuff(id, buff, FlaskGrounds.TauntedBuffRow, PlayerId, u68: taunt), null);
-                Console.WriteLine($"[gateway] {remote} {flask}: taunts {ground.Taunted.Count} monster(s) within {radius} cells of ({at.X}, {at.Y}) for {FlaskGrounds.TauntSeconds} s");
+                        if (!m.Dead && m.Life > 0 && m.Hostile && ground.Covers(m.Walk.Position(now)))
+                        {
+                            ground.Taunted[id] = conn.NextBuff++;
+                            ground.TauntRecipients[id] = m;
+                            ground.TauntClocks[id] = new(FlaskGrounds.TauntSeconds, now, MonsterEffectTimeRate(conn, id));
+                        }
+                bool startTicker = conn.FlaskGrounds.Add(ground);
+                await SendTauntBuffs(remote, stream, ciphers, conn, ground);
+                if (startTicker) _ = RunFlaskGrounds(remote, stream, ciphers, conn);
+                Console.WriteLine($"[gateway] {remote} {flask}: taunts {ground.Taunted.Count} monster(s) within {radius} cells of ({at.X}, {at.Y}) for {FlaskGrounds.TauntSeconds} base s");
+                continue;
             }
             else
             {
@@ -64,6 +70,7 @@ partial class Program
                 if (conn.Closed || conn.RageRetired) break;
                 if (conn.LeavingArea || conn.Paused) continue;
                 double now = conn.Clock.Elapsed.TotalSeconds;
+                foreach (var taunt in state.Taunts()) await SendTauntBuffs(remote, stream, ciphers, conn, taunt);
                 foreach (var g in state.Expire(now))
                 {
                     if (g.Object is uint obj) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(obj), $"0x02bb remove effect 0x{obj:x} ({g.Kind} ends)");

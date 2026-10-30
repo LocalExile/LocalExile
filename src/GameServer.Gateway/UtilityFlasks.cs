@@ -233,13 +233,41 @@ static class UtilityFlasks
     public sealed class Effects
     {
         readonly List<Active> _active = [];
+        readonly Dictionary<Active, EffectClock> clocks = new(ReferenceEqualityComparer.Instance);
+        double expiryRate = 1;
         readonly Lock _lock = new();
         int _ticker, _lastTicket;
 
         /// <summary>The effect of this flask (item id) still running, or null.</summary>
         public Active? Of(uint itemId)
         {
-            lock (_lock) return _active.FirstOrDefault(a => a.ItemId == itemId);
+            lock (_lock)
+            {
+                var active = _active.FirstOrDefault(a => a.ItemId == itemId);
+                return active is null || clocks[active].Deadline == active.Ends
+                    ? active : active with { Ends = clocks[active].Deadline };
+            }
+        }
+
+        public void SetExpiryRate(double now, double rate)
+        {
+            lock (_lock)
+            {
+                rate = Math.Max(.25, rate);
+                foreach (var clock in clocks.Values) clock.ChangeRate(now, rate);
+                expiryRate = rate;
+            }
+        }
+
+        /// <summary>The original source's live base-time budget; a removed or replaced use cannot publish a buff.</summary>
+        public double RemainingBase(Active source, double now)
+        {
+            lock (_lock)
+            {
+                if (!clocks.TryGetValue(source, out var clock)) return 0;
+                clock.Advance(now);
+                return clock.Remaining;
+            }
         }
 
         /// <summary>Starts an effect, next to any other, of the same kind or not: each keeps its own duration
@@ -250,6 +278,7 @@ static class UtilityFlasks
             lock (_lock)
             {
                 _active.Add(effect);
+                clocks.Add(effect, new(effect.Ends - effect.Started, effect.Started, expiryRate));
                 if (_ticker != 0) return null;
                 _ticker = ++_lastTicket;
                 return _ticker;
@@ -263,8 +292,8 @@ static class UtilityFlasks
         {
             lock (_lock)
             {
-                List<Active> ended = [.. _active.Where(a => all || a.Ends <= now || gone?.Invoke(a) == true)];
-                foreach (var a in ended) _active.Remove(a);
+                List<Active> ended = [.. _active.Where(a => all || clocks[a].Deadline <= now || gone?.Invoke(a) == true)];
+                foreach (var a in ended) { _active.Remove(a); clocks.Remove(a); }
                 stop = _active.Count == 0;
                 if (stop) _ticker = 0;
                 return ended;
@@ -436,12 +465,12 @@ static class UtilityFlasks
     }
 
     /// <summary>S→C 0x1c1 for an effect: the flask's buff (<see cref="Flasks.Buff"/>: duration and flask-bar cell) and the
-    /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
-    public static IEnumerable<byte[]> StartPackets(Active e, uint player)
+    /// extra buff (Onslaught: maintained by this flask source; no independent finite lifetime).</summary>
+    public static IEnumerable<byte[]> StartPackets(Active e, uint player, double? remainingBase = null)
     {
-        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, e.Ends - e.Started);
+        yield return Flasks.Buff(player, e.Buff, e.Flask.BuffRow, e.Slot, remainingBase ?? e.Ends - e.Started);
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
-            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player, u68: BitConverter.SingleToUInt32Bits((float)(e.Ends - e.Started)));
+            yield return InstanceEntities.AddBuff(player, extra, x.BuffRow, player);
     }
 
     /// <summary>S→C 0x1c2 for an effect that ends: its buff and the extra buff.</summary>

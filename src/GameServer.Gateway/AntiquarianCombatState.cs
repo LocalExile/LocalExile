@@ -1,8 +1,11 @@
 /// <summary>Connection-owned, pausable combat state. No wall-clock or character-name global lifetime.</summary>
 sealed class AntiquarianCombatState
 {
-    public double AdrenalineUntil { get; private set; } = double.NegativeInfinity;
+    EffectClock? adrenaline;
+    double adrenalineRate = 1;
+    public double AdrenalineUntil => adrenaline?.Deadline ?? double.NegativeInfinity;
     public bool Adrenaline(double now) => now < AdrenalineUntil;
+    public double AdrenalineRemainingBase(double now) { adrenaline?.Advance(now); return adrenaline?.Remaining ?? 0; }
     double recoveryAt, recoveryUntil, recoveryPerSecond, pendingRecovery;
     public double RecoveryPerSecond(double now) => now < recoveryUntil ? recoveryPerSecond : 0;
     public double RecoveryUntil(double now) => RecoveryPerSecond(now) > 0 ? recoveryUntil : double.NegativeInfinity;
@@ -11,7 +14,7 @@ sealed class AntiquarianCombatState
     {
         Integrate(now);
         if (!alive) { Clear(); return; }
-        if (!adrenalineSource) AdrenalineUntil = double.NegativeInfinity;
+        if (!adrenalineSource) adrenaline = null;
         if (!recoverySource) recoveryPerSecond = 0;
     }
 
@@ -19,9 +22,11 @@ sealed class AntiquarianCombatState
     public bool GrantAdrenaline(double now, int milliseconds)
     {
         if (milliseconds <= 0 || Adrenaline(now)) return false;
-        AdrenalineUntil = now + milliseconds / 1000d;
+        adrenaline = new(milliseconds / 1000d, now, adrenalineRate);
         return true;
     }
+    public void SetBuffExpiryRate(double now, double expiryRate)
+    { adrenaline?.ChangeRate(now, expiryRate); adrenalineRate = Math.Max(0, expiryRate); }
 
     // LocalExile v1: another accepted stun refreshes this one-second recovery, without stacking rates.
     public void Stunned(double now, uint maximumLife, int percent)
@@ -46,21 +51,23 @@ sealed class AntiquarianCombatState
 
     public void Clear()
     {
-        AdrenalineUntil = double.NegativeInfinity;
+        adrenaline = null; adrenalineRate = 1;
         recoveryAt = recoveryUntil = recoveryPerSecond = pendingRecovery = 0;
     }
 
     public readonly record struct Carried(double AdrenalineSeconds, double RecoverySeconds,
-        double RecoveryPerSecond, double PendingRecovery);
+        double RecoveryPerSecond, double PendingRecovery, double AdrenalineRate = 1);
     public Carried Carry(double now)
     {
         Integrate(now);
-        return new(Math.Max(0, AdrenalineUntil - now), Math.Max(0, recoveryUntil - now),
-            recoveryPerSecond, pendingRecovery);
+        adrenaline?.Advance(now);
+        return new(adrenaline?.Remaining ?? 0, Math.Max(0, recoveryUntil - now),
+            recoveryPerSecond, pendingRecovery, adrenalineRate);
     }
     public void Restore(Carried state, double now)
     {
-        Clear(); AdrenalineUntil = now + state.AdrenalineSeconds;
+        Clear(); adrenalineRate = state.AdrenalineRate;
+        adrenaline = new(state.AdrenalineSeconds, now, adrenalineRate);
         recoveryAt = now; recoveryUntil = now + state.RecoverySeconds;
         recoveryPerSecond = state.RecoveryPerSecond; pendingRecovery = state.PendingRecovery;
     }

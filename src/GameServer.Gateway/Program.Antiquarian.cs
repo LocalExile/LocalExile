@@ -15,6 +15,10 @@ partial class Program
             int Get(string name) => Stats.Key(name) is uint key
                 ? conn.PlayerStats.TryGetValue(key, out int set) ? set : sources.GetValueOrDefault(key) : 0;
             double now = conn.Clock.Elapsed.TotalSeconds;
+            double expiryRate = RecipientEffectRate(conn, sources, 1);
+            conn.EnduringCryRecovery.SetExpiryRate(now, expiryRate);
+            conn.Antiquarian.SetBuffExpiryRate(now, expiryRate);
+            conn.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectRate(conn, sources, 4));
             conn.Antiquarian.Observe(now, Get(AntiquarianEffects.AdrenalineSource) > 0,
                 Get(AntiquarianEffects.StunRecoverySource) > 0, conn.PlayerLife > 0 && !conn.RageRetired);
             if (conn.Antiquarian.Adrenaline(now))
@@ -43,6 +47,8 @@ partial class Program
         IReadOnlyDictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        nonChaos = HarbingerDefences.Taken(nonChaos, Get);
+        chaos = HarbingerDefences.Taken(chaos, Get);
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
         conn.Ward.Advance(now);
         bool wasBroken = conn.Ward.Broken;
@@ -51,7 +57,8 @@ partial class Program
         // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
         int nonChaosEligible = nonChaos - (int)((long)nonChaos * Math.Clamp(Get("base_damage_bypass_ward_%"), 0, 100) / 100);
         int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
-        int lifeDamage = conn.EnergyShield.Damage(nonChaos - nonChaosAbsorbed, false, now)
+        int lifeDamage = HarbingerDefences.Damage(conn.EnergyShield, nonChaos - nonChaosAbsorbed,
+                Get("base_non_chaos_damage_bypass_energy_shield_%"), now)
             + conn.EnergyShield.Damage(Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)), true, now);
         if (!wasBroken && conn.Ward.Broken
             && conn.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
@@ -84,7 +91,7 @@ partial class Program
             if (conn.SentWard == ward && conn.SentAdrenalineUntil == adrenaline
                 && conn.SentStunRecoveryUntil == recovery && conn.SentEnduringCryUntil == cry)
                 return null;
-            var bytes = new List<byte>();
+            var bytes = new List<byte>(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
             if (conn.WardBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.WardBuff));
             if (conn.AdrenalineBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.AdrenalineBuff));
             if (conn.EnduringCryBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.EnduringCryBuff));
@@ -96,11 +103,10 @@ partial class Program
             if (double.IsFinite(adrenaline))
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.AdrenalineBuff = conn.NextBuff++,
                     AntiquarianEffects.AdrenalineDefinition, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, adrenaline - conn.Clock.Elapsed.TotalSeconds))));
+                    u68: BitConverter.SingleToUInt32Bits((float)conn.Antiquarian.AdrenalineRemainingBase(conn.Clock.Elapsed.TotalSeconds))));
             if (double.IsFinite(cry))
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.EnduringCryBuff = conn.NextBuff++, 1541, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, cry - conn.Clock.Elapsed.TotalSeconds))));
-            bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                    u68: BitConverter.SingleToUInt32Bits((float)conn.EnduringCryRecovery.RemainingBase(conn.Clock.Elapsed.TotalSeconds))));
             // The native client predicts regeneration between corrections. Removing the rate alone leaves
             // its predicted overshoot in place when the server has no further recovery tick to publish.
             bytes.AddRange(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife));

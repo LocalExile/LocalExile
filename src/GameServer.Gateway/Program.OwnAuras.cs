@@ -67,6 +67,18 @@ partial class Program
                     (uint)AuraCatalog.UnreservedMana(conn.Pools, conn.Auras.Values));
             }
         }
+        foreach (var aura in conn.Auras.Values.Where(a => a.EffectId == "TemporalChains").ToArray())
+        {
+            var reservation = SupportedReservation(conn, aura.SkillId);
+            if (reservation is not { } cost) { conn.Auras.Remove(aura.SkillId); conn.AuraStatsDirty = true; }
+            else if (cost.Flat != aura.ManaFlat || cost.Percent != aura.ManaPercent)
+            {
+                conn.Auras[aura.SkillId] = aura with { ManaFlat = cost.Flat, ManaPercent = cost.Percent };
+                conn.AuraStatsDirty = true;
+                conn.PlayerMana = Math.Min(conn.PlayerMana,
+                    (uint)AuraCatalog.UnreservedMana(conn.Pools, conn.Auras.Values));
+            }
+        }
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
             RestoreRememberedAuras(conn, CharacterSaves.Load(CharacterName(conn))?.ActiveAuras ?? []);
     }

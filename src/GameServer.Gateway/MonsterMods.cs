@@ -171,6 +171,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "monster_base_block_%", "base_cannot_be_stunned", "hit_damage_+%_per_10%_missing_enemy_life",
         "self_take_no_extra_damage_from_critical_strikes", "avoid_impale_%", "cannot_have_life_leeched_from",
         "cannot_have_energy_shield_leeched_from",
+        "reflect_curses", "hexproof", "immune_to_curses",
+        "action_speed_cannot_be_reduced_below_base",
     };
 
     /// <summary>Stats that only stop something the server does not do to monsters yet (ailments on monsters, curses,
@@ -178,8 +180,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     public static readonly IReadOnlySet<string> Vacuous = new HashSet<string>
     {
         "base_self_ignite_duration_-%", "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
-        "shocked_effect_on_self_+%", "self_wither_duration_+%", "hexproof",
-        "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
+        "shocked_effect_on_self_+%", "self_wither_duration_+%",
+        "movement_speed_cannot_be_reduced_below_base",
         "reflect_hexes_chance_%", "reflect_non_damaging_ailments_%_chance",
     };
 

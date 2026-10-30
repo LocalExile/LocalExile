@@ -8,20 +8,42 @@ partial class Program
     /// <summary>BuffDefinitions row 0 <c>ignited</c> ("You're on fire", BuffVisuals 2: the burning flames).</summary>
     internal const ushort IgnitedBuffRow = 0;
 
+    static void ReconcileMonsterIgniteRate(ClientState conn, uint id, SpawnedMonster target, double now)
+    {
+        var curse = ActiveMonsterTemporalChains(conn, id, now);
+        target.Ignites.ChangeRate(now, curse is null ? 1 : Math.Max(.25, 1 + curse.OtherEffects / 100.0),
+            curse?.Clock.Deadline ?? double.PositiveInfinity, MonsterDotFactor(target, DamageType.Fire));
+    }
+
     // Called under the combat lock at an accepted projectile hit that dealt fire damage and left the monster alive: the
     // shot's ignite (MonsterIgnites.TryApply), and the monster's ignited buff, whose timer runs to its last ignite's end.
     internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now)
     {
         var e = target.Mods.Effects;
+        ReconcileMonsterIgniteRate(session.Conn, id, target, now);
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
                 e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, session.Conn.IgniteRandom)) return;
         if (target.Ignites.Buff is ushort old) session.Packet(InstanceEntities.RemoveBuff(id, old));
         ushort buff = session.Conn.NextBuff++;
         target.Ignites.Buff = buff;
-        float seconds = (float)(target.Ignites.Until - now);
-        session.Packet(InstanceEntities.AddBuff(id, buff, IgnitedBuffRow, PlayerId, u68: BitConverter.SingleToUInt32Bits(seconds)),
-            $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {seconds:0.##} s");
+        session.Packet(() => MonsterIgniteStartPacket(session, id, target, buff),
+            $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")}");
+    }
+
+    static byte[]? MonsterIgniteStartPacket(ProjectileSession session, uint id, SpawnedMonster target, ushort buff)
+    {
+        var conn = session.Conn;
+        if (!session.Active || conn.LeavingArea || conn.RageRetired || conn.Paused
+            || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, target)
+            || target.Dead || target.Life == 0 || target.Ignites.Buff != buff) return null;
+        double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+        // Always include both recipient terms, including zeros after a late curse expiry/removal. Build the prefix
+        // before the add and keep it when no duration remains; presentation never drains owed burn damage.
+        var prefix = MonsterCurseStats(conn, id, now);
+        double remaining = target.Ignites.Remaining(now);
+        return remaining <= 0 ? prefix : [.. prefix, .. InstanceEntities.AddBuff(id, buff, IgnitedBuffRow, PlayerId,
+            u68: BitConverter.SingleToUInt32Bits((float)remaining))];
     }
 
     // One tick of the ignited monsters (RunPlayerTick): the strongest ignite's fire damage through the monster's
@@ -35,10 +57,14 @@ partial class Program
             double now = ProjectileWorldTime(conn);
             foreach (var (id, m) in conn.Monsters)
             {
-                if (!m.Ignites.Burning && m.Ignites.Buff is null) continue;
+                if (!m.Ignites.Burning && !m.Ignites.HasPendingDamage && m.Ignites.Buff is null) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Ignites.Clear();
-                else damage = m.Ignites.Advance(now, MonsterDotFactor(m, DamageType.Fire));
+                else
+                {
+                    ReconcileMonsterIgniteRate(conn, id, m, now);
+                    damage = m.Ignites.Advance(now, MonsterDotFactor(m, DamageType.Fire));
+                }
                 if (!m.Ignites.Burning && m.Ignites.Buff is ushort gone) { ended.Add((id, gone)); m.Ignites.Buff = null; }
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);

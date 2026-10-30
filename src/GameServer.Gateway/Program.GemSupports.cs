@@ -25,7 +25,12 @@ partial class Program
             .Where(p => !conn.Ruthless || ItemsFor(conn).ByHash(p.Gem.TypeHash) is { } type && RuthlessGemRules.AllowsBase(type.Id))
             .SelectMany(p => ItemsFor(conn).GemEffects(p.Gem).Select(e => (Place: p, Effect: e))).ToList();
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds()).Assign(
-            [.. active.Select(g => new GemSkillIds.Gem(g.Place.ItemId, g.Place.Socket, g.Effect))], GemSkillIdPool.Value);
+            [.. active.Select(g => new GemSkillIds.Gem(g.Place.ItemId, g.Place.Socket, g.Effect)),
+                .. HarbingerGrants(name).Select(g => new GemSkillIds.Gem(0, g.Node, g.SummonEffect))], GemSkillIdPool.Value);
+        var passive = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId && g.Gem == 0);
+        if (passive.Name is not null)
+            return new(passive.Effect, passive.Level, 0, [],
+                SkillsFor(conn).EffectStats(passive.Effect, passive.Level).ToDictionary(s => s.Item1, s => s.Item2));
         int index = Enumerable.Range(0, ids.Count).FirstOrDefault(i => ids[i] == skillId, -1);
         if (index < 0) return new(-1, 1, 0, [], []);
         var selected = active[index];
@@ -86,7 +91,7 @@ partial class Program
 
     static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
     {
-        var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        var player = ServerSkillPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         return MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
     }
 
@@ -127,7 +132,8 @@ partial class Program
             * Math.Max(.01, 1 + Get("support_multistrike_attack_speed_+%_final") / 100.0);
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats)
             : DualWieldPanel.OffHandSeconds(offHand, SkillCatalog.Unarmed.OffHandAttackSpeedPct(
-                stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct));
+                stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct))
+                / Math.Max(.01, ActionSpeed.Multiplier(stats, Stats.Key));
         return Math.Max(TickSeconds, seconds / more / PlayerActionFactor(conn));
     }
 
@@ -217,7 +223,7 @@ partial class Program
         var gem = SupportedSkill(conn, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return 0;
-        var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
+        var player = ServerSkillPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         int Own(string name) => release && IsCriticalProhibition(name) ? 0
             : Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
         int Player(string name) => release && IsCriticalProhibition(name) ? 0
@@ -240,7 +246,13 @@ partial class Program
     static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (SkillsFor(conn).Reservation(gem.Effect, gem.Level) is not { } reservation) return null;
+        var blasphemy = gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportBlasphemy");
+        bool temporalAura = SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains" && blasphemy is not null;
+        if ((temporalAura ? SkillsFor(conn).Reservation(blasphemy!.Effect.Row, blasphemy.Gem.Level)
+            : SkillsFor(conn).Reservation(gem.Effect, gem.Level)) is not { } reservation) return null;
+        if (temporalAura && CharacterStatSources(conn).Stats is { } raw
+            && Stats.Key("temporal_chains_no_reservation") is uint free
+            && conn.PlayerStats.GetValueOrDefault(free, raw.GetValueOrDefault(free)) != 0) return (0, 0);
         double factor = gem.Supports.Aggregate(1.0, (v, support) => v * support.CostMultiplier / 100.0);
         return ((int)Math.Floor(reservation.Flat * factor), (int)Math.Floor(reservation.Percent * factor));
     }

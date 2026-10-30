@@ -3,7 +3,8 @@ static class SkillAttackTiming
 {
     public static double ForSkill(SkillCatalog skills, int effect, int level, SkillCatalog.Unarmed weapon,
         IReadOnlyDictionary<uint, int> player) => skills.IsAttack(effect)
-        ? Seconds(weapon.AttackMs, weapon.IncreasedAttackSpeed(player), skills.AttackSpeedMultiplier(effect, level))
+        ? Math.Max(Program.TickSeconds, Seconds(weapon.AttackMs, weapon.IncreasedAttackSpeed(player), skills.AttackSpeedMultiplier(effect, level))
+            / Math.Max(.01, ActionSpeed.Multiplier(player, Program.Stats.Key)))
         : weapon.AttackSeconds(player);
 
     public static void Apply(SkillCatalog skills, int effect, int level, Dictionary<uint, int> stats)
@@ -20,16 +21,17 @@ static class SkillAttackTiming
             MidpointRounding.AwayFromZero), 1, int.MaxValue);
     }
 
-    public static double Seconds(int weaponBaseMs, int playerSpeedPercent, int inherentPercent) =>
-        Math.Max(Program.TickSeconds, BaseMilliseconds(weaponBaseMs, inherentPercent) / 1000.0
-            / Math.Max(.01, 1 + playerSpeedPercent / 100.0));
+    public static double Seconds(int weaponBaseMs, int playerSpeedPercent, int inherentPercent, double actionMultiplier = 1) =>
+        !double.IsFinite(actionMultiplier) || actionMultiplier <= 0 ? double.PositiveInfinity : Math.Max(Program.TickSeconds, BaseMilliseconds(weaponBaseMs, inherentPercent) / 1000.0
+            / Math.Max(.01, 1 + playerSpeedPercent / 100.0) / actionMultiplier);
 
     public static void Apply(Dictionary<uint, int> stats, int inherentPercent)
     {
         if (!stats.TryGetValue(StatKeys.MainHandAttackDurationMs, out int main) || main <= 0) return;
         stats[StatKeys.MainHandTotalAttackDurationMs] = BaseMilliseconds(main, inherentPercent);
         stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100
-            / Seconds(main, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), inherentPercent));
+            / Seconds(main, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), inherentPercent,
+                ActionSpeed.Multiplier(stats, Program.Stats.Key)));
         if (stats.TryGetValue(StatKeys.OffHandAttackDurationMs, out int off) && off > 0)
             stats[StatKeys.OffHandTotalAttackDurationMs] = BaseMilliseconds(off, inherentPercent);
     }

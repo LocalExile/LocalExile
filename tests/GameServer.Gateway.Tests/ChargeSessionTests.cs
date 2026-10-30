@@ -28,6 +28,25 @@ public class ChargeSessionTests
     static ushort Next() => ++counter;
 
     [Fact]
+    public void Non_unit_expiry_keeps_periodic_gains_on_world_seconds_and_minimum_without_a_native_timer()
+    {
+        var s = new ChargeSession();
+        var c = new Character(("base_minimum_endurance_charges", 1), ("gain_X_endurance_charges_per_second", 1));
+        s.State.SetExpiryRate(0, .5);
+        Step(s, 0, c);
+        Assert.Null(Assert.Single(s.Presentation(0, Next)).Remaining);
+        Step(s, .99, c); Assert.Equal(1, s.Effective(ChargeType.Endurance));
+        Step(s, 1, c); Assert.Equal(2, s.Effective(ChargeType.Endurance));
+        Assert.Equal(21, s.State.ExpiresAt(ChargeType.Endurance), 8);
+        s.Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, 9, "maximum")); Step(s, 1.1, c);
+        Assert.Equal(3, s.Effective(ChargeType.Endurance));
+        s.Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, 1, "refresh maximum")); Step(s, 1.2, c);
+        Assert.Equal(21.2, s.State.ExpiresAt(ChargeType.Endurance), 8);
+        c.Stats["max_endurance_charges"] = -3; Step(s, 1.3, c);
+        Assert.Equal(0, s.Effective(ChargeType.Endurance));
+    }
+
+    [Fact]
     public void A_kill_with_a_full_chance_gains_a_charge_and_shows_its_buff()
     {
         var s = new ChargeSession();

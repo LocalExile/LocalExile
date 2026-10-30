@@ -8,7 +8,8 @@ sealed class PlayerElementalAilments
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
     internal const double MonsterCriticalAilmentMultiplier = 1.3;
     internal enum Kind { Ignite, Chill, Freeze, Shock }
-    sealed record Effect(Kind Kind, double From, double Until, double Magnitude);
+    sealed record Effect(Kind Kind, double From, EffectClock Clock, double Magnitude)
+    { public double Until => Clock.Deadline; }
     readonly List<Effect> effects = [];
     double carry;
     double actionFloor, freezeEffect = 1;
@@ -29,15 +30,19 @@ sealed class PlayerElementalAilments
         1 - Math.Max(Magnitude(Kind.Freeze, now) * freezeEffect, Magnitude(Kind.Chill, now)) / 100);
     public double DamageTakenFactor(double now) => 1 + Magnitude(Kind.Shock, now) / 100;
 
+    static double ExpiryRate(Func<string, int> get) => EffectClock.RecipientRate(2, get);
     static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
-    static bool Immune(Kind kind, Func<string, int> get) => get($"immune_to_{Name(kind)}") != 0
+    static bool Immune(Kind kind, Func<string, int> get) => get("immune_to_status_ailments") != 0 || get($"immune_to_{Name(kind)}") != 0
         || get($"cannot_be_{kind switch { Kind.Ignite => "ignited", Kind.Chill => "chilled", Kind.Freeze => "frozen", _ => "shocked" }}") != 0;
 
-    public void Reconcile(Func<string, int> get)
+    public void Reconcile(Func<string, int> get, double? now = null)
     {
         lock (effects)
         {
             effects.RemoveAll(e => Immune(e.Kind, get));
+            if (Immune(Kind.Ignite, get)) carry = 0;
+            if (now is double at)
+                foreach (var effect in effects) effect.Clock.ChangeRate(at, ExpiryRate(get));
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
             actionFloor = get("action_speed_cannot_be_reduced_below_base") != 0
                 || get("not_affected_by_action_speed_modifiers") != 0 ? 1 : 0;
@@ -51,13 +56,13 @@ sealed class PlayerElementalAilments
     {
         lock (effects)
         {
-            Reconcile(get);
+            Reconcile(get, now);
             void Add(Kind kind, double magnitude, double seconds)
             {
                 seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
                 if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
                     || RandomRolls.Chance(get($"avoid_{Name(kind)}_%"), 100, random)) return;
-                effects.Add(new(kind, now, now + seconds, magnitude));
+                effects.Add(new(kind, now, new EffectClock(seconds, now, ExpiryRate(get)), magnitude));
             }
             if (critical) Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * MonsterCriticalAilmentMultiplier, 4);
             if (maxLife == 0) return;
@@ -81,7 +86,7 @@ sealed class PlayerElementalAilments
     {
         lock (effects)
         {
-            Reconcile(get);
+            Reconcile(get, from);
             if (until <= from) return 0;
             var boundaries = effects.SelectMany(e => new[] { e.From, e.Until }).Where(t => from < t && t < until)
                 .Append(from).Append(until).Distinct().Order().ToArray();
@@ -90,11 +95,13 @@ sealed class PlayerElementalAilments
             {
                 double at = (boundaries[i - 1] + boundaries[i]) / 2;
                 if (!fireImmune) damage += DamageModel.Mitigate(Magnitude(Kind.Ignite, at), fireResistance, maxFireResistance)
-                    * DamageTakenFactor(at) * (boundaries[i] - boundaries[i - 1]);
+                    * DamageTakenFactor(at)
+                    * Math.Max(0, 1 + get("harbinger_channel_buff_damage_taken_+%_final") / 100.0)
+                    * (boundaries[i] - boundaries[i - 1]);
             }
             effects.RemoveAll(e => e.Until <= until);
-            int whole = (int)Math.Min(int.MaxValue, Math.Floor(damage));
-            carry = damage - whole;
+            int whole = (int)Math.Min(int.MaxValue, Math.Floor(damage + 1e-9));
+            carry = Math.Max(0, damage - whole);
             return whole;
         }
     }

@@ -128,7 +128,7 @@ partial class Program
             }
         }
         internal void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
-        void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
+        internal void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
         {
             while (Active)
             {

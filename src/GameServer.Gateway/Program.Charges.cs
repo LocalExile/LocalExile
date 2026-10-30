@@ -88,6 +88,7 @@ partial class Program
             // The session's limits, periodic stats and conversion flags follow every change of the character's stats
             // from here, so the ticker never polls them.
             session.Observe(Get);
+            session.State.SetExpiryRate(conn.Clock.Elapsed.TotalSeconds, RecipientEffectRate(conn, sources, 3));
             foreach (var type in Charges.Types)
             {
                 limits[type] = session.Limits(type);
@@ -202,7 +203,8 @@ partial class Program
                 double percentPerMinute = Math.Min(25, power) / 5d
                     * Own("enduring_cry_life_regeneration_rate_per_minute_%_per_5_power_up_to_cap")
                     * buffEffect;
-                conn.EnduringCryRecovery.Begin(now, duration, conn.PlayerMaxLife * percentPerMinute / 6000d);
+                conn.EnduringCryRecovery.Begin(now, duration, conn.PlayerMaxLife * percentPerMinute / 6000d,
+                    RecipientEffectRate(conn, player, 1));
                 Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
                     + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
             }
@@ -238,7 +240,7 @@ partial class Program
             {
                 session.State.Restore(carried, conn.Clock.Elapsed.TotalSeconds);
                 Console.WriteLine($"[gateway] {remote} charges carried from the last area: " +
-                    string.Join(", ", carried.Select(c => $"{c.Held} {Charges.Name(c.Type)} ({c.Remaining:0.0} s left)")));
+                    string.Join(", ", carried.Select(c => $"{c.Held} {Charges.Name(c.Type)} ({c.Remaining:0.0} base s left, rate {c.ExpiryRate:0.###})")));
             }
         while (!conn.Closed && !conn.RageRetired)
         {
@@ -257,15 +259,14 @@ partial class Program
                 }
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 ChargeSession.StepResult step;
-                List<ChargeSession.BuffChange> buffs;
                 using (ProjectileMutation(conn))
                 {
                     if (conn.Closed || conn.RageRetired) break;
                     if (conn.LeavingArea) continue;
                     now = ProjectileWorldTime(conn);
+                    session.State.SetExpiryRate(now, ChargeExpiryRate(conn, session));
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: now < conn.Walk.ArrivesAt,
                         inTown: InTown(conn), Random.Shared);
-                    buffs = session.Presentation(now, () => conn.NextBuff++);
                     if (step.CountsChanged)
                     {
                         conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -273,9 +274,7 @@ partial class Program
                     }
                 }
                 foreach (string line in step.Log) Console.WriteLine($"[gateway] {remote} {line} (t={now:0.000})");
-                foreach (var change in buffs)
-                    foreach (var (packet, label) in ChargeBuffs.Packets(change, PlayerId))
-                        await Send(remote, stream, ciphers, packet, label);
+                await SendChargeBuffs(remote, stream, ciphers, conn, session);
                 if (step.CountsChanged)
                 {
                     await SendChargeStats(remote, stream, ciphers, conn,

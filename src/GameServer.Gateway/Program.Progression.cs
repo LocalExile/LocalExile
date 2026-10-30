@@ -84,6 +84,7 @@ partial class Program
                 conn.Tattoos.Remove(node);
             conn.TattooRevision++;
             conn.SavedPassiveProgress = new(conn.MainAscendancy, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
+            if (PhreciaNodes(conn).Length > 0) _ = CompanionsOf(conn);
             // Persist the pre-existing ordinary level/mastery normalization once. The compare protects a newer connection.
             if (!conn.SavedPassiveProgress.Matches(save ?? new CharacterSaves.Save([])))
                 CharacterSaves.SetMainAscendancy(CharacterName(conn), conn.MainAscendancy, conn.Passives, conn.MasteryEffects,
@@ -113,7 +114,7 @@ partial class Program
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
-        return (WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))), attributes);
+        return (WithTemporalChains(conn, WithCompanions(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))))), attributes);
     }
 
     // Shared equipment/passive resolver. The requirement snapshot uses this without publishing caches or pools.
@@ -689,6 +690,9 @@ partial class Program
             SpellCriticalStrikeChance = SpellCriticalStrike.Chance(DamageModel.BaseSpellCriticalStrikeChancePerMyriad,
                 RawCritical, playerIncrease: pools.SpellCriticalStrikeChancePct)
         };
+        pools = pools with { EnergyShield = HarbingerDefences.Maximum(pools.EnergyShield, pools.Life, pools.Mana,
+            pools.EnergyShieldPct, EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield"),
+            EquipmentInput("mana_%_to_add_as_energy_shield")) };
         // Only the active usable shield contributes. The alternate set and unmet requirements cannot grant block.
         int shieldBlock = ActiveOffHand(conn) is { Type.Class: "Shield" } shield
             ? EquipmentInput("block_chance_from_equipped_shield_is_%") is > 0 and var replacement
@@ -1241,6 +1245,7 @@ partial class Program
             {
                 await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (respec, {cost} paid)");
             }
+            await RefreshCompanions(remote, stream, ciphers, conn, sendOwnerStats: false);
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),

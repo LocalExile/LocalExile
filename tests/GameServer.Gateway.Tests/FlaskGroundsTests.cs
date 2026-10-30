@@ -30,4 +30,20 @@ public class FlaskGroundsTests
         Assert.Empty(OnUse("Aquamarine Flask"));
     }
 
+
+    [Fact]
+    public void Taunted_recipients_keep_independent_base_budgets_when_curse_expiry_changes()
+    {
+        var state = new FlaskGrounds.State();
+        var taunt = new FlaskGrounds.Ground(FlaskGrounds.Kind.Taunt, 0, 0, 30, Ends: 3);
+        taunt.TauntClocks[1] = new(3, 0, .75);
+        taunt.TauntClocks[2] = new(3, 0, 1);
+        state.Add(taunt);
+        Assert.Empty(state.Expire(3)); // The cursed recipient still has one wall second.
+        taunt.TauntClocks[1].ChangeRate(2, 1);
+        Assert.Equal(1.5, taunt.TauntClocks[1].Remaining, 8);
+        Assert.Equal(3.5, taunt.ExpiryDeadline, 8);
+        Assert.Empty(state.Expire(3.49));
+        Assert.Same(taunt, Assert.Single(state.Expire(3.5)));
+    }
 }

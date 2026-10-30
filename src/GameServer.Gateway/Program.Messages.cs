@@ -644,6 +644,7 @@ partial class Program
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
+                    await RefreshCompanions(remote, stream, ciphers, conn);
                     await SpawnPets(remote, stream, ciphers, conn);
                     await SendGroundItems(remote, stream, ciphers, conn);
                     await PlaceStartWeapon(remote, stream, ciphers, conn);

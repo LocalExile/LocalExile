@@ -713,13 +713,8 @@ partial class Program
         bool withDuration = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") != "0";
         foreach (var effect in effects)
         {
-            uint perMinute = (uint)Math.Round((effect.LifePerSecond + effect.ManaPerSecond) * 60);
-            double duration = effect.Ends - effect.Started;
             if (FlaskBuffs)
-                await Send(remote, stream, ciphers, Flasks.Buff(PlayerId, effect.Buff, effect.BuffRow, (byte)slot,
-                    withDuration ? duration : null, [perMinute]),
-                    $"0x01c1 player buff {effect.Buff}: {(effect.BuffRow == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} " +
-                    $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
+                await SendRecoveryFlaskStart(remote, stream, ciphers, conn, effect, withDuration);
         }
     }
 

@@ -54,11 +54,13 @@ partial class Program
 
     // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob and the area's packs (PopulateArea) use it.
-    internal static async Task SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
+    internal static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
+        HarbingerCompanionCatalog.Companion? companion = null, Func<bool>? accept = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null)
     {
-        uint id = conn.NextObjectId++;
+        uint id;
+        lock (conn.Monsters) id = conn.NextObjectId++;
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         if (bodySize >= 0)
         {
@@ -66,12 +68,11 @@ partial class Program
             if (CollisionEscape.Find((x, y), conn.Layout.GridW, conn.Layout.GridH, Floor,
                 conn.MonsterBlockers(id), moverSize: bodySize) is { } clear) (x, y) = clear;
         }
-        // A monster that rises from the ground starts waiting to rise, unless it was kept after rising (MonsterEmerge.cs).
-        var emerge = Emerges.Kind(variety, rarity);
+        bool owned = companion is not null;
+        // Owned actors use their own profile, never hostile rarity rolls or buried/emerge scheduling.
+        var emerge = owned ? EmergeKind.None : Emerges.Kind(variety, rarity);
         bool waits = emerge != EmergeKind.None && (unrisen ?? true);
-        // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
-        mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
-        // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
+        mods = owned ? MonsterModSet.None : MonsterModsFor(conn, variety, level, rarity, mods, alone);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         uint life = (uint)mods.Effects.MaxLife(baseLife);
         // The type supplies the animated object; Game_MONSTER_AO=1 also sends the variety's first AOFiles path (Animated
@@ -95,6 +96,7 @@ partial class Program
             Projectile = projectile,
             Release = projectile is null ? null : MonsterReleaseFor(conn, variety, variety.GrantedEffects![0], level, projectile),
         };
+        if (companion is not null) life = 1; // Owned profile has one maximum Life.
         var skill = variety.GrantedEffects is [int effect, ..]
             ? SkillsFor(conn).FindByRow(attack.SkillId, effect, level,
                 attack.Projectile is null ? attack.SkillStats() : MonsterProjectileSkillStats(conn, effect, level, attack)) : null;
@@ -108,21 +110,62 @@ partial class Program
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
-        foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife)) (stats ??= []).Add(stat);
-        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, variety.StateMachine, MonsterEmerge.CreateState(variety, emerge, waits), team,
-            skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill], stats)
+        if (!owned)
+            foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife)) (stats ??= []).Add(stat);
+        IReadOnlyList<GrantedSkill>? objectSkills = skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
+        if (companion is not null)
         {
-            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData,
+            stats = [.. companion.MinionStats.Select(kv => (kv.Key, kv.Value)), (StatKeys.MaximumLife, 1)];
+            foreach (string flag in new[] { "base_cannot_be_damaged", "base_cannot_be_stunned", "untargetable_by_monster_ai" })
+                if (Stats.Key(flag) is uint key) stats.Add((key, 1));
+            var effects = new[] { companion.WarpEffect }.Concat(companion.Buffs.Select(b => b.Effect)).ToArray();
+            var ids = Skills.SkillIds().Take(effects.Length).ToArray();
+            objectSkills = effects.Select((effect, index) => Skills.FindByRow(ids[index], effect, 1,
+                    [.. Skills.EffectStats(effect, 1), (StatKeys.SkillIsNonPathing, 1)]))
+                .OfType<GrantedSkill>().ToArray();
+        }
+        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, variety.StateMachine,
+            MonsterEmerge.CreateState(variety, emerge, waits), team,
+            objectSkills, stats)
+        {
+            Mods = mods.Mods, NameWords = mods.NameWords,
+            LifeData = owned ? variety.LifeData with { CorpseUsable = false } : variety.LifeData,
         };
+        uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
+        int speedRoll = MonsterSpeedRoll.Percent(id, type, variety);
+        double walkSpeed = mods.Effects.MovementSpeed(variety.MovementSpeed) * MonsterSpeedRoll.Factor(speedRoll);
+        SpawnedMonster State() => new($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
+            variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
+        {
+            Attack = skill is null || companion is not null ? null : attack, Hostile = !friendly, Variety = variety, Level = level,
+            Rarity = rarity, Companion = companion,
+            Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
+            HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
+        };
+        if (companion is not null)
+        {
+            // A source can disappear while this task waits behind another sender. Register the actor and accept all
+            // three creation messages together, only after checking the current lease/source/area inside that gate.
+            bool sent = await SendGenerated(remote, stream, ciphers, () =>
+            {
+                lock (conn.Monsters)
+                {
+                    if (accept is not null && !accept()) return null;
+                    var packets = new List<byte>();
+                    if (conn.MonsterTypes.Add((variety.Row, level)))
+                        packets.AddRange(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
+                    packets.AddRange(InstanceEntities.CreateObject(id, type, monster.Blob()));
+                    packets.AddRange(InstanceProtocol.EnterWakeZone(id));
+                    conn.Monsters[id] = State();
+                    return packets.ToArray();
+                }
+            }, !log ? null : $"Harbinger create 0x{id:x} {variety.Id}@{level}");
+            return sent ? id : 0;
+        }
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
         if (conn.MonsterTypes.Add((variety.Row, level)))
             await Send(remote, stream, ciphers, InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]),
                 $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})");
-        uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
-        // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
-        // (MonsterSpeedRoll.cs); the walk estimate uses the same speed so arrival, swing range and contact agree with it.
-        int speedRoll = MonsterSpeedRoll.Percent(id, type, variety);
-        double walkSpeed = mods.Effects.MovementSpeed(variety.MovementSpeed) * MonsterSpeedRoll.Factor(speedRoll);
         // The world is active by now, so 0x2b9 is created at once; 0x1a9 makes it drawn and updated.
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type, monster.Blob()), !log ? null :
             $"0x02b9 create {rarity}{(friendly ? " friendly" : "")}{(waits ? $" {emerge.ToString().ToLowerInvariant()}" : "")} monster 0x{id:x} {variety}{(name is null ? "" : $" \"{name}\"")} type=0x{type:x8} at ({x}, {y}), life {life}, speed {walkSpeed:0.##}{(speedRoll == 0 ? "" : $" (roll {speedRoll:+0;-0}%)")}, components {string.Join(", ", variety.ComponentsOrBase)}");
@@ -140,17 +183,12 @@ partial class Program
         if (log && attack.Projectile is { } shot)
             Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ranged attack projectile {shot.Metadata} ({shot.Speed} units/s{(shot.Lobbed ? ", mortar" : "")})");
         using (ProjectileMutation(conn))
-            MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
-                variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
-            {
-                Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
-                Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
-                HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
-            }, emerge, waits);
+            MonsterEmerge.AddLocked(conn, id, State(), emerge, waits);
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
         if (damagedLife < life)
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
+        return id;
     }
 
     // The area's monsters, once the player is in (Agents/docs/protocol/14-monster-packs.md): MonsterPacks scattered over the
@@ -178,7 +216,7 @@ partial class Program
         conn.MonstersPlaced = true;
         if (Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
         if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
-        // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
+        // Emerge monsters (Gravel Eater, Tide Strider â€¦) are placed waiting and rise near the player (MonsterEmerge.cs).
         bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v);
         var notes = new List<string>();
         var points = AreaPopulation.LoadPoints(layout.Id, conn.Seed, notes);
@@ -194,7 +232,7 @@ partial class Program
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false);
         }
         Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count} at level {level}: " +
-            string.Join(", ", spawns.GroupBy(s => s.Pack).Select(g => $"{g.Key} × {g.Count()}")) +
+            string.Join(", ", spawns.GroupBy(s => s.Pack).Select(g => $"{g.Key} Ã— {g.Count()}")) +
             $"; waiting to rise: {MonsterEmerge.Unrisen(conn).Count} ({MonsterEmerge.Buried(conn).Count} buried)" +
             $"; unique: {string.Join(", ", spawns.Where(s => s.Rarity == MonsterRarity.Unique).Select(s => $"{Monsters.Find(s.Variety.ToString())!.Name} at ({s.X}, {s.Y})").DefaultIfEmpty("none"))}");
     }
@@ -241,7 +279,7 @@ partial class Program
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Dead || m.Life == 0 || m.StageRunning || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
+                if (m.Dead || m.Companion is not null || m.Life == 0 || m.StageRunning || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
@@ -263,7 +301,7 @@ partial class Program
                 // A pending echo/contact keeps its original generation instead of reserving repeated swings at the gate.
                 if (m.Hostile && m.Attack is { } a && d <= a.Range)
                 {
-                    m.BusyUntil = now + a.Seconds;
+                    m.BusyUntil = now + a.Seconds / MonsterActionFactor(conn, id);
                     m.LastTarget = null;
                     m.Walk.Order(mx, my, now);
                     m.SwingGeneration = ++m.ActionGeneration;
@@ -374,7 +412,7 @@ partial class Program
     internal static bool MonsterActionCurrent(ClientState conn, uint id, SpawnedMonster m, int action)
     {
         lock (conn.Monsters)
-            return MonsterPresent(conn, id, m) && conn.PlayerLife > 0 && m.Hostile && !m.StageRunning
+            return MonsterPresent(conn, id, m) && m.Companion is null && conn.PlayerLife > 0 && m.Hostile && !m.StageRunning
                 && m.ActionGeneration == action && conn.Clock.Elapsed.TotalSeconds >= m.FlinchUntil;
     }
 
@@ -498,6 +536,7 @@ partial class Program
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
             startedAt = conn.Clock.Elapsed.TotalSeconds;
+            a = m.Attack! with { Seconds = m.Attack!.Seconds / MonsterActionFactor(conn, id) };
             var from = m.Walk.Position(startedAt);
             var player = conn.Walk.Position(startedAt);
             m.BusyUntil = startedAt + a.Seconds;

@@ -96,6 +96,7 @@ readonly record struct MonsterHit(uint Life, bool StageStarts);
 
 sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public HarbingerCompanionCatalog.Companion? Companion { get; init; }
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
@@ -198,8 +199,18 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
     // Guarded by Monsters, like projectile impact commits and pause changes.
     public bool LeavingArea;
+    public TemporalChainsState? SelfTemporalChains;
+    public readonly Dictionary<uint, TemporalChainsState> TemporalChains = [];
+    public Guid SummonLease { get; } = Guid.NewGuid();
+    public HarbingerRoster? Companions;
+    public readonly SemaphoreSlim SummonGate = new(1, 1);
+    public readonly Dictionary<long, uint> CompanionObjects = [];
+    public readonly Dictionary<int, (ushort Instance, long Member, double Ends)> CompanionBuffs = [];
+    public long CompanionRevision, PublishedCompanionRevision;
+    public ushort AllocateBuff() { lock (Monsters) return NextBuff++; }
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    public double AilmentBypassCarry;
     public Random IncomingHitRandom = Random.Shared;
     // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
     public Random IgniteRandom = Random.Shared;
@@ -222,7 +233,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 monster.ActionGeneration++;
                 monster.SwingGeneration = null;
             }
-            if (clear) { RecentEnemyHits.Clear(); ElementalAilments.Clear(); }
+            if (clear)
+            {
+                RecentEnemyHits.Clear(); ElementalAilments.Clear(); AilmentBypassCarry = 0;
+                HarbingerChannel = null;
+            }
         }
     }
     public int ProjectileEpoch;
@@ -323,7 +338,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 
     /// <summary>Applies the passive movement speed to the server's walk estimate; /set_speed is a dev override.</summary>
     public void ApplyMovementSpeed() =>
-        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100 + Pools.MovementVelocityPct) / 100 * ElementalAilments.ActionFactor(Clock.Elapsed.TotalSeconds)), Clock.Elapsed.TotalSeconds);
+        Walk.SetSpeed(Math.Max(1, Program.PlayerMovementSpeed(this) * ElementalAilments.ActionFactor(Clock.Elapsed.TotalSeconds)), Clock.Elapsed.TotalSeconds);
 
     /// <summary>Replaces an area transition of this connection's layout (dev changes; the walk estimate keeps going).</summary>
     public void ReplaceAreaTransition(uint id, AreaTransitionObject transition) =>
@@ -599,6 +614,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>The gem skill being channelled (Cyclone: C→S 0x197 until 0x199), 0 for none, and when it next hits.</summary>
     public ushort ChannelSkill;
     public int ChannelGeneration;
+    // Focus requires a successful channel payment under this exact action, not only an input wish.
+    public (ushort Skill, int Action, int Generation)? HarbingerChannel;
     /// <summary>The last passive and equipment stat sum and its inputs (CharacterStatSources).</summary>
     public volatile Program.StatSourcesResult? StatSourcesCache;
     /// <summary>The channelled skill's action sequence, so its 0x1af hit result names the action it belongs to.</summary>

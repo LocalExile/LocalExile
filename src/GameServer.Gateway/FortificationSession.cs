@@ -53,6 +53,14 @@ sealed class FortificationSession
         return Read(now);
     }
 
+    public void SetExpiryRate(double now, double rate)
+    {
+        now = snapshotTime ?? now;
+        Read(now);
+        State.SetExpiryRate(now, rate);
+        Read(now);
+    }
+
     public void ConfigureRecovery(double now, uint maximumLife, bool finalRegenerationOverride,
         double regenerationMultiplier = 1)
     {

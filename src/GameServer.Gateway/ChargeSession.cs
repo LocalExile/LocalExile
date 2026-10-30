@@ -58,9 +58,12 @@ sealed class ChargeSession
             Record(Charges.ConversionFlag(type));
             Record(Charges.MinimumConversionFlag(type));
         }
+        Record("buff_time_passed_+%");
         foreach (var p in ChargeGains.Periodics) Record(p.Stat);
         observed = seen;
     }
+
+    public int GenericExpiryIncrease => Observed("buff_time_passed_+%");
 
     int Observed(string name) => observed.GetValueOrDefault(name);
 
@@ -180,7 +183,7 @@ sealed class ChargeSession
             if (!resend && old.Count == count && (count == 0 || old.ExpiresAt == expires && old.Converted == converted)) continue;
             if (count == 0 && old.Buff == 0) continue;
             ushort add = count > 0 ? nextBuff() : (ushort)0;
-            changes.Add(new(type, old.Buff, add, count, timed ? Math.Max(0, expires - now) : null, converted));
+            changes.Add(new(type, old.Buff, add, count, timed ? State.RemainingBase(type, now) : null, converted));
             shown[i] = new(count, expires, add, converted);
         }
         return changes;

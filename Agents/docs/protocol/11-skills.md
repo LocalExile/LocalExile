@@ -1975,6 +1975,25 @@ A foreign-source packet non-removal control establishes no party aura executor o
   [13](13-items.md) §8). The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+- **Received effect clocks:** `0x141f79160` recalculates Buff +0x20 from recipient stats, replacing the packet rate.
+  It adds generic key 8762 and other-effects key 535, excluding key 535 for Temporal Chains (row 69).
+  Mask `0x12082` selects categories 1/7/13/16 for buff-only key 13224.
+  Mask `0x4824` selects categories 2/5/11/14 for virtual debuff key 7505, derived from raw key 6459.
+  The final rate has a minimum of 0.25; definitions with the native fixed-rate flag retain rate 1.
+  That flag is BuffDefinitions `__col22` at +0x73, not `__col44` at +0xff.
+  Charges (category 3) ignore the buff/debuff category terms but still consume generic/other-effects time.
+  Taunted row 408 is category 2; each recipient retains its own three-second base budget under Temporal Chains.
+  Its `IsRecovery` payload requires two u32 values: the taunter entity id, then `is_taunted=1`.
+  Both precede the trailing vector count; their omission misaligns subsequent native messages.
+  At `0x141e105dd` the updater reads +0x20, multiplies frame time and subtracts from remaining seconds at +0x1c.
+  The updater resolves BuffVisuals through `0x141e069d0`; its zero-float +0xda/+0xde guard can skip a monster curse.
+  Corrected taunt on the same recipient has non-null Buff +0x148 and actually consumes 0.75 then 1 per frame second.
+  Keep the component/pointer/instance-specific updater evidence separate from raw counter snapshots.
+  Do not intercept the two-byte branch at `0x141e105a2`: a detour overwrites the live target at `0x141e105a4`.
+  A setup observer hit an illegal instruction there; whole-function entry/leave observation avoids that interior site.
+  Finite `0x1c1` durations therefore carry remaining base seconds, without dividing by the recipient rate.
+  Maintained effects omit the finite duration; explicit source removal ends them.
+  See [Harbinger's existing clock audit](../game/harbinger.md#existing-effect-clock-audit).
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2

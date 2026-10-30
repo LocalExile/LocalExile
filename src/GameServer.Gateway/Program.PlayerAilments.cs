@@ -28,13 +28,14 @@ partial class Program
     internal static int AdvancePlayerAilmentsLocked(ClientState conn, double from, double until,
         IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) { conn.ElementalAilments.Clear(); return 0; }
+        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) { conn.ElementalAilments.Clear(); conn.AilmentBypassCarry = 0; return 0; }
         if (!conn.ElementalAilments.HasEffects) return 0;
         double previousAction = conn.ElementalAilments.ActionFactor(from);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
             MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire));
-        int lifeDamage = conn.EnergyShield.Damage(damage, false, until);
+        int lifeDamage = HarbingerDefences.DamageOverTime(conn.EnergyShield, damage,
+            Get("base_non_chaos_damage_bypass_energy_shield_%"), until, ref conn.AilmentBypassCarry);
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)
         {

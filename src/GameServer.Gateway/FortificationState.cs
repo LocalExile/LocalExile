@@ -17,9 +17,22 @@ sealed class FortificationState
     double lastTime = double.NegativeInfinity, nextHitGain = double.NegativeInfinity;
     int activeMaximum = BaseMaximum;
     public double StackSeconds { get; private set; }
-    readonly record struct Grant(int Count, double ExpiresAt);
+    sealed record Grant(int Count, EffectClock Clock)
+    {
+        public double ExpiresAt => Clock.Deadline;
+    }
+    double expiryRate = 1;
+    public double ExpiryRate => expiryRate;
+    public void SetExpiryRate(double now, double rate)
+    {
+        Advance(now);
+        if (expiryRate == rate) return;
+        foreach (var grant in grants) grant.Clock.ChangeRate(now, rate);
+        expiryRate = rate;
+    }
     public readonly record struct Carried(int Count, double Remaining);
-    public sealed record Transfer(IReadOnlyList<Carried> Grants, double HitDelay);
+    public sealed record Transfer(IReadOnlyList<Carried> Grants, double HitDelay)
+    { public double ExpiryRate { get; init; } = 1; }
 
     public readonly record struct Value(int Current, long Uncapped, int Maximum, double? NextExpiry)
     {
@@ -48,7 +61,7 @@ sealed class FortificationState
         Advance(now);
         double duration = BaseDurationSeconds * Math.Max(0d, 1d + durationIncreasePercent / 100d);
         if (count <= 0 || duration <= 0) return false;
-        grants.Add(new(count, now + duration));
+        grants.Add(new(count, new EffectClock(duration, now, expiryRate)));
         return true;
     }
 
@@ -71,21 +84,23 @@ sealed class FortificationState
         lastTime = nextHitGain = double.NegativeInfinity;
         StackSeconds = 0;
         activeMaximum = BaseMaximum;
+        expiryRate = 1;
     }
 
     public Transfer Carry(double now)
     {
         Advance(now);
-        return new(grants.Select(g => new Carried(g.Count, g.ExpiresAt - now)).ToArray(), Math.Max(0, nextHitGain - now));
+        return new(grants.Select(g => new Carried(g.Count, g.Clock.Remaining)).ToArray(), Math.Max(0, nextHitGain - now)) { ExpiryRate = expiryRate };
     }
 
     public void Restore(Transfer carried, double now)
     {
         Clear();
         Advance(now);
+        expiryRate = carried.ExpiryRate;
         foreach (var grant in carried.Grants)
             if (grant.Count > 0 && double.IsFinite(grant.Remaining) && grant.Remaining > 0)
-                grants.Add(new(grant.Count, now + grant.Remaining));
+                grants.Add(new(grant.Count, new EffectClock(grant.Remaining, now, expiryRate)));
         nextHitGain = now + Math.Max(0, carried.HitDelay);
     }
 
@@ -104,6 +119,7 @@ sealed class FortificationState
             }
         }
         lastTime = now;
-        grants.RemoveAll(g => g.ExpiresAt <= now);
+        foreach (var grant in grants) grant.Clock.Advance(now);
+        grants.RemoveAll(g => g.Clock.Remaining <= 1e-9);
     }
 }
