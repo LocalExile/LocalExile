@@ -7,7 +7,11 @@ using Mod = GameServer.Modding;
 partial class Program
 {
     // Game_MODS=0 loads none; Game_MODS_FOLDER moves the folder (relative to the repository root, like data/).
-    internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine);
+    internal static readonly ModHost ServerMods = new ModHost(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine)
+        // The server's own features behind the mods' API (Features/): always there, but /mod_disable turns one off.
+        .AddBuiltIn(HarvestFeature.Id, () => new HarvestFeature())
+        .AddBuiltIn(HeistFeature.Id, () => new HeistFeature())
+        .AddBuiltIn("delve", () => new DelveFeature());
 
     static void StartMods()
     {
@@ -30,6 +34,9 @@ partial class Program
     /// <summary>The player as mods see it (one per connection).</summary>
     internal static Mod.IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, c => new ModPlayer(c));
 
+    /// <summary>The connection behind a player, for the server's own features (Features/).</summary>
+    internal static ClientState ConnOf(Mod.IPlayer player) => ((ModPlayer)player).Conn;
+
     static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
         new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
             Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y);
@@ -48,6 +55,7 @@ partial class Program
 
     sealed class ModPlayer(ClientState conn) : Mod.IPlayer
     {
+        public ClientState Conn => conn;
         public string Character => CharacterName(conn);
         public string? Account => conn.Account;
         public string League => conn.League ?? "Standard";

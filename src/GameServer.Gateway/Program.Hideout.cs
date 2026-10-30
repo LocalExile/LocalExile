@@ -5,20 +5,6 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
 partial class Program
 {
-    // Opens the native recipe browser. Harvest recipe execution is a separate feature.
-    static async Task OpenHorticrafting(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double requestedAt)
-    {
-        if (!TryBeginObjectWalk(conn, requestedAt, conn.HorticraftingAt.X, conn.HorticraftingAt.Y, conn.StationaryInteractionSize(conn.HorticraftingObject), out var objectWalk)) return;
-        var (action, now, _, stop, arrive) = objectWalk;
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.Closed || !PlayerActionCurrent(conn, action) || !PlayerWalk.InWalkUpRange(stop, conn.HorticraftingAt, conn.StationaryInteractionSize(conn.HorticraftingObject))) return;
-        conn.BenchOpen = false;
-        conn.HarvestOpen = true;
-        await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.HorticraftingUi),
-            "0x007b open Horticrafting Station recipe browser", still: () => PlayerActionCurrent(conn, action));
-    }
-
     // C→S 0x24: approach the bench before opening the ordinary crafting window (0x7b kind 0x33, bench type 0).
     static async Task OpenCraftingBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
@@ -80,7 +66,7 @@ partial class Program
         await RefreshBenchBalance(remote, stream, ciphers, conn);
     }
 
-    static async Task RefreshBenchBalance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool clear = false)
+    internal static async Task RefreshBenchBalance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool clear = false)
     {
         clear |= !LeagueFor(conn).Rules.CraftingBench;
         if (clear && !conn.BenchBalanceSent) return;

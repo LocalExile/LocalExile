@@ -1107,7 +1107,7 @@ partial class Program
             }
         });
 
-    static bool PlayerActionCurrent(ClientState conn, int action)
+    internal static bool PlayerActionCurrent(ClientState conn, int action)
     {
         lock (conn.Monsters)
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0

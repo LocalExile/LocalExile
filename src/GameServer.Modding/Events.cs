@@ -12,6 +12,9 @@ public sealed record MonsterInfo(string VarietyId, string Name, int Level, Monst
 /// <summary>A monster the player killed.</summary>
 public sealed record MonsterKill(IPlayer Player, MonsterInfo Monster);
 
+/// <summary>A click on an object: its id, and the connection's game seconds when the client asked (for walking there).</summary>
+public sealed record ObjectUse(IPlayer Player, uint ObjectId, double RequestedAt);
+
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several mods multiply.</summary>
 public sealed class DropRoll(IPlayer player, MonsterInfo monster)
 {

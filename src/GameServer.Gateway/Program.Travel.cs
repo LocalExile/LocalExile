@@ -131,16 +131,8 @@ partial class Program
             await UseMapDevice(remote, stream, ciphers, conn, use, doodad, requestedAt);
             return;
         }
-        if (conn.DelveGeneratorObject != 0 && use.TargetId == conn.DelveGeneratorObject)
-        {
-            await OpenDelveGenerator(remote, stream, ciphers, conn, requestedAt);
-            return;
-        }
-        if (conn.DelveCrawlerObject != 0 && use.TargetId == conn.DelveCrawlerObject)
-        {
-            await OpenDelveChart(remote, stream, ciphers, conn, use, requestedAt);
-            return;
-        }
+        // Objects of a mod's (Delve's, Harvest's, Heist's).
+        if (await ServerMods.ObjectUsed(new(PlayerOf(conn), use.TargetId, requestedAt))) return;
         if (conn.StashObject != 0 && use.TargetId == conn.StashObject)
         {
             await OpenStash(remote, stream, ciphers, conn, use, requestedAt);
@@ -151,19 +143,9 @@ partial class Program
             await OpenGuildStash(remote, stream, ciphers, conn, use, requestedAt);
             return;
         }
-        if (conn.HeistLockerObject != 0 && use.TargetId == conn.HeistLockerObject)
-        {
-            await OpenHeistLocker(remote, stream, ciphers, conn);
-            return;
-        }
         if (conn.CraftingBenchObject != 0 && use.TargetId == conn.CraftingBenchObject)
         {
             await OpenCraftingBench(remote, stream, ciphers, conn, use, requestedAt);
-            return;
-        }
-        if (conn.HorticraftingObject != 0 && use.TargetId == conn.HorticraftingObject)
-        {
-            await OpenHorticrafting(remote, stream, ciphers, conn, requestedAt);
             return;
         }
         var (_, transition) = conn.Layout.AreaTransitions.FirstOrDefault(e => e.Id == use.TargetId);

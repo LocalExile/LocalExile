@@ -19,19 +19,6 @@ partial class Program
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
             if (ServerMods.WantsPacket(id) && await ServerMods.Packet(PlayerOf(conn), id, bytes)) continue;
-            if (id == InstanceDelve.RouteId)
-            {
-                var route = InstanceDelve.ReadRoute(bytes);
-                Console.WriteLine($"[gateway] {remote} Delve route requested: {string.Join(" -> ", route)}; route execution is not implemented");
-                if (conn.PlayerSent && conn.Layout.Hash is StashCatalog.DelveHub or InstanceDelve.MineArea)
-                    await conn.Commands!.Reply("This mine route is not available yet.");
-                continue;
-            }
-            if (id is InstanceDelve.UpgradesRequestId or InstanceDelve.UpgradeId or InstanceDelve.PurchaseId)
-            {
-                await UseDelveEquipment(remote, stream, ciphers, conn, id, bytes);
-                continue;
-            }
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
             // Movement/combat handlers also advance atomically inside their mutation boundaries.
             bool transferIngress = id is InstanceTransfer.ChooseInstanceId or InstanceTransfer.LeaveAreaAckId
@@ -566,8 +553,6 @@ partial class Program
                 await MoveToBench(remote, stream, ciphers, conn, InstanceBench.ReadMove(bytes));
             else if (id == InstanceBench.CraftId)
                 await CraftBench(remote, stream, ciphers, conn, InstanceBench.ReadCraft(bytes));
-            else if (id == InstanceHarvest.CraftId)
-                await CraftHarvest(remote, stream, ciphers, conn, InstanceHarvest.ReadCraft(bytes));
             else if (id == InstanceChat.ChatId)
             {
                 var chat = InstanceChat.ReadChat(bytes);
@@ -664,8 +649,6 @@ partial class Program
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);
                     await SpawnTownStash(remote, stream, ciphers, conn);
-                    await SpawnDelveCrawler(remote, stream, ciphers, conn);
-                    await SpawnDelveGenerator(remote, stream, ciphers, conn);
                     await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
                     await SpawnOpeningTutorial(remote, stream, ciphers, conn);
                     await SpawnGlyphQuest(remote, stream, ciphers, conn);
@@ -703,13 +686,8 @@ partial class Program
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
-            // C→S 0x23f: the Delve chart (opened by Niko) asks for its data; S→C 0x240 answers (an empty chart for now).
-            if (uid == InstanceDelve.ChartRequestId && unknown.Length == 2)
-            {
-                var (a, b, cells) = conn.DelveChartProbe;
-                await Send(remote, stream, ciphers, InstanceDelve.Chart(a, b, cells),
-                    $"0x0240 Delve chart: {a}, {b}, {cells.Count} cell(s) {string.Join(" ", cells)}");
-            }
+            // Unframed messages have mods' hooks too (Delve's chart request).
+            if (ServerMods.WantsPacket(uid)) await ServerMods.Packet(PlayerOf(conn), uid, unknown);
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
             if (uid == InstanceTransfer.LeaveAreaAckId && conn.PendingTransfer is { } t) await Transfer(remote, stream, ciphers, conn, t);
         }

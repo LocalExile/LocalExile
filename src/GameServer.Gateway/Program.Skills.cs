@@ -887,7 +887,7 @@ partial class Program
     // A worn item whose requirements are not met (CharacterStatSources): its mods and gems do nothing.
     static bool IsInactive(ClientState conn, uint itemId) => InactiveItems.GetValueOrDefault(CharacterName(conn))?.Contains(itemId) == true;
 
-    static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
+    internal static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
 
     // The skills of the active gems socketed in the equipped items in skill-list order: skill id, GrantedEffects row, gem
     // name, the gem's own level (from its experience; the experience stalls at the character's level requirement instead,
@@ -1045,7 +1045,7 @@ partial class Program
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2ba Actor), after the level or the passives changed.
-    static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    internal static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");

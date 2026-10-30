@@ -30,6 +30,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     // /mod_enable and /mod_disable's choices (StateFile), over each manifest's "enabled"; the folders turned off by either.
     readonly Dictionary<string, bool> _choices = new(StringComparer.Ordinal);
     readonly HashSet<string> _off = new(StringComparer.Ordinal);
+    readonly Dictionary<string, Func<IMod>> _builtIn = new(StringComparer.Ordinal);
     FileSystemWatcher? _watcher;
 
     // The hooks. Each list is swapped whole (ImmutableInterlocked), so a dispatch iterates a snapshot without a lock.
@@ -38,6 +39,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     readonly HookList<(ushort Opcode, Func<Packet, Task<bool>> Run)> _packets = new();
     readonly HookList<Func<IPlayer, Task>> _areas = new();
     readonly HookList<Func<MonsterKill, Task>> _kills = new();
+    readonly HookList<Func<ObjectUse, Task<bool>>> _objects = new();
     readonly HookList<Action<DropRoll>> _drops = new();
     readonly HookList<Action<ExperienceGain>> _experience = new();
     readonly HookList<Action<StatSheet>> _stats = new();
@@ -50,6 +52,38 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     public const string StateFile = "mod-state.txt";
     public static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(400);
     const int BusyRetries = 5;
+
+    /// <summary>One of the server's own features behind the mods' API: it needs no folder, no assembly and no load context,
+    /// loads at once and at every start, and /mod_disable turns it off like any mod.</summary>
+    public ModHost AddBuiltIn(string id, Func<IMod> create)
+    {
+        lock (_gate)
+        {
+            _builtIn[id] = create;
+            LoadBuiltIn(id, create);
+        }
+        return this;
+    }
+
+    void LoadBuiltIn(string id, Func<IMod> create)
+    {
+        var mod = new LoadedMod(new ModManifest(id, "built in", ModKind.Feature, [], ""), "", null);
+        try
+        {
+            var entry = create();
+            mod.Entries.Add(entry);
+            entry.Load(new Context(this, mod));
+        }
+        catch (Exception ex)
+        {
+            mod.Unloaded = true;
+            Remove(mod);
+            Fail(id, $"{ex.GetType().Name}: {ex.Message}");
+            return;
+        }
+        _loaded[id] = mod;
+        _failed.Remove(id);
+    }
 
     /// <summary>Loads every mod there is, then watches the folder (created when missing).</summary>
     public void Start(bool watch = true)
@@ -119,7 +153,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     {
         lock (_gate)
         {
-            if (id != Path.GetFileName(id) || !IsMod(Path.Combine(Folder, id))) return false;
+            if (id != Path.GetFileName(id) || (!_builtIn.ContainsKey(id) && !IsMod(Path.Combine(Folder, id)))) return false;
             _choices[id] = enabled;
             File.WriteAllLines(Path.Combine(Folder, StateFile), _choices.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} {(c.Value ? "on" : "off")}"));
             if (!enabled) foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
@@ -191,6 +225,17 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     public async Task MonsterKilled(MonsterKill kill)
     {
         foreach (var hook in _kills.Items) await Guard(hook.Mod, "OnMonsterKilled", () => hook.Run(kill));
+    }
+
+    /// <summary>True when a mod's object was used.</summary>
+    public async Task<bool> ObjectUsed(ObjectUse use)
+    {
+        foreach (var hook in _objects.Items)
+        {
+            bool taken = false;
+            if (await Guard(hook.Mod, "OnObjectUsed", async () => taken = await hook.Run(use)) && taken) return true;
+        }
+        return false;
     }
 
     /// <summary>The mods' changes to a kill's drops; null when no mod changes drops.</summary>
@@ -284,10 +329,19 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     {
         var waiting = new Dictionary<string, (ModManifest Manifest, string Folder)>(StringComparer.Ordinal);
         _off.Clear();
+        foreach (var (id, create) in _builtIn)
+        {
+            if (!_choices.GetValueOrDefault(id, true))
+            {
+                Unload(id);
+                _off.Add(id);
+            }
+            else if (!_loaded.ContainsKey(id)) LoadBuiltIn(id, create);
+        }
         foreach (string dir in Directory.Exists(Folder) ? Directory.GetDirectories(Folder) : [])
         {
             string id = Path.GetFileName(dir);
-            if (_loaded.ContainsKey(id)) continue;
+            if (_loaded.ContainsKey(id) || _builtIn.ContainsKey(id)) continue;
             string manifestPath = Path.Combine(dir, ManifestFile);
             if (!IsMod(dir)) { _failed.Remove(id); continue; }   // not a mod (yet)
             try
@@ -323,7 +377,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     bool Load(ModManifest manifest, string dir)
     {
         string id = manifest.Id;
-        var context = new ModLoadContext(id, Path.GetFullPath(dir), [.. manifest.Depends.Select(d => _loaded[d].Context)]);
+        var context = new ModLoadContext(id, Path.GetFullPath(dir), [.. manifest.Depends.Select(d => _loaded[d].Context).OfType<ModLoadContext>()]);
         var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context);
         try
         {
@@ -398,7 +452,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     {
         mod.Entries.Clear();
         var weak = new WeakReference(mod.Context);
-        mod.Context.Unload();
+        mod.Context?.Unload();
         return weak;
     }
 
@@ -417,7 +471,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
     void Remove(LoadedMod mod)
     {
         ImmutableInterlocked.Update(ref _commands, c => c.RemoveRange(c.Where(e => e.Value.Mod == mod).Select(e => e.Key)));
-        _ticks.Remove(mod); _packets.Remove(mod); _areas.Remove(mod); _kills.Remove(mod);
+        _ticks.Remove(mod); _packets.Remove(mod); _areas.Remove(mod); _kills.Remove(mod); _objects.Remove(mod);
         _drops.Remove(mod); _experience.Remove(mod); _stats.Remove(mod);
         foreach (var league in mod.Leagues) ServerLeagues.Remove(league);
         mod.Leagues.Clear();
@@ -499,11 +553,12 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", enabled);
     }
 
-    sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext context)
+    sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext? context)
     {
         public ModManifest Manifest { get; } = manifest;
         public string Folder { get; } = folder;
-        public ModLoadContext Context { get; } = context;
+        /// <summary>Null for a built-in.</summary>
+        public ModLoadContext? Context { get; } = context;
         public List<IMod> Entries { get; } = [];
         public List<ILeague> Leagues { get; } = [];
         /// <summary>The compiled scripts, for the scripts of the mods that depend on this one.</summary>
@@ -547,6 +602,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
             mod.OnPacket(opcode, p => Mine(p.Player) ? handle(p) : Task.FromResult(false));
         public IDisposable OnAreaGenerated(Func<IPlayer, Task> generated) => mod.OnAreaGenerated(p => Mine(p) ? generated(p) : Task.CompletedTask);
         public IDisposable OnMonsterKilled(Func<MonsterKill, Task> killed) => mod.OnMonsterKilled(k => Mine(k.Player) ? killed(k) : Task.CompletedTask);
+        public IDisposable OnObjectUsed(Func<ObjectUse, Task<bool>> used) => mod.OnObjectUsed(u => Mine(u.Player) ? used(u) : Task.FromResult(false));
         public IDisposable ModifyDrops(Action<DropRoll> modify) => mod.ModifyDrops(d => { if (Mine(d.Player)) modify(d); });
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => mod.ModifyExperience(e => { if (Mine(e.Player)) modify(e); });
         public IDisposable ModifyStats(Action<StatSheet> modify) => mod.ModifyStats(s => { if (Mine(s.Player)) modify(s); });
@@ -588,6 +644,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
         public IDisposable OnPacket(ushort opcode, Func<Packet, Task<bool>> handle) => Add(host._packets, (opcode, handle));
         public IDisposable OnAreaGenerated(Func<IPlayer, Task> generated) => Add(host._areas, generated);
         public IDisposable OnMonsterKilled(Func<MonsterKill, Task> killed) => Add(host._kills, killed);
+        public IDisposable OnObjectUsed(Func<ObjectUse, Task<bool>> used) => Add(host._objects, used);
         public IDisposable ModifyDrops(Action<DropRoll> modify) => Add(host._drops, modify);
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => Add(host._experience, modify);
         public IDisposable ModifyStats(Action<StatSheet> modify) => Add(host._stats, modify);

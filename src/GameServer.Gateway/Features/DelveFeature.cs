@@ -2,9 +2,112 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
+using GameServer.Modding;
+using static Program;
 
-partial class Program
+/// <summary>Delve, as a built-in mod (Program.Mods.cs): the Crawler and the Voltaxic Generator in the Azurite Mine Encampment,
+/// the chart, the equipment upgrades. It reaches the rest of the server through the hooks of <see cref="IModContext"/>; its
+/// own work still uses the Gateway's internals.</summary>
+sealed class DelveFeature : IMod
 {
+    public void Load(IModContext mod)
+    {
+        mod.OnAreaGenerated(async player =>
+        {
+            var conn = ConnOf(player);
+            var (remote, stream, ciphers) = conn.Wire;
+            await SpawnDelveCrawler(remote, stream, ciphers, conn);
+            await SpawnDelveGenerator(remote, stream, ciphers, conn);
+        });
+        mod.OnObjectUsed(async use =>
+        {
+            var conn = ConnOf(use.Player);
+            var (remote, stream, ciphers) = conn.Wire;
+            if (conn.DelveGeneratorObject != 0 && use.ObjectId == conn.DelveGeneratorObject)
+                await OpenDelveGenerator(remote, stream, ciphers, conn, use.RequestedAt);
+            else if (conn.DelveCrawlerObject != 0 && use.ObjectId == conn.DelveCrawlerObject)
+                await OpenDelveChart(remote, stream, ciphers, conn, use.ObjectId, use.RequestedAt);
+            else return false;
+            return true;
+        });
+        mod.OnPacket(InstanceDelve.RouteId, async packet =>
+        {
+            var conn = ConnOf(packet.Player);
+            var route = InstanceDelve.ReadRoute(packet.Bytes.ToArray());
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} Delve route requested: {string.Join(" -> ", route)}; route execution is not implemented");
+            if (conn.PlayerSent && conn.Layout.Hash is StashCatalog.DelveHub or InstanceDelve.MineArea)
+                await conn.Commands!.Reply("This mine route is not available yet.");
+            return true;
+        });
+        foreach (ushort id in new[] { InstanceDelve.UpgradesRequestId, InstanceDelve.UpgradeId, InstanceDelve.PurchaseId })
+            mod.OnPacket(id, async packet =>
+            {
+                var conn = ConnOf(packet.Player);
+                var (remote, stream, ciphers) = conn.Wire;
+                await UseDelveEquipment(remote, stream, ciphers, conn, packet.Opcode, packet.Bytes.ToArray());
+                return true;
+            });
+        // C→S 0x23f: the Delve chart (opened by Niko) asks for its data; S→C 0x240 answers (an empty chart for now).
+        mod.OnPacket(InstanceDelve.ChartRequestId, async packet =>
+        {
+            if (packet.Bytes.Length != 2) return false;
+            var conn = ConnOf(packet.Player);
+            var (remote, stream, ciphers) = conn.Wire;
+            var (a, b, cells) = conn.DelveChartProbe;
+            await Send(remote, stream, ciphers, InstanceDelve.Chart(a, b, cells),
+                $"0x0240 Delve chart: {a}, {b}, {cells.Count} cell(s) {string.Join(" ", cells)}");
+            return true;
+        });
+        mod.OnChatCommand("delve_crawler", "/delve_crawler [x y degrees] (dev: create the Delve Crawler in the Azurite Mine Encampment, or move and turn the one there; a click on it opens the Subterranean Chart)", async c =>
+        {
+            var conn = ConnOf(c.Player);
+            var (remote, stream, ciphers) = conn.Wire;
+            string[] args = [.. c.Args];
+            if (conn.Layout.Hash is not (StashCatalog.DelveHub or InstanceDelve.MineArea)) { await conn.Commands!.Reply("Only in the Azurite Mine Encampment or mine"); return; }
+            if (args.Length == 3 && int.TryParse(args[0], out int x) && int.TryParse(args[1], out int y) && float.TryParse(args[2],
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees))
+            {
+                if (conn.DelveCrawlerObject == 0) await SpawnDelveCrawler(remote, stream, ciphers, conn);
+                float radians = degrees * MathF.PI / 180;
+                conn.DelveCrawlerAt = (x, y);
+                await Send(remote, stream, ciphers, InstanceProtocol.Teleport(conn.DelveCrawlerObject, x, y, 0x7fffffff), $"Delve Crawler to ({x}, {y})");
+                await Send(remote, stream, ciphers, InstanceHideoutEditing.Rotation(conn.DelveCrawlerObject, radians), $"Delve Crawler turned {degrees}°");
+                foreach (uint part in conn.DelveCrawlerAttachments)
+                    await Send(remote, stream, ciphers, InstanceProtocol.Teleport(part, x, y, 0x7fffffff), null);
+                await BlockDelveCrawler(remote, stream, ciphers, conn, x, y, radians);
+                await conn.Commands!.Reply($"Delve Crawler at ({x}, {y}), {degrees}°");
+                return;
+            }
+            await SpawnDelveCrawler(remote, stream, ciphers, conn);
+            await conn.Commands!.Reply($"Delve Crawler 0x{conn.DelveCrawlerObject:x} at {conn.DelveCrawlerAt}");
+        });
+        mod.OnChatCommand("sulphite", "/sulphite <amount 0-65535> (dev: the character's Voltaxic Sulphite, saved and sent as the Delve data 0x228)", async c =>
+        {
+            var conn = ConnOf(c.Player);
+            var (remote, stream, ciphers) = conn.Wire;
+            string[] args = [.. c.Args];
+            if (args.Length != 1 || !ushort.TryParse(args[0], out ushort amount)) throw new ArgumentException("/sulphite <amount 0-65535>");
+            CharacterSaves.SetSulphite(CharacterName(conn), amount);
+            await Send(remote, stream, ciphers, PlayerDelveData(conn), $"0x0228 Delve data: {amount} sulphite (/sulphite)");
+            await conn.Commands!.Reply($"Sulphite: {amount}");
+        });
+        mod.OnChatCommand("delve_chart", "/delve_chart <u32> <u16> [<u16> <u16> <u64> <u8> <u32> ...] (dev: what the next Delve chart (S→C 0x240) carries, to work out its fields)", async c =>
+        {
+            var conn = ConnOf(c.Player);
+            var (remote, stream, ciphers) = conn.Wire;
+            string[] args = [.. c.Args];
+            try
+            {
+                var n = args.Select(a => a.StartsWith("0x") ? Convert.ToUInt64(a[2..], 16) : ulong.Parse(a)).ToArray();
+                var cells = new List<InstanceDelve.Cell>();
+                for (int i = 2; i + 4 < n.Length; i += 5) cells.Add(new((ushort)n[i], (ushort)n[i + 1], n[i + 2], (byte)n[i + 3], (uint)n[i + 4]));
+                conn.DelveChartProbe = (n.Length > 0 ? (uint)n[0] : 0, n.Length > 1 ? (ushort)n[1] : (ushort)0, cells);
+                await conn.Commands!.Reply($"Next Delve chart: {conn.DelveChartProbe.A}, {conn.DelveChartProbe.B}, {cells.Count} cell(s). Open it from Niko.");
+            }
+            catch (FormatException) { await conn.Commands!.Reply("Numbers only (decimal or 0x…)."); }
+        });
+    }
+
     /// <summary>Where the Crawler stands in the Azurite Mine Encampment, on the rails by the mine entrance, and its facing
     /// (placed live with /delve_crawler 408 310 90, 2026-10-30).</summary>
     static readonly (int X, int Y) DelveCrawlerAt = (408, 310);
@@ -12,7 +115,7 @@ partial class Program
     // hub.arm: console (337,307), room origin (69,69), size621, orientation3 => (376,352).
     static readonly (int X, int Y) DelveGeneratorAt = (376, 352);
 
-    static byte[] PlayerDelveData(ClientState conn)
+    internal static byte[] PlayerDelveData(ClientState conn)
     {
         var equipment = PersonalStashOf(conn).Delve;
         ushort sulphite = CharacterSaves.Load(CharacterName(conn))?.Sulphite ?? 0;
@@ -72,7 +175,7 @@ partial class Program
     }
 
     // The Delve Crawler in the Azurite Mine Encampment. A click on it opens the Subterranean Chart, as Niko's option does.
-    static async Task SpawnDelveCrawler(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnDelveCrawler(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (conn.Layout.Hash is not (StashCatalog.DelveHub or InstanceDelve.MineArea) || conn.DelveCrawlerObject != 0) return;
         var (x, y) = conn.Layout.Hash == StashCatalog.DelveHub ? DelveCrawlerAt
@@ -128,13 +231,13 @@ partial class Program
     }
 
     // C→S 0x24 on the Crawler: walk there, then the Subterranean Chart (S→C 0x7b kind 0x1c with 1).
-    static async Task OpenDelveChart(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    static async Task OpenDelveChart(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint use, double requestedAt)
     {
         var at = conn.DelveCrawlerAt;
         int size = WalkBlockerObject.Size - 1; // Positioned object_size 5 is stored as radius 4.
         if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, size, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
-        Console.WriteLine($"[gateway] {remote} <= 0x0024 Delve Crawler ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+        Console.WriteLine($"[gateway] {remote} <= 0x0024 Delve Crawler (0x{use:x}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
         if (!PlayerWalk.InWalkUpRange(stop, at, size)) return;

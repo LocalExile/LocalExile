@@ -41,6 +41,10 @@ public interface IModContext
     /// projectile's kill (a bow, a spell).</summary>
     IDisposable OnMonsterKilled(Func<MonsterKill, Task> killed);
 
+    /// <summary>The player used an object with the default action (a click on it). Return true when the object is this
+    /// mod's: nothing else handles the use.</summary>
+    IDisposable OnObjectUsed(Func<ObjectUse, Task<bool>> used);
+
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     IDisposable ModifyDrops(Action<DropRoll> modify);
 

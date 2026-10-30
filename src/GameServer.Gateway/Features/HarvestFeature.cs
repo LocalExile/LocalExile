@@ -1,9 +1,49 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
+using GameServer.Modding;
+using static Program;
 
-partial class Program
+/// <summary>Horticrafting, as a built-in mod (Program.Mods.cs): the station's recipe browser and its crafts. The hideout's scene
+/// places the station while this mod is loaded.</summary>
+sealed class HarvestFeature : IMod
 {
+    public const string Id = "harvest";
+
+    public void Load(IModContext mod)
+    {
+        mod.OnObjectUsed(async use =>
+        {
+            var conn = ConnOf(use.Player);
+            if (conn.HorticraftingObject == 0 || use.ObjectId != conn.HorticraftingObject) return false;
+            var (remote, stream, ciphers) = conn.Wire;
+            await OpenHorticrafting(remote, stream, ciphers, conn, use.RequestedAt);
+            return true;
+        });
+        mod.OnPacket(InstanceHarvest.CraftId, async packet =>
+        {
+            var conn = ConnOf(packet.Player);
+            var (remote, stream, ciphers) = conn.Wire;
+            await CraftHarvest(remote, stream, ciphers, conn, InstanceHarvest.ReadCraft(packet.Bytes.ToArray()));
+            return true;
+        });
+    }
+
+    // Opens the native recipe browser. Harvest recipe execution is a separate feature.
+    static async Task OpenHorticrafting(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double requestedAt)
+    {
+        if (!TryBeginObjectWalk(conn, requestedAt, conn.HorticraftingAt.X, conn.HorticraftingAt.Y, conn.StationaryInteractionSize(conn.HorticraftingObject), out var objectWalk)) return;
+        var (action, now, _, stop, arrive) = objectWalk;
+        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        if (conn.Closed || !PlayerActionCurrent(conn, action) || !PlayerWalk.InWalkUpRange(stop, conn.HorticraftingAt, conn.StationaryInteractionSize(conn.HorticraftingObject))) return;
+        conn.BenchOpen = false;
+        conn.HarvestOpen = true;
+        await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.HorticraftingUi),
+            "0x007b open Horticrafting Station recipe browser", still: () => PlayerActionCurrent(conn, action));
+    }
+
     /// <summary>C→S 0x274: execute the HarvestCraftOptions recipe whose HASH16 the native panel sent, on the item in
     /// HarvestCraftingItem (row 43). The item and all lifeforce costs commit together; a refusal spends nothing.</summary>
     static async Task CraftHarvest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort recipe)

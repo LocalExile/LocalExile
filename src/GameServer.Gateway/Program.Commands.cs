@@ -292,26 +292,6 @@ partial class Program
             conn.GuildStashAt = (x, y);
             await MoveStationary(remote, stream, ciphers, conn, conn.GuildStashObject, x, y, degrees, ClientState.StashBlockerSize, "guild stash");
         })
-        .Add("delve_crawler", "/delve_crawler [x y degrees] (dev: create the Delve Crawler in the Azurite Mine Encampment, or move and turn the one there; a click on it opens the Subterranean Chart)", async args =>
-        {
-            if (conn.Layout.Hash is not (StashCatalog.DelveHub or InstanceDelve.MineArea)) { await conn.Commands!.Reply("Only in the Azurite Mine Encampment or mine"); return; }
-            if (args.Length == 3 && int.TryParse(args[0], out int x) && int.TryParse(args[1], out int y) && float.TryParse(args[2],
-                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees))
-            {
-                if (conn.DelveCrawlerObject == 0) await SpawnDelveCrawler(remote, stream, ciphers, conn);
-                float radians = degrees * MathF.PI / 180;
-                conn.DelveCrawlerAt = (x, y);
-                await Send(remote, stream, ciphers, InstanceProtocol.Teleport(conn.DelveCrawlerObject, x, y, 0x7fffffff), $"Delve Crawler to ({x}, {y})");
-                await Send(remote, stream, ciphers, InstanceHideoutEditing.Rotation(conn.DelveCrawlerObject, radians), $"Delve Crawler turned {degrees}°");
-                foreach (uint part in conn.DelveCrawlerAttachments)
-                    await Send(remote, stream, ciphers, InstanceProtocol.Teleport(part, x, y, 0x7fffffff), null);
-                await BlockDelveCrawler(remote, stream, ciphers, conn, x, y, radians);
-                await conn.Commands!.Reply($"Delve Crawler at ({x}, {y}), {degrees}°");
-                return;
-            }
-            await SpawnDelveCrawler(remote, stream, ciphers, conn);
-            await conn.Commands!.Reply($"Delve Crawler 0x{conn.DelveCrawlerObject:x} at {conn.DelveCrawlerAt}");
-        })
         .Add("wp_place", "/wp_place [x y degrees] (dev: move and turn this area's waypoint; without arguments shows where it is)", async args =>
         {
             if (conn.Layout.Waypoint is not { } waypoint) { await conn.Commands!.Reply("This area has no waypoint"); return; }
@@ -361,13 +341,6 @@ partial class Program
                 InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), changed.Blob()), $"0x02b9 create waypoint {changed} (/wp_state)");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
-        })
-        .Add("sulphite", "/sulphite <amount 0-65535> (dev: the character's Voltaxic Sulphite, saved and sent as the Delve data 0x228)", async args =>
-        {
-            if (args.Length != 1 || !ushort.TryParse(args[0], out ushort amount)) throw new ArgumentException("/sulphite <amount 0-65535>");
-            CharacterSaves.SetSulphite(CharacterName(conn), amount);
-            await Send(remote, stream, ciphers, PlayerDelveData(conn), $"0x0228 Delve data: {amount} sulphite (/sulphite)");
-            await conn.Commands!.Reply($"Sulphite: {amount}");
         })
         .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: up to count, at most {ItemTabMax}, more of every item type that has its own slot on that tab, as far as each slot holds, e.g. /item_tab Currency 1000)", async args =>
         {
@@ -1341,18 +1314,6 @@ partial class Program
             bool off = args.Length > 1 && args[1].Equals("off", StringComparison.OrdinalIgnoreCase);
             await SetQuestFlags(remote, stream, ciphers, conn, [args[0]], on: !off);
             await conn.Commands!.Reply($"{args[0]} {(off ? "cleared" : "set")}");
-        })
-        .Add("delve_chart", "/delve_chart <u32> <u16> [<u16> <u16> <u64> <u8> <u32> ...] (dev: what the next Delve chart (S→C 0x240) carries, to work out its fields)", async args =>
-        {
-            try
-            {
-                var n = args.Select(a => a.StartsWith("0x") ? Convert.ToUInt64(a[2..], 16) : ulong.Parse(a)).ToArray();
-                var cells = new List<InstanceDelve.Cell>();
-                for (int i = 2; i + 4 < n.Length; i += 5) cells.Add(new((ushort)n[i], (ushort)n[i + 1], n[i + 2], (byte)n[i + 3], (uint)n[i + 4]));
-                conn.DelveChartProbe = (n.Length > 0 ? (uint)n[0] : 0, n.Length > 1 ? (ushort)n[1] : (ushort)0, cells);
-                await conn.Commands!.Reply($"Next Delve chart: {conn.DelveChartProbe.A}, {conn.DelveChartProbe.B}, {cells.Count} cell(s). Open it from Niko.");
-            }
-            catch (FormatException) { await conn.Commands!.Reply("Numbers only (decimal or 0x…)."); }
         })
         .Add("atlas", "/atlas [layout] (dev: show or choose the fallback layout generic maps open)", async args =>
         {

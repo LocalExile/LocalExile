@@ -318,6 +318,62 @@ public sealed class ModHostTests : IDisposable
         Assert.True(await _host.Unloaded("s"));
     }
 
+    sealed class BuiltIn : IMod
+    {
+        public void Load(IModContext mod) => mod.OnChatCommand("builtin", "/builtin", c => c.Player.Tell("built in"));
+    }
+
+    [Fact]
+    public async Task A_built_in_loads_without_a_folder_turns_off_and_stays_off_across_a_restart()
+    {
+        _host.AddBuiltIn("feature", () => new BuiltIn());
+        Assert.True(_host.IsLoaded("feature"));
+        Assert.True(await _host.RunCommand(_player, "builtin", []));
+        _host.Start(watch: false);
+        Assert.True(_host.IsLoaded("feature"));
+        Assert.True(_host.SetEnabled("feature", false));
+        Assert.False(await _host.RunCommand(_player, "builtin", []));
+        Assert.Equal("disabled", _host.Mods().Single().Error);
+        using (var next = new ModHost(_root, _ => { }).AddBuiltIn("feature", () => new BuiltIn()))
+        {
+            next.Start(watch: false);
+            Assert.False(next.IsLoaded("feature"));
+            Assert.True(next.SetEnabled("feature", true));
+            Assert.True(next.IsLoaded("feature"));
+        }
+    }
+
+    [Theory]
+    [InlineData("harvest")]
+    [InlineData("heist")]
+    [InlineData("delve")]
+    public void The_servers_features_are_built_in_mods(string id) => Assert.True(Program.ServerMods.IsLoaded(id));
+
+    [Fact]
+    public async Task A_leagues_hooks_run_only_for_its_players()
+    {
+        var script = AddScript("custom", """
+            public sealed class Custom : ILeague
+            {
+                public string Id => "scoped";
+                public string ClientLeagueName => "Scoped League";
+                public LeagueRules Rules { get; } = new();
+                public void Load(IModContext league) => league.OnTick((p, _) => p.Tell("tick"));
+            }
+            public sealed class CustomMod : IMod { public void Load(IModContext mod) => mod.AddLeague(new Custom()); }
+            """);
+        _host.Start(watch: false);
+        await _host.Tick(_player, 1);
+        Assert.Empty(_player.Told);
+        _player.LeagueId = "scoped";
+        await _host.Tick(_player, 1);
+        Assert.Equal(["tick"], _player.Told);
+        Assert.Equal("scoped", ServerLeagues.Resolve(false, "Scoped League", _ => true).Id);
+        Assert.True(_host.SetEnabled("custom", false));
+        Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(false, "Scoped League", _ => true));
+        Assert.True(await _host.Unloaded("custom"));
+    }
+
     [Fact]
     public async Task Chat_runs_a_mod_command_that_none_of_ours_shadows()
     {

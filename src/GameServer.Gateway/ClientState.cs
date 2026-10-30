@@ -180,6 +180,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool Ruthless { get; init; }
     /// <summary>The league this connection plays by (Program.LeagueFor); Ruthless above says what the character is.</summary>
     internal LeagueRuntime? LeagueModule;
+    /// <summary>What sends to this client, for what is reached only with the connection (the built-in mods).</summary>
+    internal (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers) Wire;
     public double RuthlessGemExperienceCarry;
     public bool RuthlessDeathHandled;
     public bool HardcoreDeathRecorded;

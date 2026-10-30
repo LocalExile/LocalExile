@@ -307,7 +307,7 @@ partial class Program
 
     // What a price took from the stash (ItemMoves.Price.Stash), to the client: one 0xbf per tab this connection has the
     // contents of (the others come whole when it asks, 0xc7).
-    static async Task SendStashPayment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, AccountStash.Payment? paid)
+    internal static async Task SendStashPayment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, AccountStash.Payment? paid)
     {
         foreach (var (tab, (removed, changed)) in paid?.Tabs ?? new Dictionary<int, (List<uint>, List<InventoryItem>)>())
             if (TabsSentOf(conn, stash).Contains(tab))

@@ -35,7 +35,7 @@ public class DelveHubTests
             { DelveCrawlerObject = 123 };
         state.DelveCrawlerBlockers.Add(456);
         uint next = state.NextObjectId;
-        var method = typeof(Program).GetMethod("SpawnDelveCrawler",
+        var method = typeof(DelveFeature).GetMethod("SpawnDelveCrawler",
             System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
         await (Task)method.Invoke(null, ["test", null, null, state])!;
         Assert.Equal(123u, state.DelveCrawlerObject);
