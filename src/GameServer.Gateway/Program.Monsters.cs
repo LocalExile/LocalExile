@@ -163,12 +163,14 @@ partial class Program
                 var minionSwings = new List<(uint Id, SpawnedMonster M, (int X, int Y) From, MinionTarget Target)>();
                 var bossBars = new List<(uint Id, SpawnedMonster M)>();
                 var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
+                List<(byte[] Packet, string Log)> ailments;
                 double now;
                 int px, py;
                 using (ProjectileMutation(conn, phase: "ai"))
                 {
                     if (conn.Closed || conn.LeavingArea || conn.Paused) continue;
                     now = ProjectileWorldTime(conn);
+                    ailments = MonsterAilmentChangesLocked(conn, now);
                     using var blockers = conn.BeginMonsterBlockerFrame(now);
                     (px, py) = conn.Walk.Position(now);
                     foreach (var (id, m) in conn.Monsters)
@@ -183,11 +185,33 @@ partial class Program
                             m.BossBarShown = true;
                             bossBars.Add((id, m));
                         }
-                        else if (m.Aggro && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a minion keeps following
+                        else if (m.Aggro && !m.Fleeing && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a flee walk is not cut short; a minion keeps following
                         {
                             m.Aggro = false;
                             orders.Add((id, m.Walk.Order(mx, my, now), (mx, my), "gives up"));
                             continue;
+                        }
+                        // Frozen: it stands where it is and does nothing until the freeze ends.
+                        double action = MonsterActionFactor(m, now);
+                        if (action == 0)
+                        {
+                            if (now < m.Walk.ArrivesAt) orders.Add((id, m.Walk.Order(mx, my, now), (mx, my), "is frozen"));
+                            m.LastTarget = null;
+                            continue;
+                        }
+                        // Fleeing (MonsterFlee): once a started swing ends, it walks to its flee point and does nothing
+                        // else until that walk ends, there or short of it; then it chases again.
+                        if (m.Fleeing)
+                        {
+                            if (now < m.BusyUntil) continue;
+                            if (m.FleeTo is { } flee)
+                            {
+                                m.FleeTo = m.LastTarget = null;
+                                orders.Add((id, m.Walk.Order(flee.X, flee.Y, now), flee, "flees"));
+                                continue;
+                            }
+                            if (now < m.Walk.ArrivesAt) continue;
+                            m.Fleeing = false;
                         }
                         if (!m.Aggro || now < m.BusyUntil) continue;
                         // The player's fighting minions attack his enemies near them; with none they follow him.
@@ -212,9 +236,10 @@ partial class Program
                             continue;
                         }
                         // In reach: stop and swing at the player (hostile monsters with an attack, while the player lives).
+                        // A chill slows the swing by its action speed, as the native clip does.
                         if (m.Hostile && m.Attack is { } a && d <= a.Range && conn.PlayerLife > 0)
                         {
-                            m.BusyUntil = now + MonsterSwingSeconds(conn, m, now);
+                            m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
                             m.LastTarget = null;
                             m.Walk.Order(mx, my, now);
                             swings.Add((id, m, (mx, my), conn.IncomingHitEpoch));
@@ -264,6 +289,7 @@ partial class Program
                         orders.Add((asker.Id, m.Walk.Order(to.X, to.Y, now), to, $"chases (distance {d:F0})"));
                     }
                 }
+                foreach (var (packet, log) in ailments) await Send(remote, stream, ciphers, packet, log);
                 foreach (var (id, from, to, why) in orders)
                     await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, Move, 0xffff, 0x0408),
                         $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}");
@@ -323,7 +349,9 @@ partial class Program
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || m.Dead || m.Life == 0 || !m.Hostile
                 || epoch != conn.IncomingHitEpoch
                 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(m, current) || InGracePeriod(conn)) return;
-            seconds = MonsterSwingSeconds(conn, m, ProjectileWorldTime(conn));
+            double action = MonsterActionFactor(m, ProjectileWorldTime(conn));
+            if (action == 0) return;
+            seconds = MonsterSwingSeconds(conn, m, ProjectileWorldTime(conn)) / action;
         }
         bool started = false;
         await Send(remote, stream, ciphers,
@@ -357,6 +385,12 @@ partial class Program
                     || !ReferenceEquals(m, current) || InGracePeriod(conn)) return;
                 if (conn.Paused) continue;
                 double now = ProjectileWorldTime(conn);
+                // A freeze that landed during the swing interrupts it.
+                if (MonsterActionFactor(m, now) == 0)
+                {
+                    Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) frozen: its swing is cancelled");
+                    return;
+                }
                 int priorContacts = conn.RecentEnemyHits.Count(now);
                 using var defenceTime = FortificationOf(conn).Capture(now);
                 // Resolve lazy final defences here, never at AI collection or before a queued echo/pause wait.
@@ -392,6 +426,9 @@ partial class Program
                 var baseHit = a.Damage;
                 if (EnemyAuraConversionLocked(conn, m, here, now) is { } auraConversion)
                     (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
+                // Glacial Wave: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
+                double lessened = m.Ailments.ChillDamageDealtFactor(now);
+                if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
                 var mitigated = gambler.MitigateIncomingHit(rolled, type =>
                     new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
                 var immune = PlayerImmunities(conn);
@@ -435,6 +472,11 @@ partial class Program
                     monsterCritical, blocked, now, stats, source: id);
                 conn.RecentEnemyHits.Record(now);
                 ChargesWhenHit(conn, blocked);
+                // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
+                // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
+                int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+                if (GameServer.Core.World.RandomRolls.Chance(Stat("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
+                    m.Ailments.Freeze(1, now, Stat, name => m.Mods.Effects[name]);
                 if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                 RecordHardcoreDeath(conn);
                 if (m.Rarity == MonsterRarity.Unique)

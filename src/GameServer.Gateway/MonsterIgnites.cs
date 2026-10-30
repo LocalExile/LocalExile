@@ -122,7 +122,7 @@ partial class Program
             {
                 var ignites = m.Ignites;
                 if (ignites.Idle) continue;
-                int damage = m.Dead || m.Life == 0 ? 0 : ignites.Advance(now - seconds, now, MonsterDotTaken(m, DamageType.Fire));
+                int damage = m.Dead || m.Life == 0 ? 0 : ignites.Advance(now - seconds, now, MonsterDotTaken(m, DamageType.Fire, now));
                 if (damage > 0)
                 {
                     (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);

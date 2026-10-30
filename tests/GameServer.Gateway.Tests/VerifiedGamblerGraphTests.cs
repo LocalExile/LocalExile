@@ -11,5 +11,7 @@ public class VerifiedGamblerGraphTests
             () => VerifiedGamblerGraph.Verify([], [], "Aristocrat")).Message);
         Assert.Contains("ancestral-commander.md", Assert.Throws<AscendancyRuleException>(
             () => VerifiedGamblerGraph.Verify([], [], "Ancestral Commander")).Message);
+        Assert.Contains("surfcaster.md", Assert.Throws<AscendancyRuleException>(
+            () => VerifiedGamblerGraph.Verify([], [], "Surfcaster")).Message);
     }
 }

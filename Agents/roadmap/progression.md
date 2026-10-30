@@ -68,5 +68,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Yugul, Corrupted Blood immunity and Garukhan's ground immunity need curses, reflected damage, Corrupted Blood and
   hazardous ground first.
   See [Polytheist](../docs/game/polytheist.md).
+- **Known:** Surfcaster's fishing-rod notables, Sea Legs, Stormy Seas, Ghost of the Deep, Changing Seasons, Brine
+  Bound, Glacial Wave, Within the Tempest and the small nodes' cast speed and monster flee have server consumers;
+  `Game_VERIFIED_SURFCASTER=1` opts in.
+  **Next:** native acceptance on a client with the reviewed combined graph.
+  See [Surfcaster](../docs/game/surfcaster.md).
 - **Done when:** quest rewards persist and the native Altar can choose an ordinary ascendancy, with real-client checks.
   Implementing all 19 Phrecia classes' special gameplay is separate from this selection lifecycle.

@@ -607,6 +607,13 @@ and can require explicit recipes.
   mitigation, to the nearest totem's Life (Forest of Ancestors, Spirit of Kaom); covered by Gateway tests.
   Not yet: other totem skills (their use places nothing), monsters attacking totems, placement range and server-side
   totem collision; not yet checked with the real client ([11](../docs/protocol/11-skills.md) §10g).
+- Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
+  passives' sum and is sent with 0x1c1 after an allocation and on area entry, and taken off with 0x1c2 on a refund
+  (Surfcaster's Ghost of the Deep).
+  Only the Gateway tests cover it; the icon and whether the client keeps the buff after a death are not checked live.
+  Enemy and ally passive auras are not applied.
+  Code: `PassiveBuffAuras.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The player's life, mana, accuracy, armour and evasion come from its class and level, with the attributes' bonuses
@@ -651,6 +658,10 @@ and can require explicit recipes.
   Real-client Q Fireball clips measured 3.750000157 s at -80%, 0.375 s at +100%, and 0.75 s at zero.
   Native virtual base stayed 750 ms; emitted cast rates were 0.27, 2.67 and 1.33 casts/s respectively.
   Projectile release/contact alignment was not separately measured.
+  Screaming Reels' 60% more cast speed with a Fishing Rod uses the native calculator's formula in the server wait and in
+  the spell record's `cast_speed_+%`.
+  That record value now also includes a support's own cast speed (Faster Casting), as the server wait already did.
+  Neither change is checked with the real client; only the Gateway tests cover them.
   Instant casts remain instant; channel damage cadence and conditional action-speed mechanics are unchanged.
   Numeric server durations below 1 ms are floored, and invalid factors/unrepresentable waits produce no spell effect.
   Code: `SpellCastTiming.cs`, Gateway (`GemSkills`, `CastMs`, `CastGemSkill`, `LaunchProjectile`, `AreaSkillHit`).
@@ -704,6 +715,7 @@ and can require explicit recipes.
   Combined generic/spell bonuses add once; the no-crit flag clears the native chance and hides its row.
   A hitless Scorching Ray cast dealt no weapon damage, while the same connection's Fireball dealt a critical hit.
   Catalog, chance, panel gates, aura sources and hit routing also have automated checks.
+  Surfcaster's Baited Breath makes every hit critical while a Fishing Rod is held, a 0% base included; cannot-crit wins.
   Focus skill and curse lifecycles, other enemy-state/more and added-base crit mechanics remain separate work.
   `/crit` shows the attack values and a pooled 5%-base spell reference ([11](../docs/protocol/11-skills.md) §5).
 - **Overcapped-resistance modifiers.** While the flag stat is set, the uncapped resistance above its maximum is a
@@ -806,11 +818,24 @@ and can require explicit recipes.
   Special ES keystones, leech/recoup and conditional substitutions remain unimplemented.
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
   Maximum-mana added lightning has original-head native checks and resolved automated checks.
+  The player's hits chill, freeze and shock monsters: threshold maximum life, strongest effect with its own duration,
+  shock as increased damage taken (hits and Righteous Fire), chill and freeze in the monster AI and walk, the monster
+  mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
+  Chill can raise damage taken and lessen the monster's swings (Glacial Wave), a freeze can have a minimum duration
+  and a monster that hits the player can be frozen (Brine Bound).
+  A corpse keeps its killing hit's ailments and a kill can shock it, unless the hit killed it frozen and it shatters.
+  Each shock spreads to living enemies within its own `virtual_shock_proliferation_radius` of the shocked monster or
+  corpse, like an aura.
+  An area skill applies a Mirrored monster's reflected ailments after its last target, and a sweep stopped partway
+  still rewards its kills.
+  The buffs, the sent action speed and the frozen pose are not checked with the real client.
+  See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
   Not yet: exposure, aura-dependent penetration, other added damage,
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)),
-  except the player's ignites on monsters: a critical strike or the chance ignites with 90% of the hit's flat fire per
-  second for 4 s, the ignite increases, damage over time multipliers (+50% on a critical strike) and duration stats;
-  only the strongest burns, through the monster's fire resistance, every player tick, with the `ignited` buff and kills.
+  except the player's chill, freeze and shock on monsters and his ignites: a critical strike or the chance ignites with
+  90% of the hit's flat fire per second for 4 s, the ignite increases, damage over time multipliers (+50% on a critical
+  strike) and duration stats; only the strongest burns, through the monster's fire resistance, every player tick, with
+  the `ignited` buff and kills.
   They burn on while the player is dead (unverified), with no progress from a dead Hardcore character's kills.
   Only Abberath's Fury's footstep hits ignite yet; Gateway coverage only, not checked with the real client
   (`MonsterIgnites.cs`, [20](../docs/protocol/20-damage.md) §3).
@@ -818,6 +843,10 @@ and can require explicit recipes.
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze (Gateway coverage,
   not yet checked with the real client).
+  Reversed chill (`chill_effect_is_reversed`) is increased action speed while freeze still stops the player, and
+  `all_damage_taken_can_chill` chills from any hit's total damage (Surfcaster's Changing Seasons).
+  The sent stats now include the final `virtual_action_speed_+%` that the native walk and action clips read; that
+  native effect is not checked live.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
   Alternative ailments and hostile spell/projectile adapters remain unimplemented.
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.

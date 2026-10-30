@@ -74,6 +74,8 @@ partial class Program
     internal static int MonsterTakes(SpawnedMonster m, DamagePacket hit, Random random, bool spell,
         Penetration.PerType pen = default) => MonsterTakesRolled(m, hit.Roll(random), spell, pen);
 
+    /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
+    /// Monster.ot's 75% cap; penetration subtracts once after that cap.</summary>
     internal static DamageModel.ResistanceValue MonsterHitResistance(SpawnedMonster m, DamageType type,
         Penetration.PerType pen)
     {
@@ -86,18 +88,23 @@ partial class Program
     internal static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default)
         => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen)), spell);
 
-    internal static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell)
+    /// <summary>
+    /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
+    /// then its damage taken (Berserking's reduction, Spell Resistant's less spell damage, its shock and Glacial Wave's
+    /// chill at <paramref name="now"/>; without a time those two do not count). Blocking is rolled before
+    /// (<see cref="MonsterBlocks"/>).
+    /// </summary>
+    internal static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
     {
         var e = m.Mods.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double total = mitigated.MinTotal - physical * e.PhysicalReduction / 100.0;
-        // The player's debuffs on it add to its own increased damage taken (PoB: DamageTaken and ElementalDamageTaken are
-        // both INC): his taunt's on every type, his enemy auras' elemental increase on fire, cold and lightning.
-        var (all, elemental) = m.TakenFromPlayer;
-        double factor = e.DamageTaken(spell, all);
-        if (elemental == 0) return (int)Math.Round(total * factor);
+        // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
+        // increase on fire, cold and lightning only.
+        double factor = MonsterDamageTaken(m, spell, now);
+        if (m.TakenFromPlayer.Elemental == 0) return (int)Math.Round(total * factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        return (int)Math.Round(total * factor + elementalDamage * (e.DamageTaken(spell, all + elemental) - factor));
+        return (int)Math.Round(total * factor + elementalDamage * (MonsterDamageTaken(m, spell, now, elemental: true) - factor));
     }
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
@@ -122,19 +129,20 @@ partial class Program
         m.Mods.Effects.NoExtraCriticalDamage ? 100 : multiplier;
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
-    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds) =>
-        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTaken(m, burn.Type) }).Tick(seconds, m.Burn);
+    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,
+        double now = double.NaN) =>
+        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTaken(m, burn.Type, now) }).Tick(seconds, m.Burn);
 
     /// <summary>The share of damage over time of this type a monster takes (Righteous Fire's burn, ignites): less its
-    /// resistance (its type's base and its mods', as for hits, without penetration) and with its damage taken, the
-    /// player's debuffs on it included. Spell Resistant counts for hits only: its stat has no description saying it
-    /// covers damage over time.</summary>
-    internal static double MonsterDotTaken(SpawnedMonster m, DamageType type)
+    /// resistance (its type's base and its mods', as for hits, without penetration) and with its damage taken
+    /// (<see cref="MonsterDamageTaken"/>: its shock and Glacial Wave's chill at <paramref name="now"/>, without a time
+    /// they do not count, and the player's debuffs on it). Spell Resistant counts for hits only: its stat has no
+    /// description saying it covers damage over time.</summary>
+    internal static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
     {
         var resistance = MonsterHitResistance(m, type, default);
-        var (all, elemental) = m.TakenFromPlayer;
         return (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
-            * m.Mods.Effects.DamageTaken(spell: false, all + (DamageTypes.IsElemental(type) ? elemental : 0));
+            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type));
     }
 
     // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life

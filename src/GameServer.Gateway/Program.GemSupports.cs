@@ -177,10 +177,11 @@ partial class Program
             int totalBase = (int)Math.Clamp((long)basis + Own("additional_base_critical_strike_chance"), int.MinValue, int.MaxValue);
             long increased = conn.Pools.CriticalStrikeChancePct + extraIncrease
                 + AttackBaseCriticalStrike.IncreasedSum(weapon, name => Own(name));
-            return GameServer.Core.World.DamageModel.CriticalStrikeChancePerMyriad(totalBase, increased);
+            return DisplayedCriticalChance(conn,
+                GameServer.Core.World.DamageModel.CriticalStrikeChancePerMyriad(totalBase, increased), Player);
         }
-        return SpellCriticalStrike.Chance((SkillsFor(conn).SpellCritChance(gem.Effect, gem.Level) ?? 0)
-            + Own("additional_base_critical_strike_chance"), Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease);
+        return DisplayedCriticalChance(conn, SpellCriticalStrike.Chance((SkillsFor(conn).SpellCritChance(gem.Effect, gem.Level) ?? 0)
+            + Own("additional_base_critical_strike_chance"), Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
 
     static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)

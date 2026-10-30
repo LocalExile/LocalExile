@@ -14,4 +14,6 @@ Spirit of Rakiata is open; Deathrattle, Ancestral Reach and Echo, Forest of Ance
 [Paladin](paladin.md) records the full node checklist, its opt-in and the remaining engine limits (Field Medicine's
 minion phasing and flask damage on a relic's explosion); it is not yet checked with the real client.
 [Polytheist](polytheist.md) records its node checklist, each node's consumer and its engine gaps.
+[Surfcaster](surfcaster.md) records its node checklist, the monster ailment and flee engines it uses, and its opt-in;
+native acceptance is still open.
 Other classes require their own acceptance; this change makes no claim about their completion.

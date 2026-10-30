@@ -529,6 +529,12 @@ The result rounds to integer permyriad, halves away from zero, then caps at 0–
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L3022-L3027).
 `global_cannot_crit` and `virtual_global_cannot_crit` disable the supported spell roll.
 Ordinary increased chance cannot make a known zero-base spell crit.
+Always-crit is separate: while `always_crit_while_holding_fishing_rod` is set (Surfcaster Baited Breath) and the
+active main hand holds a usable Fishing Rod, `RollCriticalStrike` makes every attack and spell hit critical without a
+draw, a 0% base included; a cannot-crit flag still wins.
+The attack, pooled spell and per-skill chances then show 10000 where they were above 0 (wiki: a 0% base still shows
+no chance). Native `virtual_always_crit` (0x2549, calculator `0x14275ba00`) reads the stat only for
+`main_hand_weapon_type` 15; [surfcaster.md](../game/surfcaster.md) has the details.
 The selected skill's spell rows also require `casting_spell = 1` (CharacterPanelStats `Spell_CritChance`);
 the main-hand rows exclude that flag.
 `EffectStats` supplies it only for an actual ActiveSkillType Spell without Attack, and sends zero otherwise.
@@ -600,6 +606,18 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
 - **AI** (`RunMonsterAi`, 100 ms): a hostile, chasing monster within reach stops and swings: 0x1ab with its skill, flags
   0x0408 | 0x80, target = the player, sequence 0xffff. At half the attack time the hit lands if the monster lives and
   the player is still within reach + 2: 0x1b1 on the player.
+- **Fleeing** (`MonsterFlee`, wiki Fleeing). A player hit that leaves the monster alive rolls the hit's chance to
+  cause monsters to flee (`AilmentsOnHitLocked`: an attack's `main_hand_hit_causes_monster_flee_%`, a spell's
+  `global_hit_causes_monster_flee_%`, plus the skill's own), then the monster's `monster_chance_to_not_flee_%`
+  ([14](14-monster-packs.md) §5: magic 50, rare and unique 100).
+  The monster picks a floor cell 50 cells away within 60° of straight away from the player (eight tries, then eight at
+  25 cells, else no flee).
+  After a swing in progress, the AI orders the walk there (0x1ab Move, logged "flees").
+  It does not chase, swing or give up its aggro until that walk ends, at the point or short of it.
+  A freeze stops the walk and ends the flee.
+  The distance is ours (the real server picks the point).
+  Monster.ot also lists a `Flee` basic action (§2; ActionTypes `HASH16` 0xe1a9, factory `0x14199aba0` on the same
+  move-action base `0x141937cc0` as Move); whether the real server uses it for this walk is not verified.
 - **Defence.** The monster's accuracy is `DefaultMonsterStats.Accuracy` at its level (raised by its mods); the server
   rolls the player's
   evasion with the same `AccuracyHitChance` formula and sends no life update on a miss. The roll uses PoE's shared
@@ -904,6 +922,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Captures: `logs/skill-timing-after-fireball-{minus80,plus100,default}-real.json` in the integration checkout.
   These checks establish native clip duration; projectile release/contact alignment was not separately measured.
   Server projectile release, area-spell delay and the Portal spell's cast wait use the adjusted duration once.
+  More cast speed: the native `cast_speed_+%` calculator `0x142709610` is
+  `round((combined_cast_speed_+% + 100) × combined final − 100)`, at least −99; `0x142708190` multiplies the
+  `_final` stats into that combined final. The stat getter `0x1424fc1e0` runs no calculator, so the server sends the
+  result. `FinalCastSpeedPct` applies Screaming Reels' `cast_speed_+%_final_while_holding_fishing_rod` this way (the
+  only `_final` cast speed modelled), and a genuine spell's record carries that total, a support's
+  `base_cast_speed_+%` included, as its `cast_speed_+%`.
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
   A channelled spell's native base is also preserved; this does not implement beam damage or change the existing
   server channel-hit cadence. Attack and non-spell timing paths are unchanged.
@@ -1753,9 +1777,21 @@ Coverage: `AscendancyGatewayIntegrationTests.Polytheist`.
   bit7: f32 +0x6c, default 1.0), a u16 when the row's bool at +0xff is set (`__col44` in the vendored schema), one u32
   per GrantedStats entry when the row's `IsRecovery` (+0x7c) is set, then a u32-counted list of u32. A row with either
   flag needs those fields, or the client misreads the message and the ones after it (the flask buffs, rows 5 and 9:
-  [13](13-items.md) §8). The client reads the BuffDefinitions row in memory as the
+  [13](13-items.md) §8). `InstanceEntities.AddBuff` writes that u16 as `u82`: the chilled, frozen and shocked rows 1-3
+  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); what the client does with +0x82 is
+  not known. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+- **Passive self buffs** (`PassiveBuffAuras`): a passive's PassiveSkills `PassiveSkillBuffs` lists BuffTemplates rows;
+  a template names its BuffDefinitions row, gives one `Buff_StatValues` entry per `GrantedStats` stat (Stats row + 1
+  is the key) and an `AuraRadius`. A row without `IsRecovery` carries no values in 0x1c1, so the client cannot apply
+  them: the server adds the values to the allocated passives' stat sum and sends the buff for its icon and visual only.
+  The buff goes out with 0x1c1 at area entry (each area's connection starts without buffs) and after an allocation,
+  and comes off with 0x1c2 on the refund; one instance per template, however many nodes grant it.
+  Only listed permanent self templates with radius 0 are applied (Surfcaster's Ghost of the Deep, template 671 →
+  Torment Touched 2550). Templates with a radius are auras on enemies or allies, and the other radius-0 templates have
+  their own timing or condition (Trickster's alternation, Occultist's wither pulse, Chieftain's while stationary);
+  those stay unhandled.
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2

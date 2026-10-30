@@ -184,10 +184,14 @@ cells/s, a normal one every 0.125–0.133 s; the server walks it at the same spe
 | `self_take_no_extra_damage_from_critical_strikes` | the player's critical hits deal their normal damage |
 | `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1); the player's `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` scales it for 4 s after each player hit ([Polytheist](../game/polytheist.md)) |
 | `base_cannot_be_stunned` | no hit reaction (the flinch is the hit's stun) |
+| `chill_effectiveness_on_self_+%`, `base_self_freeze_duration_-%` (of the Ice), `shocked_effect_on_self_+%` (of the Tempest) | the player's chill and shock effect and freeze duration on it ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)) |
+| `action_speed_cannot_be_reduced_below_base`, `movement_speed_cannot_be_reduced_below_base` (Unstoppable) | the player's chill and freeze do not slow or stop it |
+| `reflect_non_damaging_ailments_%_chance` (Mirrored) | the chill, freeze and shock a player hit inflicts on it act on the player too |
+| `monster_chance_to_not_flee_%` (the rarity's MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100) | its chance to ignore a player hit's flee ([11](11-skills.md) §6) |
 
 **Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the
-server never does to monsters: Hexproof, of Congealment, Unstoppable, Mirrored, Reflector's, the chill, freeze and
-shock parts of the resistance mods) and 6 in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
+server never does to monsters: Hexproof, of Congealment, Reflector's, the wither parts of the resistance mods) and 6
+in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
 Haste / of Damaging: the aura reaches only the monster itself; of Precision: its accuracy, not its increased critical
 strike chance, which raises a base of 0). The other 74 need a system the server does not have: an aura or buff without
 stats of its own, a granted or retaliation skill, a monster or ground on death, ailments, curses, blind or stun on the

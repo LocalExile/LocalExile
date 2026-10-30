@@ -109,6 +109,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public readonly ImpaleState Impale = new();
     // The ignites the player's hits have put on it (MonsterIgnites.cs); they end when it dies.
     public readonly MonsterIgnites Ignites = new();
+    // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
+    public readonly MonsterElementalAilments Ailments = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
     // The player's debuffs on it (Program.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
@@ -118,6 +120,10 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public ushort TauntBuff;
     public readonly Dictionary<ushort, ushort> PlayerAuras = [];
     public (int All, int Elemental) TakenFromPlayer;
+    // Fleeing (MonsterFlee): from a hit's roll until its walk to the flee point ends; FleeTo is the point until the AI
+    // orders that walk.
+    public bool Fleeing;
+    public (int X, int Y)? FleeTo;
     public string Label => label;
     public WalkEstimator Walk { get; set; } = walk;
     public int AggroRange => aggroRange;
@@ -371,6 +377,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double SentAdrenalineUntil = double.NaN;
     public double SentStunRecoveryUntil = double.NaN;
     public ushort WardBuff, AdrenalineBuff;
+    /// <summary>The passive self buffs published on the player: BuffDefinitions row → buff instance (PassiveBuffAuras).</summary>
+    public readonly Dictionary<ushort, ushort> PassiveBuffs = [];
     // The stats the server has set on the player after creating it (/set_stat, /set_speed): what the client computes
     // with, so the server can follow it (attack time).
     public readonly Dictionary<uint, int> PlayerStats = [];
@@ -457,7 +465,14 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public PassiveBuffAuras.State PassiveAuras { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
-    public ushort NextBuff = 1;
+    /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the monster ailments' fixed instances
+    /// (MonsterElementalAilments.Instance) and never hands out 0.</summary>
+    public ushort NextBuff
+    {
+        get => nextBuff;
+        set => nextBuff = value is 0 or >= MonsterElementalAilments.FirstInstance ? (ushort)1 : value;
+    }
+    ushort nextBuff = 1;
     public uint PlayerMaxLife => Pools.Life;
     // The player's life as the server keeps it (PlayerObject's Life, full on creation); 0 = dead.
     public bool AuraDeathHandled;

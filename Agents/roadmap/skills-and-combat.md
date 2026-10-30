@@ -158,7 +158,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, exposure, ailments and further added-damage/support effects remain open.
+  Special ES mechanics, conditional penetration, exposure, damaging and alternative ailments on monsters (beyond the
+  player's ignites) and further added-damage/support effects remain open.
   The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
   default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
   ([20](../docs/protocol/20-damage.md) §3).
@@ -201,8 +202,16 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Do not inherit an owner's spell-damage restriction onto independent minions or daemons without a skill rule.
 - **Done when:** damage numbers match the character panel and the monsters' levels.
 
-### Incoming elemental ailment extensions
+### Elemental ailment extensions
 
+- The player's chill, freeze and shock on monsters are implemented with Gateway coverage.
+  Check the chilled/frozen/shocked buffs, the sent `virtual_action_speed_+%` and the frozen pose with the real client,
+  and find what 0x1c1's +0x82 u16 does.
+  The shatter visual (the server ends a shattered monster's ailments and spreads nothing from it; the packet that
+  removes the corpse is not known), unique/boss
+  thresholds and the monster variety's own immunities remain open, as do chill, freeze and ignite proliferation and a
+  native check of the shock proliferation radius's area scaling.
+  See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
 - Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.
   Finish dedicated native buff icons and source/threshold/conditional-immunity parity before claiming a general ailment engine.
   Hostile projectile/spell adapters and alternative-ailment sources remain separate work.

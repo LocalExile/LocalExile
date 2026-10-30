@@ -119,6 +119,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   `Game_VERIFIED_POLYTHEIST=1` opts in.
   Not checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Polytheist checklist](../docs/game/polytheist.md).
+- Surfcaster: Baited Breath (every hit crits while holding a Fishing Rod), Screaming Reels (60% more cast speed with a
+  rod, in the server wait and the native clip), Sea Legs, Stormy Seas' conversion, Brine Bound's Cannot be Frozen and
+  the small nodes' cast speed have consumers, with Gateway coverage of legal builds, paid refunds and reload.
+  Ghost of the Deep's Torment Touched buff gives its four 23% bonuses and shows on the player.
+  Changing Seasons lets any hit chill the player and makes the chill increased action speed.
+  Stormy Seas' cold damage shocks monsters (the general monster chill/freeze/shock engine).
+  On that engine, Glacial Wave's chill raises the monster's damage taken and lessens its swings, Brine Bound freezes
+  monsters that hit you and holds every freeze for 1 s, and Within the Tempest shocks kills and spreads shocks 1.5 m.
+  The small nodes' chance to cause monsters to flee makes a hit monster walk away without attacking.
+  Not yet checked with the real client: that needs the reviewed combined graph installed.
+  Fishing (fish rarity, corrupted fish) has no gameplay in 3.29.3b.
+  `Game_VERIFIED_SURFCASTER=1` opts in.
+  Docs: [Surfcaster checklist](../docs/game/surfcaster.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
