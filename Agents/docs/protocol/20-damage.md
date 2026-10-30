@@ -604,8 +604,22 @@ rows: critical strikes give ailments nothing else) and the Frenzy Charges' more 
 (70 / 90 / 30) and 60. The "from only Chaos Damage" rows use the chaos portion alone and show with a
 `chaos_damage_chance_to_poison_%` source. Pinned PoB CalcOffence (16de4b82, `calcAilmentDamage` and the bleed /
 poison / ignite sections) composes the same buckets. Not modelled: conditional sources, stacking, "as though dealing
-more", support more multipliers, the moving bleed bonus, and the rows' native formatting; these are display rows
-only, actual ailment application is still the open item above.
+more", support more multipliers, the moving bleed bonus, and the rows' native formatting. Burning Arrow's quality
+(`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
+
+**Projectile ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
+shot captures its ignite at release: chance `base_chance_to_ignite_%` + `chance_to_freeze_shock_ignite_%` from the caster
+and the skill (Burning Arrow's own 25%), the context's ignite rows above (main hand for attacks, spell for spells) as the
+damage-per-second range, and 4 s × (1 + `ignite_duration_+%` + `base_all_ailment_duration_+%`). `never_ignite` and
+`never_damaging_ailments` stop it. An accepted hit that dealt fire damage and left the target alive ignites on a critical
+strike or a successful chance roll, then the monster's `avoid_ignite_%`; `immune_to_ignite` / `cannot_be_ignited` refuse
+it. The ignite's damage is an independent roll in the non-critical or critical range (the critical rows already carry
+the ailment critical multiplier). Several ignites can be on one monster; only the strongest deals damage, and a weaker,
+longer one resumes when it ends. The player tick (250 ms) integrates the strongest ignite through each start/end,
+applies the monster's capped fire resistance and damage taken, carries fractions and commits kills as Righteous Fire's
+burn does. The monster wears the native `ignited` buff (BuffDefinitions row 0, flame visual 2) with its timer to the
+last ignite's end, re-sent when a new ignite outlasts it and removed at expiry or death. Not modelled: melee and area
+ignite, ignite proliferation, "as though dealing more", support more multipliers and the panel's unmodelled buckets.
 
 ## 3a. Impale contacts and reflected damage
 
@@ -984,7 +998,8 @@ mitigation are composed as described in the [projectile module](../game/projecti
   supported incoming shock path are implemented. The monsters' base resistances are in §4, with penetration.
 - Remaining skill-specific increased/more/effectiveness mechanics beyond the documented packet and support paths.
   Weapon-local and character flat ranges retain conversion history and their separate scopes.
-- General outgoing ailment application, duration and effect; critical ailments; bleed movement bonus; poison stacking.
+- Outgoing ailments beyond projectile ignite (§3): melee/area ignite, bleed, poison, chill/freeze/shock; bleed movement
+  bonus; poison stacking.
   Supported incoming elemental ailments are bounded by [Gambler](../game/gambler.md#incoming-elemental-ailments).
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, specialized leech conversions/conditions, life/mana gain on hit, and recoup. Ordinary leech is in §5b.

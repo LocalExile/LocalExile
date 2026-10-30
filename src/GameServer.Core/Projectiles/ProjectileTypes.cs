@@ -201,6 +201,9 @@ public interface IProjectileWorld
 {
     IReadOnlyList<ProjectileActor> Actors(long from, long until);
     TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to);
+    /// <summary>The terrain contact of one flight segment of <paramref name="projectile"/>. A host that models flight
+    /// height (a shot aimed at higher ground) overrides it; area placement and target selection keep the plain trace.</summary>
+    TerrainContact? TraceFlight(ProjectileEntity projectile, ProjectileVector from, ProjectileVector to) => TraceTerrain(from, to);
     ProjectileHitResult Hit(ProjectileDamage damage);
     void Publish(ProjectileEvent value);
 }

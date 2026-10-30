@@ -112,7 +112,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Spirit/Abyss-jewel counting remain open; these changes do not certify entire charge rows.
   Every panel row now has a server derivation (the 2026-10-29 batch in Status covers the Defence estimates, off-hand,
   effective critical, secondary and damaging-ailment rows; the owner's live run of 2026-10-29 passed them, the converted
-  charges and the Blood Charges); what remains for #75 is actual ailment application behind the ailment rows, Reap's
+  charges and the Blood Charges); what remains for #75 is actual ailment application behind the ailment rows (projectile
+  ignite now applies; melee/area ignite, bleed and poison do not), Reap's
   damage over time debuff and Vaal Reap's temporary Blood Charge maximum, and executing the secondary hits (Bear Trap,
   Herald of Ice) whose rows are display-only. Deferred (2026-10-29, owner's decision): Spirit and Siphoning Charges. Their only 3.29
   player sources are unique mods (`maximum_spirit_charges_per_abyss_jewel_equipped`,
@@ -482,6 +483,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Find why a level 1 Sand Spitter hits for 5–7 here and a constant 4 on live.
   Decode S→C `0x1b4` (player only, the attack's skill id and a point list).
 - **Start:** user-run Fireball/KB checks from the skill guide, including return, terrain and overlapping explosions.
+  Check the aimed-height model (a shot below a cliff stops at the face, one aimed on top clears it) against the live
+  client, then find the client's own projectile height/terrain rule for its predicted gem projectiles and replace the
+  12-step clearance; the wall-hit sound of a server `DefaultArrow` stopping at terrain is not sent yet.
   Calibrate cluster radial distribution, counter-clockwise sequence timing and native art against client evidence.
   Build a server-side surface-height/world model for platforms and doodads (#182), height grids for more areas
   (or in the walk-map recorder), and collision with doodads and objects that have their own colliders.

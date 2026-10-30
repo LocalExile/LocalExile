@@ -839,6 +839,7 @@ partial class Program
     static string? GemDisabled(ClientState conn, int effect)
     {
         if (ActorSkillDisabled(conn, effect) is { } restriction) return restriction;
+        if (WeaponRestricted(conn, effect) is { } weapon) return weapon;
         if (conn.Ruthless && !RuthlessGemRules.AllowsEffect(SkillsFor(conn).EffectId(effect)))
             return "This skill is unavailable in Ruthless";
         foreach (var place in PlayerInventories.For(CharacterName(conn), ItemsFor(conn)).SocketedGemPlaces())
@@ -855,9 +856,25 @@ partial class Program
     {
         var gem = SupportedSkill(conn, skillId);
         if (gem.Effect != effect || gem.SourceGem is null) return "skill is unavailable";
-        if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
+        if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? WeaponRestricted(conn, effect)
+                ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
             return disabled;
         return SkillsFor(conn).EffectId(effect) is { } effectId ? ProjectileDefinition(effectId)?.Unavailable?.Invoke(conn) : null;
+    }
+
+    // ItemClasses row 36: the hand type the client gives an empty main hand (11-skills.md §10a, Unarmed 37 = row + 1).
+    const int UnarmedClassRow = 36;
+
+    // A skill neither active hand can use (its ActiveSkills weapon restriction, the client's FUN_141ee8410): the client
+    // greys it out, and a use that still arrives is refused here. An empty or inactive main hand is Unarmed; an inactive
+    // weapon is not in the hands (HandType), as the model the client checks does not show it (Looks).
+    static string? WeaponRestricted(ClientState conn, int effect)
+    {
+        var allowed = SkillsFor(conn).WeaponRestrictions(effect);
+        if (allowed.Count == 0) return null;
+        int main = HandType(conn, PlayerInventories.Weapon1)?.ClassRow ?? UnarmedClassRow;
+        return allowed.Contains(main) || HandType(conn, PlayerInventories.Offhand1)?.ClassRow is int off && allowed.Contains(off)
+            ? null : "the equipped weapon cannot use this skill";
     }
 
     // A worn item whose requirements are not met (CharacterStatSources): its mods and gems do nothing.
@@ -1079,6 +1096,8 @@ partial class Program
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
         if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
             await SendSkillBar(remote, stream, ciphers, conn);
+        // The same recalculation may have changed which worn weapons qualify.
+        await SendModelIfHandsChanged(remote, stream, ciphers, conn);
     }
 
     // Skills the player no longer has (their gems left the equipment): their auras and Righteous Fire end with them, and the

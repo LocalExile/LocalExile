@@ -115,6 +115,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public double Regen;
     // Impales retained for consumption/expiry, including on a corpse (Impale.cs).
     public readonly ImpaleState Impale = new();
+    // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
+    public readonly MonsterIgnites Ignites = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
     public readonly GameServer.Core.World.EvasionEntropy AttackEvasion = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
@@ -199,6 +201,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
     public Random IncomingHitRandom = Random.Shared;
+    // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
+    public Random IgniteRandom = Random.Shared;
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration;
@@ -463,6 +467,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool God;
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
+    /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
+    public string? ModelHands;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
     public Flasks.Effects FlaskEffects { get; } = new();
     /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>

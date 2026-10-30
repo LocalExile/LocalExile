@@ -640,9 +640,7 @@ partial class Program
                     await SendChatChannels(remote, stream, ciphers, conn);
                     // The equipment again (S→C 0x02ba), as after an equip: the player object's own list does not set how a
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
-                    var worn = Looks(conn, ItemsOf(conn));
-                    await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, worn),
-                        $"0x02ba player equipment on entering: {string.Join(", ", worn.Select(e => $"slot {e.Slot} stance {e.Stance}"))}");
+                    await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
                     await SpawnPets(remote, stream, ciphers, conn);
                     await SendGroundItems(remote, stream, ciphers, conn);

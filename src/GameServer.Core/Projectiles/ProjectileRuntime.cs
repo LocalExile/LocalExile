@@ -157,7 +157,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         Contact? best = end == p.ExpiresAt ? new(end, p, null, ProjectileEndReason.Lifetime, default)
             : end == rangeEnd ? new(end, p, null, p.Profile.Lobbed ? ProjectileEndReason.Landing
                 : p.Phase == 0 ? ProjectileEndReason.Distance : ProjectileEndReason.Returned, default) : null;
-        if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && world.TraceTerrain(p.Position, to) is { } wall)
+        if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && world.TraceFlight(p, p.Position, to) is { } wall)
         {
             double fraction = Math.Clamp(wall.Fraction, 0, 1);
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,

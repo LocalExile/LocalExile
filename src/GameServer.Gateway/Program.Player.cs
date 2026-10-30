@@ -433,6 +433,7 @@ partial class Program
             await SendAntiquarian(remote, stream, ciphers, conn);
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
+            await BurnIgnited(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
             if (conn.PlayerLife == 0)
             {

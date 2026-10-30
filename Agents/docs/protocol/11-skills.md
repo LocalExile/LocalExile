@@ -1811,6 +1811,16 @@ That first field is the equipment record's first u8 (13-items.md "What the model
 for every item: every skill with a weapon restriction was greyed out (Ground Slam with a two-handed axe, live
 2026-10-23, found with a Frida trace of `FUN_142199200`). The Gateway now sends ClassRow + 1 (`VisibleItem.Type`).
 
+A worn weapon whose requirements are not met (`InactiveItems`) is not in the hands: `Looks` sends its main- or off-hand
+slot empty, as an unequipped hand, so the model does not draw it, the client greys out every skill whose restriction
+needs it (a bow for Burning Arrow) and the default attack stays on the bar and punches; the server's own weapon profile
+and default attack already treated it as unarmed. `SendEquipment` recomputes qualification before building the model,
+and `SendSkills` re-sends the model (`SendModelIfHandsChanged`, keyed by the hand slots last sent) when a level, a
+passive or another item changes which weapons qualify. Because the client still sends a use of a greyed skill,
+`GemDisabled` / `GemSkillInstanceDisabled` refuse it through `WeaponRestricted`: `SkillCatalog.WeaponRestrictions`
+(the effect's ActiveSkills `WeaponRestriction_ItemClassesKeys`) against the active hands' ItemClasses rows, an empty or
+inactive main hand counting as Unarmed (row 36), either hand fitting. Automated coverage only; awaiting a native check.
+
 ## 10b. Actor restriction: warcry skills disabled
 
 `your_warcry_skills_are_disabled` is Stats row 5408, wire key 5409 in 3.29.3b.

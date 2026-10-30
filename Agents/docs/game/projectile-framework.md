@@ -156,6 +156,20 @@ Lobbed arcs use the configured lift for the initial start when both ground endpo
 start at ground level. Without both endpoints they retain client terrain sampling instead of a guessed parabola.
 Independent area effects still follow client terrain. Ground clipping and platform/doodad surfaces remain unverified.
 
+### Aimed height
+
+Generated levels leave cliff faces open in the projectile grid: on 1_1_2 seed 2032549229 a face rises 2 → 13 → 23
+height steps over two cells with no blocking cell, so every arrow flew over it. `IProjectileWorld.TraceFlight` lets the
+host trace a flight segment per projectile (default: the plain `TraceTerrain`); the Gateway's `ProjectileAimHeight`
+gives a player's primary projectile the higher of its release cell's and aimed cell's ground, and a cell whose terrain
+rises more than `ClearanceSteps` (12, 93.75 world units) above that ground stops it as a wall (`Terrain`). A shot aimed
+at the low ground in front of a cliff hits the face; aimed at the walkable top it clears the face; shooting down never
+meets rising terrain. The projectile grid still blocks as before. Returns, continuation children, monster shots, area
+placement and target selection keep the plain grid, as does any area without height data. A server-created object of
+such a shot flies at its flight ground plus the release height. LocalExile model v1 from the user's live observation
+(2026-10-30), not the client's collision code: the clearance is a development value, the flight is level rather than a
+measured arc, and the wall-hit sound of a stopped server arrow is not sent.
+
 Automated checks exercise the production runtime and session, including held-output gameplay, moving
 targets, walls, evasion, continuation combinations, real item stat sources and lifetime boundaries.
 Native animation alignment, platform/doodad surfaces and visual equivalence still require client validation.

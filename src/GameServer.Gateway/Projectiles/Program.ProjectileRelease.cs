@@ -104,6 +104,9 @@ partial class Program
             AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
             Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
+            // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
+            Ignite = MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand"),
+                spell ? "spell" : "main_hand", Get),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,

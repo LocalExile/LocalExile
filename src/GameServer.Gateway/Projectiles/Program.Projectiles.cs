@@ -195,10 +195,23 @@ partial class Program
         }
 
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
-            ProjectileGeometry.TraceGrid(from, to, (x, y) =>
-                x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
-                || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
-                || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true);
+            ProjectileGeometry.TraceGrid(from, to, Wall);
+
+        bool Wall(int x, int y) => x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
+            || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
+            || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true;
+
+        int? Height(int x, int y) => TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y);
+
+        // A player's primary projectile flies at the ground its aim gives it (ProjectileAimHeight); returns,
+        // continuation children and monster shots keep the plain projectile grid.
+        int? FlightGround(ProjectileEntity p) => p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 ? null
+            : ProjectileAimHeight.Ground(p.Use.Origin, p.Use.Aim, Height);
+
+        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
+            FlightGround(p) is int ground
+                ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ProjectileAimHeight.Blocks(x, y, ground, Height))
+                : TraceTerrain(from, to);
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
         {
@@ -239,6 +252,7 @@ partial class Program
             damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             var hit = ApplyMonsterHitLocked(Conn, target, damage);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
@@ -266,7 +280,8 @@ partial class Program
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
                 uint id = Conn.NextObjectId++;
-                var height = ProjectileHeight.Flight(TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
+                // A shot aimed at higher ground flies at that ground's height, so its object clears the cliff it passes over.
+                var height = ProjectileHeight.Flight(FlightGround(p) ?? TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
                     Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
                 var visual = new Visual(id, height) { SpawnedAt = value.Position };
                 visuals[p.Id] = visual; Conn.ProjectileObjects.Add(id);

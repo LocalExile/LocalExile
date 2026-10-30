@@ -8,6 +8,8 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }
     public int ImpaleChance { get; init; }
+    /// <summary>The ignite its hits can inflict, captured at release (MonsterIgnites); the default ignites nothing.</summary>
+    public MonsterIgnites.Settings Ignite { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }

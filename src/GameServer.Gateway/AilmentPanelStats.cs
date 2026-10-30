@@ -75,7 +75,9 @@ static class AilmentPanelStats
                 _ => get("base_poison_damage_+%"),
             };
         double multiplier = Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
-            + (critical ? get("critical_ailment_dot_multiplier_+") : 0)) / 100);
+            + (critical ? get("critical_ailment_dot_multiplier_+") : 0)) / 100)
+            // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
+            * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get("active_skill_ignite_damage_+%_final") / 100.0) : 1);
         var typed = DamageTypes.ConversionOrder.Select(type => (History: DamageTypes.HistoryOf(type), Increased: get(Slug(type) + "_damage_+%"))).ToArray();
         int elemental = get("elemental_damage_+%");
         double min = 0, max = 0;

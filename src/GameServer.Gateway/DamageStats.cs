@@ -52,6 +52,11 @@ static class DamageStats
         get("maximum_mana") is > 0 and var mana
             ? mana * (get("added_physical_damage_to_attacks_equal_to_%_maximum_mana") / 100.0) : 0;
 
+    // Burning Arrow of Vigour (GEPL AdditionalStats, 21–32): attack fire added from maximum life, as the mana grants above.
+    public static double LifeAddedFire(Func<string, int> get) =>
+        get("maximum_life") is > 0 and var life
+            ? life * (get("added_fire_damage_to_attacks_equal_to_%_maximum_life") / 100.0) : 0;
+
     /// <summary>Raw added damage, with effectiveness but without increased/more modifiers or conversion.</summary>
     public static DamagePacket RawAdded(DamagePacket hit, Func<string, int> get, bool spell, double effectiveness = 1)
     {
@@ -68,6 +73,11 @@ static class DamageStats
             if (!spell && type == DamageType.Physical)
             {
                 double added = ManaAddedPhysical(get);
+                range = range.Add(new DamageRange(added, added));
+            }
+            if (!spell && type == DamageType.Fire)
+            {
+                double added = LifeAddedFire(get);
                 range = range.Add(new DamageRange(added, added));
             }
             hit = hit.Add(type, range.Scale(effectiveness));

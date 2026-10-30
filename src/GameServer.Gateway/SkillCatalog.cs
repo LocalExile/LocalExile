@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
@@ -398,6 +399,30 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     public bool IsExceptional(int gemRow) => _families.Value.IsExceptional(gemRow);
 
     readonly Lazy<SkillGemFamilies> _families = new(() => new(folder));
+
+    /// <summary>The ItemClasses rows a GrantedEffects row's skill can be used with (its ActiveSkill's
+    /// WeaponRestriction_ItemClassesKeys: Burning Arrow 13, Bow); empty for a skill any hands can use. The client greys
+    /// out a skill when neither hand fits (11-skills.md §10a).</summary>
+    public IReadOnlySet<int> WeaponRestrictions(int effectRow) =>
+        _weaponRestrictions.Value.TryGetValue(effectRow, out var rows) ? rows : FrozenSet<int>.Empty;
+
+    private readonly Lazy<Dictionary<int, IReadOnlySet<int>>> _weaponRestrictions = new(() =>
+    {
+        string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
+        if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills"))) return [];
+        using var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills")));
+        var restricted = active.RootElement.EnumerateArray().Select(r =>
+            r.TryGetProperty("WeaponRestriction_ItemClassesKeys", out var k) && k.ValueKind == JsonValueKind.Array
+                ? k.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32()).ToFrozenSet()
+                : FrozenSet<int>.Empty).ToList();
+        using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+        var result = new Dictionary<int, IReadOnlySet<int>>();
+        foreach (var (r, i) in effects.RootElement.EnumerateArray().Select((r, i) => (r, i)))
+            if (r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number
+                && a.GetInt32() is int row && row >= 0 && row < restricted.Count && restricted[row].Count > 0)
+                result[i] = restricted[row];
+        return result;
+    });
 
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);

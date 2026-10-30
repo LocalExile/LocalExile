@@ -123,11 +123,14 @@ partial class Program
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time): less its fire resistance and its
     /// damage taken. Spell Resistant counts for hits only: its stat has no description saying it covers damage over
     /// time.</summary>
-    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds)
+    internal static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds) =>
+        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotFactor(m, burn.Type) }).Tick(seconds, m.Burn);
+
+    // What a monster takes of damage over time of one type: its mods' capped resistance and damage taken.
+    internal static double MonsterDotFactor(SpawnedMonster m, DamageType type)
     {
         var e = m.Mods.Effects;
-        double factor = (100 - DamageModel.Capped(e.Resistance(burn.Type), MonsterModEffects.MaxResistance)) / 100.0 * e.DamageTaken(spell: false);
-        return (burn with { DamagePerSecond = burn.DamagePerSecond * factor }).Tick(seconds, m.Burn);
+        return (100 - DamageModel.Capped(e.Resistance(type), MonsterModEffects.MaxResistance)) / 100.0 * e.DamageTaken(spell: false);
     }
 
     // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life

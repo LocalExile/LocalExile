@@ -201,6 +201,12 @@ partial class Program
     static IReadOnlyList<VisibleItem> Looks(ClientState conn, PlayerInventories items)
     {
         var looks = items.Equipped(LookOf).ToList();
+        // A weapon whose requirements are not met is not in the hands (WeaponProfileFor, WeaponFor): the model leaves it out
+        // and its slot goes out empty, so the client greys out the skills that need it (11-skills.md §10a) and the default
+        // attack punches, while the inventory still shows the item where it is.
+        foreach (var (row, slot) in new[] { (PlayerInventories.Weapon1, (byte)0), (PlayerInventories.Offhand1, (byte)1) })
+            if (items.Items(row) is [var held, ..] && IsInactive(conn, held.Id) && looks.FindIndex(l => l.Slot == slot) is int hand and >= 0)
+                looks[hand] = VisibleItem.Empty(slot);
         // A bow is held in the left hand, and its model slot is not the main hand's: BowSetup holds the record the live server
         // sends (the bow's art in slot 1, an arrow in slot 0 with the weapon type and stance, the quiver on the back in 7).
         if (HandType(conn, PlayerInventories.Weapon1) is { Class: "Bow" } bow)
@@ -247,18 +253,38 @@ partial class Program
     static async Task SendEquipment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items)
     {
         RefreshVaalSouls(conn);
-        var equipped = Looks(conn, items);
-        await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
-            $"0x02ba player equipment: {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
+        // Under the Monsters lock, as every pools writer (a utility flask that ends recomputes under it too). First, so the
+        // model below knows which of the new items are inactive.
+        lock (conn.Monsters) { RecomputePoolsAndSpeed(conn); conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn)); }
+        await SendModel(remote, stream, ciphers, conn, Looks(conn, items), "equipment");
         // The socketed gems may have changed: the Cosmetics tab's skill slots follow them.
         await SendWornCosmetics(remote, stream, ciphers, conn, "equipment changed");
-        // Under the Monsters lock, as every pools writer (a utility flask that ends recomputes under it too).
-        lock (conn.Monsters) { RecomputePoolsAndSpeed(conn); conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn)); }
         await SendSkills(remote, stream, ciphers, conn);
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
             "0x01b3 player stats (equipment)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
+    }
+
+    static async Task SendModel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        IReadOnlyList<VisibleItem> equipped, string why)
+    {
+        conn.ModelHands = HandsKey(equipped);
+        await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
+            $"0x02ba player equipment ({why}): {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
+    }
+
+    // The hands' part of the model (main hand 0, off hand 1, a bow's quiver 7) as it was last sent.
+    internal static string HandsKey(IEnumerable<VisibleItem> equipped) => string.Join(",",
+        equipped.Where(e => e.Slot is 0 or 1 or 7).OrderBy(e => e.Slot).Select(e => $"{e.Slot}:{e.VisualIdentity:x4}:{e.Type}"));
+
+    // A weapon's requirements can start or stop being met while the equipment stays (a level, a passive, another item's
+    // attributes): the model follows, so a weapon that became inactive leaves the hands and one that qualifies again returns.
+    static async Task SendModelIfHandsChanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var equipped = Looks(conn, ItemsOf(conn));
+        if (conn.ModelHands is { } sent && sent != HandsKey(equipped))
+            await SendModel(remote, stream, ciphers, conn, equipped, "weapon requirements changed");
     }
 
     // Dev commands (/mod, /rarity, /sockets): changes the held item and replaces it on the cursor (0xbf removing and adding

@@ -114,8 +114,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   10%) or faster with `/set_stat attack_speed_+%` (server-computed final stats, 0x2ba skill update, panel's Attacks
   per Second), and the server lowers the monster's life 2–5 at the contact point; moving cancels;
   the dead monster's life bar hides.
+  A weapon whose requirements are not met leaves the hands: the model sends its slot empty, so the client greys out
+  the skills its restriction needs and the default attack punches; the server refuses such a skill too and re-sends
+  the model when qualification changes without an equipment move. Automated only; awaiting a native check.
   Code: `GrantedSkill`, `SkillCatalog.cs`, Gateway.
-  Docs: [11](../docs/protocol/11-skills.md).
+  Docs: [11](../docs/protocol/11-skills.md) §10a.
 - Local combat package: stationary default melee attacks no longer take the 150 ms walk-in offset.
   Native evidence in this entry belongs to LocalExile; the standalone destination port has automated validation
   and still needs a native rerun, as recorded in the [port record](../docs/dev/ranged-monster-actions-port.md).
@@ -793,6 +796,10 @@ and can require explicit recipes.
   Skill explosions, pulses, children, forms, native art and specialized resources belong to skill definitions.
   Missing metadata or unsupported damage plans are refused before costs, without generic area-hit fallback.
   [Named skills](../docs/game/projectile-skills.md) implement terminal Fireball blasts and Kinetic Blast clusters.
+  Burning Arrow uses catalog flight with its 100% fire conversion, a 25% base ignite chance (critical hits always
+  ignite) and Vigour's fire added from maximum Life; projectile ignite burns monsters through their fire resistance
+  with the native `ignited` buff ([20](../docs/protocol/20-damage.md) §3). Automated only; native ignite visuals and
+  damage still need a user-run check.
   Direct volleys share admission separately outbound and returning; denied siblings pass through.
   Fireball waits for exhausted continuation and gives the terminal victim one area-classified hit.
   Normal KB creates four offset explosions with 40% less area damage; Clustering creates three plus quantity modifiers,
@@ -808,6 +815,9 @@ and can require explicit recipes.
   Skill-bar explosion totals use the resolved cluster recipe, including quality and Clustering's projectile conversion.
   Fireball wall-contact damage and default/Stygian packets have regression coverage; visual visibility remains unverified.
   Flights retain fixed terrain-plus-offset height (bare offset without a grid); explosion effects follow client terrain.
+  A player's primary shot flies at the higher of its release and aimed ground: terrain rising more than 12 steps above
+  that stops it, so a shot aimed below a cliff hits the face and one aimed on top clears it
+  ([framework](../docs/game/projectile-framework.md), "Aimed height"). LocalExile model v1, awaiting a native check.
   Official geometry/timing, surface height and art equivalence still need client validation.
   Code: Core `Projectiles/`, Gateway `Projectiles/` and `Projectiles/Skills/`; see the
   [framework guide](../docs/game/projectile-framework.md).
@@ -1156,7 +1166,7 @@ and can require explicit recipes.
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
   Maximum-mana added lightning has original-head native checks and resolved automated checks.
   Not yet: exposure, aura-dependent penetration, other added damage,
-  increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)).
+  increased/more support modifiers and outgoing ailments other than projectile ignite ([20](../docs/protocol/20-damage.md) §3).
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   Native checks verify real monster ignite/avoidance, lethal death-panel/checkpoint behavior and nonlethal RF.
