@@ -30,8 +30,11 @@ static class Flasks
     }
 
     /// <summary>Recovery flasks need room in at least one pool they restore. Mana's cap excludes reservations.</summary>
-    public static bool CanRecover(Flask f, uint life, uint maxLife, uint mana, uint unreservedMana) =>
-        (f.LifePerUse > 0 && life < maxLife) || (f.ManaPerUse > 0 && mana < unreservedMana);
+    public static bool CanRecover(Flask f, uint life, uint maxLife, uint mana, uint unreservedMana,
+        FlaskRecovery.Use? recovery = null) =>
+        (f.LifePerUse > 0 && life < maxLife) || (f.ManaPerUse > 0 && mana < unreservedMana)
+        || (life < maxLife && recovery is { ManaAlsoLife: true, Mana: > 0 }
+            && (recovery.ManaSeconds ?? recovery.Seconds) > 0);
 
     /// <summary>The flask with <paramref name="charges"/> more, up to its maximum.</summary>
     public static Item Gain(Item flask, Flask f, int charges) =>
@@ -59,7 +62,8 @@ static class Flasks
                 LifeStays: use.LifeStaysAtFull, NoQueue: hybrid ? use.LifeStaysAtFull : use.NoQueue));
         if (use.Mana + use.ManaAtEnd > 0 && manaSeconds > 0)
             effects.Add(new(slot, nextBuff(), manaBuffRow, 0, use.Mana / manaSeconds, now, now + manaSeconds,
-                use.ManaAtEnd, ManaStays: use.ManaStaysAtFull, NoQueue: hybrid ? use.ManaStaysAtFull : use.NoQueue));
+                use.ManaAtEnd, ManaStays: use.ManaStaysAtFull, NoQueue: hybrid ? use.ManaStaysAtFull : use.NoQueue,
+                ManaAlsoLife: use.ManaAlsoLife));
         return effects;
     }
 
@@ -69,7 +73,7 @@ static class Flasks
     /// effect waits, so it may end later); mana that comes all at once when it runs out (<paramref name="ManaAtEnd"/>),
     /// whether it stays on a full pool, and whether it does not queue (FlaskRecovery.Use).</summary>
     public sealed record Effect(byte Slot, ushort Buff, ushort BuffRow, double LifePerSecond, double ManaPerSecond, double Started, double Ends,
-        double ManaAtEnd = 0, bool LifeStays = false, bool ManaStays = false, bool NoQueue = false)
+        double ManaAtEnd = 0, bool LifeStays = false, bool ManaStays = false, bool NoQueue = false, bool ManaAlsoLife = false)
     {
         /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when
         /// both are), unless it stays at full.</summary>
@@ -130,6 +134,7 @@ static class Flasks
             {
                 life += r.Effect.LifePerSecond * seconds;
                 mana += r.Effect.ManaPerSecond * seconds;
+                if (r.Effect.ManaAlsoLife) life += r.Effect.ManaPerSecond * seconds;
                 r.Remaining -= seconds;
                 if (r.Remaining > Done) return;
                 mana += r.Effect.ManaAtEnd;

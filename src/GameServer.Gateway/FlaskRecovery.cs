@@ -13,7 +13,7 @@ static class FlaskRecovery
     /// "Effect is not removed when Unreserved Mana is Filled / Effect does not Queue").</summary>
     public sealed record Use(double Life, double Mana, double Seconds, double InstantLife, double InstantMana,
         double RemovesLife, double RemovesMana, double ManaAtEnd, bool LifeStaysAtFull, bool ManaStaysAtFull, double ExtraLife,
-        bool NoQueue = false, double? LifeSeconds = null, double? ManaSeconds = null);
+        bool NoQueue = false, double? LifeSeconds = null, double? ManaSeconds = null, bool ManaAlsoLife = false);
 
     /// <summary>The extra life's duration: "Recover an additional #% of Life over 10 seconds if used while not on Full
     /// Life" (local_flask_additional_x%_life_recovery_per_second_over_10_seconds_if_not_on_full_life).</summary>
@@ -89,6 +89,7 @@ static class FlaskRecovery
             NoQueue: L("local_flask_effect_not_removed_at_full_mana") > 0
                 || type.LifePerUse > 0 && character("life_flask_effects_are_not_removed_at_full_life") > 0
                 || type.ManaPerUse > 0 && character("mana_flask_effects_are_not_removed_at_full_mana") > 0,
-            LifeSeconds: lifeSeconds, ManaSeconds: manaSeconds);
+            LifeSeconds: lifeSeconds, ManaSeconds: manaSeconds,
+            ManaAlsoLife: character("non_instant_mana_recovery_from_flasks_also_recovers_life") != 0);
     }
 }

@@ -21,6 +21,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   mana fullness uses the unreserved cap (full-pool refusals verified live locally).
   The client also pays the attack skill's mana for attack-moves the server only walks; the Gateway answers with the
   authoritative mana so the orb and the flasks agree (probe 2026-10-26).
+  Whisperer copies continuous Mana flask recovery to Life, retaining Mana queue ownership and the source snapshot.
+  Historical native Small Mana Flask use recovered 50 Life at full Mana; paid node removal stopped that recovery.
+  The main `595833c` refresh tests admission at full Mana with missing Life and preserves ordinary silent refusal.
+  Immediate and instant-at-end recovery are excluded; see [the class evidence](../docs/game/whisperer.md).
   Code: `Flasks.cs`, `FlaskRecovery.cs`, Gateway (`UseFlask`, `RunResourceRecovery`).
   Docs: [13](../docs/protocol/13-items.md) §8.
 - Flask charges: kills give 1 / 3.5 / 6 / 11 charges by rarity (Mods.dat monster rarity mods, poewiki), increased

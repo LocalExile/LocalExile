@@ -51,12 +51,14 @@ partial class Program
             int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
             int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife
-                - DamagePlayerHit(conn, type == DamageType.Chaos ? 0 : dealt, type == DamageType.Chaos ? dealt : 0, now, stats) + gainedLife));
-            if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
+                - WhispererDamagePlayerHit(conn, type == DamageType.Physical ? dealt : 0,
+                    type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0,
+                    type == DamageType.Chaos ? dealt : 0, now, stats) + gainedLife));
+            conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             TrimLeechLocked(conn);
             conn.RecentEnemyHits.Record(now);
             if (block) ChargesWhenHit(conn, blocked, spell);
-            if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+            if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); conn.Whisperer.Clear(); conn.Blind.Clear(); }
             RecordHardcoreDeath(conn);
             hit = new(dealt, mitigation, conn.PlayerLife, conn.PlayerMana, manaBefore,
                 blocked, blockChance, suppressed, suppression);

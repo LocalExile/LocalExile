@@ -167,8 +167,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Weapon, added-damage and supported attack constructors share the fractional additive contribution.
   Native panel and target-life checks verify 100 to 250, additive 230, a half-percent endpoint of 203 and reductions.
   Removal and relog clear the effect; ordinary bows retain release snapshots and supported spells remain isolated.
-  The native check uses development stat inputs; Phrecia node selection and the rest of Whisperer remain separate.
-  These native results are historical raw-stat checks; expanded Arcane Might coverage is listed under Partly working.
+  Historical Whisperer native acceptance verifies the selected node in a legal build, with damage 215 versus 140.
+  The main `fc202a95` refresh retains Arcane Might and adds Whisperer with automated coverage only.
+  See [the class evidence and shared merge requirements](../docs/game/whisperer.md).
+  Expanded Arcane Might coverage is listed under Partly working.
   Code: `ArcaneMight`, `DamageStats`, `SkillCatalog.Unarmed.HitDamage`, `SupportedAttackDamage`.
   Docs: [20](../docs/protocol/20-damage.md) §2c.
 - Behemoth Steel Willed: each complete group of 450 final armour adds 2% increased attack damage.

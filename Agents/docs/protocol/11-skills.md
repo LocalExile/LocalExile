@@ -1338,6 +1338,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `ClientState.NextAttackAt`, a use may arrive a quarter of an attack early, and a use that arrives sooner is ignored:
   no cost, no swing, no 0x1b1. The client does not deduct the cost itself (a live trace of its Life pool showed the
   mana change at the server's 0x1b1), so no "cost back" update is needed.
+  Final supported costs now apply character cost modifiers once, shared by native skill records and `PayMana`.
+  Whisperer's doubled level-one Fireball cost is 10 versus 5 after paid removal of the selected notable.
+  Only actual paid Mana contributes to its 200-Mana Rage threshold; mitigation and reservation never do.
+  Typed physical Mana-before-Life applies after Ward/ES; hit Recoup publishes earned whole points over four seconds.
+  See [Whisperer](../game/whisperer.md) for ownership, pause/death/carry behavior and native consumer evidence.
 - **Ground attack in dual wield crashes the client: the off hand's weapon stats were missing (issue #167, fixed
   2026-10-25).** A dual-wielded attack swings the off hand too, and the client sets that strike's weapon up from the
   hand's **own** final stats; it derives none (§4). The Gateway sent only `main_hand_*`, so the second weapon had no
@@ -2823,6 +2828,8 @@ The gated snapshot reuses a list only while those inputs and the Rage value stil
 current state instead of publishing old skill stats alongside a new character snapshot.
 See [26-rage.md](26-rage.md) for inputs, primary evidence, versioned policies and the scoped native controls.
 Automated parsed-dispatch coverage does not constitute native verification.
+Whisperer's actual two 100-Mana casts grant 10 Rage, with native pause, area carry, decay and death/restart checks.
+See [the complete class evidence](../game/whisperer.md) for its minimum charges, two forks and timed Blind consumers.
 
 ## Open
 

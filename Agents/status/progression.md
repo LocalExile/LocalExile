@@ -190,6 +190,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Default Phrecia admission is gated; the explicit Gambler opt-in verifies installed graph bytes read-only.
   Docs: [Gambler checklist, scope and verification](../docs/game/gambler.md).
 
+- Whisperer: all nine notables and nine small nodes execute through three legal connected eight-point builds.
+  Historical native checks cover Mana/costs, typed defence/Recoup, flasks, charges, Rage, Fork, Blind and lifecycle.
+  The main `704bf1d2` refresh passes automated checks, including lethal Ignite and full-Mana flask admission.
+  Fresh native selection and connected allocation pass; incoming-hit/flask acceptance remains incomplete.
+  Instant full-Mana commits discard earned Recoup; released projectiles retain separate Blind and Ignite snapshots.
+  Selection requires `Game_VERIFIED_WHISPERER=1` and read-only verification of the exact installed graph.
+  Docs: [38 native checks, model boundaries and required shared merge resolutions](../docs/game/whisperer.md).
+
 ## Partly working
 
 - Aristocrat: every node in its installed graph has a server consumer (gem levels and quality, attribute requirements,
@@ -197,7 +205,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
   Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
 - Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
-  Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
+  Phrecia game connections/selection are gated by default; accepted opt-ins are listed above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
   The native Labyrinth/Altar flow is separate (#151); other Phrecia class gameplay remains separate work.
   Native ordinary command checks do not establish an expanded chooser or special class gameplay.

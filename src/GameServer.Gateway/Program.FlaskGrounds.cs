@@ -74,6 +74,7 @@ partial class Program
                 List<(uint Id, bool Inside)> monsters;
                 lock (conn.Monsters)
                     monsters = [.. conn.Monsters.Select(kv => (kv.Key, !kv.Value.Dead && kv.Value.Life > 0
+                        && kv.Value.Mods.Effects["cannot_be_blinded"] == 0
                         && state.Covers(FlaskGrounds.Kind.SmokeCloud, kv.Value.Walk.Position(now))))];
                 foreach (uint gone in state.BlindedMonsters().Except(monsters.Select(m => m.Id)))
                     state.SetBlinded(gone, false, () => 0);

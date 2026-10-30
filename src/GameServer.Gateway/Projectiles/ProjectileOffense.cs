@@ -23,6 +23,7 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public bool AlwaysHits { get; init; }
     public bool FarShot { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
+    public (int Chance, int Effect, double Seconds) Blind { get; init; }
     public int? SecondFormCriticalChance { get; init; }
     public string? AreaVisual { get; init; }
     public string? FlightVisual { get; init; }

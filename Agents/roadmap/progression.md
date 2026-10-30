@@ -41,9 +41,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Ordinary incoming elemental ailments give Risk Aversion an actual avoidance consumer.
   Current-base tests and exact related-head composition pass; preserve the manual lethal-ignite Recoup resolution
   when composing Whisperer, as recorded in [Gambler](../docs/game/gambler.md).
+- **Known:** Whisperer's nine notables and nine small nodes have historical three-build native acceptance (#98).
+  The main `704bf1d2` refresh retains typed defence, lethal-Ignite cleanup and instant full-Mana Recoup settlement.
+  It preserves current weapon qualification and separate projectile Blind/Ignite snapshots.
+  Fresh selection/allocation pass; damage/flask smoke needs an entry-protection fixture correction.
+  See [the model and evidence](../docs/game/whisperer.md).
 - **Start:** quest passive/refund rewards and the native Labyrinth/Altar flow (#151).
-  Phrecia play stays gated by default; Gambler's explicit opt-in verifies the separately installed graph read-only.
-  Other Phrecia classes retain their default gate; Antiquarian requires its exact verified installed graph opt-in.
+  Phrecia play stays gated by default; accepted opt-ins verify the separately installed graphs read-only.
+  Antiquarian, Gambler, Aristocrat and Whisperer retain their identity-specific graph checks.
   Do not add automatic archive writes or require the alternate graph for ordinary characters.
 - **Known:** Forest Tracking derives attack damage from complete groups of final evasion (#243).
   It composes with Steel Willed; allocation/refund/reload, Iron Reflexes and supported damage have automated coverage.

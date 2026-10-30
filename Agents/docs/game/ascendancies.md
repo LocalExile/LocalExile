@@ -15,6 +15,8 @@ Only one main ascendancy is selected at a time, and it must belong to the charac
 Gambler has an explicit read-only installed-graph opt-in; see [its checklist and scope](gambler.md).
 Aristocrat has the same check behind `Game_VERIFIED_ARISTOCRAT=1`; see [its checklist](aristocrat.md).
 Each opt-in is limited to its identity and the exact pinned graph bytes.
+Whisperer has the same read-only check behind `Game_VERIFIED_WHISPERER=1`.
+See [its model and historical native evidence](whisperer.md); the current-main refresh has automated coverage only.
 The shipped alternate graph contains older ordinary-tree topology.
 A separately agreed client-compatible graph is required before Phrecia can be enabled in an actual game connection.
 Antiquarian has an explicit `Game_VERIFIED_ANTIQUARIAN=1` opt-in which verifies exact installed archive bytes read-only.

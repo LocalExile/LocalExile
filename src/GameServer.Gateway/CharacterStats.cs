@@ -103,7 +103,7 @@ static class CharacterStats
         int EnergyShieldPctPerTenStrength = 0, int EvasionPctPerTenIntelligence = 0,
         bool NoLifeFromStrength = false, bool NoManaFromIntelligence = false,
         bool NoStrengthBonuses = false, bool NoDexterityBonuses = false, bool NoIntelligenceBonuses = false,
-        bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0)
+        bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, int ManaPerDexterity = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -171,10 +171,10 @@ static class CharacterStats
         decimal flatLife = c.BaseMaxLife + 12m * level + strengthLife + b.Life
             + LifeManaPoolSources.AdditionalLife(level, dex, intel, b);
         long flatMana = c.BaseMaxMana + 6L * level + intelligenceMana + b.Mana
-            + LifeManaPoolSources.AdditionalMana(level, b);
+            + LifeManaPoolSources.AdditionalMana(level, b) + (long)dex * b.ManaPerDexterity;
         uint life = b.ChaosInoculation ? 1 : (uint)Math.Clamp(decimal.Floor(flatLife
             * (100m + b.LifePct) / 100m), 1m, int.MaxValue);
-        uint mana = b.ManaPerFourStrength == 0
+        uint mana = b.ManaPerFourStrength == 0 && b.ManaPerDexterity == 0
             ? (uint)Math.Clamp(decimal.Floor(flatMana
                 * (100m + b.ManaPct) / 100m), 0m, int.MaxValue)
             : StrengthMana.Maximum(flatMana, str, b.ManaPerFourStrength, b.ManaPct);
@@ -235,9 +235,10 @@ static class CharacterStats
         int armour = Rating(armourValue), evasion = Rating(evasionValue);
         if (b.MentalConditioning)
         {
-            long rawFlatManaTwice = 2 * (c.BaseMaxMana + 6L * level + b.Mana
+            long rawFlatManaTwice = (long)Math.Clamp(2m * (c.BaseMaxMana + 6L * level + b.Mana
                 + LifeManaPoolSources.AdditionalMana(level, b) + StrengthMana.Flat(str, b.ManaPerFourStrength))
-                + (b.NoManaFromIntelligence || b.NoIntelligenceBonuses ? 0 : intel);
+                + WhispererMana.AttributeManaTwice(intel, dex,
+                    b.NoManaFromIntelligence || b.NoIntelligenceBonuses, b.ManaPerDexterity), long.MinValue, long.MaxValue);
             (mana, armour) = PowerOfPurpose.Pools(rawFlatManaTwice, b, intel);
         }
         // Native ClientStrings IntelligenceDescription: 10 Intelligence grants 1% increased ES.

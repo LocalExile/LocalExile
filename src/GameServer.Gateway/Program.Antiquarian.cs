@@ -42,24 +42,35 @@ partial class Program
     internal static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
+        var hit = AbsorbPlayerWard(conn, nonChaos, 0, chaos, now, stats);
+        return conn.EnergyShield.Damage(hit.Physical + hit.Other, false, now)
+            + conn.EnergyShield.Damage(hit.Chaos, true, now);
+    }
+
+    internal static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
+        int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)
+    {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
         conn.Ward.Advance(now);
         bool wasBroken = conn.Ward.Broken;
         int remaining = conn.Ward.Damage(total, now, Get);
         int absorbed = total - remaining;
         // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
-        int nonChaosEligible = nonChaos - (int)((long)nonChaos * Math.Clamp(Get("base_damage_bypass_ward_%"), 0, 100) / 100);
+        int bypass = Math.Clamp(Get("base_damage_bypass_ward_%"), 0, 100);
+        int nonChaosEligible = nonChaos - (int)((long)nonChaos * bypass / 100);
         int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
-        int lifeDamage = conn.EnergyShield.Damage(nonChaos - nonChaosAbsorbed, false, now)
-            + conn.EnergyShield.Damage(Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)), true, now);
+        int physicalEligible = physical - (int)((long)physical * bypass / 100);
+        int physicalAbsorbed = Math.Min(physicalEligible, nonChaosAbsorbed);
         if (!wasBroken && conn.Ward.Broken
             && conn.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
         {
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
         }
-        return lifeDamage;
+        return (physical - physicalAbsorbed, Math.Max(0, other - (nonChaosAbsorbed - physicalAbsorbed)),
+            Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)));
     }
 
     static void ClearAntiquarianOnDeath(ClientState conn)

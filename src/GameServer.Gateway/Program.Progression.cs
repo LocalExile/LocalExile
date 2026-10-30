@@ -574,6 +574,7 @@ partial class Program
             ? value : sourced;
         bonus = bonus with
         {
+            ManaPerDexterity = PoolSource(WhispererMana.PerDexterity, bonus.ManaPerDexterity),
             LifePerLevel = PoolSource(LifeManaPoolSources.LifePerLevel, bonus.LifePerLevel),
             ManaPerLevel = PoolSource(LifeManaPoolSources.ManaPerLevel, bonus.ManaPerLevel),
             LifePerTenDexterity = PoolSource(LifeManaPoolSources.LifePerTenDexterity, bonus.LifePerTenDexterity),
@@ -833,6 +834,7 @@ partial class Program
             Attributes: attributes, Ward: Get("base_ward"), WardPct: Get("ward_+%") + Get("global_defences_+%") + Get("combined_global_defences_+%"),
             Life: Get("base_maximum_life"), LifePct: Get("maximum_life_+%"), Mana: Get("base_maximum_mana"), ManaPct: Get("maximum_mana_+%"),
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
+            ManaPerDexterity: Get(WhispererMana.PerDexterity),
             LifePerLevel: Get(LifeManaPoolSources.LifePerLevel), ManaPerLevel: Get(LifeManaPoolSources.ManaPerLevel),
             LifePerTenDexterity: Get(LifeManaPoolSources.LifePerTenDexterity),
             LifePerTenIntelligence: Get(LifeManaPoolSources.LifePerTenIntelligence),

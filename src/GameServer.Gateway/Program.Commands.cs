@@ -66,6 +66,14 @@ partial class Program
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, totalPct)]),
                 $"0x01b3 stats: movement_velocity_+% (key {StatKeys.MovementVelocityPct}) = {totalPct} ({conn.Pools.MovementVelocityPct} passive + {percent - 100} dev)");
         })
+        .Add("blind", "/blind [seconds] (dev: incoming Blind through normal immunity)", async args =>
+        {
+            double seconds = args.Length == 0 ? 4 : double.Parse(args[0], System.Globalization.CultureInfo.InvariantCulture);
+            if (!double.IsFinite(seconds) || seconds <= 0 || seconds > 60) throw new ArgumentException("seconds in (0, 60]");
+            bool accepted = InflictPlayerBlind(conn, seconds);
+            await SendBlind(remote, stream, ciphers, conn);
+            await conn.Commands!.Reply(accepted ? "Blind applied." : "Blind refused (immune or unavailable).");
+        })
         .Add("set_stat", "/set_stat <stat name or client key> <value|off> (off removes the dev replacement)", async args =>
         {
             uint stat = Stats.Key(args[0]) ?? throw new ArgumentException($"unknown stat {args[0]}");
@@ -75,7 +83,8 @@ partial class Program
             string sourceName = Stats.Name(stat) ?? args[0];
             bool rebuildLife = LifeManaPoolSources.IsLifeInput(sourceName) || InherentAttributeBonuses.IsLifeInput(sourceName);
             bool rebuildMana = LifeManaPoolSources.IsManaInput(sourceName) || stat == Stats.Key(StrengthMana.PerFourStrength)
-                || InherentAttributeBonuses.IsManaInput(sourceName) || stat == Stats.Key(PowerOfPurpose.RawFlag);
+                || InherentAttributeBonuses.IsManaInput(sourceName) || stat == Stats.Key(PowerOfPurpose.RawFlag)
+                || stat == Stats.Key(WhispererMana.PerDexterity);
             bool rebuildDefences = AttributeDefenceSources.IsInput(sourceName) || InherentAttributeBonuses.IsInput(sourceName);
             bool rebuildEnergyShield = sourceName == AttributeDefenceSources.EnergyShieldPerTenStrength
                 || InherentAttributeBonuses.IsEnergyShieldInput(sourceName);
@@ -1072,6 +1081,7 @@ partial class Program
             }
             int dealt = hit.Damage; string mitigation = hit.Mitigation; uint life = hit.Life;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+            if (hit.Mana != hit.ManaBefore) await SendPlayerMana(remote, stream, ciphers, conn, "physical hit paid from Mana");
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev hit)");
@@ -1175,6 +1185,7 @@ partial class Program
             bool suppressed = hit.Suppressed;
             var (chance, effect, lucky, unlucky) = hit.Suppression;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+            if (hit.Mana != hit.ManaBefore) await SendPlayerMana(remote, stream, ciphers, conn, "physical spell hit paid from Mana");
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                     "0x01b3 player hide_mini_life_bar = 1 (dev spell hit)");

@@ -652,8 +652,13 @@ partial class Program
             return;
         }
         bool canRecover;
+        FlaskRecovery.Use r;
         lock (conn.Monsters)
-            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerMaxLife, conn.PlayerMana, (uint)UnreservedMana(conn));
+        {
+            r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
+            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerMaxLife, conn.PlayerMana,
+                (uint)UnreservedMana(conn), r);
+        }
         if (!canRecover)
         {
             await Send(remote, stream, ciphers, InstanceItems.ItemUsed(flask.Item.TypeHash,
@@ -675,7 +680,6 @@ partial class Program
         if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is not { } spent) return;
         await Send(remote, stream, ciphers, InstanceItems.ItemUsed(spent.Item.TypeHash,
             PlayerInventories.InventoryId(PlayerInventories.Flask), spent.Id), $"0x0263 flask {slot} used (native use sound)");
-        var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
         Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {r.Life:0.#} life, {r.Mana:0.#} mana over {r.Seconds:0.##} s, " +
             $"instantly {r.InstantLife:0.#} life, {r.InstantMana:0.#} mana{(r.ManaAtEnd > 0 ? $", {r.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(r.RemovesLife + r.RemovesMana > 0 ? $", removes {r.RemovesLife:0.#} life, {r.RemovesMana:0.#} mana" : "")}" +

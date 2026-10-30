@@ -91,7 +91,7 @@ partial class Program
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
         var local = spell ? null : WeaponFor(conn).LocalSources;
-        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, conn.Pools.Accuracy,
+        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, PlayerAccuracy(conn),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
@@ -110,7 +110,7 @@ partial class Program
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
-            ReturnMultiplier = ProjectileReturn.DamageMore(Get),
+            ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(player, own),
             // The client's action spawns the gem's projectiles itself, every one of a volley, from where it stands (Frida
             // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
             ClientPredicted = true

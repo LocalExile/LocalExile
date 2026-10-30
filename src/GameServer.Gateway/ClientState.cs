@@ -115,6 +115,7 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public double Regen;
     // Impales retained for consumption/expiry, including on a corpse (Impale.cs).
     public readonly ImpaleState Impale = new();
+    public readonly TimedBlind Blind = new();
     // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
     public readonly MonsterIgnites Ignites = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
@@ -396,6 +397,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly Dictionary<uint, int> PlayerStats = [];
     // Transient Rage belongs to this connection until its destination ticket takes ownership; guarded by Monsters.
     public readonly RageState Rage = new();
+    public readonly WhispererManaState Whisperer = new();
+    public readonly TimedBlind Blind = new();
     public bool RageRetired;
     public ushort RageBuff;
     public RageState.Value? SentRage;

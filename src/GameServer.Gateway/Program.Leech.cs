@@ -46,8 +46,19 @@ partial class Program
     {
         double now = ProjectileWorldTime(conn);
         if (conn.PlayerLife == 0) LeechOf(conn).Clear(now);
-        else LeechOf(conn).ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife,
-            conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+        else
+        {
+            bool manaFull = conn.PlayerMana >= UnreservedMana(conn);
+            LeechOf(conn).ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife,
+                manaFull, conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+            if (manaFull)
+            {
+                // Full Mana cannot bank earned Recoup, including whole points not yet handed to the resource writer.
+                // Settle at this commit and discard only earnings; future grants and Mana-spend progress survive.
+                conn.Whisperer.Take(now);
+                conn.Whisperer.DiscardRecoveryFraction();
+            }
+        }
     }
 
     internal static LeechSources HitLeechSources(IReadOnlyDictionary<uint, int> player, bool attack,
@@ -82,7 +93,6 @@ partial class Program
         conn.EnergyShield.Gain(instant.EnergyShield);
         session.InstantLifeChanged |= life != conn.PlayerLife;
         session.InstantManaChanged |= mana != conn.PlayerMana;
-        session.ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife, conn.PlayerMana >= UnreservedMana(conn),
-            conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+        TrimLeechLocked(conn);
     }
 }
