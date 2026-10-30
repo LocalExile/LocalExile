@@ -24,7 +24,8 @@ partial class Program
     // the ACT-selected wand clip for this input's sequence), then freezes damage, chance and multiplier; conditional
     // critical rules read the live owner at impact, and target evasion and impales resolve at contact.
     static Task ScheduleOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence)
+        (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
+        SkillCriticalRoll criticalRoll)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -50,6 +51,8 @@ partial class Program
                     captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
                 { SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
                     Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
+                    ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
+                    CriticalRoll = criticalRoll, Leech = captured.Leech,
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
                     AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
                     ReturnMultiplier = ProjectileReturn.DamageMore(Get),

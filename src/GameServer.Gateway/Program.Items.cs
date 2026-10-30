@@ -620,7 +620,14 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot}: {(flask is null ? "no flask there" : "not a flask (not handled)")}");
             return;
         }
-        var character = CharacterPlayerStats(conn);
+        Dictionary<uint, int> character;
+        int playerLevel;
+        // Keep level and coefficient sources in one use snapshot, including across the asynchronous charge spend.
+        lock (conn.Monsters)
+        {
+            playerLevel = conn.Pools.Level;
+            character = CharacterPlayerStats(conn);
+        }
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(use, local, Get);
@@ -653,7 +660,7 @@ partial class Program
         if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is not { } spent) return;
         await Send(remote, stream, ciphers, InstanceItems.ItemUsed(spent.Item.TypeHash,
             PlayerInventories.InventoryId(PlayerInventories.Flask), spent.Id), $"0x0263 flask {slot} used (native use sound)");
-        var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife);
+        var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
         Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {r.Life:0.#} life, {r.Mana:0.#} mana over {r.Seconds:0.##} s, " +
             $"instantly {r.InstantLife:0.#} life, {r.InstantMana:0.#} mana{(r.ManaAtEnd > 0 ? $", {r.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(r.RemovesLife + r.RemovesMana > 0 ? $", removes {r.RemovesLife:0.#} life, {r.RemovesMana:0.#} mana" : "")}" +
@@ -671,30 +678,34 @@ partial class Program
                 return;
             }
             (conn.PlayerLife, conn.PlayerMana) = (lifeAfter, manaAfter) = (l, m);
+            TrimLeechLocked(conn);
         }
         if (lifeAfter != lifeBefore) await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter), $"0x01b1 player life {lifeAfter} (flask)");
         if (manaAfter != manaBefore) await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {manaAfter} (flask)");
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (r.ExtraLife > 0)
             conn.FlaskEffects.Start(new Flasks.Effect((byte)slot, 0, 0, r.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
-        if (r.Seconds <= 0 || r.Life + r.Mana + r.ManaAtEnd <= 0) return;
-        ushort buff;
-        lock (conn.Monsters) buff = conn.NextBuff++;
-        ushort row = use.LifePerUse > 0 ? FlaskEffectLifeBuffRow : FlaskEffectManaBuffRow;
-        var effect = new Flasks.Effect((byte)slot, buff, row, r.Life / r.Seconds, r.Mana / r.Seconds, now, now + r.Seconds,
-            r.ManaAtEnd, r.LifeStaysAtFull, r.ManaStaysAtFull, r.NoQueue);
-        conn.FlaskEffects.Start(effect);   // recovers at once or waits in its queue (Flasks.Effects)
+        List<Flasks.Effect> effects;
+        lock (conn.Monsters)
+            effects = Flasks.RecoveryEffects(r, (byte)slot, now, () => conn.NextBuff++, FlaskEffectLifeBuffRow, FlaskEffectManaBuffRow);
+        foreach (var effect in effects) conn.FlaskEffects.Start(effect);
         // Both rows are IsRecovery: 0x1c1 carries one u32 per GrantedStats entry, here base_life (or mana)
         // _recovery_per_minute_from_flask. Without it the client misread the message and showed no life change after it
         // (live 2026-10-20).
-        uint perMinute = (uint)Math.Round((use.LifePerUse > 0 ? r.Life : r.Mana) * 60 / r.Seconds);
         // The duration (+0x68, f32 seconds) and the flask-bar cell (source skill): the timer bar under the flask (Flasks.Buff).
         // Game_FLASK_BUFF_DURATION=0 sends no duration (before 2026-10-25 a u32 in milliseconds went there, which the client
         // read as a float of almost 0 s).
         bool withDuration = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") != "0";
-        if (FlaskBuffs)
-            await Send(remote, stream, ciphers, Flasks.Buff(PlayerId, buff, row, (byte)slot, withDuration ? r.Seconds : null, [perMinute]),
-                $"0x01c1 player buff {buff}: {(row == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} (BuffDefinitions row {row}), {perMinute} per minute, {(withDuration ? $"{r.Seconds:0.##} s" : "no duration")}");
+        foreach (var effect in effects)
+        {
+            uint perMinute = (uint)Math.Round((effect.LifePerSecond + effect.ManaPerSecond) * 60);
+            double duration = effect.Ends - effect.Started;
+            if (FlaskBuffs)
+                await Send(remote, stream, ciphers, Flasks.Buff(PlayerId, effect.Buff, effect.BuffRow, (byte)slot,
+                    withDuration ? duration : null, [perMinute]),
+                    $"0x01c1 player buff {effect.Buff}: {(effect.BuffRow == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} " +
+                    $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
+        }
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -1041,12 +1052,16 @@ partial class Program
         if (type?.Id == CurrencyEffects.MirrorOfKalandra)
         {
             if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
-            await MirrorItem(remote, stream, ciphers, conn, items, usedRow, used, target);
+            await MirrorItem(remote, stream, ciphers, conn, items, RollsFor(conn), usedRow, used, target);
             return;
         }
         // What the currency makes of the target, or null (nothing happens, nothing is spent).
-        // A corrupted or mirrored item takes no currency but a Scroll of Wisdom (no corrupted currency yet).
-        Item? result = (target.Item.Corrupted || target.Item.Mirrored) && type?.Id != Wisdom ? null : type?.Id switch
+        // A corrupted item takes no currency but a Scroll of Wisdom (no corrupted currency yet). A mirrored item takes
+        // no currency at all: the wiki says a mirrored copy cannot be altered in any way except a Reflective Oil, which
+        // is not modelled.
+        Item? result = target.Item.Mirrored ? null
+            : target.Item.Corrupted && type?.Id != Wisdom ? null
+            : type?.Id switch
         {
             Wisdom => target.Item.Identified || !target.Item.Components.Contains("Mods") ? null : target.Item with { Identified = true },
             CurrencyEffects.ChromaticOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } targetType
@@ -1079,11 +1094,13 @@ partial class Program
                     ? CurrencyEffects.EldritchEmber(target.Item, emberType, emberTier, RollsFor(conn), Random.Shared)
                     : null,
             CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target.Item),
+            CurrencyEffects.SacredOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } defenceType
+                ? CurrencyEffects.Sacred(target.Item, ItemsFor(conn).Defences(defenceType), Random.Shared) : null,
             CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target.Item),
             CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target.Item, RollsFor(conn), Random.Shared),
             CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target.Item),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target.Item),
-            CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target.Item, Random.Shared),
+            CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target.Item, RollsFor(conn), Random.Shared),
             CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } vaalType
                 ? CurrencyEffects.Vaal(target.Item, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), Random.Shared) : null,
             _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target.Item, Random.Shared),
@@ -1096,8 +1113,8 @@ partial class Program
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
             Console.WriteLine($"[gateway] {remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
-                (isEssence || type?.Id is Wisdom or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
-                    ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links)" : $"not handled: {hex}"));
+                (isEssence || type?.Id is Wisdom or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
+                    ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links / fixed defence bases)" : $"not handled: {hex}"));
             return;
         }
         // The currency and the changed item are saved together.
@@ -1144,7 +1161,8 @@ partial class Program
                 if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(remote, stream, ciphers, conn, items);
             }
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (isEssence || type.Id is Wisdom or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
+        Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
+            : isEssence || type.Id is Wisdom or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))
             : $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"));
     }
@@ -1152,11 +1170,11 @@ partial class Program
     // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked
     // up, for the player to place; the target stays as it was. One mirror and the copy are saved together.
     static async Task MirrorItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
-        byte usedRow, InventoryItem used, InventoryItem target)
+        ItemRolls rolls, byte usedRow, InventoryItem used, InventoryItem target)
     {
-        if (CurrencyEffects.Mirror(target.Item) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
+        if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / no mods / cursor not empty)");
+            Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / non-equipment / unmodifiable / no mods / cursor not empty)");
             return;
         }
         var done = Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>

@@ -80,6 +80,12 @@ Class vtable `0x1435dc280` (ctor `0x14219dd90`, write `0x14219ddf0`, read `0x142
 
 The client keeps the old connection until the new one is up, then the Gateway sees it disconnect.
 
+The old connection is retired by the successful transfer before its socket closes.
+Retired, closed or temporarily leaving connections cannot publish character-global equipment qualification.
+Their recovery/stat workers stop on retirement; a failed transfer can resume a temporarily leaving connection.
+Queued ES publication checks lifecycle inside the send gate before reading character sources.
+See [character stat lifecycle](../dev/character-stat-lifecycle.md) for the regression and native evidence.
+
 ### S→C 0xae — instance list
 
 Class `0x1435dca40`, write `0x1421a2300`, dispatcher case 0x2e → listeners at +0x6cf0. This opens the

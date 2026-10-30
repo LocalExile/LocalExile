@@ -20,6 +20,12 @@ Each row holds its record as JSON, readable with any SQLite browser. A save fiel
 build wrote it) is kept as it is by the next write. Nothing is cached across processes: Auth and the host read and write
 the database directly, and a write waits for another process's transaction to end.
 
+Saved items include their raw `DefenceBaseRoll`, shared by armour, evasion and Energy Shield.
+Ordinary rolls are 0 through 31; raw 32 preserves the native special minimum-base state.
+Character inventories, socketed items, deferred starter items and shared stash tabs use the same conversion.
+Old items without the field load as zero, retaining their previous minimum bases without a migration or reroll.
+Loading passes the saved value explicitly to the item factory instead of drawing a new base roll.
+
 Not saved, on purpose, as in the real game: monsters, dead monsters, items on the ground and an opened map's portals
 belong to their area instance, in memory. They last while the instance does (across logouts and disconnects) and are gone
 when it expires or the Gateway restarts.
@@ -145,3 +151,8 @@ unknown fields and items), `UnsavedProgressTests` (experience and flask charges 
 each tab holds, slots, the repair at load), `CtrlClickTests` (Ctrl + click to and from the stash and a shop) and, in the
 Core tests,
 `SqliteAccountStoreTests` (accounts, deletion with its save, the import).
+
+`ExperienceLevelEventTests` also checks an extra-point grant while level publication is in flight. Its grant and
+publication run independently from the coordinator that releases the deliberately held save. A loopback connect
+may complete synchronously, so invoking publication on the coordinator can block on that save before release.
+Keep the independent scheduling rather than increasing the timeout; the production transaction is unchanged.

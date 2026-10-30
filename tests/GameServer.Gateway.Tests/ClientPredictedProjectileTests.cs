@@ -37,8 +37,10 @@ public partial class SpellNoDamageTests
         await using var runtime = new ProjectileRuntimeFixture(f.Conn);
         var gems = (IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
             Method("GemSkillEffects").Invoke(null, [f.Conn])!;
+        // The use's critical roll is captured at paid admission (CastGemSkill) and travels with the projectile.
+        var roll = Method("CaptureSkillCriticalRoll").Invoke(null, [f.Conn, f.Skill])!;
         var use = (GameServer.Core.Projectiles.ProjectileUse)Method("CaptureGemProjectile").Invoke(null,
-            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32)])!;
+            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32), roll])!;
         Assert.True(Assert.IsType<ProjectileOffense>(use.Payload).ClientPredicted);
     }
 }

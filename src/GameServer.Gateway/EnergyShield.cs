@@ -4,6 +4,7 @@ sealed class EnergyShield
 {
     public uint Current { get; private set; }
     public uint Maximum { get; private set; }
+    public bool Full => Maximum > 0 && Current >= Maximum;
     public bool Recharging { get; private set; }
     double interruptedAt = double.NegativeInfinity, fraction;
     public void SetMaximum(uint maximum, bool refill = false)
@@ -23,11 +24,19 @@ sealed class EnergyShield
         return amount - (int)absorbed;
     }
     public void Empty() { Current = 0; fraction = 0; Recharging = false; }
+    // Leech/gain does not start recharge or reset its interruption timer.
+    public void Gain(double amount)
+    {
+        if (!double.IsFinite(amount) || amount <= 0) return;
+        Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
+        if (Current == Maximum) Recharging = false;
+    }
     public static uint Max(int flat, int increased) =>
-        (uint)Math.Clamp((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) / 100, 0, int.MaxValue);
+        (uint)Math.Clamp(((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) + 50) / 100, 0, int.MaxValue);
     public static double Delay(Func<string, int> get) => 2 / Math.Max(0.01, 1 + get("energy_shield_delay_-%") / 100.0);
     public static double RechargePerMinute(uint max, Func<string, int> get) =>
-        get("cannot_recharge_energy_shield") != 0 || get("no_energy_shield_recharge_or_regeneration") != 0 ? 0 :
+        get("cannot_recharge_energy_shield") != 0 || get("no_energy_shield_recharge_or_regeneration") != 0
+            || get("keystone_ghost_reaver") != 0 ? 0 :
         max * 20.0 * Math.Max(0, 1 + get("energy_shield_recharge_rate_+%") / 100.0)
         * Math.Max(0, 1 + get("energy_shield_recovery_rate_+%") / 100.0);
     public static double RegenPerMinute(uint max, Func<string, int> get) =>

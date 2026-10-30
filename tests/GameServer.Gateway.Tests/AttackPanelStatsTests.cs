@@ -14,10 +14,11 @@ public class AttackPanelStatsTests
     {
         int row = Skills.Value.EffectRow(effect);
         return AttackSkillHit.Resolve(weapon ?? Weapon(), character, Skills.Value.EffectStats(row, 1),
-            Stats.Value, Skills.Value.DamageEffectiveness(row, 1));
+            Stats.Value, Skills.Value.DamageEffectiveness(row, 1), melee: Skills.Value.IsMelee(row),
+            projectile: Program.Supports.Of(row)?.Types.Contains(2) == true);
     }
     static Dictionary<string, int> Rows(string effect, DamagePacket hit, int aps = 140) =>
-        AttackPanelStats.Compute(SkillHitPlan.ForSkill(Skills.Value, Skills.Value.EffectRow(effect), 1), hit, aps)
+        AttackPanelStats.Compute(SkillHitPlan.ForSkill(Skills.Value, Skills.Value.EffectRow(effect), 1), hit, aps / 100.0)
             .ToDictionary(r => r.Stat, r => r.Value);
 
     [Fact]

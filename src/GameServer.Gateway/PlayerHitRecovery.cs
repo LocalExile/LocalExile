@@ -48,8 +48,10 @@ sealed class PlayerHitRecovery
         || name.StartsWith("base_cannot_be_stunned_", StringComparison.Ordinal)
         || name.Contains("avoid_stun", StringComparison.Ordinal) && name is not ("avoid_stun_%" or "base_avoid_stun_%")
         || name.Contains("stun_avoid", StringComparison.Ordinal)
-        || name.StartsWith("stun_threshold_+%_", StringComparison.Ordinal)
-        || name.StartsWith("stun_recovery_+%_", StringComparison.Ordinal)
+        // The per-charge threshold and recovery stats ChargeEffects expands (Brutal's threshold, Frenzy's recovery) are
+        // already in stun_threshold_+% / stun_recovery_+% with the charges held.
+        || name.StartsWith("stun_threshold_+%_", StringComparison.Ordinal) && !ChargeEffects.Expands(name)
+        || name.StartsWith("stun_recovery_+%_", StringComparison.Ordinal) && !ChargeEffects.Expands(name)
         || name.StartsWith("skill_cannot_be_stunned", StringComparison.Ordinal)
         || name is "stun_threshold_+" or "stun_threshold_increased_by_overcapped_fire_resistance"
             or "local_flask_stun_recovery_+%_while_healing" or "block_and_stun_+%_recovery_per_fortification";

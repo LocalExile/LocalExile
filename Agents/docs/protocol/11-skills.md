@@ -110,6 +110,12 @@ ActionType → `HASH16`); the default attack's is `Melee` 45448 = 0xb188.
 
 ## 4. The default attack
 
+**Issue #75 evidence scope:** imported test counts and Standard/Ruthless native matrices in this document describe
+the original LocalExile revisions. They are retained as historical evidence, including their UNPROVED boundaries.
+This branch ports the completed ordinary-mode work without the source's private game-mode implementation.
+See [the port record](../dev/issue75-port.md) for revision mapping, fresh automated validation and native checks
+still required on the ported branch. Source `artifacts/issue75-completion/` paths refer to the LocalExile checkout.
+
 Characters.dat `StartingMeleeSkill` is the GEPL row of each class's default attack: **4474** = `PlayerMelee` level 1
 for the Witch. Its stat set is GrantedEffects `StatSet1` = 476 (`PlayerMelee`), level 1 = GESSPL row **4430**.
 `SkillCatalog` looks both up by GrantedEffects `Id` and level (`Game_PLAYER_ATTACK` picks another effect).
@@ -178,7 +184,7 @@ come from `Metadata/Characters/Character.ot` (`life_per_level` 12, `mana_per_lev
 `accuracy_rating_per_level` 2, `base_evasion_rating` 15; it has no `evasion_rating_per_level`, so evasion does not grow
 with level), the bases and attributes from Characters.dat:
 
-| Stat | Value |
+| Stat | Base value before optional sources |
 |---|---|
 | `maximum_life` | BaseMaxLife (38) + 12 × level + strength / 2 |
 | `maximum_mana` | BaseMaxMana (34) + 6 × level + intelligence / 2 |
@@ -187,7 +193,7 @@ with level), the bases and attributes from Characters.dat:
 | `evasion_rating` | (15 + flat evasion from passives + base body/helmet/gloves/boots) × (1 + `evasion_rating_+%` / 100) |
 | `evasion_rating_+%` | dexterity / 5 + increased evasion passives |
 | `physical_damage_reduction_rating_+%` | increased armour passives |
-| `maximum_energy_shield_+%` | intelligence / 5 |
+| `maximum_energy_shield_+%` | floor(intelligence / 10) |
 | `melee_physical_damage_+%` | strength / 5 |
 
 `AttributeModifiers` combines class attributes and every flat passive/active-equipment source before scaling once.
@@ -216,7 +222,10 @@ supply 3% increased Strength and 10% increased Armour through ordinary raw stats
 That source evidence does not enable Phrecia selection or establish native class gameplay.
 
 The final attributes feed life/melee damage, accuracy/evasion and mana/energy shield respectively.
-Existing derived-pool divisions stay unchanged, including odd attributes and this server's Intelligence / 5 ES increase.
+Native `ClientStrings` row169, `IntelligenceDescription`, declares 1% increased ES per ten Intelligence.
+The ES term uses complete final groups of ten, matching pinned PoB `CalcPerform.lua:541`.
+This corrects the former `/5` term; static help text does not establish official fractional server arithmetic.
+Historical attribute captures below precede that correction and do not validate the updated ES totals.
 An explicit `AttributesResolved` pool marker distinguishes calculated zero attributes from legacy uninitialized pools.
 Record clones retain the marker; three saturated attributes cannot overflow a sum-based fallback check.
 `ClassAttributes` sends the same final values as both panel attributes and `virtual_*_for_requirements`.
@@ -249,6 +258,79 @@ At final Strength 16 and Intelligence 7, conversion uses B=75.5 and publishes 15
 Combined regressions cross the rounded four-Strength boundary, then verify mana increases and truncation once.
 Equipment, inactive/current weapon snapshots, zero/off raw replacements and idle aura reservation share that result.
 Inactive-weapon, cascading-equipment, passive-refund and active-aura composition still need native coverage.
+Historical LocalExile controls also cover 34 Standard/Ruthless supplied-source states, including Fireball
+qualification at Intelligence 68/62/68 against its 67 requirement, source recovery and weapon-set relog.
+Those controls do not enable private game modes in this branch or prove official fractional parity.
+Fourteen subsequent supplied-source controls at actual level 100 verify the corrected ES and attribute-scaled Evasion
+in Standard and Ruthless, including removal/return, no-refill, clamping and fresh entry. They bind completed local World
+updates to the actual equipment actions; they do not certify every attribute operator or the rendered Defence rows.
+See [20](20-damage.md#player-energy-shield-2026-10-25) for the exact states and remaining recovery scope.
+
+Five native source flags now suppress only the named inherent attribute grants, after final attributes resolve:
+
+| Native source | Removed inherent contribution |
+|---|---|
+| `gain_no_maximum_life_from_strength` (7964) | Strength Life |
+| `gain_no_maximum_mana_from_intelligence` (7965) | Intelligence Mana |
+| `gain_no_inherent_bonus_from_strength` (15532) | Strength Life and melee physical increase |
+| `gain_no_inherent_bonus_from_dexterity` (18387) | Dexterity accuracy, including the mastery replacement, and Evasion increase |
+| `gain_no_inherent_bonus_from_intelligence` (18388) | Intelligence Mana and ES increase |
+
+Narrow and broad flags suppress their shared contribution once. Actual attributes and requirement fields stay intact;
+independent item Life/Mana/ES/Evasion per attribute still reads those final values. The guards follow pinned PoB
+`CalcPerform.lua` 516–543 after attribute resolution; `ModStore.lua` 501/525 retains the separate completed item groups.
+The complete raw flag sum is replaced from one developer snapshot before boolean interpretation, including explicit
+zero. Actual `/set_stat` commands rebuild the affected pools and skill stats, clamp current Life/Mana/ES as applicable,
+retain Mana reservation and leave capacity increases unfilled. Ordinary equipment Life clamping still follows the
+existing recovery tick; these command tests do not establish immediate Life publication for every source-change path.
+
+All 16 native modifier vectors, including the companion +60/80/90/120 attributes on weapon-tree rows, have automated
+both-mode catalogue/range/hash and saved-item round-trip checks. They are supplied-source controls, not acquisition or
+weapon-tree admission. The 80 new cases (64 pure/native-source and 16 Gateway) pass; fresh full Gateway 4019, Core 648
+and Data 37 all pass without skips. The diagnostic hook retains six actual disposed-stream `MonsterKilled`→`Send`
+task faults separately from 386 first-chance records; no new flag path appears in those unobserved stacks, with no
+diagnostic error/truncation/cap hit. Passing suites do not establish fault-free background execution.
+Native-client flag publication/reload remains pending. Key18620 has no direct modifier/passive source in the checked
+tables and is not an Iron Reflexes alias; global/other attribute-prohibition or conversion operators remain separate.
+
+Life and Mana also collect six signed raw pool coefficients from passives and active equipment.
+`LifeManaPoolSources` adds these terms to the flat buckets after resolving actual character level (1–100) and the
+completed nonnegative attributes, before the pool's increased percentage:
+
+| Raw coefficient | Flat contribution |
+|---|---|
+| `life_per_level` | coefficient × character level, added to inherent 12 per level |
+| `mana_per_level` | coefficient × character level, added to inherent 6 per level |
+| `maximum_life_per_10_dexterity` | coefficient × floor(final Dexterity / 10) |
+| `maximum_life_per_10_intelligence` | coefficient × floor(final Intelligence / 10) |
+| `X_life_per_4_dexterity` | coefficient × floor(final Dexterity / 4) |
+| `x_to_maximum_life_per_2_intelligence` | coefficient × floor(final Intelligence / 2) |
+
+Native item fixtures use +2 Life/Mana per level, +2 Life per ten Dexterity/Intelligence, +1 per four Dexterity and
++1 per two Intelligence; distinct +2 Mana-per-level modifiers also compose to +4 before multiplying by level.
+Negative native `life_per_level` values -12/-6/-3 subtract from the inherent growth; they are not discarded.
+Mode-specific source-vector cases read The Apostate (graph 56940), Crimson Power (20931) and Sanguine Power (24063)
+through `PassiveTree.Stats`, `PassiveBonus` and the pool calculation; they do not allocate a Gateway character's tree.
+Each attribute term counts complete groups once from the final whole-source attributes, after typed/all increases;
+display-only final attribute overrides do not feed these pool inputs. Flat Life from existing equipment ES conversion
+and the ordinary Strength/Intelligence halves remain in their existing buckets. Mana retains its Strength-based
+branch below. Wide signed intermediates preserve cancellation before final pool scaling and bounds.
+`PassiveBonus` uses one developer snapshot: an explicit coefficient replacement, including zero, replaces its whole
+passive/item coefficient. `/set_stat` on any of these six inputs rebuilds pools and clamps current Life/Mana;
+the relevant resource update is sampled at the send gate, with reservation retained for Mana.
+The ordering follows pinned PoB `16de4b8` CalcSetup 597, ModParser 1354/1471 and ModStore 501; CalcPerform 517 supplies
+the ordinary attribute bonuses. The existing final Life/Mana floor is retained, whereas pinned CalcPerform 88
+rounds final pools. Exact official fractional parity remains unverified; this change does not adopt PoB's final round.
+Native modifier and isolated conversion-passive fixtures do not establish legal acquisition, event-passive admission
+or complete conversion-node behavior. The 71 new cases (45 pure/native-source and 26 Gateway) pass with 82 existing
+regressions: 153/153 focused, without skips. Full Gateway passes 3874/3874 with no skips; earlier unchanged
+Core 648/Data 37 from this session remain applicable, for 4559 applicable cases. Only Gateway was rerun after these
+six-source changes. The current hook records seven actual unobserved disposed-NetworkStream faults: six
+`MonsterKilled` → `Send`, and one `NotifyMonsterHit` → `HitMonster` → `AreaSkillHit` → `LaunchProjectile` →
+`CastGemSkill` → `Send`. Its 390 first-chance records are separate from those seven faults.
+There are no diagnostic errors, truncation or cap hits, and no captured new pool-source path; passing tests do not
+establish fault-free background execution. New native checks remain pending; this bounded source addition does not
+complete the Life or Mana panel rows, their more/conditional operators or other conversion engines.
 
 Maximum mana also includes the ordinary flat and increased mana sources from passives and active equipment.
 `X_mana_per_4_strength` (Stats row 4992, client key 4993) contributes
@@ -258,6 +340,9 @@ Mana increases apply once to the combined flat total.
 The active consumer uses wide signed arithmetic, clamps nonpositive totals or multipliers to zero, and saturates at
 `int.MaxValue` for the native maximum and existing reservation/damage consumers.
 A missing or zero source keeps ordinary mana rounding and signed flat-mana/multiplier behavior.
+A missing or zero source uses the ordinary mana formula after resolving nonnegative final attributes.
+Both routes retain complete Intelligence halves. Wide intermediates prevent a saturated final attribute from
+wrapping ordinary mana or Accuracy; existing inherent ratios and Accuracy's final projection are unchanged.
 `PassiveBonus` reads the generic source; `/set_stat X_mana_per_4_strength <value>` replaces it and rebuilds pools.
 The rebuild clamps current mana to the new unreserved cap without filling it when maximum mana increases.
 It explicitly sends the mana pool's `0x1b1`, including reservation, even when current mana is unchanged.
@@ -297,7 +382,7 @@ Fire's 18 = 1.8 m), so a target whose centre is within 20 cells of the player is
 The target's rarity (`SpawnedMonster.Rarity`) and its tracked position at the hit's resolution time decide both; the two
 "more" effects multiply (unique and close: × 2.1) and the product floors to a whole rating.
 The default attack samples both actors' current tracked positions after its contact delay.
-Attack gems currently lack an accuracy roll, so these conditions apply only to the existing default-attack roll.
+Ordinary, area and gem projectile attack contacts use these conditions.
 Ten native checks allocated connected ordinary paths and selected both effects through real C→S 0x35 requests.
 The unconditional native panel stayed at 711; logged rolls used 995 against Unique and 1066 against a close normal.
 A close Unique used 1493, while a Unique outside close range used 995.
@@ -308,6 +393,37 @@ panel's Main Hand / Off Hand Accuracy rows, `main_hand_accuracy_rating` / `off_h
 Hit rows are sent directly as `main_hand_chance_to_hit_%` / `off_hand_chance_to_hit_%` (and the evasive-monster
 variants), against a reference monster of the character's level; `character_sheet_reference_evasion` and
 `..._high_dex_evasion` carry that monster's evasion. `/accuracy` states the mastery's per-target values.
+
+**Accuracy source and selected-support correction (issue #75 review).** `AccuracyRating` now collects the
+unconditional flat/increased generic and weapon-source buckets with wide signed sums. Pool builds replace
+each complete raw source with its developer override, including zero, before deriving accuracy; Precision's
+flat contribution participates once and is also removed by an explicit zero. `/set_stat ... off` restores the
+underlying source and all implemented accuracy inputs trigger a pool rebuild. Per-level/mastery replacements
+follow the same override rule. The exact nonnegative product floors once and saturates at `int.MaxValue`.
+
+`CharacterStats.Pools.AccuracyBase` retains the signed, unrounded base before increased accuracy. A selected
+attack's own flat/increased inputs join those original buckets, without adding weapon-local accuracy twice.
+`SupportedAccuracy` supplies that profile and the selected main-hand rating, normal hit chance and evasive-target
+hit chance. Actual level-one Additional Accuracy contributes 74 flat; quality contributes 1% increased per point.
+Linking, unlinking, removing the support or changing the character's attributes rebuilds those three aliases.
+Ordinary attack and unrelated spell records retain their own values. Explicit final alias overrides retain the
+existing display policy; raw accuracy overrides affect the calculation. Target-conditional Masteries stay out
+of the reference-monster estimates. Cannot-evade flags yield 100% in these selected chance estimates.
+
+Decision: retain the original base and combine supported inputs before rounding, rather than adding 74 to an
+already increased final rating or dividing that floored rating to reconstruct a lost base. Use the established
+whole-source replacement policy for commands, instead of adding a second developer contribution on top of
+Precision/items. Pinned PoB `16de4b82d57f1c0de6eb40f37143c32d4da36a02`, `CalcOffence.lua` accuracy section
+and `Data/Skills/sup_dex.lua` `SupportAdditionalAccuracy`, supplies the formula and support values; native
+catalog support/quality controls match them. This is the accepted 3.29.x reference, not exact 3.29.3b certification.
+Automated source/command/Precision restoration, real support lifecycle, flooring, signed and overflow checks pass.
+Area gem attacks now consume this profile for evasion and independent critical confirmation at admitted contact.
+Misses do not consume impales, roll critical chance or trigger on-hit effects. Spells bypass attack accuracy.
+Fourteen additional cases cover Cyclone/Heavy Strike, a real Additional Accuracy support, independent targets,
+cannot-evade, spells, cancelled actions and rejected-contact side effects. Gem projectiles now consume the same
+profile with forward/piercing/return continuation (see §10). Off-hand scope/execution, conditional/more
+accuracy, complete always-hit publication and native checks remain open. Ordinary/selected main-hand
+average/DPS estimates now include reference accuracy and critical confirmation as described in §14.
 
 Armour and evasion are summed from the passive tree and the **base types** of the equipped body armour, helmet, gloves
 and boots ([13](13-items.md) §1): `base_physical_damage_reduction_rating` / `base_evasion_rating` are flat, while
@@ -322,23 +438,34 @@ See [the calculation boundaries and pending native checks](../game/power-of-purp
 **Iron Reflexes**
 (`keystone_iron_reflexes`) converts all evasion rating, including the base 15 and
 passive/item flat evasion, to armour and removes dexterity's 1% per 5 evasion; the converted part keeps the armour,
-evasion and shared defence increases once each. Item mods, quality, local defence rolls, shields and auras are not counted
-yet; the base value is the armour row's minimum, which is the client's default when the item's Armour component is zero.
+evasion and shared defence increases once each.
+Equipped armour and the active shield now include local flat and increased modifiers plus multiplicative quality,
+rounded per item before the character-wide modifiers and conversion.
+The saved Armour component roll selects a rounded base from the item's native minimum/maximum range before local mods.
+All three defences share that roll; legacy items without it retain minimum bases.
+See [13](13-items.md), Base defences, for the formula and stat sources.
 The final `physical_damage_reduction_rating` and `evasion_rating` (with their `_+%`) go to the client. Armour uses
 PoB's `armour / (armour + damage × 5) × 100`, rounded and capped at 90% (`DamageModel.ArmourReduction`); evasion uses
 the same hit-chance formula as accuracy, so the chance to evade is `100 - AccuracyHitChance(evasion, attacker accuracy)`
 (`DamageModel.EvadeChance`). Monster melee rolls the same formula against `DefaultMonsterStats.Accuracy` at the
 monster's level and evades before damage; physical monster hits then go through armour and block. `/defences` prints
-both against a reference monster of the character's level. Life and mana still ignore passives and items.
+both against a reference monster of the character's level. Life and Mana use the resolved passive/item pools (§4).
 **Chaos Inoculation** (`keystone_chaos_inoculation`) applies to that life: maximum life becomes 1 after the life
 modifiers (the character's energy shield stays the real pool), and the player is immune to chaos damage through the
 same damage-immunity table as the panel's `chaos_damage_immunity` row. The pre-CI maximum life that the game uses for
 stun and ailment thresholds is not modelled.
 
-The default attack's damage (`Unarmed.HitDamage`) is a physical `DamagePacket`: MinDamage..MaxDamage × (1 +
-(`damage_+%` + `physical_damage_+%` + `melee_damage_+%` + `melee_physical_damage_+%`) / 100). The packet goes through
-the conversion and gain-as-extra stats, then rolls one number per damage type; the server uses the same packet for its
-hits. `/set_stat` overrides any of these. The packet, conversion order and damage-over-time model are in
+The default attack starts with the active item's typed local packet or the class's unarmed physical base, plus raw
+added attack damage. `PlayerHitDamage` traces conversion/gain before resolving the complete visited-type increase
+bucket and applicable more factors. Melee modifiers require actual melee context, so a bow does not inherit Strength's
+melee physical increase. Charge more and attack Rage apply once; the final packet feeds both panel and hit rolls.
+The separate conversion matrix verifies 32 numeric states across Standard/Ruthless, including inherited source/
+destination increases, typed support more, final prohibitions and effective Frenzy charges. Twenty-four use explicit
+fields; eight ordinary-attack states prove omitted zero endpoints with actual natural getter returns. One initial
+Standard zero baseline is retrospective and seven are prospective; hidden zero-row rendering is not claimed.
+Both modes restore complete item/socket contents and pass fresh-login controls. See [20](20-damage.md) §2 for the
+frozen input, preservation and diagnostic boundaries. These controls establish panel publication, not native hit contact.
+`/set_stat` overrides resolved inputs. The packet, conversion order and damage-over-time model are in
 [20-damage.md](20-damage.md); the panel's older `Unarmed.Damage` tuple is only the physical display range.
 
 **Changing a skill after entering:** S→C **0x2ba** on the player with component index 9 (Actor) and the slot-20 data
@@ -370,7 +497,9 @@ Local before/after captures are `logs/skill-timing-{before,after}-default-bow-re
 `logs/skill-timing-{before,after}-burning-arrow-real.json` in the integration checkout.
 Catalog, native-field, modifier-order, pacing/contact and spell-exclusion tests pass.
 This excludes support/conditional/per-charge speed, skill-specific attack-time overrides and off-hand alternation rules.
-Selected attack-gem damage ranges/DPS still inherit the existing weapon display; correcting those is separate work.
+Selected supported attacks publish their completed typed packet, clearing removed damage types and sharing the
+weapon-local packet with contact/release calculations. Pre-critical average/DPS remains the existing local convention;
+critical weighting and special skill mechanics remain separate work. See [20](20-damage.md) §2a for local item damage.
 No generator output changes are needed: the multiplier is already extracted.
 
 ## 5. Combat timing (Gateway `Attack`)
@@ -390,8 +519,8 @@ No generator output changes are needed: the multiplier is already extracted.
    `AttackTiming.ContactDelay`), because that attack cancels a hit still waiting. The chance is PoB's `calcs.hitChance`: `accuracy / (accuracy + (evasion / 5)^0.9) × 125`,
    rounded and clamped to 5..100, with the monster's `DefaultMonsterStats.Evasion` at its level. The player's accuracy
    for this roll is the pools' rating raised by the Accuracy Mastery's target conditions under
-   `TargetAccuracy.AgainstTarget` at the target's own rarity and position at that moment (§4); the gateway logs the
-   value whenever a condition changes it. A miss is logged and
+   `TargetAccuracy.AgainstTarget` at the target's own rarity and position at that moment (§4). Ordinary attacks now
+   use the defender's entropy and independent critical confirmation ([20 §2g](20-damage.md#2g-ordinary-attack-evasion-and-critical-confirmation)). A miss is logged and
    sends no life update; spells do not roll accuracy and always hit.
 4. Any later player action (0x25 move, another 0x24) cancels pending contact/release (`ClientState.ActionCount`).
    A ranged projectile already created keeps its own area lifetime and can still collide after the player moves.
@@ -400,8 +529,9 @@ No generator output changes are needed: the multiplier is already extracted.
    thought the swing took 833 ms instead of 757 ms it fell behind and dropped every third or fourth swing, which then
    animated without damage.
 
-**Critical strikes.** The server rolls a hit's critical chance after the damage roll: `base chance × (1 + increased
-critical strike chance / 100)`, capped at 100%, then multiplies the damage by the final multiplier (150% plus
+**Critical strikes.** The server rolls a hit's critical chance after the damage roll: `(intrinsic base + added base)
+× (1 + increased critical strike chance / 100) × applicable more/less factors`, capped at 100%, then multiplies damage by the final multiplier
+(150% plus
 `base_critical_strike_multiplier_+`), as PoB's `CalcOffence` does. PoB's `unarmedWeaponData[class].CritChance = 0`
 and `base_critical_strike_multiplier = 150` are the defaults used here. The base is the equipped main hand's
 `WeaponTypes.dat` `Critical` permyriad (830 = 8.30%); unarmed is 0. Two pure base stats replace that base before the
@@ -420,17 +550,93 @@ context keeps the weapon override out, and `SpellCriticalStrike`'s spell route r
 The active weapon set determines the attack base and weapon-specific increases; an inactive weapon grants neither.
 `global_cannot_crit`, `virtual_global_cannot_crit` and `cannot_critical_strike_with_attacks` suppress attack crits.
 The pool builds the base once in `AttackBaseCriticalStrike`.
+`AddedBaseCriticalStrike` adds raw `additional_base_critical_strike_chance` and the applicable
+`attack_additional_critical_strike_chance_permyriad` or `spell_additional_critical_strike_chance_permyriad` after the
+intrinsic base or its replacement, before increased chance. Actor and selected skill/support sources enter once;
+published final chance is never an input. Weapon-local `local_critical_strike_chance` adds to the native weapon base
+before `local_critical_strike_chance_+%`; that rounded permyriad becomes the intrinsic weapon input.
+Signed BASE and increased sums remain wide through the completed expression, then round halfway up and cap.
+`CriticalChanceFinal` now handles four unconditional native MORE/LESS inputs: Controlled Destruction's
+`support_controlled_destruction_critical_strike_chance_+%_final`,
+`support_multiple_projectiles_critical_strike_chance_+%_final`, `unique_critical_strike_chance_+%_final` and
+`active_skill_critical_strike_chance_+%_final`. Player and own contributions to one raw stat sum before its factor;
+different factors multiply after BASE/INC and before the final cap. Nonpositive base/INC/factors produce zero
+instead of allowing two negative terms to create a positive chance. Final display aliases are not read back.
+Exact rational intermediates avoid overflow and preserve the existing half-up permyriad boundary even when
+large developer values and opposing sources compose. `/set_stat` recognizes each input for pool refresh.
+
+Real level-one Controlled Destruction supplies -80: a skill at 10% becomes 2%, while the unrelated/default
+skills retain their own chance. It affects supported attacks as well as spells, although its more-damage benefit
+is spell-only. The actual `LessCriticalStrikeChanceAmulet17` modifier supplies -40, turning the ordinary test
+weapon's 10% into 6%; a source override of zero and item removal restore 10%. Source, qualification and link
+changes agree with selected publication and actual critical draws in parsed melee/bow/projectile/area contacts.
+
+Evidence: local reference library `pob/skills/SupportControlledDestruction`, pinned PoB
+`16de4b82d57f1c0de6eb40f37143c32d4da36a02`, maps the -80 source to `CritChance MORE` with no attack/spell
+restriction. `CalcOffence.lua` lines 3102–3111 multiply BASE, INC and MORE before rounding/capping. The native
+stat descriptions identify the other three inputs as more/less critical chance. This is a labelled 3.29.x fallback,
+with current native verification pending. Decision: use an explicit evidenced source list and one exact final
+projection; applying LESS after an already capped chance would incorrectly turn a pre-cap 200% × 20% into
+20% instead of 40%. The alternative of treating every matching stat name as unconditional would incorrectly
+enable target/owner conditions. Conditional more chance, guaranteed-critical effects, off-hand critical chance
+publication/execution and attack critical confirmation remain separate implementation work.
+Linked Increased Critical Strikes contributes its own BASE and increased chance once through the shared calculation.
+Real native item modifiers, mode-specific Ascendant Assassin sources, local ordering, source removal, explicit zero
+and selected supports have automated coverage; combined results are in §14.
+The bounded selected-spell native controls below cover actor-plus-own BASE before increased chance.
+The local-flat fixture retains its real no-extra-critical-damage flag; its chance checks do not certify multiplier
+behavior. The formulas follow pinned PoB `16de4b8` as a labelled 3.29.x fallback, without exact official rounding proof.
+
+On source `0aabeb6`, sixteen positive selected Fireball controls pass at actual level 100 in Standard and Ruthless.
+Fireball and Increased Critical Strikes are genuine L1/Q0 gems in a two-white-socket linked host.
+An in-range native spell BASE50 vector (Mods row 8490, HASH16 8721) supplies the actor source on a controlled carrier.
+The support supplies BASE200 and 60% increased chance once, so `(500 + 50 + 200) × 1.60 = 1200` permyriad.
+An in-range +100 all-attributes qualifier gives final attributes 114/114/132.
+Fresh owned Actor/primary records and natural selected getters bind key554 to exact converter14/function15 text.
+
+| Stage in each mode | Sources after the ordinary refresh | Selected permyriad / native text |
+|---|---|---|
+| C0 | Fireball alone | 500 / `5%` |
+| C1 | Add actor BASE50 | 550 / `5.5%` |
+| C2 | Link Increased Critical Strikes | 1200 / `12%` |
+| C3 | Remove the support | 550 / `5.5%` |
+| C4 | Reinsert the support | 1200 / `12%` |
+| C5 | Remove actor BASE50, retain the support | 1120 / `11.2%` |
+| C6 | Restore actor BASE50 and relog | 1200 / `12%` |
+| C7 | Remove actor BASE50 and the support | 500 / `5%` |
+
+Two further controls prove current Fireball identity disappears after removing its gem; they do not prove numeric zero.
+Two D0 default sentinels observe their own current primary/DPS receiver and raw spell fallback550.
+The original Standard D0 verdict remains UNPROVED: its assessor required C2's old Fireball instance pointer
+to survive a source refresh, although the ordinary skill update can replace an object with the same skill ID.
+Separately reviewed sentinel-v2 was authored after that capture and frozen before the Ruthless sentinel capture.
+It checks the unique current Fireball ID/effect and a distinct current Default object, with C2's source-equal 1200
+numeric capture explicitly historical; it makes no simultaneous current Fireball primary/receiver claim.
+Original frozen inputs, scalar expectations and the failed verdict remain unchanged.
+
+Canonical full item payloads, cells, empty host, returned gems and full flask charges were restored.
+Ordinary unsocketing retained gem placement remaps 603/604 to 607/606 in both modes, without database normalization.
+All eight identities, original account/probes, both stash banks, all 40 tabs/meta and four nonparticipant saves held.
+Participant last-played timestamps and the saved slot2 Fireball intent changed normally; Ruthless current Life
+1345 → 1245 retained the temporary qualifier-removal maximum clamp, and restoration did not heal it.
+Cleanup passed with all 774 frozen hashes unchanged; the post-run audit matched 773 source hashes.
+Observers/client were detached/closed, and normal `data/saves.db` services were restored.
+Evidence is under `artifacts/issue75-completion/selected-crit-native/`, its sibling assessment directory and
+`artifacts/issue75-completion/selected-crit-native-preservation/post-run-audit.json`.
+These controls establish selected publication, not native critical hits, rendered zero, legal carrier acquisition,
+attack/local-weapon/Assassin coverage, exact official rounding or a complete issue75 row.
+
 `/set_stat` replaces its source value and rebuilds the pools for critical-chance inputs and prohibitions.
 The panel's final `main_hand_critical_strike_chance` and the rolls share that result.
 Generic and spell increases use the same effective raw inputs as `CharacterPlayerStats`: a development value,
 including zero, replaces that stat's complete passive/equipment/aura sum.
 The attack and pooled spell reference report those effective increased percentages, so `/crit` agrees with the rolls.
-The attack base feeds the shared `DamageModel.CriticalStrikeChancePerMyriad` used by spells, rolls and panels.
+The attack base feeds shared `AddedBaseCriticalStrike` evaluation used by pools, selected panels and hit rolls.
 Nonnegative half permyriad values round up: a 650 base with +1% increased gives 657.
 Generic and applicable typed inputs are summed as signed `long` values before the final cap;
 large positive and negative inputs may cancel before clamping.
-Native checks recorded below belong to the original PR head `8c4c62d`.
-The shared half-up midpoint and resolved stack need a new native check; automated coverage establishes the contract.
+The earlier native checks elsewhere in this section belong to the original PR head `8c4c62d`.
+The shared half-up midpoint and remaining resolved contexts still need native checks.
 Signed increases stay in 64 bits through the pool and player-plus-skill sum; only final native values are bounded.
 Pool refresh uses exact supported stat names; unsupported conditional or minion stats do not rebuild pools.
 Pool rebuilding runs outside the monster lock and retries if another rebuild changes the pools before assignment.
@@ -452,10 +658,34 @@ A nonzero signed extra adds exactly one following `Next(10000)` even if the firs
 Positive luck combines with OR, negative luck with AND, and zero luck uses only the original draw.
 This ordering is LocalExile's local RNG policy, not an established official-server RNG sequence.
 Cannot-crit flags take precedence and consume no critical draws, including under lucky conditions.
-The default attack, supported attack/spell projectiles and area hits share this policy at accepted contact.
-Ordinary bow arrows keep their existing released damage/chance/multiplier snapshot and sample conditional luck
-and cannot-crit flags from the live owner at impact.
+Ordinary attacks and supported skills now retain a shared `SkillCriticalRoll`:
+luck is captured when their cost/admission commits, and all area targets, volley projectiles, piercing/return hits
+and existing impact-area callbacks compare the same roll against their current critical chance/prohibition.
+Channelled attack cycles start separate contexts. A blocked/evaded contact does not consume a critical draw.
+Ordinary melee captures luck after its approach, when the swing reserves pacing. Object-targeted bows capture
+there too; ground bows capture inside their accepted input/pacing gate. Both carry the context through queued
+confirmation and release. Ordinary bow arrows retain the existing released damage/chance/multiplier snapshot;
+cannot-crit flags still read the live owner at impact. Broader snapshot lifetimes remain a separate review.
 No additional packet, accuracy or impale draw is introduced by the policy.
+
+[Mark_GGG's mechanics answer](https://www.pathofexile.com/forum/view-thread/1676002/filter-account-type/staff/page/1)
+distinguishes the per-use random roll from each hit's critical-chance comparison (Abyssal Cry answer), and says
+luck acts when that roll is made (Diamond Flask answer). This corrects the prior assumption that each accepted
+gem hit should reroll luck. Native extra-roll getter evidence establishes the source formula, not its lifetime.
+Decision: retain one sampled number rather than caching a critical/noncritical boolean; changed chances and
+later prohibition must still affect each hit. Capture luck at admitted use rather than its first target.
+Random numbers are allocated lazily on the first admitted, non-prohibited positive-chance hit; this preserves
+the existing cancelled/missed-action RNG behavior without asserting an official allocation sequence.
+Critical accuracy confirmation remains a separate random test for each landed attack hit.
+Twenty-two new cases cover shared area/volley/pierce/return/impact-area rolls, signed luck, independent confirmation,
+separate uses and chance/prohibition changes between targets. Four parsed gem controls now verify use-time
+luck across a later Life change. A further 20 ordinary controls cover both directions of Life/Focus/raw-source
+changes behind queued confirmation for melee/object-bow/ground-bow, and changes during a melee approach.
+The first 18 reproduced contact-time resampling before correction. Existing release/prohibition and signed-source
+controls now assert admission luck. Decision: capture when the swing starts rather than the initial walk-in click,
+and carry that state through the released arrow rather than refreshing it at release/impact. Preserve the other
+bow snapshots pending specific evidence instead of changing all offensive lifetimes together.
+Native and broader repeat/skill exceptions remain open.
 
 `unarmed_melee_attack_critical_strike_multiplier_+` adds points to the ordinary multiplier only for an active
 empty-hand melee Attack context without Spell; an inactive-set weapon cannot arm that context.
@@ -516,7 +746,8 @@ The Gateway runs from its checkout root with repository-relative catalogs during
 These checks validate the generic stat consumers; ascendancy allocation remains in its separate lifecycle change.
 Spells use their own level's `GrantedEffectStatSetsPerLevel.SpellCritChance`:
 Fireball 500 (5.00%), Freezing Pulse and Ice Nova 750, Arc 600, Scorching Ray 0.
-`SkillCatalog.SpellCritChance` returns null for missing/invalid data, distinct from a known zero; both fail closed.
+`SkillCatalog.SpellCritChance` returns null for missing/invalid data, distinct from a known zero.
+Missing/negative intrinsic data fails closed; a known zero can receive ordinary added BASE.
 The unconditional passive stats are summed into `CharacterStats.Pools`: generic `critical_strike_chance_+%` and
 `base_critical_strike_multiplier_+` for both attacks and spells, the attack/melee/weapon-shape chance and multiplier
 stats for attacks, and `spell_critical_strike_chance_+%` / `base_spell_critical_strike_multiplier_+` for spells. The final
@@ -532,7 +763,8 @@ Pool construction still reads passives/items and adds `AuraCatalog.Bonus` once; 
 The result rounds to integer permyriad, halves away from zero, then caps at 0–10000, matching
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L3022-L3027).
 `global_cannot_crit` and `virtual_global_cannot_crit` disable the supported spell roll.
-Ordinary increased chance cannot make a known zero-base spell crit.
+Ordinary increased chance alone cannot make a known zero-base spell crit.
+`SkillHitPlan.CanHit` still rejects hitless or missing selected skills before added BASE is evaluated.
 The selected skill's spell rows also require `casting_spell = 1` (CharacterPanelStats `Spell_CritChance`);
 the main-hand rows exclude that flag.
 `EffectStats` supplies it only for an actual ActiveSkillType Spell without Attack, and sends zero otherwise.
@@ -559,20 +791,20 @@ Evidence: validation `logs/spell-crit-{after-default,after-generic100,after-comb
 final-arc-ice,final-scorching-ray}.json`, `spell-critical-live-summary.json` and `live-gateway.log`.
 Native probes reported no errors.
 Catalog, raw-source, aura, flag, rounding, hit routing and roll-boundary checks are also automated.
-Timed, charge, enemy-state, lucky/more and added-base critical mechanics remain outside this slice.
+Timed, charge, enemy-state and other conditional/more critical mechanics remain outside this slice.
 `/crit` prints the attack values and the legacy pooled 5%-base spell reference, not the selected gem's chance.
 
-**Impale.** A hit that rolls `impale_on_hit_%_chance` stores 10% of the swing's physical damage on the monster as a
-stack: five at most, each lasting five physical hits. The stored amount is taken from the packet's physical **maximum**,
-not the rolled damage, so it is steady for a given weapon. Every later physical hit on that monster first takes the
-stored total as extra physical (a `DamageRange(stored, stored)` added to the packet before `RollTotal`, so it converts and
-mitigates with the hit) and then spends one hit of every stack. Order, in `Gateway.Attack`: add the bonus, `AfterHit()`,
-then roll `Apply(physical)` — a new stack applied first would lose one of its five hits on the swing that made it. The
-stack count and stored total are read before the hit applies because a killing blow clears them, which is why the log
-reports the real stacks on the killing 0x1b1. Only physical is stored. Live 2026-10-20, `/set_stat
-attacks_impale_on_hit_%_chance 100` on one monster: `hit for 5, impaled (1 stack(s), 0.5 stored)`, then `impale +0.5 (2
-stack(s))`, `impale +1 (3)`, `impale +1.5 (4)`, `impale +2 (5 stack(s), 2.6 stored)` on the killing critical, and the next
-monster reopened at one stack.
+**Impale (review correction).** Ordinary melee/bow and supported projectile/area contacts now share actual rolled
+physical damage, including the inflicting owner's critical multiplier, before target mitigation. Each instance stores
+10% times impale effect and lasts five later hits or eight game-time seconds, modified by its captured hit-count and
+duration inputs. Any later accepted hit can trigger existing impales, including spells and zero-damage hits.
+Their sum resolves as separate reflected physical damage, with target physical reduction and generic damage taken
+once; it does not inherit the triggering hit's critical multiplier, conversion, spell-only damage taken or return
+multiplier. Existing instances consume a hit before a new instance is added. There is no artificial five-stack cap.
+Killing hits retain instances on the corpse until expiry/removal. See [20-damage.md](20-damage.md) §3a for source
+scope, lifecycle gates, evidence, decisions and remaining conditional mechanics.
+The 2026-10-20 native observations exercised the old maximum-roll, capped, clear-on-death implementation and do
+not verify this corrected implementation. Current-branch native validation remains pending.
 
 Exits use the same approach (`ExitReach` = 6 cells) before the area change or the instance list.
 
@@ -946,10 +1178,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Object walk-ups reserve movement and the original token under the same recovery check.
   Their delayed continuations and queued action/teleport echoes recheck that token.
   Recovery does not restart while active; flasks and instant skills keep their existing paths.
-  This does not implement block recovery, ES stun avoidance, CI/mana/ES threshold substitutions, conditional defences,
+  This does not implement block-recovery animation/timing, ES stun avoidance, CI/mana/ES threshold substitutions, conditional defences,
   attacker-specific stun modifiers or monster spell/ranged stuns.
-  Known final or raw base ES, active equipped ES bases and local flat ES disable this slice until ES avoidance exists.
-  This includes Discipline before a separate ES pool implementation computes `maximum_energy_shield`.
+  Effective maximum ES or published base ES disables this slice until ES avoidance exists.
+  Suppressed or converted raw equipment ES does not disable it by itself.
+  This includes Discipline's effective ES pool and its published flat ES source.
   Conditional stun-defence builds, flat/substituted thresholds and CI are also skipped conservatively.
   An equipped skill with `skill_cannot_be_stunned` or contact-phase immunity disables this slice for the build.
   Its precise active action phase is not tracked, so even an inactive equipped skill is conservatively excluded.
@@ -1126,11 +1359,14 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `double_holy_strike_animated_weapons_limit`: 0x1400c37d1 registers 0x14279ee30), and the Templar rig's missing
   mace/sceptre stances (`Art/Models/CHARACTERS/Templar/rig.amd`).
 - **Damage** (`SpellHit.cs`, `SpellDamage.cs`). Projectile hits, area hits and the selected spell's panel
-  share `SupportedHit`'s final typed packet: catalog base damage, effective added damage, applicable increases,
-  aura/support multipliers, conversion and gain-as-extra, then the actual caster's spell-damage restriction.
-  Selected spell and inherited main-hand ranges now use this same supported packet, including explicit zeros.
-  Its existing player/skill stat merge and support conversion order are unchanged.
-  `SpellHit.Resolve` retains its standalone separate-input contract for callers of that seam.
+  share the same typed packet: the catalog base hit, flat added spell damage scaled by damage effectiveness,
+  conversion/gain with complete type history, then the matching generic/spell/elemental/typed/context increase bucket
+  and supported aura/support more factors. Each visited modifier applies once, including ancestors of Chaos.
+  Existing source precedence remains distinct at its established seams: interim `SpellHit` uses own-key overrides
+  and player-first level-only conversion; final `SupportedHit` merges player and supported skill inputs with
+  `MergeSkillStats`, retaining its existing base-field replacements and quality inputs. Panel and actual supported
+  combat both finish with that same final supported packet.
+  The final packet still applies the actual caster's spell-damage restriction and clears inherited hand rows.
   See [20](20-damage.md) section 2f for key 5341, zero-hit callbacks, RF and native verification boundaries.
   Damage ranges are floored only for display/rolls; the packet keeps fractions through conversion.
   The displayed per-use average and DPS retain the unrounded packet average, before critical strikes and target
@@ -1139,6 +1375,19 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   per-type integer-roll expectation, cooldown/downtime and special skill mechanics are excluded.
   Hitless spells do not borrow weapon hits or turn flat added spell damage into a hit; their hit ranges and
   inherited weapon DPS/per-use fields are explicitly zeroed. This does not implement a beam or DoT damage panel.
+  After linked supports finish their damage/type restrictions, the final supported spell packet replaces both
+  `spell_minimum/maximum_*_damage` and inherited main-hand display fields. Zeroes clear a type removed by a support.
+  The average and DPS use this final packet and the supported cast time, retaining the pre-critical convention above.
+  Eight real-pipeline tests cover Controlled Destruction, Lesser Multiple Projectiles, Added Cold, Empower,
+  combined supports, Brutality, unlink/relink/removal and a hitless Righteous Fire control with an equipped weapon.
+  Native selected-panel checks cover twelve stages and fourteen captures on the isolated Standard fixture.
+  Eleven positive captures bind the formatter's natural getter receiver to the current local player's live skill
+  and freshly parsed primary stats; one removal capture proves Fireball's ID and previous instance are absent.
+  Baseline, individual/combined supports, unlink/relink/removal and relog agree with the fixed native-table inputs.
+  Brutality and hitless Righteous Fire publish explicit zero hit fields and show no damage rows. Their hidden
+  zero rows have no independent formatter binding; Righteous Fire has no selected formatter receiver observation.
+  Link changes use a held host and re-equipping it, so native in-place link mutation remains unmeasured.
+  These checks establish this local pre-critical publication, not official critical-weighted DPS or DoT behavior.
 - **Damage effectiveness.** `GrantedEffectStatSetsPerLevel.DamageEffectiveness` is an offset from 100%,
   normalized by `SkillCatalog` to `10000 + raw` permyriad before attack or added-spell consumers use it.
   KB level 1 raw 4000 means 140%, Clustering raw 0 means 100%, and Cyclone raw -1840 means 81.6%.
@@ -1167,7 +1416,13 @@ The player object of every area (`SendPlayer`) carries the same weapon attack, s
 weapon's local mods from the start (until 2026-10-23 it started with the unarmed attack, and only an equipment change,
 `SendSkills`, brought the weapon's numbers).
 `base_deal_no_damage` skills (Portal) deal none. An attack's hit carries the skill's damage effectiveness (§9). Not
-modelled: the skills' shapes (waves, cones, chains, leaps), stun, and the accuracy roll. Being tested live.
+modelled: the skills' shapes (waves, cones, chains, leaps) and stun. Area attacks now resolve evasion, block,
+critical confirmation, damage and impale inside the admitted target lock, before any on-hit callback.
+Decision: move contact rolls inside the existing admission gate rather than rolling before `HitMonster` and
+discarding their result after cancellation. This keeps cancelled/paused/dead-owner actions from consuming RNG
+or target state. Explicit blocked/evaded results reject the contact; treating them as zero-damage hits would
+incorrectly update hit timestamps and callbacks. The roll policy and primary evidence are in [damage §2g](20-damage.md).
+Current-branch native validation remains pending.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
@@ -1238,7 +1493,7 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   unlimited. The return leg uses the same budget; Returning Projectiles Support's `returning_projectiles_always_pierce`
   hits all targets. Contacts are observed during the flight, not selected along the launch line: a target that
   leaves the line before contact is missed, one that walks into it is hit, and the budget is spent only at real
-  contacts. The return leg is swept the same way as the projectile flies back.
+  non-evaded contacts; blocked contacts still spend budget. The return leg is swept the same way as the projectile flies back.
 - **Returning projectiles.** A projectile whose stats allow it (`projectiles_return`, `attack_projectiles_return`,
   `projectile_return_%_chance`; `skill_projectiles_cannot_return` forbids; `Game_PROJECTILE_RETURN` forces) returns
   from a target/terrain collision or from maximum distance (Freezing Pulse only from a collision), flies back to the
@@ -1250,6 +1505,30 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   of them (otherwise the first only). A simultaneous volley is shotgun-limited to one hit per target, out and back.
   The return's hits land as the returning projectile reaches each cell, not when the turn happens; ailments and
   pierce/fork/chain priority are not modelled.
+- **Attack evasion (issue #75 review).** Gem projectile contacts now use `SupportedAccuracy` for the first
+  evasion check and independent critical confirmation, including real Additional Accuracy support inputs,
+  target modifiers/Blind/Masteries and raw cannot-evade flags. Spells bypass attack accuracy. A missed target
+  does not stop the flight, spend a pierce allowance, trigger an impact/impale/on-hit callback, or enter the
+  volley-wide exclusion. It is checked once per straight leg; another projectile or return leg may check it
+  again using the defender's existing entropy. The same hit chance confirms critical results before return
+  damage scaling. Piercing/returning critical hits now reach the critical flask callback too.
+  Forward first-contact, piercing and returning sweeps admit state changes under the send gate and monster
+  lock. Queued pause/transfer/dead-target checks precede random draws and mutations. Each simultaneous ordinary
+  gem volley shares its forward exclusion; the old allocation inside the angle loop gave each projectile an
+  independent set and could damage a target multiple times. Return exclusion remains separate. Kinetic Blast's
+  existing special handling is retained, and its secondary-explosion/skill-specific rules still need review.
+  [Official 2.0.0 notes](https://www.pathofexile.com/forum/view-thread/1304441) establish the general rule against
+  multiple simultaneous direct projectile hits; they do not certify every modern skill exception.
+  Decision: preserve gem inputs sampled at contact and ordinary bow inputs frozen at release. Uniformly freezing
+  all gem sources would change their established lifecycle without snapshot evidence. Preserve the existing
+  miss-continuation policy rather than consuming a collision as a zero-damage hit, which would stop the flight
+  and trigger impacts. Do not mark remaining flight rules complete: pierce-budget terminal positioning,
+  return-from-target exclusion, return terrain/endpoint sampling, secondary explosions, sequential volleys,
+  special repeat rules and native parity require further work. Ordinary gem volleys and return hits now share
+  the original per-use critical roll; see the conditional critical policy above.
+  Twenty-four added automated cases cover real Burning Arrow/Fireball/support contacts, returning damage,
+  simultaneous volley exclusion, missed/blocked budgets and delayed admission. The expanded focused run passes
+  29 cases. This is automated validation, not a fresh native flight capture.
 - **Flight.** S→C **0x1ba** to the target cell at the row's `ProjectileSpeed` (world units per second, 1040 → ~96
   cells per second at 250/23 world units per cell). The u32 at +0x28 is a **height**, not padding: the handler
   (`0x141e30c90`) passes it to `0x141e34400`, which keeps the terrain height for 0x7fffffff and otherwise sets
@@ -1424,11 +1703,12 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   enqueueing creation. Aim remains the original aim. This is the selected release snapshot policy; official-server
   snapshot equivalence has not been established.
   At the actual send gate, one game-time sample drives the target observation and swept contact test. Target
-  evasion is checked there; on a hit, existing target impales are consumed, a new stack may be added, the packet
-  is rolled and crit applied, and life is committed with the arrow's stop packet. Paused or obsolete queued
-  samples consume no accuracy randomness or target state. A killing hit clears impales. Damage, accuracy,
-  crit and impale formulas retain the previous ordinary attack's approximations (including melee physical
-  increases on bows); this adds no new armour/resistance, entropy or support mechanics.
+  evasion is checked there; on a hit, the direct packet and critical state are rolled, live impales trigger separately,
+  and a new instance may store the actual pre-mitigation physical roll. Life is committed with the arrow's stop
+  packet. Paused or obsolete queued samples consume no accuracy randomness or target state. Impale instances
+  survive a killing hit until expiry/removal. Current damage excludes melee-only increases on bows and preserves
+  separate penetration/local-source inputs; see the later issue #75 corrections in [20-damage.md](20-damage.md).
+  Official snapshot, armour and entropy parity remain separate work.
   An evaded object is ignored for the rest of this straight flight, and a farther contact in the same sweep may
   hit. This is a bounded policy supported by the current community
   [Projectile](https://www.poewiki.net/wiki/Projectile) and [Avoidance](https://www.poewiki.net/wiki/Avoidance) pages;
@@ -1455,8 +1735,10 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   A release paused before contact created nothing while paused, then created ~1.03 s after resume and hit once
   for 11. Paused raw ground/object requests were ignored and resume remained processable.
   A shot with 100 added cold captured at release still dealt 112 after those raw stats were cleared in flight:
-  one killing hit and one 4-XP award. Loot was not measured. Live accuracy was not forced to 100%; the existing
-  `/set_stat accuracy_rating` path does not refresh `conn.Pools.Accuracy` used by ordinary combat.
+  one killing hit and one 4-XP award. Loot was not measured. Live accuracy was not forced to 100%; at that source
+  revision `/set_stat accuracy_rating` did not refresh `conn.Pools.Accuracy` used by ordinary combat.
+  The issue #75 source correction above now rebuilds that pool, with command tests; this old native run does not
+  establish the corrected behavior.
   Combined-only Frostblink checks: actual right-click then actual Q after release preserved one 13-damage hit.
   Actual right-click then a timed framed `0x190` before release moved the native player to (312,221); the arrow
   was created at (313,221) with the original aim (363,224), ending at the wall. This verifies local composition,
@@ -1774,10 +2056,18 @@ A foreign-source packet non-removal control establishes no party aura executor o
   Zero flags and relog removed the development bonuses.
   These validate the generic consumers; allocating Sea Legs belongs to the separate ascendancy lifecycle change.
 - **Spell Suppression** (`CharacterStats`, `DamageModel`): the passives' `base_spell_suppression_chance_%` is summed into
-  `Pools` (capped at 100%, PoB `SuppressionChanceCap`); a successful roll makes a spell hit take 40% less damage
+  `Pools` (raw base retained, displayed chance bounded to 0..100%, PoB `SuppressionChanceCap`).
+  A successful roll makes a spell hit take 40% less damage
   (`SuppressionEffect` in PoB `src/Modules/Data.lua`). The passives' unconditional
   `base_spell_damage_%_suppressed` is added to the 40% effect (e.g. Inveterate +3, Primal Instinct -10); the effect is
-  not hard-capped, matching PoB. Conditional effect stats (`...while_on_full_energy_shield`,
+  independent of conditional chance. Full Life, moving, recent enemy hit and full ES chance sources add to the raw
+  base before one final 0..100 clamp. Full ES uses a living character's positive effective maximum and whole current
+  ES at that maximum; zero ES and fractional recovery below maximum do not activate it. The native consumer gates
+  stat 15406 with public flag 2431 (`0x1428c6862..0x1428c68bf`); this server supplies the condition from its ES model.
+  Panel publication, `/suppression` and `/spellhit` share that result and the existing 250 ms condition refresh.
+  Same-area resurrection sends its own restored stat snapshot: a pre-death tick cache must not retain the dead
+  snapshot after ES refills. The native death/aura-clear/checkpoint sequence restored all three suppression keys.
+  The effect is not hard-capped, matching PoB. Conditional effect stats (`...while_on_full_energy_shield`,
   `...if_not_suppressed_recently`, per-hit/per-bark) are not modelled yet. Chance above 100 is overcap
   (`SpellSuppressionChanceOverCap`), but the effective chance is still 100. The passive
   `spell_suppression_chance_is_lucky` rolls twice and keeps the better roll (PoB `suppressRolls`, effective
@@ -1863,8 +2153,9 @@ Determination and Grace add their level/quality-based flat and more defences, in
 Anger/Envy supply added attack/spell damage, Hatred feeds gain-as-extra conversion, Wrath adds attack
 lightning damage and more spell lightning damage, Zealotry supplies spell crit and more spell damage.
 Spell added damage uses the gem's damage effectiveness. Malevolence's more DoT affects the implemented
-Righteous Fire burn; its duration stat and Discipline's ES stats are published, but the server's ES pool,
-recharge, general DoT skills and Zealotry's conditional consecrated ground remain unimplemented.
+Righteous Fire burn; its duration stat is published.
+Discipline now contributes flat ES to the authoritative pool and its existing recharge-rate increase to recovery.
+General DoT skills and Zealotry's conditional consecrated ground remain separate work.
 
 **Source and recipient pair (2026-10-25).** Sending only the source fixed ground art but the live
 client stopped showing top-left aura icons. Each self aura now owns two buff instances of its
@@ -1918,13 +2209,36 @@ ring will require its actual radius rather than this marker. The skill-bar assoc
   values; reservation efficiency comes from `base_mana_reservation_efficiency_+%`,
   `base_reservation_efficiency_+%` and the mana/global efficiency stats. `AuraCatalog.Bonus` and `RawStats`
   apply these to `Pools` and `CharacterStats`.
+  Determination and Grace use the integer aura-scaling rule for both flat and more inputs.
+  At level 20 with 50% aura effect, Determination supplies 1539 flat Armour and 73% more Armour;
+  Grace supplies 2317 flat Evasion and 43% more Evasion.
+  Their Ruthless variants have no flat defence and supply 88% more at the same level/effect.
+  Quality changes area rather than these values.
+  Aura and Basalt/Stibnite more factors multiply without rounding the combined percentage first.
+  For example, 73% more and 20% more retain factor 2.076 until the final defence total is rounded.
+  The integer input rule follows the pinned PoB reference below; other aura families retain their existing policy.
+  Discipline grants 60 flat ES at level 1 or 217 at level 20, plus 30% increased ES recharge rate.
+  Ordinary quality changes area of effect only.
+  Its flat ES enters after equipment ES-to-Life conversion and receives Intelligence and global ES increases once.
+  Shield-only increases and exclusions do not affect this global aura source.
+  Aura effect truncates Discipline's integer flat ES and recharge increase before their character-wide calculations.
+  This follows pinned PoB `16de4b82` `CalcPerform.lua:2462-2474` and `ModStore.lua:56-92`.
+  For example, 217 ES with 50% increased aura effect supplies 325 flat ES; 30 recharge with 5% effect supplies 31.
+  Exact official aura-effect arithmetic is unmeasured; this is the accepted 3.29.x reference rule.
+  Pool assignment updates ES capacity without refilling it, clamps current ES when the aura ends, and feeds the
+  same published maximum, damage absorption and recharge calculation.
+  Raw aura-stat publication saturates instead of overflowing when combined with a large independent source.
+  Native checks on an INT-200 Witch matched 84 ES at level 1 and 304 at level 20, with 257/734 mana reserved.
+  Level 20 with 50% aura effect supplied 325 flat ES and 455 maximum ES; adding 100% global ES gave 780.
+  A 40 fire hit changed current ES from 84 to 44 without Life loss, followed by delayed recovery at 2184 per minute.
+  Native toggle, quality, gem-host, conversion, shield, town and death controls passed.
+  Both fixture characters retained identical inventories and remembered intent across a Gateway restart.
 - **Not implemented yet.** Casting one of these logs that its reservation is known but its effect is not implemented and does not
   reserve mana:
   - **Enemy auras:** Pride still needs a radius- and time-dependent enemy physical-damage-taken debuff.
   - **Heralds:** Ash, Ice and Thunder need on-kill/overkill/shatter/storm effects; Agony and Purity need minions.
   - **Banners:** Defiance, Dread and War need the planted banner, stages and their pulses.
   - **Curse auras:** Blasphemy-style skills need the curse system.
-  - **Discipline:** activation, reservation and presentation work; the energy-shield pool/recharge mechanics remain open.
   - **Partial effects:** Purity of Elements' elemental-ailment immunity is not applied. Purity of Fire/Ice/Lightning
     max-resistance values are read at the gem's level (0 at level 1).
   - **Masteries:** Mana6, Reservation3 (life efficiency), Reservation4 (area) and Reservation5 (self aura effect) are mapped;
@@ -1936,6 +2250,13 @@ ring will require its actual radius rather than this marker. The skill-bar assoc
   running auras' buffs back on it.
 
 ## 14. Character panel sums
+
+The [issue #75 ledger](../dev/issue75-stat-ledger.md) records all 357 virtual dependencies individually, with
+partial/pending review states and links to evidence or remaining work. The 387 rows also use 134 nonvirtual
+dependencies. `scripts/dev/audit-character-panel.py` checks the ledger's exact membership against the local
+tables. Decision: keep authored review state separate from source matches and historical native certificates;
+automatically treating those as completion would hide unresolved sources, consumers and lifecycle behavior.
+The ledger's counts are audit states, not numbers of completed implementations.
 
 Whaletooth Bangle's owner duration is projected by `SkillDurationModifiers` in `CharacterPlayerStats`:
 `skill_effect_duration_+%` gains the signed per-ten-Strength value (key 2817) for each complete group of ten final Strength.
@@ -1957,24 +2278,254 @@ it:
 | Display | Also counts |
 |---|---|
 | `avoid_ignite/chill/freeze/shock_%` | `avoid_all_elemental_status_%` (Avoid Elemental Ailments) |
-| `self_*_duration_-%` (elemental ailments) | `self_elemental_status_duration_-%` |
+| `self_*_duration_-%` (ignite, chill, freeze, shock) | `self_elemental_status_duration_-%`, minus `base_all_ailment_duration_on_self_+%` |
 | `virtual_ignite/chill/freeze/shock/scorch/frostburn/sap_duration_+%` | `base_elemental_status_ailment_duration_+%`, `base_all_ailment_duration_+%`, the per-element ailment duration, `chill_and_freeze_duration_+%` |
 | `virtual_chill/shock/scorch/frostburn/sap_effect_+%` | `non_damaging_ailment_effect_+%`, `cold_` / `lightning_ailment_effect_+%` |
 | `chance_to_freeze_%`, `chance_to_shock_%`, the ignite chances | `chance_to_freeze_shock_ignite_%` |
 | `reduce_enemy_fire/cold/lightning_resistance_%` | `reduce_enemy_elemental_resistance_%`, `base_penetrate_elemental_resistances_%` |
 | `cast_speed_+%` | `attack_and_cast_speed_+%` (also counted in attack speed) |
+| `attack_speed_+%_per_frenzy_charge`, `cast_speed_+%_per_frenzy_charge` | the matching `base_` coefficient and `attack_and_cast_speed_+%_per_frenzy_charge` |
 | `life/mana_leech_from_*_damage_permyriad` | the elemental leech for fire, cold, lightning; life also `horrible_ugly_life_leech_from_*_damage_perhundredthousand` ÷ 10 |
 | `virtual_life/mana/energy_shield_leech_speed_+%` | `life_mana_es_leech_speed_+%` |
 | `virtual_endurance/frenzy/power_charge_duration_+%` | `charge_duration_+%`, `base_charge_duration_+%` |
+| `virtual_block_recovery_+%` | `block_recovery_+%`, `base_stun_recovery_+%`, raw `stun_recovery_+%` |
+| `life/mana/energy_shield_gained_on_enemy_death` | the matching `base_` amount and `*_gained_on_enemy_death_per_level` times actual player level |
+| `virtual_flask_duration_+%` | `flask_duration_+%` and `flask_duration_+%_per_level` times actual player level |
 | `display_skill_increased_item_rarity/quantity_+%` | `base_item_found_rarity/quantity_+%` |
 | `virtual_trap/mine_throwing_speed_+%` | `trap_and_mine_throwing_speed_+%` (mine: `mine_laying_speed_+%`) |
 | `minimum/maximum_*_damage_to_return_to_melee_attacker` | `*_damage_to_return_to_melee_attacker` (both ends) |
 | `extra_damage_taken_from_crit_+%` | − `base_self_critical_strike_multiplier_-%` |
-| `impale_on_hit_%_chance` | `attacks_impale_on_hit_%_chance` (the attack reads this row's name) |
+| `virtual_total_main_hand/off_hand_impale_on_hit_%_chance` | general + attack-only + that hand's local chance, capped 0–100 |
+| `virtual_total_spell_impale_on_hit_%_chance` | general + spell-only chance, capped 0–100 |
 | `intermediary_combined_action_speed_+%` | − `action_speed_-%` |
+| `cannot_be_stunned_by_spells`, `cannot_be_stunned_by_attacks` | flags of their own (the all-stun flag stays its own row) |
+| `brands_per_target_limit` | `base_number_of_sigils_allowed_per_target` (the selected brand's own 1 plus "additional brand attached" sources) |
+| `virtual_maximum_spirit_charges` | `maximum_spirit_charges` (abyss-jewel counting is not modelled) |
+| `virtual_physical_damage_taken_per_minute_per_siphoning_charge` | the `..._if_have_used_a_skill_recently` coefficient |
+
+Beyond the sums, `PanelStats.Defence` works the Defence tab's estimate rows out against the reference monster of the
+character's level (DefaultMonsterStats `Damage` and `Accuracy`, as Path of Building's CalcDefence does):
+`display_estimated_physical_damage_reduciton_%` is `DamageModel.ArmourReduction` (armour / (armour + 5 × damage))
+plus the additional physical reduction (Endurance Charges, passives), capped at 90%; "increased Armour against
+Projectiles" adds `physical_damage_reduction_rating_against_projectiles`, `armour_differs_against_projectiles` and the
+projectile estimate; "additional Physical Damage Reduction against Hits" adds `armour_differs_against_hits` and the hits
+estimate; `chance_to_evade_%` is 100 − the reference monster's hit chance (`DamageModel.EvadeChance`) plus flat
+`chance_to_evade_attacks_%`, capped at 95%; `ward_delay` (milliseconds, `WardState.Delay`) shows with Ward;
+`mana_recharge_rate_per_minute` is the energy shield recharge rate on maximum mana when
+`energy_shield_recharge_apply_to_mana` is set (nothing in 3.29 applies recharge to Life, so that row stays blank);
+`omniscience_for_attribute_requirements` is Omniscience × `attribute_requirements_can_be_satisfied_by_%_of_ascendance`.
+
+The Offence tab's remaining rows: a dual-wielded attack (the default attack and attack gems) sets `skill_uses_off_hand`
+and publishes the off hand's own `off_hand_accuracy_rating`, chance to hit (plain and evasive), `off_hand_attack_speed_+%`,
+critical strike chance and multiplier and the twelve `off_hand_*_damage` ranges (`Program.OffHandPanel.cs`: the shared
+character buckets with the off-hand item's local accuracy, critical chance and attack speed in the main hand's place,
+and the gem's own flat/increased accuracy and critical increases; a gem's off-hand hit is the same supported hit swung
+with that weapon). While dual wielding, Damage per Use, Damage per Second and Attacks per Second average the two
+hands' own values (`DualWieldPanel`, as PoB's "AVERAGE" weapon-pass combination; the off hand swings its own
+duration at `off_hand_attack_speed_+%`). `spell_effective_total_chance_permyriad_for_hit_to_be_critical` / `_double_critical` apply the luck
+policy and the Assassin's `spell_critical_strikes_bifurcate` (`CriticalStrikePolicy.EffectiveChance`: 1 − (1 − c)²,
+and c² for both rolls). A spell flagged `display_skill_deals_secondary_damage` (Vaal Detonate Dead) also fills the
+`secondary_*` damage and critical rows; a flagged skill without spell base damage (Bear Trap, Herald of Ice) fills them
+from its own `secondary_*_base_*_damage` with the generic, area and projectile buckets only, the skill's base critical
+chance with generic increases and the critical-weighted Damage per Use (`Program.SecondaryPanel.cs`,
+`SkillCatalog.SecondaryHitDamage`). `skill_show_average_damage_instead_of_dps` follows the skill's `base_` flag
+(movement skills). The Bleeding / Ignite / Poison damage per second rows per hand, spell and secondary context are
+`AilmentPanelStats` ([20-damage.md §3](20-damage.md#3-damage-over-time-and-ailments)).
+
+`PanelStats.Compute` receives the actual character level from `Pools.Level`, clamped to 1–100, not a gem level or
+an arbitrary `level` stat. Per-level sources multiply before integer division using wide intermediates; only the final
+published sum saturates to the native integer range. All aliases read the same raw snapshot before any result is
+written back. In particular, Block Recovery adds the raw direct and base Stun Recovery once; it does not add the
+newly derived Stun Recovery total a second time. Stun Recovery already expanded from held charges counts once too.
+The on-kill rows add their direct/base amounts and per-player-level amounts; this does not implement on-kill resource
+recovery, maximum-pool percentage sources, prohibitions or other conditional operators. The signed flask-duration
+sum is a display coefficient; actual flask use and local/global factor composition are documented in
+[13-items.md](13-items.md#8-life-and-mana-flasks).
+
+Selected aliases derive from one immutable raw character snapshot plus the qualifying skill/support's own raw
+inputs: `skill_area_of_effect_+%`, `display_skill_increased_item_rarity_+%`, `virtual_minion_damage_+%`,
+`reduce_enemy_fire/cold/lightning_resistance_%`, the eight main/off-hand penetration aliases, and twelve
+ailment duration/effect coefficients described below.
+The rarity sum includes direct/base item rarity and `base_killed_monster_dropped_item_rarity_+%`; the minion sum
+includes increased `minion_damage_+%`, keeping support MORE separate. Previously derived actor aliases are not fed
+back as source inputs. The completed signed sum clamps once and retains explicit zero after cancellation/removal;
+a final developer alias replacement, including zero, replaces the complete selected sum.
+Both `PlayerSkills` refreshes and `SendPlayer` initial/area-transition object creation pass the same raw values,
+override membership and actual player level into `GemSkills`. The selected overlay runs after Cyclone's radius
+calculation, preserving its separate base/radius inputs: actor area 20 plus real Increased AoE own 30 gives area 50,
+radius 19 from base 16, and radius-percent 22; unlinking restores area 20/radius 17 without counting the alias twice.
+Real linked supports cover AoE 20+30=50, minion increased 15+quality 10=25 and ordinary rarity 10+40=50.
+The historical LocalExile tests additionally excluded Item Rarity Support's own40 in Ruthless; that private
+mode-specific availability is outside this branch. Actor sources and explicit final
+replacements still work. Requirement failure, incompatible supports, unlink/relink/removal, unrelated/default skill
+isolation and repeated builds are covered. This changes selected publication; it does not add minion combat or
+item-drop execution, and native validation of these aliases remains outstanding.
+
+The three elemental penetration aliases previously inherited only the character's value even when a linked
+support supplied more penetration to the hit calculation.
+Real level-one Fire/Cold/Lightning Penetration supports each grant 20 through their matching base stat.
+Character 10 plus support 20 now publishes 30; adding general elemental penetration 5 gives 35 in both the
+selected record and the existing hit consumer.
+Nine Gateway regressions cover all three elements, link/source removal, signed cancellation, explicit final
+zero/replacement, support requirement failure/recovery and unrelated/default-skill isolation.
+These pass within 29 focused tests on this branch; fresh native panel verification remains pending.
+The eight attack-hand penetration aliases now also include their attack-only typed and elemental base sources.
+Selected attacks recompute those sums from raw actor/skill values and each active hand's own local modifiers.
+The immutable publication snapshot retains both local dictionaries so recomputation cannot lose them or read an
+already-derived alias as an additional source.
+General 10 plus elemental 5 plus typed attack 7 plus elemental attack 3 gives 25 for each hand and 15 for spells.
+Six real-support lifecycle regressions cover selected Heavy Strike for all three elements, five pure regressions
+cover attack-only and local scope, and one real-modifier Gateway case preserves main 6/off 9 while excluding an
+inactive weapon's 30; removing either active modifier or unlinking the support restores the corresponding values.
+These are automated publication checks; native formatting remains unverified on this review's changes.
+The player/own `cannot_penetrate_or_ignore_elemental_resistances` flag now explicitly clears all nine elemental
+aliases, including zeros in the actor projection, while leaving the two chaos hand aliases intact.
+Removing the flag restores the source totals. Explicit developer replacements retain their existing final priority.
+Real Elemental Penetration support contributes its non-base elemental input (14 at level one), composing with
+actor 10 and direct elemental 7 to show 31; attack-only 5 raises each hand alias to 36.
+The combat consumer now reads these non-base general inputs and the attacking weapon's local inputs separately;
+[20-damage.md](20-damage.md) records scope, timing, contact tests and remaining off-hand/conditional mechanics.
+Decision: publish explicit elemental zeros when blocked, because a sparse omission could retain an earlier raw
+alias. The alternative of merely hiding the row would leave the underlying selected value incorrect.
+
+Selected ailment coefficients now include qualified skill/support inputs for seven durations
+(`virtual_ignite/scorch/chill/freeze/frostburn/shock/sap_duration_+%`) and five non-damaging effects
+(`virtual_scorch/chill/frostburn/shock/sap_effect_+%`). The existing raw source formulas remain shared with the
+actor projection. Level-one Unbound Ailments grants `base_all_ailment_duration_+% = 35` and
+`non_damaging_ailment_effect_+% = 35`; character 10 plus support 35 now publishes 45 instead of 10.
+Its separate 10% more ailment damage does not enter either increased coefficient.
+Twenty-four real-support regressions first reproduced 45 expected/10 actual, then verify source/link removal,
+unrelated/default-skill isolation, signed cancellation, explicit final replacements and repeated publication.
+Reference: extracted `SupportUnboundAilments` stat set and local library `pob/skills/SupportUnboundAilments`
+at PoB `16de4b82d57f1c0de6eb40f37143c32d4da36a02` (labelled 3.29.x fallback).
+Decision: recompute these twelve established coefficient formulas from raw inputs. The alternative of treating
+every ailment row as a simple sum would gloss over critical weighting, prohibitions, damage eligibility
+and actual duration/rate calculation. Those mechanics and native validation remain separate completion work;
+this publication correction does not implement ailment application or certify the whole ailment system.
+
+Leech projection now includes all 24 scoped coefficient aliases and three recovery-speed aliases in selected
+skills. Each scope adds the general any-damage source, its applicable typed/spell/attack source, elemental sources
+for fire/cold/lightning, and shared physical-attack Life/Mana sources only in the hand totals. Despite lacking
+"attack" in its ID, `life_and_mana_leech_from_physical_damage_permyriad` is explicitly attack-only in its description.
+Both previously missing physical/chaos ES aliases
+are emitted. Physical-attack hand totals add only that qualified hand's physical, combined Life/Mana and general
+local inputs. Mana Leech Support's `attack_skill_mana_leech_from_any_damage_permyriad` enters attack scopes only.
+The overlapping aliases are display totals, not independent coefficients to add together in a hit consumer.
+
+Level-one Life/Mana Leech supports supply 200 permyriad; Energy Leech supplies 150. Real linked supports now
+add those amounts, follow unlink/removal and requirements, and leave unrelated/default skills isolated. The
+Energy Leech item metadata is `SupportGemEnergyShieldLeech`, while its effect is `SupportEnergyLeech`.
+Selected per-hundred-thousand Life sources combine across actor/own inputs before dividing by ten; separate
+truncation previously lost a 6+4 boundary. Final developer replacements retain their established priority.
+Pinned PoB `16de4b82` supplies the three support stat sets and the general/elemental/typed/local descriptions
+(`Data/Skills/sup_str.lua`, `sup_dex.lua`, `sup_int.lua`, `Data/StatDescriptions/stat_descriptions.lua`).
+Scope composition follows those descriptions; current native getter/formatting parity remains unverified.
+Decision: derive each total once from raw sources rather than summing overlapping derived aliases or rounding
+actor/support fractions separately. Ordinary active leech now consumes raw qualified sources at accepted contacts
+and uses separate instance duration, total recovery and cap rules (damage §5b). Ghost Reaver converts independent
+Life-source grants to ES and applies its cap/recharge effects. Conditional sources, other conversions,
+skill-specific recovery-speed ownership and native validation remain open in the review ledger.
+The owner now publishes actual leeching/full-ES conditions and refreshes selected skills when they change.
+Energy Leech's full-ES MORE damage and quality increased damage while ES leeching use distinct buckets, with
+real support/unlink and accepted projectile controls. General/resource/attack/physical leeching hit-damage sources
+use the same live flags; expiry inspection preserves pending recovery. See damage §5b for decisions and remaining scopes.
+
+Selected impale chance now recomputes all three virtual totals from the raw actor, own support and each hand's
+local snapshot. Real Impale Support grants attack chance 60: actor 10 gives selected 70 while the actor/default
+remain 10 and spell chance remains zero. Qualified local weapon modifiers 15/17 produce main 85/off 87 without
+including the inactive weapon. Completed sums clamp to 0–100, and explicit final developer overrides retain
+their normal priority. Unlinking, source removal, incompatible spell support and repeated reads are covered.
+The old projection from attack chance into the general `impale_on_hit_%_chance` is removed: it erased source
+scope and could make attack-only inputs apply to spells/secondary hits. Decision: use raw scoped inputs in combat
+and recompute final display aliases, rather than feeding final aliases back into calculations. Native rendering,
+critical-only spell chance presentation and the remaining conditional sources are still open; see §3a of the
+damage module for the actual hit implementation and evidence.
+
+`PanelStatDefaults` adds six exact native `Character.ot` values to the original actor sources before derivation:
+
+| Native stat | Inherent value |
+|---|---|
+| `base_total_number_of_sigils_allowed` | 3 |
+| `chance_to_deal_triple_damage_%_per_brutal_charge` | 3 |
+| `stun_threshold_+%_per_brutal_charge` | 10 |
+| `ailment_damage_+%_final_per_affliction_charge` | 8 |
+| `non_damaging_ailment_effect_+%_final_per_affliction_charge` | 8 |
+| `elemental_damage_taken_goes_to_energy_shield_over_4_seconds_%_per_absorption_charge` | 12 |
+
+Item/passive additions enter once, repeated snapshots start from the original sources, and explicit developer
+replacements, including zero, keep precedence. Native AdditionalBrand +1 and Brand Equity graph 64355 +2 give actor
+limit 6; a compatible linked Foulgrasp contributes its own +2 for selected limit 8.
+`SkillCatalog.EffectStats` supplies `skill_is_brand_skill` from native ActiveSkillType Brand, row 64 / FlagStat 8740,
+only for the selected Brand. Fireball/default attack do not receive an actor-wide Brand gate.
+The five special-charge values remain per-charge coefficients, independent of held counts and maxima.
+The corresponding special maximum gates are described in §15; defaults do not implement Brand attachment/cap
+enforcement or special-charge gain, expiry, combat effects or resource recoup.
+Automated cases cover native sources, both modes, real support compatibility, explicit zero and source removal;
+combined results are below and new native checks remain pending.
+
+The added-base critical, native-default/mirror and selected-alias changes pass 93 new cases (52/19/22 respectively),
+plus 95 existing focused controls, for 188/188 with no skips. Fresh full suites pass Gateway 3803, Core 648 and Data 37:
+4488 freshly rerun cases, all passing without skips. The current diagnostic hook recorded six actual unobserved
+disposed-NetworkStream task faults, all `MonsterKilled` at `Program.Combat.cs:1260` through
+`Program.Send` / `Program.Connection.cs:326`; 385 first-chance records are separate from that fault count.
+No diagnostic errors, text truncation or cap hit occurred, and no captured fault names a new operator path.
+Passing suites therefore do not establish fault-free background execution.
+Native validation of the defaults/mirrors and selected aliases remains outstanding; the bounded critical slice is in §5.
+The historical G14/full 3710 and native results below do not validate these new operators or certify all 387 rows.
+
+The four elemental self-duration reduction sums also subtract the unconditional raw
+`base_all_ailment_duration_on_self_+%` source (wire key 17087). Native Harsh Lessons, PassiveSkills row 2598 / graph
+27623, gives -20 in both modes and therefore adds +20 to each reduction. Typed, elemental and all-ailment sources
+combine once; an increased self-duration source gives a signed negative reduction. Explicit final developer
+replacements, including zero, still take precedence in the Gateway. This fixes the four declared numeric sums,
+not ailment execution. Ring-slot keys 17088/17089 need actual left/right-slot selection and remain separate;
+adding both as global sources would incorrectly cancel them. Other ailment families and conditional ES delay
+also remain separate work. All 14 new pure/Gateway cases pass within the combined 53/53 focused batch, followed
+by full Gateway 3710/3710 with no skips. Prior unchanged Core 648/Data 37 runs remain applicable (4395 applicable
+cases, not 4395 newly rerun cases). The full-run diagnostics retain five actual unobserved disposed-stream task
+faults: four `MonsterKilled` and one `NotifyMonsterHit` → `AreaSkillHit` → `LaunchProjectile`. No captured fault
+mentions the new self-duration/flask-effect paths; passing tests do not mean fault-free background execution.
+Native verification of these new operators remains outstanding.
+
+The preceding panel/source batch covered actual level changes, real modifier identities, source qualification,
+removal, explicit overrides, signed values and repeated builds in both modes. Its integrated panel/flask validation
+passed 55 new and 80 existing focused cases, full Gateway 3657/3657, and Core 648/Data 37 (4342 applicable cases).
+Those earlier results and native observations below do not validate the newly added self-duration operator or
+subsequent flask-effect resolver. Their new automated results are stated separately above; no complete-387-row
+or new native-coverage claim is made.
+The combined native assessment contains 40 completed controls: 22 complete PASS and 18 complete zero controls
+UNPROVED. The passes comprise 12 positive flat/level-source cases at actual levels 10, 20 and 100 in Standard and
+Ruthless, six utility-duration uses and four Life-recovery uses. All positive source cases match the six fixed fields:
+combined Block/Stun Recovery, the three on-kill amounts and the flask-duration coefficient. Across the six panel
+fields, including clearing/restoration/relog transitions and retained observations, 138 verdicts are VERIFIED and
+42 UNPROVED. Both Defence zero fields remain UNPROVED in all 18 zero controls; several Misc zeros remain UNPROVED
+too. Missing callbacks or hidden rows never establish rendered zero. Actual duration/recovery values and the original
+one-integer Life publication boundary are recorded in protocol 13 §8. Earlier failed readiness/vendor observations
+remain preserved; these controls do not establish complete on-kill or block-animation mechanics.
+
+Life/Mana Regeneration per Second and the corresponding native recovery inputs share `PanelStats`' calculation.
+Flat plus maximum-pool percentage sources receive separate regeneration and recovery increases.
+Ordinary prohibitions stop the matching resource; source removal clears its previously published total.
+Ten native controls matched the published totals to actual recovery, clearing and relog.
+Regeneration conversions, named conditional modifiers and specialised more factors remain separate.
+See [20-damage.md](20-damage.md#5-continuous-resource-updates-2026-10-24) for the sources and evidence boundary.
+
+**Energy Shield Regeneration per Second** (`CharacterPlayerStats`, issue #75) reads
+`total_energy_shield_recovery_per_minute_from_regeneration` (client key 1058, `0x422`).
+The native `ESRegen` row divides this per-minute total by 60.
+The Gateway sends `EnergyShield.RegenPerMinute`, the same calculation the recovery loop applies, rounded to an integer.
+It combines flat and maximum-ES percentage regeneration, then increased regeneration and increased recovery.
+The total excludes recharge, including while the native prediction input combines both recovery sources.
+Removing the source or prohibiting regeneration sends zero; an explicit `/set_stat` display override keeps precedence.
+Native checks at 14 maximum ES received 120/minute from flat regeneration, 137 with 120%/minute added,
+and 246 with 50% increased regeneration and 20% increased recovery.
+The Defence panel rendered the flat input as 2 per second and removed the row when regeneration was prohibited.
+During recharge a separate 60/minute control stayed at 60 while the prediction input changed from 60 to 340.
+Clearing the sources and relog both restored zero.
+See [20-damage.md](20-damage.md#player-energy-shield-2026-10-25) for supported ES mechanics and prediction limits.
 
 **Main hand / off hand rows** (`main_hand_…` / `off_hand_…`, `virtual_total_main_hand_…`) add the global stats and that
-hand's item's own local stats (`HandLocalStats`: the active item in the first weapon set, else the second):
+hand's item's own local stats (`HandLocalStats`: active rows 2/3 only; inactive rows 14/15 contribute none):
 `local_chance_to_bleed_on_hit_%`, `local_poison_on_hit_%`, `local_attacks_impale_on_hit_%_chance`,
 `local_chance_to_blind_on_hit_%`, `local_fire/cold/lightning/chaos/elemental_penetration_%`,
 `local_stun_threshold_reduction_+%`, `local_life/mana_gain_per_target`, `local_life/mana_leech_from_physical_damage_permyriad`
@@ -1988,19 +2539,66 @@ game has a spell form).
 sent with `skill_uses_main_hand = 1` — the client gates the rows on that flag, so the numbers alone leave them blank. Only
 the main hand is filled, since the server attacks with it; an empty packet adds no rows.
 
+**Critical- and accuracy-weighted hit averages (issue #75 review correction).** Ordinary main-hand attacks and selected
+supported attacks/spells now weight `display_hundred_times_damage_per_skill_use` (2044) and
+`hundred_times_damage_per_second` (679) by their current critical chance and multiplier. They use the same signed
+luck policy as combat: probability `p`, `1-(1-p)^2` when lucky, or `p^2` when unlucky. Given that resulting critical
+probability `c` and chance to land `h`, the mean multiplier per attempt is
+`h * (1-c*h + c*h*criticalMultiplier/100)`. The inner `h` is independent critical confirmation; luck applies to
+the critical roll before confirmation. Spells use `h=1`. Attacks use the normal reference monster's evasion at
+the player's level and their ordinary/selected accuracy profile, including qualified raw cannot-evade sources.
+Target Masteries stay out of this unconditional estimate. Ordinary main-hand normal/evasive chance aliases
+also now respect cannot-evade. Explicit diagnostic chance aliases remain display replacements, not inputs to
+this calculation. Critical prohibition supplies zero critical probability. Low-life/Focus/raw luck changes
+therefore update the means without changing the noncritical minimum/maximum ranges. Hitless/suppressed packets
+remain zero. Each supported skill uses its own critical support contributions, not the ordinary attack's values.
+
+`SpellDamage.Display` is the shared hundredths formatter for all three paths. It retains fractional packet means
+and the actual action duration until the final rounding, clamps negative results to zero and saturates values
+above the native signed-int maximum. The selected constructors no longer calculate once with rounded APS/CPS
+and then overwrite the same fields with a second calculation. Their rate parameter is now actions per second.
+No per-hit or target random draw occurs during publication.
+
+Decision: preserve the existing final precise-rate behavior while adding the critical policy already used by
+combat. The alternative of multiplying the rounded displayed rate changes results at every rounding boundary;
+the alternative of retaining precritical means continues to ignore real critical supports. Fractional means remain
+continuous packet estimates, not the expectation of every integer damage-roll/rounding path.
+[Mark_GGG's mechanics answer](https://www.pathofexile.com/forum/view-thread/1676002/filter-account-type/staff/page/1)
+confirms tooltip DPS includes critical strikes and accuracy (the Lacerate/Double Strike answer). This correction
+covers critical and reference-target accuracy/confirmation weighting; dual-hand and
+multi-hit counts, cooldown/downtime, conditional more critical sources and damage-over-time DPS remain open.
+Native validation is pending. The historical numeric observations below are precritical values from the older
+implementation, not evidence for the corrected averages. Automated before-controls reproduce six omissions
+across ordinary melee/bow, Cyclone, Caustic Arrow, Fireball and Ice Nova; source/luck/prohibition, actual rate,
+hitless/support removal, fractional and overflow checks pass.
+
+Pinned PoB `16de4b82d57f1c0de6eb40f37143c32d4da36a02`, `CalcOffence.lua:3146` applies hit chance after the
+critical/luck calculation, and lines 3788–3801 weight the critical mean by landing chance and actual action rate.
+This is an expected-damage reference, not native 3.29.3b rounding certification. Six additional before-fix
+regressions reproduce missing attack weighting while a spell control passes. Nineteen added cases include
+luck/bounds, real Additional Accuracy link/removal, local/global cannot-evade, diagnostic alias isolation and
+unchanged spell/range outputs. The expanded focused run passes 55.
+Decision: weight the critical bonus by both landing and confirmation, rather than applying accuracy only once
+to the old critical mean or applying critical luck to the confirmation check. Keep the established normal
+reference enemy and full-precision formatter instead of guessing target conditions or rounding intermediate
+percentages. Selected gem attacks consume their own profile for both gameplay and these estimates;
+per-use critical rolls are shared as documented above. Remaining source conditions and special repeats still require review.
+[Damage §2g](20-damage.md#2g-ordinary-attack-evasion-and-critical-confirmation) records the source evidence,
+snapshot/admission decisions, alternatives, parsed-contact controls and remaining native work.
+
 **Selected attack-gem hit rows (#196)** (`AttackSkillHit`, `AttackPanelStats`): main-hand total and per-type
 ranges now use the same packet constructor as projectile and area attack combat.
-The constructor preserves the current order: the actual weapon's hit with character modifiers, flat added attack
-damage from character inputs, the skill's level-aware effectiveness, then conversion and gain-as-extra.
+The constructor starts with raw local weapon and added damage, applies the skill's level-aware effectiveness,
+then resolves conversion/gain history and inherited modifiers together through `PlayerHitDamage`.
 Conversion retains `ConversionFor` precedence: player keys win and level-only skill keys fill gaps, without quality
-conversion. Skill-owned damage modifiers are not newly applied; this panel change preserves current combat rules.
+conversion. Final supported rows are then replaced from `SupportedHit`'s existing merged supported inputs.
 Burning Arrow level one uses effectiveness 18000 and 100% skill physical-to-fire conversion; Heavy Strike uses 12430.
 All twelve main-hand range fields are explicit and floored, including zeros for absent types after conversion.
 `CharacterPanelStats` reads whole-number total keys 670/671, physical 279/280, fire 267/268, cold 263/264,
 lightning 271/272 and chaos 275/276. These rows retain the existing main-hand and spell/secondary gates.
-Per-use average (2044) and DPS (679) are hundredths; packet fractions are retained through the average, and DPS
-uses the skill's already-emitted `hundred_times_attacks_per_second` (678), rather than recalculating attack timing.
-Consequently DPS uses that rounded displayed rate, not a new precise action-rate calculation.
+Per-use average (2044) and DPS (679) are hundredths; packet fractions are retained through the average. The
+current final supported projection uses the exact action duration and critical weighting as described above.
+Earlier standalone range tests use their explicitly supplied rates, while final publication uses the combat rate.
 Copied-save GUI baseline: a 5-13 physical bow with Strength 14 showed 5-13 physical/total, per-use 9.18 and DPS 12.86
 for both ordinary attack and Burning Arrow, while Burning Arrow already showed its corrected APS 0.98.
 The preserved raw packet is 5.1-13.26; Burning Arrow resolves 9.18-23.868 fire, average 16.524.
@@ -2011,7 +2609,8 @@ Clearing the added cold stat returned every cold field to zero and restored the 
 Relog retained Burning Arrow's 9-23, per-use 16.52 and DPS 16.19; ordinary attack stayed 5-13 physical,
 per-use 9.18, DPS 12.86 and APS 1.40.
 The fixture is also regression-tested.
-Crit weighting, accuracy, target mitigation, integer-roll expectation and downtime are excluded.
+Those historical averages exclude critical weighting; the current correction is described above.
+Accuracy, target mitigation, integer-roll expectation and downtime remain excluded.
 Initial creation and refresh both pass raw `CharacterPlayerStats` plus the actual weapon into `GemSkills` separately
 from inherited final display stats. Derived hand ranges cannot feed back into the packet.
 Only attack gems receive this override; ordinary attacks, spells, non-attack actions and off-hand rows keep their
@@ -2030,7 +2629,8 @@ and chaos 258/260 as whole integers, with `casting_spell` (438) required and
 `display_skill_deals_secondary_damage` (1675) excluded. DPS (679), damage per use (2044) and casts per second (682)
 are hundredths (the table's formatter 14), so range values must not be multiplied by 100.
 For example, level-one Fireball's 9–14 with +12% spell damage gives a 10.08–15.68 packet: the range is 10–15,
-per use is 12.88, and DPS at the emitted 1.33 casts/s is 17.13. These averages exclude crit and mitigation.
+per use is 12.88, and DPS at the emitted 1.33 casts/s is 17.13. These historical standalone averages exclude crit
+and mitigation; final supported publication now uses the exact duration and current critical weighting above.
 The same skill construction runs on initial player creation and subsequent refresh; character conversion inputs
 are passed separately from the inherited final weapon/display stats. Attack and unsupported-action displays keep
 their existing path.
@@ -2048,7 +2648,8 @@ Automated packet, conversion, hitless, creation/refresh and table-format checks 
 `chaos_damage_over_time_resistance_%` (and its uncapped form) = chaos resistance +
 `additional_chaos_resistance_against_damage_over_time_%`, capped at the chaos maximum. Each is sent only when its stat is set.
 
-Conditional stats (while, if, per charge, against …) are not counted. Flags (`cannot_be_frozen`, `immune_to_ignite`
+`PanelStats` does not independently evaluate conditional stats (while, if, per charge, against …); the explicit
+player-level sources above and already resolved charge contributions use their supplied values. Flags (`cannot_be_frozen`, `immune_to_ignite`
 …) are 1 when any source is set; "Immune to Ignite and Shock" sets both. Only non-zero values are sent; a sum that drops
 to zero is cleared with the other stale stats (`PlayerStatsWithCleared`). A stat set with `/set_stat` keeps its value.
 `cast_speed_+%` is now the total, so `CastSpeedPct` reads only it. Which combined stats count is from the game's
@@ -2077,6 +2678,51 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   periodic stats whenever the character's stats are worked out (`ChargeSession.Observe` in `WithCharges`), and nothing
   polls them. "% chance that if you would gain … Charges, you instead gain up to maximum" is
   rolled on every gain. Time is the connection's game clock, which stops while the game is paused.
+- **Special maximum publication.** The three native Domain 1 mirror modifiers, Mods rows 26064–26066, publish
+  Brutal from completed Endurance maximum, Affliction from completed Frenzy maximum and Absorption from completed
+  Power maximum only while their corresponding `maximum_*_charges_is_equal_to_maximum_*_charges` flag is present.
+  They run after standard maximum derivation, so explicit final standard replacements, including zero, are visible;
+  explicit final special replacements also keep precedence. Removing a flag publishes a zero special maximum and
+  clears the removed raw flag without retaining a stale native gate. Real modifier fixtures resolve unequal standard
+  maxima 4/5/6 and cover independent removal/recovery and zero overrides in both modes.
+  The formulas follow pinned PoB `16de4b8` `CalcPerform` with exact native source identities, as a labelled 3.29.x
+  fallback; every official virtual getter has not been independently traced. Combined automated results are in §14;
+  new native checks remain pending. This bounded publication leaves standard held state/gains unchanged; the
+  current counts and effects of the three converted types are the next bullet, and Spirit/Abyss-jewel counting is
+  not implemented.
+- **Converted charges** (Brutal, Affliction, Absorption; 2026-10-29). The three Domain 1 unique mods
+  `gain_brutal_charges_instead_of_endurance_charges`, `gain_affliction_charges_instead_of_frenzy_charges` and
+  `gain_absorption_charges_instead_of_power_charges` (`Charges.ConversionFlag`) are these charges' only 3.29 player
+  sources. While the flag is held (observed with the limits, `ChargeSession.Observe`), the held Endurance / Frenzy /
+  Power charges *are* the special type (pinned PoB CalcPerform: special = standard count, standard = 0): the held
+  state, limits, gains, expiry and area carry stay the standard type's. `ChargeEffects.Expand(converted)` gives the
+  standard per-charge and "with no / any … charges" stats zero charges of the type and the `Special` rules the count:
+  `chance_to_deal_triple_damage_%_per_brutal_charge` → `base_chance_to_deal_triple_damage_%` (the hit's gambler roll)
+  and `stun_threshold_+%_per_brutal_charge` → `stun_threshold_+%` (the stun chance; every stat `PerCharge` expands is
+  excluded from `PlayerHitRecovery.UnsupportedStat`, `ChargeEffects.Expands`, Frenzy's stun recovery included),
+  with `PanelStatDefaults`' coefficients counted. `ChargeEffects.DamageMore(ailment: true)` multiplies damage with
+  ailments by `ailment_damage_+%_final_per_affliction_charge` × `current_affliction_charges` (the ailment panel rows;
+  no server path applies player ailment damage yet). `Display` sends `current_brutal/affliction/absorption_charges`
+  and `minimum_*` (under `modifiers_to_minimum_*_charges_instead_apply_to_*_charges`) and zero on the standard rows;
+  the HUD uses BuffDefinitions 1757 `brutal_charge`, 1758 `affliction_charge`, 1759 `absorption_charge` (whose
+  `Current_StatsKey` is `current_*_charges` itself) and swaps the buff when the flag changes. Live 2026-10-29 with the
+  flags set by `/set_stat` (rows, buff swap and the swap back). Not modelled: the non-damaging ailment effect per
+  Affliction Charge and the Absorption recoup (no consumer); no conversion unique is defined yet (#60).
+- **Blood Charges** (Reap; 2026-10-29; `BloodCharges.cs`, `Program.BloodCharges.cs`). ActiveSkills `reap`: a use whose
+  hit leaves any enemy alive gives one charge, and the skill's `lose_blood_scythe_charge_on_kill` takes one per enemy
+  its hit kills (`BloodCharges.Settle`, run by `AreaSkillHit` after the sweep's kills); the maximum is Character.ot's
+  `maximum_blood_scythe_charges` 5 (PoB Misc.lua) plus the raw stat (the Reap enchantment). Each charge held is the
+  skill's own `blood_scythe_damage_+%_final_per_charge` (15%, +0.25 per quality) more damage on its hits and on its
+  Offence rows (the hit's raw packet is scaled, so the ranges, ailment rows and per-use rows agree), and
+  `blood_scythe_cost_+%_final_per_charge` (20%) more cost at `PayMana` (the server pays Reap's cost
+  from mana), one multiplier of value × charges (pinned PoB act_str.lua). Rows: `current_blood_scythe_charges`,
+  `maximum_blood_scythe_charges` and `show_blood_charge_info` (1 while a socketed gem has the per-charge stat; the Blood
+  Charges rows are gated by it); HUD: BuffDefinitions 1822 `blood_scythe_charge` with the count as stacks, re-sent on
+  every change with `SendChargeStats`. Death takes them (`CancelOnDeath`). No game table or PoB gives them a duration,
+  so they stay until a kill or death; an area change does not carry them; Vaal Reap's temporary maximum, Reap's
+  physical damage over time debuff and its life cost are not modelled. `BloodChargesTests` and
+  `BloodChargesGatewayTests` (a surviving target gives a charge, the next hit is floor(× 1.15), the cost × 1.4 at two
+  charges, a kill takes one); live 2026-10-29 with a socketed Reap (rows, gain, loss, buff).
 - **Death and area changes.** Death takes every gained charge at once (`PlayerDied`; BuffDefinitions `CancelOnDeath`
   on the three rows), so a pause or Resurrect in Town cannot keep them; the minimum stays. An area change (`Transfer`)
   hands the charges to the destination ticket with the time they had left;
@@ -2113,8 +2759,9 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   and cast speed, critical strike chance and multiplier, increased and added damage, gain as extra chaos, resistances,
   armour, evasion, block, spell suppression, movement speed, accuracy, area, projectile speed, energy shield, life and
   mana regeneration, and panel sums (stun, cooldown, life on kill). The "with no Frenzy Charges" and "while you have
-  any" stats follow the count (`Conditional`). The more damage per Frenzy Charge scales every hit (`AttackHit`,
-  `SpellDamage.More`) and Righteous Fire's burning (`ChargeDamageMore`). The physical damage reduction (with the
+  any" stats follow the count (`Conditional`). The more damage per Frenzy Charge scales player hits once through
+  `PlayerHitDamage`, including ordinary ranged and supported attacks, and Righteous Fire's burning separately
+  (`ChargeDamageMore`). The physical damage reduction (with the
   passives' `base_additional_physical_damage_reduction_%`) adds to armour's and the elemental one applies after
   resistance, both capped at 90% (Path of Building's CalcDefence; `DamageModel.MitigatePhysical`, `DamageModel.Reduce`),
   for monster hits and the dev `/hit`, `/spellhit` and `/blockhit`.
@@ -2124,6 +2771,16 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   the per-charge rows read. A count change recomputes the pools and the walk speed and sends 0x1b3 and the skills'
   stats (the client swings and casts with the speed in its skill records), without the skill-bar work of
   `SendCharacterStats` (`SendChargeStats`).
+  The Frenzy attack/cast speed rows publish the coefficient per charge, independent of the held count.
+  Each includes its matching base coefficient and the combined attack/cast coefficient. Native Mods row 7236
+  (`AttackAndCastSpeedPerFrenzyChargeUniqueBootsDex4`) supplies -4 to the combined coefficient, cancelling the
+  inherent 4 for both rows. `WithCharges` already expands that raw source once for actual speed; display alias
+  composition does not feed back into it. Seventeen selected automated cases (15 new) cover both modes,
+  source removal, signed/zero replacements, held counts, typed composition and an explicit final zero.
+  Eight native supplied-source controls verify owned player values, held-count speed, clearing and relog.
+  Natural percentage formatting shows +4%, +6% and attack-only +5%; zero coefficients hide their rows, so
+  explicit owned zero publication and visual suppression are distinct from a zero formatter callback.
+  These raw controls do not equip the unique boots or establish official-server arithmetic.
 - **The HUD** (live 2026-10-25). One buff per type: BuffDefinitions rows 28 `endurance_charge`, 27 `frenzy_charge` and
   29 `power_charge` (`ShowCount`; BuffVisuals 41, 40 and 42 with the BuffVisualOrbs `ChargeEndurance`, `ChargeFrenzy`,
   `ChargePower`), the player as its source. S→C 0x1c1 flags bit1 carries the time left (f32 seconds) and bit2 the
@@ -2134,13 +2791,16 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
 - **`/charges`** shows each type's count, maximum, minimum, duration and time left; `/charges <type> <n>` sets a count,
   `/charges add <type> [n]` gains as a skill would (refresh, maximum chance) and `/charges clear` empties them. A stat
   set with `/set_stat` counts in the charge effects and limits too.
-- **Not modelled.** The other charge types (Spirit, Siphoning, Blitz, Challenger, Brutal, Affliction, Absorption, Blood,
-  Brine and the rest) and the stats that turn standard charges into them; skills and effects that consume or remove
+- **Not modelled.** Held state and gain/expiry for the charge types without a reachable player source here: Spirit
+  and Siphoning (their maxima come only from abyss-jewel and Elder/Shaper item counts the server does not model),
+  Blitz and Challenger (no 3.29 player source: their stats appear only in monster/mercenary skill stat sets), Brine
+  and the rest, beyond the three bounded maxima, the converted charges and the Blood Charges above;
+  skills and effects that consume or remove
   charges (Discharge, Flicker Strike's cooldown bypass, Immortal Call, "lose all … when", expiry triggers); gains that
   need stun, freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
   utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
   soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
-  low life, devotion, "count as having maximum", a maximum equal to another type's); per-charge stats whose target the
+  low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target the
   server does not calculate (ailments, leech, damage taken, damage over time increases, wand-only or attack-only damage,
   mana cost, buff duration, Frenzy's and Flicker Strike's own per-charge attack speed and damage).
 

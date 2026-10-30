@@ -60,7 +60,9 @@ When a Voidstone is socketed into the Atlas:
   (C?S 0x00e7), and the device opens that layout at the map tier. Every character has the epilogue flag
   `EndGameAvailable` that the client requires for Atlas activation. Basic map drops from monsters use a local
   approximation.
-- **Not implemented:** Atlas progress/passives, Voidstones, map stash placement and the official drop pools.
+- **Atlas passive tree, first slice:** the three presets are saved and sent (S→C 0x3d); node allocation/refund
+  (C→S 0x3e/0x3f) is saved, with a dev point budget (`/atlas_points`). The Atlas graph, point awards from completion,
+  progress, Voidstones, map stash placement and the official drop pools are not implemented.
 - **The map device** ([21](../protocol/21-hideouts.md) §5) opens a map's area from Maps.dat's `Regular_WorldAreasKey`,
   which only the old area-named maps have, and Nessa sells Beach Maps. Both follow the old system: with the generic
   bases, the area comes from the layout picked on the Atlas instead. Generic maps now use `MapKeys.dat` for their tier

@@ -28,10 +28,10 @@ partial class Program
         Func<string, int>? skill = null;
         if (effect >= 0)
         {
-            var own = Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            var own = SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
             skill = name => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         }
-        ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? Skills.EffectId(effect) : null,
+        ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary));
     }
 
@@ -81,19 +81,27 @@ partial class Program
         var session = ChargesOf(conn);
         var limits = new Dictionary<ChargeType, Charges.Limits>();
         var held = new Dictionary<ChargeType, int>();
+        var converted = new Dictionary<ChargeType, bool>();
+        var minimumConverted = new Dictionary<ChargeType, bool>();
         lock (conn.Monsters)
         {
-            // The session's limits and periodic stats follow every change of the character's stats from here, so the
-            // ticker never polls them.
+            // The session's limits, periodic stats and conversion flags follow every change of the character's stats
+            // from here, so the ticker never polls them.
             session.Observe(Get);
             foreach (var type in Charges.Types)
             {
                 limits[type] = session.Limits(type);
                 held[type] = session.Effective(type);
+                converted[type] = session.Converted(type);
+                minimumConverted[type] = session.MinimumConverted(type);
             }
         }
-        var added = ChargeEffects.Expand(Get, t => held[t]);
-        foreach (var (stat, value) in added.Select(kv => (Stat: kv.Key, kv.Value)).Concat(ChargeEffects.Display(t => held[t], t => limits[t])))
+        // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
+        // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
+        int Coefficient(string name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
+        var added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+        foreach (var (stat, value) in added.Select(kv => (Stat: kv.Key, kv.Value))
+            .Concat(ChargeEffects.Display(t => held[t], t => limits[t], t => converted[t], t => minimumConverted[t])))
             if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
     }
@@ -155,14 +163,14 @@ partial class Program
     // (Path of Building: 60, grown by area of effect; power 1 normal, 2 magic, 10 rare, 20 unique), when its cast is over.
     // True when the skill was one of these.
     static bool UseChargeSkill(ClientState conn, int effect, int level, int quality, (int X, int Y) at)
-        => UseChargeSkillCore(conn, effect, Skills.EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2));
+        => UseChargeSkillCore(conn, effect, SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2));
 
     static bool UseChargeSkillInstance(ClientState conn, ushort skillId, int effect, int level, int quality, (int X, int Y) at)
-        => Skills.EffectId(effect) == "EnduringCry" && UseChargeSkillCore(conn, effect, SupportedSkill(conn, skillId).Stats);
+        => SkillsFor(conn).EffectId(effect) == "EnduringCry" && UseChargeSkillCore(conn, effect, SupportedSkill(conn, skillId).Stats);
 
     static bool UseChargeSkillCore(ClientState conn, int effect, IReadOnlyDictionary<uint, int> own)
     {
-        if (Skills.EffectId(effect) != "EnduringCry") return false;
+        if (SkillsFor(conn).EffectId(effect) != "EnduringCry") return false;
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         int per = Own("endurance_charge_granted_per_X_monster_power_during_endurance_warcry");
         // The warcry cannot be cancelled before its contact point (cannot_cancel_skill_before_contact_point), so a later
@@ -170,7 +178,7 @@ partial class Program
         // changing its source later does not cancel this continuation. Warcry speed is the player's and the gem's.
         var player = AreaPlayerStats(conn);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        double castSeconds = Skills.CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + (Player("warcry_speed_+%") + Own("warcry_speed_+%")) / 100.0);
+        double castSeconds = SkillsFor(conn).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + (Player("warcry_speed_+%") + Own("warcry_speed_+%")) / 100.0);
         double until = conn.Clock.Elapsed.TotalSeconds + castSeconds;
         int epoch = conn.ProjectileEpoch;
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
@@ -232,11 +240,11 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} charges carried from the last area: " +
                     string.Join(", ", carried.Select(c => $"{c.Held} {Charges.Name(c.Type)} ({c.Remaining:0.0} s left)")));
             }
-        while (!conn.Closed)
+        while (!conn.Closed && !conn.RageRetired)
         {
             await Task.Delay(TimeSpan.FromSeconds(ChargeSession.StepSeconds));
-            if (conn.Closed) break;
-            if (conn.Paused) continue;
+            if (conn.Closed || conn.RageRetired) break;
+            if (conn.LeavingArea || conn.Paused) continue;
             try
             {
                 Func<string, int>? stats = null;
@@ -252,6 +260,8 @@ partial class Program
                 List<ChargeSession.BuffChange> buffs;
                 using (ProjectileMutation(conn))
                 {
+                    if (conn.Closed || conn.RageRetired) break;
+                    if (conn.LeavingArea) continue;
                     now = ProjectileWorldTime(conn);
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: now < conn.Walk.ArrivesAt,
                         inTown: InTown(conn), Random.Shared);
@@ -269,7 +279,7 @@ partial class Program
                 if (step.CountsChanged)
                 {
                     await SendChargeStats(remote, stream, ciphers, conn,
-                        string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Name(t)}")));
+                        string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Label(t, session.Converted(t))}")));
                 }
             }
             catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
@@ -285,6 +295,7 @@ partial class Program
     // the same moment) takes the full SendCharacterStats.
     static async Task SendChargeStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
+        if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
         var skills = PlayerSkills(conn);
         if (!conn.ClientSkillIds.SetEquals(skills.Select(s => s.Id)))
         {
@@ -315,7 +326,7 @@ partial class Program
                 text = string.Join("; ", Charges.Types.Select(t =>
                 {
                     var l = session.Limits(t);
-                    return $"{Charges.Name(t)} {session.Effective(t)}/{l.Maximum} (minimum {l.Minimum}, " +
+                    return $"{Charges.Name(t)}{(session.Converted(t) ? $" (as {Charges.SpecialName(t)})" : "")} {session.Effective(t)}/{l.Maximum} (minimum {l.Minimum}, " +
                         $"{l.DurationMs / 1000.0:0.###} s, {session.State.Remaining(t, now):0.0} s left)";
                 }));
             await conn.Commands!.Reply($"Charges: {text}.");

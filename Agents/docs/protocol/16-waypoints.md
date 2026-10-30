@@ -111,8 +111,34 @@ decides each one (row bytes: +0x10 i32, +0x14 QuestFlag, +0x24 WorldArea, +0x34 
 - +0x3a set hides the pin (SynthesisHub); +0x39 needs the Hideouts key (Player +0x1f8);
 - the DelveHub row (index 4) also compares a level (`0x140a9c080`), which the tested character passed.
 
-Live 2026-10-30, all pins were shown. The Mine Encampment pin sends C→S **0x17d** (6 bytes: u32 BE the waypoint object
-id, `017D 00002F00`), which the Gateway answers by moving the player to Delve_Hub, as Niko's Visit Mine Encampment. A connection line (`0x140a9a7d0` → `0x140a9aa90`) is drawn only between two shown pins
+Live 2026-10-30, all pins were shown. Each league pin's click sends a message of its own, carrying the waypoint object
+the panel was opened from; the Gateway moves the player to the hub (arriving at its spawn):
+
+| C→S | Bytes (live) | Pin | Hub (WorldAreas) |
+|---|---|---|---|
+| 0x17a | u16 n + name, u32 BE object, u8 | Hideout | the player's hideout (21 §3) |
+| 0x17b | as 0x17a: `017B 0005 DedOK 00002F00 00` | Menagerie | Menagerie_Hub |
+| 0x17d | `017D 00002F00` (u32 BE object) | Mine Encampment | Delve_Hub, as Niko's Visit Mine Encampment |
+| 0x17e | `017E 00002F00 00` (u32 BE object, u8) | Forbidden Sanctum | SanctumFoyer_Fellshrine |
+| 0x181 | `0181 00002F00 00` | Kingsmarch | KalguuranSettlersLeague |
+| 0x182 | `0182 00002F00 00` | Monastery of the Keepers | ChayulaLeague |
+| 0x184 | `0184 00002F00` | Rogue Harbour | HeistHub |
+
+The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in); the
+Guild Hideout, Halls of the Dead, Necropolis and Deepwater pins are not mapped yet. The Deepwater pin (`__col5` 59)
+sends nothing when clicked: the client refuses it outside its own area type, and `/goto DeepwaterHub` builds no layout
+(its graph nests `hub_interior.dgr` as a sub-graph node, which the level generator does not place yet).
+
+**Hub waypoints.** The hubs have no waypoint bit of their own, so the Gateway sends their tile's waypoint object anyway
+(`WaypointCatalog.For`) and the player can click it to travel back; where the tiles place none (HeistHub,
+ChayulaLeague) it creates one 12 cells from the spawn. The client draws them unlit: without a bit it lights a
+waypoint only for its own list of area types (`0x141fdd130`, mask `0x3e602108080008`: 3, 19, 27, 32, 37, 41, 45, 46,
+49-53), and both the object's creation (`0x142165ed0`) and every 0x4c (`0x14214ba58` → `0x1421449f0`) take the
+state from it (0 idle, 1 `waypointeffect_prestartidle`, 2 activation). Delve_Hub is type 15: none of the StateMachine
+"active" value, the 0x4c bits, the hideout's `waypointcore.ao` model or a `waypoint_idle.ao` effect object over it lit
+it (live 2026-10-30).
+
+A connection line (`0x140a9a7d0` → `0x140a9aa90`) is drawn only between two shown pins
 of the act, so an unrevealed area in the middle (The Mud Flats) cut the line between The Coast and The Submerged Passage.
 
 A visit flag is the area's MapPins `QuestFlagVisit` (the same as its WorldAreas `StartQuestFlags` where both exist).

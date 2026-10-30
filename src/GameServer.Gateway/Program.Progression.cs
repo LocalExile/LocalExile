@@ -52,6 +52,10 @@ partial class Program
         {
             conn.MainAscendancy = ascendancy;
             conn.Passives = [.. ordinary];
+            var atlasPresets = save?.AtlasPassivePresets ?? [];
+            for (int i = 0; i < conn.AtlasPassives.Length; i++)
+                conn.AtlasPassives[i] = i < atlasPresets.Count ? [.. atlasPresets[i].Where(n => AtlasPassiveNodes.Find(n) is not null).Distinct()] : [];
+            conn.AtlasPassivePoints = save?.AtlasPassivePoints ?? 0;
 
             conn.Waypoints.UnionWith(save?.Waypoints ?? []);
             conn.Visited.UnionWith(save?.Visited ?? []);
@@ -99,11 +103,16 @@ partial class Program
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
         var (sources, attributes, inactive, worn) = EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot(), nodes, level);
-        InactiveItems[CharacterName(conn)] = inactive;
-        if (inactive.Count > 0 && (before is null || !before.SetEquals(inactive)))
-            Console.WriteLine($"[gateway] {CharacterName(conn)}: inactive items (requirements not met): " +
-                string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
-                    $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
+        lock (conn.Monsters)
+            if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired)
+            {
+                // A queued old-area calculation must not replace the new connection's qualification snapshot.
+                InactiveItems[CharacterName(conn)] = inactive;
+                if (inactive.Count > 0 && (before is null || !before.SetEquals(inactive)))
+                    Console.WriteLine($"[gateway] {CharacterName(conn)}: inactive items (requirements not met): " +
+                        string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
+                            $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
+            }
         return (WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources))), attributes);
     }
 
@@ -447,7 +456,7 @@ partial class Program
                 : new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0))
             .Select(WithGems).ToList();
         // Requirements compare virtual_*_for_requirements, as the client and GemRequirementsUnmet do: the attribute unless
-        // /set_stat replaced it.
+        // /set_stat replaced it. The mod catalog lets the resolver see the hidden modifier that waives requirements.
         int ForRequirements(string attribute, int value) =>
             Stats.Key($"virtual_{attribute}_for_requirements") is uint key && dev.TryGetValue(key, out int set) ? set : value;
         var (inactive, active) = ItemModStats.ResolveEquipment(wornItems, level ?? conn.Pools.Level, active =>
@@ -455,7 +464,7 @@ partial class Program
             var (str, dex, intel) = AttributeInputs(RawAttributes(active.Select(w => w.Item)), dev)
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
-        }, before);
+        }, before, ItemsFor(conn).Mods);
         var rawAttributes = RawAttributes(active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
@@ -531,11 +540,27 @@ partial class Program
         var weapons = WeaponProfileFor(conn);
         var activeWeapon = WeaponProfileFor(conn, activeSet: true);
         var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
-        int Input(string name) => Stats.Key(name) is uint key
-            ? conn.PlayerStats.TryGetValue(key, out int set) ? set : sources.GetValueOrDefault(key) : 0;
-        var gear = EquippedBaseDefences(conn, Input);
-        bonus = bonus with { Armour = bonus.Armour + gear.Armour, Evasion = bonus.Evasion + gear.Evasion,
-            EnergyShield = bonus.EnergyShield + gear.EnergyShield, Ward = bonus.Ward + gear.Ward };
+        int EquipmentInput(string name) => Stats.Key(name) is uint key
+            ? conn.PlayerStats.TryGetValue(key, out int value) ? value : sources.GetValueOrDefault(key) : 0;
+        var gear = EquippedBaseDefences(conn, EquipmentInput);
+        var slots = EquippedArmourDefences(conn, EquipmentInput).ToArray();
+        var shieldDefence = slots.FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
+        var body = slots.FirstOrDefault(d => d.Row == PlayerInventories.BodyArmour).Defence;
+        int EquipmentStat(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
+        var converted = ConvertEquipmentEnergyShield(conn, EquipmentStat, gear.EnergyShield);
+        bonus = bonus with
+        {
+            Armour = bonus.Armour + gear.Armour,
+            Evasion = bonus.Evasion + gear.Evasion,
+            Ward = bonus.Ward + gear.Ward,
+            Life = (int)Math.Min(int.MaxValue, (long)bonus.Life + converted.Life),
+            EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + converted.EnergyShield),
+            ShieldArmour = shieldDefence.Armour, ShieldEvasion = shieldDefence.Evasion,
+            // ES-to-Life consumes the local item source before any shield/global increases can act on it.
+            ShieldEnergyShield = converted.EnergyShield == 0 ? 0 : shieldDefence.EnergyShield,
+            BodyArmour = body.Armour, BodyEvasion = body.Evasion,
+            BodyEnergyShield = converted.EnergyShield == 0 ? 0 : body.EnergyShield,
+        };
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Auras.Values];
         var aura = AuraCatalog.Bonus(auras, bonus.AuraEffectPct, SkillsFor(conn), Stats);
@@ -543,7 +568,34 @@ partial class Program
         // Read raw replacements once, preserving independent mana and incoming-hit consumers.
         Dictionary<uint, int> devStats;
         lock (conn.Monsters) devStats = new(conn.PlayerStats);
-        // Final native Strength remains a presentation override; use the production attribute calculation here.
+        // Raw pool-source overrides replace their whole coefficient, including explicit zero. Final native
+        // attributes remain presentation overrides; group terms consume the production-calculated attributes.
+        int PoolSource(string name, int sourced) => Stats.Key(name) is uint key && devStats.TryGetValue(key, out int value)
+            ? value : sourced;
+        bonus = bonus with
+        {
+            LifePerLevel = PoolSource(LifeManaPoolSources.LifePerLevel, bonus.LifePerLevel),
+            ManaPerLevel = PoolSource(LifeManaPoolSources.ManaPerLevel, bonus.ManaPerLevel),
+            LifePerTenDexterity = PoolSource(LifeManaPoolSources.LifePerTenDexterity, bonus.LifePerTenDexterity),
+            LifePerTenIntelligence = PoolSource(LifeManaPoolSources.LifePerTenIntelligence, bonus.LifePerTenIntelligence),
+            LifePerFourDexterity = PoolSource(LifeManaPoolSources.LifePerFourDexterity, bonus.LifePerFourDexterity),
+            LifePerTwoIntelligence = PoolSource(LifeManaPoolSources.LifePerTwoIntelligence, bonus.LifePerTwoIntelligence),
+            EnergyShieldPctPerTenStrength = PoolSource(AttributeDefenceSources.EnergyShieldPerTenStrength,
+                bonus.EnergyShieldPctPerTenStrength),
+            EvasionPctPerTenIntelligence = PoolSource(AttributeDefenceSources.EvasionPerTenIntelligence,
+                bonus.EvasionPctPerTenIntelligence),
+            // Replace the complete raw flag sum before interpreting it, including an explicit developer zero.
+            NoLifeFromStrength = PoolSource(InherentAttributeBonuses.NoLifeFromStrength,
+                EquipmentStat(InherentAttributeBonuses.NoLifeFromStrength)) != 0,
+            NoManaFromIntelligence = PoolSource(InherentAttributeBonuses.NoManaFromIntelligence,
+                EquipmentStat(InherentAttributeBonuses.NoManaFromIntelligence)) != 0,
+            NoStrengthBonuses = PoolSource(InherentAttributeBonuses.NoStrengthBonuses,
+                EquipmentStat(InherentAttributeBonuses.NoStrengthBonuses)) != 0,
+            NoDexterityBonuses = PoolSource(InherentAttributeBonuses.NoDexterityBonuses,
+                EquipmentStat(InherentAttributeBonuses.NoDexterityBonuses)) != 0,
+            NoIntelligenceBonuses = PoolSource(InherentAttributeBonuses.NoIntelligenceBonuses,
+                EquipmentStat(InherentAttributeBonuses.NoIntelligenceBonuses)) != 0,
+        };
         if (Stats.Key(StrengthMana.PerFourStrength) is uint manaPerStrength
             && devStats.TryGetValue(manaPerStrength, out int perFourStrength))
             bonus = bonus with { ManaPerFourStrength = perFourStrength };
@@ -567,6 +619,12 @@ partial class Program
         int RawCritical(string name) => (int)Math.Clamp(RawCriticalSum(name), int.MinValue, int.MaxValue);
         long attackIncrease = AttackBaseCriticalStrike.IncreasedSum(activeWeapon, RawCriticalSum);
         long spellIncrease = RawCriticalSum("critical_strike_chance_+%") + RawCriticalSum("spell_critical_strike_chance_+%");
+        long RawAccuracy(string name)
+        {
+            if (Stats.Key(name) is not uint key) return 0;
+            if (devStats.TryGetValue(key, out int value)) return value;
+            return (long)sources.GetValueOrDefault(key) + (name == "accuracy_rating" ? aura.Accuracy : 0);
+        }
         bonus = bonus with
         {
             FireResistance = bonus.FireResistance + aura.FireResistance,
@@ -577,9 +635,17 @@ partial class Program
             ColdMaxResistance = bonus.ColdMaxResistance + aura.ColdMaxResistance,
             LightningMaxResistance = bonus.LightningMaxResistance + aura.LightningMaxResistance,
             ChaosMaxResistance = bonus.ChaosMaxResistance + aura.ChaosMaxResistance,
-            Accuracy = bonus.Accuracy + aura.Accuracy,
+            Accuracy = AccuracyRating.Flat(activeWeapon, RawAccuracy),
+            AccuracyPct = AccuracyRating.Increased(activeWeapon, RawAccuracy),
+            AccuracyPerLevel = (int)RawAccuracy("accuracy_rating_per_level"),
+            DexterityAccuracyTriple = RawAccuracy("dexterity_accuracy_bonus_grants_accuracy_rating_+3_per_dexterity_instead") != 0,
+            AccuracyEqualsIntelligence = RawAccuracy("gain_accuracy_rating_equal_to_intelligence") != 0,
+            AccuracyMoreVsUniquePct = (int)RawAccuracy("accuracy_rating_+%_final_vs_unique_enemies_from_mastery"),
+            AccuracyMoreInCloseRangePct = (int)RawAccuracy("accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery"),
             Armour = bonus.Armour + aura.Armour,
             Evasion = bonus.Evasion + aura.Evasion,
+            // Discipline is a global flat ES source, added after equipment ES-to-Life conversion.
+            EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + aura.EnergyShield),
             ArmourMorePct = aura.ArmourMorePct,
             EvasionMorePct = aura.EvasionMorePct,
             CriticalStrikeChancePct = attackIncrease,
@@ -589,8 +655,9 @@ partial class Program
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.
-        int MagebloodGet(string name) => Stats.Key(name) is uint k ? sources.GetValueOrDefault(k) : 0;
-        bonus = UtilityFlasks.Apply(bonus, UtilityStats(conn, MagebloodGet));
+        int MagebloodGet(string name) => Stats.Key(name) is uint k
+            ? devStats.TryGetValue(k, out int value) ? value : sources.GetValueOrDefault(k) : 0;
+        bonus = UtilityFlasks.Apply(bonus, UtilityStats(conn, MagebloodGet, level));
         if (conn.God)
             bonus = bonus with { Strength = bonus.Strength + 1000, Dexterity = bonus.Dexterity + 1000, Intelligence = bonus.Intelligence + 1000,
                 Life = bonus.Life + 10_000, AttackSpeedPct = bonus.AttackSpeedPct + 1000 };
@@ -624,7 +691,7 @@ partial class Program
         };
         // Only the active usable shield contributes. The alternate set and unmet requirements cannot grant block.
         int shieldBlock = ActiveOffHand(conn) is { Type.Class: "Shield" } shield
-            ? Input("block_chance_from_equipped_shield_is_%") is > 0 and var replacement
+            ? EquipmentInput("block_chance_from_equipped_shield_is_%") is > 0 and var replacement
                 ? replacement : ItemsFor(conn).ShieldBlock(shield.Type) : 0;
         int rawAttack = pools.BlockChanceUncapped + shieldBlock;
         double blockFactor = (1 + bonus.BlockChanceInc / 100.0) * (1 + bonus.BlockChanceMore / 100.0);
@@ -658,7 +725,7 @@ partial class Program
         }
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
-        ConfigureFortificationRecovery(conn, pools.Life);
+        ConfigureFortificationRecovery(conn, pools.Life, sources);
         return pools with { FortificationRevision = FortificationOf(conn).Revision };
     }
 
@@ -708,9 +775,9 @@ partial class Program
             + (weapons.Wand ? Get("wand_attack_speed_+%") : 0)
             + (weapons.Bow ? Get("bow_attack_speed_+%") : 0)
             + (weapons.Staff ? Get("staff_attack_speed_+%") : 0);
-        // PoB Misc.lua: 10% more attack speed while dual wielding; unarmed attacks count as dual wielding. The main hand's
-        // local attack speed scales the weapon's own rate before the global increases, so it multiplies like a more.
-        int attackSpeedMore = (int)Math.Round(((weapons.DualWield || weapons.Unarmed ? 1.10 : 1.0) * (1 + weapons.LocalAttackSpeedPct / 100.0) - 1) * 100);
+        // PoB Misc.lua: 10% more attack speed while dual wielding; unarmed attacks count as dual wielding.
+        // ItemWeaponStats already applies the weapon's local speed to its duration, before character increases.
+        int attackSpeedMore = weapons.DualWield || weapons.Unarmed ? 10 : 0;
         // Unconditional critical strike chance and multiplier passives: generic, attack/melee/weapon-shape and spell.
         // Timed or enemy-state conditions are not modelled.
         long criticalChance = AttackBaseCriticalStrike.IncreasedSum(weapons, name => Get(name));
@@ -734,27 +801,8 @@ partial class Program
         // Mastery's conversions, plus its two target-conditional "more" effects (below; TargetAccuracy applies them to
         // the hit's own target at the roll). Other conditional accuracy stays unmodelled. Unarmed attacks count as dual
         // wielding, as they do for attack speed.
-        int accuracyFlat = Get("accuracy_rating") + weapons.LocalAccuracy
-            + (weapons.Sword ? Get("sword_accuracy_rating") : 0)
-            + (weapons.Axe ? Get("axe_accuracy_rating") : 0)
-            + (weapons.Mace ? Get("mace_accuracy_rating") : 0)
-            + (weapons.Claw ? Get("claw_accuracy_rating") : 0)
-            + (weapons.Dagger ? Get("dagger_accuracy_rating") : 0)
-            + (weapons.Wand ? Get("wand_accuracy_rating") : 0)
-            + (weapons.Staff ? Get("staff_accuracy_rating") : 0)
-            + (weapons.Bow ? Get("bow_accuracy_rating") : 0);
-        int accuracyPct = Get("accuracy_rating_+%")
-            + ((weapons.DualWield || weapons.Unarmed) ? Get("accuracy_rating_while_dual_wielding_+%") : 0)
-            + (weapons.OneHandMelee ? Get("one_handed_melee_accuracy_rating_+%") : 0)
-            + (weapons.TwoHandMelee ? Get("two_handed_melee_accuracy_rating_+%") : 0)
-            + (weapons.Axe ? Get("axe_accuracy_rating_+%") : 0)
-            + (weapons.Sword ? Get("sword_accuracy_rating_+%") : 0)
-            + (weapons.Mace ? Get("mace_accuracy_rating_+%") : 0)
-            + (weapons.Claw ? Get("claw_accuracy_rating_+%") : 0)
-            + (weapons.Dagger ? Get("dagger_accuracy_rating_+%") : 0)
-            + (weapons.Wand ? Get("wand_accuracy_rating_+%") : 0)
-            + (weapons.Staff ? Get("staff_accuracy_rating_+%") : 0)
-            + (weapons.Bow ? Get("bow_accuracy_rating_+%") : 0);
+        long accuracyFlat = AccuracyRating.Flat(weapons, name => Get(name));
+        long accuracyPct = AccuracyRating.Increased(weapons, name => Get(name));
         // The Accuracy Mastery's two target-conditional effects (11-skills.md panels): final "more" accuracy for a hit's
         // own target, which TargetAccuracy applies at the roll. Kept out of the additive pools, so the panel and
         // /accuracy keep showing only the unconditional rating and never claim a target condition statically.
@@ -785,14 +833,37 @@ partial class Program
             Attributes: attributes, Ward: Get("base_ward"), WardPct: Get("ward_+%") + Get("global_defences_+%") + Get("combined_global_defences_+%"),
             Life: Get("base_maximum_life"), LifePct: Get("maximum_life_+%"), Mana: Get("base_maximum_mana"), ManaPct: Get("maximum_mana_+%"),
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
+            LifePerLevel: Get(LifeManaPoolSources.LifePerLevel), ManaPerLevel: Get(LifeManaPoolSources.ManaPerLevel),
+            LifePerTenDexterity: Get(LifeManaPoolSources.LifePerTenDexterity),
+            LifePerTenIntelligence: Get(LifeManaPoolSources.LifePerTenIntelligence),
+            LifePerFourDexterity: Get(LifeManaPoolSources.LifePerFourDexterity),
+            LifePerTwoIntelligence: Get(LifeManaPoolSources.LifePerTwoIntelligence),
+            NoLifeFromStrength: Get(InherentAttributeBonuses.NoLifeFromStrength) != 0,
+            NoManaFromIntelligence: Get(InherentAttributeBonuses.NoManaFromIntelligence) != 0,
+            NoStrengthBonuses: Get(InherentAttributeBonuses.NoStrengthBonuses) != 0,
+            NoDexterityBonuses: Get(InherentAttributeBonuses.NoDexterityBonuses) != 0,
+            NoIntelligenceBonuses: Get(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
             Armour: Get("base_physical_damage_reduction_rating"), ArmourPct: armourPct,
             Evasion: Get("base_evasion_rating"), EvasionPct: evasionPct,
+            EvasionPctPerTenIntelligence: Get(AttributeDefenceSources.EvasionPerTenIntelligence),
             SharedDefencesPct: defencesPct, IronReflexes: Get("keystone_iron_reflexes") != 0,
             MentalConditioning: Get(PowerOfPurpose.RawFlag) != 0,
             ChaosInoculation: Get("keystone_chaos_inoculation") != 0,
             ArmourAppliesToChaosDamage: Get(PlayerHitMitigation.ArmourAppliesToChaos) != 0,
             EnergyShield: Get("base_maximum_energy_shield"),
+            EnergyShieldPctPerTenStrength: Get(AttributeDefenceSources.EnergyShieldPerTenStrength),
             EnergyShieldPct: Get("maximum_energy_shield_+%") + Get("global_defences_+%") + Get("combined_global_defences_+%"),
+            ShieldArmourPct: Get("shield_physical_damage_reduction_rating_+%"),
+            ShieldEvasionPct: Get("shield_evasion_rating_+%"),
+            ShieldEnergyShieldPct: Get("shield_maximum_energy_shield_+%"),
+            // Despite its name, shield_armour_+% increases all shield defences (native 0x142724c50).
+            // combined_shield_defences_+% is the native derived value, not a second additive source.
+            SharedShieldDefencesPct: Get("shield_armour_+%"),
+            NoShieldDefences: Get("minions_get_shield_stats_instead_of_you") != 0
+                || Get("gain_no_defences_from_equipped_shield") != 0,
+            BodyEnergyShieldPct: Get("maximum_energy_shield_from_body_armour_+%"),
+            DoubleBodyArmour: Get("damage_reduction_rating_from_body_armour_doubled") != 0,
+            NoBodyArmour: Get("gain_no_armour_from_body_armour") != 0,
             MeleePhysicalDamagePct: Get("melee_physical_damage_+%"),
             FireResistance: allRes + Get("base_fire_damage_resistance_%"),
             ColdResistance: allRes + Get("base_cold_damage_resistance_%") + pairRes,
@@ -809,6 +880,7 @@ partial class Program
             SpellSuppressionWhileFullLife: Get("spell_suppression_chance_%_while_on_full_life"),
             SpellSuppressionWhileMoving: Get("spell_suppression_chance_%_while_moving"),
             SpellSuppressionIfHitRecently: Get("spell_suppression_chance_%_if_enemy_hit_recently"),
+            SpellSuppressionWhileFullEnergyShield: Get("spell_suppression_chance_%_while_on_full_energy_shield"),
             MovementVelocityPct: Get("base_movement_velocity_+%"),
             BlockChance: Get("additional_block_%") + Get("attack_block_%") + Get("monster_base_block_%")
                 + blockWhileDualOrShield + shieldBlock + staffBlock + dualBlock + bowBlock,

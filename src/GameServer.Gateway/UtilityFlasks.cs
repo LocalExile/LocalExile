@@ -174,17 +174,19 @@ static class UtilityFlasks
     /// quality. <paramref name="local"/>: the flask's own mods (ItemModStats.Local, by Stats.dat Id);
     /// <paramref name="character"/>: the character's stats (passives and gear: flask_duration_+%, flask_effect_+%,
     /// magic_utility_flask_effect_+% for a magic flask). As Path of Building's Item.lua and CalcPerform.lua: duration =
-    /// base × (1 + increased) × (1 + quality) × (1 + local more), quality multiplying the other increases; effect
+    /// base × (1 + local increased) × (1 + global increased) × (1 + quality) × (1 + local more), quality multiplying the other increases; effect
     /// = 1 + the local and the character's increased effect.</summary>
     public static (IReadOnlyList<Source> Stats, double Seconds) For(Utility u, Item flask,
-        IReadOnlyDictionary<string, int> local, Func<string, int> character)
+        IReadOnlyDictionary<string, int> local, Func<string, int> character, int playerLevel = 1)
     {
         int Get(string name) => local.GetValueOrDefault(name);
-        double seconds = u.Seconds * (100 + Get("local_flask_duration_+%") + character("flask_duration_+%")) / 100.0
-            * (100 + flask.Quality) / 100.0 * (100 + Get("local_flask_duration_+%_final")) / 100.0;
-        int increasedEffect = Get("local_flask_effect_+%") + character("flask_effect_+%")
-            + (flask.Rarity == ItemRarity.Magic ? character("magic_utility_flask_effect_+%") : 0);
-        double effect = Math.Max(0, 100 + increasedEffect) / 100.0;
+        double durationInc = PanelStats.FlaskDurationIncrease(character, playerLevel);
+        // PoB Item.lua2421-2447 applies local duration/quality first; global FlaskDuration multiplies that result.
+        double seconds = u.Seconds * (100.0 + Get("local_flask_duration_+%")) / 100.0
+            * (100.0 + durationInc) / 100.0 * (100.0 + flask.Quality) / 100.0
+            * (100.0 + Get("local_flask_duration_+%_final")) / 100.0;
+        double effect = FlaskEffectScaling.Multiplier(character, playerLevel, Get("local_flask_effect_+%"),
+            flask.Rarity == ItemRarity.Magic ? character("magic_utility_flask_effect_+%") : 0);
         bool Applies(string stat) => SupportOf(stat) != Support.Unsupported;
         List<Source> stats = [.. u.Stats.Where(s => Applies(s.Stat))
             .Select(s => new Source($"buff {u.BuffRow}", s.Stat, s.Stat == "phase_through_objects" ? s.Value
@@ -203,7 +205,8 @@ static class UtilityFlasks
 
     /// <summary>A value scaled by increased effect as the game rounds it (poewiki: "always rounded down"; Path of Building
     /// ModStore.ScaleAddMod: rounded to two decimals, then the fraction dropped).</summary>
-    public static int Scale(int value, double effect) => (int)Math.Truncate(Math.Round(value * effect, 2));
+    public static int Scale(int value, double effect) =>
+        (int)Math.Clamp(Math.Truncate(Math.Round(value * effect, 2)), int.MinValue, int.MaxValue);
 
     /// <summary>One stat an effect applies: the effect it belongs to (its buff, "buff 121", or a flask mod's stat), the
     /// stat and its value.</summary>
@@ -307,8 +310,7 @@ static class UtilityFlasks
     /// (effect, stat) the value with the largest size wins, a bonus over an equal penalty.</summary>
     public static IReadOnlyList<(string Stat, int Value)> Strongest(IEnumerable<Source> sources) =>
         [.. sources.GroupBy(s => (s.Effect, s.Stat))
-            .Select(g => (g.Key.Stat, g.OrderByDescending(s => ActorScale.IsInput(s.Stat)
-                ? Math.Abs((long)s.Value) : Math.Abs(s.Value)).ThenByDescending(s => s.Value).First().Value))];
+            .Select(g => (g.Key.Stat, g.OrderByDescending(s => Math.Abs((long)s.Value)).ThenByDescending(s => s.Value).First().Value))];
 
     /// <summary>The character's pool bonuses with the running flasks' stats: resistances and their maxima, armour and
     /// evasion (flat, and the Basalt / Stibnite more multipliers on top of any others), movement and attack speed,
@@ -320,7 +322,8 @@ static class UtilityFlasks
         if (s.Count == 0) return b;
         int Get(string name) => s.GetValueOrDefault(name);
         int all = Get("base_resist_all_elements_%");
-        static int More(int a, int c) => (int)Math.Round((100 + a) * (100 + c) / 100.0 - 100);
+        // Preserve the complete product until the final defence rating is rounded.
+        static decimal More(decimal a, int c) => (100m + a) * (100m + c) / 100m - 100m;
         return b with
         {
             FireResistance = b.FireResistance + all + Get("base_fire_damage_resistance_%"),

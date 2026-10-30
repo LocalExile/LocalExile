@@ -23,4 +23,16 @@ public class GemSupportsTests
         Assert.Equal(expected, result.Count == 1);
     }
 
+    [Fact]
+    public void Physical_more_follows_gain_history_and_conditional_more_is_not_applied_to_every_hit()
+    {
+        var hit = DamagePacket.Empty.Add(DamageType.Physical, new(100, 100));
+        (string, int)[] mods = [("support_melee_physical_damage_+%_final", 49),
+            ("support_ruthless_big_hit_damage_+%_final", 100), ("support_burning_damage_+%_final", 100)];
+        var conversion = new DamageConversion(); conversion.AddGain(DamageType.Physical, DamageType.Fire, 39);
+        hit = PlayerHitDamage.Resolve(hit, _ => 0, conversion, spell: false, melee: true, supportModifiers: mods);
+        Assert.Equal(149, hit[DamageType.Physical].Min);
+        Assert.Equal(149 * .39, hit[DamageType.Fire].Min, 8);
+    }
+
 }

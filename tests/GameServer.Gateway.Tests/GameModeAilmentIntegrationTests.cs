@@ -46,7 +46,11 @@ public sealed class GameModeAilmentIntegrationTests : IDisposable
         int beforeCast = (int)Call("CastMs", conn, spell, (ushort)0)!;
         Assert.True(beforeCast > 0);
         var cold = DamagePacket.Of(DamageType.Cold, conn.PlayerMaxLife, conn.PlayerMaxLife);
+        // The chill lasts two seconds of the connection's clock, which has run since its creation (the catalog loads
+        // above take longer than that under a loaded suite): apply it now and stop the clock, as a pause does, so the
+        // reads below see the same instant. The clock must not go backwards: earlier observers (Fortification) refuse it.
         double now = conn.Clock.Elapsed.TotalSeconds;
+        conn.Clock.Stop();
         conn.ElementalAilments.Apply(cold, cold, false, conn.PlayerMaxLife, now, _ => 0, new Random(1));
 
         Assert.Equal(.7, Program.PlayerActionFactor(conn), 6);

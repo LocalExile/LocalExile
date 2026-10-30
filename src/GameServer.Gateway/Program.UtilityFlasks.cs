@@ -21,7 +21,14 @@ partial class Program
         }
         // The character's flask stats (passives and gear: increased flask effect, duration and charges used) and the
         // flask's own mods.
-        var character = CharacterPlayerStats(conn);
+        Dictionary<uint, int> character;
+        int playerLevel;
+        // Keep level and coefficient sources in one use snapshot, including across the asynchronous charge spend.
+        lock (conn.Monsters)
+        {
+            playerLevel = conn.Pools.Level;
+            character = CharacterPlayerStats(conn);
+        }
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(utility.Charges, local, Get);
@@ -34,7 +41,7 @@ partial class Program
         var items = ItemsOf(conn);
         if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is null) return;
 
-        var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get);
+        var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get, playerLevel);
         double now = conn.Clock.Elapsed.TotalSeconds;
         ushort buff;
         ushort? extra;
@@ -89,10 +96,11 @@ partial class Program
         try
         {
             bool stop = false;
-            while (!conn.Closed && !stop)
+            while (!conn.Closed && !conn.RageRetired && !stop)
             {
                 await Task.Delay(RecoveryStepMs);
-                if (conn.Closed) break;
+                if (conn.Closed || conn.RageRetired) break;
+                if (conn.LeavingArea) continue;
                 try
                 {
                     bool dead = conn.PlayerLife == 0;

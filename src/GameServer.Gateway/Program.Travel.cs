@@ -456,6 +456,8 @@ partial class Program
         CarryAntiquarian(conn, r.Ticket);
         CarryRage(conn, r.Ticket);
         CarryVaalSouls(conn, r.Ticket);
+        conn.Retire();
+        lock (conn.Monsters) LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
         conn.InvalidateIncomingHits(); // Recent enemy contacts never cross an area connection.
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;

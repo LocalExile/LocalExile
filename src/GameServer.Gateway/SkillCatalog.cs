@@ -148,6 +148,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         // CharacterPanelStats gates spell rows on this final flag and hides the weapon rows while it is set.
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
         Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
+        // ActiveSkillType Brand's FlagStat is skill_is_brand_skill. It belongs to this selected skill, not the actor.
+        Put("skill_is_brand_skill", IsBrand(effectRow) ? 1 : 0);
         if (gepl >= 0 && t.Cooldowns[gepl] is { Ms: > 0, Uses: > 0 } cooldown)
         {
             Put("base_cooldown_count", cooldown.Uses);
@@ -165,7 +167,13 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     /// The packet keeps the types separate so conversion and mitigation can be applied per type. Added damage and
     /// increased/more modifiers are applied by the caller; this is the skill's own base range.
     /// </summary>
-    public DamagePacket HitDamage(int effectRow, int level, int quality = 0)
+    public DamagePacket HitDamage(int effectRow, int level, int quality = 0) => HitDamageOf(effectRow, level, quality, "spell");
+
+    /// <summary>A secondary-damage skill's own base hit (Bear Trap's <c>secondary_minimum/maximum_base_physical_damage</c>,
+    /// Herald of Ice's shatter): neither an attack nor a spell, so no added attack/spell damage joins it.</summary>
+    public DamagePacket SecondaryHitDamage(int effectRow, int level, int quality = 0) => HitDamageOf(effectRow, level, quality, "secondary");
+
+    private DamagePacket HitDamageOf(int effectRow, int level, int quality, string prefix)
     {
         var stats = EffectStats(effectRow, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var result = DamagePacket.Empty;
@@ -180,8 +188,10 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
                 DamageType.Chaos => "chaos",
                 _ => throw new ArgumentOutOfRangeException(),
             };
-            int min = Value(stats, $"spell_minimum_base_{slug}_damage", $"minimum_base_{slug}_damage");
-            int max = Value(stats, $"spell_maximum_base_{slug}_damage", $"maximum_base_{slug}_damage");
+            int min = prefix == "spell" ? Value(stats, $"spell_minimum_base_{slug}_damage", $"minimum_base_{slug}_damage")
+                : Value(stats, $"{prefix}_minimum_base_{slug}_damage");
+            int max = prefix == "spell" ? Value(stats, $"spell_maximum_base_{slug}_damage", $"maximum_base_{slug}_damage")
+                : Value(stats, $"{prefix}_maximum_base_{slug}_damage");
             if (min > 0 || max > 0) result = result.Add(type, new DamageRange(min, Math.Max(min, max)));
         }
         return result;
@@ -396,6 +406,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     public bool IsAura(int effectRow, IEnumerable<int>? acceptedSupports = null) =>
         _auraEffects.Value.Contains(effectRow)
         || acceptedSupports?.Any(row => _addedAuraEffects.Value.Contains(row)) == true;
+    /// <summary>The native Brand skill type, independently of display name or gem tags.</summary>
+    public bool IsBrand(int effectRow) => _brandEffects.Value.Contains(effectRow);
 
     private readonly Lazy<HashSet<int>> _instantEffects = new(() => EffectsOfType(folder, "Instant"));
     private readonly Lazy<HashSet<int>> _movementEffects = new(() => EffectsOfType(folder, "Movement"));
@@ -407,6 +419,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     private readonly Lazy<HashSet<int>> _auraEffects = new(() => EffectsOfType(folder, "Aura"));
     private readonly Lazy<HashSet<int>> _curseEffects = new(() => EffectsOfType(folder, "AppliesCurse"));
     private readonly Lazy<HashSet<int>> _addedAuraEffects = new(() => EffectsOfType(folder, "Aura", added: true));
+    private readonly Lazy<HashSet<int>> _brandEffects = new(() => EffectsOfType(folder, "Brand"));
 
     /// <summary>The GrantedEffects rows whose ActiveSkill has the ActiveSkillType of this Id.</summary>
     static HashSet<int> EffectsOfType(string folder, string typeId, bool added = false)
@@ -749,6 +762,10 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     /// <summary>A class's unarmed "weapon" (Characters.dat WeaponSpeed, MinDamage, MaxDamage, MaxAttackDistance).</summary>
     public sealed record Unarmed(int AttackMs, int MinDamage, int MaxDamage, int Range)
     {
+        /// <summary>The equipped item's local typed ranges. Class unarmed records retain their physical fallback.</summary>
+        public DamagePacket? LocalDamage { get; init; }
+        /// <summary>Raw local modifiers captured with this weapon, including penetration and impale chance.</summary>
+        public IReadOnlyDictionary<string, int>? LocalSources { get; init; }
         public static readonly Unarmed Witch = new(833, 2, 5, 8);
 
         /// <summary>The weapon's own added elemental/chaos damage (its local added damage mods, ItemWeapons), added to
@@ -772,7 +789,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         public IReadOnlyList<(uint, int)> OffStats(IReadOnlyDictionary<uint, int>? player, DamagePacket? totalHit = null,
             int mainHandLocalAttackSpeedPct = 0)
         {
-            var (min, max) = Damage(player);
+            var physical = (totalHit ?? HitDamage(player))[DamageType.Physical];
+            var (min, max) = ((int)Math.Floor(physical.Min), (int)Math.Floor(physical.Max));
             return
             [
                 (StatKeys.OffHandMinPhysical, min), (StatKeys.OffHandMaxPhysical, max),
@@ -816,29 +834,14 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
             return increased;
         }
 
-        /// <summary>The physical hit packet: Characters.dat MinDamage..MaxDamage × (1 + increased / 100).</summary>
-        public DamagePacket HitDamage(IReadOnlyDictionary<uint, int>? player)
+        /// <summary>Local typed weapon damage (or class physical damage), with the actual attack's increase buckets.</summary>
+        public DamagePacket HitDamage(IReadOnlyDictionary<uint, int>? player, bool melee = true, bool projectile = false)
         {
-            double transfer = DamageStats.SpellAttackIncrease(player, WieldingWand);
-            double increased = IncreasedDamage(player) + transfer;
-            var hit = DamagePacket.Of(DamageType.Physical,
-                DamageStats.IncreaseAttackRange(new(MinDamage, MaxDamage), increased));
-            return hit.Add(LocalAdded.Select((type, range) =>
-            {
-                int Get(uint key) => player?.GetValueOrDefault(key) ?? 0;
-                uint typed = type switch
-                {
-                    DamageType.Physical => StatKeys.PhysicalDamagePct,
-                    DamageType.Fire => StatKeys.FireDamagePct,
-                    DamageType.Cold => StatKeys.ColdDamagePct,
-                    DamageType.Lightning => StatKeys.LightningDamagePct,
-                    _ => StatKeys.ChaosDamagePct,
-                };
-                double localIncrease = (double)Get(StatKeys.DamagePct) + Get(StatKeys.AttackDamagePct) + Get(typed)
-                    + (DamageTypes.IsElemental(type) ? Get(StatKeys.ElementalDamagePct) : 0)
-                    + (Melee ? Get(StatKeys.MeleeDamagePct) : 0) + transfer;
-                return DamageStats.IncreaseAttackRange(range, localIncrease);
-            }));
+            // Arcane Might's wand-only grant follows the weapon held (WieldingWand); every local component takes the
+            // transfer once, with the weapon's own melee context.
+            int Get(string name) => Program.Stats.Key(name) is uint key ? player?.GetValueOrDefault(key) ?? 0 : 0;
+            return (LocalDamage ?? DamagePacket.Of(DamageType.Physical, new(MinDamage, MaxDamage)).Add(LocalAdded)).Select((type, range) =>
+                DamageStats.IncreaseAttackRange(range, DamageStats.AttackIncrease(Get, type, melee, projectile: projectile, wieldingWand: WieldingWand)));
         }
 
         /// <summary>The hit's damage range: Characters.dat MinDamage..MaxDamage × (1 + increased / 100), rounded down,
@@ -862,11 +865,13 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         /// (the client puts only dual wielding's 10 there when it is not sent), the panel's "Attacks per Second" is
         /// hundred_times_attacks_per_second / 100.
         /// </summary>
-        public IReadOnlyList<(uint, int)> Stats(IReadOnlyDictionary<uint, int>? player = null, DamagePacket? totalHit = null)
+        public IReadOnlyList<(uint, int)> Stats(IReadOnlyDictionary<uint, int>? player = null, DamagePacket? totalHit = null,
+            double damageFactor = 1)
         {
-            var (min, max) = Damage(player);
+            var physical = (totalHit ?? HitDamage(player))[DamageType.Physical];
+            var (min, max) = ((int)Math.Floor(physical.Min), (int)Math.Floor(physical.Max));
             double attacksPerSecond = 1 / AttackSeconds(player);
-            double averageHit = totalHit?.AverageTotal ?? (min + max) / 2.0;
+            var display = SpellDamage.Display((totalHit?.MinTotal ?? min, totalHit?.MaxTotal ?? max), attacksPerSecond, damageFactor);
             return
             [
                 (StatKeys.MainHandMinPhysical, min), (StatKeys.MainHandMaxPhysical, max),
@@ -877,8 +882,8 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
                 (StatKeys.SkillUsesMainHand, 1),
                 (StatKeys.HundredTimesAttacksPerSecond, (int)Math.Round(100 * attacksPerSecond)),
                 // The character panel's DPS and Damage per Use rows read these; the client derives neither.
-                (StatKeys.HundredTimesDamagePerSecond, (int)Math.Round(100 * averageHit * attacksPerSecond)),
-                (StatKeys.DisplayHundredTimesDamagePerSkillUse, (int)Math.Round(100 * averageHit)),
+                (StatKeys.HundredTimesDamagePerSecond, display.PerSecond),
+                (StatKeys.DisplayHundredTimesDamagePerSkillUse, display.PerUse),
                 (StatKeys.MainHandBaseMaxAttackDistance, Range), (StatKeys.MainHandMaxAttackDistance, Range),
             ];
         }

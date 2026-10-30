@@ -22,6 +22,42 @@ whose children or release specialization introduce areas. Area increases and are
 apply to the area packet once; stage multipliers and projectile/form/return multipliers compose at impact.
 Non-projectile damage callers retain their own classification.
 
+### Issue #75 integration
+
+An accepted skill use captures critical luck once and shares its `SkillCriticalRoll` across the entire volley,
+continuation children and secondary areas. Release captures the unprohibited chance and multiplier; live
+prohibitions still apply at contact. The selected accuracy profile includes linked support and weapon-local
+always-hit sources. Attacks consume the target's entropy once, then independently confirm a possible critical;
+spells do neither. Misses consume no continuation budget or on-hit effects, while blocks retain their existing
+continuation policy. Direct damage keeps conversion history, penetration and separate direct/area packets.
+
+Impale stores the actual rolled physical hit with the source critical multiplier, then resolves reflected damage
+separately from direct damage and target critical mitigation. Spell-only and spell-critical impale sources retain
+their own release settings. Leech receives only the accepted direct damage, with separate Life/Mana/ES sources
+and the branch's instant, conversion, retention and doubling policies. Neither evasion, block nor reflection grants
+leech. Corpses retain impale state and remain until area teardown, matching ordinary kills; level-up refills trim
+ordinary leech immediately.
+
+Leech configuration/conditions use the committed simulation horizon when a projectile session exists. The recovery
+writer advances projectiles under XP-before-Monsters locking before consuming recovery at that boundary. This
+keeps delayed pump contacts in chronological order instead of ageing their instances to wall-clock time first.
+Decision: integrate these consumers into the one runtime, rather than retaining `FlyProjectile` as a second path.
+Tests use explicit simulation time and held output; waiting for a network send is no longer a contact barrier.
+Non-projectile sweeps retain one damage snapshot plus their shared critical roll, but resample critical chance and
+prohibitions per contact so an intervening source change keeps the branch's existing behavior.
+
+Gambler's less-damage factor applies once in the outgoing packet; its contact roll applies luck/triple damage
+without reapplying that factor. Resistance inversion joins the same typed mitigation pass that supplies leech.
+Existing impale reflection is added afterwards, without another critical, triple-damage or leech application.
+Vaal soul credit commits once with lethal Life/Dead state, before network publication, using the shared death
+boundary. Keeping a second impale/accuracy block from main would duplicate those mechanics and lose the branch's
+entropy, actual-roll storage and typed leech. Pending gem releases retain the combined stun/freeze interruption
+generation as well as the shared critical roll; already released flights keep their existing lifecycle.
+
+The merge reports and alternatives are in [the issue #75 review](../dev/issue75-review.md#upstream-merge-resolution)
+and [the later main integration](../dev/issue75-review.md#main-merge-league-modes-gambler-and-vaal-souls).
+These automated composition checks do not replace native validation of the merged runtime.
+
 ## Continuation and hit admission
 
 Continuation priority is split, pierce, fork, chain, then return. Prohibitions override the corresponding grant.

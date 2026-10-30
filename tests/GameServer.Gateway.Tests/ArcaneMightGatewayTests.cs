@@ -81,8 +81,9 @@ public partial class SpellNoDamageTests
         await using var runtime = new ProjectileRuntimeFixture(f.Conn);
         var gems = (IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
             Method("GemSkillEffects").Invoke(null, [f.Conn])!;
+        var roll = Method("CaptureSkillCriticalRoll").Invoke(null, [f.Conn, f.Skill])!;
         var use = (ProjectileUse)Method("CaptureGemProjectile").Invoke(null,
-            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32)])!;
+            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32), roll])!;
         var offense = Assert.IsType<ProjectileOffense>(use.Payload);
         Assert.Equal(basis.MinTotal * 1.4, offense.Hit.MinTotal, 8);
         Assert.NotNull(offense.AreaHit);
@@ -169,8 +170,9 @@ public partial class SpellNoDamageTests
         await using var runtime = new ProjectileRuntimeFixture(f.Conn);
         var gems = (IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
             Method("GemSkillEffects").Invoke(null, [f.Conn])!;
+        var roll = Method("CaptureSkillCriticalRoll").Invoke(null, [f.Conn, f.Skill])!;
         var use = (ProjectileUse)Method("CaptureGemProjectile").Invoke(null,
-            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32)])!;
+            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32), roll])!;
         var offense = Assert.IsType<ProjectileOffense>(use.Payload);
         Assert.Equal(14000, Program.Skills.DamageEffectiveness(f.Effect, 1));
         Assert.Equal(350, offense.Hit[DamageType.Chaos].Min); // 100 * 2.5 * 140% effectiveness.

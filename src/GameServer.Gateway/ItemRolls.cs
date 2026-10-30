@@ -164,6 +164,29 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data")
             : Roll(item, ItemRarity.Magic, random, (random.Next(2, 5), 2))) with { Identified = true };
     }
 
+    /// <summary>Fracturing Orb: a rare item with at least four explicit mods, not corrupted, mirrored, fractured,
+    /// unmodifiable or of a class the game cannot fracture, has one random explicit mod fractured. It moves to the
+    /// front of the explicits and from then on no currency removes or changes it. The orb does not respect metamods;
+    /// item influence and synthesis are not modelled.</summary>
+    public Item? Fracture(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Rare || item.FracturedCount > 0 || !TryModifiable(item, out var type) ||
+            !type.CanBeFractured) return null;
+        var explicits = item.Mods.Select((m, i) => (m, i)).Where(p => p.m.Section == ModSection.Explicit).ToList();
+        if (explicits.Count < 4) return null;
+        var (mod, index) = explicits[random.Next(explicits.Count)];
+        var mods = item.Mods.Where((_, i) => i != index).ToList();
+        mods.Insert(explicits[0].i, mod);
+        return item with { Mods = mods, FracturedCount = 1 };
+    }
+
+    /// <summary>Mirror of Kalandra: a mirrored copy of a non-unique equipment item that is not corrupted, mirrored or
+    /// unmodifiable, with every property kept (mods and their values, fractured mods, quality, sockets, links, socketed
+    /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
+    public Item? Mirror(Item item) =>
+        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && type.CanBeMirrored
+            ? item with { Mirrored = true } : null;
+
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
     /// that is modifiable, not unique and not corrupted/mirrored is always corrupted. A normal or magic item becomes
     /// rare with 4-6 affixes; a rare one replaces 1-5 affixes or rerolls all of them. One white socket is coloured.

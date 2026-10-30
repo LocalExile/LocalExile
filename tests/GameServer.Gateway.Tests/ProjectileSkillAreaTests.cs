@@ -19,7 +19,7 @@ public partial class SpellNoDamageTests
         var gems = (IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
             Method("GemSkillEffects").Invoke(null, [f.Conn])!;
         var use = (ProjectileUse)Method("CaptureGemProjectile").Invoke(null,
-            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32)])!;
+            [f.Conn, runtime.Session, f.Skill, gems.Single(g => g.Id == f.Skill), (100, 32), new SkillCriticalRoll(0)])!;
         var area = use.Profile.ContactArea!;
         Assert.Equal(blastRadius, area.Radius); Assert.Equal(placementRadius, area.Offset);
         Assert.Equal(.6, area.Multiplier);

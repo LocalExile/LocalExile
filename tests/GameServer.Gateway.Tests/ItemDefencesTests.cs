@@ -16,8 +16,8 @@ public class ItemDefencesTests
         var (armour, _, _) = ItemDefences.Of(Base(armour: 19),
             Local(("local_base_physical_damage_reduction_rating", 20), ("local_physical_damage_reduction_rating_+%", 50)), 20);
 
-        // (19 + 20) * 150% = 58, then 20% quality = 69.
-        Assert.Equal(69, armour);
+        // Native local defence rounds the complete (19 + 20) * 1.5 * 1.2 = 70.2 once, to 70.
+        Assert.Equal(70, armour);
     }
 
 }

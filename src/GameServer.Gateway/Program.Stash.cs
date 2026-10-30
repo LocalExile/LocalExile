@@ -24,7 +24,8 @@ partial class Program
     {
         var scene = HideoutFurniture(conn);
         var at = scene is { } furnished ? new StashCatalog.Placement(furnished.Stash.X, furnished.Stash.Y, furnished.Stash.Rotation)
-            : StashCatalog.In(conn.Layout.Hash);
+            : StashCatalog.In(conn.Layout.Hash) is { } town && StashCatalog.FromArrival(conn.Layout.Hash)
+                ? town with { X = conn.Layout.SpawnX + town.X, Y = conn.Layout.SpawnY + town.Y } : StashCatalog.In(conn.Layout.Hash);
         if (at is null || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
         uint id = conn.NextObjectId++;
         var stash = new StashObject(at.X, at.Y, at.Rotation);
@@ -37,8 +38,10 @@ partial class Program
             scene is not null ? "stash" : null);
         // Hideouts, Lioneye's Watch and the Mine Encampment also get a guild stash.
         if (HideoutCatalog.ByArea(conn.Layout.Hash) is null
-            && conn.Layout.Hash is not (StashCatalog.DelveHub or AreaLayouts.LioneyesWatch)) return;
+            && conn.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or AreaLayouts.LioneyesWatch)) return;
         var townGuild = scene is null ? StashCatalog.GuildIn(conn.Layout.Hash) : null;
+        if (townGuild is { } offset && StashCatalog.FromArrival(conn.Layout.Hash))
+            townGuild = offset with { X = conn.Layout.SpawnX + offset.X, Y = conn.Layout.SpawnY + offset.Y };
         var (gx, gy) = scene?.Guild ?? (townGuild is { } tg ? (tg.X, tg.Y) : conn.Layout.Near((at.X, at.Y)));
         float guildRotation = SavedHideoutPlacements(conn)?.GetValueOrDefault("guild-stash")?.Rotation ?? townGuild?.Rotation ?? at.Rotation;
         if (!conn.Ssf)

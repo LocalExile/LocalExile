@@ -21,11 +21,13 @@ static class CharacterSaves
     /// in and its stat values.</summary>
     public sealed record SavedMod(string Id, ModSection Section, List<int> Values);
 
-    /// <summary>Mods: null in saves from before mods (the item gets its type's implicits again), else every mod.</summary>
+    /// <summary>Mods: null in saves from before mods (the item gets its type's implicits again), else every mod.
+    /// A missing defence roll keeps the old minimum (zero); raw 32 preserves the native special state.</summary>
     public sealed record SavedItem(uint Type, byte ItemLevel = 1, byte Quality = 0, int Charges = 0, ushort StackSize = 1,
         List<SavedSocket>? Sockets = null, List<byte>? Links = null, int GemExperience = 0,
         ItemRarity Rarity = ItemRarity.Normal, bool Identified = true, List<SavedMod>? Mods = null, List<uint>? Name = null,
-        int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null);
+        int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null,
+        byte DefenceBaseRoll = 0);
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
@@ -55,7 +57,8 @@ static class CharacterSaves
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
-        Dictionary<ushort, ushort>? TattooKeystones = null)
+        Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
+        ushort? AtlasPassivePoints = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -296,6 +299,14 @@ static class CharacterSaves
     public static void SetClusterPassives(string character, IEnumerable<ushort> nodes) =>
         Update(character, s => s with { ClusterPassives = [.. nodes] });
 
+    /// <summary>Records the three Atlas passive presets (PassiveSkillGraphId lists) and the points the character has.</summary>
+    public static void SetAtlasPassives(string character, IReadOnlyList<IReadOnlyList<ushort>> presets, ushort points) =>
+        Update(character, s => s with
+        {
+            AtlasPassivePresets = [.. presets.Select(p => p.ToList())],
+            AtlasPassivePoints = points,
+        });
+
     /// <summary>Records the applied tattoos (passive node -> tattoo name). The map is independent of the allocated
     /// passive list: unallocating a tattooed passive does not remove the tattoo.</summary>
     public static void SetTattoos(string character, IReadOnlyDictionary<ushort, string> tattoos,
@@ -414,7 +425,8 @@ static class CharacterSaves
         i.Sockets.Count == 0 ? null : [.. i.Sockets.Select(s => new SavedSocket(s.Colour, s.Gem is null ? null : ToSaved(s.Gem, mods)))],
         i.Links is null ? null : [.. i.Links], i.GemExperience, i.Rarity, i.Identified,
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
-        i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null);
+        i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
+        i.DefenceBaseRoll);
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -424,9 +436,10 @@ static class CharacterSaves
             throw new UnknownSavedItemException($"item type 0x{s.Type:x8}" + (catalog.Error is { } e ? $" ({e})" : ""));
         bool emptyResonator = ItemCatalog.ResonatorSockets(t) > 0 && (s.Sockets ?? []).All(k => k.Gem is null);
         if (emptyResonator) t = catalog.EmptyResonatorType(t);
-        var item = ItemCatalog.Create(t) with
+        var item = ItemCatalog.Create(t, defenceBaseRoll: s.DefenceBaseRoll) with
         {
             VisualIdentity = s.Visual ?? t.VisualIdentity,
+            DefenceBaseRoll = s.DefenceBaseRoll,
             ItemLevel = s.ItemLevel, Quality = s.Quality, Charges = s.Charges, StackSize = s.StackSize, GemExperience = s.GemExperience, GemVariant = s.GemVariant, GemFlags = s.GemFlags,
             Sockets = emptyResonator ? ItemCatalog.ResonatorSocketList(t)
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],

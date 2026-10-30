@@ -53,10 +53,12 @@ sealed class FortificationSession
         return Read(now);
     }
 
-    public void ConfigureRecovery(double now, uint maximumLife, bool finalRegenerationOverride)
+    public void ConfigureRecovery(double now, uint maximumLife, bool finalRegenerationOverride,
+        double regenerationMultiplier = 1)
     {
         Read(now);
-        regenerationPerStack = finalRegenerationOverride ? 0 : maximumLife * (double)RegenPerStack / 6000;
+        regenerationPerStack = finalRegenerationOverride ? 0
+            : maximumLife * (double)RegenPerStack / 6000 * regenerationMultiplier;
     }
 
     public double TakeRecovery(double now)

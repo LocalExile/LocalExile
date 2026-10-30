@@ -4,17 +4,18 @@ using GameServer.Core.World;
 static class AttackSkillHit
 {
     public static DamagePacket Resolve(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> character,
-        IEnumerable<(uint, int)> levelConversionInputs, StatCatalog catalog, int effectiveness, bool melee = false)
+        IEnumerable<(uint, int)> levelConversionInputs, StatCatalog catalog, int effectiveness, bool melee = false,
+        bool projectile = false)
     {
         // Damage modifiers and added attack damage keep the existing character-only inputs. Skill-owned damage
         // modifiers are not implemented in combat and must not become panel-only effects here.
         int Get(string name) => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-        var hit = DamageStats.Added(weapon.HitDamage(character), Get, spell: false, melee,
-            wieldingWand: weapon.WieldingWand);
+        var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get), effectiveness);
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
-        return RageStats.ApplyAttack(SpellDamage.WithEffectiveness(hit, effectiveness)
-            .Convert(DamageStats.Conversion(conversionInputs, catalog, attack: true)), Get);
+        return RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, Get,
+            DamageStats.Conversion(conversionInputs, catalog, attack: true), spell: false,
+            melee: melee, projectile: projectile, wieldingWand: weapon.WieldingWand), Get);
     }
 }

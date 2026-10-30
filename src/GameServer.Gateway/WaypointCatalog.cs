@@ -28,6 +28,21 @@ static class WaypointCatalog
     /// <summary>The Azurite Mine Encampment (WorldAreas Delve_Hub), where Niko's Visit Mine Encampment leads.</summary>
     public const string DelveHub = "Delve_Hub";
 
+    /// <summary>The Menagerie (WorldAreas Menagerie_Hub), Einhar's, where the World panel's Menagerie pin leads.</summary>
+    public const string MenagerieHub = "Menagerie_Hub";
+
+    /// <summary>The Forbidden Sanctum (WorldAreas SanctumFoyer_Fellshrine, area type 45), where its World panel pin leads.</summary>
+    public const string SanctumHub = "SanctumFoyer_Fellshrine";
+
+    /// <summary>Kingsmarch (WorldAreas KalguuranSettlersLeague, area type 50), where its World panel pin leads.</summary>
+    public const string Kingsmarch = "KalguuranSettlersLeague";
+
+    /// <summary>The Rogue Harbour (WorldAreas HeistHub), where its World panel pin leads.</summary>
+    public const string HeistHub = "HeistHub";
+
+    /// <summary>The Monastery of the Keepers (WorldAreas ChayulaLeague, area type 51), where the Brequel pin leads.</summary>
+    public const string ChayulaHub = "ChayulaLeague";
+
     /// <summary>The Aspirants' Plaza (WorldAreas Labyrinth_Airlock), the World panel's Labyrinth pin.</summary>
     public const string LabyrinthPlaza = "Labyrinth_Airlock";
 
@@ -44,9 +59,9 @@ static class WaypointCatalog
     /// <summary>The area's waypoint, or null when it has none or its place is not known yet.</summary>
     public static WaypointObject? For(ushort hash, string id, uint seed)
     {
-        // The Azurite Mine Encampment has a waypoint (its tile places one) but no WorldAreas waypoint bit of its own, so
-        // 0x4c cannot light it: its StateMachine "active" is sent as 1 instead (being tested live).
-        if (Areas.BitOf(hash) is null) return id == DelveHub ? LoadCapture(id, seed) is { } hub ? hub with { Active = 1 } : null : null;
+        // League hubs (the Azurite Mine Encampment, the Menagerie) have a waypoint their tile places but no WorldAreas
+        // waypoint bit of their own: the object is still sent, so it can be clicked; 0x4c cannot light it (0x141fdd130).
+        if (Areas.BitOf(hash) is null) return LoadCapture(id, seed) is { } hub ? hub with { Active = 1 } : null;
         var captured = LoadCapture(id, seed);
         if (captured is not null) return captured;
         return hash == AreaLayouts.LioneyesWatch ? TownFallback : null;

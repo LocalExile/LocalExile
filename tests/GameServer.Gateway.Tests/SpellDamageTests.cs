@@ -2,6 +2,22 @@ namespace GameServer.Gateway.Tests;
 
 public class SpellDamageTests
 {
+    [Fact]
+    public void Weighted_average_keeps_fractions_and_exact_rate_until_the_native_integer_boundary()
+    {
+        // Average 14.03, half of hits deal double, actual 750ms action duration.
+        Assert.Equal((2104, 2806), SpellDamage.Display((10.98, 17.08), 1 / .75, 1.5));
+        Assert.Equal((2104, 0), SpellDamage.Display((10.98, 17.08), -1, 1.5));
+        Assert.Equal((0, 0), SpellDamage.Display((0, 0), 100, 100));
+    }
+
+    [Fact]
+    public void Huge_native_damage_values_saturate_instead_of_wrapping_negative()
+    {
+        Assert.Equal((int.MaxValue, int.MaxValue), SpellDamage.Display((int.MaxValue, int.MaxValue), 30, 3));
+        Assert.Equal((0, 0), SpellDamage.Display((-10, -5), 3));
+    }
+
     static Func<string, int> Stats(params (string Name, int Value)[] stats) => name => stats.FirstOrDefault(s => s.Name == name).Value;
 
     [Fact]

@@ -11,7 +11,8 @@ static class DamageStats
 {
     public const string SpellDamageIncreasesApplyToAttacks150 = ArcaneMight.Fixed150;
 
-    // This stat is a flag. Transfer increased/reduced spell damage into the attack's increased bucket,
+    // Arcane Might: transfer increased/reduced spell damage into the attack's increased bucket at the strongest grant's
+    // ratio (ArcaneMight: the flag, the 150% keystone, the actor/skill ratios, the wand-only and retaliation-only ones),
     // retaining half-percent values; spell-only more multipliers and speed never enter this contribution.
     public static double SpellAttackIncrease(Func<string, int> get, bool wieldingWand = false, bool retaliation = false) =>
         ArcaneMight.Increase(get, wieldingWand, retaliation);
@@ -27,6 +28,17 @@ static class DamageStats
         return new(range.Min * percent / 100.0, range.Max * percent / 100.0);
     }
 
+    /// <summary>The additive increase bucket for an attack damage type in its actual skill context
+    /// (<paramref name="wieldingWand"/> and <paramref name="retaliation"/> select Arcane Might's conditional grants).</summary>
+    public static double AttackIncrease(Func<string, int> get, DamageType type, bool melee,
+        bool area = false, bool projectile = false, bool wieldingWand = false, bool retaliation = false) =>
+        (double)get("damage_+%") + get("attack_damage_+%") + get($"{type.ToString().ToLowerInvariant()}_damage_+%")
+        + (DamageTypes.IsElemental(type) ? get("elemental_damage_+%") : 0)
+        + (melee ? get("melee_damage_+%") : 0)
+        + (melee && type == DamageType.Physical ? get("melee_physical_damage_+%") : 0)
+        + (area ? get("area_damage_+%") : 0) + (projectile ? get("projectile_damage_+%") : 0)
+        + SpellAttackIncrease(get, wieldingWand, retaliation);
+
     /// <summary>"Attack skills have added lightning damage equal to % of maximum mana" (Stats.dat row 11881, client key
     /// 11882): PassiveSkills.dat graph id 22720, Whisperer "we know all", grants row 11881 with the value 6.</summary>
     public const string MaxManaAddedLightning = "attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana";
@@ -40,37 +52,23 @@ static class DamageStats
         get("maximum_mana") is > 0 and var mana
             ? mana * (get("added_physical_damage_to_attacks_equal_to_%_maximum_mana") / 100.0) : 0;
 
-    public static DamagePacket Added(DamagePacket hit, Func<string, int> get, bool spell, bool melee,
-        double effectiveness = 1, bool wieldingWand = false)
+    /// <summary>Raw added damage, with effectiveness but without increased/more modifiers or conversion.</summary>
+    public static DamagePacket RawAdded(DamagePacket hit, Func<string, int> get, bool spell, double effectiveness = 1)
     {
         foreach (var type in Types)
         {
             string slug = Slug(type), prefix = spell ? "spell" : "attack";
             var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"));
-            if (!spell)
+            if (!spell && type == DamageType.Lightning)
             {
-                if (type == DamageType.Physical)
-                {
-                    double added = ManaAddedPhysical(get);
-                    range = range.Add(new DamageRange(added, added));
-                }
-                if (type == DamageType.Lightning)
-                {
-                    // PoB ModParser 16de4b82 lines 5636–5639 grants both attack LightningMin and LightningMax.
-                    double added = ManaAddedLightning(get);
-                    range = range.Add(new DamageRange(added, added));
-                }
-
-                // attack_damage_+% is a plain Attack-flag increase: every attack, no inference from the weapon or the
-                // range. melee_damage_+% is a melee-only one: a bow's or wand's attack must not take it,
-                // so the caller passes whether this swing is actually melee: the default attack and the panel's
-                // main-hand rows by their weapon profile (an inactive weapon is not there; unarmed is melee) and an
-                // attack gem by its own ActiveSkillType Melee classification.
-                double increased = (double)get("damage_+%") + get("attack_damage_+%") + (melee ? get("melee_damage_+%") : 0)
-                    + get($"{slug}_damage_+%")
-                    + (DamageTypes.IsElemental(type) ? get("elemental_damage_+%") : 0)
-                    + SpellAttackIncrease(get, wieldingWand);
-                range = IncreaseAttackRange(range, increased);
+                // PoB ModParser 16de4b82 lines 5636–5639 grants both attack LightningMin and LightningMax.
+                double added = ManaAddedLightning(get);
+                range = range.Add(new DamageRange(added, added));
+            }
+            if (!spell && type == DamageType.Physical)
+            {
+                double added = ManaAddedPhysical(get);
+                range = range.Add(new DamageRange(added, added));
             }
             hit = hit.Add(type, range.Scale(effectiveness));
         }

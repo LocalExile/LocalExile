@@ -536,6 +536,11 @@ This applies to login, waypoint travel and returns from other areas; moving the 
 
   A click (C→S 0x24) opens the chart, S→C 0x7b kind 0x1c with 1. The Crawler is created on every Delve_Hub entry at
   (408, 310), facing 90°, on the rails by the mine entrance (placed live, 2026-10-30).
-- **Placing stationary objects (dev).** `/stash_place`, `/guild_stash_place` and `/delve_crawler` `<x> <y> <degrees>`
-  move an object with S→C 0x1b7 (terrain height 0x7fffffff) and turn it with the Positioned rotation update, as the
-  hideout editor does. The path blocker moves too.
+- **Placing stationary objects (dev).** `/stash_place`, `/guild_stash_place`, `/delve_crawler` and `/wp_place`
+  `<x> <y> <degrees>` move an object with S→C 0x1b7 (terrain height 0x7fffffff) and turn it with the Positioned
+  rotation update, as the hideout editor does. The path blocker moves too (the waypoint has none). `/wp_place` alone
+  prints the area waypoint's place. `/wp_state active <n> | bits all|none|area|<bit> | model <.ao>` recreates the
+  waypoint with another StateMachine "active" or model, or sends 0x4c with the given bits (16 §4, hub waypoints).
+- **League hub stashes.** The Menagerie (stash 455 480 0°, guild stash 440 480 0°, placed live 2026-10-30), the
+  Forbidden Sanctum (116 160, 106 166), Kingsmarch, the Rogue Harbour and the Monastery of the Keepers (offsets from the
+  arrival) get a stash and a guild stash, as the Mine Encampment does.

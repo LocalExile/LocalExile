@@ -37,11 +37,40 @@ static class Charges
 
     public static ChargeType? Parse(string text) => text.ToLowerInvariant() switch
     {
-        "endurance" or "e" or "str" => ChargeType.Endurance,
-        "frenzy" or "f" or "dex" => ChargeType.Frenzy,
-        "power" or "p" or "int" => ChargeType.Power,
+        "endurance" or "e" or "str" or "brutal" => ChargeType.Endurance,
+        "frenzy" or "f" or "dex" or "affliction" => ChargeType.Frenzy,
+        "power" or "p" or "int" or "absorption" => ChargeType.Power,
         _ => null,
     };
+
+    /// <summary>The special charge a type's charges become under its conversion flag: <c>brutal</c> for Endurance,
+    /// <c>affliction</c> for Frenzy, <c>absorption</c> for Power (the three Domain 1 unique mods
+    /// <c>Gain*ChargesInsteadOf*Unique__1</c>).</summary>
+    public static string SpecialName(ChargeType type) => type switch
+    {
+        ChargeType.Endurance => "brutal",
+        ChargeType.Frenzy => "affliction",
+        ChargeType.Power => "absorption",
+        _ => throw new ArgumentOutOfRangeException(nameof(type)),
+    };
+
+    /// <summary>"Gain Brutal Charges instead of Endurance Charges": <c>gain_brutal_charges_instead_of_endurance_charges</c>
+    /// and the Frenzy and Power ones. While the flag is held, every charge of the type the character gains or holds is
+    /// one of the special type (pinned PoB CalcPerform: the special count takes the standard count, which becomes 0), with
+    /// the special type's effects and HUD buff instead of the standard ones; the held state, limits and gains are the
+    /// standard type's.</summary>
+    public static string ConversionFlag(ChargeType type) => $"gain_{SpecialName(type)}_charges_instead_of_{Name(type)}_charges";
+
+    /// <summary>"Modifiers to Minimum Endurance Charges instead apply to Brutal Charges":
+    /// <c>modifiers_to_minimum_endurance_charges_instead_apply_to_brutal_charges</c> and the other two. The minimum then
+    /// shows on the special type's row.</summary>
+    public static string MinimumConversionFlag(ChargeType type) => $"modifiers_to_minimum_{Name(type)}_charges_instead_apply_to_{SpecialName(type)}_charges";
+
+    /// <summary>Whether the type's charges are the special type's now (<paramref name="get"/>: the character's stats).</summary>
+    public static bool Converted(ChargeType type, Func<string, int> get) => get(ConversionFlag(type)) != 0;
+
+    /// <summary>The word for the charges the character holds of a type: the special name under the conversion flag.</summary>
+    public static string Label(ChargeType type, bool converted) => converted ? SpecialName(type) : Name(type);
 
     /// <summary>What a type allows now: its maximum, its minimum (already capped by the maximum) and how long a gained
     /// charge lasts, in milliseconds.</summary>

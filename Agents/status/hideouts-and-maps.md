@@ -27,9 +27,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   it. Every character has the epilogue quest flag `EndGameAvailable`, without which the client refuses Atlas activation.
   Live 2026-10-29: selecting Estuary opened Estuary; Cells is the default.
   Basic monster map drops use a local approximation.
-  Atlas progress/passives, Voidstones, map stash placement, official drop pools and map-tier area levels remain open.
-  Code: `AtlasCatalog.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
-  Docs: [21](../docs/protocol/21-hideouts.md), [maps](../docs/game/maps.md).
+  Atlas passive tree foundation (2026-10-30): the three saved presets are sent with their node lists and point budget
+  (S→C 0x3d); C→S 0x3e/0x3f allocate/refund nodes and save them; `/atlas_tree` opens the tree and
+  `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
+  client updated the tree; the presets are saved. The Atlas graph and point awards from map completion are not
+  implemented, so connectivity is left to the client and the budget has no in-game source yet.
+  Atlas progress, Voidstones, map stash placement, official drop pools and map-tier area levels remain open.
+  Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
+  Docs: [21](../docs/protocol/21-hideouts.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
@@ -106,7 +111,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Visit Mine Encampment goes to Delve_Hub, which has its tile's waypoint (still drawn inactive: no 0x4c bit), Niko,
   the stash and the guild stash.
   The World panel's special pins are all shown (league quest flags for every character, the Labyrinth's waypoint
-  always activated); the Mine Encampment pin (C→S 0x17d) leads to Delve_Hub, the Hideout pin to the hideout.
+  always activated). The Hideout, Menagerie, Mine Encampment, Forbidden Sanctum, Kingsmarch, Rogue Harbour and
+  Monastery of the Keepers pins lead to their hubs, which have a clickable waypoint back, a stash, a guild stash and
+  their NPCs (Einhar, Divinia, the Kingsmarch villagers, the Heist crew, Ailith; Einhar also in every hideout).
+  The hub waypoints stay unlit (client area-type rule); The Sovereign (Deepwater) has no layout yet.
   The mine itself is not implemented.
   See [16](../docs/protocol/16-waypoints.md) §4.
   See [21](../docs/protocol/21-hideouts.md).

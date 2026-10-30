@@ -47,9 +47,16 @@ static class ItemModStats
     /// <summary>The character's stats from these equipped items, by client stat key (Stats.dat row + 1).</summary>
     public static Dictionary<uint, int> Global(IEnumerable<Item> equipped, ModCatalog mods, StatCatalog stats)
     {
+        var items = equipped.ToArray();
         var result = new Dictionary<uint, int>();
-        foreach (var (id, value) in Sum(equipped, mods))
+        foreach (var (id, value) in Sum(items, mods))
             if (stats.Key(id) is uint key) result[key] = result.GetValueOrDefault(key) + value;
+        // PoB Item.lua leaves ItemCondition-tagged increases in the character mod list, outside calcLocal.
+        // This stat is marked IsLocal in Stats.dat, but affects global ES only while its source item is corrupted.
+        int conditionalES = Sum(items.Where(i => i.Corrupted), mods, local: true)
+            .GetValueOrDefault("local_maximum_energy_shield_+%_if_item_corrupted");
+        if (conditionalES != 0 && stats.Key("maximum_energy_shield_+%") is uint esKey)
+            result[esKey] = (int)Math.Clamp((long)result.GetValueOrDefault(esKey) + conditionalES, int.MinValue, int.MaxValue);
         return result;
     }
 
@@ -81,13 +88,29 @@ static class ItemModStats
             var raw = RawAttributes(active.Select(w => w.Item), mods);
             return AttributeModifiers.FromWide(name => raw.GetValueOrDefault(name))
                 .Apply(baseAttributes.Str, baseAttributes.Dex, baseAttributes.Int);
-        }, previous);
+        }, previous, mods);
+
+    /// <summary>Recalculate from active items using the same staged requirement policy.</summary>
+    public static (HashSet<uint> Inactive, IReadOnlyList<Item> Active) ResolveEquipment(
+        IReadOnlyList<Worn> worn, int level, ModCatalog mods,
+        Func<IReadOnlyList<Item>, (int Str, int Dex, int Int)> totalsOfActive,
+        IReadOnlySet<uint>? previous = null) => ResolveEquipment(worn, level,
+            active => totalsOfActive(active.Select(w => w.Item).ToArray()), previous, mods);
 
     /// <summary>Resolve the same staged policy with final attributes recalculated from the active raw sources.</summary>
     public static (HashSet<uint> Inactive, IReadOnlyList<Item> Active) ResolveEquipment(
         IReadOnlyList<Worn> worn, int level, Func<IReadOnlyList<Worn>, (int Str, int Dex, int Int)> finalAttributes,
-        IReadOnlySet<uint>? previous = null)
+        IReadOnlySet<uint>? previous = null, ModCatalog? mods = null)
     {
+        // The Tabula/Skin/Apostate hidden modifier also suppresses native attribute requirements.
+        // Keep the level requirement: removing attributes does not make a high-level item wearable at level one.
+        if (mods is not null) worn = worn.Select(w =>
+        {
+            var local = Local(w.Item, mods);
+            return local.GetValueOrDefault("local_no_attribute_requirements") != 0
+                || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0
+                ? w with { Strength = 0, Dexterity = 0, Intelligence = 0 } : w;
+        }).ToArray();
         var inactive = Inactive(worn, level, finalAttributes, previous);
         return (inactive, worn.Where(w => !inactive.Contains(w.Id)).Select(w => w.Item).ToArray());
     }

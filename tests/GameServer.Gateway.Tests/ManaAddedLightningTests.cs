@@ -25,6 +25,11 @@ public class ManaAddedLightningTests
     static Func<string, int> Reader(StatCatalog catalog, Dictionary<uint, int> stats) =>
         name => catalog.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
 
+    static DamagePacket Hit(DamagePacket raw, Func<string, int> get, bool spell, bool melee,
+        double effectiveness = 1, DamageConversion? conversion = null) =>
+        PlayerHitDamage.Resolve(DamageStats.RawAdded(raw, get, spell, effectiveness), get,
+            conversion ?? new(), spell, melee);
+
     static Dictionary<uint, int> With(StatCatalog catalog, (string Name, int Value) tag, int mana)
     {
         var stats = new Dictionary<uint, int> { [catalog.Key("maximum_mana")!.Value] = mana };
@@ -38,7 +43,7 @@ public class ManaAddedLightningTests
         var catalog = new StatCatalog(Data());
         var get = Reader(catalog, With(catalog, (DamageStats.MaxManaAddedLightning, 6), 1000));
 
-        var packet = DamageStats.Added(DamagePacket.Of(DamageType.Physical, 10, 20), get, spell: false, melee: false);
+        var packet = Hit(DamagePacket.Of(DamageType.Physical, 10, 20), get, spell: false, melee: false);
 
         Assert.Equal(10, packet[DamageType.Physical].Min);
         Assert.Equal(20, packet[DamageType.Physical].Max);

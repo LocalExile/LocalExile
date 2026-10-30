@@ -209,14 +209,13 @@ partial class Program
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
-            if (!shot.Spell && !shot.AlwaysHits)
+            double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            int hitChance = 100;
+            if (!shot.Spell)
             {
-                double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-                int accuracy = TargetAccuracy.AgainstTarget(shot.Accuracy, shot.AccuracyMoreUnique, shot.AccuracyMoreClose,
-                    target.Rarity == MonsterRarity.Unique,
-                    TargetAccuracy.InCloseRange(Dist(Conn.Walk.Position(at), target.Walk.Position(at))));
-                int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
-                if (!DamageModel.Hits(DamageModel.AccuracyHitChance(Conn.FlaskGrounds.Evasion(contact.Target.Id, evasion), accuracy), random.Next(100)))
+                var accuracy = shot.AccuracyProfile ?? new(shot.Accuracy, shot.AccuracyMoreUnique, shot.AccuracyMoreClose, shot.AlwaysHits);
+                hitChance = AttackHitChanceAt(Conn, contact.Target.Id, target, at, accuracy);
+                if (!accuracy.CannotBeEvaded && !target.AttackEvasion.Hits(hitChance, at, Conn.AttackAccuracyRandom))
                     return ProjectileHitResult.Miss;
             }
             if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
@@ -227,19 +226,17 @@ partial class Program
                 CharacterPlayerStats(Conn)).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(CharacterPlayerStats(Conn));
             var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random);
-            if (!shot.Spell)
-            {
-                double stored = target.Impale.Bonus;
-                target.Impale.AfterHit();
-                if (stored > 0) rolled = rolled.Add(DamageType.Physical, new DamageRange(stored, stored));
-                if (shot.ImpaleChance > 0 && random.Next(100) < shot.ImpaleChance)
-                    target.Impale.Apply(baseHit[DamageType.Physical].Max * more);
-            }
             int chance = contact.Projectile.Form > 0 ? shot.SecondFormCriticalChance ?? shot.CriticalChance : shot.CriticalChance;
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
-            bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell);
-            var (damage, _) = MonsterDamage(target, rolled, critical, !shot.Spell, shot.ResistanceMods, shot.Penetration, gambler.InvertsResistance(random));
+            bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll)
+                && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
+            var (damage, _) = MonsterDamage(target, rolled, critical, !shot.Spell, shot.ResistanceMods, shot.Penetration, out var taken, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
+            LeechOnHitLocked(Conn, target, taken, damage, shot.Leech);
+            var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
+            double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
+            var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Mods.Effects["avoid_impale_%"]);
+            damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             var hit = ApplyMonsterHitLocked(Conn, target, damage);
             if (hit is null) return ProjectileHitResult.Miss;
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,

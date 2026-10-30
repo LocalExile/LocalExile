@@ -58,11 +58,11 @@ partial class Program
         var state = conn.FlaskGrounds;
         try
         {
-            while (!conn.Closed)
+            while (!conn.Closed && !conn.RageRetired)
             {
                 await Task.Delay(100);
-                if (conn.Closed) break;
-                if (conn.Paused) continue;
+                if (conn.Closed || conn.RageRetired) break;
+                if (conn.LeavingArea || conn.Paused) continue;
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 foreach (var g in state.Expire(now))
                 {

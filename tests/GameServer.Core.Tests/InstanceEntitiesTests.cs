@@ -337,6 +337,22 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Atlas_passive_slots_carry_the_preset_nodes_little_endian()
+    {
+        Assert.Equal("003D" + "0002" + "000A" + "04" + "0002" + "3412" + "7856",
+            Convert.ToHexString(InstanceEntities.PassiveSlots(2, 10, 0x04, [0x1234, 0x5678])));
+    }
+
+    [Fact]
+    public void Atlas_allocate_and_refund_read_the_preset_and_node()
+    {
+        Assert.Equal(7, InstanceProtocol.KnownClientLength(InstanceEntities.AtlasAllocateId));
+        Assert.Equal(((byte)0, (uint)0x1234), InstanceEntities.ReadAtlasAllocate(Convert.FromHexString("003E0000001234")));
+        Assert.Equal(8, InstanceProtocol.KnownClientLength(InstanceEntities.AtlasRefundId));
+        Assert.Equal(((byte)1, (uint)0x5678, (byte)0), InstanceEntities.ReadAtlasRefund(Convert.FromHexString("003F010000567800")));
+    }
+
+    [Fact]
     public void Allocate_passive_reads_the_node()
     {
         // Captured live 2026-10-18 (Witch, level 2): Spell Damage and Mana.

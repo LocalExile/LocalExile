@@ -19,7 +19,6 @@ partial class Program
             var session = FortificationOf(conn);
             session.Read(conn.Clock.Elapsed.TotalSeconds);
             if (conn.Pools.FortificationRevision != session.Revision) conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            ConfigureFortificationRecovery(conn, conn.Pools.Life);
         }
     }
 
@@ -82,12 +81,25 @@ partial class Program
         }
     }
 
-    static void ConfigureFortificationRecovery(ClientState conn, uint maximumLife)
+    static void ConfigureFortificationRecovery(ClientState conn, uint maximumLife,
+        IReadOnlyDictionary<uint, int> sources)
+    {
+        var recovery = new Dictionary<uint, int>(sources);
+        lock (conn.Monsters)
+            foreach (var (key, value) in conn.PlayerStats) recovery[key] = value;
+        UtilityFlasks.AddRawStats(recovery,
+            conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
+        ConfigureFortificationRecovery(conn, maximumLife,
+            name => Stats.Key(name) is uint key ? recovery.GetValueOrDefault(key) : 0);
+    }
+
+    static void ConfigureFortificationRecovery(ClientState conn, uint maximumLife, Func<string, int> get)
     {
         lock (conn.Monsters)
         {
             FortificationOf(conn).ConfigureRecovery(conn.Clock.Elapsed.TotalSeconds, maximumLife,
-                Stats.Key(FortificationSession.Regeneration) is uint key && conn.PlayerStats.ContainsKey(key));
+                Stats.Key(FortificationSession.Regeneration) is uint key && conn.PlayerStats.ContainsKey(key),
+                PanelStats.LifeRegenerationMultiplier(get));
         }
     }
 
@@ -110,10 +122,10 @@ partial class Program
     static async Task RunFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         RestoreFortification(conn);
-        while (!conn.Closed)
+        while (!conn.Closed && !conn.RageRetired)
         {
             await Task.Delay(32);
-            if (conn.Closed) break;
+            if (conn.Closed || conn.RageRetired) break;
             try
             {
                 await SendFortification(remote, stream, ciphers, conn);
@@ -136,7 +148,7 @@ partial class Program
         {
             using (conn.Performance.Lock(conn.Monsters, "fortification"))
             {
-                if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.Paused) return null;
                 var session = FortificationOf(conn);
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 using var snapshot = session.Capture(now);

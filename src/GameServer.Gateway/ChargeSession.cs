@@ -55,12 +55,22 @@ sealed class ChargeSession
         {
             limits[(int)type] = Charges.LimitsOf(type, Record, State.Held(type));
             Record(ChargeGains.ToMaximumStat(type));
+            Record(Charges.ConversionFlag(type));
+            Record(Charges.MinimumConversionFlag(type));
         }
         foreach (var p in ChargeGains.Periodics) Record(p.Stat);
         observed = seen;
     }
 
     int Observed(string name) => observed.GetValueOrDefault(name);
+
+    /// <summary>Whether the type's charges are its special type's (Brutal, Affliction, Absorption) as last observed:
+    /// the "gain … instead of" flag (<see cref="Charges.ConversionFlag"/>).</summary>
+    public bool Converted(ChargeType type) => Observed(Charges.ConversionFlag(type)) != 0;
+
+    /// <summary>Whether the type's minimum applies to its special type instead, as last observed
+    /// (<see cref="Charges.MinimumConversionFlag"/>).</summary>
+    public bool MinimumConverted(ChargeType type) => Observed(Charges.MinimumConversionFlag(type)) != 0;
 
     /// <summary>The character died: every gained charge goes at once (the minimum stays), with the events still
     /// waiting and the periodic timers. True when a charge was held.</summary>
@@ -137,22 +147,24 @@ sealed class ChargeSession
         limits[(int)gain.Type] = l;
         bool toMaximum = ChargeGains.Rolls(Observed(ChargeGains.ToMaximumStat(gain.Type)), rng);
         var (before, now2) = State.Gain(gain.Type, gain.Count, now, l, toMaximum);
-        log.Add($"{gain.Source}: {Charges.Name(gain.Type)} charges {before} -> {now2}/{l.Maximum}" +
+        log.Add($"{gain.Source}: {Charges.Label(gain.Type, Converted(gain.Type))} charges {before} -> {now2}/{l.Maximum}" +
             (toMaximum ? " (to maximum)" : "") + $", {l.DurationMs / 1000.0:0.###} s");
     }
 
-    /// <summary>A charge buff as the client has it: the count and expiry it was sent with and its buff instance.</summary>
-    public readonly record struct Shown(int Count, double ExpiresAt, ushort Buff);
+    /// <summary>A charge buff as the client has it: the count and expiry it was sent with, its buff instance and
+    /// whether it was the special type's buff.</summary>
+    public readonly record struct Shown(int Count, double ExpiresAt, ushort Buff, bool Converted = false);
 
     /// <summary>A charge buff to send: the previous instance to remove (0: none) and, when <paramref name="Count"/> is
-    /// above 0, the new one to add with its remaining seconds (null: no duration, the minimum charges).</summary>
-    public readonly record struct BuffChange(ChargeType Type, ushort Remove, ushort Add, int Count, double? Remaining);
+    /// above 0, the new one to add with its remaining seconds (null: no duration, the minimum charges).
+    /// <paramref name="Converted"/>: the new one is the special type's buff (Brutal, Affliction, Absorption).</summary>
+    public readonly record struct BuffChange(ChargeType Type, ushort Remove, ushort Add, int Count, double? Remaining, bool Converted = false);
 
     /// <summary>
-    /// The charge buffs the client must get: for each type whose count or expiry changed since the last call, its old
-    /// buff comes off and a new one goes on (<paramref name="nextBuff"/> numbers it) with the count and the duration
-    /// left. Charges at the minimum do not expire, so they go without a duration. <paramref name="resend"/>: send every
-    /// held type again (a new player object after an area change).
+    /// The charge buffs the client must get: for each type whose count, expiry or conversion changed since the last
+    /// call, its old buff comes off and a new one goes on (<paramref name="nextBuff"/> numbers it) with the count and
+    /// the duration left. Charges at the minimum do not expire, so they go without a duration. <paramref name="resend"/>:
+    /// send every held type again (a new player object after an area change).
     /// </summary>
     public List<BuffChange> Presentation(double now, Func<ushort> nextBuff, bool resend = false)
     {
@@ -162,13 +174,14 @@ sealed class ChargeSession
             int i = (int)type;
             int count = Effective(type);
             bool timed = State.Held(type) > limits[i].Minimum;
+            bool converted = Converted(type);
             double expires = timed ? State.ExpiresAt(type) : double.PositiveInfinity;
             var old = shown[i];
-            if (!resend && old.Count == count && (count == 0 || old.ExpiresAt == expires)) continue;
+            if (!resend && old.Count == count && (count == 0 || old.ExpiresAt == expires && old.Converted == converted)) continue;
             if (count == 0 && old.Buff == 0) continue;
             ushort add = count > 0 ? nextBuff() : (ushort)0;
-            changes.Add(new(type, old.Buff, add, count, timed ? Math.Max(0, expires - now) : null));
-            shown[i] = new(count, expires, add);
+            changes.Add(new(type, old.Buff, add, count, timed ? Math.Max(0, expires - now) : null, converted));
+            shown[i] = new(count, expires, add, converted);
         }
         return changes;
     }

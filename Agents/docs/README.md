@@ -60,6 +60,9 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 | [dev/live-testing.md](dev/live-testing.md) | the older live-testing notes (GettingStarted supersedes them) |
 | [dev/ranged-monster-actions-port.md](dev/ranged-monster-actions-port.md) | standalone bow/wand and monster-action port, preserved upstream behavior and validation limits |
 | [dev/passive-graph-data.md](dev/passive-graph-data.md) | pinned PSG format and read-only analysis exports; no client installation or gameplay integration |
+| [dev/issue75-port.md](dev/issue75-port.md) | completed character-stat jobs ported from LocalExile, source revisions, integration decisions and validation limits |
+| [dev/issue75-review.md](dev/issue75-review.md) | current-branch correctness review, repeatable 357-stat inventory, fixes and remaining completion work |
+| [dev/issue75-stat-ledger.md](dev/issue75-stat-ledger.md) | exact 357-stat checklist with authored review states, evidence links and remaining scope |
 | [dev-server.md](dev-server.md) | the JSON-lines dev server, `GameServer.Auth` and `GameServer.Patch` usage |
 | [saves.md](saves.md) | how player progress is saved: the SQLite save database, transactions, what a failed save does |
 | [game/fortification.md](game/fortification.md) | melee-hit protection and the explicit server model |

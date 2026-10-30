@@ -39,6 +39,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   height: fixed layouts from the atlas, generated layouts from the walk-map recorder's capture;
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
+  Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
+  Native requirement removal/restoration, four town/Coast transfers, spell payment, ES recovery and relog controls pass.
   Code: Gateway (`AreaTransitionCatalog.cs`), `scripts/walkmaps`, `scripts/re/atlas`, Auth's instance registry.
   Docs: [08](../docs/protocol/08-area-transitions.md), [09](../docs/protocol/09-area-change.md).
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;

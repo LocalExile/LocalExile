@@ -159,6 +159,7 @@ They refuse paused, leaving, closed or dead owners before combat mutation.
 | `/hit <type> <damage>` | damages the player through resistance and enabled hit mitigation; see below |
 | `/accuracy [monster level]` | final accuracy rating and attack hit chance against a normal and an evasive monster of that level (default: your level; spells always hit) |
 | `/defences [monster level]` | armour, physical reduction and evasion with the chance to evade a monster of that level |
+| `/base_defence [0 to 31]` | show or set the held armour item's shared base roll; saved with the item |
 | `/auras` | active auras, their flat/percent reservation, reserved and unreserved mana, reservation efficiency and aura effect ([11](11-skills.md) 13) |
 | `/suppression` | Spell Suppression chance and damage reduction |
 | `/spellhit <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: a spell hit through resistance and Spell Suppression, rolling the suppression chance |

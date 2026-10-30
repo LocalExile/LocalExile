@@ -8,11 +8,28 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceWaypoints
 {
-    public const ushort WaypointsId = 0x4c, OpenUiId = 0x7b, TravelId = 0x4d, VisitHideoutId = 0x17a, VisitDelveHubId = 0x17d;
+    public const ushort WaypointsId = 0x4c, OpenUiId = 0x7b, TravelId = 0x4d, VisitHideoutId = 0x17a, VisitMenagerieId = 0x17b, VisitDelveHubId = 0x17d, VisitSanctumId = 0x17e, VisitKingsmarchId = 0x181, VisitHeistHubId = 0x184, VisitChayulaHubId = 0x182;
 
     /// <summary>C→S 0x17d: the World panel's Mine Encampment pin (SpecialMapPins DelveHub), 6 bytes: u32 BE the waypoint
     /// object the panel was opened from (live 2026-10-30: <c>017D 00002F00</c>).</summary>
     public const int VisitDelveHubLength = 6;
+
+    /// <summary>C→S 0x17e: the World panel's Forbidden Sanctum pin (SpecialMapPins SanctumHub), 7 bytes: u32 BE the waypoint
+    /// object, u8 (live 2026-10-30: <c>017E 00002F00 00</c>).</summary>
+    public const int VisitSanctumLength = 7;
+
+    /// <summary>C→S 0x181: the World panel's Kingsmarch pin, 7 bytes as 0x17e (live 2026-10-30: <c>0181 00002F00 00</c>).
+    /// The pins' messages follow their SpecialMapPins order without the Labyrinth and Synthesis: 0x17a Hideout … 0x17d
+    /// Mine Encampment, 0x17e Sanctum, 0x181 Kingsmarch.</summary>
+    public const int VisitKingsmarchLength = 7;
+
+    /// <summary>C→S 0x184: the World panel's Rogue Harbour pin (SpecialMapPins HeistHub), 6 bytes: u32 BE the waypoint
+    /// object (live 2026-10-30: <c>0184 00002F00</c>).</summary>
+    public const int VisitHeistHubLength = 6;
+
+    /// <summary>C→S 0x182: the World panel's Monastery of the Keepers pin (SpecialMapPins BrequelHub), 7 bytes as 0x17e
+    /// (live 2026-10-30: <c>0182 00002F00 00</c>).</summary>
+    public const int VisitChayulaHubLength = 7;
 
     /// <summary>
     /// C→S 0x17a: the World panel's Hideout button, opened from a waypoint (live 2026-10-20). u16 n + n bytes UTF-8: the

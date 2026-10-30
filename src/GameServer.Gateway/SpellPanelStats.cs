@@ -1,12 +1,12 @@
 using GameServer.Core.World;
 
-/// <summary>Selected spell hit rows: whole-number ranges and hundredths for pre-crit average damage and DPS.</summary>
+/// <summary>Selected spell hit rows: noncritical ranges and hundredths for critical-weighted average damage and DPS.</summary>
 static class SpellPanelStats
 {
     static readonly string[] Types = ["total", "physical", "fire", "cold", "lightning", "chaos"];
 
     public static List<(string Stat, int Value)> Compute(SkillHitPlan plan, DamagePacket packet,
-        int hundredTimesCastsPerSecond, bool includeMainHand = false)
+        double castsPerSecond, bool includeMainHand = false, double damageFactor = 1)
     {
         // Attack and unsupported action rows retain their existing weapon display path.
         if (plan.Kind != SkillHitKind.Spell) return [];
@@ -22,7 +22,7 @@ static class SpellPanelStats
                     result.Add(($"{hand}_{bound}_{type}_damage", value));
                 }
         var (perUse, perSecond) = SpellDamage.Display((packet.MinTotal, packet.MaxTotal),
-            Math.Max(0, hundredTimesCastsPerSecond) / 100.0);
+            castsPerSecond, damageFactor);
         result.Add(("display_hundred_times_damage_per_skill_use", perUse));
         result.Add(("hundred_times_damage_per_second", perSecond));
         return result;

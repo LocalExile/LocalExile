@@ -32,10 +32,17 @@ static class FlaskCharges
     static int RarityIncrease(MonsterRarity rarity, ModCatalog mods) =>
         mods.ById($"Monster{rarity}6")?.Stats.FirstOrDefault(s => s.Id == "monster_slain_flask_charges_granted_+%")?.Min ?? 0;
 
+    /// <summary>The native raw increased-charge source, including the current ordinary belt/passive modifiers, resolved
+    /// into the virtual value the refill calculation reads. Call once on raw character sources, before final developer
+    /// replacements: an explicitly set virtual zero must remain zero.</summary>
+    public static List<(string Stat, int Value)> GainStats(Func<string, int> character) =>
+        [("flask_charges_gained_+%", (int)Math.Clamp((long)character("flask_charges_gained_+%")
+            + character("charges_gained_+%"), int.MinValue, int.MaxValue))];
+
     /// <summary>How much more a flask gains from any source: (1 + the character's flask_charges_gained_+%) × (1 + the
     /// flask's local_charges_added_+%, "increased Charge Recovery"); poewiki: these "stack multiplicatively".</summary>
     public static double GainMultiplier(IReadOnlyDictionary<string, int> local, Func<string, int> character) =>
-        Math.Max(0, 100 + character("flask_charges_gained_+%")) / 100.0 * Math.Max(0, 100 + local.GetValueOrDefault("local_charges_added_+%")) / 100.0;
+        Math.Max(0, 100.0 + character("flask_charges_gained_+%")) / 100.0 * Math.Max(0, 100.0 + local.GetValueOrDefault("local_charges_added_+%")) / 100.0;
 
     /// <summary>The cooldown shared by every "gain a flask charge on critical strike" effect: 0.1 s, which the game's
     /// 0.033 s server frames make 0.132 s (poewiki); not affected by cooldown recovery.</summary>
@@ -95,9 +102,9 @@ static class FlaskCharges
             lock (_lock)
             {
                 double total = Math.Round(_partial.GetValueOrDefault(flask) + charges, 2);
-                int whole = (int)Math.Floor(total);
+                double whole = Math.Floor(total);
                 _partial[flask] = Math.Round(total - whole, 2);
-                return whole;
+                return (int)Math.Min(whole, int.MaxValue);
             }
         }
 

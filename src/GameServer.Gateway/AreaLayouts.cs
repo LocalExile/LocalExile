@@ -105,7 +105,12 @@ static class AreaLayouts
         var hideout = HideoutCatalog.ByArea(hash);
         string id = IdOf(hash);
         // A hideout's waypoint is one of its decoration's doodads (21-hideouts.md §2), not a tile object.
-        return WithoutWaypoint(hash, id, seed) with { Waypoint = hideout is null ? WaypointCatalog.For(hash, id, seed) : HideoutCatalog.Waypoint(hideout) };
+        var layout = WithoutWaypoint(hash, id, seed);
+        var waypoint = hideout is null ? WaypointCatalog.For(hash, id, seed) : HideoutCatalog.Waypoint(hideout);
+        // League hubs whose tiles place no waypoint (the Rogue Harbour, the Monastery of the Keepers): one by the arrival,
+        // so the player can travel back (the Waypoint type's own model).
+        if (waypoint is null && id is WaypointCatalog.HeistHub or WaypointCatalog.ChayulaHub) waypoint = new WaypointObject(layout.SpawnX, layout.SpawnY - 12, Active: 1);
+        return layout with { Waypoint = waypoint };
     }
 
     static AreaLayout WithoutWaypoint(ushort hash, string id, uint seed)

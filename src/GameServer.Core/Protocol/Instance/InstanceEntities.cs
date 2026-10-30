@@ -49,8 +49,27 @@ public static class InstanceEntities
     /// allocated but only allowed"). The presets at instance+0xc2f8 (active index +0xc2f0) are read when the area UI is
     /// built (0x140785160), so all three are created, empty.
     /// </summary>
-    public static byte[] PassiveSlots(ushort u28 = 0, ushort u2a = 0) =>
-        new LoginWriter().U16(PassiveSlotsId).U16(u28).U16(u2a).U8(0x1c).U16(0).ToArray();
+    public static byte[] PassiveSlots(ushort u28 = 0, ushort u2a = 0, byte presetMask = 0x1c,
+        IReadOnlyList<ushort>? nodes = null)
+    {
+        var w = new LoginWriter().U16(PassiveSlotsId).U16(u28).U16(u2a).U8(presetMask).U16((ushort)(nodes?.Count ?? 0));
+        foreach (ushort node in nodes ?? []) w.U8((byte)node).U8((byte)(node >> 8));   // raw little-endian u16
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// C→S 0x3e (7 bytes): the Atlas tree's allocate click. u8 preset index (0..2), u32 BE PassiveSkillGraphId. The
+    /// client's active preset is at Atlas tree +0xc2f0 (sender 0x1403cc410).
+    /// </summary>
+    public static (byte Preset, uint Node) ReadAtlasAllocate(ReadOnlySpan<byte> m) =>
+        (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]));
+
+    public const ushort AtlasAllocateId = 0x03e, AtlasRefundId = 0x03f;
+    public const int AtlasAllocateLength = 7, AtlasRefundLength = 8;
+
+    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 flag (0 seen).</summary>
+    public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
+        (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
 

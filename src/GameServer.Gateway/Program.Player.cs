@@ -22,6 +22,7 @@ partial class Program
             conn.ApplyMovementSpeed();
             conn.PlayerLife = on ? conn.PlayerMaxLife : Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
             conn.PlayerMana = on ? (uint)UnreservedMana(conn) : Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+            TrimLeechLocked(conn);
         }
         Console.WriteLine($"[gateway] {remote} god mode {(on ? "on" : "off")}: life {conn.Pools.Life}, mana {conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         await SendCharacterStats(remote, stream, ciphers, conn, on ? "god mode on" : "god mode off");
@@ -146,8 +147,10 @@ partial class Program
             conn.InvalidateIncomingHits();
             conn.DeathNotificationEpoch = deathEpoch = conn.IncomingHitEpoch;
             FortificationOf(conn).Clear();
+            LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
             ClearRageOnDeath(conn);
             ChargesOnDeath(conn);
+            ClearBloodChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
         }
         foreach (var (id, life) in RecoverRuthlessBossesOnDeath(conn))
@@ -200,25 +203,34 @@ partial class Program
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 
-    static async Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        uint current; bool active, rateChanged;
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int rate = conn.PlayerLife == 0 ? 0 : (int)Math.Round(EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield,Get,conn.EnergyShield.Recharging));
-        lock (conn.Monsters)
+    static Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], "0x01b1 player energy shield", atGate: () =>
         {
-            if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
-            current = conn.EnergyShield.Current; active = conn.EnergyShield.Recharging;
-            if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate) return;
-            conn.SentEnergyShield = current; conn.SentRechargeActive = active;
-            rateChanged = conn.SentEsRecoveryRate != rate;
-            conn.SentEsRecoveryRate = rate;
-        }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, current, pool: 2), $"0x01b1 player energy shield {current}/{conn.Pools.EnergyShield}");
-        if (rateChanged && Stats.Key("energy_shield_recovery_per_minute") is uint key)
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(key, rate)]), null);
-    }
+            // Sample and deduplicate after earlier sends: a queued pool change can clamp ES or end recharge.
+            // Publish the current resource and its predictor together, from the same locked state.
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+                var stats = CharacterPlayerStats(conn);
+                int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+                if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
+                uint current = conn.EnergyShield.Current;
+                bool active = conn.EnergyShield.Recharging;
+                int rate = conn.PlayerLife == 0 ? 0 : (int)Math.Round(
+                    EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
+                if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate)
+                    return null;
+                bool rateChanged = conn.SentEsRecoveryRate != rate;
+                var resource = InstanceProtocol.LifeUpdate(PlayerId, current, pool: 2);
+                byte[] packet = rateChanged && Stats.Key("energy_shield_recovery_per_minute") is uint key
+                    ? [.. resource, .. InstanceEntities.StatsUpdate(PlayerId, [(key, rate)])]
+                    : resource;
+                conn.SentEnergyShield = current;
+                conn.SentRechargeActive = active;
+                conn.SentEsRecoveryRate = rate;
+                return packet;
+            }
+        });
 
     // The base mana a gem skill costs at its level (its mana_cost stat), before supports: the client spends it at the
     // start of every use, including a use that becomes a walk (attack-move), so the cost the server gives back must be
@@ -230,9 +242,14 @@ partial class Program
     // the mana.
     static bool PayMana(ClientState conn, ushort skillId, out uint cost)
     {
-        cost = Stats.Key("mana_cost") is uint k ? (uint)Math.Max(0, SupportedSkill(conn, skillId).Stats.GetValueOrDefault(k)) : 0;
+        var own = SupportedSkill(conn, skillId).Stats;
+        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        cost = (uint)Math.Max(0, Own("mana_cost"));
         lock (conn.Monsters)
         {
+            // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
+            if (cost > 0 && BloodCharges.Uses(Own))
+                cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
             if (conn.PlayerMana < cost) return false;
             conn.PlayerMana -= cost;
             return true;
@@ -381,18 +398,25 @@ partial class Program
     // Continuous player pool changes are handled by RunResourceRecovery instead.
     static async Task RunPlayerTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (conn.Closed || conn.RageRetired) return;
         double last = conn.Clock.Elapsed.TotalSeconds;
         int suppression = Suppression(conn).Chance;
         var criticalContext = CriticalContext(conn);
+        var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
-        while (!conn.Closed)
+        while (!conn.Closed && !conn.RageRetired)
         {
             await Task.Delay(PlayerTickMs);
-            if (conn.Closed) break;
+            if (conn.Closed || conn.RageRetired) break;
             double tickNow = conn.Clock.Elapsed.TotalSeconds;
             double seconds = tickNow - last;
             last = tickNow;
-            if (conn.Paused || seconds <= 0) continue;
+            if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
+            if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
+            {
+                leechContext = currentLeech;
+                await SendCharacterStats(remote, stream, ciphers, conn, "leech or full Energy Shield conditions changed");
+            }
             // Keep the selected skill's conditional luck virtuals current across live Life/Focus boundaries too.
             // Combat still samples the owner at the accepted contact, independently of this panel refresh cadence.
             if (CriticalContext(conn) is var currentCritical && currentCritical != criticalContext)
@@ -472,46 +496,65 @@ partial class Program
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(string name) => Stats.Key(name) is uint key ? recoveryStats.GetValueOrDefault(key) : 0;
         var cachedRf = conn.RighteousFire;
-        while (!conn.Closed)
+        while (!conn.Closed && !conn.RageRetired)
         {
             await Task.Delay(RecoveryStepMs);
-            if (conn.Closed) break;
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            if (conn.Ruthless && now >= nextVitalsSave)
-            {
-                PersistRuthlessVitals(conn, bestEffort: true);
-                nextVitalsSave = now + 5;
-            }
-            double seconds = now - last;
-            if (seconds <= 0) continue;
+            if (conn.Closed || conn.RageRetired) break;
             await EndGracePeriod(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
-            // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
-            if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
-            {
-                lifeRate = LifeRegenPerSecond(conn);
-                manaRate = ManaRegenPerSecond(conn);
-                recoveryStats = CharacterPlayerStats(conn);
-                burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
-                    Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire));
-                (ratesAt, cachedRf) = (now, rf);
-            }
-            double recoveryFrom = last;
-            var (life, mana, ended) = conn.FlaskEffects.Advance(last, now);
-            last = now;
             uint lifeBefore, lifeAfter, manaBefore, manaAfter, manaCap;
-            bool dead;
+            bool dead, instantLifeChanged, instantManaChanged;
+            List<Flasks.Effect> ended;
+            double now;
             int? ailmentDeathEpoch = null;
-            lock (conn.Monsters)
+            using (ProjectileMutation(conn))
             {
+                // Commit earlier projectile hits before advancing leech/recovery to this resource boundary.
+                now = ProjectileWorldTime(conn);
+                if (conn.Closed || conn.RageRetired) break;
+                if (conn.LeavingArea)
+                {
+                    // A failed transfer can resume this connection. Do not catch up old cached rates through loading.
+                    // These sessions accrue independently of 'last'; settle and discard their loading-time recovery.
+                    DiscardLoadingRecovery(conn, now);
+                    last = now;
+                    ratesAt = double.NegativeInfinity;
+                    continue;
+                }
+                if (conn.Ruthless && now >= nextVitalsSave)
+                {
+                    PersistRuthlessVitals(conn, bestEffort: true);
+                    nextVitalsSave = now + 5;
+                }
+                double seconds = now - last;
+                if (seconds <= 0) continue;
+                // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
+                if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
+                {
+                    lifeRate = LifeRegenPerSecond(conn);
+                    manaRate = ManaRegenPerSecond(conn);
+                    recoveryStats = CharacterPlayerStats(conn);
+                    burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
+                        Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire));
+                    (ratesAt, cachedRf) = (now, rf);
+                }
+                double recoveryFrom = last;
+                double life, mana;
+                (life, mana, ended) = conn.FlaskEffects.Advance(last, now);
+                last = now;
                 lifeBefore = conn.PlayerLife;
                 manaBefore = conn.PlayerMana;
                 manaCap = (uint)UnreservedMana(conn);
+                var leech = LeechOf(conn);
+                instantLifeChanged = leech.InstantLifeChanged;
+                instantManaChanged = leech.InstantManaChanged;
+                leech.InstantLifeChanged = leech.InstantManaChanged = false;
                 dead = lifeBefore == 0;
                 if (dead)
                 {
                     lifeCarry = manaCarry = burnCarry = 0;
                     FortificationOf(conn).Clear();
+                    leech.Clear(now);
                     conn.EnergyShield.Empty();
                     ClearAntiquarianOnDeath(conn);
                     lifeAfter = lifeBefore;
@@ -519,19 +562,25 @@ partial class Program
                 }
                 else
                 {
+                    leech.ClearFull(now, lifeBefore >= conn.PlayerMaxLife, manaBefore >= manaCap,
+                        conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
+                    var leeched = leech.TakeRecovery(now);
                     burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now)) * seconds;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
                     int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
+                    conn.EnergyShield.Gain(leeched.EnergyShield);
                     double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, conn.PlayerMaxLife,
-                        life + lifeRate * seconds + fortificationLife + conn.Antiquarian.TakeRecovery(now)
+                        life + lifeRate * seconds + fortificationLife + leeched.Life + conn.Antiquarian.TakeRecovery(now)
                             + conn.EnduringCryRecovery.Take(now) - lifeBurn, ref lifeCarry, minimum: 1);
                     AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
                     lifeAfter = conn.PlayerLife;
                     if (lifeAfter == 0) ailmentDeathEpoch = conn.IncomingHitEpoch;
                     conn.PlayerMana = manaAfter = RecoveryPool.Advance(manaBefore, manaCap,
-                        mana + manaRate * seconds, ref manaCarry);
+                        mana + manaRate * seconds + leeched.Mana, ref manaCarry);
+                    leech.ClearFull(now, lifeAfter >= conn.PlayerMaxLife, manaAfter >= manaCap,
+                        conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                 }
             }
             if (ailmentDeathEpoch is int lethalEpoch)
@@ -544,15 +593,23 @@ partial class Program
             }
             if (rf is not null && lifeAfter == 1 && conn.EnergyShield.Current == 0)
                 await EndRighteousFire(remote, stream, ciphers, conn, "one life and no energy shield");
-            if (lifeAfter != lifeBefore && ailmentDeathEpoch is null)
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter), null);
-            if (manaAfter != manaBefore) await SendPlayerMana(remote, stream, ciphers, conn, null);
+            if ((lifeAfter != lifeBefore || instantLifeChanged) && ailmentDeathEpoch is null) await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter), null);
+            if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(remote, stream, ciphers, conn, null);
             bool lifeFull = lifeAfter == conn.PlayerMaxLife, manaFull = manaAfter == manaCap;
             ended.AddRange(conn.FlaskEffects.End(e => (e.LifePerSecond == 0 || lifeFull) && (e.ManaPerSecond == 0 || manaFull)));
             ended = conn.FlaskEffects.KeepRunning(ended, lifeFull, manaFull, now);
             if (ended.Count > 0)
                 await EndFlaskEffects(remote, stream, ciphers, conn, ended, $"life {lifeAfter}/{conn.PlayerMaxLife}, mana {manaAfter}/{manaCap}");
         }
+    }
+
+    // Called under the combat lock. Advance deadlines and consume accrued recovery without paying it into pools.
+    internal static void DiscardLoadingRecovery(ClientState conn, double now)
+    {
+        LeechOf(conn).TakeRecovery(now);
+        FortificationOf(conn).TakeRecovery(now);
+        conn.Antiquarian.TakeRecovery(now);
+        conn.EnduringCryRecovery.Take(now);
     }
 
     // The ended flask effects' buffs come off the player (S→C 0x1c2).
@@ -680,19 +737,21 @@ partial class Program
         return DamageImmunities.From(name => Stats.Key(name) is uint key ? baseStats.GetValueOrDefault(key) : 0);
     }
 
-    // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, moving, an enemy hit in the
-    // last 4 s: PoB's "recently"), the damage reduction on a successful suppress (40% by default) and its lucky or unlucky
-    // roll (PoB's suppressRolls).
+    // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,
+    // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
+    // and its lucky or unlucky roll (PoB's suppressRolls).
     static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
-        bool fullLife, hitRecently;
+        bool fullLife, fullEnergyShield, hitRecently;
         lock (conn.Monsters)
         {
             fullLife = conn.PlayerLife > 0 && conn.PlayerLife >= conn.PlayerMaxLife;
+            fullEnergyShield = conn.PlayerLife > 0 && conn.EnergyShield.Full;
             hitRecently = now - conn.LastEnemyHitAt <= RecentlySeconds;
         }
-        return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: now < conn.Walk.ArrivesAt, hitRecently),
+        return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: now < conn.Walk.ArrivesAt, hitRecently,
+                fullEnergyShield),
             Math.Max(0, conn.Pools.SpellSuppressionEffect),
             conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
     }
@@ -719,6 +778,7 @@ partial class Program
         {
             if (conn.PlayerLife > 0) return;
             conn.InvalidateIncomingHits();
+            LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
             conn.PlayerLife = conn.PlayerMaxLife;
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
             conn.HitRecovery.Clear();
@@ -742,6 +802,9 @@ partial class Program
         await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMaxLife),
             $"0x01b1 player revived with {conn.PlayerMaxLife} life");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
+        // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
+        // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
+        await SendCharacterStats(remote, stream, ciphers, conn, "resurrected");
         // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
         // before any checkpoint is activated. Checkpoint objects and boss arenas (revive at the arena's door) are not done.
         bool activated;
@@ -767,7 +830,7 @@ partial class Program
         RestoreAntiquarian(conn);
         conn.Ward.SetMaximum(conn.Pools.Ward);
         pools = conn.Pools;
-        var stats = CharacterPlayerStats(conn);
+        var stats = CharacterPlayerStatsSnapshot(conn, out _, out var panelSources, capturePanelSources: true);
         var characterInputs = new Dictionary<uint, int>(stats);
         // The equipped weapon's attack with its own local mods (WeaponFor), as SendSkills sends it after an equipment change:
         // before, every area started with the class's unarmed attack, so a weapon's added damage and attack speed showed only
@@ -783,7 +846,7 @@ partial class Program
             Mana: (uint)Math.Min(conn.PlayerMana, (uint)Math.Max(0, (int)pools.Mana - reservedMana)), ManaReserved: (uint)reservedMana,
             Experience: conn.Experience,
             AnimatedObject: Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject,
-            Skills: [.. SkillsFor(conn).PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, weapon)], Stats: [.. weaponStats, .. statList],
+            Skills: [.. SkillsFor(conn).PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn))),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
             Portrait: WornPortrait(conn));
@@ -819,7 +882,9 @@ partial class Program
             messages.Add(($"0x00c0 inventory {PlayerInventories.InventoryId(slot.Row)} row {slot.Row}" + (inside.Count > 0 ? $" items {inside.Count}" : ""),
                 InstanceInventories.AddInventory(PlayerInventories.InventoryId(slot.Row), slot, items: inside)));
         }
-        messages.Add(("0x003d atlas passive tree presets 0-2", InstanceEntities.PassiveSlots()));
+        for (int preset = 0; preset < conn.AtlasPassives.Length; preset++)
+            messages.Add(($"0x003d atlas passive preset {preset} ({conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points)",
+                AtlasSlots(conn, preset)));
         var (passives, passivesLabel) = PassivesMessage(conn);
         messages.Add((passivesLabel, passives));
         // Area transitions. Like the player they are queued by the world and created when 0x21 activates it.

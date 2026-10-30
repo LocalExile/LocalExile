@@ -53,13 +53,42 @@ public class PenetrationTests : IDisposable
         Assert.Equal(25, attack.Fire);    // 10 general + 5 elemental + 7 attack fire + 3 attack elemental
         Assert.Equal(8, attack.Cold);     // 5 elemental + 3 attack elemental
         Assert.Equal(8, attack.Lightning);
-        Assert.Equal(30, attack.Chaos);   // chaos has no general stat, only the attack-only one
+        Assert.Equal(30, attack.Chaos);   // only the attack-only chaos input is set in this case
         Assert.Equal(0, attack.Of(DamageType.Physical));   // physical never penetrates
         var spell = Spell();
         Assert.Equal(15, spell.Fire);     // 10 general + 5 elemental; no attack-only stats
         Assert.Equal(5, spell.Cold);      // the general elemental share
         Assert.Equal(5, spell.Lightning);
         Assert.Equal(0, spell.Chaos);
+    }
+
+    [Fact]
+    public void Non_base_global_sources_and_explicit_weapon_sources_have_distinct_scope()
+    {
+        Set("reduce_enemy_elemental_resistance_%", 7);
+        Set("reduce_enemy_chaos_resistance_%", 11);
+        Set("base_reduce_enemy_fire_resistance_%", 10);
+        Set("base_attack_damage_penetrates_chaos_resist_%", 5);
+        var local = new Dictionary<string, int>
+        { ["local_elemental_penetration_%"] = 6, ["local_fire_penetration_%"] = 2, ["local_chaos_penetration_%"] = 3 };
+        Assert.Equal(new(25, 13, 13, 19), Penetration.Of(_stats, _catalog, true, weaponLocal: local));
+        Assert.Equal(new(17, 7, 7, 11), Penetration.Of(_stats, _catalog, false, weaponLocal: local));
+        Set(Penetration.ElementalProhibition, 1);
+        Assert.Equal(new(0, 0, 0, 19), Penetration.Of(_stats, _catalog, true, weaponLocal: local));
+        Assert.Equal(new(0, 0, 0, 11), Penetration.Of(_stats, _catalog, false, weaponLocal: local));
+    }
+
+    [Fact]
+    public void Wide_raw_sources_cancel_before_projection_and_flags_do_not_cancel_each_other()
+    {
+        Set("base_reduce_enemy_fire_resistance_%", int.MaxValue);
+        Set("base_penetrate_elemental_resistances_%", int.MaxValue);
+        var own = new Dictionary<uint, int>
+        { [_catalog.Key("base_reduce_enemy_fire_resistance_%")!.Value] = -int.MaxValue };
+        Assert.Equal(int.MaxValue, Penetration.Of(_stats, _catalog, false, own).Fire);
+        Set(Penetration.ElementalProhibition, 1);
+        own[_catalog.Key(Penetration.ElementalProhibition)!.Value] = -1;
+        Assert.Equal(0, Penetration.Of(_stats, _catalog, false, own).Fire);
     }
 
     static string? Data()

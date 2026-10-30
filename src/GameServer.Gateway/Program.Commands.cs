@@ -72,8 +72,14 @@ partial class Program
             bool off = args[1].Equals("off", StringComparison.OrdinalIgnoreCase);
             int value = off ? 0 : int.Parse(args[1]);
             bool rawAttribute = AttributeModifiers.IsInput(Stats.Name(stat));
-            bool rebuildMana = stat == Stats.Key(StrengthMana.PerFourStrength)
-                || stat == Stats.Key(PowerOfPurpose.RawFlag);
+            string sourceName = Stats.Name(stat) ?? args[0];
+            bool rebuildLife = LifeManaPoolSources.IsLifeInput(sourceName) || InherentAttributeBonuses.IsLifeInput(sourceName);
+            bool rebuildMana = LifeManaPoolSources.IsManaInput(sourceName) || stat == Stats.Key(StrengthMana.PerFourStrength)
+                || InherentAttributeBonuses.IsManaInput(sourceName) || stat == Stats.Key(PowerOfPurpose.RawFlag);
+            bool rebuildDefences = AttributeDefenceSources.IsInput(sourceName) || InherentAttributeBonuses.IsInput(sourceName);
+            bool rebuildEnergyShield = sourceName == AttributeDefenceSources.EnergyShieldPerTenStrength
+                || InherentAttributeBonuses.IsEnergyShieldInput(sourceName);
+            bool lifeClamped = false, manaClamped = false;
             lock (conn.Monsters)
             {
                 if (off) conn.PlayerStats.Remove(stat);
@@ -81,8 +87,9 @@ partial class Program
             }
             // Keep each supported raw consumer and source restoration when another mechanic changes this gate.
             if (AttackBaseCriticalStrike.IsInput(Stats.Name(stat) ?? args[0])
+                || AccuracyRating.IsInput(Stats.Name(stat) ?? args[0])
                 || ResistanceOvercap.IsInput(Stats.Name(stat) ?? args[0])
-                || rebuildMana || rawAttribute
+                || rebuildLife || rebuildMana || rebuildDefences || rawAttribute
                 || Stats.Name(stat) == PlayerHitMitigation.ArmourAppliesToChaos)
             {
                 while (true)
@@ -95,12 +102,14 @@ partial class Program
                         // A concurrent level/aura rebuild wins; retry against its current inputs and level.
                         if (!ReferenceEquals(conn.Pools, before)) continue;
                         conn.Pools = pools;
-                        if (rawAttribute)
+                        if (rawAttribute || rebuildLife || rebuildMana)
                         {
+                            uint lifeBefore = conn.PlayerLife, manaBefore = conn.PlayerMana;
                             conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
                             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                            lifeClamped = conn.PlayerLife != lifeBefore;
+                            manaClamped = conn.PlayerMana != manaBefore;
                         }
-                        else if (rebuildMana) conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
                         break;
                     }
                 }
@@ -132,8 +141,16 @@ partial class Program
                     () => InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife), "raw attribute current life");
                 await SendPlayerMana(remote, stream, ciphers, conn, "raw attribute mana reservation");
             }
-            else if (rebuildMana)
+            if (!rawAttribute && (rebuildLife || lifeClamped))
+                await Send(remote, stream, ciphers, [], "0x01b1 life after raw source rebuild", atGate: () =>
+                {
+                    lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife);
+                });
+            // Reservation can change with maximum mana even when recovery leaves current mana unchanged.
+            if (!rawAttribute && (rebuildMana || manaClamped))
                 await SendPlayerMana(remote, stream, ciphers, conn, "0x01b1 mana after raw source rebuild");
+            if (rebuildEnergyShield)
+                await SendPlayerEnergyShield(remote, stream, ciphers, conn);
         })
         .Add("stat", "/stat <stat name or client key> (dev: current character stat value)", async args =>
         {
@@ -274,6 +291,56 @@ partial class Program
             }
             await SpawnDelveCrawler(remote, stream, ciphers, conn);
             await conn.Commands!.Reply($"Delve Crawler 0x{conn.DelveCrawlerObject:x} at {conn.DelveCrawlerAt}");
+        })
+        .Add("wp_place", "/wp_place [x y degrees] (dev: move and turn this area's waypoint; without arguments shows where it is)", async args =>
+        {
+            if (conn.Layout.Waypoint is not { } waypoint) { await conn.Commands!.Reply("This area has no waypoint"); return; }
+            if (args.Length == 0)
+            {
+                await conn.Commands!.Reply($"Waypoint at ({waypoint.GridX}, {waypoint.GridY}), {waypoint.Rotation * 180 / MathF.PI:0.#}°");
+                return;
+            }
+            if (args.Length != 3 || !int.TryParse(args[0], out int x) || !int.TryParse(args[1], out int y) || !float.TryParse(args[2],
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees))
+                throw new ArgumentException("/wp_place [x y degrees]");
+            float radians = degrees * MathF.PI / 180;
+            conn.MoveWaypoint(waypoint with { GridX = x, GridY = y, Rotation = radians });
+            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(WaypointCatalog.ObjectId, x, y, 0x7fffffff), $"waypoint to ({x}, {y})");
+            await Send(remote, stream, ciphers, InstanceHideoutEditing.Rotation(WaypointCatalog.ObjectId, radians), $"waypoint turned {degrees}°");
+            await conn.Commands!.Reply($"Waypoint at ({x}, {y}), {degrees}°");
+        })
+        .Add("wp_state", "/wp_state active <n> | bits all|none|area|<bit> | model <.ao> (dev: recreate this area's waypoint with StateMachine \"active\" n or another model, or send 0x4c with all, no, this area's or one bit, to find what lights it)", async args =>
+        {
+            if (conn.Layout.Waypoint is not { } waypoint) { await conn.Commands!.Reply("This area has no waypoint"); return; }
+            string usage = "/wp_state active <n> | bits all|none|area|<bit> | model <.ao>";
+            if (args.Length != 2) throw new ArgumentException(usage);
+            if (args[0] == "bits")
+            {
+                int count = WaypointCatalog.Areas.Entries.Count;
+                List<int> bits = args[1] switch
+                {
+                    "all" => [.. Enumerable.Range(0, InstanceWaypoints.BitsetLength * 8)],
+                    "none" => [],
+                    "area" => WaypointCatalog.Areas.BitOf(conn.Layout.Hash) is int own ? [own] : [],
+                    var n when int.TryParse(n, out int bit) => [bit],
+                    _ => throw new ArgumentException(usage),
+                };
+                await Send(remote, stream, ciphers, InstanceWaypoints.Waypoints(bits), $"0x004c waypoints: {bits.Count} bits (/wp_state, {count} waypoint areas)");
+                await conn.Commands!.Reply($"0x4c sent with {bits.Count} bit(s)");
+                return;
+            }
+            var changed = args[0] switch
+            {
+                "active" when int.TryParse(args[1], out int active) => waypoint with { Active = active },
+                "model" => waypoint with { Model = args[1] },
+                _ => throw new ArgumentException(usage),
+            };
+            conn.MoveWaypoint(changed);
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(WaypointCatalog.ObjectId), "0x02bb remove the waypoint (/wp_state)");
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(WaypointCatalog.ObjectId,
+                InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), changed.Blob()), $"0x02b9 create waypoint {changed} (/wp_state)");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
+            await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
         .Add("sulphite", "/sulphite <amount 0-65535> (dev: the character's Voltaxic Sulphite, saved and sent as the Delve data 0x228)", async args =>
         {
@@ -781,6 +848,19 @@ partial class Program
                 $"{(held.Item.Identified ? "" : ", unidentified")}: " +
                 (held.Item.Mods.Count == 0 ? "no mods" : string.Join("; ", held.Item.Mods.Select(ItemsFor(conn).Mods.Describe))));
         })
+        .Add("base_defence", "/base_defence [0 to 31] (show or set the held armour's shared defence base roll)", async args =>
+        {
+            if (ItemsOf(conn).Items(PlayerInventories.Cursor) is not [var held, ..])
+            { await conn.Commands!.Reply("Hold an armour item first"); return; }
+            if (!held.Item.Components.Contains("Armour"))
+            { await conn.Commands!.Reply("The held item has no Armour component"); return; }
+            if (args.Length == 0)
+            { await conn.Commands!.Reply($"Defence base roll: {held.Item.DefenceBaseRoll} (ordinary range 0 to 31)"); return; }
+            if (args.Length != 1 || !byte.TryParse(args[0], out byte roll) || roll > Item.MaximumDefenceBaseRoll)
+                throw new ArgumentException("defence base roll 0 to 31");
+            await ChangeHeldItem(remote, stream, ciphers, conn, i => i with { DefenceBaseRoll = roll },
+                $"defence base roll {roll} / {Item.MaximumDefenceBaseRoll}", "Armour");
+        })
         .Add("rarity", "/rarity <normal|magic|rare|unique> [unid] (the held item)", async args =>
         {
             if (args.Length == 0 || !Enum.TryParse<ItemRarity>(args[0], true, out var rarity)) throw new ArgumentException("normal, magic, rare or unique");
@@ -1244,6 +1324,27 @@ partial class Program
             atlas.Select(CharacterName(conn), layout);
             await conn.Commands!.Reply($"Atlas layout set to {layout.Name} ({layout.Id}, tier {layout.Tier}).");
         })
+        .Add("atlas_tree", "/atlas_tree (dev: open the Atlas passive tree; S→C 0x7b kind 0x11)", async _ =>
+        {
+            await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.AtlasUi),
+                "0x007b open the Atlas passive tree");
+        })
+        .Add("atlas_points", "/atlas_points [<n>] (dev: show or set the Atlas passive point budget, saved)", async args =>
+        {
+            if (args.Length == 0)
+            {
+                await conn.Commands!.Reply($"Atlas passive points: {conn.AtlasPassivePoints}; " +
+                    $"preset allocations: {string.Join(", ", conn.AtlasPassives.Select((p, i) => $"{i}={p.Count}"))}.");
+                return;
+            }
+            if (!int.TryParse(args[0], out int points) || points is < 0 or > ushort.MaxValue)
+                throw new ArgumentException("a number from 0 to 65535");
+            conn.AtlasPassivePoints = (ushort)points;
+            if (CharacterName(conn) is { } character)
+                CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
+            await SendAtlasSlots(remote, stream, ciphers, conn, "/atlas_points");
+            await conn.Commands!.Reply($"Atlas passive points: {points}.");
+        })
         .Add("goto", "/goto <area id or name> [seed] (dev: change area as if through an area transition, e.g. /goto 1_1_3; with a seed, a new instance at that seed, e.g. /goto 1_1_5 1384217569)", async args =>
         {
             // A last number is the seed: a new instance at it, as the capture tour's stops (towns keep seed 1).
@@ -1326,6 +1427,20 @@ partial class Program
             await SpawnNpc(remote, stream, ciphers, conn, npc, x, y, (deg ?? 0) * MathF.PI / 180);
         })
         // Turns an NPC: it is created again with the new facing (0x2bb, then 0x2b9).
+        .Add("npc_place", "/npc_place <name> <x> <y> <degrees> (dev: move and turn an NPC here)", async args =>
+        {
+            if (args.Length < 4 || !int.TryParse(args[^3], out int x) || !int.TryParse(args[^2], out int y)) throw new ArgumentException("/npc_place <name> <x> <y> <degrees>");
+            float deg = float.Parse(args[^1], System.Globalization.CultureInfo.InvariantCulture);
+            string name = string.Join(' ', args[..^3]);
+            KeyValuePair<uint, SpawnedNpc> found;
+            lock (conn.Npcs) found = conn.Npcs.FirstOrDefault(n => n.Value.Npc.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+            if (found.Value is not { } npc) { await conn.Commands!.Reply($"No NPC {name} here."); return; }
+            lock (conn.Npcs) conn.Npcs.Remove(found.Key);
+            conn.RemoveBlocker(found.Key);
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
+            await SpawnNpc(remote, stream, ciphers, conn, npc.Npc, x, y, deg * MathF.PI / 180);
+            await conn.Commands!.Reply($"{npc.Npc.Name} at ({x}, {y}), {deg}°");
+        })
         .Add("npc_face", "/npc_face <name> <degrees> (turn an NPC here)", async args =>
         {
             if (args.Length < 2) throw new ArgumentException("name and degrees");

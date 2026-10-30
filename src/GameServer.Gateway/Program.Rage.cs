@@ -65,7 +65,7 @@ partial class Program
             var stats = CharacterPlayerStats(conn);
             if (conn.PlayerLife == 0) conn.Rage.Clear();
             var state = conn.Rage.Carry(conn.Clock.Elapsed.TotalSeconds, RageStats.Inputs(name => RageStat(stats, name)));
-            conn.RageRetired = true;
+            conn.Retire();
             foreach (var (old, entry) in CarriedRage)
                 if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedRage.TryRemove(old, out _);
             CarriedRage.TryAdd(ticket, new(CharacterName(conn), DateTime.UtcNow, state));
@@ -155,6 +155,7 @@ partial class Program
     // fall back to a current build rather than publishing the prepared list under the wrong owner state.
     internal static Task SendRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        if (conn.Closed || conn.LeavingArea || conn.RageRetired) return Task.CompletedTask;
         RagePrepared? prepared = null;
         // Neither the stats nor the skill list hold the combat lock for their whole calculation; only the read does.
         var stats = CharacterPlayerStats(conn);

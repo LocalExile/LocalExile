@@ -53,6 +53,46 @@ sealed class NpcCatalog
         // The Azurite Mine Encampment (Delve_Hub, HASH16 0x8b9b): Niko by the waypoint (333, 402) and the arrival
         // (330, 420); our own cell (2026-10-21). The hideout Niko's row: the hub's own (DelveMinerHub) lists no Sell Items.
         [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHideout", 342, 410, 4.0f)],
+        // The Menagerie (Menagerie_Hub): Einhar placed live with /npc_place Einhar 495 485 290 (2026-10-30). The hideout
+        // Einhar's row: EinharMenagerie has no .ot in the GGPK, and the client drew it without a model.
+        [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharHideout", 495, 485, 290 * MathF.PI / 180)],
+        // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
+        // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
+        // live with /npc_place.
+        [StashCatalog.Kingsmarch] =
+        [
+            new("Metadata/NPC/League/Kalguur/VillageMayor", 0, -14, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageTujen", 10, -12, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageGwennen", -10, -12, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageRog", 14, -4, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageDannig", -14, -4, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageFaustus", 14, 6, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageIsla", -14, 6, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
+        ],
+        // The Rogue Harbour (HeistHub): Kurai, Faustus, Adiyah, Whakano and the nine rogues in a ring around the arrival
+        // (offsets, StashCatalog.FromArrival), to be placed live with /npc_place.
+        [StashCatalog.HeistHub] =
+        [
+            new("Metadata/NPC/League/Heist/TheBoss", 18, 0, 4.0f),
+            new("Metadata/NPC/League/Heist/Fence", 16, 8, 4.0f),
+            new("Metadata/NPC/League/Heist/Driver", 10, 15, 4.0f),
+            new("Metadata/NPC/League/Heist/Barber", 2, 18, 4.0f),
+            new("Metadata/NPC/League/Heist/Lockpick1", -6, 17, 4.0f),
+            new("Metadata/NPC/League/Heist/Interrogator1", -13, 12, 4.0f),
+            new("Metadata/NPC/League/Heist/Soldier1", -17, 4, 4.0f),
+            new("Metadata/NPC/League/Heist/HeavyLifter1", -17, -4, 4.0f),
+            new("Metadata/NPC/League/Heist/Detector1", -13, -12, 4.0f),
+            new("Metadata/NPC/League/Heist/Demolitionist1", -6, -17, 4.0f),
+            new("Metadata/NPC/League/Heist/CatBurglar1", 2, -18, 4.0f),
+            new("Metadata/NPC/League/Heist/Illusionist1", 10, -15, 4.0f),
+            new("Metadata/NPC/League/Heist/Engineer1", 16, -8, 4.0f),
+        ],
+        // The Monastery of the Keepers (ChayulaLeague): Ailith by the arrival (an offset, StashCatalog.FromArrival), to be
+        // placed live with /npc_place.
+        [StashCatalog.ChayulaHub] = [new("Metadata/NPC/League/Chayula/ChayulaFarmerHub", 0, -16, 4.0f)],
+        [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 
     public IReadOnlyList<Npc> Rows { get; }
@@ -102,6 +142,7 @@ sealed class NpcCatalog
         new("Metadata/NPC/League/Delve/DelveMinerHideout", 263, 344, 4.0f),
         new("Metadata/NPC/Missions/Hideout/Helena", 270, 337, 4.0f),
         new("Metadata/NPC/Epilogue/KiracHideout", 249, 358, 4.0f),
+        new("Metadata/NPC/League/Bestiary/EinharHideout", 242, 365, 4.0f),
     ];
 
     public static IReadOnlyList<Placement> HideoutNpcs => Hideout;

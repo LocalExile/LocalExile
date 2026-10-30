@@ -85,12 +85,7 @@ partial class Program
     {
         var conn = session.Conn;
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
-        monster.Impale.Clear();
-        session.Runtime.Schedule(at + 1200000, () =>
-        {
-            if (conn.Monsters.TryGetValue(id, out var current) && ReferenceEquals(current, monster))
-            { conn.Monsters.Remove(id); session.Packet(InstanceProtocol.RemoveObject(id)); }
-        });
+        // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         ChargesOnKill(conn, monster);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
@@ -128,6 +123,7 @@ partial class Program
                 CommitExperienceLevel(conn, level);
                 conn.PlayerLife = conn.PlayerMaxLife; conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
+                TrimLeechLocked(conn);
                 session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));

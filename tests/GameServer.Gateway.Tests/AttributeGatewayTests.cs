@@ -63,8 +63,8 @@ public sealed class AttributeGatewayTests : IDisposable
         Assert.Equal(683u, pools.Mana);
         Assert.Equal(318, pools.Accuracy);
         Assert.Equal(11, pools.EvasionPct);
-        Assert.Equal(16, pools.Evasion);
-        Assert.Equal(19, pools.EnergyShieldPct);
+        Assert.Equal(17, pools.Evasion); // Native final defence rounding: 15 * 1.11 = 16.65 -> 17.
+        Assert.Equal(9, pools.EnergyShieldPct); // Complete final Intelligence groups of ten.
         Assert.True(pools.EnergyShield > 0);
         Assert.Equal(28, pools.MeleePhysicalDamagePct);
         var shown = Program.CharacterPlayerStats(conn);

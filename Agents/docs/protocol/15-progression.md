@@ -78,7 +78,8 @@ yet confirmed on screen).
   (+1% spell block per 5% attack block). The Gateway allocates the mastery node and records the effect, then answers
   with 0x33 and the updated stats.
 - **S→C 0x3d is the Atlas tree**, not the character's: its three presets ([05](05-inventories-and-ui.md) §4; the check
-  `0x141eed000` logs "atlas passive skills allocated but only allowed").
+  `0x141eed000` logs "atlas passive skills allocated but only allowed"). The server populates them from the saved presets,
+  and handles Atlas allocation/refund as C→S 0x3e/0x3f. The point budget is saved but completion does not award it yet.
 - **Masteries**: `PassiveSkillMasteryGroups.dat` maps a mastery node's `MasteryGroup` to its effects and
   `PassiveSkillMasteryEffects.dat` holds their stats. The selected effect is stored per node and its stats are summed
   with the node's (`Passives.Stats`). Block Mastery's four effects are max attack block +2, max spell block +2, 20

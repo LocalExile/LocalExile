@@ -37,7 +37,7 @@ partial class Program
 
     static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket)
+        (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -58,12 +58,12 @@ partial class Program
                 ? PlayerActionCurrent(conn, action)
                 : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
                 && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null,
-            () => CaptureGemProjectile(conn, session, skillId, gem, aim));
+            () => CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll));
         return Task.CompletedTask;
     }
 
     static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
-        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim)
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim, SkillCriticalRoll criticalRoll)
     {
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
@@ -90,6 +90,7 @@ partial class Program
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
+        var local = spell ? null : WeaponFor(conn).LocalSources;
         var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, conn.Pools.Accuracy,
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
@@ -97,7 +98,11 @@ partial class Program
             AreaHit = SupportedProjectileHit(conn, skillId, area: true),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality,
             SkillStats = new Dictionary<uint, int>(own),
-            Penetration = Penetration.Of(player, Stats, !spell, own), ResistanceMods = HitResistMods(player, own),
+            Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),
+            ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
+            CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
+            AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
+            Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,

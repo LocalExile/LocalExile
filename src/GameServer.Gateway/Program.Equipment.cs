@@ -1,50 +1,68 @@
 using System.Net.Sockets;
+using System.Collections.Frozen;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 partial class Program
 {
-    // Until the ES pool integration owns stun avoidance, exclude any known source, including raw aura/item ES and
-    // active armour/shield bases which the standalone server does not yet fold into maximum_energy_shield.
-    static bool PlayerHasEnergyShieldForRecovery(ClientState conn, Func<string, int> get)
-    {
-        if (PlayerHitRecovery.EnergyShieldPresent(get)) return true;
-        return ItemModStats.EquipmentRows.SelectMany(ItemsOf(conn).Items)
-            .Where(i => !IsInactive(conn, i.Id)).Any(i =>
-                ItemsFor(conn).ByHash(i.Item.TypeHash) is { } type && ItemsFor(conn).Defences(type) is { EnergyShieldMin: > 0 }
-                || ItemModStats.Local(i.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_energy_shield") > 0);
-    }
+    // Pools and published stats already include effective item ES. Raw bases would count suppressed/converted ES.
+    static bool PlayerHasEnergyShieldForRecovery(ClientState conn, Func<string, int> get) =>
+        conn.Pools.EnergyShield > 0 || PlayerHitRecovery.EnergyShieldPresent(get);
 
     static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
 
-    // The local armour, evasion and energy shield of the equipped body armour, helmet, gloves, boots and shield: the base
-    // type's ArmourTypes roll (its minimum, matching the item's zero base percentile) plus the item's local flat/increased
-    // defence mods and quality (ItemDefences). Inactive items (requirements not met) give none.
-    static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(ClientState conn, Func<string, int> get)
+    // Active local item defences retain their base roll, local conversions and final native rounding.
+    static IEnumerable<(byte Row, (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) Defence)> EquippedArmourDefences(
+        ClientState conn, Func<string, int>? get = null)
     {
         var items = ItemsOf(conn);
-        decimal armour = 0, evasion = 0, ward = 0; int energyShield = 0;
+        var catalog = ItemsFor(conn);
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
-                && ItemsFor(conn).ByHash(equipped.Item.TypeHash) is { } type && ItemsFor(conn).Defences(type) is { } d)
+                && catalog.ByHash(equipped.Item.TypeHash) is { } type && catalog.Defences(type) is { } defences)
             {
-                var (a, e, s) = ItemDefences.Of(d, ItemModStats.Local(equipped.Item, ItemsFor(conn).Mods), equipped.Item.Quality);
-                int percent = row == PlayerInventories.BodyArmour ? Math.Clamp(get("ward_instead_of_%_body_armour_and_evasion"), 0, 100) : 0;
+                var (a, e, s) = ItemDefences.Calculate(equipped.Item, defences, catalog.Mods);
+                int percent = row == PlayerInventories.BodyArmour
+                    ? Math.Clamp(get?.Invoke("ward_instead_of_%_body_armour_and_evasion") ?? 0, 0, 100) : 0;
                 decimal armourWard = a * percent / 100m, evasionWard = e * percent / 100m;
-                armour += a - armourWard;
-                evasion += e - evasionWard;
-                var local = ItemModStats.Local(equipped.Item, ItemsFor(conn).Mods);
-                ward += armourWard + evasionWard
-                    + (long)WardState.Max(d.WardMin + local.GetValueOrDefault("local_ward"), local.GetValueOrDefault("local_ward_+%"))
+                var local = ItemModStats.Local(equipped.Item, catalog.Mods);
+                decimal ward = armourWard + evasionWard
+                    + (long)WardState.Max((decimal)defences.WardMin + local.GetValueOrDefault("local_ward"), local.GetValueOrDefault("local_ward_+%"))
                         * (100 + Math.Clamp((int)equipped.Item.Quality, 0, 100)) / 100;
-                energyShield += s;
+                yield return (row, (a - armourWard, e - evasionWard, s, ward));
             }
-        return (armour, evasion, energyShield, ward);
     }
 
-    // The equipped main/off hands in both weapon sets. Rows 2/3 are Weapon1 and rows 14/15 Weapon2.
-    // The local stats of the active main hand and off hand items (the first weapon set, else the second), for the panel's
-    // hand rows (PanelStats).
+    // Active item-tooltip values become flat inputs to the character-wide pool calculation.
+    static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(ClientState conn, Func<string, int>? get = null)
+    {
+        decimal armour = 0, evasion = 0, ward = 0; long energyShield = 0;
+        foreach (var (_, defence) in EquippedArmourDefences(conn, get))
+        {
+            armour += defence.Armour;
+            evasion += defence.Evasion;
+            energyShield += defence.EnergyShield;
+            ward += defence.Ward;
+        }
+        return (armour, evasion, (int)Math.Min(int.MaxValue, energyShield), ward);
+    }
+
+    // Native 0x142523ab0: flag selects 100%, otherwise use the percentage; truncate each item's local ES separately.
+    // The conversion removes all armour-item ES, even when the Life gained is only 50% of its value.
+    static (int Life, int EnergyShield) ConvertEquipmentEnergyShield(ClientState conn, Func<string, int> get, int energyShield)
+    {
+        int percent = get("gain_maximum_life_instead_of_maximum_es_from_armour") != 0 ? 100
+            : Math.Max(0, get("gain_maximum_life_instead_of_maximum_es_from_armour_at_x%_of_the_value"));
+        if (percent == 0) return (0, energyShield);
+        bool shieldExcluded = get("minions_get_shield_stats_instead_of_you") != 0
+            || get("gain_no_defences_from_equipped_shield") != 0;
+        long life = 0;
+        foreach (var (row, defence) in EquippedArmourDefences(conn))
+            if (row != PlayerInventories.Offhand1 || !shieldExcluded)
+                life += (long)defence.EnergyShield * percent / 100;
+        return ((int)Math.Min(int.MaxValue, life), 0);
+    }
+
     // The item in the main hand (row 2, the active set) and its base type, unless its requirements are not met.
     static (Item Item, ItemCatalog.BaseType? Type)? ActiveMainHand(ClientState conn) => ActiveHand(conn, PlayerInventories.Weapon1);
 
@@ -56,9 +74,7 @@ partial class Program
         ItemsOf(conn).Items(row).Where(i => !IsInactive(conn, i.Id))
             .Select(i => ((Item, ItemCatalog.BaseType?)?)(i.Item, ItemsFor(conn).ByHash(i.Item.TypeHash))).FirstOrDefault();
 
-    // The main hand's attack (2026-10-23): the weapon in the hand (row 2, the active set) by its WeaponTypes row, with the
-    // item's local stats (ItemWeapons: physical damage and quality, attack speed, local added elemental/chaos damage); no
-    // weapon, the class's unarmed attack.
+    // The active weapon's local typed damage, quality and duration; no weapon uses the class's unarmed attack.
     static SkillCatalog.Unarmed WeaponFor(ClientState conn) => WeaponOf(conn, ActiveMainHand(conn));
 
     static SkillCatalog.Unarmed WeaponOf(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? mainHand) =>
@@ -69,8 +85,14 @@ partial class Program
     {
         var unarmed = SkillsFor(conn).UnarmedFor(conn.ClassRow);
         if (hand is not var (item, type) || type is null || SkillsFor(conn).WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
-        return ItemWeapons.Of(ms, min, max, Math.Max(range, unarmed.Range), ItemModStats.Local(item, ItemsFor(conn).Mods), item.Quality)
-            with { WieldingWand = type.Class == "Wand", Melee = type.Class is not ("Wand" or "Bow") };
+        var local = ItemWeaponStats.Calculate(item, (ms, min, max, range), ItemsFor(conn).Mods);
+        var physical = local.Damage[GameServer.Core.World.DamageType.Physical];
+        // The weapon's class decides Arcane Might's wand-only grant and the melee context of its own components.
+        return new SkillCatalog.Unarmed(local.AttackMs, (int)physical.Min, (int)physical.Max, Math.Max(range, unarmed.Range))
+        {
+            LocalDamage = local.Damage, LocalSources = ItemModStats.Local(item, ItemsFor(conn).Mods).ToFrozenDictionary(),
+            WieldingWand = type.Class == "Wand", Melee = type.Class is not ("Wand" or "Bow"),
+        };
     }
 
     // The off-hand weapon of a dual-wielded attack (the active set's Offhand1), with the same values WeaponIn gives the main
@@ -80,16 +102,20 @@ partial class Program
 
     static (Dictionary<string, int> Main, Dictionary<string, int> Off) HandLocalStats(ClientState conn)
     {
-        var items = ItemsOf(conn);
-        Dictionary<string, int> Local(byte row, byte swap) =>
-            items.Items(row).Concat(items.Items(swap)).Where(i => !IsInactive(conn, i.Id)).Select(i => i.Item).FirstOrDefault() is { } item
-                ? ItemModStats.Local(item, ItemsFor(conn).Mods) : [];
-        return (Local(2, 14), Local(3, 15));
+        Dictionary<string, int> Local((Item Item, ItemCatalog.BaseType? Type)? hand) => hand is { } active
+            ? ItemModStats.Local(active.Item, ItemsFor(conn).Mods) : [];
+        // Weapon swaps exchange the equipment rows; rows 14/15 remain inactive even when an active hand is empty.
+        return (Local(ActiveMainHand(conn)), Local(ActiveOffHand(conn)));
     }
 
-    // activeSet: only the hands' rows (the active weapon set), for what the player swings now (the attack animation);
-    // otherwise both sets, as the passive conditions read them.
-    internal static WeaponProfile WeaponProfileFor(ClientState conn, bool activeSet = false)
+    // Current attack executors use the main hand. Read only its qualified active item; a shield, an inactive
+    // weapon set or an unqualified weapon cannot supply local modifiers to this contact.
+    static IReadOnlyDictionary<string, int>? MainHandLocalSources(ClientState conn) =>
+        WeaponFor(conn).LocalSources;
+
+    // Current actions and passive weapon conditions use only the hands' active rows. A normal weapon swap trades
+    // these rows with 14/15 before recomputing pools; an explicit false is reserved for inspecting both stored sets.
+    internal static WeaponProfile WeaponProfileFor(ClientState conn, bool activeSet = true)
     {
         var items = ItemsOf(conn);
         // An inactive weapon (requirements not met) is not there at all: the class is unarmed, as the default attack's
@@ -131,18 +157,20 @@ partial class Program
             Claw: all.Any(t => t.Class == "Claw"),
             Dagger: all.Any(t => t.Class is "Dagger" or "Rune Dagger"),
             Wand: all.Any(t => t.Class == "Wand"),
-            // The main hand's local mods: increased critical strike chance scales its base, attack speed and accuracy go
-            // into PassiveBonus.
-            Critical: (main1 ?? main2) is { } main ? ItemsFor(conn).WeaponCritical(main) * (100 + local.GetValueOrDefault("local_critical_strike_chance_+%")) / 100 : 0,
+            // The main hand's local critical chance and accuracy feed its character calculations. Local attack speed
+            // is item metadata here; ItemWeaponStats already includes it in that hand's duration.
+            Critical: (main1 ?? main2) is { } main ? AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(conn).WeaponCritical(main),
+                local.GetValueOrDefault("local_critical_strike_chance"), local.GetValueOrDefault("local_critical_strike_chance_+%")) : 0,
             LocalAttackSpeedPct: local.GetValueOrDefault("local_attack_speed_+%"),
             LocalAccuracy: local.GetValueOrDefault("local_accuracy_rating"));
     }
 
-    // The equipped off hand(s): Weapon1's off hand is row 3, Weapon2's is row 15.
+    // Both stored offhands, used only by the explicit inventory-wide profile inspection above.
     static bool HasShield(ClientState conn) => OffhandTypes(conn).Any(t => t.Class == "Shield");
 
-    static int ShieldBaseBlock(ClientState conn) => OffhandTypes(conn).Where(t => t.Class == "Shield")
-        .Select(ItemsFor(conn).ShieldBlock).DefaultIfEmpty(0).Max();
+    // Base block comes from the active, requirement-enabled shield, like its local defences and global modifiers.
+    static int ShieldBaseBlock(ClientState conn) => ActiveOffHand(conn)?.Type is { Class: "Shield" } shield
+        ? ItemsFor(conn).ShieldBlock(shield) : 0;
 
     static IEnumerable<ItemCatalog.BaseType> OffhandTypes(ClientState conn)
     {

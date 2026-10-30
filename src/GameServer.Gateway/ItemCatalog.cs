@@ -70,6 +70,15 @@ sealed class ItemCatalog
         /// <summary>BaseItemTypes or ItemClasses forbids modification of this base.</summary>
         public bool Unmodifiable { get; init; }
 
+        /// <summary>ItemClasses CanBeFractured: true for equipment, flasks, jewels, maps, contracts and logbooks;
+        /// false for currency, gems, fragments, tinctures and relics. The Fracturing Orb's class check.</summary>
+        public bool CanBeFractured { get; init; }
+
+        /// <summary>ItemClasses <c>__col21</c> (unnamed in the dat schema): true for the equipment classes (weapons,
+        /// armour, jewellery and quivers) and false for flasks, jewels, maps and currency. The Mirror of Kalandra's
+        /// non-unique equipment check; the wiki's equipment definition is the same set.</summary>
+        public bool CanBeMirrored { get; init; }
+
         public bool Supported => Components.Count > 0 && Item.CanSerialize(Components);
         /// <summary>Several of the type share one cell (a Stack component and a CurrencyItems StackSize above 1).</summary>
         public bool Stackable => MaxStack > 1;
@@ -241,7 +250,26 @@ sealed class ItemCatalog
     /// <summary>A base's defence range from ArmourTypes.dat (the values the client interpolates with the item's base
     /// percentile). Body armour, helmets, gloves, boots and shields have them; most other bases are zero.</summary>
     public readonly record struct BaseDefences(int ArmourMin, int ArmourMax, int EvasionMin, int EvasionMax,
-        int EnergyShieldMin = 0, int EnergyShieldMax = 0, int WardMin = 0, int WardMax = 0);
+        int EnergyShieldMin = 0, int EnergyShieldMax = 0, bool HasAdditionalVariableRange = false,
+        int WardMin = 0, int WardMax = 0)
+    {
+        /// <summary>Sacred Orb eligibility includes Ward and the native table's fifth, currently unnamed range.
+        /// Ward has its own pool calculation; the unnamed range only affects reroll eligibility.</summary>
+        public bool HasVariableRange => ArmourMin != ArmourMax || EvasionMin != EvasionMax
+            || EnergyShieldMin != EnergyShieldMax || WardMin != WardMax || HasAdditionalVariableRange;
+
+        /// <summary>Native 3.29.3b base getters (0x1424af890/910/990): one shared roll over 31,
+        /// rounded halfway up before local modifiers. Wire 32 is the special minimum-base state.</summary>
+        public (int Armour, int Evasion, int EnergyShield) AtRoll(byte roll)
+        {
+            if (roll > Item.SpecialDefenceBaseRoll)
+                throw new ArgumentOutOfRangeException(nameof(roll), roll, "Defence base roll must be 0..32.");
+            int effective = roll == Item.SpecialDefenceBaseRoll ? 0 : roll;
+            // Native table bounds are nonnegative integers; +15 implements nearest rounding over odd denominator 31.
+            int At(int minimum, int maximum) => (int)(minimum + (((long)maximum - minimum) * effective + 15) / 31);
+            return (At(ArmourMin, ArmourMax), At(EvasionMin, EvasionMax), At(EnergyShieldMin, EnergyShieldMax));
+        }
+    }
 
     private Lazy<Dictionary<int, BaseDefences>> _defences = null!;
 
@@ -257,11 +285,14 @@ sealed class ItemCatalog
         foreach (var r in d.RootElement.EnumerateArray())
         {
             if (r.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } key) continue;
+            bool Variable(string min, string max) => r.TryGetProperty(min, out var lo)
+                && r.TryGetProperty(max, out var hi) && lo.GetInt32() != hi.GetInt32();
             result[(int)Math.Max(0, key.GetInt32())] = new BaseDefences(
                 r.GetProperty("ArmourMin").GetInt32(), r.GetProperty("ArmourMax").GetInt32(),
                 r.GetProperty("EvasionMin").GetInt32(), r.GetProperty("EvasionMax").GetInt32(),
                 r.TryGetProperty("EnergyShieldMin", out var esMin) ? esMin.GetInt32() : 0,
                 r.TryGetProperty("EnergyShieldMax", out var esMax) ? esMax.GetInt32() : 0,
+                Variable("WardMin", "WardMax") || Variable("__col10", "__col11"),
                 r.TryGetProperty("WardMin", out var wardMin) ? wardMin.GetInt32() : 0,
                 r.TryGetProperty("WardMax", out var wardMax) ? wardMax.GetInt32() : 0);
         }
@@ -427,14 +458,20 @@ sealed class ItemCatalog
         return result;
     }
 
-    /// <summary>A new item of this type: item level 1, normal, flasks full, its BaseItemTypes implicits rolled.</summary>
-    public static Item Create(BaseType t, IReadOnlyList<ItemSocket>? sockets = null, IReadOnlyList<byte>? links = null) =>
-        new(t.Hash, t.Components, t.VisualIdentity)
+    /// <summary>A new item: item level 1, normal, flasks full, implicits and an ordinary armour base roll.
+    /// An explicit defence roll is used by save restoration and deterministic fixtures, without drawing a new roll.</summary>
+    public static Item Create(BaseType t, IReadOnlyList<ItemSocket>? sockets = null, IReadOnlyList<byte>? links = null,
+        Random? random = null, byte? defenceBaseRoll = null)
+    {
+        random ??= Random.Shared;
+        return new(t.Hash, t.Components, t.VisualIdentity)
         {
+            DefenceBaseRoll = defenceBaseRoll ?? (t.Components.Contains("Armour") ? (byte)random.Next(Item.MaximumDefenceBaseRoll + 1) : (byte)0),
             Charges = t.MaxCharges, Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t) : sockets ?? [],
             Links = ResonatorSockets(t) > 0 ? null : links,
-            Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, Random.Shared))] : [],
+            Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };
+    }
 
     private static (List<BaseType>, string?) Load(string folder, ModCatalog mods)
     {
@@ -481,6 +518,8 @@ sealed class ItemCatalog
         var classes = new List<string>();
         var stances = new List<byte>();
         var unmodifiableClasses = new List<bool>();
+        var fracturableClasses = new List<bool>();
+        var mirrorableClasses = new List<bool>();
         string classesPath = Path.Combine(folder, "tables", "ItemClasses.json");
         if (File.Exists(classesPath))
         {
@@ -489,6 +528,13 @@ sealed class ItemCatalog
             stances = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("ItemStance") is { ValueKind: JsonValueKind.Number } s ? (byte)s.GetInt32() : (byte)0xff)];
             unmodifiableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
                 r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True)];
+            fracturableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
+                r.TryGetProperty("CanBeFractured", out var f) && f.ValueKind == JsonValueKind.True)];
+            // __col21 is unnamed in the dat schema. Its true set is exactly the equipment classes (weapons, armour,
+            // jewellery, quivers); flasks, jewels, maps and currency are false, which is the Mirror's "non-unique
+            // equipment" rule from the wiki.
+            mirrorableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
+                r.TryGetProperty("__col21", out var m) && m.ValueKind == JsonValueKind.True)];
         }
         List<string> tagIds = [];
         string tagsPath = Path.Combine(folder, "tables", "Tags.json");
@@ -526,6 +572,10 @@ sealed class ItemCatalog
                     Unmodifiable = r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True ||
                         r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } uc &&
                         uc.GetInt32() >= 0 && uc.GetInt32() < unmodifiableClasses.Count && unmodifiableClasses[uc.GetInt32()],
+                    CanBeFractured = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } fc &&
+                        fc.GetInt32() >= 0 && fc.GetInt32() < fracturableClasses.Count && fracturableClasses[fc.GetInt32()],
+                    CanBeMirrored = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } mc &&
+                        mc.GetInt32() >= 0 && mc.GetInt32() < mirrorableClasses.Count && mirrorableClasses[mc.GetInt32()],
                 });
             }
         }

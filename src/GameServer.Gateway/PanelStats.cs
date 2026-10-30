@@ -15,8 +15,8 @@ using GameServer.Core.World;
 static class PanelStats
 {
     /// <summary>A source stat, scaled: × <paramref name="Mul"/> ÷ <paramref name="Div"/> (a "-%" stat counts negative;
-    /// a 1/100 000 leech counts ÷ 10 as permyriad).</summary>
-    public readonly record struct Src(string Name, int Mul = 1, int Div = 1)
+    /// a 1/100 000 leech counts ÷ 10 as permyriad). Player-level sources multiply before integer division.</summary>
+    public readonly record struct Src(string Name, int Mul = 1, int Div = 1, bool PerPlayerLevel = false)
     {
         public static implicit operator Src(string name) => new(name);
     }
@@ -35,6 +35,9 @@ static class PanelStats
     const string LeechSpeed = "life_mana_es_leech_speed_+%";
     const string ElementalPenetration = "reduce_enemy_elemental_resistance_%", PenetrateElemental = "base_penetrate_elemental_resistances_%";
     const string IgniteChance = "base_chance_to_ignite_%", FreezeShockIgniteChance = "chance_to_freeze_shock_ignite_%";
+
+    static readonly Src[] GlobalFlaskDurationSources =
+        ["flask_duration_+%", new("flask_duration_+%_per_level", PerPlayerLevel: true)];
 
     public static readonly Sum[] Sums =
     [
@@ -68,7 +71,6 @@ static class PanelStats
         new("virtual_total_spell_chance_to_poison_on_hit_%", ["base_chance_to_poison_on_hit_%", "spells_chance_to_poison_on_hit_%"]),
         new("virtual_total_secondary_chance_to_poison_on_hit_%", ["base_chance_to_poison_on_hit_%"]),
         new("virtual_total_spell_impale_on_hit_%_chance", ["spells_impale_on_hit_%_chance", "impale_on_hit_%_chance"]),
-        new("impale_on_hit_%_chance", ["attacks_impale_on_hit_%_chance"]),
         new("reduce_enemy_fire_resistance_%", ["base_reduce_enemy_fire_resistance_%", ElementalPenetration, PenetrateElemental]),
         new("reduce_enemy_cold_resistance_%", ["base_reduce_enemy_cold_resistance_%", ElementalPenetration, PenetrateElemental]),
         new("reduce_enemy_lightning_resistance_%", ["base_reduce_enemy_lightning_resistance_%", ElementalPenetration, PenetrateElemental]),
@@ -91,12 +93,16 @@ static class PanelStats
         .. Hands(h => new($"virtual_total_{h}_impale_on_hit_%_chance", ["attacks_impale_on_hit_%_chance", "impale_on_hit_%_chance"],
             Local: ["local_attacks_impale_on_hit_%_chance"])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_fire_resist_%", ["base_reduce_enemy_fire_resistance_%", ElementalPenetration,
-            PenetrateElemental], Local: ["local_fire_penetration_%", "local_elemental_penetration_%"])),
+            PenetrateElemental, "base_attack_damage_penetrates_fire_resist_%", "base_attack_damage_penetrates_elemental_resist_%"],
+            Local: ["local_fire_penetration_%", "local_elemental_penetration_%"])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_cold_resist_%", ["base_reduce_enemy_cold_resistance_%", ElementalPenetration,
-            PenetrateElemental], Local: ["local_cold_penetration_%", "local_elemental_penetration_%"])),
+            PenetrateElemental, "base_attack_damage_penetrates_cold_resist_%", "base_attack_damage_penetrates_elemental_resist_%"],
+            Local: ["local_cold_penetration_%", "local_elemental_penetration_%"])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_lightning_resist_%", ["base_reduce_enemy_lightning_resistance_%",
-            ElementalPenetration, PenetrateElemental], Local: ["local_lightning_penetration_%", "local_elemental_penetration_%"])),
-        .. Hands(h => new($"{h}_attack_damage_penetrates_chaos_resist_%", ["reduce_enemy_chaos_resistance_%"],
+            ElementalPenetration, PenetrateElemental, "base_attack_damage_penetrates_lightning_resist_%",
+            "base_attack_damage_penetrates_elemental_resist_%"], Local: ["local_lightning_penetration_%", "local_elemental_penetration_%"])),
+        .. Hands(h => new($"{h}_attack_damage_penetrates_chaos_resist_%", ["reduce_enemy_chaos_resistance_%",
+            "base_attack_damage_penetrates_chaos_resist_%"],
             Local: ["local_chaos_penetration_%"])),
         .. Hands(h => new($"{h}_stun_threshold_reduction_+%", ["base_stun_threshold_reduction_+%"],
             Local: ["local_stun_threshold_reduction_+%"])),
@@ -107,13 +113,12 @@ static class PanelStats
         .. Hands(h => new($"{h}_double_damage_to_chilled_enemies", [], Flag: true, Local: ["local_double_damage_to_chilled_enemies"])),
         .. Hands(h => new($"{h}_local_life_gain_per_target", ["base_life_gain_per_target"], Local: ["local_life_gain_per_target"])),
         .. Hands(h => new($"{h}_local_mana_gain_per_target", ["mana_gain_per_target"], Local: ["local_mana_gain_per_target"])),
-        .. Hands(h => new($"{h}_life_leech_from_physical_attack_damage_permyriad", ["life_leech_from_physical_attack_damage_permyriad"],
-            Local: ["local_life_leech_from_physical_damage_permyriad"])),
-        .. Hands(h => new($"{h}_mana_leech_from_physical_attack_damage_permyriad", ["mana_leech_from_physical_attack_damage_permyriad"],
-            Local: ["local_mana_leech_from_physical_damage_permyriad"])),
+        .. HandLeech("life"), .. HandLeech("mana"),
+        new("virtual_leech_energy_shield_instead_of_life", ["leech_energy_shield_instead_of_life", "keystone_ghost_reaver"], Flag: true),
+        new("virtual_life_leech_does_not_stop_at_full_life", ["life_leech_does_not_stop_at_full_life"], Flag: true),
         // Defence
         new("virtual_energy_shield_delay_-%", ["energy_shield_delay_-%"]),
-        new("virtual_block_recovery_+%", ["block_recovery_+%"]),
+        new("virtual_block_recovery_+%", ["block_recovery_+%", "base_stun_recovery_+%", "stun_recovery_+%"]),
         new("stun_recovery_+%", ["base_stun_recovery_+%"]),
         new("avoid_stun_%", ["base_avoid_stun_%"]),
         new("cannot_be_stunned", ["base_cannot_be_stunned"], Flag: true),
@@ -133,33 +138,48 @@ static class PanelStats
             new($"maximum_{type}_damage_to_return_to_melee_attacker", [$"{type}_damage_to_return_to_melee_attacker"]),
         }),
         new("intermediary_combined_action_speed_+%", [new("action_speed_-%", Mul: -1)]),
+        // "Cannot be Stunned by Spells / Attacks": raw flags of their own (Stormshroud-style sources set them directly);
+        // the all-stun cannot_be_stunned row stays separate, as the panel reads both.
+        new("cannot_be_stunned_by_spells", [], Flag: true),
+        new("cannot_be_stunned_by_attacks", [], Flag: true),
         // Misc
         new("ascendance", ["base_ascendance"]),
         new("skill_area_of_effect_+%", ["base_skill_area_of_effect_+%"]),
         new("virtual_curse_effect_+%", ["curse_effect_+%"]),
-        new("virtual_flask_duration_+%", ["flask_duration_+%"]),
-        .. Leech("life"), .. Leech("mana"),
-        .. new[] { "spell", "fire", "cold", "lightning" }.Select(type => new Sum(
-            $"virtual_energy_shield_leech_from_{type}_damage_permyriad", [$"base_energy_shield_leech_from_{type}_damage_permyriad"])),
-        new("virtual_energy_shield_leech_speed_+%", ["energy_shield_leech_speed_+%", LeechSpeed]),
+        new("virtual_flask_duration_+%", GlobalFlaskDurationSources),
+        .. Leech("life"), .. Leech("mana"), .. Leech("energy_shield"),
         new("life_gained_on_spell_hit", ["base_life_gained_on_spell_hit"]),
         new("virtual_energy_shield_gain_per_target", ["energy_shield_gain_per_target"]),
-        new("life_gained_on_enemy_death", ["base_life_gained_on_enemy_death"]),
-        new("mana_gained_on_enemy_death", ["base_mana_gained_on_enemy_death"]),
-        new("energy_shield_gained_on_enemy_death", ["base_energy_shield_gained_on_enemy_death"]),
+        new("life_gained_on_enemy_death", ["base_life_gained_on_enemy_death",
+            new("life_gained_on_enemy_death_per_level", PerPlayerLevel: true)]),
+        new("mana_gained_on_enemy_death", ["base_mana_gained_on_enemy_death",
+            new("mana_gained_on_enemy_death_per_level", PerPlayerLevel: true)]),
+        new("energy_shield_gained_on_enemy_death", ["base_energy_shield_gained_on_enemy_death",
+            new("energy_shield_gained_on_enemy_death_per_level", PerPlayerLevel: true)]),
         new("virtual_minion_damage_+%", ["minion_damage_+%"]),
         new("projectile_speed_+%", ["base_projectile_speed_+%"]),
-        new("display_skill_increased_item_rarity_+%", ["base_item_found_rarity_+%", "item_found_rarity_+%"]),
+        new("display_skill_increased_item_rarity_+%", ["base_item_found_rarity_+%", "item_found_rarity_+%",
+            "base_killed_monster_dropped_item_rarity_+%"]),
         new("display_skill_increased_item_quantity_+%", ["base_item_found_quantity_+%", "item_found_quantity_+%"]),
         new("virtual_trap_throwing_speed_+%", ["trap_throwing_speed_+%", "trap_and_mine_throwing_speed_+%"]),
         new("virtual_mine_throwing_speed_+%", ["mine_laying_speed_+%", "trap_and_mine_throwing_speed_+%"]),
         new("virtual_cooldown_speed_+%", ["base_cooldown_speed_+%"]),
+        // "Attached Brand Limit per Target": the brand skill's own base (Storm Brand grants 1) plus "an additional brand
+        // attached to an enemy" sources; a selected brand sums both (Selected), the character alone shows its extras.
+        new("brands_per_target_limit", ["base_number_of_sigils_allowed_per_target"]),
         // Charges
         new("virtual_endurance_charge_duration_+%", ["endurance_charge_duration_+%", ChargeDuration, BaseChargeDuration]),
         new("virtual_frenzy_charge_duration_+%", ["base_frenzy_charge_duration_+%", ChargeDuration, BaseChargeDuration]),
         new("virtual_power_charge_duration_+%", ["power_charge_duration_+%", ChargeDuration, BaseChargeDuration]),
-        new("attack_speed_+%_per_frenzy_charge", ["base_attack_speed_+%_per_frenzy_charge"]),
-        new("cast_speed_+%_per_frenzy_charge", ["base_cast_speed_+%_per_frenzy_charge"]),
+        new("attack_speed_+%_per_frenzy_charge", ["base_attack_speed_+%_per_frenzy_charge", "attack_and_cast_speed_+%_per_frenzy_charge"]),
+        new("cast_speed_+%_per_frenzy_charge", ["base_cast_speed_+%_per_frenzy_charge", "attack_and_cast_speed_+%_per_frenzy_charge"]),
+        // Spirit and Siphoning Charges: the direct maximum sources. Their per-equipped-item sources (abyss jewels,
+        // Elder/Shaper items) count items the server does not model, so they contribute nothing yet; the siphoning
+        // damage-taken row shows its per-charge coefficient as the panel's "Physical Damage per Second per Siphoning
+        // Charge". The counts themselves (current_*) belong to charge mechanics that do not exist yet.
+        new("virtual_maximum_spirit_charges", ["maximum_spirit_charges"]),
+        new("virtual_physical_damage_taken_per_minute_per_siphoning_charge",
+            ["physical_damage_taken_per_minute_per_siphoning_charge_if_have_used_a_skill_recently"]),
     ];
 
     // A row for each hand: main_hand_… with the main hand weapon's local stats, off_hand_… with the off hand's.
@@ -171,50 +191,119 @@ static class PanelStats
     static Sum[] Ailment(string ailment, string past) =>
     [
         new($"avoid_{ailment}_%", [$"base_avoid_{ailment}_%", AvoidElementalAilments]),
-        new($"self_{ailment}_duration_-%", [$"base_self_{ailment}_duration_-%", SelfElementalAilmentDuration]),
+        new($"self_{ailment}_duration_-%", [$"base_self_{ailment}_duration_-%", SelfElementalAilmentDuration,
+            new("base_all_ailment_duration_on_self_+%", Mul: -1)]),
         new($"cannot_be_{past}", [$"base_cannot_be_{past}"], Flag: true),
         new($"immune_to_{ailment}", ailment is "ignite" or "shock"
             ? [$"base_immune_to_{ailment}", "immune_to_ignite_and_shock"] : [$"base_immune_to_{ailment}"], Flag: true),
     ];
 
-    // Life or mana leech per damage type (fire, cold and lightning also take the elemental leech; life also has the
-    // 1/100 000 form some item mods use), from any attack damage, and the leech recovery speed.
+    // Raw sources only: feeding another derived alias into these sums would count general sources twice.
+    static Src[] LeechSources(string pool, string type) =>
+    [
+        $"{pool}_leech_from_any_damage_permyriad", $"base_{pool}_leech_from_{type}_damage_permyriad",
+        .. type is "fire" or "cold" or "lightning" ? new Src[] { $"base_{pool}_leech_from_elemental_damage_permyriad" } : [],
+        .. pool == "life" && type != "spell" ? new Src[] { new($"horrible_ugly_life_leech_from_{type}_damage_perhundredthousand", Div: 10) } : [],
+    ];
+
+    static Sum[] HandLeech(string pool) => Hands(h => new($"{h}_{pool}_leech_from_physical_attack_damage_permyriad",
+        [.. LeechSources(pool, "physical"), $"{pool}_leech_from_physical_attack_damage_permyriad",
+            "life_and_mana_leech_from_physical_damage_permyriad",
+            $"base_{pool}_leech_from_attack_damage_permyriad",
+            .. pool == "mana" ? new Src[] { "attack_skill_mana_leech_from_any_damage_permyriad" } : []],
+        Local: [$"local_{pool}_leech_from_physical_damage_permyriad", "local_life_and_mana_leech_from_physical_damage_permyriad",
+            $"local_{pool}_leech_from_any_damage_permyriad"]));
+
+    // Each displayed scope includes applicable general sources; callers must not add these overlapping totals.
     static Sum[] Leech(string pool) =>
     [
         .. new[] { "spell", "physical", "fire", "cold", "lightning", "chaos" }.Select(type => new Sum(
-            $"{pool}_leech_from_{type}_damage_permyriad",
-            [
-                $"base_{pool}_leech_from_{type}_damage_permyriad",
-                .. type is "fire" or "cold" or "lightning" ? new Src[] { $"base_{pool}_leech_from_elemental_damage_permyriad" } : [],
-                .. pool == "life" && type != "spell" ? new Src[] { new($"horrible_ugly_life_leech_from_{type}_damage_perhundredthousand", Div: 10) } : [],
-            ])),
-        new($"virtual_{pool}_leech_from_attack_damage_permyriad", [$"base_{pool}_leech_from_attack_damage_permyriad"]),
+            $"{(pool == "energy_shield" ? "virtual_" : "")}{pool}_leech_from_{type}_damage_permyriad", LeechSources(pool, type))),
+        .. pool != "energy_shield" ? new Sum[] { new($"virtual_{pool}_leech_from_attack_damage_permyriad",
+            [$"{pool}_leech_from_any_damage_permyriad", $"base_{pool}_leech_from_attack_damage_permyriad",
+                .. pool == "mana" ? new Src[] { "attack_skill_mana_leech_from_any_damage_permyriad" } : []]) } : [],
         new($"virtual_{pool}_leech_speed_+%", [$"{pool}_leech_speed_+%", LeechSpeed]),
     ];
 
     /// <summary>Every display stat with a non-zero value, from the stats as the server holds them (<paramref name="get"/>:
     /// by Stats.dat Id, 0 when absent) and each hand's local weapon stats.</summary>
     public static List<(string Stat, int Value)> Compute(Func<string, int> get,
-        Func<string, int>? mainHand = null, Func<string, int>? offHand = null)
+        Func<string, int>? mainHand = null, Func<string, int>? offHand = null, int playerLevel = 1)
     {
-        static long Total(IEnumerable<Src>? sources, Func<string, int>? get) =>
-            get is null || sources is null ? 0 : sources.Sum(s => (long)get(s.Name) * s.Mul / s.Div);
+        playerLevel = Math.Clamp(playerLevel, 1, Progression.MaxLevel);
         var result = new List<(string, int)>();
         foreach (var sum in Sums)
         {
             var local = sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null };
-            long value = get(sum.Display) + Total(sum.Sources, get) + Total(sum.Local, local);
-            if (sum.Flag) value = value > 0 ? 1 : 0;
-            if (value != 0) result.Add((sum.Display, (int)Math.Clamp(value, int.MinValue, int.MaxValue)));
+            bool blocked = Penetration.IsElementalDisplay(sum.Display) && get(Penetration.ElementalProhibition) != 0;
+            int value = blocked ? 0 : Project(sum, RawSum(sum, get, local, playerLevel));
+            if (value != 0 || blocked) result.Add((sum.Display, value));
         }
         return result;
     }
+
+    static long RawSum(Sum sum, Func<string, int> get, Func<string, int>? local, int level) =>
+        get(sum.Display) + Total(sum.Sources, get, level) + Total(sum.Local, local, level);
+
+    static int Project(Sum sum, long value) => sum.Flag ? value > 0 ? 1 : 0
+        : ImpaleStats.IsDisplay(sum.Display) ? (int)Math.Clamp(value, 0, 100)
+        : (int)Math.Clamp(value, int.MinValue, int.MaxValue);
+
+    static readonly Sum[] SelectedSums = [.. Sums.Where(s => s.Display is "skill_area_of_effect_+%"
+        or "display_skill_increased_item_rarity_+%" or "virtual_minion_damage_+%" or "brands_per_target_limit"
+        or "reduce_enemy_fire_resistance_%" or "reduce_enemy_cold_resistance_%"
+        or "reduce_enemy_lightning_resistance_%"
+        or "virtual_ignite_duration_+%" or "virtual_scorch_duration_+%" or "virtual_scorch_effect_+%"
+        or "virtual_chill_duration_+%" or "virtual_chill_effect_+%" or "virtual_freeze_duration_+%"
+        or "virtual_frostburn_duration_+%" or "virtual_frostburn_effect_+%"
+        or "virtual_shock_duration_+%" or "virtual_shock_effect_+%"
+        or "virtual_sap_duration_+%" or "virtual_sap_effect_+%"
+        or "virtual_total_main_hand_impale_on_hit_%_chance" or "virtual_total_off_hand_impale_on_hit_%_chance"
+        or "virtual_total_spell_impale_on_hit_%_chance"
+        || s.Display.Contains("_attack_damage_penetrates_", StringComparison.Ordinal)
+        || s.Display.Contains("_leech_from_", StringComparison.Ordinal)
+        || s.Display.EndsWith("_leech_speed_+%", StringComparison.Ordinal))];
+
+    /// <summary>Selected-skill aliases from original raw character and qualifying skill/support inputs.
+    /// Derive each alias once, clamp the completed sum, and retain zero to clear a removed contribution.
+    /// Published character aliases must not be passed back as raw seeds.</summary>
+    public static List<(string Stat, int Value)> Selected(Func<string, int> character, Func<string, int> own,
+        int playerLevel = 1, Func<string, int>? mainHand = null, Func<string, int>? offHand = null)
+    {
+        int level = Math.Clamp(playerLevel, 1, Progression.MaxLevel);
+        bool blockElemental = character(Penetration.ElementalProhibition) != 0 || own(Penetration.ElementalProhibition) != 0;
+        long Combined(string name) => (long)character(name) + own(name);
+        long SelectedSum(Sum sum) => Combined(sum.Display)
+            + sum.Sources.Sum(s => Combined(s.Name) * s.Mul * (s.PerPlayerLevel ? level : 1) / s.Div)
+            + Total(sum.Local, sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null }, level);
+        return [.. SelectedSums.Select(sum => (sum.Display,
+            blockElemental && Penetration.IsElementalDisplay(sum.Display) ? 0 : Project(sum, SelectedSum(sum))))];
+    }
+
+    /// <summary>The global duration coefficient shared by the panel and actual flask uses. The display's virtual
+    /// seed does not modify gameplay; item-local duration, quality and more modifiers remain separate.</summary>
+    public static long FlaskDurationIncrease(Func<string, int> get, int playerLevel = 1) =>
+        Total(GlobalFlaskDurationSources, get, Math.Clamp(playerLevel, 1, Progression.MaxLevel));
+
+    // Sum one raw snapshot. The level is the player level supplied by the caller, never a native stat/gem level.
+    static long Total(IEnumerable<Src>? sources, Func<string, int>? get, int playerLevel) =>
+        get is null || sources is null ? 0 : sources.Sum(s =>
+            (long)get(s.Name) * s.Mul * (s.PerPlayerLevel ? playerLevel : 1) / s.Div);
 
     /// <summary>
     /// The Offence tab's per-hand damage rows (issue #75): the hit the server actually swings with, per damage type and
     /// in total. The client shows whole numbers, so each range is rounded down. An empty packet adds no rows, which
     /// leaves those rows blank, as the game does for an attack that cannot happen.
     /// </summary>
+    /// <summary>The twelve damage row names of a hand context (main_hand, off_hand, secondary): total then each type,
+    /// minimum then maximum, for callers that clear or fill every row.</summary>
+    public static IEnumerable<string> DamageRows(string hand)
+    {
+        foreach (string type in new[] { "total", "physical", "fire", "cold", "lightning", "chaos" })
+            foreach (string bound in new[] { "minimum", "maximum" })
+                yield return $"{hand}_{bound}_{type}_damage";
+    }
+
     public static List<(string Stat, int Value)> HandDamage(DamagePacket packet, string hand)
     {
         var result = new List<(string, int)>();
@@ -268,6 +357,73 @@ static class PanelStats
         return result;
     }
 
+    /// <summary>Path of Building's <c>EvadeChanceCap</c>: the 5% minimum hit chance leaves evasion at most 95%.</summary>
+    public const int EvadeChanceCap = 95;
+
+    /// <summary>
+    /// The Defence tab's estimate rows (issue #75), which the client derives from nothing: the server works them out
+    /// against the reference monster of the character's level (DefaultMonsterStats, as Path of Building's CalcDefence
+    /// does with its monster damage and accuracy tables).
+    /// <list type="bullet">
+    /// <item>Estimated Physical Damage reduction: armour against the reference hit (<see cref="DamageModel.ArmourReduction"/>,
+    /// armour / (armour + 5 × damage)) plus the additional physical reduction the charges and passives give
+    /// (<see cref="ChargeEffects.Reduction"/>), capped at 90%.</item>
+    /// <item>Armour against Projectiles and its estimate, when "increased Armour against Projectiles" applies: the
+    /// projectile increase joins the armour increases; <c>armour_differs_against_projectiles</c> makes the panel draw
+    /// the rows.</item>
+    /// <item>Estimated reduction against Hits, when "additional Physical Damage Reduction against Hits" applies
+    /// (<c>armour_differs_against_hits</c>).</item>
+    /// <item>Estimated chance to Evade Attacks: 100 − the reference monster's chance to hit this evasion
+    /// (<see cref="DamageModel.EvadeChance"/>) plus flat "chance to Evade Attacks" sources, capped at 95%.</item>
+    /// <item>Ward Restoration time (<c>ward_delay</c>, milliseconds) when the character has Ward.</item>
+    /// <item>Mana Recharge per second when Energy Shield Recharge applies to Mana: the recharge rate on maximum mana.
+    /// Nothing in 3.29 applies recharge to Life, so the Life row stays blank.</item>
+    /// <item>Omniscience for attribute requirements: Omniscience × "can be satisfied by % of Omniscience".</item>
+    /// </list>
+    /// <paramref name="referenceDamage"/> and <paramref name="referenceAccuracy"/> are the reference monster's values;
+    /// null (no DefaultMonsterStats row for the level) leaves the rows that need them out rather than estimating
+    /// against a 0-damage, 0-accuracy attacker.
+    /// </summary>
+    public static List<(string Stat, int Value)> Defence(Func<string, int> get, CharacterStats.Pools pools,
+        int? referenceDamage, int? referenceAccuracy)
+    {
+        var result = new List<(string, int)>();
+        int additional = ChargeEffects.Reduction(get).Physical;
+        static int Estimate(int armour, int damage, int extra) =>
+            Math.Clamp(DamageModel.ArmourReduction(armour, damage) + Math.Max(0, extra), 0, DamageModel.DamageReductionCap);
+        if (referenceDamage is int damage)
+        {
+            result.Add(("display_estimated_physical_damage_reduciton_%", Estimate(pools.Armour, damage, additional)));
+            if (get("physical_damage_reduction_rating_+%_against_projectiles") is int projectilePct and not 0)
+            {
+                // The projectile-only increase joins the ordinary increases; the pools hold their total, so scale by ratio.
+                long baseline = 100L + pools.ArmourPct;
+                int armour = baseline <= 0 ? pools.Armour
+                    : (int)Math.Clamp((long)pools.Armour * Math.Max(0, baseline + projectilePct) / baseline, 0, int.MaxValue);
+                result.Add(("physical_damage_reduction_rating_against_projectiles", armour));
+                result.Add(("armour_differs_against_projectiles", 1));
+                result.Add(("display_estimated_physical_damage_reduciton_against_projectiles_%", Estimate(armour, damage, additional)));
+            }
+            if (get("additional_physical_damage_reduction_%_against_hits") is int againstHits and not 0)
+            {
+                result.Add(("armour_differs_against_hits", 1));
+                result.Add(("display_estimated_physical_damage_reduction_against_hits_%",
+                    Estimate(pools.Armour, damage, additional + againstHits)));
+            }
+        }
+        if (referenceAccuracy is int accuracy)
+            result.Add(("chance_to_evade_%", Math.Clamp(DamageModel.EvadeChance(pools.Evasion, accuracy)
+                + get("chance_to_evade_attacks_%"), 0, EvadeChanceCap)));
+        if (pools.Ward > 0)
+            result.Add(("ward_delay", (int)Math.Clamp(Math.Round(WardState.Delay(get) * 1000), 0, int.MaxValue)));
+        if (get("energy_shield_recharge_apply_to_mana") != 0)
+            result.Add(("mana_recharge_rate_per_minute", RecoveryValue(EnergyShield.RechargePerMinute(pools.Mana, get))));
+        if (get("attribute_requirements_can_be_satisfied_by_%_of_ascendance") is int omniscience and not 0)
+            result.Add(("omniscience_for_attribute_requirements", (int)Math.Clamp(
+                ((long)get("ascendance") + get("base_ascendance")) * omniscience / 100, int.MinValue, int.MaxValue)));
+        return result;
+    }
+
     /// <summary>Character.ot's <c>mana_regeneration_rate_per_minute_%</c>: 105, i.e. 1.75% of maximum mana per second.</summary>
     public const int BaseManaRegenPctPerMinute = 105;
 
@@ -285,26 +441,38 @@ static class PanelStats
         double life = LifePerMinute(get, maxLife);
         if (life != 0)
         {
-            result.Add(("total_life_recovery_per_minute_from_regeneration", (int)Math.Round(life)));
-            result.Add(("life_recovery_per_minute", (int)Math.Round(life)));
+            result.Add(("total_life_recovery_per_minute_from_regeneration", RecoveryValue(life)));
+            result.Add(("life_recovery_per_minute", RecoveryValue(life)));
         }
-        int mana = (int)Math.Round(ManaPerMinute(get, maxMana));
+        int mana = RecoveryValue(ManaPerMinute(get, maxMana));
         result.Add(("total_mana_recovery_per_minute_from_regeneration", mana));
         result.Add(("mana_recovery_per_minute", mana));
         return result;
     }
 
-    /// <summary><c>base_life_regeneration_rate_per_minute</c> plus <c>life_regeneration_rate_per_minute_%</c> of
-    /// maximum life, raised by <c>life_regeneration_rate_+%</c>.</summary>
+    static int RecoveryValue(double rate) => (int)Math.Clamp(Math.Round(rate), int.MinValue, int.MaxValue);
+
+    /// <summary>Ordinary Life regeneration increases and recovery increases are distinct multiplicative buckets.
+    /// Shared with the expiry-aware Fortification recovery writer so its added source follows the same rules.</summary>
+    public static double LifeRegenerationMultiplier(Func<string, int> get) =>
+        get("no_life_regeneration") != 0 || get("cannot_recover_life") != 0 ? 0 :
+        Math.Max(0, 1 + get("life_regeneration_rate_+%") / 100.0)
+        * Math.Max(0, 1 + get("life_recovery_rate_+%") / 100.0);
+
+    /// <summary>Flat plus percentage Life regeneration, scaled by regeneration and recovery increases.
+    /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.</summary>
     public static double LifePerMinute(Func<string, int> get, uint maxLife) =>
-        (get("base_life_regeneration_rate_per_minute") + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0)
-        * Math.Max(0, 1 + get("life_regeneration_rate_+%") / 100.0);
+        (get("base_life_regeneration_rate_per_minute")
+            + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0) * LifeRegenerationMultiplier(get);
 
     /// <summary>
     /// Character.ot's <see cref="BaseManaRegenPctPerMinute"/> plus <c>mana_regeneration_rate_per_minute_%</c> of maximum
-    /// mana and the flat <c>base_mana_regeneration_rate_per_minute</c> (Clarity), all raised by <c>mana_regeneration_rate_+%</c>.
+    /// mana and flat <c>base_mana_regeneration_rate_per_minute</c> (Clarity), raised by regeneration then recovery increases.
     /// </summary>
     public static double ManaPerMinute(Func<string, int> get, uint maxMana) =>
-        (maxMana * (BaseManaRegenPctPerMinute + get("mana_regeneration_rate_per_minute_%")) / 100.0
-         + get("base_mana_regeneration_rate_per_minute")) * (1 + get("mana_regeneration_rate_+%") / 100.0);
+        get("no_mana_regeneration") != 0 || get("cannot_leech_or_regenerate_mana") != 0 ? 0 :
+        (maxMana * (BaseManaRegenPctPerMinute + (double)get("mana_regeneration_rate_per_minute_%")) / 100.0
+            + get("base_mana_regeneration_rate_per_minute"))
+        * Math.Max(0, 1 + get("mana_regeneration_rate_+%") / 100.0)
+        * Math.Max(0, 1 + get("mana_recovery_rate_+%") / 100.0);
 }

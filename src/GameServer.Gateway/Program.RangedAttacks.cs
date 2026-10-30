@@ -36,9 +36,9 @@ partial class Program
     // follows. The release guard rechecks the action token, so a cancelled or replaced action creates no projectile.
     static async Task ConfirmAndLaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, byte[] actionBytes, string actionLog, (int X, int Y) aim, double attackSeconds, int action, int epoch,
-        string projectileId, ushort sequence)
+        string projectileId, ushort sequence, SkillCriticalRoll criticalRoll)
     {
-        await LaunchOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence);
+        await LaunchOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);
         await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, epoch);
     }
 
@@ -71,8 +71,10 @@ partial class Program
     }
 
     // Ranged release has no walk-in offset or melee early-hit clamp: the shot is scheduled on the projectile runtime
-    // at the weapon's contact and resolved there (Projectiles/Program.ProjectileRanged.cs).
+    // at the weapon's contact and resolved there (Projectiles/Program.ProjectileRanged.cs). The use's critical roll was
+    // captured at acceptance and travels with the shot.
     static Task LaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence) =>
-        ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence);
+        (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
+        SkillCriticalRoll criticalRoll) =>
+        ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);
 }

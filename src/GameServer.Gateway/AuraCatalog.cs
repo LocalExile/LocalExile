@@ -102,7 +102,7 @@ static class AuraCatalog
         int fire = 0, cold = 0, lightning = 0, chaos = 0;
         int fireMax = 0, coldMax = 0, lightningMax = 0, chaosMax = 0;
         int accuracy = 0, criticalChance = 0, attackSpeed = 0, movementSpeed = 0;
-        int armour = 0, evasion = 0, armourMore = 0, evasionMore = 0, spellCrit = 0;
+        int armour = 0, evasion = 0, energyShield = 0, armourMore = 0, evasionMore = 0, spellCrit = 0;
         foreach (var aura in auras)
         {
             switch (Family(aura.EffectId))
@@ -114,6 +114,9 @@ static class AuraCatalog
                 case "Grace":
                     evasion += Value(skills, stats, aura, "base_evasion_rating", auraEffectPct);
                     evasionMore += Value(skills, stats, aura, "grace_aura_evasion_rating_+%_final", auraEffectPct);
+                    break;
+                case "Discipline":
+                    energyShield += Value(skills, stats, aura, "base_maximum_energy_shield", auraEffectPct);
                     break;
                 case "Zealotry":
                     spellCrit += Value(skills, stats, aura, "spell_critical_strike_chance_+%", auraEffectPct);
@@ -153,7 +156,7 @@ static class AuraCatalog
             LightningMaxResistance: lightningMax, ChaosMaxResistance: chaosMax,
             Accuracy: accuracy, CriticalStrikeChancePct: criticalChance, SpellCriticalStrikeChancePct: criticalChance + spellCrit,
             AttackSpeedPct: attackSpeed, MovementVelocityPct: movementSpeed, Armour: armour, Evasion: evasion,
-            ArmourMorePct: armourMore, EvasionMorePct: evasionMore);
+            ArmourMorePct: armourMore, EvasionMorePct: evasionMore, EnergyShield: energyShield);
     }
 
     /// <summary>The raw keys behind Purity's resistance and maximum bonuses, for per-key dev replacements.
@@ -252,6 +255,10 @@ static class AuraCatalog
     {
         if (stats.Key(name) is not uint key) return 0;
         int value = skills.EffectStats(aura.Effect, aura.Level, aura.Quality).FirstOrDefault(kv => kv.Item1 == key).Item2;
+        // PoB ModStore.ScaleAddList truncates these integer defence-aura stats before character-wide scaling.
+        // Decimal preserves the exact hundredths from the integer aura-effect percentage.
+        if (Family(aura.EffectId) is "Discipline" or "Determination" or "Grace")
+            return (int)Math.Clamp(decimal.Truncate(value * Math.Max(0m, 100m + auraEffectPct) / 100m), int.MinValue, int.MaxValue);
         return (int)Math.Round(value * Math.Max(0, 100 + auraEffectPct) / 100.0, MidpointRounding.AwayFromZero);
     }
 }

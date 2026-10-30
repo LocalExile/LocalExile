@@ -48,6 +48,34 @@ public class ChargeSessionTests
     }
 
     [Fact]
+    public void Converted_charges_show_the_special_buff_and_a_flag_change_swaps_it()
+    {
+        var s = new ChargeSession();
+        var c = new Character((Charges.ConversionFlag(ChargeType.Endurance), 1), ("add_frenzy_charge_on_kill_%_chance", 100));
+        s.Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, 2, "test"));
+        s.Enqueue(new ChargeEvent.Kill(MonsterRarity.Normal));
+        var r = Step(s, 0, c);
+        Assert.True(s.Converted(ChargeType.Endurance));
+        Assert.False(s.MinimumConverted(ChargeType.Endurance));
+        Assert.Contains(r.Log, l => l.Contains("brutal charges 0 -> 2/3"));
+        Assert.Contains(r.Log, l => l.Contains("frenzy charges 0 -> 1/3"));
+        var shown = s.Presentation(0, Next);
+        var brutal = Assert.Single(shown, b => b.Type == ChargeType.Endurance);
+        Assert.True(brutal.Converted);
+        Assert.Equal(2, brutal.Count);
+        Assert.False(Assert.Single(shown, b => b.Type == ChargeType.Frenzy).Converted);
+        // The belt comes off: the same charges are Endurance Charges again, so the buff is swapped.
+        c.Stats.Remove(Charges.ConversionFlag(ChargeType.Endurance));
+        Assert.False(Step(s, 0.05, c).CountsChanged);   // the held count did not change
+        var swapped = Assert.Single(s.Presentation(0.05, Next));
+        Assert.Equal(ChargeType.Endurance, swapped.Type);
+        Assert.False(swapped.Converted);
+        Assert.Equal(brutal.Add, swapped.Remove);
+        Assert.Equal(2, swapped.Count);
+        Assert.Empty(s.Presentation(0.1, Next));
+    }
+
+    [Fact]
     public void A_failed_roll_gains_nothing_and_the_rng_decides()
     {
         var s = new ChargeSession();
