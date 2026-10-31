@@ -222,8 +222,17 @@ def mimalloc_options(items):
 
 def client_argv(options):
     # --nologo also marks a launcher-started client for live.ps1 (Get-GlobalSlotHolders): no other start passes it.
-    argv = [str(CLIENT), "--patching-server", f"127.0.0.1:{options.patch_port}", "--nologo"]
+    # --disable-assert-box: an assertion is logged instead of waiting on a modal dialog nobody answers.
+    argv = [str(CLIENT), "--patching-server", f"127.0.0.1:{options.patch_port}", "--nologo", "--disable-assert-box"]
     return argv if options.sound else argv + ["--nosound"]
+
+
+def child_agent_options(agent):
+    """The agent options for a process the client starts (its --crash-upload-startup helper, for one): the always-on
+    isolation only (session-local mutex names, a window that never activates, no hold on the user's input), nothing
+    that changes the engine."""
+    return {**agent, "nullRenderer": False, "noRenderJobs": False, "noTextureUpload": False, "frameSleepMs": 0,
+            "traceFiles": None, "traceMovies": False, "mimalloc": {}, "lazyNullBuffersKb": 0, "crashLog": None}
 
 
 def parse(argv=None):
@@ -297,6 +306,31 @@ def main(argv=None):
         child = Child(pid)  # in its job before it runs a single instruction
         session = device.attach(pid)
         session.on("detached", lambda *unused: child.terminate())
+        # Processes the client starts (its --crash-upload-startup helper) start suspended, get the same agent with the
+        # isolation only, and then run; they stay in the client's job.
+        children = []
+
+        def isolate(spawned):
+            try:
+                sub = device.attach(spawned.pid)
+                sub.enable_child_gating()
+                sub_script = sub.create_script(f"const OPTIONS = {json.dumps(child_agent_options(agent))};\n"
+                                               + AGENT.read_text(encoding="utf-8"), name="localexile-nullifier-child")
+                sub_script.on("message", lambda message, data: print(json.dumps(
+                    {"nullifierChild": spawned.pid, "message": message.get("payload", {}).get("message")
+                     if message.get("type") == "send" else message.get("description", message)}), flush=True))
+                sub_script.load()
+                children.append((sub, sub_script))
+                print(json.dumps({"nullifierChild": spawned.pid, "isolated": spawned.argv}), flush=True)
+            except Exception as error:  # noqa: BLE001  (reported; the child still runs, in the client's job)
+                print(json.dumps({"nullifierChild": spawned.pid, "error": str(error)}), flush=True)
+            finally:
+                try:
+                    device.resume(spawned.pid)
+                except frida.InvalidOperationError:
+                    pass
+        device.on("child-added", lambda spawned: threading.Thread(target=isolate, args=(spawned,), daemon=True).start())
+        session.enable_child_gating()
         script = session.create_script(f"const OPTIONS = {json.dumps(agent)};\n" + AGENT.read_text(encoding="utf-8")
                                        + "".join("\n" + p.read_text(encoding="utf-8") for p in options.probe),
                                        name="localexile-nullifier")

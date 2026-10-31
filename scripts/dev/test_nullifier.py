@@ -96,8 +96,10 @@ class NullifierTests(unittest.TestCase):
             def on(self, *a): pass
             def create_script(self, *a, **k): return Script()
             def detach(self): events.append("detach")
+            def enable_child_gating(self): events.append("gating")
 
         class Device:
+            def on(self, *a): events.append("child-added handler")
             def spawn(self, argv, **k): events.append(("spawn", k["cwd"], k["stdio"])); return 4321
             def attach(self, pid): return Session()
             def resume(self, pid): events.append("resume")
@@ -125,7 +127,8 @@ class NullifierTests(unittest.TestCase):
         outcome, events, record = self.launch(["engine options: render=0", "run mutex -> Local\\X-PoERunMutexA"])
         self.assertEqual(outcome, "ok")
         self.assertEqual(events[0][2], "pipe")
-        self.assertEqual(events[1:3], ["limit", "resume"])
+        # children the client starts are gated (and isolated) from before it runs
+        self.assertEqual(events[1:5], ["child-added handler", "gating", "limit", "resume"])
         self.assertEqual((record["pid"], record["started"], record["launcherStarted"], record["session"]), (4321, 99, 5, "s"))
         self.assertEqual(events[-2:], ["close", "detach"])
 
@@ -149,7 +152,14 @@ class NullifierTests(unittest.TestCase):
             options = nullifier.parse(["--cwd", "data/clients/s1"])
         self.assertEqual((options.patch_port, options.login_port, options.renderer), (21000, 21002, "configured"))
         self.assertEqual(nullifier.client_argv(options),
-                         [str(nullifier.CLIENT), "--patching-server", "127.0.0.1:21000", "--nologo", "--nosound"])
+                         [str(nullifier.CLIENT), "--patching-server", "127.0.0.1:21000", "--nologo", "--disable-assert-box",
+                          "--nosound"])
+        child = nullifier.child_agent_options(nullifier.agent_options(
+            nullifier.parse(["--cwd", "x", "--patch-port", "1", "--login-port", "2", "--renderer", "null",
+                             "--lazy-null-buffers", "8", "--mimalloc", "purge_delay=0"]), Path("x")))
+        self.assertFalse(child["nullRenderer"])
+        self.assertEqual((child["lazyNullBuffersKb"], child["mimalloc"]), (0, {}))
+        self.assertTrue(child["runMutexPrefix"])
         agent = nullifier.agent_options(options, Path("data/clients/s1"))
         self.assertFalse(agent["nullRenderer"])
         self.assertEqual(agent["runMutexPrefix"], nullifier.run_mutex_prefix(Path("data/clients/s1")))
@@ -157,7 +167,7 @@ class NullifierTests(unittest.TestCase):
         options = nullifier.parse(["--cwd", "x", "--patch-port", "1", "--login-port", "2", "--renderer", "null",
                                    "--trim-seconds", "10", "--sound"])
         self.assertTrue(nullifier.agent_options(options, Path("x"))["nullRenderer"])
-        self.assertEqual(nullifier.client_argv(options)[-1], "--nologo")
+        self.assertEqual(nullifier.client_argv(options)[-1], "--disable-assert-box")
 
     def test_mimalloc_options_and_movie_trace(self):
         options = nullifier.parse(["--cwd", "x", "--patch-port", "1", "--login-port", "2", "--mimalloc", "purge_delay=0",

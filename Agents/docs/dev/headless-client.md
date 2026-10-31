@@ -226,6 +226,13 @@ session client, renderer or not, `nullifier.js` replaces these `user32` calls at
   nothing, so a session whose settings say `fullscreen=true` cannot change the user's display mode.
 - No DirectInput: the client imports no `dinput8`.
 
+Processes the client starts get the same isolation: the launcher turns on Frida's child gating, so a child (the
+client starts `Game.patched.exe --crash-upload-startup` about a second after its own start) begins suspended, gets the
+agent with the always-on parts only (mutex names, window, input; nothing that changes the engine), and then runs; it
+stays in the client's job (live: `{"nullifierChild": …, "isolated": ["Game.patched.exe", "--crash-upload-startup"]}`).
+The client is also started with `--disable-assert-box`, so a failed assertion cannot wait on a modal dialog nobody
+answers.
+
 Exports that share code are replaced once, and a failure is logged per API (an early version replaced two aliases,
 threw, and the rest of the agent, the Null renderer included, never ran). Live (one client, a separate process
 polling `GetClipCursor` every 100 ms while the client started, logged in, played, travelled and came back): Null 1494
