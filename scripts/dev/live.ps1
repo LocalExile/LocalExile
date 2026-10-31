@@ -16,17 +16,21 @@
 #               within seconds and the client stays in game. An edit hot reload cannot apply (a changed signature, a new
 #               static initializer) rebuilds and restarts the Gateway, which drops the client to the login screen.
 #   -NoHotReload  start the built Gateway without `dotnet watch`. Agents/GettingStarted.md step 10.
-param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
+#   -Release    build and run the servers' Release builds (implies -NoHotReload): the JIT optimizes them (the monster AI
+#               runs 1.6-2.3x faster), and no `dotnet watch` (~220 MB) runs beside the Gateway. Agents/docs/dev/performance.md.
+param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload, [switch]$Release, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$configuration = if ($Release) { 'Release' } else { 'Debug' }
+if ($Release) { $NoHotReload = $true }
 $out = Join-Path $repo 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
 function Select-LocalGateway {
     # The client can use a cached gateway list even when the patch welcome needs no download.
-    & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') gateway (Join-Path $repo 'Client\Content.ggpk') --login '127.0.0.1:20493' | Out-Null
+    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") gateway (Join-Path $repo 'Client\Content.ggpk') --login '127.0.0.1:20493' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'could not select local login server; close all clients and retry' }
 }
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
@@ -129,7 +133,7 @@ $runs = @(Get-ChildItem (Join-Path $out 'archive') -Directory -ErrorAction Silen
 if (-not $NoBuild) {
     # A watched Gateway builds itself.
     foreach ($s in ($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })) {
-        dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
+        dotnet build (Join-Path $repo "src\GameServer.$s") -c $configuration -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
     }
     # The first-party mods (Mods\Source\) into Mods\Binaries\, which the Gateway loads (Agents/docs/dev/modding.md). One that does
@@ -151,7 +155,7 @@ function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [strin
     Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden
 }
 
-$bin = 'bin\Debug\net10.0'
+$bin = "bin\$configuration\net10.0"
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
 # The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
 $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
