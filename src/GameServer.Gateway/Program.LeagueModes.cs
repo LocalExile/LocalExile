@@ -14,7 +14,6 @@ partial class Program
     static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
     static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
     static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
-    static readonly Lazy<HarvestCrafting> HardModeHarvest = new(() => new(HardModeItems.Value, HardModeRolls.Value));
     // Drops read the league's gem rules when they are built, so each HardMode league has its own.
     static readonly ConcurrentDictionary<string, Lazy<ItemDrops>> HardModeDrops = new();
 
@@ -24,7 +23,6 @@ partial class Program
     internal static ItemRolls RollsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeRolls.Value : Rolls;
     internal static UniqueCatalog UniquesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeUniques.Value : Uniques;
     internal static EssenceCrafting EssencesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeEssences.Value : Essences;
-    internal static HarvestCrafting HarvestFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeHarvest.Value : Harvest;
     internal static ItemDrops DropsFor(ClientState conn) => LeagueFor(conn) is { HardMode: true } league
         ? HardModeDrops.GetOrAdd(league.Id, _ => new(() => new(HardModeItems.Value, HardModeRolls.Value, hardMode: true, uniques: HardModeUniques.Value, league: league.Rules))).Value : Drops;
 

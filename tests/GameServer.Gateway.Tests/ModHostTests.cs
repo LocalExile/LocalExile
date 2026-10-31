@@ -318,24 +318,6 @@ public sealed class ModHostTests : IDisposable
         Assert.True(await _host.Unloaded("s"));
     }
 
-    sealed class BuiltIn : IModule
-    {
-        public void Load(IModuleContext module) => module.OnChatCommand("builtin", "/builtin", c => c.Player.Tell("built in"));
-    }
-
-    [Fact]
-    public async Task A_built_in_module_loads_only_with_its_folder()
-    {
-        using (var host = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn()))
-            Assert.False(host.IsLoaded("feature"));
-        Directory.CreateDirectory(Path.Combine(_root, "feature"));
-        File.WriteAllText(Path.Combine(_root, "feature", ModHost.ModuleManifestFile), "{ }");
-        using var loaded = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn());
-        loaded.Start(watch: false);
-        Assert.True(await loaded.RunCommand(_player, "builtin", []));
-        Assert.Single(loaded.Mods());
-    }
-
     static string ModulePing(string reply) => $$"""
         public sealed class Ping : IModule
         {
@@ -375,16 +357,6 @@ public sealed class ModHostTests : IDisposable
         host.Reload("m");
         Assert.True(await host.RunCommand(_player, "ping", []));
         Assert.Equal("two", _player.Told[^1]);
-    }
-
-    [Theory]
-    [InlineData("harvest")]
-    [InlineData("heist")]
-    [InlineData("delve")]
-    public void The_servers_features_are_built_in_modules(string id)
-    {
-        Assert.True(Program.ServerModules.IsLoaded(id));
-        Assert.False(Program.ServerMods.IsLoaded(id));
     }
 
     [Fact]
@@ -465,6 +437,76 @@ public sealed class ModHostTests : IDisposable
         Assert.Equal(["module"], _player.Told);
     }
 
+    void AddModule(string id, string manifest, string body = "")
+    {
+        string dir = AddScript(id, "public sealed class M_" + id + " : IModule { public void Load(IModuleContext module) { " + body + " } }");
+        File.WriteAllText(Path.Combine(dir, ModHost.ModuleManifestFile), manifest);
+    }
+
+    [Fact]
+    public void A_league_gets_what_it_inherits_and_uses_without_what_it_removes_and_a_missing_use_is_no_error()
+    {
+        AddModule("harvest", "{ }");
+        AddModule("delve", "{ }");
+        AddModule("base", """{ "uses": ["harvest", "delve", "not-installed"] }""");
+        AddModule("child", """{ "inherits": ["base"], "without": ["delve"] }""");
+        using var host = new ModHost(_root, _ => { }, modules: true);
+        host.Start(watch: false);
+        Assert.All(host.Mods(), m => Assert.Null(m.Error));
+        Assert.Equal(["base", "child", "harvest"], host.ModulesOf("child").Order());
+        Assert.Equal(["base", "delve", "harvest"], host.ModulesOf("base").Order());
+        Assert.Empty(host.ModulesOf("not-loaded"));
+    }
+
+    [Fact]
+    public void A_module_that_inherits_a_missing_one_does_not_load()
+    {
+        AddModule("child", """{ "inherits": ["gone"] }""");
+        using var host = new ModHost(_root, _ => { }, modules: true);
+        host.Start(watch: false);
+        Assert.Contains("needs gone", host.Mods().Single().Error);
+    }
+
+    [Fact]
+    public async Task A_module_a_league_does_not_use_does_nothing_for_its_players()
+    {
+        AddModule("station", "{ }", """
+            module.OnHideoutReady(p => p.Tell("placed"));
+            module.OnObjectUsed(async u => { await u.Player.Tell("used"); return true; });
+            module.OnChatCommand("station", "/station", c => c.Player.Tell("ran"));
+            """);
+        bool uses = true;
+        using var host = new ModHost(_root, _ => { }, modules: true) { Active = (_, _) => uses };
+        host.Start(watch: false);
+        await host.HideoutReady(_player);
+        Assert.True(await host.ObjectUsed(new(_player, 1, 0)));
+        Assert.True(await host.RunCommand(_player, "station", []));
+        Assert.Equal(["placed", "used", "ran"], _player.Told);
+        uses = false;
+        await host.HideoutReady(_player);
+        Assert.False(await host.ObjectUsed(new(_player, 1, 0)));
+        Assert.False(await host.RunCommand(_player, "station", []));
+        Assert.Equal(3, _player.Told.Count);
+    }
+
+    [Fact]
+    public void A_league_without_rules_has_those_of_what_it_inherits()
+    {
+        var parent = new RulesLeague("rules-parent", new() { GoldMultiplier = 7 });
+        var child = new RulesLeague("rules-child", null);
+        Assert.True(ServerLeagues.Add(parent));
+        Assert.True(ServerLeagues.Add(child, ["rules-parent"]));
+        try { Assert.Equal(7, ServerLeagues.Live("rules-child")!.GoldMultiplier); }
+        finally { ServerLeagues.Remove(parent); ServerLeagues.Remove(child); }
+    }
+
+    sealed class RulesLeague(string id, LeagueRules? rules) : ILeague
+    {
+        public string Id => id;
+        public string ClientLeagueName => id;
+        public LeagueRules? Rules => rules;
+    }
+
     [Fact]
     public async Task Chat_runs_a_mod_command_that_none_of_ours_shadows()
     {
@@ -497,6 +539,7 @@ public sealed class ModHostTests : IDisposable
         public bool SoloSelfFound => false;
         public bool Ruthless => false;
         public string LeagueId { get; set; } = "standard";
+        public bool Uses(string module) => LeagueId == module;
         public int Level => 12;
         public string AreaId => "1_1_1";
         public uint Seed => 7;

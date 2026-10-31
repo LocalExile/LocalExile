@@ -9,17 +9,19 @@ partial class Program
     // Modules (Agents/docs/dev/modules.md) are overhauls, mods small modifications. A module is a folder in Modules/, loaded at the start
     // of the Gateway and there until it stops; it may hot-reload. Delete the folder to turn it off.
     // Game_MODULES=0 and Game_MODS=0 load none from their folder; Game_MODULES_FOLDER and Game_MODS_FOLDER move it (relative
-    // to the repository root, like data/). The server's own features behind the API (Features/) are modules too.
+    // to the repository root, like data/).
     internal static readonly ModHost ServerModules = new ModHost(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules", Console.WriteLine, modules: true)
-        .AddBuiltIn(HarvestFeature.Id, () => new HarvestFeature())
-        .AddBuiltIn(HeistFeature.Id, () => new HeistFeature())
-        .AddBuiltIn("delve", () => new DelveFeature());
+    {
+        // A module runs only for the players whose league uses it, so taking one from a league leaves nothing behind.
+        Active = (player, id) => ModulesFor(ConnOf(player)).Contains(id),
+        WorldOf = player => new ModuleWorld(ConnOf(player)),
+    };
     internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine);
     internal static readonly ServerHooks ServerHooks = new(ServerModules, ServerMods);
 
     static void StartMods()
     {
-        if (Environment.GetEnvironmentVariable("Game_MODULES") == "0") Console.WriteLine("[modules] only the built-in ones (Game_MODULES=0)");
+        if (Environment.GetEnvironmentVariable("Game_MODULES") == "0") Console.WriteLine("[modules] off (Game_MODULES=0)");
         else
         {
             ServerModules.Changed += line => HotReload.Tell(line.Replace("[modules] ", "Modules: "));
@@ -44,7 +46,7 @@ partial class Program
     /// <summary>The player as mods see it (one per connection).</summary>
     internal static Mod.IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, c => new ModPlayer(c));
 
-    /// <summary>The connection behind a player, for the server's own features (Features/).</summary>
+    /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
     internal static ClientState ConnOf(Mod.IPlayer player) => ((ModPlayer)player).Conn;
 
     static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
@@ -72,6 +74,7 @@ partial class Program
         public bool Hardcore => conn.Hardcore;
         public bool SoloSelfFound => conn.Ssf;
         public string LeagueId => LeagueFor(conn).Id;
+        public bool Uses(string module) => ModulesFor(conn).Contains(module);
         public int Level => conn.Pools.Level;
         public string AreaId => conn.Layout.Id;
         public uint Seed => conn.Seed;

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "kind": "league",
   "depends": [],
+  "inherits": ["standard"],
   "assembly": "bin/ruthless.dll",
   "league": {
     "form": {

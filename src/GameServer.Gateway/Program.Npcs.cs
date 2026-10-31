@@ -170,21 +170,13 @@ partial class Program
             case "IdentifyItems":
                 await IdentifyInventory(remote, stream, ciphers, conn, npc);
                 break;
-            // Niko's View Subterranean Chart: SendOpenScreen( DelveMapScreen, 1 ), S→C 0x7b kind 0x1c with 1.
-            case "Quests" when talk.Script.Contains("DelveMapScreen"):
-                conn.InNpcTalk = false;
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 1), "0x007b open the Delve chart");
-                break;
-            // Niko's Visit Mine Encampment: BeginDelve(), to the Azurite Mine Encampment (WorldAreas Delve_Hub), as /goto does.
-            // The mine's own mechanics (darkness, the cart, depth) are not implemented.
-            case "Quests" when talk.Script.Contains("BeginDelve"):
-                conn.InNpcTalk = false;
-                if (AreaTransitionCatalog.HashOf("Delve_Hub") is { } delve)
-                    await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(delve, 0, false, AtSpawn: true), $"{npc.Npc.Name}: {talk.Option}");
-                else
-                    Console.WriteLine($"[gateway] {remote} {talk.Option}: Delve_Hub is not in data/area-transitions.json");
-                break;
             default:
+                // A script a module answers (Niko's Delve options), when this league uses that module.
+                if (talk.Category == "Quests" && await ServerHooks.RunNpcScript(new(PlayerOf(conn), npc.Npc.Name, talk.Option, talk.Script)))
+                {
+                    conn.InNpcTalk = false;
+                    break;
+                }
                 Console.WriteLine($"[gateway] {remote} npc option category {talk.Category} is not implemented yet");
                 break;
         }
@@ -556,7 +548,7 @@ partial class Program
         if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
         conn.BenchOpen = false;
-        conn.HarvestOpen = false;
+        conn.ModuleWindow = null;
         if (Items.Error is { } error) { Console.WriteLine($"[gateway] {remote} shop: {error}"); return; }
         var notes = new List<string>();
         var items = ItemsOf(conn);

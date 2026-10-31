@@ -33,6 +33,11 @@ sealed class ServerHooks(ModHost modules, ModHost mods)
 
     public async Task<bool> ObjectUsed(ObjectUse use) => await modules.ObjectUsed(use) || await mods.ObjectUsed(use);
 
+    public Task HideoutReady(IPlayer player) => modules.HideoutReady(player);
+    public List<(string Log, byte[] Message)> EnterMessages(IPlayer player) => modules.EnterMessages(player);
+    public AreaHeader? Header(IPlayer player) => modules.Header(player);
+    public Task<bool> RunNpcScript(NpcScript talk) => modules.RunNpcScript(talk);
+
     public DropRoll? Drops(IPlayer player, MonsterInfo monster)
     {
         if (!modules.ChangesDrops && !mods.ChangesDrops) return null;

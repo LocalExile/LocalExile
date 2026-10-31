@@ -44,7 +44,21 @@ public enum ModKind
 /// <param name="Depends">Ids loaded before this mod; it does not load while one is missing or failed.</param>
 /// <param name="Assembly">The file name of the mod's assembly in its folder, <c>&lt;id&gt;.dll</c> by default.</param>
 /// <param name="Enabled">Whether it loads until /mod_enable or /mod_disable says otherwise; true by default.</param>
-public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadOnlyList<string> Depends, string Assembly, bool Enabled = true);
+public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadOnlyList<string> Depends, string Assembly, bool Enabled = true)
+{
+    /// <summary>Modules this one extends, loaded first: their hooks run for this one's players, and a league without rules of its
+    /// own has their rules. A missing one keeps this module from loading.</summary>
+    public IReadOnlyList<string> Inherits { get; init; } = [];
+
+    /// <summary>Modules this one's players also get. Unlike <see cref="Inherits"/>, a missing one is simply not there.</summary>
+    public IReadOnlyList<string> Uses { get; init; } = [];
+
+    /// <summary>Modules this one's players do not get, though it inherits or uses them.</summary>
+    public IReadOnlyList<string> Without { get; init; } = [];
+
+    /// <summary>What must load first.</summary>
+    public IReadOnlyList<string> Requires => [.. Depends.Concat(Inherits).Distinct()];
+}
 
 /// <summary>A monster's rarity.</summary>
 public enum MonsterRarity

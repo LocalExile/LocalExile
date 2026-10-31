@@ -187,9 +187,6 @@ partial class Program
         // after values were copied and fault a background recovery/condition-refresh task.
         var devSet = rawOverrides.Keys.ToHashSet();
         foreach (var (k, v) in BaseStats(conn)) stats.TryAdd(k, v);
-        if (conn.Layout.Id.StartsWith("Delve", StringComparison.Ordinal))
-            foreach (var (key, value) in DelveEquipment.Stats(PersonalStashOf(conn).Delve))
-                if (!devSet.Contains(key)) stats[key] = stats.GetValueOrDefault(key) + value;
         EnsureFortificationPools(conn);
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
         // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances

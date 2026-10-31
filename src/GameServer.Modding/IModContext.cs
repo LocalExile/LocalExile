@@ -62,4 +62,19 @@ public interface IModuleContext : IModContext
     /// <summary>A league (<see cref="ILeague"/>): its characters play by its rules while this module is loaded. Its client name
     /// and id must be free.</summary>
     IDisposable AddLeague(ILeague league);
+
+    /// <summary>What the module can do with this player's world.</summary>
+    IPlayerWorld World(IPlayer player);
+
+    /// <summary>The player's hideout is being furnished: place the module's stations here.</summary>
+    IDisposable OnHideoutReady(Func<IPlayer, Task> ready);
+
+    /// <summary>Messages sent as the player enters an area, before its objects: a log line and the message.</summary>
+    IDisposable OnEnterMessages(Func<IPlayer, IEnumerable<(string Log, byte[] Message)>> messages);
+
+    /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
+    IDisposable OnAreaHeader(Func<IPlayer, AreaHeader?> header);
+
+    /// <summary>An NPC's dialogue option whose script the server has no answer for. Return true when it was this module's.</summary>
+    IDisposable OnNpcScript(Func<NpcScript, Task<bool>> run);
 }

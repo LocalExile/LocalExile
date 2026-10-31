@@ -9,7 +9,7 @@ public sealed class AllflameModule : IModule
     public void Load(IModuleContext module) => module.AddLeague(new AllflameLeague());
 }
 
-/// <summary>Allflame's mechanics are not built: it is its own economy with Standard's rules, and the place they will go.</summary>
+/// <summary>Allflame's mechanics are not built: its own economy, inheriting Standard's rules and modules.</summary>
 public sealed class AllflameLeague : ILeague
 {
     /// <inheritdoc/>
@@ -17,5 +17,5 @@ public sealed class AllflameLeague : ILeague
     /// <inheritdoc/>
     public string ClientLeagueName => "Allflame";
     /// <inheritdoc/>
-    public LeagueRules Rules => LeagueRules.Standard;
+    public LeagueRules? Rules => null;
 }

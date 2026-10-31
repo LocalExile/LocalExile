@@ -21,6 +21,9 @@ public interface IPlayer
     /// <summary>The league module this connection plays by (<see cref="ILeague.Id"/>), "standard" when none.</summary>
     string LeagueId { get; }
 
+    /// <summary>Whether this connection's league uses a module: its own, what it inherits and uses, without what it removes.</summary>
+    bool Uses(string module);
+
     /// <summary>The character's level.</summary>
     int Level { get; }
 

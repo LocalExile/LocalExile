@@ -12,6 +12,12 @@ public sealed record MonsterInfo(string VarietyId, string Name, int Level, Monst
 /// <summary>A monster the player killed.</summary>
 public sealed record MonsterKill(IPlayer Player, MonsterInfo Monster);
 
+/// <summary>An NPC's dialogue option: who, the option's text and its script.</summary>
+public sealed record NpcScript(IPlayer Player, string Npc, string Option, string Script);
+
+/// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
+public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets);
+
 /// <summary>A click on an object: its id, and the connection's game seconds when the client asked (for walking there).</summary>
 public sealed record ObjectUse(IPlayer Player, uint ObjectId, double RequestedAt);
 

@@ -136,10 +136,11 @@ partial class Program
                 prepared = true;
                 byte areaLevel = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == areaHash
                     && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
+                var moduleHeader = ServerHooks.Header(PlayerOf(conn));
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: LeagueStatsFor(conn.MainAscendancy),
-                    TerrainData: layout.Id == "Delve_Main" ? InstanceDelve.FirstMineTerrain() : null,
-                    AchievementSets: layout.Id is "Delve_Hub" or "Delve_Main" ? [2] : null);
+                    TerrainData: moduleHeader?.Terrain,
+                    AchievementSets: moduleHeader?.AchievementSets);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}");
                 if (level != resolved.Level)
                 {

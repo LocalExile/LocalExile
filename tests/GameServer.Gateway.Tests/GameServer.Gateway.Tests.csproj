@@ -27,5 +27,7 @@
     <!-- The league modules: TestEnvironment registers them, as the host does in the server. -->
     <ProjectReference Include="..\..\Modules\ruthless\Ruthless.csproj" />
     <ProjectReference Include="..\..\Modules\allflame\Allflame.csproj" />
+    <ProjectReference Include="..\..\Modules\harvest\Harvest.csproj" />
+    <ProjectReference Include="..\..\Modules\delve\Delve.csproj" />
   </ItemGroup>
 </Project>

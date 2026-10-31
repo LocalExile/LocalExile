@@ -70,23 +70,9 @@ partial class Program
             conn.CraftingBenchAt = (bench.X, bench.Y);
             await RegisterStationaryCollision(remote, stream, ciphers, conn, benchId, bench.Type!, bench.X, bench.Y, bench.Rotation, "bench", bench.Model);
         }
-        if (ServerModules.IsLoaded(HarvestFeature.Id) && scene?.Harvest is { } harvest
-            && HideoutCatalog.TypeOf(HideoutCatalog.HorticraftingType) is var (harvestComponents, _)
-            && harvestComponents.Count > 0 && HideoutObject.CanSerialize(harvestComponents))
-        {
-            uint harvestId = conn.NextObjectId++;
-            var obj = new HideoutObject(harvest.X, harvest.Y, harvest.Rotation, harvestComponents, new HideoutDoodad(0, 0));
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(harvestId,
-                InstanceEntities.ObjectTypeHash(HideoutCatalog.HorticraftingType), obj.Blob()),
-                $"0x02b9 create Horticrafting Station 0x{harvestId:x} at ({harvest.X}, {harvest.Y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(harvestId), null);
-            conn.HorticraftingObject = harvestId;
-            conn.HorticraftingAt = (harvest.X, harvest.Y);
-            await RegisterStationaryCollision(remote, stream, ciphers, conn, harvestId, HideoutCatalog.HorticraftingType,
-                harvest.X, harvest.Y, harvest.Rotation, "harvest", harvest.Model);
-        }
-
-        if (ServerModules.IsLoaded(HeistFeature.Id)) await HeistFeature.SpawnHeistLocker(remote, stream, ciphers, conn, scene);
+        // The stations of the modules this league uses. One taken away is simply not placed: its spot stays free.
+        conn.CurrentHideoutScene = scene;
+        if (scene is not null) await ServerHooks.HideoutReady(PlayerOf(conn));
     }
 
     // A click on the Stash (C→S 0x24): walk there, then S→C 0x7b kind 1 opens the stash panel. Its affinity argument selects
@@ -95,7 +81,7 @@ partial class Program
     {
         await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
         conn.BenchOpen = false;
-        conn.HarvestOpen = false;
+        conn.ModuleWindow = null;
         if (conn.StashObject == 0) return;
         var at = conn.StashAt;
         if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, ClientState.StashBlockerSize, out var objectWalk)) return;

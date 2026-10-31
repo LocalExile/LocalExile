@@ -1,7 +1,7 @@
 {
-  // Horticrafting: its code is in the Gateway (src/GameServer.Gateway/Features/). This folder is what turns it on.
   "id": "harvest",
-  "version": "built in",
+  "version": "1.0.0",
   "kind": "feature",
-  "depends": []
+  "depends": [],
+  "assembly": "bin/harvest.dll"
 }

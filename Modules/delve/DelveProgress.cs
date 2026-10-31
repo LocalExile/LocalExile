@@ -1,5 +1,7 @@
 using System.Text.Json;
 
+namespace GameServer.Modules.Delve;
+
 /// <summary>Mining equipment and azurite shared by characters of one account and league.</summary>
 public sealed record DelveProgress(uint Azurite = 0, byte Flares = 0, byte Dynamite = 0, IReadOnlyList<byte>? Upgrades = null)
 {
@@ -7,7 +9,7 @@ public sealed record DelveProgress(uint Azurite = 0, byte Flares = 0, byte Dynam
 }
 
 /// <summary>Equipment prices and limits from the shipped 3.29.3b tables; no guessed upgrade costs.</summary>
-static class DelveEquipment
+public static class DelveEquipment
 {
     sealed record Upgrade(int Type, byte Level, uint Cost, int[] Keys, int[] Values);
     static readonly Lazy<Dictionary<(int Type, byte Level), Upgrade>> Rows = new(() =>

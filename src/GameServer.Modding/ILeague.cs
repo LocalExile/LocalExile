@@ -15,8 +15,9 @@ public interface ILeague
     /// variants. A league form (<c>module.json</c> "league"."form") is found by <see cref="Id"/> instead: the module's id.</summary>
     string ClientLeagueName { get; }
 
-    /// <summary>The rules now. Asked often, so return a kept object; a new value applies at once (a tunables file).</summary>
-    LeagueRules Rules { get; }
+    /// <summary>The rules now. Asked often, so return a kept object; a new value applies at once (a tunables file). Null: those of
+    /// the module it inherits.</summary>
+    LeagueRules? Rules { get; }
 
     /// <summary>Modules that must be loaded for this league's characters to use it.</summary>
     IReadOnlyList<string> RequiredFeatures => [];

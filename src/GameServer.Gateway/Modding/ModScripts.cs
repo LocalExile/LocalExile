@@ -51,13 +51,13 @@ static class ModScripts
     }
 
     /// <summary>Compiles the files; <paramref name="references"/> are the images of the other assemblies they may use.</summary>
-    public static (byte[] Dll, byte[] Pdb) Compile(string id, IReadOnlyList<string> files, IEnumerable<byte[]> references)
+    public static (byte[] Dll, byte[] Pdb) Compile(string id, IReadOnlyList<string> files, IEnumerable<byte[]> references, bool module = false)
     {
         var options = new CSharpParseOptions(LanguageVersion.Latest);
         var trees = files.Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), options, path, Encoding.UTF8))
             .Append(CSharpSyntaxTree.ParseText(Usings, options)).ToList();
         var compilation = CSharpCompilation.Create(id + ".scripts", trees,
-            [.. Platform.Value, .. references.Select(image => MetadataReference.CreateFromImage(image))],
+            [.. Platform.Value, .. module ? [MetadataReference.CreateFromFile(typeof(GameServer.Core.Protocol.Instance.Item).Assembly.Location)] : Array.Empty<MetadataReference>(), .. references.Select(image => MetadataReference.CreateFromImage(image))],
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable,
                 optimizationLevel: OptimizationLevel.Debug));
         using var dll = new MemoryStream();

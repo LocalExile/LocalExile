@@ -260,7 +260,6 @@ sealed partial class Program
     internal static readonly UniqueCatalog Uniques = new(Items);
     internal static readonly EssenceCrafting Essences = new(Items, Rolls);
     internal static readonly BenchCrafting Bench = new(Items, Rolls);
-    internal static readonly HarvestCrafting Harvest = new(Items, Rolls);
     internal static readonly ItemDrops Drops = new(Items, Rolls, maps: MapDevices.Value.Atlas, uniques: Uniques);
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.

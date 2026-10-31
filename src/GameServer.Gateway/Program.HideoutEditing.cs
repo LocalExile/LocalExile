@@ -35,11 +35,9 @@ partial class Program
         }
         var p = entry!.Position;
         if (entry.BlockerSize >= 0) conn.SetBlocker(move.ObjectId, p.X, p.Y, entry.BlockerSize, entry.CollisionRadius);
-        if (move.ObjectId == conn.HeistLockerObject) conn.HeistLockerAt = (p.X, p.Y);
         if (move.ObjectId == conn.StashObject) conn.StashAt = (p.X, p.Y);
         if (move.ObjectId == conn.GuildStashObject) conn.GuildStashAt = (p.X, p.Y);
         if (move.ObjectId == conn.CraftingBenchObject) conn.CraftingBenchAt = (p.X, p.Y);
-        if (move.ObjectId == conn.HorticraftingObject) conn.HorticraftingAt = (p.X, p.Y);
         lock (conn.Npcs)
             if (conn.Npcs.TryGetValue(move.ObjectId, out var npc))
                 conn.Npcs[move.ObjectId] = npc with { X = p.X, Y = p.Y };

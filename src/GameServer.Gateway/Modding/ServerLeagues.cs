@@ -25,12 +25,14 @@ sealed class LeagueRuntime(string id, string name, bool hardMode, LeagueRules ru
 /// Standard is built in; a league with no module, or one whose required features are not loaded, plays as Standard.</summary>
 static class ServerLeagues
 {
+    static ImmutableDictionary<string, IReadOnlyList<string>> _inherits = ImmutableDictionary.Create<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
     static ImmutableDictionary<string, ILeague> _leagues = ImmutableDictionary.Create<string, ILeague>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Registers a league under its client name; false when one has that name or id already.</summary>
-    public static bool Add(ILeague league)
+    public static bool Add(ILeague league, IReadOnlyList<string>? inherits = null)
     {
         string id = league.Id;
+        ImmutableInterlocked.AddOrUpdate(ref _inherits, id, inherits ?? [], (_, _) => inherits ?? []);
         return ImmutableInterlocked.Update(ref _leagues, all =>
             all.Values.Any(l => l.Id.Equals(id, StringComparison.OrdinalIgnoreCase)) ? all : all.Add(league.ClientLeagueName, league))
             && ReferenceEquals(_leagues.GetValueOrDefault(league.ClientLeagueName), league);
@@ -39,11 +41,18 @@ static class ServerLeagues
     public static void Remove(ILeague league) =>
         ImmutableInterlocked.Update(ref _leagues, all => all.RemoveRange(all.Where(l => ReferenceEquals(l.Value, league)).Select(l => l.Key)));
 
-    public static LeagueRules? Live(string id)
+    public static LeagueRules? Live(string id) => Find(id) is { } league ? RulesOf(league, 0) : null;
+
+    static ILeague? Find(string id) => _leagues.Values.FirstOrDefault(l => l.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+
+    // Its own, else the first module it inherits that has any, else the defaults.
+    static LeagueRules RulesOf(ILeague league, int depth)
     {
-        foreach (var league in _leagues.Values)
-            if (league.Id.Equals(id, StringComparison.OrdinalIgnoreCase)) return league.Rules;
-        return null;
+        if (league.Rules is { } own) return own;
+        if (depth < 16)
+            foreach (string parent in _inherits.GetValueOrDefault(league.Id) ?? [])
+                if (Find(parent) is { } found) return RulesOf(found, depth + 1);
+        return LeagueRules.Standard;
     }
 
     // Without the standard module's folder LeagueRuntime.Standard is what is left: the rules' defaults.
@@ -68,6 +77,6 @@ static class ServerLeagues
             log?.Invoke($"[leagues] {league.Id} needs {string.Join(", ", missing)}: {name} plays by Standard's rules");
             return LeagueRuntime.Standard;
         }
-        return new(league.Id, league.ClientLeagueName, league.Catalogs == LeagueCatalogs.HardMode, league.Rules);
+        return new(league.Id, league.ClientLeagueName, league.Catalogs == LeagueCatalogs.HardMode, RulesOf(league, 0));
     }
 }

@@ -17,7 +17,7 @@ partial class Program
         if (conn.Closed || !PlayerActionCurrent(conn, action)
             || !PlayerWalk.InWalkUpRange(stop, conn.CraftingBenchAt, conn.StationaryInteractionSize(conn.CraftingBenchObject))) return;
         conn.BenchOpen = true;
-        conn.HarvestOpen = false;
+        conn.ModuleWindow = null;
         await RefreshBenchBalance(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.CraftingBenchUi),
             "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(conn, action));

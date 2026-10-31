@@ -12,6 +12,9 @@
   </Folder>
   <Folder Name="/Modules/">
     <Project Path="Modules/allflame/Allflame.csproj" />
+    <Project Path="Modules/delve/Delve.csproj" />
+    <Project Path="Modules/harvest/Harvest.csproj" />
+    <Project Path="Modules/heist/Heist.csproj" />
     <Project Path="Modules/ruthless/Ruthless.csproj" />
     <Project Path="Modules/standard/Standard.csproj" />
   </Folder>

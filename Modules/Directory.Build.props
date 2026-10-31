@@ -16,5 +16,7 @@
   <ItemGroup>
     <!-- Compiled against, not copied: every module uses the Gateway's own GameServer.Modding. -->
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\GameServer.Modding\GameServer.Modding.csproj" Private="false" />
+    <!-- The client protocol and shared types: modules may use them; the Gateway stays internal. -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\GameServer.Core\GameServer.Core.csproj" Private="false" />
   </ItemGroup>
 </Project>

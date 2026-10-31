@@ -1,6 +1,9 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Modding;
+
+namespace GameServer.Modules.Harvest;
 
 /// <summary>
 /// HarvestCraftOptions.dat (data/tables/HarvestCraftOptions.json): the recipes the native Horticrafting Station lists.
@@ -8,7 +11,7 @@ using GameServer.Core.Protocol.Instance;
 /// in HarvestCraftingItem, and refuses the recipes for systems it does not model (influences, exchanges, enchants, gems).
 /// Costs are the exact lifeforce types and amounts from the table.
 /// </summary>
-sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
 {
     public enum Operation { Unsupported, ReforgeTag, ReforgeAffinity, AugmentTag, Convert }
 
@@ -17,8 +20,6 @@ sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
     {
         public bool Supported => Operation != Operation.Unsupported;
     }
-
-    public sealed record Result(Item Item, IReadOnlyList<(uint Currency, int Amount)> Costs);
 
     // The four lifeforce currencies, resolved once from BaseItemTypes (the table has only the type number).
     public const string Wild = "Metadata/Items/Currency/HarvestSeedRed",
@@ -32,22 +33,22 @@ sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
         "item_generation_cannot_roll_attack_affixes", "item_generation_cannot_roll_caster_affixes",
     ];
 
-    readonly Lazy<IReadOnlyList<Recipe>> _all = new(() => Load(catalog, folder));
+    readonly Lazy<IReadOnlyList<Recipe>> _all = new(() => Load(items, folder));
     public IReadOnlyList<Recipe> All => _all.Value;
     public Recipe? ByHash(ushort hash) => All.FirstOrDefault(r => r.Hash == hash);
 
     /// <summary>The crafted item and its exact cost, or null when the recipe is unknown, unsupported or does not fit
     /// this item (nothing is changed or spent).</summary>
-    public Result? Apply(ushort hash, Item item, Random rng)
+    public CraftResult? Apply(ushort hash, Item item, Random rng)
     {
         if (ByHash(hash) is not { } recipe || !recipe.Supported || item.Corrupted || item.Mirrored || !item.Identified ||
-            !item.Components.Contains("Mods") || HasMetamod(item)) return null;
+            !item.Components.Contains("Mods") || items.HasExplicitStat(item, Metamods)) return null;
         Item? result = recipe.Operation switch
         {
-            Operation.ReforgeTag => rolls.RollRequiredTag(item, ItemRarity.Rare, rng, recipe.Tag!),
-            Operation.ReforgeAffinity => rolls.RollAffinity(item, ItemRarity.Rare, rng, recipe.Affinity),
+            Operation.ReforgeTag => items.RollRequiredTag(item, ItemRarity.Rare, rng, recipe.Tag!),
+            Operation.ReforgeAffinity => items.RollAffinity(item, ItemRarity.Rare, rng, recipe.Affinity),
             Operation.AugmentTag => Augment(item, recipe.Tag!, rng),
-            Operation.Convert => Convert(item, recipe.Convert, rng),
+            Operation.Convert => items.ConvertMod(item, recipe.Convert, rng),
             _ => null,
         };
         return result is null ? null : new(result with { Identified = true }, recipe.Costs);
@@ -56,40 +57,12 @@ sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
     Item? Augment(Item item, string tag, Random rng)
     {
         if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare) ||
-            rolls.Annul(item, rng) is not { } removed) return null;
-        (int Prefix, int Suffix) max = item.Rarity == ItemRarity.Magic ? (1, 1) : rolls.RareMaxAffixes(item);
-        return rolls.AddTaggedAffix(removed, max, rng, tag);
+            items.Annul(item, rng) is not { } removed) return null;
+        (int Prefix, int Suffix) max = item.Rarity == ItemRarity.Magic ? (1, 1) : items.RareMaxAffixes(item);
+        return items.AddTaggedAffix(removed, max, rng, tag);
     }
 
-    Item? Convert(Item item, IReadOnlyDictionary<string, string> map, Random rng)
-    {
-        var fractured = item.FracturedIndexes();
-        var candidates = Enumerable.Range(0, item.Mods.Count).Where(i => item.Mods[i].Section == ModSection.Explicit
-            && !fractured.Contains(i) && catalog.Mods.ByHash(item.Mods[i].Hash) is { } mod && map.ContainsKey(mod.ModType)).ToList();
-        if (candidates.Count == 0) return null;
-        int at = candidates[rng.Next(candidates.Count)];
-        var source = catalog.Mods.ByHash(item.Mods[at].Hash)!;
-        if (catalog.ByHash(item.TypeHash) is not { } type) return null;
-        // The target is another ModType (ColdResistance -> FireResistance): the nearest-level row of that group that
-        // can roll on this base, with the same affix kind.
-        var targetType = map[source.ModType];
-        var target = catalog.Mods.All.Where(m => m.ModType.Equals(targetType, StringComparison.OrdinalIgnoreCase) &&
-                m.GenerationType == source.GenerationType && m.Domain == source.Domain && m.Level <= item.ItemLevel &&
-                !m.EssenceOnly && m.WeightFor(type.Tags) > 0)
-            .OrderBy(m => Math.Abs(m.Level - source.Level)).ThenBy(m => m.Level).FirstOrDefault();
-        if (target is null) return null;
-        for (int i = 0; i < item.Mods.Count; i++)
-            if (i != at && item.Mods[i].Section == ModSection.Explicit && catalog.Mods.ByHash(item.Mods[i].Hash) is { } other &&
-                (other.Hash == target.Hash || other.Families.Intersect(target.Families).Any())) return null;
-        var mods = item.Mods.ToArray();
-        mods[at] = target.Roll(mods[at].Section, rng);
-        return item with { Mods = mods };
-    }
-
-    bool HasMetamod(Item item) => item.Mods.Where(m => m.Section == ModSection.Explicit).Any(m =>
-        catalog.Mods.ByHash(m.Hash)?.Stats.Any(s => Metamods.Contains(s.Id)) == true);
-
-    static IReadOnlyList<Recipe> Load(ItemCatalog catalog, string folder)
+    static IReadOnlyList<Recipe> Load(IItemCrafting catalog, string folder)
     {
         string path = Path.Combine(folder, "tables", "HarvestCraftOptions.json");
         if (!File.Exists(path)) return [];
@@ -97,11 +70,11 @@ sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
         var rows = doc.RootElement.EnumerateArray().ToList();
         var lifeforce = new[]
         {
-            (Type: 1, Hash: catalog.Find(Wild)?.Hash ?? 0),
-            (Type: 2, Hash: catalog.Find(Vivid)?.Hash ?? 0),
-            (Type: 3, Hash: catalog.Find(Primal)?.Hash ?? 0),
+            (Type: 1, Hash: catalog.TypeHash(Wild) ?? 0),
+            (Type: 2, Hash: catalog.TypeHash(Vivid) ?? 0),
+            (Type: 3, Hash: catalog.TypeHash(Primal) ?? 0),
         };
-        uint sacred = catalog.Find(Sacred)?.Hash ?? 0;
+        uint sacred = catalog.TypeHash(Sacred) ?? 0;
 
         // Conversion recipes point at a target by element; the reverse row lists the target's ModType groups, which is
         // how a source group is mapped to the same-tier group in the other element.
@@ -116,7 +89,7 @@ sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
                 parts[convert + 1].ToLowerInvariant(), parts[convert + 2].ToLowerInvariant());
         }
 
-        var modTypes = catalog.Mods.All.Select(m => m.ModType).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var modTypes = catalog.ModTypes;
         var result = new List<Recipe>();
         foreach (var row in rows)
         {
