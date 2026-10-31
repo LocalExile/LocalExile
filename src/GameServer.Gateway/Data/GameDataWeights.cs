@@ -78,13 +78,16 @@ sealed class UniqueWeightProvider
     public double Weight(string name, bool ruthless)
     {
         var weights = Volatile.Read(ref _weights);
-        if (!weights.TryGetValue(name, out var value)) return 0;
+        if (!weights.TryGetValue(UniqueCatalog.NameKey(name), out var value)) return 0;
         return ruthless ? value.Ruthless : value.Normal;
     }
 
+    /// <summary>Keyed as <see cref="UniqueCatalog.NameKey"/>: a definition's name can differ from the table's Words text.</summary>
     public void Replace(IReadOnlyDictionary<string, (double Normal, double Ruthless)> weights, bool hasTable)
     {
-        Volatile.Write(ref _weights, weights);
+        var keyed = new Dictionary<string, (double Normal, double Ruthless)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, weight) in weights) keyed[UniqueCatalog.NameKey(name)] = weight;
+        Volatile.Write(ref _weights, keyed);
         Volatile.Write(ref _hasTable, hasTable ? 1 : 0);
     }
 
