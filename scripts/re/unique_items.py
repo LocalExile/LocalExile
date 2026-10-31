@@ -1,4 +1,4 @@
-"""Generate src/GameServer.Gateway/UniqueItemSeed.cs from Path of Building's unique item export.
+"""Generate src/GameServer.Gateway/Item/UniqueItemSeed.cs from Path of Building's unique item export.
 
 Path of Building is a read-only third-party reference under Tools/PathOfBuilding (gitignored). Its
 src/Export/Uniques/*.lua files list the unique name, base type and Mods.dat ids; src/Data/Uniques/*.lua has the
@@ -18,7 +18,7 @@ from collections import Counter, defaultdict
 
 ROOT = pathlib.Path(".")
 EXPORT = ROOT / "Tools/PathOfBuilding/src/Export/Uniques"
-OUT = ROOT / "src/GameServer.Gateway/UniqueItemSeed.cs"
+OUT = ROOT / "src/GameServer.Gateway/Item/UniqueItemSeed.cs"
 
 META = re.compile(
     r"^(Source|League|Radius|Limited to|Variant|Requires Level|Upgrade|DropLevel|Level|Crafted|Implicits|"

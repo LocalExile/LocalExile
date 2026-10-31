@@ -28,7 +28,7 @@
 #               With a base, the shell's Game_*_PORT, Game_PATCH_URL and Game_PATCH_WEB_ROOT are not used.
 #   -Session S  a named client (also Game_CLIENT_SESSION) beside the others of this stack: its own working folder
 #               data\clients\S\ (its logs\Client.txt), settings file and saved login. Its new settings file starts from
-#               config\nullifier_Config.ini when the checkout has that cheap preset (DirectX 11, 800x600, low textures,
+#               scripts\dev\nullifier_Config.ini when the checkout has that cheap preset (DirectX 11, 800x600, low textures,
 #               10 fps, no sound), else from the default client's. It starts through scripts/dev/nullifier.py: in a job
 #               that ends it with its launcher, at below-normal priority with EcoQoS, its window never activated, and
 #               with session-local names for the client's two-copies mutexes, so it never takes one of the two machine-wide
@@ -58,6 +58,18 @@ $clients = Join-Path $repo 'data\clients'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
+# What the run is doing, as it starts doing it: the builds and the waits below are silent otherwise, and take minutes.
+function Step([string]$message) { Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $message" }
+# Every 10 s of a wait: what it waits for, how long so far, and the newest line of the server's log.
+function Report-Wait([string]$what, [datetime]$since, [string]$log) {
+    $seconds = [int]((Get-Date) - $since).TotalSeconds
+    if ($seconds -lt $script:nextReport) { return }
+    $script:nextReport = $seconds + 10
+    $last = $null
+    if (Test-Path $log) { try { $last = Get-Content $log -Tail 1 -ErrorAction Stop } catch { } }
+    if ($last -and $last.Length -gt 100) { $last = $last.Substring(0, 100) + '...' }
+    Step "  still waiting for $what ($seconds s)$(if ($last) { ": $last" })"
+}
 
 # This checkout's ports. Without a base, today's, where a server's own variable (Game_LOGIN_PORT, Game_PATCH_URL, ...)
 # still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
@@ -319,7 +331,7 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 # folders, its own shader cache and log, and a config.json naming the session's own settings file and saved login
 # (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME, in Documents\My Games\Path of Exile). A new settings file (or any,
 # with -SeedConfig) starts as a copy of the seed without its [LOGIN] section: no saved login to send to whichever login
-# server the shared gateway list names. The seed: -SeedConfig, else the cheap preset config\nullifier_Config.ini (DX11,
+# server the shared gateway list names. The seed: -SeedConfig, else the cheap preset scripts\dev\nullifier_Config.ini (DX11,
 # 800x600, low textures, 10 fps, no sound) when this checkout has it, else the default client's settings.
 # A session client starts through scripts/dev/nullifier.py (detached; it lives as long as its client): in a job that ends
 # the client with it, at below-normal priority with EcoQoS (agents' clients yield to the person playing), its window
@@ -349,7 +361,7 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
             ConvertTo-Json | Set-Content (Join-Path $folder 'config.json') -Encoding ascii
         $settings = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Path of Exile'
         $ini = Join-Path $settings "${prefix}_Config.ini"
-        $preset = Join-Path $repo 'config\nullifier_Config.ini'
+        $preset = Join-Path $repo 'scripts\dev\nullifier_Config.ini'
         $seed = if ($seedConfig) { (Resolve-Path $seedConfig).Path } elseif (Test-Path $preset) { $preset } else { Join-Path $settings 'poeoffline_Config.ini' }
         if (($seedConfig -or -not (Test-Path $ini)) -and (Test-Path $seed)) {
             $section = $null
@@ -526,7 +538,10 @@ if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
 if ($Walkmaps) { $python = Get-Python '-Walkmaps' }
 
 # Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
-if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
+if (-not $NoExtract) {
+    Step 'checking game data (a first run extracts all of it from the client, which can take a long time) ...'
+    & (Join-Path $PSScriptRoot 'extract-data.ps1')
+}
 
 # Without this the Gateway stops after creating the player and the client never enters the area.
 if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
@@ -537,6 +552,7 @@ if ($Only) { $NoClient = $true }
 $Watch = -not $NoHotReload -and $servers -contains 'Gateway'
 
 # This checkout's clients (every session: they lose their servers) and recorder.
+Step "stopping this checkout's previous run: $($servers -join ', ')$(if (-not $NoClient) { ', clients' }) ..."
 if (-not $NoClient) {
     Stop-Processes (@(Get-OwnLaunchers) + @(Get-OwnClients))
     Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue
@@ -585,13 +601,19 @@ $runs = @(Get-ChildItem (Join-Path $out 'archive') -Directory -ErrorAction Silen
 if (-not $NoBuild) {
     # A watched Gateway builds itself.
     foreach ($s in ($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })) {
+        Step "building GameServer.$s ..."
         dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
     }
-    # The first-party mods (Mods\Source\) into Mods\Binaries\, which the Gateway loads (Agents/docs/dev/modding.md). One that does
+    # The modules in Modules\ and the mods (Mods\Source\ into Mods\Binaries\), which the Gateway loads; it compiles Leagues\ itself
+    # (Agents/docs/dev/modules.md, modding.md). One that does
     # not build is left out; the Gateway runs without it.
     if ($servers -contains 'Gateway') {
-        foreach ($mod in Get-ChildItem (Join-Path $repo 'Mods\Source') -Filter *.csproj -Recurse -ErrorAction SilentlyContinue) {
+        $mods = @(Get-ChildItem (Join-Path $repo 'Modules'), (Join-Path $repo 'Mods\Source') -Filter *.csproj -Recurse -ErrorAction SilentlyContinue)
+        $built = 0
+        foreach ($mod in $mods) {
+            $built++
+            Step "building modules and mods [$built/$($mods.Count)]: $($mod.BaseName) ..."
             dotnet build $mod.FullName -v q -nologo | Out-Null
             if ($LASTEXITCODE -ne 0) { Write-Warning "mod $($mod.BaseName) did not build (run: dotnet build $($mod.FullName)); the Gateway starts without it" }
         }
@@ -605,6 +627,7 @@ $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
 # Select the local Auth explicitly before the patch server or client opens the GGPK (the default stack only).
 if (-not $NoClient -and -not $stack.Base) {
+    Step 'selecting the local login server in the client data ...'
     Select-LocalGateway $stack.Ports.login
 }
 
@@ -625,6 +648,7 @@ foreach ($name in $serverEnv.Keys) {
     $envBefore[$name] = [Environment]::GetEnvironmentVariable($name)
     [Environment]::SetEnvironmentVariable($name, $serverEnv[$name])
 }
+Step "starting servers: $($servers -join ', ') ..."
 try {
     foreach ($s in 'Patch', 'Gateway', 'Auth') {
         if ($servers -notcontains $s) { continue }
@@ -642,6 +666,9 @@ finally { foreach ($name in $envBefore.Keys) { [Environment]::SetEnvironmentVari
 
 # A watched Gateway first builds: wait until it listens, so the client does not reach a closed port.
 if ($Watch) {
+    Step 'waiting for the Gateway to build and load the game data (this is the long part, up to 3 minutes) ...'
+    $waitStart = Get-Date
+    $script:nextReport = 10
     $deadline = (Get-Date).AddMinutes(3)
     $gatewayLog = Join-Path $out 'live-gateway.log'
     $gatewayLogs = @($gatewayLog, (Join-Path $out 'live-gateway.err'))
@@ -651,12 +678,17 @@ if ($Watch) {
         if ($built -and (Select-String -Path $built -Pattern 'Build failed|error CS' -Quiet)) {
             throw 'the watched Gateway did not build (logs\live-gateway.log, logs\live-gateway.err)'
         }
+        Report-Wait 'the Gateway' $waitStart $gatewayLog
         Start-Sleep -Milliseconds 500
     }
+    Step "Gateway listening after $([int]((Get-Date) - $waitStart).TotalSeconds) s"
 }
 
 # The patch server must read the GGPK root hash before the client locks the file.
 if ($servers -contains 'Patch') {
+    Step 'waiting for the patch server to read the client data ...'
+    $waitStart = Get-Date
+    $script:nextReport = 10
     $deadline = (Get-Date).AddSeconds(30)
     # The log appears a moment after the server starts: until then there is nothing to read (with $ErrorActionPreference
     # Stop, Select-String on a missing file would end the script even with -ErrorAction SilentlyContinue).
@@ -666,6 +698,7 @@ if ($servers -contains 'Patch') {
             $err = Get-Content (Join-Path $out 'live-patch.err') -Raw -ErrorAction SilentlyContinue
             throw "patch server did not start (logs\live-patch.err):`n$err"
         }
+        Report-Wait 'the patch server' $waitStart $patchLog
         Start-Sleep -Milliseconds 300
     }
 }
@@ -683,6 +716,9 @@ if ($Walkmaps) {
     else { Start-Recorder $python }
 }
 
-if (-not $NoClient) { Start-Client $session $stack $SeedConfig $nullifierMode }
+if (-not $NoClient) {
+    Step 'starting the client ...'
+    Start-Client $session $stack $SeedConfig $nullifierMode
+}
 $portsText = if ($stack.Base) { " on ports $(($stack.Ports.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', ')" } else { '' }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')$portsText" } else { "servers up$portsText" })

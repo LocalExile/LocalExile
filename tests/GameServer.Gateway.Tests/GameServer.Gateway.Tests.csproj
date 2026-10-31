@@ -15,14 +15,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Run collections sequentially: real socket deadlines, process-wide catalogs and collectible mod contexts
-         must not compete with unrelated collections' loads/GC. Individual tests still exercise concurrent tasks.
-         Keep threads uncapped so synchronous fixture setup cannot starve async continuations. -->
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
-    <!-- Copied beside the tests for ModHostTests, which load it as a mod; no test uses its types directly. -->
-    <ProjectReference Include="..\GameServer.Modding.TestMod\GameServer.Modding.TestMod.csproj" />
   </ItemGroup>
 </Project>

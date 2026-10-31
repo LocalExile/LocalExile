@@ -565,11 +565,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AuraCatalog.cs`, Gateway (`PoolsFor`, `BaseStats`).
   Docs: [11](../docs/protocol/11-skills.md) §13, [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Buffs (S→C 0x1c1 add, 0x1c2 remove) and Righteous Fire: cast on oneself, its buffs and the big burning circle (an
-  effect object, `Metadata/Effects/PermanentServerEffect` with `rifire.ao`, following the player), 90% of life per
+  effect object, `Metadata/Effects/PermanentServerEffect` with `rifire.ao`, attached to the player), 90% of life per
   second nonlethal burn on the player, 70% of life per second to monsters within its radius (18 cells, grown by the
   player's area of effect stats, `SkillArea`; they burn to death), the circle scaled to that radius (MiscAnimated's
-  reference radius, the uniform Positioned scale; matches the real game at level 1) and kept on the player every 100
-  ms; server-side mana (cost, regeneration); `/god` (also 200% increased area of effect), `/set_aoe`.
+  reference radius, the uniform Positioned scale; matches the real game at level 1), carried by the client at any
+  latency and not turning with the player; server-side mana (cost, regeneration); `/god` (also 200% increased area of
+  effect), `/set_aoe`.
   Code: Gateway (`ActivateRighteousFire`, `RunPlayerTick`), `SkillArea.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Warcry admission restriction (#297): any signed nonzero `your_warcry_skills_are_disabled` blocks new typed warcries.

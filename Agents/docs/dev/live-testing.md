@@ -158,7 +158,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
   anything (a full run would otherwise leave servers up for a client that cannot start). Session clients of any
   checkout do not count: they are known by their launcher parent, the `--nologo` only the launcher passes, or the
   records. Live 2026-10-31: two session clients held only their Local names, and both Global names stayed free.
-- **Cheap session settings.** A session's new settings file starts from `config\nullifier_Config.ini` when the
+- **Cheap session settings.** A session's new settings file starts from `scripts\dev\nullifier_Config.ini` when the
   checkout has that preset (DirectX 11, 800x600, low textures, 10 fps, no sound), else from the default client's;
   `-SeedConfig <file>` (`Game_CLIENT_SEED_CONFIG`) starts it over from another file. Session clients run at below-normal
   priority with EcoQoS. Their windows never take the focus (`WS_EX_NOACTIVATE`), and minimizing one does not stop it
@@ -199,7 +199,15 @@ These are suggestions that have worked well, for people and agents alike; use yo
 - **Some edits restart on their own.** A changed method signature or a removed member cannot be applied;
   `dotnet watch` prints `Restart is needed to apply the changes`, rebuilds and restarts the Gateway, and the player
   is back at the login screen (the Gateway tries to say so in chat first). It can be kind to tell the person playing
-  before saving such an edit.
+  before saving such an edit. `dotnet watch` does not build the modules, so the restarted Gateway builds those older
+  than itself before it loads them (`StaleModules`); an older module would otherwise fail only when it runs, with a
+  `MissingFieldException` or `MissingMethodException`. A module that does not build is named in the log.
+- **A module's edit needs only its own build.** `dotnet build <Module>.csproj -p:BuildProjectReferences=false` reloads
+  that module and leaves the Gateway running. It compiles against the Gateway's DLL on disk, so a member added only by a
+  hot reload is not visible to it until a restart.
+- **A reload wave costs one collection.** Forced collections stop every player's tick, so `UnloadCollector` runs one
+  pass after the last unload or load of a wave. While the game module reloads its old rules keep running, until the new
+  ones replace them; the other modules' hooks are absent between their unload and load.
 - **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
   Keep the monster AI cadence collection nonparallel: its socket-latency assertion retains its 300 ms limit, so

@@ -10,7 +10,7 @@ every `-Session` client ([live testing](live-testing.md), "Several stacks and cl
 |---|---|
 | `scripts/dev/nullifier.py` | the launcher `live.ps1` starts for a session client: spawns `Client/Game.patched.exe` suspended in the session folder, puts it in a kill-on-close job, loads the agent, applies the process limits, resumes it, records it, waits for it |
 | `scripts/dev/nullifier.js` | its Frida agent, loaded before the client's first instruction: session-local two-copies mutexes and a window that never takes focus (always); with `-Nullifier` the engine's Null renderer (with the Null index-buffer fix); diagnostics on request |
-| `config/nullifier_Config.ini` | the settings preset (DirectX 11, 800×600 window, low textures, 10 fps, effects off, sound muted, no `[LOGIN]`) that seeds a new session's settings file |
+| `scripts/dev/nullifier_Config.ini` | the settings preset (DirectX 11, 800×600 window, low textures, 10 fps, effects off, sound muted, no `[LOGIN]`) that seeds a new session's settings file |
 | `scripts/dev/nullifier-measure.ps1` | read-only sampler of one pid: private commit, working set, CPU, GPU engine utilisation, dedicated/shared GPU memory |
 | `scripts/dev/nullifier-bench.py` | the measurement scenario on a session client: start, log in, play, stand in town, measure, then waypoint travel, `/goto` back, chat, `/tp`, measure again; lock, memory gate, watchdog, call timeouts; `--survey` keeps a memory survey per measurement |
 | `scripts/dev/nullifier-tour.py` | the coverage tour on a running session client: every act's town and a combat area, the Act 1 boss area, a map and the hideout, a fight with the default attack in each combat area, chat and `/tp`; client alive, frames and `/pos` checked per step (§7) |

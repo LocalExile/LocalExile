@@ -136,7 +136,7 @@ Offsets are inside the component object. "If bN" means that bit of the component
 | if f1 & 0x08: u8 | | `+0x1e6` bit 0x40: the object blocks no walker (the collision test `0x141e61540` skips it; pets) |
 | if f1 & 0x10: u32 +0x2a0 | | |
 
-Other bits only set flags: f0 0x01 → `+0x1e5|0x10`, f0 0x80 → `+0x1e6|2` (the object keeps its rotation while it glides with 0x1ba: Righteous Fire's ring, live 2026-10-21), f0 0x02 → mount/parent lookups (stat keys
+Other bits only set flags: f0 0x01 → `+0x1e5|0x10`, f0 0x80 → `+0x1e6|2` (the object keeps its rotation while it glides with 0x1ba, live 2026-10-21), f0 0x02 → mount/parent lookups (stat keys
 `0x7700c879`, `0x31fb1f01`), f1 0x20 → `+0x1e7|2`. The object is then inserted into the spatial index
 (23×23 buckets, no bounds check: see [03](03-area-and-world.md#6-spatial-index-where-a-bad-position-crashes)).
 
@@ -287,6 +287,9 @@ u8 flags. Bit0: an animated-object reference (bit1 selects a u32 index into a 0x
 u32-length UTF-16 path). Bit2 (`0x141e5adb0`): u32 parent object, two f32 fields, then for a nonzero parent a
 u32-length byte-string bone name, u8 attachment kind, u8 flags and three 32-bit offset fields.
 The stationary Crawler's wheels use zero values for these optional fields and the native axle attachment bones.
+An empty bone name means `<root>` and `*` means `<lock>` (`0x141dc31c0`). The attachment kind is a mask on the transform
+(`0x142900da0`): 1 drops the scale, 2 the translation, 4 the rotation, and 0x08 / 0x10 / 0x20 the same for the bone alone.
+Righteous Fire's ring rides on the player's `<root>` with kind 4, so it does not turn with the player.
 Bit3: u32, f32, u32 (animation + speed). Bit5: two u32. Bit4: several
 u32. With 0 nothing else is read.
 

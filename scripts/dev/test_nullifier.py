@@ -189,7 +189,7 @@ class NullifierTests(unittest.TestCase):
                                                  Path("x"))["mimalloc"], {})
 
     def test_preset_and_agent_exist(self):
-        text = (nullifier.ROOT / "config" / "nullifier_Config.ini").read_text(encoding="utf-8")
+        text = (nullifier.ROOT / "scripts" / "dev" / "nullifier_Config.ini").read_text(encoding="utf-8")
         self.assertIn("[DISPLAY]", text)
         self.assertNotIn("password", text.lower())
         self.assertNotIn("[LOGIN]", text)  # no saved login for whichever login server the gateway list names

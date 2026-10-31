@@ -9,7 +9,7 @@ Island, The Coast → The Mud Flats and The Mud Flats' three.
 ![The Coast exit on the town map](../re/evidence/2026-10-16-coast-exit-on-map.jpg)
 
 Code: `AreaTransitionObject` (`src/GameServer.Core/Protocol/Instance/InstanceEntities.cs`), `AreaTransitionCatalog`
-(`src/GameServer.Gateway/AreaTransitionCatalog.cs`), `AreaLayouts` (`src/GameServer.Gateway/AreaLayouts.cs`). Tests: `InstanceEntitiesTests.Area_transition_blob_layout_and_type`,
+(`src/GameServer.Gateway/World/AreaTransitionCatalog.cs`), `AreaLayouts` (`src/GameServer.Gateway/World/AreaLayouts.cs`). Tests: `InstanceEntitiesTests.Area_transition_blob_layout_and_type`,
 `Area_transition_with_a_tile_object_model_rotation_and_height`.
 
 ## 1. What an exit is
