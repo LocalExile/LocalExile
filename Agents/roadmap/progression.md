@@ -46,7 +46,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Ordinary incoming elemental ailments give Risk Aversion an actual avoidance consumer.
   Current-base tests and exact related-head composition pass; preserve the manual lethal-ignite Recoup resolution
   when composing Whisperer, as recorded in [Gambler](../docs/game/gambler.md).
-- **Start:** quest passive/refund rewards and the native Labyrinth/Altar flow (#151).
+- **Start:** quest passive/refund rewards and the native Labyrinth/Altar flow
+  (#151, [The Labyrinth](world.md#the-labyrinth)).
   Phrecia play stays gated by default; Gambler's explicit opt-in verifies the separately installed graph read-only.
   Other Phrecia classes retain their default gate; Antiquarian requires its exact verified installed graph opt-in.
   Do not add automatic archive writes or require the alternate graph for ordinary characters.
