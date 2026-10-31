@@ -17,7 +17,7 @@ static class CommandsFeature
     /// it (e.g. "divination" → DivinationStash); null when none or several match.</summary>
     internal static int? ItemTabOf(AccountStash stash, string name)
     {
-        var tabs = Enumerable.Range(0, stash.Count).ToList();
+        var tabs = Enumerable.Range(0, stash.Count).Where(t => stash.UniqueParent(t) == t).ToList();
         var named = tabs.Where(t => string.Equals(stash.NameOf(t), name, StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count > 0) return named[0];
         var typed = tabs.Where(t => stash.TypeOf(t).StartsWith(name, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -327,7 +327,7 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
-        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: up to count, at most {ItemTabMax}, more of every item type that has its own slot on that tab, as far as each slot holds, e.g. /item_tab Currency 1000)", async args =>
+        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: slotted tabs add up to count, at most {ItemTabMax}; Gem and Unique add one of each available missing variant, e.g. /item_tab Unique 1)", async args =>
         {
             if (args.Length < 2 || !int.TryParse(args[^1], out int requested) || requested < 1)
                 throw new ArgumentException("/item_tab <stash tab name> <count>, e.g. /item_tab Currency 1000");
@@ -338,6 +338,14 @@ static class CommandsFeature
             if (ItemTabOf(stash, name) is not int tab)
             {
                 await conn.Commands!.Reply($"No stash tab \"{name}\"; tabs: {string.Join(", ", Enumerable.Range(0, stash.Count).Select(stash.NameOf))}");
+                return;
+            }
+            if (stash.TabType(tab) == StashRules.Unique)
+            {
+                var collection = stash.FillUniques(tab, UniquesFor(conn), ShapeOf);
+                await Game.RefreshUniqueCollection(remote, stream, ciphers, conn, stash, tab);
+                await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {collection.Added} unique(s) added, {collection.Present} already present, {collection.Skipped.Count} unavailable.");
+                if (collection.Skipped.Count > 0) Console.WriteLine($"[gateway] /item_tab unique unavailable: {string.Join(", ", collection.Skipped)}");
                 return;
             }
             if (stash.TabType(tab) == StashRules.Gem)

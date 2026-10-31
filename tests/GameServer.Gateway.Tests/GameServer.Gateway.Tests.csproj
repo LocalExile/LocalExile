@@ -19,5 +19,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
   </ItemGroup>
 </Project>
