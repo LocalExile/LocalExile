@@ -5,7 +5,7 @@ partial class Program
 {
     /// <summary>The character's league: Standard, or its module's (Modding/ServerLeagues.cs), decided once per connection.</summary>
     internal static LeagueRuntime LeagueFor(ClientState conn) =>
-        conn.LeagueModule ??= ServerLeagues.Resolve(conn.LeagueForm, conn.League, ServerMods.IsLoaded, Console.WriteLine);
+        conn.LeagueModule ??= ServerLeagues.Resolve(conn.LeagueForm, conn.League, ServerModules.IsLoaded, Console.WriteLine);
 
     // The game files' two sets of data; a league module picks one (ILeague.Catalogs).
     static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));

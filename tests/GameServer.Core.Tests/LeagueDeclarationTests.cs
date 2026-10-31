@@ -11,7 +11,7 @@ public sealed class LeagueDeclarationTests : IDisposable
     void Mod(string id, string json)
     {
         Directory.CreateDirectory(Path.Combine(_mods, id));
-        File.WriteAllText(Path.Combine(_mods, id, "mod.json"), json);
+        File.WriteAllText(Path.Combine(_mods, id, "module.json"), json);
     }
 
     const string Form = """
@@ -47,7 +47,7 @@ public sealed class LeagueDeclarationTests : IDisposable
     public void A_disabled_module_is_not_offered_but_its_characters_keep_their_league()
     {
         Mod("grim", Form);
-        File.WriteAllText(Path.Combine(_mods, "mod-state.txt"), "grim off\n");
+        File.WriteAllText(Path.Combine(_mods, "module-state.txt"), "grim off\n");
         var declared = Assert.Single(LeagueCatalog.Declarations(_mods));
         Assert.False(declared.Enabled);
         var catalog = new LeagueCatalog([LeagueCatalog.Standard], savedForms: [declared.Form!]);

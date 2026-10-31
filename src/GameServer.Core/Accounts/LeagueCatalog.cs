@@ -29,7 +29,7 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
 /// <summary>What a form's four variants are called; {base} is the base league's name.</summary>
 public sealed record LeagueFormNames(string Plain, string Hardcore, string Ssf, string HardcoreSsf);
 
-/// <summary>A family of variants of every base league, declared by a league module (its <c>mod.json</c>), reached with the
+/// <summary>A family of variants of every base league, declared by a module (its <c>module.json</c>), reached with the
 /// client's form check box.</summary>
 /// <param name="Id">The module's id: the Gateway finds the rules by it.</param>
 /// <param name="StandardNames">The variants of Standard.</param>
@@ -38,13 +38,13 @@ public sealed record LeagueFormNames(string Plain, string Hardcore, string Ssf, 
 /// <param name="PermanentDeath">A Hardcore death in this form is final, instead of moving to the parent league.</param>
 public sealed record LeagueForm(string Id, LeagueFormNames StandardNames, LeagueFormNames ChallengeNames, string Description = "", bool PermanentDeath = false);
 
-/// <summary>What one mod's <c>mod.json</c> says about leagues ("league": { "bases": [...], "form": {...} }).</summary>
+/// <summary>What one module's <c>module.json</c> says about leagues ("league": { "bases": [...], "form": {...} }).</summary>
 public sealed record LeagueDeclaration(bool Enabled, IReadOnlyList<string> Bases, LeagueForm? Form);
 
 /// <summary>
 /// The server's leagues: each base league with its Hardcore and SSF variants, and those of every league form. Named as the
 /// official servers name them. Only Standard is the server's own: the rest come from league modules, read here from their
-/// <c>mod.json</c> because the Auth server, which gives the client this list, does not load mods.
+/// <c>module.json</c> because the Auth server, which gives the client this list, does not load them.
 /// <c>Game_LEAGUES</c> (comma-separated) replaces the base leagues on offer. Any name works: the client has no league list
 /// of its own.
 /// </summary>
@@ -75,24 +75,24 @@ public sealed class LeagueCatalog
         _saved = [.. bases.Append(Standard).Concat(savedBases ?? []).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(b => Variants(b, allForms))];
     }
 
-    /// <summary>The configured leagues and those of the league modules in <c>Game_MODS_FOLDER</c> (default Mods/Binaries).
-    /// A mod that is off is not offered, but its saved characters keep their league.</summary>
+    /// <summary>The configured leagues and those of the modules in <c>Game_MODULES_FOLDER</c> (default Modules/Binaries).
+    /// A module that is off is not offered, but its saved characters keep their league.</summary>
     public static LeagueCatalog FromEnvironment()
     {
-        var declared = Environment.GetEnvironmentVariable("Game_MODS") == "0" ? []
-            : Declarations(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? Path.Combine("Mods", "Binaries"));
+        var declared = Environment.GetEnvironmentVariable("Game_MODULES") == "0" ? []
+            : Declarations(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? Path.Combine("Modules", "Binaries"));
         var on = declared.Where(d => d.Enabled).ToList();
         IEnumerable<string> bases = Environment.GetEnvironmentVariable("Game_LEAGUES") is { Length: > 0 } list ? list.Split(',')
             : on.SelectMany(d => d.Bases).Prepend(Standard);
         return new(bases, on.Select(d => d.Form).OfType<LeagueForm>(), declared.SelectMany(d => d.Bases), declared.Select(d => d.Form).OfType<LeagueForm>());
     }
 
-    /// <summary>Reads each mod's declaration in a mods folder; a mod's turned on or off as the mod host does it.</summary>
+    /// <summary>Reads each module's declaration in a modules folder, on or off as the Gateway's host has it.</summary>
     public static IReadOnlyList<LeagueDeclaration> Declarations(string folder)
     {
         if (!Directory.Exists(folder)) return [];
         var choices = new Dictionary<string, bool>(StringComparer.Ordinal);
-        string state = Path.Combine(folder, "mod-state.txt");
+        string state = Path.Combine(folder, "module-state.txt");
         var result = new List<LeagueDeclaration>();
         try
         {
@@ -100,7 +100,7 @@ public sealed class LeagueCatalog
                 foreach (string line in File.ReadAllLines(state))
                     if (line.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var id, var value and ("on" or "off")]) choices[id] = value == "on";
             foreach (string dir in Directory.GetDirectories(folder).Order(StringComparer.Ordinal))
-                if (Read(Path.GetFileName(dir), Path.Combine(dir, "mod.json"), choices) is { } declared) result.Add(declared);
+                if (Read(Path.GetFileName(dir), Path.Combine(dir, "module.json"), choices) is { } declared) result.Add(declared);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.WriteLine($"[leagues] {folder}: {e.Message}"); }
         return result;

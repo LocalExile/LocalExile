@@ -40,13 +40,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
-  Leagues are external: the framework knows only Standard, Ruthless and Allflame are modules in `Mods/Source/`, declared to Auth in
-  `mod.json` (`league`) and to the Gateway with `ILeague`, and a character whose module is missing or off plays by Standard's rules
+  Modules are overhauls, apart from mods ([modules](../docs/dev/modules.md)): their own folder, `IModule` API, `module.json` and `/module`
+  commands; only a module can add a league.
+  Leagues are external: the framework knows only Standard, Ruthless and Allflame are modules in `Modules/Source/`, declared to Auth in
+  `module.json` (`league`) and to the Gateway with `ILeague`, and a character whose module is missing or off plays by Standard's rules
   with its saves untouched.
   Not tried in the client: a Ruthless character with the module on, then off; the create screen's list from the declarations.
-  Harvest, Heist and Delve are built-in mods in `Features/`, reached through the mod hooks and switched by `/mod_disable`.
+  Harvest, Heist and Delve are built-in modules in `Features/`, reached through the hooks and switched by `/module_disable`.
   They still use Gateway internals, so they are not separate assemblies. Not tried in the client after the move.
-  `Mods/Source/` has eight: six examples, of which only `example` is on by default, and the leagues `ruthless` and `allflame`, on.
+  `Mods/Source/` has six examples, of which only `example` is on by default; `Modules/Source/` has the leagues `ruthless` and `allflame`, on.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
   `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.

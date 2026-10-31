@@ -15,12 +15,23 @@ public interface IMod
     void Load(IModContext mod);
 }
 
-/// <summary>What kind of mod a folder holds (<c>mod.json</c> "kind").</summary>
+/// <summary>
+/// A module's entry point: a big overhaul of the game, such as a league, where a mod (<see cref="IMod"/>) is a small modification.
+/// Modules live in <c>Modules/Binaries/</c>, have their own <c>/module</c> commands, and load and reload as mods do. They get
+/// what mods get and what only they can do (<see cref="IModuleContext"/>).
+/// </summary>
+public interface IModule
+{
+    /// <summary>Registers the module's leagues and hooks. An exception here leaves it unloaded, with the error in its status.</summary>
+    void Load(IModuleContext module);
+}
+
+/// <summary>What kind of mod or module a folder holds (<c>mod.json</c> or <c>module.json</c> "kind").</summary>
 public enum ModKind
 {
-    /// <summary>A feature other mods (leagues) may depend on.</summary>
+    /// <summary>A feature others may depend on.</summary>
     Feature,
-    /// <summary>A league's rules.</summary>
+    /// <summary>A league: modules only.</summary>
     League,
     /// <summary>A small script.</summary>
     Script,

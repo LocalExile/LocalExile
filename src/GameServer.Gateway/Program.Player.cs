@@ -425,7 +425,7 @@ partial class Program
             double seconds = tickNow - last;
             last = tickNow;
             if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
-            await ServerMods.Tick(PlayerOf(conn), seconds);
+            await ServerHooks.Tick(PlayerOf(conn), seconds);
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
             {
                 leechContext = currentLeech;

@@ -18,7 +18,7 @@ partial class Program
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
-            if (ServerMods.WantsPacket(id) && await ServerMods.Packet(PlayerOf(conn), id, bytes)) continue;
+            if (ServerHooks.WantsPacket(id) && await ServerHooks.Packet(PlayerOf(conn), id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
             // Movement/combat handlers also advance atomically inside their mutation boundaries.
             bool transferIngress = id is InstanceTransfer.ChooseInstanceId or InstanceTransfer.LeaveAreaAckId
@@ -661,7 +661,7 @@ partial class Program
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
-                    await ServerMods.AreaGenerated(PlayerOf(conn));
+                    await ServerHooks.AreaGenerated(PlayerOf(conn));
                     _ = RunMonsterRegeneration(remote, stream, ciphers, conn);
                     _ = RunUniqueBeltEffects(remote, stream, ciphers, conn);
                     await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);   // a1q5: the Medicine Chest's flag
@@ -687,7 +687,7 @@ partial class Program
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
             // Unframed messages have mods' hooks too (Delve's chart request).
-            if (ServerMods.WantsPacket(uid)) await ServerMods.Packet(PlayerOf(conn), uid, unknown);
+            if (ServerHooks.WantsPacket(uid)) await ServerHooks.Packet(PlayerOf(conn), uid, unknown);
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
             if (uid == InstanceTransfer.LeaveAreaAckId && conn.PendingTransfer is { } t) await Transfer(remote, stream, ciphers, conn, t);
         }

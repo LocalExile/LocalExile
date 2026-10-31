@@ -50,9 +50,23 @@ partial class Program
                 foreach (string line in text.Split('\n').Select(l => l.Length == 0 ? " " : l))
                     await Send(remote, stream, ciphers, InstanceChat.ChatLine(line), $"0x0017 chat line \"{line}\"");
             },
-            ModCommand = (name, args) => ServerMods.RunCommand(PlayerOf(conn), name, args),
-            ModUsages = () => ServerMods.Commands,
+            ModCommand = (name, args) => ServerHooks.RunCommand(PlayerOf(conn), name, args),
+            ModUsages = () => ServerHooks.Commands,
         }
+        .Add("module", "/module (the modules in Modules/Binaries/ and the built-in ones: loaded ones with their version, kind and hooks, and why the others are not)", async _ =>
+        {
+            var modules = ServerModules.Mods();
+            await conn.Commands!.Reply(string.Join('\n', modules.Select(m => m.Error is { } error ? $"{m.Id} - not loaded, {error}"
+                : $"{m.Id} {m.Version} - {m.Kind?.ToString().ToLowerInvariant()}, {m.Hooks} hook(s)").Prepend($"--- Modules in {ServerModules.Folder}/ ---")));
+        })
+        .Add("module_reload", "/module_reload [id] (reload one module and those that depend on it, or every module; their state starts over)", async args =>
+        {
+            string? id = args.Length > 0 ? args[0] : null;
+            ServerModules.Reload(id);
+            await conn.Commands!.Reply(id is null ? "Modules reloaded (/module for the list)." : $"Module {id} reloaded (/module for the list).");
+        })
+        .Add("module_enable", "/module_enable <id> (load a module, now and at every start)", args => SetModuleEnabled(conn, args, true))
+        .Add("module_disable", "/module_disable <id> (unload a module and those that depend on it, now and at every start)", args => SetModuleEnabled(conn, args, false))
         .Add("mod", "/mod (the mods in Mods/Binaries/: loaded ones with their version, kind and hooks, and why the others are not)", async _ =>
         {
             var mods = ServerMods.Mods();

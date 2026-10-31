@@ -132,7 +132,7 @@ partial class Program
             return;
         }
         // Objects of a mod's (Delve's, Harvest's, Heist's).
-        if (await ServerMods.ObjectUsed(new(PlayerOf(conn), use.TargetId, requestedAt))) return;
+        if (await ServerHooks.ObjectUsed(new(PlayerOf(conn), use.TargetId, requestedAt))) return;
         if (conn.StashObject != 0 && use.TargetId == conn.StashObject)
         {
             await OpenStash(remote, stream, ciphers, conn, use, requestedAt);

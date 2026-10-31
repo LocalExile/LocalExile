@@ -54,8 +54,12 @@ public interface IModContext
     /// <summary>Stats added to the character's own (beside the passives' and auras'), by stat id
     /// (<c>Stats.dat</c>, as /set_stat takes them). Asked again whenever the server rebuilds the character's stats.</summary>
     IDisposable ModifyStats(Action<StatSheet> modify);
+}
 
-    /// <summary>A league (<see cref="ILeague"/>): its characters play by its rules while this mod is loaded. Its client name
+/// <summary>What a module can do: everything a mod can, and overhauls. The hooks of modules run before those of mods.</summary>
+public interface IModuleContext : IModContext
+{
+    /// <summary>A league (<see cref="ILeague"/>): its characters play by its rules while this module is loaded. Its client name
     /// and id must be free.</summary>
     IDisposable AddLeague(ILeague league);
 }

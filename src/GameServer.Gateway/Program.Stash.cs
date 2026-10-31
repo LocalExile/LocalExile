@@ -70,7 +70,7 @@ partial class Program
             conn.CraftingBenchAt = (bench.X, bench.Y);
             await RegisterStationaryCollision(remote, stream, ciphers, conn, benchId, bench.Type!, bench.X, bench.Y, bench.Rotation, "bench", bench.Model);
         }
-        if (ServerMods.IsLoaded(HarvestFeature.Id) && scene?.Harvest is { } harvest
+        if (ServerModules.IsLoaded(HarvestFeature.Id) && scene?.Harvest is { } harvest
             && HideoutCatalog.TypeOf(HideoutCatalog.HorticraftingType) is var (harvestComponents, _)
             && harvestComponents.Count > 0 && HideoutObject.CanSerialize(harvestComponents))
         {
@@ -86,7 +86,7 @@ partial class Program
                 harvest.X, harvest.Y, harvest.Rotation, "harvest", harvest.Model);
         }
 
-        if (ServerMods.IsLoaded(HeistFeature.Id)) await HeistFeature.SpawnHeistLocker(remote, stream, ciphers, conn, scene);
+        if (ServerModules.IsLoaded(HeistFeature.Id)) await HeistFeature.SpawnHeistLocker(remote, stream, ciphers, conn, scene);
     }
 
     // A click on the Stash (C→S 0x24): walk there, then S→C 0x7b kind 1 opens the stash panel. Its affinity argument selects

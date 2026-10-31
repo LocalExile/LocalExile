@@ -175,7 +175,7 @@ button (0x140cf97a0) needs a non-empty list, a name and a class. A league entry 
 The create screen (0x140ccc4a0) draws a card for each main league (flags0 bit7, flags1 bit1 clear). Its Hardcore,
 Solo Self-Found and Ruthless check boxes switch to the variants that name the card in a parent field; combinations
 chain (SSF Hardcore's SSF parent is Hardcore; SSF Hardcore Ruthless's Ruthless parent is SSF Hardcore).
-`LeagueCatalog` builds Standard and the base leagues and forms the league modules declare ([modding](../dev/modding.md)), each
+`LeagueCatalog` builds Standard and the base leagues and forms the league modules declare ([modules](../dev/modules.md)), each
 base with its variants, named like the official ones; `Game_LEAGUES` replaces the base leagues on offer. Any league name works
 without a client change.
 

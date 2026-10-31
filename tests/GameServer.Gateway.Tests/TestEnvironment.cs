@@ -17,16 +17,16 @@ static class TestEnvironment
                     && Directory.Exists(Path.Combine(dir.FullName, "data", "tables")))
                 {
                     Directory.SetCurrentDirectory(dir.FullName);
-                    // The league modules, as the mod host and Auth see them in the server, whether or not they are built.
-                    string mods = Path.Combine(Path.GetTempPath(), "localexile-test-mods-" + Environment.ProcessId);
+                    // The league modules, as the host and Auth see them in the server, whether or not they are built.
+                    string mods = Path.Combine(Path.GetTempPath(), "localexile-test-modules-" + Environment.ProcessId);
                     foreach (string module in new[] { "Ruthless", "Allflame" })
                     {
                         Directory.CreateDirectory(Path.Combine(mods, module.ToLowerInvariant()));
-                        File.Copy(Path.Combine(dir.FullName, "Mods", "Source", module, "mod.json"), Path.Combine(mods, module.ToLowerInvariant(), "mod.json"), overwrite: true);
+                        File.Copy(Path.Combine(dir.FullName, "Modules", "Source", module, "module.json"), Path.Combine(mods, module.ToLowerInvariant(), "module.json"), overwrite: true);
                     }
-                    Environment.SetEnvironmentVariable("Game_MODS_FOLDER", mods);
-                    ServerLeagues.Add(new GameServer.Mods.Ruthless.RuthlessLeague(Path.Combine("config", "ruthless.json")));
-                    ServerLeagues.Add(new GameServer.Mods.Allflame.AllflameLeague());
+                    Environment.SetEnvironmentVariable("Game_MODULES_FOLDER", mods);
+                    ServerLeagues.Add(new GameServer.Modules.Ruthless.RuthlessLeague(Path.Combine("config", "ruthless.json")));
+                    ServerLeagues.Add(new GameServer.Modules.Allflame.AllflameLeague());
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout with data/tables.");

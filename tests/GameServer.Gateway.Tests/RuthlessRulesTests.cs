@@ -1,4 +1,4 @@
-using GameServer.Mods.Ruthless;
+using GameServer.Modules.Ruthless;
 using System.Text.Json;
 
 public class RuthlessRulesTests : IDisposable

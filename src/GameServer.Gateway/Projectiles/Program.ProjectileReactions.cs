@@ -90,7 +90,7 @@ partial class Program
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
-        session.Enqueue(() => ServerMods.MonsterKilled(new(killer, modMonster)));
+        session.Enqueue(() => ServerHooks.MonsterKilled(new(killer, modMonster)));
         ChargesOnKill(conn, monster);
         StealMonsterMods(conn, monster);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
@@ -113,7 +113,7 @@ partial class Program
         uint xp = 0;
         if (conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = ServerMods.Experience(killer, modMonster,
+            xp = ServerHooks.Experience(killer, modMonster,
                 Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
         var (gemPackets, leveled) = CommitGemExperience(conn, xp);
         foreach (var packet in gemPackets) session.Packet(packet);
@@ -143,7 +143,7 @@ partial class Program
         if (Environment.GetEnvironmentVariable("Game_DROPS") != "0")
         {
             var balance = LeagueFor(conn).Rules;
-            var modded = ServerMods.Drops(killer, modMonster);
+            var modded = ServerHooks.Drops(killer, modMonster);
             List<ItemDrops.Drop> drops = [];
             if (modded is not { Cancel: true })
             {

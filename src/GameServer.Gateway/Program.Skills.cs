@@ -412,8 +412,8 @@ partial class Program
         foreach (var (k, v) in AuraCatalog.RawStats(auras, conn.Pools.AuraEffectPct, SkillsFor(conn), Stats))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         // The mods' stats (Program.Mods.cs), added like /god's: the pools (life, mana) are not rebuilt from them.
-        if (ServerMods.ChangesStats)
-            foreach (var (stat, value) in ServerMods.Stats(PlayerOf(conn)))
+        if (ServerHooks.ChangesStats)
+            foreach (var (stat, value) in ServerHooks.Stats(PlayerOf(conn)))
                 if (Stats.Key(stat) is uint key) extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
         foreach (var (k, v) in extra) if (seen.Add(k)) yield return (k, v);
     }

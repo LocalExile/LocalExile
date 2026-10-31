@@ -181,7 +181,7 @@ public sealed class ModHostTests : IDisposable
     [Fact]
     public async Task A_mod_waits_for_what_it_depends_on_and_reloads_with_it()
     {
-        AddMod("b", """{ "id": "b", "kind": "league", "depends": ["c"] }""");
+        AddMod("b", """{ "id": "b", "kind": "feature", "depends": ["c"] }""");
         _host.Start(watch: false);
         Assert.Equal("needs c (no such mod)", Assert.Single(_host.Mods()).Error);
         AddMod("c");
@@ -318,41 +318,45 @@ public sealed class ModHostTests : IDisposable
         Assert.True(await _host.Unloaded("s"));
     }
 
-    sealed class BuiltIn : IMod
+    sealed class BuiltIn : IModule
     {
-        public void Load(IModContext mod) => mod.OnChatCommand("builtin", "/builtin", c => c.Player.Tell("built in"));
+        public void Load(IModuleContext module) => module.OnChatCommand("builtin", "/builtin", c => c.Player.Tell("built in"));
     }
 
     [Fact]
-    public async Task A_built_in_loads_without_a_folder_turns_off_and_stays_off_across_a_restart()
+    public async Task A_built_in_module_loads_without_a_folder_turns_off_and_stays_off_across_a_restart()
     {
-        _host.AddBuiltIn("feature", () => new BuiltIn());
-        Assert.True(_host.IsLoaded("feature"));
-        Assert.True(await _host.RunCommand(_player, "builtin", []));
-        _host.Start(watch: false);
-        Assert.True(_host.IsLoaded("feature"));
-        Assert.True(_host.SetEnabled("feature", false));
-        Assert.False(await _host.RunCommand(_player, "builtin", []));
-        Assert.Equal("disabled", _host.Mods().Single().Error);
-        using (var next = new ModHost(_root, _ => { }).AddBuiltIn("feature", () => new BuiltIn()))
-        {
-            next.Start(watch: false);
-            Assert.False(next.IsLoaded("feature"));
-            Assert.True(next.SetEnabled("feature", true));
-            Assert.True(next.IsLoaded("feature"));
-        }
+        var host = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn());
+        Assert.True(host.IsLoaded("feature"));
+        Assert.True(await host.RunCommand(_player, "builtin", []));
+        host.Start(watch: false);
+        Assert.True(host.IsLoaded("feature"));
+        Assert.True(host.SetEnabled("feature", false));
+        Assert.False(await host.RunCommand(_player, "builtin", []));
+        Assert.Equal("disabled", host.Mods().Single().Error);
+        Assert.True(File.Exists(Path.Combine(_root, ModHost.ModuleStateFile)));
+        using var next = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn());
+        next.Start(watch: false);
+        Assert.False(next.IsLoaded("feature"));
+        Assert.True(next.SetEnabled("feature", true));
+        Assert.True(next.IsLoaded("feature"));
+        host.Dispose();
     }
 
     [Theory]
     [InlineData("harvest")]
     [InlineData("heist")]
     [InlineData("delve")]
-    public void The_servers_features_are_built_in_mods(string id) => Assert.True(Program.ServerMods.IsLoaded(id));
+    public void The_servers_features_are_built_in_modules(string id)
+    {
+        Assert.True(Program.ServerModules.IsLoaded(id));
+        Assert.False(Program.ServerMods.IsLoaded(id));
+    }
 
     [Fact]
-    public async Task A_leagues_hooks_run_only_for_its_players()
+    public async Task A_module_adds_a_league_whose_hooks_run_only_for_its_players()
     {
-        var script = AddScript("custom", """
+        AddScript("custom", """
             public sealed class Custom : ILeague
             {
                 public string Id => "scoped";
@@ -360,18 +364,72 @@ public sealed class ModHostTests : IDisposable
                 public LeagueRules Rules { get; } = new();
                 public void Load(IModContext league) => league.OnTick((p, _) => p.Tell("tick"));
             }
-            public sealed class CustomMod : IMod { public void Load(IModContext mod) => mod.AddLeague(new Custom()); }
+            public sealed class CustomModule : IModule { public void Load(IModuleContext module) => module.AddLeague(new Custom()); }
             """);
-        _host.Start(watch: false);
-        await _host.Tick(_player, 1);
+        using var host = new ModHost(_root, _ => { }, modules: true);
+        host.Start(watch: false);
+        await host.Tick(_player, 1);
         Assert.Empty(_player.Told);
         _player.LeagueId = "scoped";
-        await _host.Tick(_player, 1);
+        await host.Tick(_player, 1);
         Assert.Equal(["tick"], _player.Told);
         Assert.Equal("scoped", ServerLeagues.Resolve(null, "Scoped League", _ => true).Id);
-        Assert.True(_host.SetEnabled("custom", false));
+        Assert.True(host.SetEnabled("custom", false));
         Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, "Scoped League", _ => true));
-        Assert.True(await _host.Unloaded("custom"));
+        Assert.True(await host.Unloaded("custom"));
+    }
+
+    [Fact]
+    public void A_mod_cannot_be_a_league()
+    {
+        AddScript("script", "public sealed class M : IMod { public void Load(IModContext mod) => mod.AddLeague(null!); }");
+        AddMod("manifest", """{ "kind": "league" }""");
+        _host.Start(watch: false);
+        Assert.Contains("CS1061", _host.Mods().Single(m => m.Id == "script").Error);
+        Assert.Contains("a league is a module", _host.Mods().Single(m => m.Id == "manifest").Error);
+    }
+
+    [Fact]
+    public void Each_host_takes_only_its_own_entry_points()
+    {
+        AddScript("s", "public sealed class M : IMod { public void Load(IModContext mod) { } }");
+        using var host = new ModHost(_root, _ => { }, modules: true);
+        host.Start(watch: false);
+        Assert.Contains("IModule", host.Mods().Single().Error);
+    }
+
+    [Fact]
+    public async Task Hooks_of_modules_run_before_those_of_mods()
+    {
+        string other = _root + "-modules";
+        Directory.CreateDirectory(Path.Combine(other, "first"));
+        File.WriteAllText(Path.Combine(other, "first", "first.cs"), """
+            public sealed class First : IModule
+            {
+                public void Load(IModuleContext module)
+                {
+                    module.ModifyExperience(e => e.Experience += 5);
+                    module.OnChatCommand("both", "/both", c => c.Player.Tell("module"));
+                }
+            }
+            """);
+        AddScript("second", """
+            public sealed class Second : IMod
+            {
+                public void Load(IModContext mod)
+                {
+                    mod.ModifyExperience(e => e.Experience *= 2);
+                    mod.OnChatCommand("both", "/both", c => c.Player.Tell("mod"));
+                }
+            }
+            """);
+        using var modules = new ModHost(other, _ => { }, modules: true);
+        modules.Start(watch: false);
+        _host.Start(watch: false);
+        var hooks = new ServerHooks(modules, _host);
+        Assert.Equal(30u, hooks.Experience(_player, new("", "", 1, MonsterRarity.Normal, 0, 0), 10));
+        Assert.True(await hooks.RunCommand(_player, "both", []));
+        Assert.Equal(["module"], _player.Told);
     }
 
     [Fact]

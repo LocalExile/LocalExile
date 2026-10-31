@@ -2,14 +2,14 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using GameServer.Modding;
 
-namespace GameServer.Mods.Ruthless;
+namespace GameServer.Modules.Ruthless;
 
 /// <summary>Registers the Ruthless league.</summary>
-public sealed class RuthlessMod : IMod
+public sealed class RuthlessModule : IModule
 {
     /// <inheritdoc/>
-    public void Load(IModContext mod) => mod.AddLeague(new RuthlessLeague(
-        Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES") ?? Path.Combine("config", "ruthless.json"), mod.Log));
+    public void Load(IModuleContext module) => module.AddLeague(new RuthlessLeague(
+        Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES") ?? Path.Combine("config", "ruthless.json"), module.Log));
 }
 
 /// <summary>Ruthless: its known mechanics, and the numbers the retail server does not publish, from a file that hot-reloads.</summary>

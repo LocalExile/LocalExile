@@ -1177,7 +1177,7 @@ partial class Program
         if (m.Variety is not { } variety || !m.Hostile) return;
         var killer = PlayerOf(conn);
         var monster = ModMonster(m, at);
-        await ServerMods.MonsterKilled(new(killer, monster));
+        await ServerHooks.MonsterKilled(new(killer, monster));
         ChargesOnKill(conn, m);
         StealMonsterMods(conn, m);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
@@ -1190,7 +1190,7 @@ partial class Program
         await DropQuestItems(remote, stream, ciphers, conn, variety.Id, at);   // a1q5: Hailrake's Medicine Chest
         if (alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
-            uint xp = ServerMods.Experience(killer, monster,
+            uint xp = ServerHooks.Experience(killer, monster,
                 Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, conn.Pools.Level, m.Level));
             // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too.
             await GainGemExperience(remote, stream, ciphers, conn, xp);
@@ -1214,7 +1214,7 @@ partial class Program
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var balance = LeagueFor(conn).Rules;
         // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
-        var modded = ServerMods.Drops(PlayerOf(conn), ModMonster(m, at));
+        var modded = ServerHooks.Drops(PlayerOf(conn), ModMonster(m, at));
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {

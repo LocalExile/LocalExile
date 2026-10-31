@@ -5,12 +5,12 @@ using GameServer.Core.World;
 using GameServer.Modding;
 using static Program;
 
-/// <summary>Delve, as a built-in mod (Program.Mods.cs): the Crawler and the Voltaxic Generator in the Azurite Mine Encampment,
+/// <summary>Delve, as a built-in module (Program.Mods.cs): the Crawler and the Voltaxic Generator in the Azurite Mine Encampment,
 /// the chart, the equipment upgrades. It reaches the rest of the server through the hooks of <see cref="IModContext"/>; its
 /// own work still uses the Gateway's internals.</summary>
-sealed class DelveFeature : IMod
+sealed class DelveFeature : IModule
 {
-    public void Load(IModContext mod)
+    public void Load(IModuleContext mod)
     {
         mod.OnAreaGenerated(async player =>
         {

@@ -5,12 +5,12 @@ using GameServer.Modding;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
 using static Program;
 
-/// <summary>The hideout's Heist Locker, as a built-in mod (Program.Mods.cs). The hideout's scene places it while this mod is loaded.</summary>
-sealed class HeistFeature : IMod
+/// <summary>The hideout's Heist Locker, as a built-in module (Program.Mods.cs). The hideout's scene places it while this module is loaded.</summary>
+sealed class HeistFeature : IModule
 {
     public const string Id = "heist";
 
-    public void Load(IModContext mod) => mod.OnObjectUsed(async use =>
+    public void Load(IModuleContext mod) => mod.OnObjectUsed(async use =>
     {
         var conn = ConnOf(use.Player);
         if (conn.HeistLockerObject == 0 || use.ObjectId != conn.HeistLockerObject) return false;

@@ -1,5 +1,7 @@
 # Mods
 
+Mods are small modifications. A big overhaul, such as a league, is a [module](modules.md): it has its own folder and commands, and
+only a module can add a league.
 A mod is a C# assembly, or loose `.cs` files, the Gateway loads from `Mods/Binaries/<id>/` while it runs, and reloads when its
 files change, without a rebuild or restart of the Gateway. A mod sees only the `GameServer.Modding` API; the Gateway, Core and Data stay
 internal to the server.
@@ -7,8 +9,8 @@ internal to the server.
 What is built and what is planned: [status](../../status/setup-and-tooling.md) ("Mods"),
 [roadmap](../../roadmap/setup-and-tooling.md) ("Mods").
 Code: `src/GameServer.Modding/` (the API), `src/GameServer.Gateway/Modding/ModHost.cs` (loading, hooks),
-`ModLoadContext.cs`, `ModScripts.cs` (scripts), `ServerLeagues.cs` (leagues), `Program.Mods.cs` (what the Gateway shows a mod,
-where it calls the hooks), `Features/` (the built-in mods).
+`ModLoadContext.cs`, `ModScripts.cs` (scripts), `ServerHooks.cs` (dispatch), `Program.Mods.cs` (what the Gateway shows a mod,
+where it calls the hooks).
 
 ## A mod's folder
 
@@ -65,7 +67,6 @@ new folder's name in lower case.
 | `ItemRarity` | 10 times the chance of magic, rare and unique equipment | no |
 | `DoubleExperience` | twice the experience from kills | no |
 | `BossLoot` | an Exalted Orb from every unique monster: an extra drop by name | no |
-| `Ruthless`, `Allflame` | leagues ([Leagues](#leagues)) | yes |
 
 ```csharp
 public sealed class MyMod : IMod
@@ -92,74 +93,17 @@ Each `IModContext` call returns a handle; disposing it removes that hook, and un
 | `OnPacket(opcode, run)` | a C→S message with that opcode, before the Gateway's handler | `true` takes it: the Gateway's handler does not run |
 | `OnAreaGenerated(run)` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
 | `OnObjectUsed(run)` | a click on an object the Gateway's own objects did not take | `true`: it was this mod's |
-| `AddLeague(league)` | see [Leagues](#leagues) | |
 | `OnMonsterKilled(run)` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
 | `ModifyDrops(modify)` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
 | `ModifyExperience(modify)` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 
-A player (`IPlayer`) is one connection: character, account, league, its modes and the league module it plays by, level, area id and seed, position,
+A player (`IPlayer`) is one connection: character, account, league, its modes and the league it plays by, level, area id and seed, position,
 `Tell` (chat lines) and `Send` (a raw S→C message). An area change is a new connection.
 A hook that throws is logged as `[mods] <id> <hook> failed (skipped)` with its stack trace; a failed command also tells
 the player. It does not stop the connection or the other mods.
 Hooks run on the players' connection tasks, several at once: keep shared state thread-safe, and keep the modifiers
 cheap (`ModifyStats` runs on every stat rebuild).
-
-## Leagues
-
-The framework knows no league but Standard. Every other league is a module in `Mods/Source/`, and an upcoming league changes
-the framework only to add something generic that any league could use: a rule, a hook, a declaration field. Never its name.
-What still says Ruthless in `src/` is the client's wire names (`LeagueEntry.RuthlessParent`, its flag) and the game tables' column
-names (`IndexRuthless`, `ShopRuthless`, `RuthlessValue`).
-
-A league has two halves, because the Auth server gives the client its list and does not load mods:
-
-**In `mod.json`, what Auth reads.** A mod that is off is not offered; its saved characters keep their league.
-
-```json
-"league": {
-  "bases": ["Necropolis"],
-  "form": {
-    "standardNames": { "plain": "Grim", "hardcore": "Hardcore Grim", "ssf": "SSF Grim", "hardcoreSsf": "SSF Hardcore Grim" },
-    "challengeNames": { "plain": "Grim {base}", "hardcore": "HC Grim {base}", "ssf": "SSF Grim {base}", "hardcoreSsf": "HC SSF G {base}" },
-    "description": "Added to the card text.",
-    "permanentDeath": true
-  }
-}
-```
-
-- `bases` are challenge leagues, each with Hardcore and SSF variants. `Game_LEAGUES` replaces the offered bases.
-- `form` is a family of variants of every base, reached with the client's one form check box. Its id is the mod's id.
-
-**In code, an `ILeague` registered with `mod.AddLeague(league)`**, what the Gateway asks through `Program.LeagueFor(conn)`:
-
-| Member | What it is |
-|---|---|
-| `Id` | lower case, as `IPlayer.LeagueId` says it; a form's characters are found by it, so it is the mod's id |
-| `ClientLeagueName` | the base league it takes, with that league's Hardcore and SSF variants |
-| `Rules` | a `LeagueRules`, read at each use, so a tunables file hot-reloads: multipliers, saved life and mana, shops, vendors, rewards, flasks, gems |
-| `RequiredFeatures` | mods that must be loaded (a built-in's id counts) |
-| `Catalogs` | the game files' data set: `Standard` or `HardMode` |
-| `Load(league)` | the league's hooks: an `IModContext` whose hooks run only for this league's players |
-
-- A character whose module is missing, off, or lacks a required feature plays by Standard's rules and data, keeping its league
-  name, Hardcore and SSF, stash and saves; nothing is converted, and it returns when the module does. A league name no module
-  declares any more keeps its name, without Hardcore (with no declaration its variants cannot be told apart).
-- Disabling a module mid-session leaves a connection on its rules until its next area, because its items and skills came from
-  that league's data.
-- `Mods/Source/Ruthless/` holds Ruthless: its names, rules, gem lists and tunables. Its numbers stay in `config/ruthless.json`
-  (`Game_RUTHLESS_RULES` moves it, `config/ruthless.example.json` shows it), reread at most once a second, keeping the last good
-  ones through a bad edit. `Mods/Source/Allflame/` is the smallest league: a declaration, and Standard's rules.
-
-## Built-in mods
-
-`src/GameServer.Gateway/Features/` holds server features moved out of the static `Program`, each an `IMod` the Gateway registers
-with `AddBuiltIn`: `harvest`, `heist` and `delve`. Their packets, object clicks, area setup and chat commands reach them through
-the same hooks a mod has, and `/mod` and `/mod_disable` treat them as mods. They load even with `Game_MODS=0`, and have no
-folder or load context, so they do not reload.
-Their bodies still call Gateway internals (`using static Program`, the connection from `ConnOf(player)`), so they cannot be
-built as separate assemblies yet: that needs contracts for items, stash and objects. With `harvest` or `heist` off the hideout
-does not place the station or the locker.
 
 ## Reloading
 

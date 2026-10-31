@@ -3,7 +3,7 @@
 The creation screen's mode choices select server rules as well as league names.
 The full selected league is saved with the character and resolved by Auth on every Play request.
 Auth passes explicit Hardcore and SSF flags and the league form to the Gateway; gameplay does not infer modes from name fragments.
-Ruthless and Allflame are league modules ([modding](../dev/modding.md)); this page is what those modules and the framework do together.
+Ruthless and Allflame are modules ([modules](../dev/modules.md)); this page is what those modules and the framework do together.
 The same rules apply to the existing Standard/Allflame families and any base leagues configured by the server.
 All eight combinations remain separate personal-stash and gold namespaces.
 

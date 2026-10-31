@@ -1,7 +1,7 @@
 namespace GameServer.Modding;
 
 /// <summary>
-/// A league as a module, registered with <see cref="IModContext.AddLeague"/>. Standard is built into the server: a character
+/// A league, registered by a module with <see cref="IModuleContext.AddLeague"/>. Standard is built into the server: a character
 /// whose league has no loaded module, or whose module needs a feature that is not loaded, plays by Standard's rules, keeping
 /// its league and saves, and returns to its own rules when the module is back. A connection keeps the module it started with
 /// until the next area.
@@ -12,20 +12,20 @@ public interface ILeague
     string Id { get; }
 
     /// <summary>The league's name in the client's league list: it takes the league of that name with its Hardcore and SSF
-    /// variants. A league form (<c>mod.json</c> "league"."form") is found by <see cref="Id"/> instead: the mod's id.</summary>
+    /// variants. A league form (<c>module.json</c> "league"."form") is found by <see cref="Id"/> instead: the module's id.</summary>
     string ClientLeagueName { get; }
 
     /// <summary>The rules now. Asked often, so return a kept object; a new value applies at once (a tunables file).</summary>
     LeagueRules Rules { get; }
 
-    /// <summary>Mods that must be loaded for this league's characters to use it.</summary>
+    /// <summary>Modules that must be loaded for this league's characters to use it.</summary>
     IReadOnlyList<string> RequiredFeatures => [];
 
     /// <summary>Which of the game files' data the league's characters use.</summary>
     LeagueCatalogs Catalogs => LeagueCatalogs.Standard;
 
-    /// <summary>The league's hooks. <paramref name="league"/> is the mod's context, but its hooks run only for this league's
-    /// players; they are removed with the mod.</summary>
+    /// <summary>The league's hooks. <paramref name="league"/> is the module's context, but its hooks run only for this league's
+    /// players; they are removed with the module.</summary>
     void Load(IModContext league) { }
 }
 

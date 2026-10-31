@@ -8,14 +8,14 @@ static class TestLeagues
     [ModuleInitializer]
     internal static void Initialize()
     {
-        string mods = Path.Combine(Path.GetTempPath(), "localexile-core-test-mods-" + Environment.ProcessId);
-        string source = Path.Combine(Path.GetDirectoryName(Here())!, "..", "..", "Mods", "Source");
+        string mods = Path.Combine(Path.GetTempPath(), "localexile-core-test-modules-" + Environment.ProcessId);
+        string source = Path.Combine(Path.GetDirectoryName(Here())!, "..", "..", "Modules", "Source");
         foreach (string module in new[] { "Ruthless", "Allflame" })
         {
             Directory.CreateDirectory(Path.Combine(mods, module.ToLowerInvariant()));
-            File.Copy(Path.Combine(source, module, "mod.json"), Path.Combine(mods, module.ToLowerInvariant(), "mod.json"), overwrite: true);
+            File.Copy(Path.Combine(source, module, "module.json"), Path.Combine(mods, module.ToLowerInvariant(), "module.json"), overwrite: true);
         }
-        Environment.SetEnvironmentVariable("Game_MODS_FOLDER", mods);
+        Environment.SetEnvironmentVariable("Game_MODULES_FOLDER", mods);
     }
 
     static string Here([CallerFilePath] string path = "") => path;

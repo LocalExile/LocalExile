@@ -6,19 +6,36 @@ using Mod = GameServer.Modding;
 // message dispatch, the area's setup, a kill, its drops and experience, the character's stats).
 partial class Program
 {
-    // Game_MODS=0 loads none; Game_MODS_FOLDER moves the folder (relative to the repository root, like data/).
-    internal static readonly ModHost ServerMods = new ModHost(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine)
-        // The server's own features behind the mods' API (Features/): always there, but /mod_disable turns one off.
+    // Modules (Agents/docs/dev/modules.md) are overhauls, mods small modifications: two folders, each with its own commands.
+    // Game_MODULES=0 and Game_MODS=0 load none from their folder; Game_MODULES_FOLDER and Game_MODS_FOLDER move it (relative
+    // to the repository root, like data/). The server's own features behind the API (Features/) are always modules.
+    internal static readonly ModHost ServerModules = new ModHost(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules/Binaries", Console.WriteLine, modules: true)
         .AddBuiltIn(HarvestFeature.Id, () => new HarvestFeature())
         .AddBuiltIn(HeistFeature.Id, () => new HeistFeature())
         .AddBuiltIn("delve", () => new DelveFeature());
+    internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine);
+    internal static readonly ServerHooks ServerHooks = new(ServerModules, ServerMods);
 
     static void StartMods()
     {
+        if (Environment.GetEnvironmentVariable("Game_MODULES") == "0") Console.WriteLine("[modules] only the built-in ones (Game_MODULES=0)");
+        else
+        {
+            ServerModules.Changed += line => HotReload.Tell(line.Replace("[modules] ", "Modules: "));
+            ServerModules.Start();
+        }
         if (Environment.GetEnvironmentVariable("Game_MODS") == "0") { Console.WriteLine("[mods] off (Game_MODS=0)"); return; }
         // A mod (re)loaded or failed while players are in: they read it in chat, as a hot reload.
         ServerMods.Changed += line => HotReload.Tell(line.Replace("[mods] ", "Mods: "));
         ServerMods.Start();
+    }
+
+    // /module_enable and /module_disable. A league that is turned off leaves the create screen at the next login.
+    static Task SetModuleEnabled(ClientState conn, string[] args, bool enabled)
+    {
+        if (args.Length != 1) throw new ArgumentException("which module? /module lists them");
+        return conn.Commands!.Reply(ServerModules.SetEnabled(args[0], enabled)
+            ? $"Module {args[0]} {(enabled ? "enabled" : "disabled")} (/module for the list)." : $"No module \"{args[0]}\" in {ServerModules.Folder}/ (/module for the list).");
     }
 
     // /mod_enable and /mod_disable.

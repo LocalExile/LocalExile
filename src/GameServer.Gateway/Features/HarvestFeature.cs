@@ -5,13 +5,13 @@ using GameServer.Core.World;
 using GameServer.Modding;
 using static Program;
 
-/// <summary>Horticrafting, as a built-in mod (Program.Mods.cs): the station's recipe browser and its crafts. The hideout's scene
-/// places the station while this mod is loaded.</summary>
-sealed class HarvestFeature : IMod
+/// <summary>Horticrafting, as a built-in module (Program.Mods.cs): the station's recipe browser and its crafts. The hideout's scene
+/// places the station while this module is loaded.</summary>
+sealed class HarvestFeature : IModule
 {
     public const string Id = "harvest";
 
-    public void Load(IModContext mod)
+    public void Load(IModuleContext mod)
     {
         mod.OnObjectUsed(async use =>
         {
