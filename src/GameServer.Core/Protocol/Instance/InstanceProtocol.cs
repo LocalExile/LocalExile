@@ -363,6 +363,12 @@ public static class InstanceProtocol
         new LoginWriter().U16(MoveToId).U32(objectId).U32(0).U16(0)
             .U32((uint)x).U32((uint)y).U32(u28).U32(BitConverter.SingleToUInt32Bits(speed)).U8(u30).ToArray();
 
+    /// <summary>S→C 0x1b9: Positioned orientation in radians, then the orientation-lock flag.
+    /// Writer 0x141fdf370; Positioned 0x141e30c90 calls SetOrientation (0x141e325e0).</summary>
+    public static byte[] Orientation(uint objectId, float radians, bool locked = false) =>
+        new LoginWriter().U16(0x1b9).U32(objectId).U32(0).U16(0)
+            .U32(BitConverter.SingleToUInt32Bits(radians)).U8(locked ? (byte)1 : (byte)0).ToArray();
+
     public const ushort DeathScreenId = 0x55, ResurrectId = 0x54;
 
     /// <summary>

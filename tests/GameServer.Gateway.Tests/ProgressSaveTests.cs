@@ -24,6 +24,18 @@ public class ProgressSaveTests : IDisposable
     static uint Plus(uint xp, uint gain) => Progression.AddExperience(xp, gain, Levels);
 
     [Fact]
+    public void Delve_completion_preserves_other_progress_and_never_reduces_depth()
+    {
+        CharacterSaves.Write(_character, new CharacterSaves.Save([], Experience: 123, Sulphite: 500));
+        CharacterSaves.CompleteDelveDepth(_character, 3);
+        CharacterSaves.CompleteDelveDepth(_character, 2);
+        var save = CharacterSaves.Load(_character)!;
+        Assert.Equal(3, save.CompletedDelveDepth);
+        Assert.Equal(123u, save.Experience);
+        Assert.Equal((ushort)500, save.Sulphite);
+    }
+
+    [Fact]
     public void Experience_adds_to_the_saved_total_not_to_a_connections_copy()
     {
         CharacterSaves.Write(_character, new CharacterSaves.Save([], Experience: 1000));

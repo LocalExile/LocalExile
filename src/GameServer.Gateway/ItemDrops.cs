@@ -101,6 +101,18 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
 
     public sealed record Drop(Item Item, ItemCatalog.BaseType Type);
 
+    /// <summary>A reward container's explicit number of rolls, without a monster's quantity or personal/mod multipliers.</summary>
+    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng)
+    {
+        if (count < 0 || count > 2000) throw new ArgumentOutOfRangeException(nameof(count));
+        var chances = WithIncreasedRarity(RarityChances(MonsterRarity.Rare), increasedRarity,
+            SystemSettings.Default.DropMultiplier("unique_rarity"));
+        var result = new List<Drop>();
+        for (int attempt = 0; result.Count < count && attempt < count * 8; attempt++)
+            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop) result.Add(drop);
+        return result;
+    }
+
     /// <summary>The items a monster of this level and rarity drops (possibly none). The quantity multiplier scales how
     /// many: each of the monster's rolls happens floor(multiplier) times, and once more with the fraction's chance (below
     /// 1, that chance alone: Ruthless's 0.2). The rarity multiplier scales every rarity chance, as increased rarity does.</summary>
