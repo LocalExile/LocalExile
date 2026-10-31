@@ -36,6 +36,16 @@ static class AscendancyPolicies
         return ReadPolicy(conn, selection) is not null;
     }
 
+    /// <summary>Pure source provenance for transient jobs. Never verifies a graph or acquires the provider gate.</summary>
+    public static IModuleLifetime? SourceOwner(ClientState conn)
+    {
+        var selection = conn.MainAscendancy.Selection;
+        if (selection is null || selection.Family == AscendancyFamily.Normal
+            || !_providers.TryGetValue(selection.Family, out var entry)) return null;
+        var policy = Volatile.Read(ref entry.Policy);
+        return policy is not null && entry.Live(conn) && policy.Supports(selection) ? entry.Owner : null;
+    }
+
     /// <summary>Holds a synchronous admission/commit boundary. Never keep it across an await or acquire the host lock.</summary>
     public static IDisposable Enter(ClientState conn, AscendancyIdentity? selection, bool verifyGraph = false)
     {
@@ -122,6 +132,7 @@ static class AscendancyPolicies
 
     sealed class Registration(IModuleLifetime owner, IAscendancyFamilyPolicy policy) : IDisposable
     {
+        public IModuleLifetime Owner => owner;
         public readonly object Gate = new();
         public readonly ConditionalWeakTable<ClientState, object> Connections = new();
         public IAscendancyFamilyPolicy? Policy = policy;
@@ -151,6 +162,8 @@ static class AscendancyPolicies
                     if (!Attachments.TryGetValue(conn, out var current) || !ReferenceEquals(current, this)) continue;
                     Attachments.Remove(conn);
                     conn.Closed = true;
+                    conn.Rampage.Clear();
+                    conn.RetireOwnedCombat();
                     conn.InvalidateIncomingHits();
                 }
                 Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: {_family} module reloaded; reconnect to retain current rules");

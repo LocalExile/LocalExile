@@ -436,8 +436,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Verify held death notifications, Vaal Haste/Grace aura costs, death/resurrection and slow destination loading.
   Include attribute gear removal before inventory notifications; current automated coverage is not native proof.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md) and Status for the explicit LocalExile policies.
-  Vaal executors, payment, official distribution/capacity parity and the SGP countdown require separate work.
-  Unsupported Vaal casts remain refused; Behemoth and whole-class enablement remain separate.
+  Vaal Ground Slam payment, shared attack admission and prevention now have a bounded implementation.
+  Validate the [modular Behemoth candidate](../docs/game/behemoth.md) with current full suites and the native client.
+  Other executors and official distribution/capacity parity remain separate; unsupported casts stay refused.
 
 ### Death screen variants
 

@@ -11,13 +11,15 @@ League lists are startup configuration; rebuilding the module reloads its code.
 The initial extraction preserves Gambler, Antiquarian and Aristocrat from main.
 Their class descriptors live under `Classes/<Name>`; a class is enabled only after its implementation is supported.
 The generic catalog still reads all 19 identities for save validation, without making unfinished classes playable.
-Behemoth, Whisperer and Harbinger remain separate dependent PRs.
+Behemoth adds its descriptor and node sources under `Classes/Behemoth`; its reusable stat-driven engines stay in Game.
+Whisperer and Harbinger remain separate dependent PRs.
 Other contributors' classes are not copied into this prerequisite.
 Idols has extracted client data but no gameplay implementation and is a separate task.
 There is no placeholder Idols module or dependency on one.
 
 The existing `Game_VERIFIED_GAMBLER`, `Game_VERIFIED_ANTIQUARIAN` and `Game_VERIFIED_ARISTOCRAT`
 opt-ins still require the reviewed combined 3.29.3b graph installed separately.
+Behemoth uses the same read-only boundary behind `Game_VERIFIED_BEHEMOTH=1`.
 The module verifies the original and alternate graph bytes read-only.
 It never installs, repairs or writes the client archive.
 Normal and unascended characters have no alternate-graph verification requirement.
@@ -53,9 +55,13 @@ Ordinary characters and connections in leagues that do not use the family remain
 No durable progress is removed during reload, and an old registration handle cannot remove its replacement.
 
 The lifetime API is cooperative: it does not drain arbitrary module tasks or revoke existing world wrappers.
-This extraction adds no asynchronous class worker.
-Future class runtimes must additionally guard their mutations, sends, owned effects and retirement by module generation.
-The older Behemoth Game-only worker is an intermediate reference, not independent-module reload evidence.
+Behemoth's shared Rampage engine binds its connection worker to Game and optional source-provider lifetimes.
+The lock-free `SourceOwner` query exposes only a host-issued lifetime, without graph checks or provider locks.
+Gateway cleanup resources contain identities, not old module delegates; retirement clears opaque combat state.
+Mutations and sends also recheck current source flags and effect epochs after refunds, death and transfer.
+No class-specific job runs without its optional node source.
+The older Game-only worker remains historical evidence; current modular native checks are pending.
+See [Behemoth's ownership and validation boundaries](behemoth.md).
 
 ## Validation and delivery
 

@@ -81,7 +81,8 @@ static partial class Game
         });
     }
 
-    internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random)
+    internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
+        bool playerKill = true)
     {
         var conn = session.Conn;
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
@@ -90,11 +91,14 @@ static partial class Game
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
-        session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
-        ChargesOnKill(conn, monster);
+        if (playerKill)
+        {
+            session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
+            ChargesOnKill(conn, monster);
+        }
         if (CommitQuestFlags(conn, Quests.OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
-        var kill = new KillContext(conn, monster, variety.Id, position);
+        var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var send in kill.Afterwards) session.Enqueue(send);
         uint xp = 0;

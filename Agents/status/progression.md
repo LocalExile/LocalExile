@@ -192,6 +192,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Behemoth: the optional Phrecia module supplies its capability, verified-graph opt-in and mode-aware node sources.
+  Shared Rampage tiers and Vaal Ground Slam payment execute in Game with generation/source retirement guards.
+  Two deterministic Gateway regressions cover worker ownership and atomic attack/payment admission.
+  Historical whole-class native evidence is retained; current modular full-suite and native acceptance are pending.
+  Docs: [Behemoth consumers, legal builds and validation limits](../docs/game/behemoth.md).
 - Aristocrat: every node in its installed graph has a server consumer (gem levels and quality, attribute requirements,
   conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,
   paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.

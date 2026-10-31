@@ -765,7 +765,10 @@ and can require explicit recipes.
   Distribution and capacity are documented LocalExile policies, not a claim of official algorithm parity.
   Native duplicate/removal, death/relog/transfer, aura costs and held-notification composition remain unverified.
   Unsupported Vaal casts are refused before action echoes or cooldown reservation, including effective zero cost.
-  No executor, Rage payment or SGP countdown is added.
+  Vaal Ground Slam now has a shared executor, atomic soul/Rage payment and pausable prevention timer.
+  Attack readiness commits before payment/action reservation, including object-targeted flags bit0.
+  Other Vaal executors remain explicit refusals; modular native acceptance is pending.
+  See [Behemoth](../docs/game/behemoth.md) for execution models and source ownership.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.

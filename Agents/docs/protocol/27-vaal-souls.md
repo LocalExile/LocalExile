@@ -5,7 +5,8 @@ Implementation source `66571d55d5d5bd70f9e7b631849f77fbe862ddbe` is based on mai
 Automated wire/dispatcher tests and 42 bounded real-client collection/counter checks pass.
 This establishes the collection/counter scope, not full Vaal execution or lifecycle parity.
 Unsupported Vaal casts are refused before action echoes, including full budgets and effective zero cost.
-There is no Vaal executor, Rage payment, invented soul-gain-prevention timer or Phrecia gate change.
+Vaal Ground Slam now has an explicit executor, atomic soul/Rage payment and a GEPL-based prevention timer.
+The optional Behemoth capability and current modular validation limits are in [Behemoth](../game/behemoth.md).
 
 ## Primary evidence
 
