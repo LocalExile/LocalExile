@@ -386,6 +386,9 @@ all for an issue ([debugging](docs/dev/debugging.md)).
   Auth and Patch are not watched.
 - `-NoHotReload` starts the built Gateway without `dotnet watch`; `-Only Gateway -NoHotReload` switches a running
   setup over, and a later `-Only Gateway` switches back.
+- `-Release` builds and runs the servers' Release builds, without `dotnet watch`: the monster AI runs 1.6-2.3x faster
+  and no watcher (~220 MB) runs beside the Gateway, for a stack that needs no hot reload
+  ([performance](docs/dev/performance.md)).
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
 
