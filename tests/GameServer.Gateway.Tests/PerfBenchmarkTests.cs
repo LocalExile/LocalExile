@@ -135,6 +135,13 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             ("Items (BaseItemTypes)", () => Program.Items.Find("Iron Ring")),
             ("Items.Mods (Mods.json)", () => _ = Program.Items.Mods.All.Count),
             ("Skills", () => Program.Skills.RowOfClass(1)),
+            // The ActiveSkillType sets (instant, attack, aura …) a player's and the monsters' skills ask for.
+            ("Skill type sets", () =>
+            {
+                var skills = new SkillCatalog();
+                _ = skills.IsInstant(0) | skills.IsMovement(0) | skills.IsRangedAttack(0) | skills.IsSpell(0) | skills.IsWarcry(0)
+                    | skills.IsAura(0, [0]) | skills.IsBrand(0);
+            }),
             ("Monsters", () => Program.Monsters.Find("Metadata/Monsters/Zombies/ZombieBiteRaise")),
             ("Packs", () => Program.Packs.For("1_1_2")),
             ("Area transitions", () => AreaTransitionCatalog.HashOf("1_1_2")),
