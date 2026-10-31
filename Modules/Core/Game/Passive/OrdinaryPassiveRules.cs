@@ -111,7 +111,7 @@ sealed class OrdinaryPassiveRules(string folder = "data")
         string statsPath = Path.Combine(folder, "tables", "Stats.json");
         if (!new[] { graphPath, passivePath, characterPath, statsPath }.All(File.Exists)) return null;
 
-        using var graphs = JsonDocument.Parse(File.ReadAllBytes(graphPath));
+        using var graphs = GameTables.Open(graphPath);
         if (graphs.RootElement.GetProperty("revision").GetString() != AscendancyCatalog.Revision)
             throw new InvalidDataException($"{graphPath}: expected passive data revision {AscendancyCatalog.Revision}");
         var links = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, f =>

@@ -67,7 +67,7 @@ sealed class PackCatalog(string folder = "data")
             areas = Path.Combine(folder, "tables", "WorldAreas.json");
         if (!File.Exists(packs) || !File.Exists(entries) || !File.Exists(areas)) return null;
         var byPack = new Dictionary<int, List<(int, int)>>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(entries)))
+        using (var doc = GameTables.Open(entries))
             foreach (var e in doc.RootElement.EnumerateArray())
             {
                 if (e.GetProperty("MonsterPacksKey").ValueKind != JsonValueKind.Number || e.GetProperty("MonsterVarietiesKey").ValueKind != JsonValueKind.Number) continue;
@@ -593,7 +593,7 @@ static class AreaPopulation
     static RoomIndex? LoadRoomIndex(string file)
     {
         if (!File.Exists(file)) return null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+        using var doc = GameTables.Open(file);
         var areas = doc.RootElement.GetProperty("areas").EnumerateObject()
             .ToDictionary(a => a.Name, a => a.Value.EnumerateArray().Select(r => r.GetString()!).ToList());
         var rooms = doc.RootElement.GetProperty("rooms").EnumerateObject().ToDictionary(r => r.Name, r => new RoomData(

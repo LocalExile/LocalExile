@@ -66,6 +66,9 @@ $manifest = @(
     @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 1; Needs = @()
        UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
+    @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'stat-descriptions'); Version = 1; Needs = @()
+       UsedBy = 'the mod wording of the Gateway''s crafter mode, for tools such as the launcher''s item crafter (item-crafter.md)' }
 )
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }

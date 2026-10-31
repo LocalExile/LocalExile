@@ -214,7 +214,7 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
         var rows = new Dictionary<int, ushort>();
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
         if (!File.Exists(path)) return rows;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = GameTables.Open(path);
         int row = 0;
         foreach (var r in d.RootElement.EnumerateArray())
         {
@@ -230,7 +230,7 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
         var nodes = new Dictionary<ushort, Node>();
         if (!File.Exists(path)) return nodes;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = GameTables.Open(path);
         foreach (var r in d.RootElement.EnumerateArray())
         {
             int graphId = r.GetProperty("PassiveSkillGraphId").GetInt32();
@@ -327,8 +327,8 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
         string passivesPath = Path.Combine(folder, "tables", "PassiveSkills.json");
         if (!File.Exists(slotsPath) || !File.Exists(passivesPath))
             return new(bySlot, byNode, large, cluster, [], [], [], [], []);
-        using var slots = JsonDocument.Parse(File.ReadAllBytes(slotsPath));
-        using var passives = JsonDocument.Parse(File.ReadAllBytes(passivesPath));
+        using var slots = GameTables.Open(slotsPath);
+        using var passives = GameTables.Open(passivesPath);
         var rows = passives.RootElement.EnumerateArray().ToArray();
         int slot = 0;
         foreach (var row in slots.RootElement.EnumerateArray())

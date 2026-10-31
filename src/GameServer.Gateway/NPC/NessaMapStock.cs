@@ -22,9 +22,9 @@ static class NessaMapStock
         var result = regular.Select(p => new Entry(p.Type!, ItemCatalog.Create(p.Type!), p.Type!.Name,
             p.Row.GetProperty("Tier").GetInt32())).ToList();
         if (!File.Exists(Table("UniqueMaps")) || !File.Exists(Table("Words")) || !File.Exists(Table("ItemVisualIdentity"))) return result;
-        using var uniques = JsonDocument.Parse(File.ReadAllBytes(Table("UniqueMaps")));
-        using var words = JsonDocument.Parse(File.ReadAllBytes(Table("Words")));
-        using var visuals = JsonDocument.Parse(File.ReadAllBytes(Table("ItemVisualIdentity")));
+        using var uniques = GameTables.Open(Table("UniqueMaps"));
+        using var words = GameTables.Open(Table("Words"));
+        using var visuals = GameTables.Open(Table("ItemVisualIdentity"));
         foreach (var unique in uniques.RootElement.EnumerateArray().GroupBy(r => r.GetProperty("Name").GetString())
             .Select(g => g.First()).OrderBy(r => r.GetProperty("Name").GetString()))
         {

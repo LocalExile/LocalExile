@@ -177,7 +177,7 @@ sealed class NpcCatalog
         string types = Path.Combine(folder, "object-types.json");
         if (File.Exists(types))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(types));
+            using var doc = GameTables.Open(types);
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
                 string type = t.GetProperty("type").GetString()!;
@@ -229,12 +229,12 @@ sealed class NpcCatalog
         string table = Path.Combine(folder, "tables", "NPCTalk.json"), categories = Path.Combine(folder, "tables", "NPCTalkCategory.json");
         if (!File.Exists(table) || !File.Exists(categories)) return [];
         List<string> names;
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(categories)))
+        using (var doc = GameTables.Open(categories))
             names = [.. doc.RootElement.EnumerateArray().Select(c => c.GetProperty("Id").GetString() ?? "")];
         string flagsFile = Path.Combine(folder, "tables", "QuestFlags.json");
         List<string> flags = [];
         if (File.Exists(flagsFile))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(flagsFile)))
+            using (var doc = GameTables.Open(flagsFile))
                 flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
         string? Flag(int row) => row >= 0 && row < flags.Count && flags[row] != "NEVER_SET" ? flags[row] : null;
         var talk = new List<Talk>();

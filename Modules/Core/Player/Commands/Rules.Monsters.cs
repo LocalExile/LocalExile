@@ -19,12 +19,4 @@ static partial class CommandsRules
         return conn.Monsters.Count == 0 ? null : conn.Monsters.Keys.Last();
     }
 
-    // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.
-    internal static (int X, int Y) NextToPlayer(ClientState conn)
-    {
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        foreach (var (dx, dy) in new[] { (3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (-2, -2) })
-            if (conn.Layout.Walkable is not { } w || w(px + dx, py + dy)) return (px + dx, py + dy);
-        return (px, py);
-    }
 }

@@ -31,6 +31,7 @@ $clients = Join-Path $repo 'data\clients'
 $out = Join-Path $repo 'logs'
 New-Item -ItemType Directory -Force $clients, $out | Out-Null
 $ownExe = Join-Path $repo 'Client\Game.patched.exe'
+$configuration = 'Debug'
 $ClientOnly = $true
 $NoClient = $false
 $Only = @()
@@ -88,6 +89,11 @@ try {
     Assert (($script:events -join ',') -eq 'gateway-read,gateway-write,launch:default') "gateway must be selected before a closed client launches: $($script:events -join ',')"
     Assert ($script:gatewayArgs[0] -eq (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll')) 'wrong patch executable'
     Assert (($script:gatewayArgs[1..4] -join '|') -eq ('gateway|' + (Join-Path $repo 'Client\Content.ggpk') + '|--login|127.0.0.1:20493')) 'gateway must target this checkout and local Auth'
+    # A Release stack's client-only run uses its Release Patch tool, including the gateway-list check.
+    $configuration = 'Release'
+    Run
+    Assert ($script:gatewayArgs[0] -eq (Join-Path $repo 'src\GameServer.Patch\bin\Release\net10.0\GameServer.Patch.dll')) 'Release client-only selected a Debug Patch tool'
+    $configuration = 'Debug'
     Assert (($script:checkedPorts -join ',') -eq '12995,20493,6112') "default ports not checked: $($script:checkedPorts -join ',')"
     # A list already pointing at the local Auth is not written again (the GGPK is shared and may be open).
     $script:listed = @('Europe;Local (EU);127.0.0.1:20493;127.0.0.1;false', 'America;Local (US);127.0.0.1:20493;127.0.0.1;false')

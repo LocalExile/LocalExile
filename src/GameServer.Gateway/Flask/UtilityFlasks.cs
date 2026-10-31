@@ -127,16 +127,16 @@ static class UtilityFlasks
         string StatName(JsonElement row) => stats.Name((uint)row.GetInt32() + 1);
 
         var charges = new Dictionary<string, (int Max, int PerUse)>();
-        using (var c = JsonDocument.Parse(File.ReadAllBytes(Table("ComponentCharges"))))
+        using (var c = GameTables.Open(Table("ComponentCharges")))
             foreach (var r in c.RootElement.EnumerateArray())
                 charges.TryAdd(r.GetProperty("BaseItemTypesKey").GetString() ?? "", (r.GetProperty("MaxCharges").GetInt32(), r.GetProperty("PerCharge").GetInt32()));
-        using var buffs = JsonDocument.Parse(File.ReadAllBytes(Table("BuffDefinitions")));
+        using var buffs = GameTables.Open(Table("BuffDefinitions"));
         var buffRows = buffs.RootElement.EnumerateArray().ToList();
         int onslaught = buffRows.FindIndex(b => b.GetProperty("Id").GetString() == OnslaughtBuff);
         ExtraBuff? onslaughtBuff = null;
         if (onslaught >= 0)
         {
-            using var templates = JsonDocument.Parse(File.ReadAllBytes(Table("BuffTemplates")));
+            using var templates = GameTables.Open(Table("BuffTemplates"));
             foreach (var t in templates.RootElement.EnumerateArray())
                 if (t.GetProperty("Id").GetString() == OnslaughtTemplate + (hardMode ? "HardMode" : "")
                     && t.GetProperty("BuffDefinitionsKey") is { ValueKind: JsonValueKind.Number } k && k.GetInt32() == onslaught)
@@ -145,7 +145,7 @@ static class UtilityFlasks
                             .Zip(t.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32()))]);
         }
 
-        using var flasks = JsonDocument.Parse(File.ReadAllBytes(Table("Flasks")));
+        using var flasks = GameTables.Open(Table("Flasks"));
         foreach (var f in flasks.RootElement.EnumerateArray())
         {
             if (f.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } b || b.GetInt32() >= rows.Count
@@ -193,8 +193,11 @@ static class UtilityFlasks
                 : ActorScale.IsInput(s.Stat)
                     ? (int)Math.Clamp(Math.Truncate(Math.Round(s.Value * effect, 2)), int.MinValue, int.MaxValue)
                     : Scale(s.Value, effect)))];
-        // Onslaught has its own effect stat (onslaught_effect_+%), not the flask's.
-        if (u.Extra is { } x) stats.AddRange(x.Stats.Where(s => Applies(s.Stat)).Select(s => new Source($"buff {x.BuffRow}", s.Stat, s.Value)));
+        // A flask's Onslaught scales with the flask's effect modifiers (wiki Silver Flask, Onslaught: since 3.20 Onslaught is
+        // a buff and flask effect applies when a flask grants it), added to the character's increased Onslaught effect.
+        double onslaughtEffect = effect + character("onslaught_effect_+%") / 100.0;
+        if (u.Extra is { } x) stats.AddRange(x.Stats.Where(s => Applies(s.Stat))
+            .Select(s => new Source($"buff {x.BuffRow}", s.Stat, Scale(s.Value, onslaughtEffect))));
         // The flask's "during effect" mods, scaled by increased effect too (poewiki, Quality: increased flask effect
         // improves "any of the mods that the flask has rolled"); flags stay as they are.
         foreach (var (localStat, stat, sign, flag) in DuringEffect)

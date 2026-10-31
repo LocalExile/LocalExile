@@ -43,7 +43,7 @@ static class TeleportTargets
     {
         string file = Path.Combine(folder, $"{area}_seed{seed}.objects.json");
         if (!File.Exists(file)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+        using var doc = GameTables.Open(file);
         if (!doc.RootElement.TryGetProperty("objects", out var objects)) return [];
         var list = new List<Target>();
         foreach (var o in objects.EnumerateArray())

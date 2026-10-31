@@ -3,6 +3,10 @@ using GameServer.Modules.PhreciaAscendancies.Classes.Antiquarian;
 using GameServer.Modules.PhreciaAscendancies.Classes.Aristocrat;
 using GameServer.Modules.PhreciaAscendancies.Classes.Gambler;
 using GameServer.Modules.PhreciaAscendancies.Classes.Behemoth;
+using GameServer.Modules.PhreciaAscendancies.Classes.AncestralCommander;
+using GameServer.Modules.PhreciaAscendancies.Classes.Paladin;
+using GameServer.Modules.PhreciaAscendancies.Classes.Polytheist;
+using GameServer.Modules.PhreciaAscendancies.Classes.Surfcaster;
 
 namespace GameServer.Modules.PhreciaAscendancies;
 
@@ -17,6 +21,10 @@ internal sealed class PhreciaFamilyPolicy : IAscendancyFamilyPolicy
         AntiquarianClass.Descriptor,
         AristocratClass.Descriptor,
         BehemothClass.Descriptor,
+        AncestralCommanderClass.Descriptor,
+        PaladinClass.Descriptor,
+        PolytheistClass.Descriptor,
+        SurfcasterClass.Descriptor,
     ];
 
     static readonly IReadOnlyDictionary<uint, int> GraphSelector =

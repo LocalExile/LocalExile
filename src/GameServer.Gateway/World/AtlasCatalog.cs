@@ -36,8 +36,8 @@ sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
     {
         string nodes = Path.Combine(folder, "tables", "AtlasNode.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
         if (!File.Exists(nodes) || !File.Exists(areas)) return [];
-        using var n = JsonDocument.Parse(File.ReadAllBytes(nodes));
-        using var a = JsonDocument.Parse(File.ReadAllBytes(areas));
+        using var n = GameTables.Open(nodes);
+        using var a = GameTables.Open(areas);
         var result = new List<Layout>();
         foreach (var row in n.RootElement.EnumerateArray())
         {

@@ -27,7 +27,18 @@ using GameServer.Core.Diagnostics;
 
 // `commands`: one JSON line per chat command ({"name", "usage", "args"}) for tools such as the desktop launcher, then
 // exit; nothing starts. `values <kind>`: what an argument of that kind can be ({"value", "detail"}), from the Gateway's
-// own catalogs. Before ServerLog, whose timestamps would break the JSON lines.
+// own catalogs. `crafter`: the item crafter's bases, mods and stat descriptions (ItemCrafter.Catalog,
+// Agents/docs/dev/item-crafter.md). Before ServerLog, whose timestamps would break the JSON lines.
+if (args is ["crafter"])
+{
+    // The catalogs' own load lines would break the JSON.
+    var stdout = Console.Out;
+    Console.SetOut(TextWriter.Null);
+    var lines = ItemCrafter.Catalog(Items, Rolls, Bench, StatDescriptions.Load()).Select(l => l.ToJsonString()).ToList();
+    Console.SetOut(stdout);
+    foreach (string line in lines) Console.WriteLine(line);
+    return 0;
+}
 if (args is ["commands"] or ["values", _])
 {
     // The modules give the commands and the values: their load lines would break the JSON.
@@ -95,7 +106,8 @@ try
 {
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
-    GameData.Open(Saves.Db.Path);
+    // The short-lived parsing thread releases its pooled buffers after startup.
+    GameTables.Isolated(() => GameData.Open(Saves.Db.Path));
     Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
 }
 catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)

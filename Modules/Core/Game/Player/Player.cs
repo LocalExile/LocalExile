@@ -42,7 +42,7 @@ static partial class Game
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        return PanelStats.ManaPerMinute(Get, conn.Pools.Mana) / 60;
+        return PanelStats.ManaPerMinute(PanelStats.WhileMoving(Get, conn.Clock.Elapsed.TotalSeconds < conn.Walk.ArrivesAt), conn.Pools.Mana) / 60;
     }
 
     // The mana the running auras reserve, and what is left for casting and regeneration.
@@ -77,6 +77,15 @@ static partial class Game
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         return conn.EntryProtection.Protects(now, conn.Walk.Position(now));
+    }
+
+    // The player object is in the new area: what starts on it there, the Grace Period and the passives' self buffs (each
+    // area's connection starts without buffs, PassiveBuffAuras).
+    internal static async Task PlayerEnteredArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        conn.PlayerSent = true;
+        await StartGracePeriod(remote, stream, ciphers, conn);
+        await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
     }
 
     internal static async Task StartGracePeriod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -146,6 +155,11 @@ static partial class Game
             ChargesOnDeath(conn);
             ClearBloodChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
+            conn.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
+            conn.SpiritChieftains.End(conn.Clock.Elapsed.TotalSeconds);   // the chieftain minion dies with the player
+            conn.Totems.KillAll(conn.Clock.Elapsed.TotalSeconds);   // and his totems (the tick sends their deaths)
+            // Every "Recently" ends at death, the enemies' "hit by you" and "hit you" recently too.
+            foreach (var monster in conn.Monsters.Values) monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
         }
         foreach (var (id, life) in RecoverBossesOnDeath(conn))
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"boss 0x{id:x} recovers to {life} life after player death");
@@ -256,8 +270,10 @@ static partial class Game
     internal static int? CastMs(ClientState conn, int effect, ushort skillId = 0)
     {
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(conn, skillId).Stats;
-        int speed = CastSpeedPct(CharacterPlayerStats(conn));
+        var player = CharacterPlayerStats(conn);
+        int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
+        speed = FinalCastSpeedPct(conn, player, speed);
         if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed)?.DurationMilliseconds is not int duration) return null;
         // A new action starts at most once per server frame (30/s); channelling repeats are exempt and use their own
         // interval. Keep the fractional tick and round the final wait up to whole milliseconds.
@@ -268,6 +284,18 @@ static partial class Game
     // cast_speed_+% is the total (PanelStats: base_cast_speed_+% and attack_and_cast_speed_+% are already in it).
     internal static int CastSpeedPct(IReadOnlyDictionary<uint, int> stats) =>
         Stats.Key("cast_speed_+%") is uint k ? stats.GetValueOrDefault(k) : 0;
+
+    // Screaming Reels: cast_speed_+%_final_while_holding_fishing_rod is "more" cast speed on the summed increases
+    // (the skill's own included). As the client's cast_speed_+% calculator 0x142709610: round((increased + 100) × final
+    // − 100), at least −99; its combined final (0x142708190) counts the stat only for main_hand_weapon_type 15.
+    // A total of −100% or less keeps its existing refusal.
+    static int FinalCastSpeedPct(ClientState conn, IReadOnlyDictionary<uint, int> stats, int increased)
+    {
+        int more = Stats.Key("cast_speed_+%_final_while_holding_fishing_rod") is uint k ? stats.GetValueOrDefault(k) : 0;
+        if (more == 0 || increased <= -100 || !HoldingFishingRod(conn)) return increased;
+        double total = (100.0 + increased) * Math.Max(0, 100 + more) / 100 - 100;
+        return (int)Math.Clamp(Math.Round(total, MidpointRounding.AwayFromZero), -99, int.MaxValue);
+    }
 
     // Righteous Fire (GrantedEffects RighteousFire): casting it puts the righteous_fire buff (BuffDefinitions row 12: the
     // flames around the player, BuffVisuals 15) on the player with S→C 0x1c1. While it lasts the player burns for 90% of
@@ -364,6 +392,7 @@ static partial class Game
         var criticalContext = CriticalContext(conn);
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
+        bool moving = last < conn.Walk.ArrivesAt;
         while (!conn.Closed && !conn.RageRetired)
         {
             await Task.Delay(PlayerTickMs);
@@ -387,11 +416,17 @@ static partial class Game
             }
             if (conn.ElementalAilments.Snapshot(tickNow) is var nextAilments && nextAilments != ailments)
             {
+                await SendPlayerAilmentBuffs(remote, stream, ciphers, ailments, nextAilments);
                 ailments = nextAilments;
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
             }
             await SendAntiquarian(remote, stream, ciphers, conn);
+            await SendTotems(remote, stream, ciphers, conn);
+            await SendSpiritChieftain(remote, stream, ciphers, conn);
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
+            if (conn.FlaskGrounds.StartTickerIfConfigured()) _ = RunFlaskGrounds(remote, stream, ciphers, conn);
+            await SendAttackerSlows(remote, stream, ciphers, conn);
+            await TickPassiveAuras(remote, stream, ciphers, conn);
             await PushOutOfCollision(remote, stream, ciphers, conn);
             await BurnIgnited(remote, stream, ciphers, conn);
             var rf = conn.RighteousFire;
@@ -409,6 +444,11 @@ static partial class Game
                 suppression = chance;
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [.. SuppressionChanceKeys.Select(k => (k, chance))]),
                     $"0x01b3 player Spell Suppression chance {chance}%");
+            }
+            if (tickNow < conn.Walk.ArrivesAt is var nowMoving && nowMoving != moving)
+            {
+                moving = nowMoving;
+                await SendWhileMovingStats(remote, stream, ciphers, conn);
             }
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
@@ -619,7 +659,7 @@ static partial class Game
                     continue;
                 }
                 if (!rf.Auras.ContainsKey(id)) { rf.Auras[id] = conn.NextBuff; entered.Add((id, conn.NextBuff++)); }
-                var (damage, carry) = MonsterBurn(m, damageOverTime, seconds);   // its mods' fire resistance
+                var (damage, carry) = MonsterBurn(m, damageOverTime, seconds, now);   // its fire resistance, its shock
                 m.Burn = carry;
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
@@ -628,7 +668,9 @@ static partial class Game
                 {
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
+                    ShockOnKillLocked(m, playerStats, now);
                     if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
+                    TriggerElementalRelicLocked(conn, m, hit: false, killed: true);   // a burn is no hit
                 }
                 hits.Add((id, m, m.Life, damage));
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
@@ -727,6 +769,31 @@ static partial class Game
             conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
     }
 
+    // Devout of Garukhan's while-moving evasion and regeneration as finals, again when a walk starts or ends, for a
+    // character with a while-moving stat. The client steps its pools from life/mana_recovery_per_minute and does not
+    // derive them from the raw stats (re/recovery-timing.md), so the panel and that prediction follow the walk.
+    static readonly string[] WhileMovingInputs = ["evasion_rating_+%_while_moving",
+        "life_regeneration_rate_per_minute_%_while_moving", "mana_regeneration_rate_+%_while_moving"];
+    static readonly string[] WhileMovingFinals = ["evasion_rating", "life_recovery_per_minute",
+        "total_life_recovery_per_minute_from_regeneration", "mana_recovery_per_minute", "total_mana_recovery_per_minute_from_regeneration"];
+
+    internal static Task SendWhileMovingStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        !conn.Pools.WhileMovingStats ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
+                var stats = CharacterPlayerStats(conn);
+                // A row the stationary panel omits (no life regeneration) goes as 0, so the client stops predicting it.
+                return PlayerStatsUpdateAtGate(conn, [.. WhileMovingFinals.Select(n => Stats.Key(n)).OfType<uint>()
+                    .Select(k => (k, stats.GetValueOrDefault(k)))]);
+            }
+        });
+
+    // The evasion rating monster attacks roll against: the while-moving rating during a walk (Devout of Garukhan).
+    internal static int PlayerEvasion(ClientState conn, double now) =>
+        now < conn.Walk.ArrivesAt && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
+
     // The death screen's buttons (C→S 0x54). Both hide the screen (0x55 with bit1) and give the player full life; "at
     // checkpoint" revives next to the area's activated waypoint, else at its arrival point (teleport 0x1b7, AreaLayout.Checkpoint),
     // "in town" in the character's last town (an area change;
@@ -811,7 +878,7 @@ static partial class Game
             Skills: [.. SkillsFor(conn).PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn))),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
-            Portrait: WornPortrait(conn));
+            Portrait: WornPortrait(conn), PortraitFrame: conn.PortraitFrame);
         lock (conn.Monsters)
         {
             RefreshVaalSouls(conn);

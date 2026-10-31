@@ -28,6 +28,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   screen), skill effects (the Cosmetics tab's skill slots, picked with C→S 0x1fa, the effect's stats on that skill,
   Righteous Fire's ring and buff visuals, restyled at once while it burns, and the projectile and explosion of
   projectile skills such as Fireball).
+  Portrait frames (the Social Frame slot): a pick is saved and applies at the next login, as the client's own chat line
+  says; the character list shows it at once. Verified live 2026-10-31: the client loaded the `SupporterIconFrame` art at
+  selection and in game, and another player's client in a party; the frame stayed as it was through area changes until
+  the next login, and emptying the slot went back to the default.
   Code: `InstanceMicrotransactions.cs`, `Microtransactions.cs` (`MtxCatalog`, `CosmeticEffects`), Gateway
   (`AnswerMtxRequest`, `PickCosmetic`, `Looks`, `CosmeticStats`), `CharacterSaves.Cosmetics`, `PetObject`,
   `SpawnPets`, `RunPetFollow`, `SkillSlots`.

@@ -21,7 +21,8 @@ sealed class AreaModCatalog(Dictionary<string, Dictionary<string, int>> stats)
         if (!File.Exists(areas) || !File.Exists(mods) || !File.Exists(statsFile)) return new([]);
         try
         {
-            return Parse(File.ReadAllText(areas), File.ReadAllText(mods), File.ReadAllText(statsFile));
+            // On a thread of its own, so the parse buffers (Mods.json) do not stay pooled (GameTables.Isolated).
+            return GameTables.Isolated(() => Parse(File.ReadAllText(areas), File.ReadAllText(mods), File.ReadAllText(statsFile)));
         }
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
         {

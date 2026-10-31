@@ -62,7 +62,7 @@ sealed class MonsterCatalog(string folder = "data")
     {
         string path = Path.Combine(folder, "monster-takehit.json");
         if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         var result = new Dictionary<string, HitAnimation[]>();
         foreach (var p in doc.RootElement.EnumerateObject())
         {
@@ -113,7 +113,8 @@ sealed class MonsterCatalog(string folder = "data")
     public static int LifeWithRarity(int baseLife, MonsterRarity rarity) => (int)((long)baseLife * (100 + RarityLifePct(rarity)) / 100);
 
     /// <summary>
-    /// A monster's hit at this level, before mods: DefaultMonsterStats row level − 1 `Damage` × DamageMultiplier / 100
+    /// A monster's hit at this level, before mods: DefaultMonsterStats row level − 1 `Damage` (`MinionDamage` for an
+    /// IsPlayerMinion type, as PoB's monsterAllyDamageTable for non-hostile minions) × DamageMultiplier / 100
     /// × the attack time in seconds (unless its MonsterTypes row has BaseDamageIgnoresAttackSpeed, as Path of Building
     /// does), spread ± MonsterTypes `DamageSpread` percent (20 without one). Hillock at level 1: 4.99 × 1.01 × 1.65 = 8.3,
     /// spread 30%. Null when the tables are missing.
@@ -122,7 +123,8 @@ sealed class MonsterCatalog(string folder = "data")
     {
         if (_life.Value is not { } t || level < 1 || level > t.Levels.Count) return null;
         var type = v.MonsterType >= 0 && v.MonsterType < t.Types.Count ? t.Types[v.MonsterType] : default;
-        double d = t.Levels[level - 1].Damage * v.DamageMultiplier / 100.0 * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
+        var row = t.Levels[level - 1];
+        double d = (type.Minion ? row.MinionDamage : row.Damage) * v.DamageMultiplier / 100.0 * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
         double spread = (type.DamageSpread > 0 ? type.DamageSpread : 20) / 100.0;
         return (Math.Max(1, (int)Math.Round(d * (1 - spread))), Math.Max(1, (int)Math.Round(d * (1 + spread))));
     }
@@ -169,7 +171,7 @@ sealed class MonsterCatalog(string folder = "data")
         _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].EvasiveEvasion : null;
 
     private sealed record LifeTables(List<(int MonsterLife, int MinionLife, int AltLife1, int AltLife2, double Damage,
-        int Experience, int Accuracy, int Evasion, int EvasiveEvasion)> Levels,
+        int Experience, int Accuracy, int Evasion, int EvasiveEvasion, double MinionDamage)> Levels,
         List<(bool Minion, bool AltLife1, bool AltLife2, int DamageSpread, bool IgnoresAttackSpeed)> Types)
     {
         public static LifeTables? Load(string folder)
@@ -182,7 +184,7 @@ sealed class MonsterCatalog(string folder = "data")
                 [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("MonsterLife").GetInt32(), r.GetProperty("MinionLife").GetInt32(),
                     r.GetProperty("AltLife1").GetInt32(), r.GetProperty("AltLife2").GetInt32(), r.GetProperty("Damage").GetDouble(),
                     r.GetProperty("Experience").GetInt32(), r.GetProperty("Accuracy").GetInt32(), r.GetProperty("Evasion").GetInt32(),
-                    r.GetProperty("EvasiveEvasion").GetInt32()))],
+                    r.GetProperty("EvasiveEvasion").GetInt32(), r.GetProperty("MinionDamage").GetDouble()))],
                 [.. t.RootElement.EnumerateArray().Select(r => (r.GetProperty("IsPlayerMinion").GetBoolean(), r.GetProperty("AltLife1").GetBoolean(),
                     r.GetProperty("AltLife2").GetBoolean(),
                     r.TryGetProperty("DamageSpread", out var spread) && spread.ValueKind == JsonValueKind.Number ? spread.GetInt32() : 0,
@@ -224,7 +226,7 @@ sealed class MonsterCatalog(string folder = "data")
         string types = Path.Combine(folder, "object-types.json");
         if (File.Exists(types))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(types));
+            using var doc = GameTables.Open(types);
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
                 int read = t.GetProperty("read").GetInt32();
@@ -292,8 +294,8 @@ sealed class MonsterCatalog(string folder = "data")
         string classes = Path.Combine(folder, "tables", "ItemClasses.json");
         string bases = Path.Combine(folder, "tables", "BaseItemTypes.json");
         if (!File.Exists(classes) || !File.Exists(bases)) return [];
-        using var c = JsonDocument.Parse(File.ReadAllBytes(classes));
-        using var b = JsonDocument.Parse(File.ReadAllBytes(bases));
+        using var c = GameTables.Open(classes);
+        using var b = GameTables.Open(bases);
         var rangedClasses = c.RootElement.EnumerateArray().Select((row, index) => (row, index))
             .Where(p => p.row.GetProperty("Id").GetString() is "Bow" or "Wand").Select(p => p.index).ToHashSet();
         return b.RootElement.EnumerateArray()

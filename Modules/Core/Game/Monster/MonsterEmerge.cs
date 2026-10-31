@@ -191,7 +191,7 @@ sealed class MonsterEmerge(string folder = "data")
     {
         string path = Path.Combine(folder, "object-types.json");
         if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         var types = new Dictionary<string, EmergeKind>();
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             if (KindOf(t) is var kind and not EmergeKind.None)
@@ -204,7 +204,7 @@ sealed class MonsterEmerge(string folder = "data")
     {
         string path = Path.Combine(folder, "monster-takehit.json");
         if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         var clips = new Dictionary<string, double>();
         foreach (var p in doc.RootElement.EnumerateObject())
             if (p.Value.ValueKind == JsonValueKind.Object && p.Value.TryGetProperty("emerge", out var e) && e.ValueKind == JsonValueKind.Object

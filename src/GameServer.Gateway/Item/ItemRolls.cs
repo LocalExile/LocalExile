@@ -22,6 +22,9 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     public sealed record Word(uint Key, string Text, int List, IReadOnlyList<(string Tag, int Weight)> SpawnWeights);
 
     private readonly Lazy<List<Word>> _words = new(() => LoadWords(folder));
+
+    /// <summary>Words.dat: rare name words (lists 1 and 2) and the other lists.</summary>
+    public IReadOnlyList<Word> Words => _words.Value;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Lazy<Dictionary<(int Class, int Influence), string>> _influenceTags = new(() => LoadInfluenceTags(folder));
 

@@ -89,6 +89,10 @@ sealed class CosmeticEffects(string folder = "data")
         /// <summary>A portrait's variation (MicrotransactionCharacterPortraitVariations <c>__col1</c>), 0 otherwise: the
         /// Player component's u16 at +0x1aa and the character list's U46.</summary>
         public ushort Portrait { get; init; }
+
+        /// <summary>A portrait frame's variation (MicrotransactionSocialFrameVariations <c>Index</c>), 0 otherwise: the
+        /// client draws <c>Art/2DArt/UIImages/Common/MTX/SupporterIconFrame{Frame}</c> around the portrait.</summary>
+        public ushort Frame { get; init; }
     }
 
     public sealed record SkillRestriction(int SlotType, IReadOnlyList<int> Gems, IReadOnlyList<int> Classes);
@@ -169,6 +173,10 @@ sealed class CosmeticEffects(string folder = "data")
             if (Int(row, "MtxTypeGameSpecific") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
                 && Int(row, "__col1") is int variation and > 0 and <= ushort.MaxValue)
                 effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { Portrait = (ushort)variation };
+        foreach (var row in Rows(Path.Combine(dir, "MicrotransactionSocialFrameVariations.json")))
+            if (Int(row, "MtxTypeGameSpecific") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
+                && Int(row, "Index") is int frame and > 0 and <= ushort.MaxValue)
+                effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { Frame = (ushort)frame };
         foreach (var row in Rows(Path.Combine(dir, "MicrotransactionSlot.json")))
             if (Int(row, "Id") is int id and > 0 and < InstanceMicrotransactions.SlotCount)
                 slots[(byte)id] = new Slot(row.TryGetProperty("Name", out var n) ? n.GetString() ?? "" : "",
@@ -182,7 +190,7 @@ sealed class CosmeticEffects(string folder = "data")
         var types = new Dictionary<string, (IReadOnlyList<string>?, StateMachineData?)>();
         string path = Path.Combine(folder, "object-types.json");
         if (!File.Exists(path)) return types;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
         {
             string type = t.GetProperty("type").GetString() ?? "";

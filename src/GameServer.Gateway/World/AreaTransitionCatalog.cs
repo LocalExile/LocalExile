@@ -262,7 +262,7 @@ static class AreaTransitionCatalog
         if (!File.Exists(file)) return null;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            using var doc = GameTables.Open(file);
             var types = new Dictionary<string, List<string>>();
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
                 types[t.GetProperty("type").GetString()!] =
@@ -329,7 +329,8 @@ static class AreaTransitionCatalog
         try
         {
             using var stream = File.OpenRead(AtlasFile);
-            var file = JsonSerializer.Deserialize<AtlasFileData>(stream, Json);
+            // On a thread of its own: the reader's 56 MB of pooled buffers go with it (GameTables.Isolated).
+            var file = GameTables.Isolated(() => JsonSerializer.Deserialize<AtlasFileData>(stream, Json));
             var areas = new Dictionary<ushort, AtlasArea>();
             foreach (var a in file?.Areas ?? []) areas.TryAdd(a.Hash16, a);
             Console.WriteLine($"[gateway] atlas: {areas.Count} areas from {AtlasFile}");

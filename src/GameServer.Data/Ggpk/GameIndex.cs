@@ -14,9 +14,10 @@ public sealed class GameIndex
 {
     private const int FileRecordSize = 20; // u64 hash + i32 bundleIdx + i32 offset + i32 size
 
+    // The file records sorted by path hash (records of one hash in their index order), searched by halving: a
+    // Dictionary of 1.2 million hashes took another 39 MB beside the records.
     private readonly byte[] _filesInfo;
     private readonly string[] _bundleFiles;
-    private readonly Dictionary<ulong, int> _byHash;
 
     public int FileCount { get; }
     public IReadOnlyList<string> BundleFiles => _bundleFiles;
@@ -29,16 +30,41 @@ public sealed class GameIndex
 
     private GameIndex(byte[] filesInfo, string[] bundleFiles, int fileCount)
     {
-        _filesInfo = filesInfo;
         _bundleFiles = bundleFiles;
         FileCount = fileCount;
 
-        _byHash = new Dictionary<ulong, int>(fileCount);
+        var hashes = new ulong[fileCount];
+        var order = new int[fileCount];
         for (int i = 0; i < fileCount; i++)
         {
-            ulong h = BinaryPrimitives.ReadUInt64LittleEndian(_filesInfo.AsSpan(i * FileRecordSize, 8));
-            _byHash.TryAdd(h, i);
+            hashes[i] = BinaryPrimitives.ReadUInt64LittleEndian(filesInfo.AsSpan(i * FileRecordSize, 8));
+            order[i] = i;
         }
+        Array.Sort(hashes, order);
+        // Equal hashes keep their index order, so a lookup finds the first record of a hash (as TryAdd kept it).
+        for (int start = 0, end; start < fileCount; start = end)
+        {
+            for (end = start + 1; end < fileCount && hashes[end] == hashes[start]; end++) { }
+            if (end - start > 1) Array.Sort(order, start, end - start);
+        }
+        _filesInfo = new byte[fileCount * FileRecordSize];
+        for (int i = 0; i < fileCount; i++)
+            filesInfo.AsSpan(order[i] * FileRecordSize, FileRecordSize).CopyTo(_filesInfo.AsSpan(i * FileRecordSize));
+    }
+
+    private ulong HashAt(int record) => BinaryPrimitives.ReadUInt64LittleEndian(_filesInfo.AsSpan(record * FileRecordSize, 8));
+
+    // The first record with this hash, or -1.
+    private int Find(ulong hash)
+    {
+        int lo = 0, hi = FileCount;
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (HashAt(mid) < hash) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo < FileCount && HashAt(lo) == hash ? lo : -1;
     }
 
     public static GameIndex Parse(byte[] indexContent)
@@ -130,7 +156,8 @@ public sealed class GameIndex
     public bool TryGetFile(string path, out FileLocation location)
     {
         ulong h = MurmurHash64A.Hash(Encoding.UTF8.GetBytes(path.ToLowerInvariant()));
-        if (!_byHash.TryGetValue(h, out int record))
+        int record = Find(h);
+        if (record < 0)
         {
             location = default;
             return false;

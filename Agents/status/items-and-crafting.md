@@ -107,6 +107,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   mod lists in the Mods component; new items roll their BaseItemTypes implicits (Driftwood Wand 8-12% increased Spell
   Damage); magic names come from the affixes; rarity and mods are saved with the item (characters and stash);
   `/item_mod`, `/item_mod set`, `/item_mods`, `/rarity`, `/sockets` (colours and links, e.g. `/sockets RRGBBB`) on the held item;
+  `/item_give <JSON>` makes a whole item (base, rarity, mods with values, states, sockets, rare name) for tools such as
+  the launcher's item crafter ([item-crafter.md](../docs/dev/item-crafter.md));
   `Game_SOCKET_CAPACITY=1..6` (dev) lets `/sockets` give any socketable base that many, e.g. a 6-link wand (its own
   capacity is 3).
   Magic and rare items: affixes rolled from Mods.dat by domain, item level, the item's tags and families, rare names

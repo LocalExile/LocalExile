@@ -66,6 +66,8 @@ static class GameEvents
     public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
     /// <summary>A currency used; true when it was this module's.</summary>
     public static readonly GameEvent<Func<ClientState, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
+    /// <summary>A warcry with open_nearby_chests_on_warcry went off: a module opens its chests within the radius (cells).</summary>
+    public static readonly GameEvent<Func<ClientState, (int X, int Y), int, Task>> ChestsOpened = new();
 
     public static async Task<bool> AnyNpcTalk(ClientState conn, uint id, SpawnedNpc npc)
     {
@@ -131,6 +133,11 @@ static class GameEvents
     {
         foreach (var run in InventoryPlace.For(conn)) if (await run(conn, place)) return true;
         return false;
+    }
+
+    public static async Task RunChestsOpened(ClientState conn, (int X, int Y) at, int radius)
+    {
+        foreach (var run in ChestsOpened.For(conn)) await run(conn, at, radius);
     }
 
     public static async Task RunNpcDialogueClosing(ClientState conn)

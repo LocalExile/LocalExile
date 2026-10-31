@@ -187,6 +187,20 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         }
     }
 
+    /// <summary>Records the character's worn portrait frame (0 = the default), found by name.</summary>
+    public Result<Character> SetPortraitFrame(string characterName, ushort frame)
+    {
+        lock (_gate)
+        {
+            var c = store.FindCharacter(characterName);
+            if (c is null) return Result<Character>.Fail(AuthError.NotFound);
+            if (c.PortraitFrame == frame) return Result<Character>.Success(c);
+            var u = c with { PortraitFrame = frame };
+            store.UpdateCharacter(u);
+            return Result<Character>.Success(u);
+        }
+    }
+
     /// <summary>Records the last town a character entered (a WorldAreas Id), found by name.</summary>
     public Result<Character> SetLastTown(string characterName, string townId)
     {

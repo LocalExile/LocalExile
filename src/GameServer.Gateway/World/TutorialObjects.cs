@@ -50,7 +50,7 @@ static class TutorialObjects
     }
     public static Placement? ChestAt(AreaPopulation.RoomPoint point,string folder="data")
     {
-        using var doc=JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder,"tables","Chests.json")));
+        using var doc=GameTables.Open(Path.Combine(folder,"tables","Chests.json"));
         foreach(var row in doc.RootElement.EnumerateArray())
             if(row.GetProperty("Id").GetString()==Chest && row.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString() is {Length:>0} model)
                 return new(Chest,model,point.X,point.Y,point.Angle);
