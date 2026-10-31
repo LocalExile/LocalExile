@@ -46,7 +46,7 @@ static partial class Game
         int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
         double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
-        double delay = attack ? AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false)
+        double delay = attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false))
             : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
         int epoch = conn.ProjectileEpoch;
         session.Schedule(ProjectileRuntime.Time(acceptedAt + delay),

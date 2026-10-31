@@ -103,6 +103,14 @@ static partial class Game
         (double.TryParse(Environment.GetEnvironmentVariable("Game_HIT_OFFSET_MS"), System.Globalization.CultureInfo.InvariantCulture, out var hitOff)
             && double.IsFinite(hitOff) ? hitOff : 150) / 1000.0;
 
+    // How much earlier than its contact an attack's server-created projectile is released. The client started the clip
+    // before the server read the action, and the release then waits for a 30 Hz tick and the output queue: Frida
+    // 2026-10-31 had Burning Arrow's object about 75 ms after the client's flash at the contact, the default arrow about
+    // 50 ms after the contact. Game_RELEASE_LEAD_MS overrides it; a value that is not a finite number keeps the default.
+    internal static double AttackReleaseDelay(double contactDelay) => Math.Max(0, contactDelay
+        - (double.TryParse(Environment.GetEnvironmentVariable("Game_RELEASE_LEAD_MS"), System.Globalization.CultureInfo.InvariantCulture, out var lead)
+            && double.IsFinite(lead) ? lead : 60) / 1000.0);
+
     // The attack's contact time in seconds (AttackTiming.ContactDelay): the attack time scaled to the active weapon's attack1
     // contact keyframe, plus the walk-in offset for an attack that approached its target first, and always before the next
     // attack may start (which would cancel the hit).
