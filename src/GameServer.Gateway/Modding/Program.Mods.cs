@@ -36,7 +36,7 @@ partial class Program
             throw new InvalidOperationException($"The Standard league is required: no {Path.Combine(LeaguesFolder, LeagueCatalog.Standard, ModHost.LeagueManifestFile)}");
         foreach (string error in leagues.Errors) Console.WriteLine($"[leagues] not loaded: {error}");
         foreach (var league in leagues.Loaded)
-            foreach (string path in league.Modules.Concat(league.DisabledModules))
+            foreach (string path in league.Modules)
                 if (!File.Exists(Path.Combine(ModulesFolder, path, ModHost.ModuleManifestFile)))
                     Console.WriteLine($"[leagues] {league.Name}'s modules.json lists {path}: no such module in {ModulesFolder}/");
         Console.WriteLine($"[leagues] loaded: {string.Join(", ", leagues.Loaded.Select(l => l.Name + (l.Ended ? " (ended)" : "")))}");

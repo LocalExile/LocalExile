@@ -1,5 +1,5 @@
 {
-  "enabled": [
+  "modules": [
     "Core/Content/Delve",
     "Core/Content/Harvest",
     "Core/Content/Heist",
@@ -18,6 +18,5 @@
     "Core/World/Portals",
     "Core/World/QuestObjects",
     "Ruthless"
-  ],
-  "disabled": []
+  ]
 }

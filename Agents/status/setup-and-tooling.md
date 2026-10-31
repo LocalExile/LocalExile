@@ -50,7 +50,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
   Leagues ([modules](../docs/dev/modules.md)) are folders in `Leagues/`, read once at start: cards and check boxes as in the real create screen, a parent to migrate to, Void, and
-  modules listed per league in its `modules.json`, enabled or disabled. Characters of a deleted or ended league cannot be entered.
+  modules listed per league in its `modules.json`. Characters of a deleted or ended league cannot be entered.
   Not tried in the client: a blocked character.
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, Mercy Mission, quest objects, hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout

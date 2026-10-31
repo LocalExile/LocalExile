@@ -37,7 +37,7 @@ public sealed class LeagueFolderTests : IDisposable
         League("Void", "{ }");
         League("Good", """{ "parent": "Void" }""");
         League("Lost", """{ "parent": "Gone" }""");
-        League("Twice", """{ "parent": "Standard" }""", """{ "enabled": ["a"], "disabled": ["a"] }""");
+        League("Twice", """{ "parent": "Standard" }""", """{ "modules": ["a", "a"] }""");
         var leagues = LeagueCatalog.FromFolder(_folder);
         Assert.Equal(["Good", "Standard", "Void"], leagues.Loaded.Select(l => l.Name).Order());
         Assert.Equal(2, leagues.Errors.Count);

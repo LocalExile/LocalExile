@@ -143,7 +143,7 @@ every 0x1b with 0x1c, whose u32 must carry idle HNC bytes: see [07](07-latency-v
 
 ## 8. Our Gateway
 
-`src/GameServer.Gateway/Program.Connection.cs` (`HandleAsync`), per connection. `Program` is one partial class split by feature: `Program.cs` holds the startup and the shared constants and catalogs, `Program.<Feature>.cs` the handlers (`Messages` the C→S dispatch, `Combat`, `Monsters`, `Items`, `Stash`, `Npcs`, `Travel`, `Portals`, `Commands` …), `ClientState.cs` the per-connection state:
+`src/GameServer.Gateway/Connection/Program.Connection.cs` (`HandleAsync`), per connection. `Program` is one partial class split by feature: `Program.cs` holds the startup and the shared constants and catalogs, `Program.<Feature>.cs` the handlers (`Messages` the C→S dispatch, `Combat`, `Monsters`, `Items`, `Stash`, `Npcs`, `Travel`, `Portals`, `Commands` …), `ClientState.cs` the per-connection state:
 
 1. read until `TryReadOpening` succeeds (30 bytes) → `keyring.Ciphers(opening.Ticket)`
 2. send `00 11` plaintext

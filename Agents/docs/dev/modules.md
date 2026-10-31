@@ -39,16 +39,15 @@ removed while it runs. A connection is in one league, and only that league's mod
 | `creatable: false` | not on the create screen (Void) |
 | `dataSet` | `HardMode`: the game files' HardMode tables |
 
-Beside `league.json`, `modules.json` lists the modules the league knows of, Core ones too, as paths under `Modules/`, and nothing is implied: only what is under `enabled` runs for its players.
+Beside `league.json`, `modules.json` lists the modules the league loads, Core ones too, as paths under `Modules/`. Nothing is implied: what is not listed does not run for its players.
 
 ```json
 {
-  "enabled": ["Core/Game", "Core/Player/Commands", "Core/NPC/Vendors", "Ruthless"],
-  "disabled": ["Core/Content/Harvest", "Core/Content/Heist"]
+  "modules": ["Core/Game", "Core/Player/Commands", "Core/NPC/Vendors", "Ruthless"]
 }
 ```
 
-A league with no `modules.json`, or a module listed twice, does not load. A new module goes in each league's file. Every league that can be played enables `Core/Game`. The Gateway logs a listed path with no module.
+A league with no `modules.json`, or a module listed twice, does not load. Every league that can be played lists `Core/Game`. The Gateway logs a listed path with no module.
 
 - **Standard** is required: the Gateway refuses to start without it. Its modules change like any league's.
 - **Void** has no modules and cannot be created in. Its characters are listed and cannot be entered. A custom event league can have it as parent,
@@ -76,7 +75,7 @@ One copy of a module runs for every league listing it, since one connection is i
 - **Hot reload:** a new build in `bin/`, an edited `module.json`, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
-- **To make one:** copy `Modules/Core/Content/Heist/`, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` and `GameServer.Gateway.csproj` for internals, and list it in every league's `modules.json`.
+- **To make one:** copy `Modules/Core/Content/Heist/`, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` and `GameServer.Gateway.csproj` for internals, and list it in the `modules.json` of the leagues that want it.
 
 ## What a module sees
 

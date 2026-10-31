@@ -49,7 +49,7 @@ static class ServerLeagues
     /// <summary>A league's modules, by id: its modules.json lists paths under Modules/, and a module's id is its folder's name.</summary>
     public static IReadOnlySet<string> ModulesOf(League league) => league.Modules.Select(path => Path.GetFileName(path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Every module any loaded league enables, and the game itself: the others do not load.</summary>
+    /// <summary>Every module any loaded league lists, and the game itself: the others do not load.</summary>
     public static IReadOnlySet<string> Wanted(LeagueCatalog leagues) =>
         leagues.Loaded.SelectMany(ModulesOf).Append(GameModule).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
