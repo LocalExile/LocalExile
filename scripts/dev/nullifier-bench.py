@@ -2,27 +2,45 @@
 log in, play a character, stand in town, measure it with nullifier-measure.ps1, then prove the bridge (slash commands,
 chat, /tp, waypoint travel, /goto back) and measure again. The client and the launcher are closed at the end.
 
-    .venv/Scripts/python.exe scripts/dev/nullifier-bench.py --label null --patch-port 22095 --login-port 22093 \
+    .venv/Scripts/python.exe scripts/dev/nullifier-bench.py --label preset --patch-port 22095 --login-port 22093 \
         --travel -- --renderer configured
 
-Everything after `--` goes to nullifier.py. The servers must run on the given ports with their logs in this checkout's
-logs/ (client_control reads slash-command replies from logs/live-gateway.log). It refuses to launch when free commit is
-below --min-free-gb, or while --lock names a live process (the lock is created with this pid and removed at the end).
+Everything after `--` goes to nullifier.py (the client runs in data/clients/<--session>/, default "bench"). The
+servers must run on the given ports with their logs in this checkout's logs/ (client_control reads slash-command
+replies from logs/live-gateway.log).
+
+Safety: it refuses to launch when free commit is below --min-free-gb or free RAM below --min-free-ram-gb, or while
+--lock exists (created atomically with this pid; a lock in any other format counts as held). A watchdog kills this
+run's client, and only it (through the handle opened when it started, checked against its creation time), when free
+commit falls below --watch-commit-gb or free RAM below --watch-ram-gb. Every bridge call times out. The user's
+Documents/My Games/Path of Exile/poeoffline_Config.ini is checked unchanged afterwards.
 The password comes from Game_BENCH_PASSWORD or the setup's data/offline-login.txt; it is never printed.
 """
 import argparse
 import ctypes
+from ctypes import wintypes
 import datetime
 import json
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
 MEASURE = ROOT / "scripts" / "dev" / "nullifier-measure.ps1"
+USER_SETTINGS = Path(os.path.expanduser("~")) / "Documents" / "My Games" / "Path of Exile" / "poeoffline_Config.ini"
 COAST = 0x7ad2  # WorldAreas 1_1_2 HASH16, a waypoint next to Lioneye's Watch
+
+kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+HANDLE, DWORD, BOOL = wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL
+for name, args, result in [("OpenProcess", [DWORD, BOOL, DWORD], HANDLE), ("CloseHandle", [HANDLE], BOOL),
+                           ("TerminateProcess", [HANDLE, wintypes.UINT], BOOL),
+                           ("WaitForSingleObject", [HANDLE, DWORD], DWORD),
+                           ("GetProcessTimes", [HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4, BOOL)]:
+    getattr(kernel, name).argtypes, getattr(kernel, name).restype = args, result
 
 
 class MemoryStatus(ctypes.Structure):
@@ -31,20 +49,71 @@ class MemoryStatus(ctypes.Structure):
                                                   "availVirt", "availExt")]
 
 
-def free_commit_gb():
+def free_gb():
+    """(free commit, free physical RAM) in GB."""
     status = MemoryStatus(); status.dwLength = ctypes.sizeof(status)
     ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
-    return status.availCommit / 2**30
+    return status.availCommit / 2**30, status.avail / 2**30
 
 
-def alive(pid):
-    kernel = ctypes.windll.kernel32
-    handle = kernel.OpenProcess(0x1000, False, pid)
+def alive_pid(pid):
+    handle = kernel.OpenProcess(0x1000 | 0x00100000, False, pid)  # QUERY_LIMITED_INFORMATION | SYNCHRONIZE
     if not handle:
         return False
-    code = ctypes.c_ulong()
-    kernel.GetExitCodeProcess(handle, ctypes.byref(code)); kernel.CloseHandle(handle)
-    return code.value == 259
+    try:
+        return kernel.WaitForSingleObject(handle, 0) == 0x102
+    finally:
+        kernel.CloseHandle(handle)
+
+
+class Client:
+    """A handle to the launched client, opened once and checked against the creation time nullifier.py reported."""
+
+    def __init__(self, pid, started):
+        self.handle = kernel.OpenProcess(0x0001 | 0x1000 | 0x00100000, False, pid)
+        if not self.handle:
+            raise RuntimeError(f"cannot open client {pid}")
+        times = [wintypes.FILETIME() for _ in range(4)]
+        kernel.GetProcessTimes(self.handle, *(ctypes.byref(t) for t in times))
+        if (times[0].dwHighDateTime << 32 | times[0].dwLowDateTime) != started:
+            kernel.CloseHandle(self.handle); self.handle = None
+            raise RuntimeError(f"pid {pid} is not the launched client")
+        self.pid = pid
+
+    def alive(self):
+        return self.handle is not None and kernel.WaitForSingleObject(self.handle, 0) == 0x102
+
+    def kill(self):
+        if self.alive():
+            kernel.TerminateProcess(self.handle, 1)
+
+
+def take_lock(path):
+    """Create the lock atomically; an existing lock is held unless it is ours-format with a dead pid."""
+    path = Path(path)
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            words = path.read_text(encoding="utf-8", errors="replace").split()
+            if len(words) >= 2 and words[0] == "nullifier-bench" and words[1].isdigit() and not alive_pid(int(words[1])):
+                path.unlink()  # a dead run of this script left it
+                continue
+            raise SystemExit(f"lock held: {' '.join(words) or '(empty)'}")
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(f"nullifier-bench {os.getpid()} {datetime.datetime.now().isoformat()}\n")
+        return
+    raise SystemExit("could not take the lock")
+
+
+def release_lock(path):
+    path = Path(path)
+    try:
+        words = path.read_text(encoding="utf-8", errors="replace").split()
+    except OSError:
+        return
+    if words[:2] == ["nullifier-bench", str(os.getpid())]:
+        path.unlink()
 
 
 def password():
@@ -62,49 +131,79 @@ def main():
     parser.add_argument("--label", required=True)
     parser.add_argument("--patch-port", type=int, required=True)
     parser.add_argument("--login-port", type=int, required=True)
+    parser.add_argument("--session", default="bench", help="the client's folder data/clients/<SESSION>/")
     parser.add_argument("--account", default="offline")
     parser.add_argument("--character", default="OfflineWitch")
     parser.add_argument("--seconds", type=int, default=60, help="town measurement length")
     parser.add_argument("--travel", action="store_true", help="also waypoint to The Coast and /goto back")
-    parser.add_argument("--min-free-gb", type=float, default=12)
+    parser.add_argument("--min-free-gb", type=float, default=3, help="free commit needed to launch")
+    parser.add_argument("--min-free-ram-gb", type=float, default=8, help="free physical RAM needed to launch")
+    parser.add_argument("--watch-commit-gb", type=float, default=1.5, help="kill the client below this free commit")
+    parser.add_argument("--watch-ram-gb", type=float, default=4, help="kill the client below this free RAM")
+    parser.add_argument("--rpc-timeout", type=float, default=120, help="seconds a bridge call may take")
     parser.add_argument("--lock", type=Path, help="lock file shared by agents that launch extra clients")
     parser.add_argument("--out", type=Path, default=ROOT / "logs" / "nullifier" / "bench.jsonl")
     options = parser.parse_args(sys.argv[1:split])
     passthrough = sys.argv[split + 1:]
 
-    if options.lock and options.lock.exists():
-        words = options.lock.read_text(encoding="utf-8", errors="replace").split()
-        if len(words) > 1 and words[1].isdigit() and alive(int(words[1])):
-            raise SystemExit(f"lock held: {' '.join(words)}")
-    free = free_commit_gb()
-    if free < options.min_free_gb:
-        raise SystemExit(f"free commit {free:.1f} GB < {options.min_free_gb} GB: not launching")
-    options.out.parent.mkdir(parents=True, exist_ok=True)
+    commit, ram = free_gb()
+    if commit < options.min_free_gb or ram < options.min_free_ram_gb:
+        raise SystemExit(f"free commit {commit:.1f} GB / RAM {ram:.1f} GB below {options.min_free_gb} / "
+                         f"{options.min_free_ram_gb} GB: not launching")
     if options.lock:
-        options.lock.write_text(f"nullifier-bench {os.getpid()} {datetime.datetime.now().isoformat()}\n", encoding="utf-8")
+        take_lock(options.lock)
+    options.out.parent.mkdir(parents=True, exist_ok=True)
+    settings_before = USER_SETTINGS.stat().st_mtime_ns if USER_SETTINGS.exists() else None
     log = lambda *a: print(datetime.datetime.now().strftime("%H:%M:%S"), *a, flush=True)  # noqa: E731
     record = lambda value: options.out.open("a", encoding="utf-8").write(json.dumps(value) + "\n")  # noqa: E731
-    launcher = pid = None
+    launcher = client = None
+    stop = threading.Event()
     try:
         launcher = subprocess.Popen(
-            [sys.executable, str(ROOT / "scripts" / "dev" / "nullifier.py"), "--patch-port", str(options.patch_port),
-             "--login-port", str(options.login_port), "--stdio", *passthrough],
+            [sys.executable, str(ROOT / "scripts" / "dev" / "nullifier.py"), "--session", options.session,
+             "--patch-port", str(options.patch_port), "--login-port", str(options.login_port), "--stdio",
+             "--frame-stats", *passthrough],
             cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
-        started = json.loads(launcher.stdout.readline())
-        pid = started["result"]["pid"]
+        lines = queue.Queue()
+        def reader():
+            for line in launcher.stdout:
+                lines.put(line)
+            lines.put(None)
+        threading.Thread(target=reader, daemon=True).start()
+
+        def read():
+            line = lines.get(timeout=options.rpc_timeout)
+            if line is None:
+                raise RuntimeError("the launcher ended")
+            return json.loads(line)
+
+        started = read()
+        if not started.get("ok"):
+            raise RuntimeError(f"launch failed: {started}")
+        client = Client(started["result"]["pid"], started["result"]["started"])
         log("launched", json.dumps(started["result"]))
+
+        def watchdog():
+            while not stop.wait(2):
+                commit, ram = free_gb()
+                if (commit < options.watch_commit_gb or ram < options.watch_ram_gb) and client.alive():
+                    client.kill()
+                    log(f"WATCHDOG: free commit {commit:.1f} GB, RAM {ram:.1f} GB: killed this run's client")
+                    record({"label": options.label, "watchdog": {"commitGB": round(commit, 2), "ramGB": round(ram, 2)}})
+        threading.Thread(target=watchdog, daemon=True).start()
 
         def rpc(request, show=True):
             launcher.stdin.write(json.dumps(request) + "\n"); launcher.stdin.flush()
-            result = json.loads(launcher.stdout.readline())
+            result = read()
             if show:
                 log(request["command"], request.get("text", request.get("area", "")), "->", json.dumps(result)[:400])
             return result
 
         def measure(label, seconds):
-            text = subprocess.check_output(["powershell", "-NoProfile", "-File", str(MEASURE), "-ProcessId", str(pid),
-                                            "-Seconds", str(seconds), "-Label", label], text=True).strip()
-            stats = rpc({"command": "nullifier:stats"})["result"]
+            text = subprocess.check_output(["powershell", "-NoProfile", "-File", str(MEASURE), "-ProcessId",
+                                            str(client.pid), "-Seconds", str(seconds), "-Label", label],
+                                           text=True, timeout=seconds + 60).strip()
+            stats = rpc({"command": "nullifier:stats"}, show=False)["result"]
             value = {**json.loads(text), "frames": stats, "options": started["result"]["options"]}
             record(value); log("measured", json.dumps(value))
             return value
@@ -119,9 +218,9 @@ def main():
             # The bridge gives up when no frame comes for 5 s (a long area load); keep watching for 90 s.
             for _ in range(90):
                 time.sleep(1)
-                frames = rpc({"command": "nullifier:stats"}, show=False).get("result")
+                if not client.alive():
+                    raise SystemExit("play failed: the client exited")
                 status = rpc({"command": "game:status"}, show=False)
-                log("waiting:", json.dumps(frames), json.dumps(status)[:200])
                 if status["ok"] and status["result"].get("screen") == "game" and status["result"].get("instanceState") == 3:
                     break
             else:
@@ -145,17 +244,22 @@ def main():
             rpc({"command": "tp", "dx": 5, "dy": 0})
             measure(options.label + "-after-travel", 20)
     finally:
+        stop.set()
         if launcher:
-            launcher.stdin.close()  # nullifier.py closes its client when its input ends
             try:
+                launcher.stdin.close()  # nullifier.py closes its client when its input ends
                 launcher.wait(30)
-            except subprocess.TimeoutExpired:
-                launcher.kill()
+            except (OSError, subprocess.TimeoutExpired):
+                launcher.kill()  # its job object then ends the client
             log("launcher exited", launcher.returncode)
-        if pid and alive(pid):  # a launcher that did not get to close it
-            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
-        if options.lock and options.lock.exists() and str(os.getpid()) in options.lock.read_text(encoding="utf-8"):
-            options.lock.unlink()
+        if client is not None:
+            client.kill()
+            kernel.CloseHandle(client.handle)
+        if options.lock:
+            release_lock(options.lock)
+        after = USER_SETTINGS.stat().st_mtime_ns if USER_SETTINGS.exists() else None
+        if after != settings_before:
+            log(f"WARNING: {USER_SETTINGS} changed during the run")
     return 0
 
 
