@@ -628,10 +628,7 @@ static partial class Game
                 }
             });
         if (accepted)
-        {
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
-            await FollowRighteousFire(remote, stream, ciphers, conn);
-        }
     }
 
     // Aura skills toggle: the first cast reserves their mana and puts their buff on the player, the next cast turns them

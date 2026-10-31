@@ -752,6 +752,9 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
 public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 {
     public const string TypePath = "Metadata/Effects/PermanentServerEffect";
+    const string RootBone = "<root>";
+    // The attachment's kind byte, a mask on its transform (0x142900da0): 1 drops the scale, 2 the translation, 4 the rotation.
+    const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
     /// a glide turns it to face the move (live 2026-10-21, Righteous Fire's ring). The only flags0 bits taken here are
@@ -767,6 +770,11 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// Righteous Fire's ring is scaled to the skill's radius.</summary>
     public float Scale { get; init; } = 1;
 
+    /// <summary>The object this effect rides on (0: none): Animated bit 2, the native attachment record (0x141e5adb0), to
+    /// the parent's "&lt;root&gt;" bone. The client carries it along with the parent's own predicted position, so no packet
+    /// moves it, and it does not turn with the parent.</summary>
+    public uint Parent { get; init; }
+
     public byte[] Blob()
     {
         var w = new BlobWriter();
@@ -775,7 +783,10 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
         w.I32(GridX).I32(GridY).F32(0).U16(0).U8((byte)((Flags0 & 0x81) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
         if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
         w.U8(0).U8(1);
-        w.U8(1).WStr32(AnimatedObject);                             // Animated: bit0 + the .ao path
+        w.U8(Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated: bit0 + the .ao path, bit2 the attachment
+        if (Parent != 0)
+            w.U32(Parent).F32(0).F32(0).U32((uint)RootBone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(RootBone))
+                .U8(AttachWithoutRotation).U8(0).F32(0).F32(0).F32(0);
         w.U8(0);                                                    // tasks
         return w.ToArray();
     }
