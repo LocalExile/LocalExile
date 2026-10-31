@@ -150,8 +150,6 @@ sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushor
     public readonly Dictionary<uint, ushort> Auras = [];
     /// <summary>The worn skill effect's righteous_fire_aura visual (BuffVisuals row; null: the row's own), on the enemies too.</summary>
     public ushort? AuraVisual { get; init; }
-    /// <summary>Where the ring was last sent (FollowRighteousFire).</summary>
-    public (int X, int Y)? RingAt;
 }
 
 // The last instance list shown (0xae); 0xaf picks a row of it.

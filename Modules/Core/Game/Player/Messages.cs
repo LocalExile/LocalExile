@@ -162,7 +162,6 @@ static partial class Game
                 if (cooldownUse?.Current(conn) == false) continue;
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, (px, py), (use.X, use.Y), sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
-                else if (!cast) await FollowRighteousFire(remote, stream, ciphers, conn);
                 if (!PlayerActionCurrent(conn, action)) continue;
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
                 if (mode == "teleport")
