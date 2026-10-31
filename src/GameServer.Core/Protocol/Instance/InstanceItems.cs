@@ -129,7 +129,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>This item's level requirement, instead of <see cref="LevelRequirementOf"/>.</summary>
     public int? RequiredLevel { get; init; }
 
-    public static bool CanSerialize(IEnumerable<string> components) => components.All(Supported.Contains);
+    public static bool CanSerialize(IEnumerable<string> components) => components.All(c => c == "Tincture" || Supported.Contains(c));
 
     /// <summary>
     /// The item data the reader 0x1421ec390 takes (all little-endian: it reads with memcpy): u32 type hash, u16 flags
@@ -180,6 +180,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     break;
                 case "Quality": w.U8(Quality); break;                 // 0x1424aec50
                 case "Charges": w.CompactI(Charges); break;           // 0x14249d4b0: signed compact (0x141e490e0)
+                // Tincture slot 5 (0x14249ce20) consumes one boolean at +0x20. Stored tinctures are inactive.
+                case "Tincture": w.U8(0); break;
                 case "Stack": w.U16(StackSize); break;                // 0x1423f4b30
                 // 0x1423f3f10 (write 0x1423f3e60): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.

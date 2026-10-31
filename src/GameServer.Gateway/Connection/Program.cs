@@ -77,7 +77,7 @@ if (args.Length > 0 && args[0].Equals("seed-game-data", StringComparison.Ordinal
     }
 }
 
-int port = int.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var p) ? p : 6112;
+int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
 // The HNC side channel needs a 64-byte table from the client; read it from the local client instead of shipping it.
@@ -120,6 +120,10 @@ var started = await InstanceControl.CallAsync(new ControlRequest { Op = "gateway
 if (!started.Ok) Console.WriteLine($"[gateway] Auth did not take gateway_started: {started.Error}");
 // The mods (Mods/Binaries/<id>, Program.Mods.cs), before the first player can use one.
 StartMods();
+// Loading the tables above (Mods.json alone is 60 MB of JSON) leaves ~0.5 GB of free GC memory committed; give it back
+// before serving, since several stacks often run side by side (Agents/docs/dev/performance.md).
+GameTables.Release();
+GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 listener.Start();
 Console.WriteLine($"[gateway] listening on {bind}:{port}");
 

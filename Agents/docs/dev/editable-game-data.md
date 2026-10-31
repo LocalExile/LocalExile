@@ -1,6 +1,6 @@
 # Editable game data
 
-**Status: in progress (mod roll ranges, item limits, system numbers, the 1,297-row unique catalogue, the
+**Status: in progress (mod roll ranges, item limits, system numbers, the 1,299-row unique catalogue, the
 unique/jewel/tattoo catalogue rows and the Stats/Mods reference tables are editable; item templates and the admin UI
 are next).** This page analyses what can safely become editable from the database, what cannot, and the cache/reload
 shape the server uses so an edit takes effect without a restart. The schema and the `/game_data` commands below are
@@ -86,6 +86,7 @@ tables. The server can only create items the client can resolve by an existing h
 | `gold_drop_multiplier` | 1 | multiplier on the mode's gold amount; the Ruthless 0.25 base still applies |
 | `gold_drop_chance_multiplier` | 1 | multiplier on the per-rarity gold drop chance |
 | `gold_auto_loot_radius` | 15 | cells within which gold is picked up without a click |
+| `projectile_maximum_range_cells` | 150 | one projectile movement instance's maximum flight (150 cells = 15 m); fork/chain/split start a fresh instance |
 | `drop_multiplier_currency`, `drop_multiplier_equipment`, `drop_multiplier_flasks`, `drop_multiplier_gems` | 1 | category weights in the ordinary drop roll |
 | `drop_multiplier_maps` | 1 | generic map drop chance |
 | `drop_multiplier_unique_rarity` | 1 | equipment magic/rare-roll multiplier; unique item drops themselves are not in the drop table yet |
@@ -141,7 +142,7 @@ WHERE mod_id = 'LocalAddedPhysicalDamage9' ORDER BY stat_index;
 ```
 
 `/game_data reference` rebuilds the reference tables and `unique_weights` from `data/tables` after an extraction change;
-the override rows are not touched. The full unique-item catalogue is `catalog_entries.kind = 'unique_item'` with 1,297
+the override rows are not touched. The full unique-item catalogue is `catalog_entries.kind = 'unique_item'` with 1,299
 rows from PoB's Export/Uniques files; `unique_item` keys are `name|base` because a few names have several bases. The two
 curated 3.29 definitions (Mageblood and Crown of Eyes) stay first for their established item behavior.
 
@@ -437,7 +438,7 @@ warms the reference data the admin panel needs (mod list, base list, tags, exist
 catalogue, not a query per item. The first connection then sees the same snapshot.
 
 On a fresh database the same open also seeds the overlay: `GameDataWeights.Seed` writes the 1,527 unique weights,
-`GameDataCatalog.Reload` writes the catalogue rows, `SystemSettings.Reload` the 45 settings, and `GameDataReference.Seed`
+`GameDataCatalog.Reload` writes the catalogue rows, `SystemSettings.Reload` the 51 settings, and `GameDataReference.Seed`
 the `stats`/`mods`/`mod_stats` tables from `data/tables/Stats.json` and `Mods.json`. The Gateway logs the reference
 counts every start
 (`[gateway] game data reference: 23346 stat(s), 40355 mod(s), 60695 default mod stat row(s)`); `empty` means the
@@ -484,7 +485,7 @@ server process edits the same file later, add a `revision` check or a file-watch
    through `RangeAt`/`MaxValues`, DB set/clear commands, tests. This proves the no-restart cache.
 3. **Limits (done).** `LimitSettings` for timeless, radius jewels, Impossible Escape and tattoo groups; the hard-coded
    checks now read the effective limit; tests cover the changed group limit.
-4. **Content catalogues (done).** `catalog_entries` stores the full 1,297-row unique-item catalogue (generated from
+4. **Content catalogues (done).** `catalog_entries` stores the full 1,299-row unique-item catalogue (generated from
    PoB's Export/Uniques files), radius jewels, threshold jewels, unique jewels, timeless jewels, tattoo effects and
    unique jewel art. `stats`/`mods`/`mod_stats` hold the default stat keys and ranges behind
    `effective_mod_stats`. The current code arrays seed each kind on the first run; after that the database is the
@@ -537,7 +538,7 @@ Live check 2026-10-30 (Gateway and real client):
 - Changing the `Crown of Eyes` row's `ItemLevel` from 86 to 50 in `catalog_entries`, `/game_data reload`, and
   `/item Crown of Eyes` produced an ilvl 50 item. Restoring 86 and reloading published revision 3 with the original
   values.
-- `system_settings` seeded 45 rows: 21 socket caps (wand 3, body 6, helmet/gloves/boots 4, shield 3, belt 0, two-handed 6),
+- `system_settings` seeded 51 rows: 21 socket caps (wand 3, body 6, helmet/gloves/boots 4, shield 3, belt 0, two-handed 6),
   `passive_points_per_level` 1, the gold/drop/pack/experience/max-level/limit/grace defaults above. `/game_data settings`
   listed them; the first upgrade added the new keys without overwriting existing rows.
 - Set `socket_max_wand` 6, created a Kinetic Wand, and `/sockets RRGBBB` gave it six sockets; set the key back to 3 and

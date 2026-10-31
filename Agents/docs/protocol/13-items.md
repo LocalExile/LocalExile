@@ -380,7 +380,8 @@ timeless jewels and Pure Talent, which have their own code, and about 25 lines o
 The seed was compared with poedb's item cards on 2026-10-31. What is left is on the roadmap.
 Uniques without a `Words` wordlist 6 row are left out, since nothing could name them on the client, and so is
 Disintegrator, whose Maelstrom Staff the client does not have.
-The name match ignores curly apostrophes and a leading "The" (`UniqueCatalog.NameKey`).
+The name match goes through `UniqueCatalog.NameKey`: Words writes some apostrophes otherwise and spells three names its
+own way, and drop weights use the same key.
 `/item <unique name>` creates it with the
 name words and artwork, unique rarity and the fixed mods; a base type's implicits are rolled as usual unless the
 unique has its own (for Mageblood the Heavy Belt's +25-35 Strength). A unique's alternate-art row in `UniqueStashLayout` is not its art. Checked live 2026-10-26: the client shows the Mageblood name, unique art

@@ -117,7 +117,7 @@ features.
 
 - **Editable game data and limits:** the SQLite overlay, snapshot/reload foundation, mod roll ranges and item limits are
   implemented and live-checked. The unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
-  catalogues are now in `catalog_entries` (including the full 1,297-row unique catalogue), seeded from the current code
+  catalogues are now in `catalog_entries` (including the full 1,299-row unique catalogue), seeded from the current code
   arrays and swapped on `/game_data reload`. The `stats`/`mods`/`mod_stats` reference tables and
   `effective_mod_stats` view give an editor the default keys and ranges without opening the JSON. `system_settings` now
   holds socket caps by item class, passive points per level, drop/pack/experience/max-level/gold/default-limit/grace

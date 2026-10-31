@@ -60,6 +60,8 @@ UNIQUE_MOD, EXARCH_IMPLICIT, EATER_IMPLICIT = 3, 28, 29
 ROLL = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)|(?<![A-Za-z])(\d+(?:\.\d+)?)")
 
 
+NAME_SPELLINGS = {"Rigwald's Charge": "Rigvald's Charge", "The Broken Elegy": "Broken Elegy",
+                  "The Goddess Unleashed": "The GoddessUnleashed"}
 # Rolls the export gets wrong: Mods.dat's row and poedb agree against PoB's [min,max] (checked 2026-10-31).
 STALE_ROLLS = {
     ("Bino's Kitchen Knife", "ChaosResistUniqueDagger8"),
@@ -245,8 +247,9 @@ def text_map(path):
 
 
 def name_key(name):
-    """As UniqueCatalog.NameKey: Words writes some apostrophes curly, and has Broken Elegy without its article."""
-    return name.replace("’", "'").strip().lower().removeprefix("the ")
+    """As UniqueCatalog.NameKey: Words writes some apostrophes otherwise, and spells three names its own way."""
+    key = name.replace("\u2019", "'").replace("\u2018", "'").replace("\u02bc", "'")
+    return NAME_SPELLINGS.get(key, key).lower()
 
 
 def csharp(values):

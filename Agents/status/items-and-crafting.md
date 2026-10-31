@@ -143,17 +143,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   after the check.
   Limits currently cover the Historic timeless jewel, Impossible Escape, radius unique jewels and the tattoo total/group
   caps. `catalog_entries` now seeds and reloads the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect
-  and jewel-art catalogues (1,297 / 76 / 43 / 6 / 48 / 190 rows on the live database; the unique rows are the full
+  and jewel-art catalogues (1,299 / 76 / 43 / 6 / 48 / 190 rows on the live database; the unique rows are the full
   generated PoB catalogue); the code arrays are the fresh-database seed. `catalog_seed_keys` records the applied
   defaults, so a row deleted by an admin stays deleted while a genuinely new default is added, and a new unique seed
   revision corrects the rows nobody edited. The
   `stats`/`mods`/`mod_stats` tables hold 23,346 / 40,355 / 60,695 reference rows and `effective_mod_stats` joins the
   range overrides. A fresh database gets all of them on the first Gateway start; `extract-data.ps1` checks `Stats.json`,
   `Mods.json`, `BaseItemTypes.json`, `ItemClasses.json`, `Tags.json` and `UniqueStashLayout.json` as part of its `tables`
-  entry. `system_settings` seeds 45 numeric knobs: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
+  entry. `system_settings` seeds 51 numeric knobs: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
   shield 3, belt 0, two-handed 6), rare prefix/suffix caps (3/3 ordinary, 2/2 jewels), passive points per level, gold
-  chance/amount/auto-loot, six drop multipliers, pack density/size, experience multiplier, maximum level, default
-  tattoo/jewel limits and grace period; `/game_data setting` changes a number and reloads it. Live: a wand set to six
+  chance/amount/auto-loot, the 150-cell projectile maximum range, six drop multipliers, pack density/size, experience
+  multiplier, maximum level, default tattoo/jewel limits and grace period; `/game_data setting` changes a number and
+  reloads it. Live: a wand set to six
   sockets accepted `RRGBBB` and was reduced back to three; `passive_points_per_level = 2` made the 0x33 client budget
   and server budget agree at 1198 points. The item-template schema exists, but custom item templates, custom names and
   the admin panel are not implemented yet.
@@ -234,7 +235,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md) §2-§2d.
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
-  1,297 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`),
+  1,299 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`),
   compared with poedb's item cards, with the differences that remain on the roadmap. Divine and Blessed Orbs reroll
   within a unique's own rolls, and an admin's `/game_data mod` range wins over them.
   Every definition but the five tinctures creates, writes and reloads by test (the server cannot write the Tincture

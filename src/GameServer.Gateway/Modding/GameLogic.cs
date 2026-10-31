@@ -28,6 +28,9 @@ interface IGameLogic
     IPlayerWorld WorldFor(ClientState conn);
     /// <summary>What an argument of this kind can be, for tools; null when there is no such kind.</summary>
     IEnumerable<(string Value, string Detail)>? CompletionValues(string kind);
+    /// <summary>The character's action-speed factor (1 is normal), which scales attack, cast, movement and stun-recovery
+    /// pacing: the game's own action_speed_-% bucket plus the ailments the framework tracks.</summary>
+    double PlayerActionFactor(ClientState conn);
 }
 
 /// <summary>A player as mods see it, with its connection.</summary>

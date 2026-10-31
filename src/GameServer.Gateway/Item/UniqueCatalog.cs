@@ -9,6 +9,15 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 {
+    // Several native names use a typographic apostrophe while the definition export uses ASCII.
+    internal static string NameKey(string name) => name.Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
+    {
+        "Rigwald's Charge" => "Rigvald's Charge",
+        "The Broken Elegy" => "Broken Elegy",
+        "The Goddess Unleashed" => "The GoddessUnleashed",
+        var key => key,
+    };
+
     /// <summary>A unique's roll of one stat where it differs from the Mods.dat row: PoB can tie a line to another row with
     /// the same stats. <paramref name="Implicit"/> tells apart a mod in both of the unique's lists.</summary>
     public sealed record RollRange(string Mod, int Stat, int Min, int Max, bool Implicit = false);
@@ -50,10 +59,20 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     public IReadOnlyList<Definition> All => GameDataCatalog.Uniques;
 
+    /// <summary>Creatable collection entries include the named-map catalogue as well as equipment and jewels.</summary>
+    public IReadOnlyList<(string Name, Item? Item)> CollectionItems(Random random)
+    {
+        var result = All.Select(d => (d.Name, Item: Create(d, random))).ToList();
+        // A pre-existing catalogue can gain this captured field through hot reload without rerunning its constructor.
+        result.AddRange(NessaMapStock.Build(items, folder ?? "data").Where(m => m.Item.Rarity == ItemRarity.Unique)
+            .Select(m => (m.Name, (Item?)m.Item)));
+        return result;
+    }
+
     /// <summary>The definition a name matches, or null: the exact name, then the name followed by a base type's name for
     /// a unique with several bases ("Grand Spectrum Cobalt Jewel"), then the first containing it.</summary>
     public Definition? Find(string name) =>
-        All.FirstOrDefault(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
         ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
             && items.Find(d.BaseTypeId)?.Name.Equals(name[(d.Name.Length + 1)..], StringComparison.OrdinalIgnoreCase) == true)
         ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
@@ -136,14 +155,6 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     sealed record UniqueName(uint Word, ushort VisualIdentity);
 
-    /// <summary>What ties a definition's name to its Words row: Words writes some apostrophes curly ("Emperor’s Vigilance")
-    /// and has Broken Elegy without its article (scripts/re/unique_items.py keeps the same key).</summary>
-    internal static string NameKey(string name)
-    {
-        string key = name.Replace('’', '\'').Trim();
-        return key.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? key[4..] : key;
-    }
-
     static Dictionary<string, UniqueName> LoadNames(string folder)
     {
         var result = new Dictionary<string, UniqueName>(StringComparer.OrdinalIgnoreCase);
@@ -166,9 +177,10 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             int wordsKey = r.GetProperty("WordsKey").GetInt32(), visualKey = r.GetProperty("ItemVisualIdentityKey").GetInt32();
             if (!byWord.TryGetValue(wordsKey, out string? name) || visualKey < 0
                 || visualKey >= visuals.RootElement.GetArrayLength()) continue;
+            name = NameKey(name);
             // A unique can have a second row with its alternate art (Headhunter2.dds); the ordinary art is the item's.
-            if (r.TryGetProperty("IsAlternateArt", out var alternate) && alternate.GetBoolean() && result.ContainsKey(NameKey(name))) continue;
-            result[NameKey(name)] = new(words.RootElement[wordsKey].GetProperty("HASH32").GetUInt32(),
+            if (r.TryGetProperty("IsAlternateArt", out var alternate) && alternate.GetBoolean() && result.ContainsKey(name)) continue;
+            result[name] = new(words.RootElement[wordsKey].GetProperty("HASH32").GetUInt32(),
                 (ushort)visuals.RootElement[visualKey].GetProperty("HASH16").GetInt32());
         }
         return result;

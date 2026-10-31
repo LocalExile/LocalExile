@@ -143,6 +143,8 @@ public sealed class ItemCatalogueTests
         Assert.Contains("AbyssJewelSocketUnique__11_", uniques.Find("Tombfist")!.Mods);
         Assert.Contains("IncreasedAttackSpeedUniqueGlovesStrDex1", uniques.Find("Tombfist")!.Mods);
         Assert.Equal("Ezomyte Axe", items.Find(uniques.Find("Wings of Entropy")!.BaseTypeId)!.Name);
+        Assert.NotNull(uniques.Create("Rigwald's Charge", random));         // spelled otherwise in Words
+        Assert.NotNull(uniques.Create("The Goddess Unleashed", random));
         Assert.Equal(["ColdAndLightningResistImplicitRing1"], Ids(uniques.Create("Berek's Grip", random)!, ModSection.Implicit));
         Assert.Equal(["IncreasedCastSpeedImplicitRing1"], Ids(uniques.Create("Anathema", random)!, ModSection.Implicit));
         Assert.Equal(["CriticalMultiplierImplicitBow1"], Ids(uniques.Create("Arborix", random)!, ModSection.Implicit));
