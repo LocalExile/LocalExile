@@ -23,7 +23,7 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
     public bool Ended { get; init; }
     /// <summary>"HardMode": which of the game files' data its characters use.</summary>
     public string? DataSet { get; init; }
-    /// <summary>The modules its <c>modules.json</c> enables, and those it lists as disabled.</summary>
+    /// <summary>The modules its <c>modules.json</c> enables, and those it lists as disabled: paths under Modules/.</summary>
     public IReadOnlyList<string> Modules { get; init; } = [];
     public IReadOnlyList<string> DisabledModules { get; init; } = [];
     /// <summary>False for a character's league with no folder: it can be listed but not entered.</summary>

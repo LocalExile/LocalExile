@@ -39,22 +39,22 @@ static class ServerLeagues
     public static LeagueRules RulesOf(League league, IReadOnlySet<string> modules)
     {
         if (_code.GetValueOrDefault(league.Name)?.Rules is { } own) return own;
-        foreach (string module in league.Modules)
+        foreach (string module in ModulesOf(league))
             if (modules.Contains(module) && _rules.GetValueOrDefault(module) is { } rules) return rules();
         foreach (var (module, rules) in _rules)
             if (modules.Contains(module)) return rules();
         return LeagueRules.Standard;
     }
 
-    /// <summary>A league's modules: what its modules.json enables.</summary>
-    public static IReadOnlySet<string> ModulesOf(League league) => league.Modules.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    /// <summary>A league's modules, by id: its modules.json lists paths under Modules/, and a module's id is its folder's name.</summary>
+    public static IReadOnlySet<string> ModulesOf(League league) => league.Modules.Select(path => Path.GetFileName(path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Every module any loaded league enables, and the game itself: the others do not load.</summary>
     public static IReadOnlySet<string> Wanted(LeagueCatalog leagues) =>
         leagues.Loaded.SelectMany(ModulesOf).Append(GameModule).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The module that gives the framework its <see cref="IGameLogic"/>.</summary>
-    public const string GameModule = "game";
+    public const string GameModule = "Game";
 
     /// <summary>A character's league, by name; a form's first league for a connection made without one. A league that is not
     /// loaded cannot be entered, so this is only for what still reaches the Gateway.</summary>

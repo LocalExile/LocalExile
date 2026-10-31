@@ -35,6 +35,10 @@ partial class Program
         if (leagues.FindLoaded(LeagueCatalog.Standard) is null)
             throw new InvalidOperationException($"The Standard league is required: no {Path.Combine(LeaguesFolder, LeagueCatalog.Standard, ModHost.LeagueManifestFile)}");
         foreach (string error in leagues.Errors) Console.WriteLine($"[leagues] not loaded: {error}");
+        foreach (var league in leagues.Loaded)
+            foreach (string path in league.Modules.Concat(league.DisabledModules))
+                if (!File.Exists(Path.Combine(ModulesFolder, path, ModHost.ModuleManifestFile)))
+                    Console.WriteLine($"[leagues] {league.Name}'s modules.json lists {path}: no such module in {ModulesFolder}/");
         Console.WriteLine($"[leagues] loaded: {string.Join(", ", leagues.Loaded.Select(l => l.Name + (l.Ended ? " (ended)" : "")))}");
         ServerLeagueCode.Changed += line => HotReload.Tell(line.Replace("[leagues] ", "Leagues: "));
         ServerLeagueCode.Start();
@@ -53,6 +57,13 @@ partial class Program
         return conn.Commands!.Reply(ServerMods.SetEnabled(args[0], enabled)
             ? $"Mod {args[0]} {(enabled ? "enabled" : "disabled")} (/mod for the list)." : $"No mod \"{args[0]}\" in {ServerMods.Folder}/ (/mod for the list).");
     }
+
+    /// <summary>The character's league: Standard, or its module's (Modding/ServerLeagues.cs), decided once per connection.</summary>
+    internal static LeagueRuntime LeagueFor(ClientState conn) =>
+        conn.LeagueModule ??= ServerLeagues.Resolve(conn.LeagueForm, conn.League, LeagueCatalog.Startup);
+
+    /// <summary>The modules a connection's league lists.</summary>
+    internal static IReadOnlySet<string> ModulesFor(ClientState conn) => LeagueFor(conn).Modules;
 
     internal static readonly ConditionalWeakTable<ClientState, IConnectionPlayer> ModPlayers = new();
 

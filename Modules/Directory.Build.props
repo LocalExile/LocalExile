@@ -24,7 +24,7 @@
 
   <!-- The game's rules. Not copied: the host loads the game module, and those that depend on it share it. -->
   <ItemGroup Condition="'$(MSBuildProjectName)' != 'Game'">
-    <ProjectReference Include="$(MSBuildThisFileDirectory)Core\game\Game.csproj" Private="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)Core\Game\Game.csproj" Private="false" />
     <Using Include="Program" Static="true" />
     <Using Include="Game" Static="true" />
   </ItemGroup>

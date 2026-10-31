@@ -1,9 +1,0 @@
-{
-  "id": "portals",
-  "version": "1.0.0",
-  "kind": "feature",
-  "depends": [
-    "game"
-  ],
-  "assembly": "bin/portals.dll"
-}

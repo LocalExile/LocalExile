@@ -1,9 +1,0 @@
-{
-  "id": "social",
-  "version": "1.0.0",
-  "kind": "feature",
-  "depends": [
-    "game"
-  ],
-  "assembly": "bin/social.dll"
-}

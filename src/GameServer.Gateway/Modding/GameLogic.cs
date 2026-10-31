@@ -2,7 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 
-/// <summary>What the framework asks of the game. The <c>game</c> module (Modules/Core/Game) gives it when it loads: the Gateway holds the
+/// <summary>What the framework asks of the game. The <c>Game</c> module (Modules/Core/Game) gives it when it loads: the Gateway holds the
 /// connections, the state and the saves, and the module the rules. Agents/docs/dev/modules.md.</summary>
 interface IGameLogic
 {

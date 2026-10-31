@@ -9,6 +9,11 @@ using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
 {
+    internal static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
+
+    // Set while a projectile's output is sent: false drops it (Send).
+    internal static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
+
     internal static void SaveUnsavedProgressNow(string? why)
     {
         try

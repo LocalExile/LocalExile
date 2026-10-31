@@ -39,16 +39,16 @@ removed while it runs. A connection is in one league, and only that league's mod
 | `creatable: false` | not on the create screen (Void) |
 | `dataSet` | `HardMode`: the game files' HardMode tables |
 
-Beside `league.json`, `modules.json` lists the modules the league knows of, Core ones too, and nothing is implied: only what is under `enabled` runs for its players.
+Beside `league.json`, `modules.json` lists the modules the league knows of, Core ones too, as paths under `Modules/`, and nothing is implied: only what is under `enabled` runs for its players.
 
 ```json
 {
-  "enabled": ["game", "commands", "vendors", "ruthless"],
-  "disabled": ["harvest", "heist"]
+  "enabled": ["Core/Game", "Core/Player/Commands", "Core/NPC/Vendors", "Ruthless"],
+  "disabled": ["Core/Content/Harvest", "Core/Content/Heist"]
 }
 ```
 
-A league with no `modules.json`, or a module listed twice, does not load. A new module goes in each league's file. Every league that can be played enables `game`.
+A league with no `modules.json`, or a module listed twice, does not load. A new module goes in each league's file. Every league that can be played enables `Core/Game`. The Gateway logs a listed path with no module.
 
 - **Standard** is required: the Gateway refuses to start without it. Its modules change like any league's.
 - **Void** has no modules and cannot be created in. Its characters are listed and cannot be entered. A custom event league can have it as parent,
@@ -63,7 +63,7 @@ A league with no `modules.json`, or a module listed twice, does not load. A new 
 The framework, and what the game's rules read and write: connections and packets, framing and the message loop (`Program.Connection.cs`), the hosts (`Modding/`), game data and its catalogs, saves and inventories, and the
 connection's state (`ClientState`), with the types its fields have. State stays so that a reload of the rules leaves a player in game.
 
-The framework reaches the rules through `IGameLogic` (`Modding/GameLogic.cs`), which the `game` module gives when it loads, and `GameEvents`, whose subscribers run per league. Without `game`, connections are refused.
+The framework reaches the rules through `IGameLogic` (`Modding/GameLogic.cs`), which the `Game` module gives when it loads, and `GameEvents`, whose subscribers run per league. Without `Game`, connections are refused.
 A catalog type holding some rules stays when `ClientState` has a field of it (`ChargeEffects`, `AuraCatalog`, `UniqueItemSeed`): cutting that field is what lets it move.
 
 ## Modules
@@ -71,12 +71,12 @@ A catalog type holding some rules stays when `ClientState` has a field of it (`C
 A module has no knowledge of leagues, and is not changed by one. A league needing even a small difference uses a module of its own, which may share code.
 One copy of a module runs for every league listing it, since one connection is in one league; its hooks run per player. A module no league lists does not load.
 
-- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `game`; `NPC/` `npcdialogue`, `vendors`; `World/` `portals`, `questobjects`, `hideoutediting`, `atlas`; `Content/` `harvest`, `heist`, `delve`, `mercy`; `Item/` `bench`, `tattoos`, `uniquebelts`, `cosmetics`; `Player/` `social`, `commands`. A folder holding a `module.json` is a module named after that folder, at any depth; ids are unique.
-- **`game`** is the rules: casting, hits, monsters, items, passives, travel, in subfolders by subject (`Combat/`, `Monster/`, `Skill/`, `Item/`, `Passive/`, `Projectile/`, `Flask/`, `World/`, `NPC/`, `Player/`). Its parts call one another, so they are one assembly, and a league cannot turn one part off. Every other module depends on it; rebuilding it reloads them all, and its in-memory per-connection sessions (leech, charges, fortification, projectiles) start over.
+- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects`, `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`, `Mercy`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Social`, `Commands`. A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
+- **`Game`** is the rules: casting, hits, monsters, items, passives, travel, in subfolders by subject (`Combat/`, `Monster/`, `Skill/`, `Item/`, `Passive/`, `Projectile/`, `Flask/`, `World/`, `NPC/`, `Player/`). Its parts call one another, so they are one assembly, and a league cannot turn one part off. Every other module depends on it; rebuilding it reloads them all, and its in-memory per-connection sessions (leech, charges, fortification, projectiles) start over.
 - **Hot reload:** a new build in `bin/`, an edited `module.json`, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
-- **To make one:** copy `Modules/Core/Content/heist/`, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` and `GameServer.Gateway.csproj` for internals, and list it in every league's `modules.json`.
+- **To make one:** copy `Modules/Core/Content/Heist/`, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` and `GameServer.Gateway.csproj` for internals, and list it in every league's `modules.json`.
 
 ## What a module sees
 

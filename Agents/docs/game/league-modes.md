@@ -146,8 +146,7 @@ Native table values and implemented campaign rules are used where available; unk
 
 ## Change Ruthless balance without rebuilding
 
-The local file `config/ruthless.json` controls eight numeric settings and stays git-ignored.
-The tracked `config/ruthless.example.json` supplies the repository's default values.
+The tracked file `Modules/Ruthless/ruthless.json` controls eight numeric settings.
 These are server settings, separate from the private client's graphics and input settings.
 GGG does not publish the exact server drop and XP formulas, so these defaults are LocalExile approximations.
 They are not claimed to reproduce retail probabilities.
@@ -155,8 +154,7 @@ They are not claimed to reproduce retail probabilities.
 Run these commands in PowerShell from the repository root (the folder containing `AGENTS.md`):
 
 ```powershell
-if (!(Test-Path .\config\ruthless.json)) { Copy-Item .\config\ruthless.example.json .\config\ruthless.json }
-notepad .\config\ruthless.json
+notepad .\Modules\Ruthless\ruthless.json
 ```
 
 The file contains:

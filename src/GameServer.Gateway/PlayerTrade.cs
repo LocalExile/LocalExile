@@ -22,7 +22,3 @@ sealed class PlayerTrade(ClientState a, ClientState b)
 
     public ClientState Other(ClientState c) => ReferenceEquals(c, A) ? B : A;
 }
-
-partial class Program
-{
-}
