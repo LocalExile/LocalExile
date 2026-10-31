@@ -53,6 +53,27 @@ The energy shield pools are the pre-rarity base-life shares shown by poedb: 275,
 15,319 × 18) and 96,510 for the treant (60% of 15,319 × 10.5). The Gateway does not model monster energy shield yet, so
 these pools are documented but not applied.
 
+## Phase flow
+
+The encounter has three states, and the phase change is **life-based**, not altar-based:
+
+1. **Phase 1 — humanoid, 100% → 30% life.** The King fights in the circular arena, uses his phase-1 skills, and
+   periodically teleports to one of the three Mystic Fetishes on the raised platforms. Each activation adds a Portent
+   Vapors stack and starts that fetish's arena hazard. The three fetishes can all be activated, but they do not end the
+   phase by themselves.
+2. **At 30% life — the maze.** The humanoid stops taking damage at 30% (`TakeDamageLocked` floors it there). He raises
+   and slams his staff, opens the maze, and teleports the player to the hedge maze (phase 2). This is the only phase
+   trigger: the old "after the third fetish" transition was wrong and showed phase 3 at ~80% life.
+3. **Phase 2 — the maze.** The player follows the Sacred Wisps through the hedge maze to the purple portal back to the
+   arena. Dying or logging out during the maze is the wiki's bypass; the next entry is phase 3.
+4. **Phase 3 — the treant.** Back in the arena, the humanoid body disintegrates at the central shrine and the treant
+   emerges. The treant has a short emergence grace (3 s: no action, no damage) and then fights with its own skill list.
+
+The `arena_01.dgr` graph places the arena and the `_maze.dgr` hedge maze in the **same area** (`AzmeriLeagueBoss`,
+seed 1). The maze entrances are `maze_entrance.arm` rooms (a `telepad` point at room-local `(34, 34)`), the exit is
+`maze_exit.arm` (room-local portal at `(80, 80)`), and the exit room is at world `(828, 460)` with orientation code 4 in
+seed 1. The Gateway uses `ServerLevels` and `AreaPopulation.LocalToWorld` to find them.
+
 ## Phase 1 — the humanoid
 
 The King stands at the central arena. The fight begins when the player comes within his 135-cell aggro range. His
@@ -90,22 +111,42 @@ Wiki mechanics:
   - Caustic Ground: small green patches.
   - Bugrend: the central altar fires slow purple Soulrend-like projectiles for physical damage.
 - **Summon Plagued Rats** — rats join the fight.
-- **All three fetishes** — the King says "Embrace nothingness!" and the maze phase begins.
+- **All three fetishes** — the King says "Embrace nothingness!" / "The darkness, exultant!". This is the last fetish's
+  line; the maze itself starts at 30% life (see "Phase flow").
 - **Summon Effigy** — a dark effigy that applies **Mystic Miasma** (cold/chaos damage over time) near the staff.
 - **Ritual of Dance** — 8 s debuff: standing still imprisons the player, then applies Maim.
 - **Ritual of Meditation** — 8 s debuff: moving imprisons the player, then applies Maim.
 
 ## Phase 2 — the maze
 
-The player is teleported to a large vine maze and gains **Branching Affliction**, a stacking physical/chaos damage over
-time. The Sacred Wisps show the route to the purple portal back to the arena. Dying or logging out skips the maze; the
-next entry starts at phase 3. The maze is a separate layout and is not modelled by the Gateway yet; the server applies
-the Branching Affliction buff briefly and returns to phase 3.
+The player is teleported to a large hedge maze and gains **Branching Affliction**, a stacking physical/chaos damage over
+time. The Sacred Wisps show the route to the large purple portal back to the arena. Dying or logging out skips the maze;
+the next entry starts at phase 3.
+
+The arena graph contains the maze as the `_maze.dgr` subgraph, so it is the **same `AzmeriLeagueBoss` area**, not a
+separate map. Its rooms are placed east of the arena: in seed 1 the four `maze_entrance.arm` rooms are at
+`(644, 736)`, `(644, 276)`, `(1104, 276)` and `(1104, 736)`, and `maze_exit.arm` is at `(828, 460)` (161 × 161 cells).
+Each entrance has a `telepad` point, and the exit has the `PortalToggleableReverseVoodooKing` object with the
+`AzmeriVoodooPortal.ao` model at room-local `(80, 80)`.
+
+Gateway implementation:
+
+- `RunMaze` plays the staff slam and the maze-opening animation, teleports the player to the nearest entrance's
+  `telepad`, applies Branching Affliction for the maze duration, spawns the exit portal effect and a trail of wisp
+  effects along a `ClientPathfinder` route through the maze, and moves the wisps toward the exit every 0.4 s.
+- When the player is within five cells of the exit portal (or after 120 s), the server teleports them back to the arena's
+  `default` point, removes the wisps/portal, puts the humanoid on the mapboss point and starts the transformation.
+- The portal is a visual effect with a proximity return; the portal's click interaction and the full `PortalTransition`
+  object lifecycle are not modelled yet. Branching Affliction is an icon/timer here, not damage over time.
+- Dying or logging out currently stops the maze sequence without advancing to phase 3; the next entry behavior for a
+  half-finished maze is still open.
 
 ## Phase 3 — the treant
 
-The King's body disintegrates and the treant form emerges in the arena; the three platforms are covered in purple
-fire. Its GrantedEffects list (`VoodooKingBoss3`) is:
+When the player returns through the maze portal, the King is back at the central shrine (mapboss point). The humanoid
+plays the staff slam, its body disintegrates, and the treant form emerges. The treant has a **3 s emergence grace**:
+`KingGrace` refuses all damage and the controller performs no action for those three seconds. After that it fights
+normally, and the three platforms are covered in purple fire. Its GrantedEffects list (`VoodooKingBoss3`) is:
 
 | Skill | GrantedEffects | Data |
 |---|---|---|
@@ -143,6 +184,11 @@ The King always drops one of four uniques (poewiki crowdsourced 3.26 shares, n=5
 | The Light of Meaning | 20% |
 | The Burden of Shadows | ~5% |
 
+`That Which Was Taken` (`Metadata/Items/Jewels/JewelStr`, Crimson Jewel, limited to 1) is not a separate weight in
+that table. It is the Affliction predecessor of The Light of Meaning; in this server it falls together with The Light of
+Meaning whenever that unique is rolled. It rolls four random charm modifiers from `Mods.dat` Domain 35 (one per family),
+ignoring attribute alignment, as the wiki describes; the item remains modifiable/divinable.
+
 He can also drop `Hextoad Support` (~6%), `Hexpass Support` (~10%) and `The Endless Darkness` divination card. Defeating
 him has a 50% chance to drop a high-value corpse item (Perfect/Regular/Imperfect at 20%/30%/50%), restricted to corpse
 items worth 1000+ Tribute; corpse-item support is not implemented. The Unlight Altar spawns after the kill and grants or
@@ -156,19 +202,33 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
 `KingInMists.cs`:
 
 - Recognises both forms and gives the humanoid/treant their whole GrantedEffect skill list in the actor record, so each
-  `0x1ab` plays the client's own skill animation.
+  `0x1ab` plays the client's own skill animation. Bugrend uses the treant's `MPSVoodooKing3SpellProjectile` (3894)
+  rather than `VoodooKingBugRend` (10510): the client's `monster_soulrend` action selects the `SpellProjectileChaos`
+  animation, which `VoodooKingBoss3.act` does not carry (live `PlayAnimation failed`); the server keeps Bugrend's damage
+  and projectile profile.
 - Skips both forms in the ordinary `PlanMonsterAi` loop; the controller serializes one action at a time.
-- Phase 1: teleports to the three platform points on a 10-second cadence (the exact AI timing is not captured), adds
-  Portent Vapors stacks (10% increased damage taken per stack, applied server-side to the King's hits), summons Plagued
-  Rats, uses Vine Slam and Vine Cascade.
-- After the third fetish: plays the transformation, removes the humanoid, spawns `VoodooKingBoss3` at the same cell and
-  starts phase 3. The maze's Branching Affliction is applied as a short buff; the separate maze layout is not built yet.
-- Phase 3: Treant Slam, Bug Bomb (lobbed projectile with a 9-cell landing area), Bugrend (projectile), Summon Effigy,
-  and the default attack.
+- Phase 1: creates the three `VoodooKingBoss2RitualPillar` Mystic Fetishes at the `arena.arm` object points
+  (mapboss-relative `(94, 122)`, `(230, 123)` and `(160, 238)`; world `(232, 490)`, `(368, 491)` and `(298, 606)` at
+  seed 1), teleports next to one on a 10-second cadence, ends the teleport action, and sets the fetish's StateMachine
+  `active` state to 1. It adds Portent Vapors stacks (10% increased damage taken per stack, applied server-side to the
+  King's hits), summons Plagued Rats and one effigy, uses Vine Slam and Vine Cascade, and fires its spell projectile
+  every 4 s at range. The humanoid is immobile (`MonsterVarieties.MovementSpeed` 0), so it does not walk. The central
+  `HugeRitualShrine01_01.ao` is the room's own static model; Bugrend still launches from the King rather than from the
+  central altar.
+- At 30% life (`TakeDamageLocked` floors the humanoid there): plays the staff slam and the maze-opening animation,
+  teleports the player to the nearest `maze_entrance.arm` telepad, applies Branching Affliction, spawns the exit portal
+  effect and the wisp trail, and auto-returns the player when they reach the exit (see Phase 2 above).
+- On the maze return: teleports the humanoid back to the mapboss, plays the staff slam and the treant transformation,
+  removes the humanoid, spawns `VoodooKingBoss3` with `KingGrace` (3 s, no damage/actions) and starts phase 3.
+- Phase 3: Treant Slam, Bug Bomb (lobbed projectile with a 9-cell landing area), Bugrend (projectile from the central
+  altar, at any distance), Summon Effigy (with its cast animation) and the default attack. The treant walks after a
+  player that kites it (`Move` 0x2909) instead of standing at the altar between casts. Before a cast, the controller
+  aligns the client model to the server's walk cell (`0x1b7`), so the projectile origin is where the model is shown.
 - `ItemDrops.KingInMists` rolls the guaranteed unique, Hextoad, Hexpass and The Endless Darkness.
 
 Open: monster energy shield, ground hazards (toads, blood, caustic, swamp), the Ritual of Dance/Meditation
-imprisonment, the full maze layout, Shadow Surge/Mystic Miasma damage over time, corpse items, the Unlight Altar and
+imprisonment, the portal's click interaction, the exact maze route and wisp curve, Branching Affliction/Shadow
+Surge/Mystic Miasma damage over time, a half-finished maze after death/logout, corpse items, the Unlight Altar and
 Bloodline, exact AI/cooldown timings, and the native client capture for each action's animation. The arena's own
 `EndQuestFlags`/`StartQuestFlags` and the War for the Wildwood quest are not wired to the fragment yet.
 

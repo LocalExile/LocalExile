@@ -104,10 +104,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
-  device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, teleports to
-  three Mystic Fetishes (Portent Vapors stacks) and summons Plagued Rats; after the third fetish it becomes the treant
-  (`VoodooKingBoss3`, about 26.6M life) with Treant Slam, Bug Bomb, Bugrend and effigies. The kill rolls the guaranteed
-  unique, Hextoad/Hexpass and The Endless Darkness.
+  device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
+  Mystic Fetishes as visible shrines, teleports next to them and activates them (Portent Vapors stacks), summons Plagued
+  Rats and an effigy; at 30% life it slams its staff, teleports the player into the hedge maze (wisps, exit portal and
+  Branching Affliction) and becomes the treant (`VoodooKingBoss3`, about 26.6M life) on the return, with a 3 s emergence
+  grace, Treant Slam, Bug Bomb, Bugrend, effigy summons and a walk that follows a kiting player. Bugrend plays the treant's working spell-projectile animation: its own `monster_soulrend` action
+  selected `SpellProjectileChaos`, which `VoodooKingBoss3.act` does not carry. The kill rolls the guaranteed unique (with
+  That Which Was Taken paired with The Light of Meaning), Hextoad/Hexpass and The Endless Darkness.
   Not yet: the separate maze layout, ground hazards, Ritual of Dance/Meditation imprisonment, monster energy shield,
   Shadow Surge/Mystic Miasma damage over time, corpse items, the Unlight Altar/Bloodline and the native animation
   capture.

@@ -54,7 +54,7 @@ partial class Program
 
     // Creates one monster: registers its type at this level (0x20, once per connection), creates it (0x2b9) and puts it in
     // the wake zone (0x1a9), and keeps it for the AI. /spawn_mob and the area's packs (PopulateArea) use it.
-    internal static async Task SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
+    internal static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null)
     {
@@ -162,12 +162,14 @@ partial class Program
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
                 CannotBeStunned = !friendly && KingInMists.IsBoss(variety),
                 KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
+                KingGrace = !friendly && KingInMists.IsBoss3(variety),
             }, emerge, waits);
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
         if (damagedLife < life)
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
         if (!friendly && KingInMists.IsBoss(variety)) KingInMists.Begin(remote, stream, ciphers, conn, id);
+        return id;
     }
 
     // The area's monsters, once the player is in (Agents/docs/protocol/14-monster-packs.md): MonsterPacks scattered over the
@@ -177,6 +179,13 @@ partial class Program
     {
         var layout = conn.Layout;
         if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
+        // The Crux of Nothingness fight places its three Mystic Fetishes at fixed offsets from the room's mapboss point
+        // (KingInMists.cs). Keep that point on the connection so the treant form uses the same origin as the humanoid,
+        // and so a kept instance recovers it before its saved monsters are restored.
+        conn.KingOrigin = null;
+        if (layout.Id == "AzmeriLeagueBoss"
+            && AreaPopulation.FitRooms(layout.Id, conn.Seed, [], "data").Points.FirstOrDefault(p => p.Name == "mapboss") is { } mapboss)
+            conn.KingOrigin = (mapboss.X, mapboss.Y);
         // A capture tour only waits for the recorder: no monsters to attack the character meanwhile.
         if (CaptureTour.Active(CharacterName(conn))) return;
         // An instance entered before keeps its monsters as the last connection left them: where they were, with their
@@ -272,8 +281,9 @@ partial class Program
             {
                 if (m.Dead || m.Life == 0 || m.StageRunning || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
-                // damage through MonsterSwing/MonsterAreaContact.
-                if (KingInMists.IsBoss(m.Variety)) continue;
+                // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
+                // controller activates; the ordinary chase would slowly drag them toward the player.
+                if (KingInMists.IsBoss(m.Variety) || KingInMists.IsFetish(m.Variety)) continue;
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));

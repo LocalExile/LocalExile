@@ -326,7 +326,8 @@ public class GameDataTests
         Assert.Contains(UniqueItemSeed.All, entry => entry.Name == "Mageblood");
         Assert.Contains(UniqueItemSeed.All, entry => entry.Name == "Seven-League Step");
         Assert.Equal(3, UniqueItemSeed.All.Count(entry => entry.Name == "Grand Spectrum"));
-        Assert.Equal(1302, UniqueCatalog.Seed.Length);
+        // 1300 PoB rows plus the three curated definitions (Mageblood, Crown of Eyes, That Which Was Taken).
+        Assert.Equal(1303, UniqueCatalog.Seed.Length);
     }
 
     [Fact]

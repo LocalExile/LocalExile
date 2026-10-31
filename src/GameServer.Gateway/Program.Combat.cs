@@ -1119,8 +1119,12 @@ partial class Program
     internal static (uint Life, bool StageStarts) TakeDamageLocked(SpawnedMonster m, int damage)
     {
         // While the stage runs the boss cannot die: its life fills up at the end anyway. The humanoid King also waits for
-        // its three Mystic Fetishes before the treant form takes over; a burst cannot skip the phase.
-        if (m.StageRunning || m.KingPhaseLocked) return ((uint)Math.Max(1, (long)m.Life - damage), false);
+        // the maze/treant phase before the treant form takes over; a burst cannot skip it. Its floor is 30% life (the
+        // phase 2 trigger), while the treant's emergence grace refuses all damage.
+        if (m.KingGrace) return (m.Life, false);
+        if (m.StageRunning || m.KingPhaseLocked)
+            return ((uint)Math.Max(m.KingPhaseLocked ? (long)m.MaxLife * 30 / 100 : 1,
+                (long)m.Life - damage), false);
         var (life, starts) = BossFights.Damage(m.Life, m.MaxLife, damage, m.StageTaken ? null : m.Stage);
         if (starts)
         {

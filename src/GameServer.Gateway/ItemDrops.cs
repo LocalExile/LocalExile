@@ -179,8 +179,17 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
                 if (pick < weight) { chosen = name; break; }
                 pick -= weight;
             }
+            bool light = false;
             if (uniques.Create(chosen, rng) is { } item && catalog.ByHash(item.TypeHash) is { } type)
+            {
                 drops.Add(new(item with { ItemLevel = (byte)Math.Clamp(level, 1, 100), Identified = false }, type));
+                light = chosen == "The Light of Meaning";
+            }
+            // The Light of Meaning replaced That Which Was Taken in the 3.25 pool, but they are paired here: whenever the
+            // Light is the rolled unique, the original Crimson Jewel falls with it in the same drop event.
+            if (light
+                && uniques.Create("That Which Was Taken", rng) is { } taken && catalog.ByHash(taken.TypeHash) is { } takenType)
+                drops.Add(new(taken with { ItemLevel = (byte)Math.Clamp(level, 1, 100), Identified = false }, takenType));
         }
         foreach (var (id, chance) in KingInMistsExtras)
             if (rng.NextDouble() < chance && catalog.Find(id) is { Supported: true } type)
