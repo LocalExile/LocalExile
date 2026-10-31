@@ -133,7 +133,9 @@ partial class Program
                 // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
                 InitializeCharacterVitals(conn);
                 prepared = true;
-                var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: 0,
+                byte areaLevel = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == areaHash
+                    && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
+                var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: LeagueStatsFor(conn.MainAscendancy),
                     TerrainData: layout.Id == "Delve_Main" ? InstanceDelve.FirstMineTerrain() : null,
                     AchievementSets: layout.Id is "Delve_Hub" or "Delve_Main" ? [2] : null);

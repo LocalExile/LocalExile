@@ -15,6 +15,7 @@ partial class Program
         foreach (var (id, bytes) in messages)
         {
             if (conn.Closed) return;
+            using var timing = conn.Performance.Message(id);
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
@@ -22,9 +23,7 @@ partial class Program
             if (id == InstanceDelve.RouteId)
             {
                 var route = InstanceDelve.ReadRoute(bytes);
-                Console.WriteLine($"[gateway] {remote} Delve route requested: {string.Join(" -> ", route)}; route execution is not implemented");
-                if (conn.PlayerSent && conn.Layout.Hash is StashCatalog.DelveHub or InstanceDelve.MineArea)
-                    await conn.Commands!.Reply("This mine route is not available yet.");
+                await RequestDelveTrip(remote, stream, ciphers, conn, route);
                 continue;
             }
             if (id is InstanceDelve.UpgradesRequestId or InstanceDelve.UpgradeId or InstanceDelve.PurchaseId)
@@ -666,6 +665,7 @@ partial class Program
                     await SpawnTownStash(remote, stream, ciphers, conn);
                     await SpawnDelveCrawler(remote, stream, ciphers, conn);
                     await SpawnDelveGenerator(remote, stream, ciphers, conn);
+                    await StartPendingDelveTrip(remote, stream, ciphers, conn);
                     await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
                     await SpawnOpeningTutorial(remote, stream, ciphers, conn);
                     await SpawnGlyphQuest(remote, stream, ciphers, conn);
@@ -709,6 +709,8 @@ partial class Program
                 var (a, b, cells) = conn.DelveChartProbe;
                 await Send(remote, stream, ciphers, InstanceDelve.Chart(a, b, cells),
                     $"0x0240 Delve chart: {a}, {b}, {cells.Count} cell(s) {string.Join(" ", cells)}");
+                await Send(remote, stream, ciphers, PlayerDelveData(conn), "Delve chart resource snapshot");
+                await RefreshDelveGauge(remote, stream, ciphers, conn);
             }
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
             if (uid == InstanceTransfer.LeaveAreaAckId && conn.PendingTransfer is { } t) await Transfer(remote, stream, ciphers, conn, t);

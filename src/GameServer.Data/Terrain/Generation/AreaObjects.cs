@@ -52,10 +52,15 @@ public static class AreaObjects
         Place(files, result, t => files.IsTransitionType(t) || IsEffect(t), tile => files.HasTransition(tile));
 
     /// <summary>The waypoints a placed .arm room holds as a server object line (type <c>Waypoint</c>) instead of a tile
-    /// object: The Ledge's <c>Act1/Area5/Rooms/waypoint.arm</c>. Placed as <see cref="DoodadStage"/>'s room lines
+    /// object: The Ledge's <c>Act1/Area5/Rooms/waypoint.arm</c>. Not in the recorder's .transitions.json (it records tile
+    /// objects only).</summary>
+    public static List<PlacedTileObject> RoomWaypoints(GenerationResult result) => RoomObjects(result, t => t == WaypointType);
+
+    /// <summary>The server object lines of the placed .arm rooms whose type is kept (a waypoint, an area transition such
+    /// as The Submerged Passage's <c>DepthsReturnTransition</c> boat), placed as <see cref="DoodadStage"/>'s room lines
     /// (<c>0x142040770</c>: the cell turned by the room's code, the angle mirrored for codes 4–7 plus (code &amp; 3)·π/2),
-    /// which skip them as no client doodad. Not in the recorder's .transitions.json (it records tile objects only).</summary>
-    public static List<PlacedTileObject> RoomWaypoints(GenerationResult result)
+    /// which skip them as no client doodad.</summary>
+    public static List<PlacedTileObject> RoomObjects(GenerationResult result, Func<string, bool> keep)
     {
         var placed = new List<PlacedTileObject>();
         foreach (var record in result.Records)
@@ -64,13 +69,13 @@ public static class AreaObjects
                 int code = room.Orientation;
                 foreach (var d in room.Room.Doodads)
                 {
-                    if (d.Type != WaypointType) continue;
+                    if (!keep(d.Type)) continue;
                     var (cx, cy) = Orientation.Map(code, (int)d.X, (int)d.Y, room.Room.Width * 23, room.Room.Height * 23);
                     float angle = code is >= 4 and < 8 ? MathF.PI * 2 - d.Angle : d.Angle;
                     angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
-                    var waypoint = new PlacedTileObject(d.Type, d.Model, room.X * 23 + cx, room.Y * 23 + cy, angle,
+                    var o = new PlacedTileObject(d.Type, d.Model, room.X * 23 + cx, room.Y * 23 + cy, angle,
                         d.FixedHeight ?? float.NaN, code);
-                    if (!placed.Contains(waypoint)) placed.Add(waypoint);
+                    if (!placed.Contains(o)) placed.Add(o);
                 }
             }
         return placed;

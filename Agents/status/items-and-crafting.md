@@ -192,7 +192,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   bases) are left out, the atlas bases kept. Currency runs from Scrolls of Wisdom down to the Mirror, each from its
   DropLevel. A unique's weight is the inverse of its disenchant value (`VillageUniqueDisenchantValues`, Ruthless has its
   own column), so a Mageblood is about 840 times as rare as a Wanderlust, and a base whose uniques add up to less than 1
-  mostly gives a rare instead. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
+  mostly gives a rare instead. The 1,527 reference weights are seeded into `unique_weights`; `/game_data unique_weight`
+  and `clear_unique_weight` edit the override layer live. Schema upgrades, repeated reference rebuilds and a reopened
+  database preserve overrides; invalid or non-finite weights are rejected before writing. The extracted JSON remains the fallback before seeding.
+  Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are still
+  loaded from JSON; moving them would also require clearing the affix-pool cache on reload. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
   monsters.
   Code: `ItemDrops.cs`, Gateway (`DropLoot`, `CommitProjectileKill`).
   Docs: [15](../docs/protocol/15-progression.md) §3.

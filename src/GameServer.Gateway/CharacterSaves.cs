@@ -58,7 +58,7 @@ static class CharacterSaves
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
-        ushort? AtlasPassivePoints = null)
+        ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, int? CompletedDelveDepth = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -85,6 +85,9 @@ static class CharacterSaves
 
     public static void Write(string character, Save save) =>
         Saves.Put(SaveDatabase.Table.Characters, character, JsonSerializer.Serialize(save, Opts));
+
+    public static void CompleteDelveDepth(string character, int depth) =>
+        Update(character, save => save with { CompletedDelveDepth = Math.Max(save.CompletedDelveDepth ?? 0, depth) });
 
     public static void SetHideoutPlacement(string character, string area, string key, HideoutPlacement placement) =>
         Update(character, save =>
@@ -298,6 +301,10 @@ static class CharacterSaves
     /// <summary>Records the cluster jewel nodes the client allocated, in the order it sent them.</summary>
     public static void SetClusterPassives(string character, IEnumerable<ushort> nodes) =>
         Update(character, s => s with { ClusterPassives = [.. nodes] });
+
+    /// <summary>Records the Atlas layout selected on the map device, by AtlasNode Id.</summary>
+    public static void SetAtlasLayout(string character, string layout) =>
+        Update(character, s => s with { SelectedAtlasLayout = layout });
 
     /// <summary>Records the three Atlas passive presets (PassiveSkillGraphId lists) and the points the character has.</summary>
     public static void SetAtlasPassives(string character, IReadOnlyList<IReadOnlyList<ushort>> presets, ushort points) =>

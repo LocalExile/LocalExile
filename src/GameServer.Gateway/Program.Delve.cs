@@ -19,6 +19,15 @@ partial class Program
         return InstanceDelve.DelveData(sulphite, equipment.Azurite, equipment.Flares, equipment.Dynamite, equipment.Upgrades);
     }
 
+    // Two events settle the paused interpolation's previous/target values while leaving its current value for the
+    // next UI tick. A third event overwrites current too, suppressing the fill-change event that repositions the label.
+    static async Task RefreshDelveGauge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        ushort amount = CharacterSaves.Load(CharacterName(conn))?.Sulphite ?? 0;
+        for (int i = 0; i < 2; i++)
+            await Send(remote, stream, ciphers, InstanceDelve.SulphiteChanged(amount, amount), "Synchronize Delve sulphite gauge");
+    }
+
     static async Task SpawnDelveGenerator(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (conn.Layout.Hash != StashCatalog.DelveHub || conn.DelveGeneratorObject != 0) return;
@@ -99,6 +108,17 @@ partial class Program
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(part), null);
         }
         await BlockDelveCrawler(remote, stream, ciphers, conn, x, y, DelveCrawlerRotation);
+        if (conn.Layout.Hash == InstanceDelve.MineArea && DelveRailRoute.Load(conn.Layout.Id, conn.Seed) is { } rail)
+        {
+            var end = rail.Points[^1];
+            uint arrival = conn.NextObjectId++;
+            // Original Delve node art defaults to idle_on. It is scenery, not a second chart interaction.
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(arrival,
+                InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(end.X, end.Y, "Metadata/Terrain/Doodads/Leagues/Delve/DelveWaypointObject.ao").Blob()),
+                $"Delve destination pad at {end}");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(arrival), null);
+        }
     }
 
     /// <summary>How far the Crawler's walk blockers stand from its middle along its length (cells).</summary>
@@ -116,7 +136,7 @@ partial class Program
         conn.DelveCrawlerBlockers.Clear();
         foreach (int along in new[] { -DelveCrawlerHalfLength, 0, DelveCrawlerHalfLength })
         {
-            int bx = x + (int)MathF.Round(along * MathF.Cos(rotation)), by = y + (int)MathF.Round(along * MathF.Sin(rotation));
+            int bx = x + (int)MathF.Round(along * MathF.Sin(rotation)), by = y - (int)MathF.Round(along * MathF.Cos(rotation));
             uint id = conn.NextObjectId++;
             conn.DelveCrawlerBlockers.Add(id);
             conn.SetBlocker(id, bx, by, WalkBlockerObject.Size - 1);

@@ -58,6 +58,7 @@ static class GameData
         Volatile.Write(ref _snapshot, Empty);
         ModRangeProvider.Default.Replace(Empty.ModRanges);
         LimitSettings.Default.Replace(Empty.Limits);
+        UniqueWeightProvider.Default.Reset();
         GameDataCatalog.ResetToSeeds();
         SystemSettings.ResetToSeeds();
         old?.Dispose();
@@ -74,14 +75,17 @@ static class GameData
         var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits);
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
+        GameDataWeights.Seed(store);
         GameDataCatalog.Reload(store);
         SystemSettings.Reload(store);
+        GameDataWeights.Reload(store);
         ModRangeProvider.Default.Replace(ranges);
         LimitSettings.Default.Replace(limits);
         Volatile.Write(ref _snapshot, snapshot);
+        var (uniqueWeights, uniqueWeightOverrides) = store.UniqueWeightCounts();
         Console.WriteLine($"[gateway] game data: revision {snapshot.Revision}, {ranges.Count} mod range override(s), " +
             $"{limits.Count} limit override(s), {SystemSettings.Default.Values.Count} system setting(s) ({reason}); " +
-            $"{GameDataCatalog.Summary}");
+            $"{uniqueWeights} unique weight(s), {uniqueWeightOverrides} unique weight override(s); {GameDataCatalog.Summary}");
     }
 
     public static int Limit(string key, int baseValue) =>

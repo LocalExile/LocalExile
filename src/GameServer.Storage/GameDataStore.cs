@@ -19,6 +19,7 @@ public sealed class GameDataStore : IDisposable
     public sealed record ModRow(string Id, int Hash16, string Name, int Domain, int GenerationType, int Level,
         string ModType);
     public sealed record ModStatRow(string ModId, int StatIndex, string StatId, int Minimum, int Maximum, bool Local);
+    public sealed record UniqueWeightRow(string Name, double Weight, double RuthlessWeight);
 
     private readonly SqliteConnection _db;
     private readonly object _gate = new();
@@ -103,6 +104,18 @@ public sealed class GameDataStore : IDisposable
                     key TEXT NOT NULL,
                     PRIMARY KEY (kind, key)
                 ) STRICT;
+                CREATE TABLE IF NOT EXISTS unique_weights (
+                    name TEXT PRIMARY KEY,
+                    weight REAL NOT NULL,
+                    ruthless_weight REAL NOT NULL,
+                    updated_utc TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS unique_weight_overrides (
+                    name TEXT PRIMARY KEY,
+                    weight REAL NOT NULL,
+                    ruthless_weight REAL NOT NULL,
+                    updated_utc TEXT NOT NULL
+                ) STRICT;
                 CREATE VIEW IF NOT EXISTS effective_mod_stats AS
                     SELECT m.mod_id, m.stat_index, m.stat_id,
                            COALESCE(o.minimum, m.minimum) AS minimum,
@@ -126,8 +139,8 @@ public sealed class GameDataStore : IDisposable
                     updated_utc TEXT NOT NULL
                 ) STRICT;
                 """);
-            Execute("INSERT OR IGNORE INTO game_data_meta (key, value) VALUES ('schema_version', '2')");
-            Execute("UPDATE game_data_meta SET value = '2' WHERE key = 'schema_version' AND value = '1'");
+            Execute("INSERT OR IGNORE INTO game_data_meta (key, value) VALUES ('schema_version', '3')");
+            Execute("UPDATE game_data_meta SET value = '3' WHERE key = 'schema_version' AND value IN ('1', '2')");
         }
         catch
         {
@@ -231,6 +244,100 @@ public sealed class GameDataStore : IDisposable
                 return Convert.ToInt32(command.ExecuteScalar());
             }
             return (Count("stats"), Count("mods"), Count("mod_stats"));
+        }
+    }
+
+    public bool UniqueWeightsSeeded() => Meta("unique_weights_seeded") is not null;
+
+    public void MarkUniqueWeightsSeeded() => SetMeta("unique_weights_seeded", DateTime.UtcNow.ToString("O"));
+
+    public IReadOnlyList<UniqueWeightRow> LoadUniqueWeights()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT name, weight, ruthless_weight FROM unique_weights ORDER BY name");
+            using var reader = command.ExecuteReader();
+            var result = new List<UniqueWeightRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetDouble(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
+    public IReadOnlyList<UniqueWeightRow> LoadUniqueWeightOverrides()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT name, weight, ruthless_weight FROM unique_weight_overrides ORDER BY name");
+            using var reader = command.ExecuteReader();
+            var result = new List<UniqueWeightRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetDouble(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
+    /// <summary>Replace the client-derived reference weights. Admin overrides live in
+    /// <c>unique_weight_overrides</c> and are kept when the reference is rebuilt.</summary>
+    public void SeedUniqueWeights(IReadOnlyList<UniqueWeightRow> rows)
+    {
+        Atomically(() =>
+        {
+            Execute("DELETE FROM unique_weights");
+            using var command = Command("""
+                INSERT INTO unique_weights (name, weight, ruthless_weight, updated_utc)
+                VALUES ($name, $weight, $ruthless, $utc)
+                """, ("$name", ""), ("$weight", 0.0), ("$ruthless", 0.0), ("$utc", ""));
+            command.Prepare();
+            foreach (var row in rows)
+            {
+                command.Parameters["$name"].Value = row.Name;
+                command.Parameters["$weight"].Value = row.Weight;
+                command.Parameters["$ruthless"].Value = row.RuthlessWeight;
+                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public void SetUniqueWeight(string name, double weight, double ruthlessWeight)
+    {
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("unique name is empty", nameof(name));
+        if (!double.IsFinite(weight) || !double.IsFinite(ruthlessWeight)
+            || weight is < 0 or > 1 || ruthlessWeight is < 0 or > 1)
+            throw new ArgumentException("unique weight must be finite and between 0 and 1");
+        Atomically(() =>
+        {
+            using var command = Command("""
+                INSERT INTO unique_weight_overrides (name, weight, ruthless_weight, updated_utc)
+                VALUES ($name, $weight, $ruthless, $utc)
+                ON CONFLICT(name) DO UPDATE SET
+                    weight = excluded.weight,
+                    ruthless_weight = excluded.ruthless_weight,
+                    updated_utc = excluded.updated_utc
+                """, ("$name", name), ("$weight", weight), ("$ruthless", ruthlessWeight),
+                ("$utc", DateTime.UtcNow.ToString("O")));
+            command.ExecuteNonQuery();
+        });
+    }
+
+    public void ClearUniqueWeight(string name)
+    {
+        Atomically(() =>
+        {
+            using var command = Command("DELETE FROM unique_weight_overrides WHERE name = $name", ("$name", name));
+            command.ExecuteNonQuery();
+        });
+    }
+
+    public (int Weights, int Overrides) UniqueWeightCounts()
+    {
+        lock (_gate)
+        {
+            int Count(string table)
+            {
+                using var command = Command($"SELECT COUNT(*) FROM {table}");
+                return Convert.ToInt32(command.ExecuteScalar());
+            }
+            return (Count("unique_weights"), Count("unique_weight_overrides"));
         }
     }
 

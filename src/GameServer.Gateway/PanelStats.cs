@@ -438,7 +438,7 @@ static class PanelStats
     public static List<(string Stat, int Value)> Recovery(Func<string, int> get, uint maxLife, uint maxMana)
     {
         var result = new List<(string, int)>();
-        double life = LifePerMinute(get, maxLife);
+        var (life, _) = LifeRegeneration(get, maxLife);
         if (life != 0)
         {
             result.Add(("total_life_recovery_per_minute_from_regeneration", RecoveryValue(life)));
@@ -464,6 +464,20 @@ static class PanelStats
     public static double LifePerMinute(Func<string, int> get, uint maxLife) =>
         (get("base_life_regeneration_rate_per_minute")
             + maxLife * get("life_regeneration_rate_per_minute_%") / 100.0) * LifeRegenerationMultiplier(get);
+
+    /// <summary>Zealot's Oath applies life regeneration to Energy Shield instead of Life; Geofri's Sanctuary carries
+    /// the same stat under its item modifier name.</summary>
+    public static bool ZealotsOath(Func<string, int> get) =>
+        get("keystone_zealots_oath") != 0 || get("regenerate_energy_shield_instead_of_life") != 0;
+
+    /// <summary>Life regeneration per minute, split into the part applied to Life and the part applied to Energy
+    /// Shield by Zealot's Oath. An ES recovery prohibition drops the converted part; it never falls back to Life.</summary>
+    public static (double Life, double EnergyShield) LifeRegeneration(Func<string, int> get, uint maxLife)
+    {
+        double life = LifePerMinute(get, maxLife);
+        bool oath = ZealotsOath(get);
+        return (oath ? 0 : life, oath && EnergyShield.ConversionAllowed(get) ? life : 0);
+    }
 
     /// <summary>
     /// Character.ot's <see cref="BaseManaRegenPctPerMinute"/> plus <c>mana_regeneration_rate_per_minute_%</c> of maximum

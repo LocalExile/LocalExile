@@ -39,6 +39,13 @@ few ControlZone, Functions, Stats or Brackets (not written yet).
 The NPC component's debug dump (`0x141e751d0`) prints the NPC and the NPCTalk row the client picks for the player
 (`0x141e76d40`): the client chooses the dialogue itself.
 
+Bosses that speak have an NPC component too, after their Transitionable (Captain Fairgraves' `SkeletonBossEmerge`,
+Merveil, the Siren's `seawitchillusion/Merveil`; Piety, General Gravicius and the Sceptre of God's three lieutenants,
+Kaom, Daresso, Utula, Malachai and the three in The Harvest): the monster blob writes it as `00 ff` (no dialogue, no
+component that must be alive). Without it these monsters could not be created at all ([12](12-quests.md) §9–10).
+Act 2's bandit lords (Kraityn, Alira, Oak) add InteractionAction before their NPC, written `00` as for an NPC: they
+are created as hostile unique bosses; their dialogue (help or kill, the bandit choice) is not offered this way.
+
 NPC collision uses the same inherited Positioned metadata as the client, including NPCs.dat Id aliases whose
 OT is the row's Metadata. Server routing and overlap escape register every spawned NPC with its own footprint,
 in both towns and hideouts; moving an NPC replaces its registered footprint rather than adding a second one.
