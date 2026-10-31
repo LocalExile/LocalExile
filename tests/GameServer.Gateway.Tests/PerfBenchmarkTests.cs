@@ -239,6 +239,14 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             if (fs.GetType().GetField("_bundleReads", BindingFlags.NonPublic | BindingFlags.Instance) is { } reads)
                 Record("area", "game files bundle reads", (long)reads.GetValue(fs)!, "");
         }
+        // The generated levels ServerLevels keeps for the next entry (their grids; the doodad lists are small beside them).
+        if (typeof(ServerLevels).GetField("Generated", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null)
+            is System.Collections.IDictionary kept)
+        {
+            long bytes = kept.Values.OfType<ServerLevels.Level>().Sum(l => (long)l.Walk.Length + l.Heights.Length * 2L + l.Projectile.Length);
+            Record("area", "kept levels", kept.Count, "");
+            Record("area", "kept levels' grids MB", bytes / 1048576.0, "MB");
+        }
         if (typeof(Program).Assembly.GetType("GameTables") is { } tables
             && tables.GetProperty("Counts")?.GetValue(null) is ValueTuple<long, long> counts)
         {

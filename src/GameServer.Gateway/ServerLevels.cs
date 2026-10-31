@@ -39,10 +39,13 @@ static class ServerLevels
     static TerrainCache? _files;
     static GameFileSystem? _fs;
     static readonly ConcurrentDictionary<(string Area, uint Seed), Level?> Generated = new();
-    // The order they were generated in: with random seeds every new instance is a new (area, seed), so only the last
-    // Kept stay (a level is several MB); an older one is generated again when asked for.
-    static readonly Queue<(string Area, uint Seed)> Order = new();
-    const int Kept = 24;
+    // Least recently asked for first: with random seeds every new instance is a new (area, seed), so only the last Kept
+    // stay (a level's grids are ~11 MB: 24 of them were 265 MB in the perf benchmark); an older one is generated again
+    // when asked for (0.2 s median, 0.6 s at most there; Agents/docs/dev/performance.md). Its own lock, so a level in
+    // use is not held up by another's generation.
+    static readonly LinkedList<(string Area, uint Seed)> Order = new();
+    static readonly Lock OrderGate = new();
+    const int Kept = 8;
     // Why the last generations that failed did (the exception in full), for the capture tour's records.
     static readonly ConcurrentDictionary<(string Area, uint Seed), string> Errors = new();
 
@@ -64,25 +67,40 @@ static class ServerLevels
         GameServer.Core.World.ServerLevelAreas.Load(file, m => Console.WriteLine($"[gateway] server levels: {m}"));
 
     /// <summary>The generated layout of (area, seed), or null when the area is not supported or generation failed
-    /// (the Gateway then falls back to the capture). Generated once per (area, seed) and kept while among the last
-    /// <see cref="Kept"/>.</summary>
+    /// (the Gateway then falls back to the capture). Generated once per (area, seed) and kept while among the
+    /// <see cref="Kept"/> most recently asked for.</summary>
     public static Level? For(string areaId, uint seed)
     {
         if (!IsSupported(areaId)) return null;
-        if (Generated.TryGetValue((areaId, seed), out var known)) return known;
+        if (Generated.TryGetValue((areaId, seed), out var known)) { Touch((areaId, seed)); return known; }
         lock (Gate)
         {
-            if (Generated.TryGetValue((areaId, seed), out known)) return known;
+            if (Generated.TryGetValue((areaId, seed), out known)) { Touch((areaId, seed)); return known; }
             var level = Generated[(areaId, seed)] = Generate(areaId, seed);
-            Order.Enqueue((areaId, seed));
-            while (Order.Count > Kept)
+            lock (OrderGate)
             {
-                var old = Order.Dequeue();
-                Generated.TryRemove(old, out _);
-                Errors.TryRemove(old, out _);
+                Order.AddLast((areaId, seed));
+                while (Order.Count > Kept)
+                {
+                    var old = Order.First!.Value;
+                    Order.RemoveFirst();
+                    Generated.TryRemove(old, out _);
+                    Errors.TryRemove(old, out _);
+                }
             }
             return level;
         }
+    }
+
+    // A level asked for again becomes the most recently used.
+    static void Touch((string Area, uint Seed) key)
+    {
+        lock (OrderGate)
+            if (Order.Find(key) is { } node && node != Order.Last)
+            {
+                Order.Remove(node);
+                Order.AddLast(node);
+            }
     }
 
     /// <summary>The seed an instance of a supported area is played at: its own, unless the port cannot generate it (a
