@@ -2012,12 +2012,10 @@ A foreign-source packet non-removal control establishes no party aura executor o
   (`Metadata/Effects/Spells/ri_fire/rifire.ao`), an effect object of its own. The client's effect script
   (`0x142087910`) makes MiscAnimated effects as `Metadata/Effects/Effect`, `ServerEffect`, `PermanentServerEffect` …
   objects; `PermanentServerEffect` is Positioned, BaseEvents, Animated (Render client-only), so the Gateway creates one
-  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) under the player and glides it with 0x1ba
-  every 100 ms to where the player will be 100 ms later along its path (`FollowRighteousFire`, `RunRingFollow`;
-  before 2026-10-23 it glided once per ground click to that walk's end, so a walk to a stash or an item, which comes as
-  C→S 0x24, left it behind, and the straight glide cut the path's corners). It is created with Positioned flags0 0x80
-  (`EffectObject.FixedRotation`): without it each glide turned the ring to face the move, so it spun as the player
-  turned (live 2026-10-21). It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
+  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) attached to the player: Animated bit2's
+  record (`0x141e5adb0` → `0x141e5a440`, [04](04-player-entity.md) §4.5) with the player as parent, bone `<root>` and kind 4 (no rotation).
+  The client carries it with its own predicted player position, so no packet moves it and latency cannot leave it
+  behind; the 0x1ba glides it had before lagged a round trip behind the client's walk. It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
   x / y stretches left at 1, [04](04-player-entity.md) §4.0). The art is drawn for the radius in its MiscAnimated row's
   `__col4`, in world units (RighteousFireRing 400, RighteousFireRingWhite 200, the league avatars' blue ring 380, the
   Vaal rings 500; 0 for art not scaled to an area); the meshes agree (`rifire.sm` ±463 with its flames at 380,

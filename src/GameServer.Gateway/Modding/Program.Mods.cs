@@ -40,6 +40,7 @@ partial class Program
                 if (!File.Exists(Path.Combine(ModulesFolder, path, ModHost.ModuleManifestFile)))
                     Console.WriteLine($"[leagues] {league.Name}'s modules.json lists {path}: no such module in {ModulesFolder}/");
         Console.WriteLine($"[leagues] loaded: {string.Join(", ", leagues.Loaded.Select(l => l.Name + (l.Ended ? " (ended)" : "")))}");
+        StaleModules.Rebuild(ModulesFolder);
         ServerLeagueCode.Changed += line => HotReload.Tell(line.Replace("[leagues] ", "Leagues: "));
         ServerLeagueCode.Start();
         ServerModules.Changed += line => HotReload.Tell(line.Replace("[modules] ", "Modules: "));

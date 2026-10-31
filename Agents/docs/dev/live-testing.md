@@ -82,7 +82,9 @@ These are suggestions that have worked well, for people and agents alike; use yo
 - **Some edits restart on their own.** A changed method signature or a removed member cannot be applied;
   `dotnet watch` prints `Restart is needed to apply the changes`, rebuilds and restarts the Gateway, and the player
   is back at the login screen (the Gateway tries to say so in chat first). It can be kind to tell the person playing
-  before saving such an edit.
+  before saving such an edit. `dotnet watch` does not build the modules, so the restarted Gateway builds those older
+  than itself before it loads them (`StaleModules`); an older module would otherwise fail only when it runs, with a
+  `MissingFieldException` or `MissingMethodException`. A module that does not build is named in the log.
 - **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
   Keep the monster AI cadence collection nonparallel: its socket-latency assertion retains its 300 ms limit, so
