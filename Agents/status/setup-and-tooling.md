@@ -83,17 +83,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
   Docs: [debugging](../docs/dev/debugging.md).
 
-- Cheap clients for agent sessions (opt-in): `scripts/dev/nullifier.py` starts the client in its own session folder
-  (its own settings file, seeded from `config/nullifier_Config.ini`), in a kill-on-close job, with the engine's own
-  Null renderer (no GPU device; a Frida agent turns it on and fixes the Null index buffer's missing format, which
-  crashed area entry), session-local names for the client's two-copies mutexes (so it never takes one of the two
-  Global\PoERunMutexA/B slots other clients need; offline-tested), a window that never takes focus, below-normal
-  priority and EcoQoS, and serves client_control's commands (plus `waypoint:travel`, `nullifier:stats`) for that
-  client only. Live 2026-10-31: login, play, 60 s in town, slash commands, chat, `/tp`, waypoint travel and `/goto`
-  all worked at 1.9 GB private commit, no GPU memory and ~15 % of a core (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %);
-  `--trim-seconds 10` keeps it resident at 50–230 MB. Only Lioneye's Watch and The Coast were entered. `--renderer
-  configured` (DirectX 11 preset, 4.3 GB, 1.7 GB VRAM) is the verified fallback. Offline tests:
-  `scripts/dev/test_nullifier.py`, `test-nullifier-mutex.cjs`.
+- Cheap session clients: `live.ps1 -Session S` starts every session client through `scripts/dev/nullifier.py`, which
+  spawns it in its session folder inside a kill-on-close job, with a Frida agent that gives its two-copies mutexes
+  session-local names (so it never takes one of the two Global\PoERunMutexA/B slots the user's client needs), keeps
+  its window from taking focus, and sets below-normal priority and EcoQoS; `-Nullifier` adds the engine's own Null
+  renderer (no GPU device; the agent fixes the Null index buffer's missing format, which crashed area entry) and
+  working-set trimming. New sessions default to the cheap DirectX 11 preset. Live 2026-10-31 (with the earlier
+  stand-alone launcher): login, play, 60 s in town, slash commands, chat, `/tp`, waypoint travel and `/goto` worked
+  with both renderers; DirectX 11 preset 4.3 GB commit, 1.7 GB VRAM, ~11 % of a core; Null 1.9 GB, no GPU memory,
+  ~15 % (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %). The live.ps1 integration, the run-mutex renaming and
+  `game:frames` are tested offline only; only Lioneye's Watch and The Coast were entered with the Null renderer.
+  Offline tests: `test_nullifier.py`, `test-nullifier-mutex.cjs`, `test_client_control.py`, `test_live_client_only.ps1`.
   Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`.
   Docs: [headless client](../docs/dev/headless-client.md).
 

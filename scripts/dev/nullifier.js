@@ -11,7 +11,6 @@
 //                 the Null index buffers report their index format (below).
 //   noRenderJobs  the engine's "Test Disable Frame Render Jobs" switch (frame render jobs are not kicked).
 //   noTextureUpload, noTextureStreaming  the texture manager's Upload / Streaming switches.
-//   frameStats    count main-loop frames for rpc.exports.stats (on with frameSleepMs).
 //   frameSleepMs  sleep this long once per main-loop frame (in the state-stack update), a frame-rate cap that also
 //                 works with the Null device, which has no vsync or present to wait on.
 //   crashLog      append a crash's registers and backtrace to this file (diagnostics).
@@ -147,29 +146,17 @@ if (OPTIONS.nullRenderer) {
   log('Null index buffers describe their format');
 }
 
-// The state-stack update (0x141526c40), on the main thread once per frame: counts frames for `stats` and, with
-// frameSleepMs, caps the frame rate. Its entry, not client-control.js's point 0x7f bytes in (0x141526cbf), so the
-// bridge's code check there still sees the original.
-let frames = 0;
-const started = Date.now();
-if (OPTIONS.frameStats || OPTIONS.frameSleepMs > 0) {
+// The state-stack update (0x141526c40), on the main thread once per frame: with frameSleepMs, a per-frame sleep. Its
+// entry, not client-control.js's point 0x7f bytes in (0x141526cbf), so the bridge's code check there still sees the
+// original. (The frame rate itself: client_control.py game:frames.)
+if (OPTIONS.frameSleepMs > 0) {
   const frame = checked('stateStackUpdate', '0x141526c40', '48895c241048896c2418488974242057');
   let sleep = null;
   Interceptor.attach(frame, function () {
-    frames++;
-    if (OPTIONS.frameSleepMs > 0) {
-      sleep ??= new NativeFunction(Process.getModuleByName('kernel32.dll').getExportByName('Sleep'), 'void', ['uint32']);
-      sleep(OPTIONS.frameSleepMs);
-    }
+    sleep ??= new NativeFunction(Process.getModuleByName('kernel32.dll').getExportByName('Sleep'), 'void', ['uint32']);
+    sleep(OPTIONS.frameSleepMs);
   });
 }
-let last = {time: started, frames: 0};
-rpc.exports.stats = () => {
-  const now = Date.now(), fps = (frames - last.frames) * 1000 / Math.max(1, now - last.time);
-  last = {time: now, frames};
-  return {pid: Process.id, counting: Boolean(OPTIONS.frameStats || OPTIONS.frameSleepMs > 0), frames,
-    fpsSinceLastStats: Math.round(fps * 10) / 10, uptimeS: Math.round((now - started) / 1000)};
-};
 
 if (OPTIONS.traceFiles) {
   const trace = new RegExp(OPTIONS.traceFiles, 'i');

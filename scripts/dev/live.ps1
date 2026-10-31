@@ -23,16 +23,22 @@
 #               base is remembered in data\stack.json for later runs and scripts/dev/client_control.py; 0 = default ports.
 #               With a base, the shell's Game_*_PORT, Game_PATCH_URL and Game_PATCH_WEB_ROOT are not used.
 #   -Session S  a named client (also Game_CLIENT_SESSION) beside the others of this stack: its own working folder
-#               data\clients\S\ (its logs\Client.txt), settings file and saved login, at below-normal priority. Its new
-#               settings file starts from config\nullifier_Config.ini when the checkout has that cheap preset, else from the
-#               default client's. Without it: the one client as before.
+#               data\clients\S\ (its logs\Client.txt), settings file and saved login. Its new settings file starts from
+#               config\nullifier_Config.ini when the checkout has that cheap preset (DirectX 11, 800x600, low textures,
+#               10 fps, no sound), else from the default client's. It starts through scripts/dev/nullifier.py: in a job
+#               that ends it with its launcher, at below-normal priority with EcoQoS, its window never activated, and
+#               with session-local names for the client's two-copies mutexes, so it never takes one of the two machine-wide
+#               slots the user's client needs (Agents/docs/dev/headless-client.md). Without it: the one client as before.
+#   -Nullifier  (also Game_CLIENT_NULLIFIER=1) the -Session client without a GPU: the engine's Null renderer and a
+#               trimmed working set (about 1.9 GB commit, no GPU memory, ~15 % of a core). Without it the session's
+#               settings decide the renderer (the preset: DirectX 11).
 #   -SeedConfig F  (also Game_CLIENT_SEED_CONFIG) start the -Session client's settings file over from F (without [LOGIN]).
 #   -Stop       stop this checkout's servers, walk-map recorder and clients; with -ClientOnly only the -Session client.
 #   Several stacks and clients on one PC: Agents/docs/dev/live-testing.md ("Several stacks and clients"). Whatever this
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -134,6 +140,66 @@ function Get-OwnServers([string[]]$names) {
     @($found.Values)
 }
 
+# Running clients that hold (or wait for) a machine-wide two-copies slot: all but this checkout's session clients.
+function Get-GlobalSlotHolders {
+    $renamed = @(Get-RenamedClientIds)
+    @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq 'Game.patched.exe' -and $_.ProcessId -notin $renamed })
+}
+
+# Starts a session client through scripts/dev/nullifier.py, detached (it lives as long as its client), and waits until it
+# has merged the client's PID and start time (and its own) into the pending record. On failure (the launcher ended, or
+# no client within 60 s) the launcher and what it started are stopped, the record goes, and this throws.
+function Start-SessionLauncher([string]$session, [string]$folder, [string]$record, $stack, [bool]$nullifier) {
+    $python = Get-Python 'session clients (scripts/dev/nullifier.py)'
+    $arguments = @((Join-Path $repo 'scripts\dev\nullifier.py'), '--cwd', $folder, '--record', $record,
+        '--patch-port', "$($stack.Ports.patch)", '--login-port', "$($stack.Ports.login)")
+    $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10') } else { @('--renderer', 'configured') }
+    $log = Join-Path $out "nullifier-$session.log"; $err = Join-Path $out "nullifier-$session.err"
+    $wrapper = Start-Detached $python $arguments $log $err -PassThru
+    $deadline = (Get-Date).AddSeconds($script:LauncherTimeout)
+    while ($true) {
+        $r = try { Get-Content $record -Raw | ConvertFrom-Json } catch { $null }
+        if ($r -and $r.pid) { break }
+        $ended = $wrapper.HasExited
+        if ($ended -or (Get-Date) -gt $deadline) {
+            Stop-Wrapper $wrapper
+            Remove-Item $record -ErrorAction SilentlyContinue
+            $why = (Get-Content $err -Raw -ErrorAction SilentlyContinue)
+            throw "the session client did not start ($(if ($ended) { 'its launcher ended' } else { "no client within $($script:LauncherTimeout) s" })): $why(logs\nullifier-$session.log, .err)"
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    Write-Output "client pid $($r.pid) (session $session, $folder; launcher $($r.launcher)$(if ($nullifier) { '; Null renderer' }))"
+}
+$script:LauncherTimeout = 60
+
+# Session clients start through scripts/dev/nullifier.py (Start-Client), which records its own PID and start time in the
+# session's record (launcher, launcherStarted). A launcher counts only when its PID, start time and command line agree:
+# a later process may reuse the PID.
+function Get-OwnLaunchers([string]$session) {
+    $files = if ($session) { @(Get-Item (Join-Path $clients "$session.json") -ErrorAction SilentlyContinue) }
+        else { @(Get-ChildItem $clients -Filter '*.json' -File -ErrorAction SilentlyContinue) }
+    foreach ($file in $files) {
+        $r = try { Get-Content $file.FullName -Raw | ConvertFrom-Json } catch { $null }
+        if (-not $r -or -not $r.launcher -or -not $r.launcherStarted) { continue }
+        $id = [int]$r.launcher
+        $p = @(Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -eq $id })
+        foreach ($q in $p) {
+            if ([math]::Abs($q.CreationDate.ToFileTimeUtc() - [long]$r.launcherStarted) -lt 20000000 -and
+                "$($q.CommandLine)" -like '*nullifier.py*' -and (Test-Here $q)) { $q }
+        }
+    }
+}
+
+# The PIDs of this checkout's session clients, which hold no machine-wide two-copies slot (their mutexes are renamed).
+function Get-RenamedClientIds {
+    foreach ($file in Get-ChildItem $clients -Filter '*.json' -File -ErrorAction SilentlyContinue) {
+        $r = try { Get-Content $file.FullName -Raw | ConvertFrom-Json } catch { $null }
+        if ($r -and $r.launcher -and $r.pid) { [int]$r.pid }
+    }
+}
+
 function Get-OwnWalkmaps {
     @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like '*walkmaps.py*' -and (Test-Here $_) })
@@ -141,6 +207,37 @@ function Get-OwnWalkmaps {
 
 function Stop-Processes($processes) {
     foreach ($p in $processes) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+# A virtual environment in the repository (.venv) wins over the python on PATH; it needs Frida (walkmaps.py,
+# nullifier.py).
+function Get-Python([string]$purpose) {
+    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
+    if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
+    Need $python "Python not found (needed for $purpose)"
+    & $python -c 'import frida' 2>$null
+    Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+    $python
+}
+
+# Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
+# redirecting form creates them with handle inheritance on, so they would hold this shell's stdout open, and whoever runs
+# this script through a pipe (an AI agent's shell tool, `| Select-Object`) would wait until they exit. Started this way
+# (ShellExecute) they inherit the environment (the Game_* settings) but no handles. -PassThru returns the cmd wrapper.
+function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err, [switch]$PassThru) {
+    $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
+    $p = Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+    if ($PassThru) { $p }
+}
+
+# A cmd wrapper Start-Detached returned and what it started after it (a launcher's client goes with its job).
+function Stop-Wrapper($wrapper) {
+    $started = try { $wrapper.StartTime } catch { $null }
+    $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($wrapper.Id)" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ParentProcessId -eq $wrapper.Id -and $started -and $_.CreationDate -ge $started.AddSeconds(-1) })
+    Stop-Processes $children
+    Stop-Process -Id $wrapper.Id -Force -ErrorAction SilentlyContinue
 }
 
 # The client's own Log In goes to the login server of the GGPK's cached gateway list; the control bridge
@@ -168,9 +265,13 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 # (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME, in Documents\My Games\Path of Exile). A new settings file (or any,
 # with -SeedConfig) starts as a copy of the seed without its [LOGIN] section: no saved login to send to whichever login
 # server the shared gateway list names. The seed: -SeedConfig, else the cheap preset config\nullifier_Config.ini (DX11,
-# 800x600, low textures, 10 fps, no sound) when this checkout has it, else the default client's settings. A session
-# client runs at below-normal priority: agents' clients yield to the person playing.
-function Start-Client([string]$session, $stack, [string]$seedConfig) {
+# 800x600, low textures, 10 fps, no sound) when this checkout has it, else the default client's settings.
+# A session client starts through scripts/dev/nullifier.py (detached; it lives as long as its client): in a job that ends
+# the client with it, at below-normal priority with EcoQoS (agents' clients yield to the person playing), its window
+# never activated, and with session-local names for the two-copies mutexes. $nullifier adds the Null renderer and
+# working-set trimming. The launcher merges the client's PID and start time (and its own) into the pending record; this
+# waits for them. The default client starts plainly, as before.
+function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
     $folder = $client
     if ($session -ne 'default') {
@@ -205,34 +306,46 @@ function Start-Client([string]$session, $stack, [string]$seedConfig) {
         }
     }
     # The client runs at most two copies per PC: it takes one of two machine-wide mutexes (Global\PoERunMutexA, B;
-    # 0x140101d85) and otherwise waits on "You may only run up to two copies of Path of Exile at a time."
-    $running = @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue)
-    if ($running.Count -ge 2) {
-        throw "the client runs at most two copies per PC, and two run already (pids $(($running | ForEach-Object { $_.ProcessId }) -join ', '))"
+    # 0x140101d85) and otherwise waits on "You may only run up to two copies of Path of Exile at a time." Session clients
+    # use session-local names instead, so only the default client needs a free slot. This checkout's session clients do
+    # not count; another checkout's do (they cannot be told apart from here): the check errs on the safe side.
+    if ($session -eq 'default') {
+        $running = @(Get-GlobalSlotHolders)
+        if ($running.Count -ge 2) {
+            throw "the client runs at most two copies per PC, and two run already (pids $(($running | ForEach-Object { $_.ProcessId }) -join ', ')); a -Session client does not need a slot"
+        }
     }
     # The record goes first as a pending launch (pid 0, the time before the start): until it has the PID, nobody takes
     # the new client for the default session's (Get-OwnClients, client_control.py).
     New-Item -ItemType Directory -Force $clients | Out-Null
     $record = Join-Path $clients "$session.json"
-    [ordered]@{ pid = 0; started = (Get-Date).AddSeconds(-1).ToFileTimeUtc(); session = $session } | ConvertTo-Json | Set-Content $record -Encoding ascii
+    [ordered]@{ pid = 0; started = (Get-Date).AddSeconds(-1).ToFileTimeUtc(); session = $session; folder = $folder; ports = $stack.Ports } |
+        ConvertTo-Json | Set-Content $record -Encoding ascii
+    if ($session -ne 'default') {
+        Start-SessionLauncher $session $folder $record $stack $nullifier
+        return
+    }
     $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', "127.0.0.1:$($stack.Ports.patch)" -WorkingDirectory $folder -PassThru
     $started = try { $p.StartTime.ToFileTimeUtc() } catch { $null }
     if ($null -eq $started -or $p.HasExited) {
         Remove-Item $record -ErrorAction SilentlyContinue
         throw "the client exited right after starting (exit code $($p.ExitCode)); see $(Join-Path $folder 'logs\Client.txt')"
     }
-    if ($session -ne 'default') { try { $p.PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal } catch { } }
     [ordered]@{ pid = $p.Id; started = $started; session = $session; folder = $folder; ports = $stack.Ports } |
         ConvertTo-Json | Set-Content $record -Encoding ascii
-    Write-Output "client pid $($p.Id)$(if ($session -ne 'default') { " (session $session, $folder)" })"
+    Write-Output "client pid $($p.Id)"
 }
 
 $stack = Get-Stack $PortBase
 $session = Get-SessionName $Session
+$nullifierMode = $Nullifier -or "$env:Game_CLIENT_NULLIFIER" -in '1', 'true'
+if ($nullifierMode -and $session -eq 'default' -and -not $Stop) { throw '-Nullifier needs -Session: the default client starts as before' }
 $ports = @{ Auth = @($stack.Ports.login, $stack.Ports.control); Patch = @($stack.Ports.patch, $stack.Ports.patchWeb); Gateway = @($stack.Ports.gateway) }
 
 if ($Stop) {
-    $stopping = if ($ClientOnly) { @(Get-OwnClients $session) } else { @(Get-OwnClients) + @(Get-OwnWalkmaps) + @(Get-OwnServers 'Auth', 'Patch', 'Gateway') }
+    # Launchers first: their job objects end their clients with them.
+    $stopping = if ($ClientOnly) { @(Get-OwnLaunchers $session) + @(Get-OwnClients $session) }
+        else { @(Get-OwnLaunchers) + @(Get-OwnClients) + @(Get-OwnWalkmaps) + @(Get-OwnServers 'Auth', 'Patch', 'Gateway') }
     Stop-Processes $stopping
     if ($ClientOnly) { Remove-Item (Join-Path $clients "$session.json") -ErrorAction SilentlyContinue }
     else { Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue }
@@ -258,7 +371,7 @@ if ($ClientOnly) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
     if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
-    Start-Client $session $stack $SeedConfig
+    Start-Client $session $stack $SeedConfig $nullifierMode
     return
 }
 
@@ -270,15 +383,7 @@ if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
     Write-Warning '-Walkmaps records only on the default ports and for the default client session; starting without the walk-map recorder'
     $Walkmaps = $false
 }
-if ($Walkmaps) {
-    # A virtual environment in the repository (.venv) wins over the python on PATH.
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
-    $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
-    if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
-    Need $python 'Python not found (needed for -Walkmaps)'
-    & $python -c 'import frida' 2>$null
-    Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
-}
+if ($Walkmaps) { $python = Get-Python '-Walkmaps' }
 
 # Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
 if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
@@ -293,7 +398,7 @@ $Watch = -not $NoHotReload -and $servers -contains 'Gateway'
 
 # This checkout's clients (every session: they lose their servers) and recorder.
 if (-not $NoClient) {
-    Stop-Processes (Get-OwnClients)
+    Stop-Processes (@(Get-OwnLaunchers) + @(Get-OwnClients))
     Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue
 }
 if (-not $Only) { Stop-Processes (Get-OwnWalkmaps) }
@@ -351,15 +456,6 @@ if (-not $NoBuild) {
             if ($LASTEXITCODE -ne 0) { Write-Warning "mod $($mod.BaseName) did not build (run: dotnet build $($mod.FullName)); the Gateway starts without it" }
         }
     }
-}
-
-# Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
-# redirecting form creates them with handle inheritance on, so they would hold this shell's stdout open, and whoever runs
-# this script through a pipe (an AI agent's shell tool, `| Select-Object`) would wait until they exit. Started this way
-# (ShellExecute) they inherit the environment (the Game_* settings) but no handles.
-function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err) {
-    $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-    Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden
 }
 
 $bin = 'bin\Debug\net10.0'
@@ -446,6 +542,6 @@ if ($Walkmaps) {
     Write-Output 'walk-map capture on (logs\walkmaps.log)'
 }
 
-if (-not $NoClient) { Start-Client $session $stack $SeedConfig }
+if (-not $NoClient) { Start-Client $session $stack $SeedConfig $nullifierMode }
 $portsText = if ($stack.Base) { " on ports $(($stack.Ports.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', ')" } else { '' }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')$portsText" } else { "servers up$portsText" })

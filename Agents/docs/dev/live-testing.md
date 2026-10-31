@@ -69,6 +69,7 @@ touching each other's.
 .\scripts\dev\control.ps1 game:open -Session a1             # a client of this stack, session a1
 .\scripts\dev\control.ps1 login:offline -Session a1 -PasswordStdin
 .\scripts\dev\control.ps1 game:open -Session a2             # a second one beside it
+.\scripts\dev\live.ps1 -ClientOnly -Session bot1 -Nullifier  # a GPU-less one (the engine's Null renderer)
 .\scripts\dev\live.ps1 -Stop                                # this checkout's servers and clients, nothing else
 ```
 
@@ -86,8 +87,9 @@ touching each other's.
   checkout's `Client\` path (each checkout reaches the shared client through its own junction, so the path it was
   started by tells checkouts apart; Windows' image name resolves the junction) and, among those, the session's by the
   PID and start time recorded in `data\clients\<session>.json` (written with pid 0 just before the start, so no one
-  takes a client being started for another session's); and its own walk-map recorder. Another program or checkout on its
-  ports is reported, not stopped: give one of them other ports.
+  takes a client being started for another session's); a session client's launcher (`nullifier.py`), by the PID, start
+  time and command line it adds to that record, stopped first so its job object ends its client; and its own walk-map
+  recorder. Another program or checkout on its ports is reported, not stopped: give one of them other ports.
 - **Client sessions.** `-Session NAME` (also `Game_CLIENT_SESSION`; `client_control.py --session`, `control.ps1
   -Session`) starts a client in its own folder, `data\clients\NAME\`. The client opens `Content.ggpk`, `config.json`,
   its asset folders (`FMOD` sound banks, `Streamline`, `D3D12`) and `CachedHLSLShaders`, and writes `logs\Client.txt`,
@@ -106,7 +108,18 @@ touching each other's.
   session folder with `cmd /c rmdir /s /q`, not Windows PowerShell's `Remove-Item -Recurse`, which can follow the
   junctions into the shared `Client\`. The bridge attaches to the session's recorded PID and reads only the chat replies sent
   to that client's connection (the Gateway log names each connection by the client's port). Without a session the
-  client starts in `Client\` with the shared settings, as before.
+  client starts in `Client\` with the shared settings, as before (a plain start, unchanged).
+- **Session clients start through `scripts\dev\nullifier.py`** ([headless client](headless-client.md)). `live.ps1`
+  prepares the folder and the pending record, then starts the launcher detached and waits (60 s at most) until it has
+  merged the client's PID and start time, and its own (`launcher`, `launcherStarted`), into the record; when it fails
+  the launcher is stopped, the record removed and `live.ps1` throws (the launcher's output is in
+  `logs\nullifier-<session>.log` / `.err`). The launcher spawns the client suspended, puts it in a job object that ends
+  it with the launcher, loads a Frida agent (session-local two-copies mutexes, below; a window that is shown but never
+  activated), sets below-normal priority and EcoQoS through the one process handle it opened, resumes it, and waits
+  for it. The client lives as long as its launcher; `-Stop -ClientOnly -Session S` stops both (the launcher only when
+  its PID, start time and command line match the record). `-Nullifier` (`Game_CLIENT_NULLIFIER=1`) adds the engine's
+  Null renderer (no GPU device or memory) and working-set trimming; without it the session's settings decide the
+  renderer.
 - **Logging in.** The bridge (`login:offline`, `login:saved`) connects to this stack's Auth by port. The client's own
   Log In button and a saved login use the login server in the GGPK's cached gateway list, which only the default stack
   writes (and only when it does not already name its Auth; reading the list works while clients run): the GGPK is
@@ -125,16 +138,27 @@ touching each other's.
   predate these sessions finds its client by process name: any other `Game.patched.exe` beside its client stops its
   bridge ("Multiple patched clients") or attaches it to the wrong client, and its `live.ps1` stops every client and every
   GameServer process on the PC. Start an extra client only when every checkout with a running client has these scripts.
-- **Two clients per PC at most.** The client takes one of two machine-wide mutexes, `Global\PoERunMutexA` and
+- **Two clients per PC, unless renamed.** The client takes one of two machine-wide mutexes, `Global\PoERunMutexA` and
   `Global\PoERunMutexB` (`0x140101d85`), and with both taken it waits on a dialog, "You may only run up to two copies
-  of Path of Exile at a time." (seen live 2026-10-31). The count is over every checkout's clients; `live.ps1` refuses a
-  third launch instead of leaving a client on that dialog.
+  of Path of Exile at a time." (seen live 2026-10-31). Nothing else uses those mutexes ([headless
+  client](headless-client.md), "The two-copies limit"). Session clients get session-local names instead
+  (`Local\LocalExile-<checkout>-<session>-PoERunMutexA`/`B`), so they never take one of the two slots the user's and
+  other checkouts' default clients need, and any number of them can run. The default client still needs a slot:
+  `live.ps1` refuses to start it when two other clients run, not counting this checkout's session clients (another
+  checkout's session clients cannot be told apart from here, so they count; the check errs on the safe side). Not
+  yet verified live: the renaming is tested offline.
 - **Cheap session settings.** A session's new settings file starts from `config\nullifier_Config.ini` when the
   checkout has that preset (DirectX 11, 800x600, low textures, 10 fps, no sound), else from the default client's;
   `-SeedConfig <file>` (`Game_CLIENT_SEED_CONFIG`) starts it over from another file. Session clients run at below-normal
-  priority. Do not minimize a client with a real renderer: it stops its main loop.
+  priority with EcoQoS. Do not minimize a client with a real renderer: it stops its main loop. The default for a new
+  session is that preset with its DirectX 11 renderer: the broadest-tested cheap setting (login, play, waypoint travel,
+  `/goto`, chat, `/tp` live; 4.3 GB commit, 1.7 GB VRAM, ~11 % of a core at 9 fps). `-Nullifier` is the choice for many
+  agent clients or a machine without a spare GPU: 1.9 GB commit, no GPU memory, ~15 % of a core, 50-230 MB resident with
+  its trimming, verified the same way but only in Lioneye's Watch and The Coast; if an area breaks under it, drop
+  `-Nullifier` for that session.
 - **Memory.** Each in-game client commits about 7 GB with the default settings (6.75 to 7.43 GB measured for three
-  campaign clients on 2026-10-30), and while it starts it takes about 4.6 GB within seconds, even with the cheap preset;
+  campaign clients on 2026-10-30), a session client with the cheap preset about 4.3 GB and with `-Nullifier` about
+  1.9 GB ([headless client](headless-client.md) §3); while it starts a client takes several GB within seconds;
   a Gateway about 0.75 GB right after start, Auth and Patch under 0.05 GB. Check the free commit
   (`(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory`) before opening another client.
 

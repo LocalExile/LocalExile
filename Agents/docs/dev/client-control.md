@@ -155,6 +155,13 @@ submission; wait for the resulting state or logs. Movement uses the client's Mov
 far away can fail to find a path; `tp` next to the object first (`{"command":"tp","target":"GlyphWall"}`), then interact. Resource updates are bounded to 128 entries and drained on
 read, so persistent RPC is needed to observe a recovery interval. This measures client state, not HUD pixels.
 
+`waypoint:travel` with an `area` (a WorldAreas HASH16, number or `"0x7ad2"` string) sends the World panel pin's C→S
+0x4d ([16](../protocol/16-waypoints.md) §3): the Gateway changes area when that waypoint is activated
+(`/waypoints all` activates every one). Live 2026-10-31 to The Coast and back with `/goto 1_1_town`.
+`game:frames` returns the main-loop frames counted at the bridge's own frame point since it attached, and the frames
+per second since the previous call (a session client with the cheap preset runs at about 9.2;
+[headless client](headless-client.md)).
+
 Live interaction checks included Tarkleigh's reward claim, starter weapon pickup/equip, the biting zombie's death and
 gem pickup, walking to the support chest and opening it. The client stayed attached through these tests. RPC completion
 is deferred until its native callback has returned, so a one-shot process can detach without unloading a hook while

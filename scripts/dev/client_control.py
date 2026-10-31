@@ -13,6 +13,8 @@
     .venv/Scripts/python.exe scripts/dev/client_control.py flask:use 1
     .venv/Scripts/python.exe scripts/dev/client_control.py passive:allocate 202
     .venv/Scripts/python.exe scripts/dev/client_control.py passive:refund 202
+    echo '{"command":"waypoint:travel","area":"0x7ad2"}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
+    .venv/Scripts/python.exe scripts/dev/client_control.py game:frames
     echo '{"command":"inventory:pickup","inventoryId":1,"id":1027}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
 
 Use --stdio for persistent JSON-lines RPC (one request/result per line). Each request is
@@ -259,6 +261,17 @@ GATEWAY_LOG = ROOT / "logs" / "live-gateway.log"
 REPLY_LINE = re.compile(r'(?:\[gateway\] \S+:(\d+) )?=> 0x0017 chat line "(.*)": [0-9A-F]+\s*$')
 
 
+def waypoint_packet(request):
+    """C→S 0x4d, the World panel pin's travel (Agents/docs/protocol/16-waypoints.md §3): u16 destination HASH16 (the
+    WorldAreas row's), u32 (the panel's waypoint object id; the Gateway only logs it), u8 Ctrl held. The Gateway
+    accepts it for an activated waypoint (`/waypoints all` activates every one) and changes area."""
+    value = request.get("area")
+    area = int(value, 0) if isinstance(value, str) else value
+    if isinstance(area, bool) or not isinstance(area, int) or not 0 < area <= 0xffff:
+        raise ValueError("area must be a WorldAreas HASH16 (1-0xffff)")
+    return list(struct.pack(">HHIB", 0x4d, area, 0x2f00, 0)), area
+
+
 def tp_text(request):
     """The /tp command for a tp request: x/y (cell), dx/dy (relative), id, target [+ index], or list [+ filter]."""
     def number(name):
@@ -425,7 +438,7 @@ class ClientControl:
         with log.open("w", encoding="utf-8") as output:
             subprocess.run(["powershell.exe", "-NoProfile", "-File", str(ROOT / "scripts/dev/live.ps1"),
                             "-ClientOnly", "-Session", self.client_session], cwd=ROOT, env=env, stdout=output,
-                           stderr=subprocess.STDOUT, check=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+                           stderr=subprocess.STDOUT, check=True, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW)
         return {"alreadyRunning":False,**self.ready()}
 
     def execute(self, request):
@@ -549,6 +562,13 @@ class ClientControl:
         if command == "inventory:place":
             inventory, x, y = int(request["inventoryId"]), int(request.get("x",0)), int(request.get("y",0))
             return self.rpc("interaction",bytes=list(struct.pack(">HIIIBBBB",0x2a,inventory,x,y,0,3,0,0)))
+        if command == "waypoint:travel":
+            packet, area = waypoint_packet(request)
+            return {**self.rpc("interaction", bytes=packet), "area": area}
+        if command == "game:frames":
+            # Main-loop frames since the bridge attached and the rate since the previous call (client-control.js).
+            self.attach()
+            return {"pid": self.pid, **self.script.exports_sync.frames()}
         if command == "flask:use":
             packet, slot = flask_packet(request)
             return {**self.rpc("interaction", bytes=packet), "slot": slot}

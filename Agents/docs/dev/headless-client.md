@@ -2,103 +2,93 @@
 
 Goal: many automated clients on one PC, each as cheap as possible in CPU, RAM and GPU, ideally with no GPU device,
 no textures and no rendering, while the game logic, the network and the [client-control bridge](client-control.md)
-keep working. The tools are opt-in and do not change `live.ps1`'s normal client.
+keep working, and without getting in the way of the user's or other agents' clients. It is how `live.ps1` starts
+every `-Session` client ([live testing](live-testing.md), "Several stacks and clients"); the default client (no
+`-Session`) starts as before.
 
 | File | What it is |
 |---|---|
-| `scripts/dev/nullifier.js` | Frida agent loaded while the client is still suspended at spawn: a window that never takes focus, session-local two-copies mutexes (§1); on request the engine's Null renderer (with the Null index-buffer fix), a frame-sleep cap, a frame counter, a crash log |
-| `scripts/dev/nullifier.py` | launcher: prepares or checks the client's own folder, spawns `Client/Game.patched.exe` there with the agent, puts it in a kill-on-close job, applies the process limits, resumes it, then serves client_control's JSON-lines commands for **that client only** (`--stdio`) |
-| `config/nullifier_Config.ini` | settings preset (DirectX 11, 800×600 window, low textures, 10 fps, effects off, sound muted, no `[LOGIN]`) that seeds each client's own settings file |
+| `scripts/dev/nullifier.py` | the launcher `live.ps1` starts for a session client: spawns `Client/Game.patched.exe` suspended in the session folder, puts it in a kill-on-close job, loads the agent, applies the process limits, resumes it, records it, waits for it |
+| `scripts/dev/nullifier.js` | its Frida agent, loaded before the client's first instruction: session-local two-copies mutexes and a window that never takes focus (always); with `-Nullifier` the engine's Null renderer (with the Null index-buffer fix); diagnostics on request |
+| `config/nullifier_Config.ini` | the settings preset (DirectX 11, 800×600 window, low textures, 10 fps, effects off, sound muted, no `[LOGIN]`) that seeds a new session's settings file |
 | `scripts/dev/nullifier-measure.ps1` | read-only sampler of one pid: private commit, working set, CPU, GPU engine utilisation, dedicated/shared GPU memory |
-| `scripts/dev/nullifier-bench.py` | the measurement scenario: launch, log in, play, stand in town, measure, then waypoint travel, `/goto` back, chat, `/tp`, measure again; lock, memory gate, watchdog, call timeouts |
+| `scripts/dev/nullifier-bench.py` | the measurement scenario on a session client: start, log in, play, stand in town, measure, then waypoint travel, `/goto` back, chat, `/tp`, measure again; lock, memory gate, watchdog, call timeouts |
 
 ## 1. Using it
 
-The local servers must already run (Auth, Patch, Gateway, on any ports) with their logs in this checkout's `logs\`
-(client_control reads slash-command replies from `logs\live-gateway.log`). Then:
-
 ```powershell
-.venv\Scripts\python.exe scripts\dev\nullifier.py --session bot1 --patch-port 12995 --login-port 20493 --stdio
-# first line: {"ok": true, "result": {"pid": 1234, "started": …, "cwd": "…\\data\\clients\\bot1", "settings": "localexile-<checkout>-bot1_Config.ini", …}}
-# then client_control's requests, one JSON object per line, for this client only:
-{"command":"login","account":"offline","password":"..."}
-{"command":"character:play","name":"OfflineWitch"}
-{"command":"command","text":"/waypoints all"}
+.\scripts\dev\live.ps1 -PortBase 21000 -NoClient                 # this checkout's servers on their own ports
+.\scripts\dev\live.ps1 -ClientOnly -Session bot1 -Nullifier      # a GPU-less session client (or: control.ps1 game:open -Session bot1)
+.\scripts\dev\control.ps1 login:offline -Session bot1 -PasswordStdin
+.\scripts\dev\control.ps1 character:play:OfflineWitch -Session bot1
+.\scripts\dev\control.ps1 command '/waypoints all' -Session bot1
+.venv\Scripts\python.exe scripts\dev\client_control.py --session bot1 --stdio   # then, one JSON object per line:
 {"command":"waypoint:travel","area":"0x7ad2"}
-{"command":"nullifier:stats"}
+{"command":"game:frames"}
+.\scripts\dev\live.ps1 -Stop -ClientOnly -Session bot1           # the launcher, and with its job the client
 ```
 
-Defaults (§3, §4): `--renderer null` (the engine's Null device: no GPU device, no GPU memory), the preset's 10 fps,
-`--priority below-normal`, EcoQoS on, `--window normal` (shown, never activated), `--nosound --nologo`.
-`--renderer configured` keeps the preset's DirectX 11 (the fallback if an area breaks under the Null device);
-`--trim-seconds 10` trims the working set (measured below; it cannot lower commit); `--no-eco-qos`,
-`--priority normal`, `--sound`, `--affinity 0x3`, `--frame-sleep-ms N` (a per-frame sleep, not needed with the
-preset's cap), `--frame-stats` (frame counter for `nullifier:stats`), `--crash-log <file>` (registers and backtrace of
-a crash), `--trace-files <regex>` (log matching `CreateFileW` paths) and `--probe <js>` (append a diagnostic script to
-the agent) are the other switches. `--no-render-jobs`/`--no-texture-upload` stalled the main loop (§3).
+A session client always gets its own folder and settings, the job object, below-normal priority and EcoQoS, a window
+that is shown but never activated, and session-local two-copies mutexes. `-Nullifier` (`Game_CLIENT_NULLIFIER=1`) adds
+the Null renderer and trimming (`--renderer null --trim-seconds 10`); without it the session's settings decide the
+renderer, which for a new session is the preset's DirectX 11 (§4 explains the choice). The bridge commands are
+client_control's; `waypoint:travel` (`area`: a WorldAreas HASH16; the World panel pin's C→S 0x4d,
+[16](../protocol/16-waypoints.md) §3; the Gateway accepts it only for an activated waypoint, so `/waypoints all`
+first) and `game:frames` (main-loop frames since the bridge attached, and frames per second since the previous call,
+counted at client-control.js's own frame point) were added for these clients.
+
+`nullifier.py` can also be run by hand on a prepared session folder, e.g. for diagnostics:
+`nullifier.py --cwd data\clients\S --record data\clients\S.json [--renderer null] [--trim-seconds 10]
+[--frame-sleep-ms N] [--crash-log <file>] [--trace-files <regex>] [--probe <js>] [--no-render-jobs]
+[--no-texture-upload] [--window minimized|hidden|normal] [--priority …] [--no-eco-qos] [--affinity 0x3] [--sound]`
+(ports default to the stack's, `data\stack.json`). `--no-render-jobs`/`--no-texture-upload` stalled the main loop
+(§3); a minimized client with a real renderer runs no frames.
 
 **Settings and folder.** The client opens `config.json`, `Content.ggpk`, its asset folders and `logs\Client.txt` in
-its working folder (§2). `--session NAME` prepares `data\clients\NAME\` as live.ps1's `-Session` clients have it: a
-hard link to `Content.ggpk` (the same file; nothing is copied or written), junctions to `Client\`'s asset folders
-(`FMOD`, `D3D12`, `Streamline`, ...; not `logs`), and a `config.json` naming its own settings file and saved login
-(`localexile-<checkout>-NAME_Config.ini` / `_login.credentials` in `Documents\My Games\Path of Exile`), the settings
-seeded from the preset without `[LOGIN]`. `--cwd DIR` uses a folder prepared elsewhere. The launcher refuses the
-shared `Client\` folder, a folder without `config.json`, and a `GGG_CONFIG_FILE_NAME` starting with `poeoffline_` or
-`production_`, so a nullified client never writes the user's settings. (An earlier version redirected the settings
+its working folder (§2). `live.ps1` prepares the session folder (`data\clients\S\`: a hard link to `Content.ggpk`,
+junctions to `Client\`'s asset folders, and a `config.json` naming `localexile-<checkout>-S_Config.ini` /
+`_login.credentials`, the settings seeded from the preset without `[LOGIN]`). The launcher refuses the shared
+`Client\` folder, a folder without `config.json`, and a `GGG_CONFIG_FILE_NAME` starting with `poeoffline_` or
+`production_`, so a session client never writes the user's settings. (An earlier version redirected the settings
 file through `CreateFileW`/`MoveFileExW` hooks instead; it missed the client's real save path and the user's
 `poeoffline_Config.ini` was rewritten once, harmlessly, at 22:55:47 on 2026-10-30. That redirect is gone.)
 
-**Lifetime and other processes.** Right after the spawn, while the client is still suspended, it goes into a job
-object with `KILL_ON_JOB_CLOSE`, so it never outlives the launcher however that ends, and it is terminated when the
-Frida session detaches (unhooked it must not keep running). Priority, EcoQoS, affinity, trimming, liveness and
-termination all use the one process handle opened at the spawn; nothing looks a pid up again (Windows hands an exited
-client's pid to the next new process; before this an earlier version once attached to such a process). In default
-mode the agent installs only the focus guard and the two-copies renaming below; the engine hook, frame counter,
-exception handler and file hooks only with the options that need them.
+**Lifetime, records and other processes.** `live.ps1` writes the pending record (`pid` 0, the time before the start,
+the session, folder and ports), starts the launcher detached and waits until the launcher has merged `pid`, `started`
+(the client's creation time), `launcher` and `launcherStarted` into it (atomically: temporary file and replace); after
+60 s, or when the launcher ends first, it stops the launcher and throws. The launcher puts the client in a job object
+with `KILL_ON_JOB_CLOSE` while it is still suspended, so it never outlives the launcher however that ends, and it
+terminates it when the Frida session detaches (unhooked it must not keep running). Priority, EcoQoS, affinity,
+trimming, liveness and termination use the one process handle opened at the spawn; nothing looks a pid up again
+(Windows hands an exited client's pid to the next new process; an earlier version once attached to such a process).
+The bridge finds the client by the record (`ClientControl(client_session=S)`, PID and start time, started from this
+checkout's `Client\` path). `-Stop` stops a launcher only when its PID, start time and command line match the record.
 
 **The two-copies limit.** The client allows two copies per PC. Right at startup (`0x140101680`, at `0x140101d85`) it
 calls `CreateMutexW(NULL, FALSE, "Global\PoERunMutexA")` and `WaitForSingleObject(handle, 0)`; if another process
 owns it (`WAIT_TIMEOUT`) it does the same with `Global\PoERunMutexB`, and if that is owned too it throws "You may only
 run up to two copies of Path of Exile at a time." (`0x140102587`), which shows as a dialog the client then waits on, so
 a third copy hangs invisibly. The handles are never stored, released or looked at again: the mutexes exist only for
-this count. Every client we started therefore used to take one of the two machine-wide slots that the user's and
-the other sessions' clients need. `nullifier.js` (always, renderer or not) rewrites exactly these two names in
+this count. A client of ours would therefore take one of the two machine-wide slots that the user's and the other
+sessions' clients need. `nullifier.js` (always, renderer or not) rewrites exactly these two names in
 `CreateMutexW`/`CreateMutexExW`/`OpenMutexW` (the client imports only `CreateMutexW`) to
-`Local\LocalExile-<checkout>-<folder>-PoERunMutexA`/`B`: a session-local name per client folder, so our clients never
-take a Global slot and never block each other across folders (two clients in the same folder still share a pair).
-The hook is installed while the client is still suspended, before its first instruction. Nothing else uses those
-names. What the count does not guard, and what stays shared between all copies whatever their number:
+`Local\LocalExile-<checkout>-<folder>-PoERunMutexA`/`B`: a session-local name per client folder, so session clients
+never take a Global slot and never block each other across folders (two clients in the same folder still share a
+pair). The hook is installed while the client is still suspended, before its first instruction. Nothing else uses
+those names. What the count does not guard, and what stays shared between all copies whatever their number:
 `PathOfExileSingleInstance` (a session mutex for handing a `.build`/`.filter` file to a running client's window,
 `0x140100780`), `Global\PoERunMutexCrashUpload` (crash-report upload), and LMDB's own `Global\MDB…` locks around the
 shared shader and pipeline caches in `%LOCALAPPDATA%\Path of Exile` (multi-process safe by design, up to 126 readers);
 these names are left alone. The startup "Wiping cache …tmp" of that folder runs in every copy, independent of the
-mutexes. Settings, saved login and `Client.txt` are per folder (§1); `Content.ggpk` is opened read-only and shared.
-So the launcher no longer refuses to start a client when two already run: ours do not count.
-The renaming is checked offline (`scripts/dev/test-nullifier-mutex.cjs`, with Frida's API stubbed) but has not
-run against the real client yet: the measurements in §3 predate it, and live launches are paused.
+mutexes. Settings, saved login and `Client.txt` are per folder; `Content.ggpk` is opened read-only and shared.
+`live.ps1` checks the slots only for the default client (two running clients that are not this checkout's session
+clients: it refuses). The renaming is checked offline (`scripts/dev/test-nullifier-mutex.cjs`, Frida's API stubbed);
+it has not run against the real client yet (§5).
 
-Commands added to client_control's set: `waypoint:travel` (`area`: a WorldAreas HASH16; sends the World panel pin's
-C→S 0x4d, [16](../protocol/16-waypoints.md) §3; the Gateway accepts it only for an activated waypoint, so use
-`/waypoints all` first) and `nullifier:stats` (frames and frames per second since the previous call, with
-`--frame-stats`). Everything else is client_control's `execute`, bound to the launched client.
-
-A plain `client_control.py` on `main` finds its client by process name: it attaches to a nullified client if that is
-the only `Game.patched.exe` running (and refuses when two run). Use the launcher's `--stdio` (or, after the
-multi-instance merge, the session's bridge) to address one client among several.
-
-### With several clients (live.ps1 sessions)
-
-The multi-instance work (`contrib/multi-instance`) gives each checkout its own server ports and each named client
-session its own working folder; the nullifier becomes a launch mode of such a session: `live.ps1 Start-Client
--Session S` writes the pending record and the session folder, then starts `nullifier.py --cwd data\clients\S
---record data\clients\S.json` detached. `--record` merges `{pid, started (FILETIME UTC), launcher, launcherStarted,
-cwd, settings, options}` into the session's JSON atomically (temporary file + replace), so the session's client is
-tracked, found by the bridge and stopped by its pid as before; stopping the client ends the launcher, and ending the
-launcher ends the client.
-
-On `main` Auth's instance info always names port 6112, so a client logging in through a private Auth on other ports
-would still be sent to whatever Gateway listens on 6112; the multi-instance branch sends it to
-`Game_GATEWAY_HOST:Game_GATEWAY_PORT`. Use the nullifier on private ports only on top of that change.
+A plain `client_control.py` from a checkout without sessions (`main` before the multi-instance work) finds its client
+by process name: it attaches to any lone `Game.patched.exe`, a session client included, and refuses when two run. That
+is why extra clients may only run next to checkouts that have the session-aware scripts ([live
+testing](live-testing.md)).
 
 ## 2. What the client offers (3.29.3b, image base `0x140000000`)
 
@@ -176,7 +166,8 @@ The renderer has a sixth device type besides DirectX 11/12, Vulkan and the conso
   measured with both); game logic, the network and the bridge keep working at that rate (the server is
   authoritative; the client only predicts and reports). `--frame-sleep-ms` adds a sleep at the main loop's
   per-frame state-stack update (`0x141526c40`; client-control serves its RPCs 0x7f bytes into it, at `0x141526cbf`,
-  and checks those bytes, so the nullifier hooks the entry), which is also where `--frame-stats` counts frames.
+  and checks those bytes, so the nullifier hooks the entry). `game:frames` counts frames at client-control.js's own
+  point.
 
 ### Process level
 
@@ -234,22 +225,40 @@ client.
 Run a row with, for example:
 
 ```powershell
-.venv\Scripts\python.exe scripts\dev\nullifier-bench.py --label null --patch-port <p> --login-port <a> --lock D:\path\.extra-client.lock --travel -- --renderer null
+.venv\Scripts\python.exe scripts\dev\nullifier-bench.py --label null --session bench --nullifier --lock D:\path\.extra-client.lock --travel
 ```
 
-Results append to `logs\nullifier\bench.jsonl` (the measure JSON plus `nullifier:stats` frames and the options; a
-watchdog kill is recorded too).
+It needs this checkout's servers on their own ports (`live.ps1 -PortBase`), starts the client with `live.ps1
+-ClientOnly -Session bench [-Nullifier]`, drives it with `ClientControl(client_session="bench")` and stops it with
+`live.ps1 -Stop -ClientOnly -Session bench`. Results append to `logs\nullifier\bench.jsonl` (the measure JSON plus
+`game:frames` and the mode; a watchdog kill is recorded too). The measurements above were taken with the earlier
+stand-alone launcher (the same spawn, agent, job and limits; it drove the client itself), before the run-mutex
+renaming.
 
 ## 4. What is safe to default for agent sessions
 
-- **Default: the Null renderer with the preset and the process tier** (`nullifier.py` with no renderer options): no
-  GPU device, ~1.9 GB commit and ~15 % of a core per client at 10 fps, every bridge command agents use verified in
-  town, after waypoint travel and after `/goto`. Add `--trim-seconds 10` when many clients share the machine's RAM
-  (resident memory 50–230 MB; commit unchanged). Only Lioneye's Watch and The Coast were entered; another area or
-  combat may still reach a Null-device gap. Then use `--renderer configured` (DirectX 11 preset, 4.3 GB commit,
-  1.7 GB VRAM, verified the same way) and report the crash (`--crash-log`).
+- **Every session client: the launcher's safety and process tier** (own folder and settings, kill-on-close job,
+  session-local two-copies mutexes, a never-activated window, below-normal priority, EcoQoS). None of it changes what
+  the game does.
+- **Default renderer for a new session: the preset's DirectX 11** (no `-Nullifier`). Live: login, play, slash
+  commands, chat, `/tp`, waypoint travel and `/goto`; 4.3 GB commit, 1.7 GB VRAM, ~11 % of a core at 9 fps once its
+  shaders are compiled. It is a real renderer with no reverse-engineered patch in the way, so it is the safe choice for
+  an agent whose session may reach any area or screen.
+- **`-Nullifier` for many clients or no spare GPU:** the Null renderer with trimming. Live the same way, ~1.9 GB
+  commit, no GPU device or memory, ~15 % of a core, 50–230 MB resident. Only Lioneye's Watch and The Coast were
+  entered; another area or combat may still reach a Null-device gap (the first one, the index format, is fixed). If a
+  session breaks under it, drop `-Nullifier` for that session and report the crash (`nullifier.py --crash-log`).
 - **Not a default:** `--window minimized`/`hidden` with a real renderer (the client stops),
   `--no-render-jobs`/`--no-texture-upload` (more CPU, and the main loop stalled), `--frame-sleep-ms` (the preset's
   cap already gives 9.2 fps).
 - **Untried:** WARP (`adapter_name=Microsoft Basic Render Driver` in the preset, no hook), which trades the GPU for
   CPU and is not needed now that the Null device holds.
+
+## 5. Not yet verified live
+
+The `live.ps1` → `nullifier.py` start, the record handshake and `-Stop` of a launcher, the run-mutex renaming, and
+`game:frames` are covered by mocked and offline tests only (`test_live_client_only.ps1`, `test_client_control.py`,
+`test_nullifier.py`, `test-nullifier-mutex.cjs`). The live check, once allowed: one session (`-PortBase` stack, a
+`-Session` client with and without `-Nullifier`: start, record, login, play, travel, `/goto`, chat, `/tp`,
+`game:frames`, the client holding `Local\LocalExile-…-PoERunMutexA` and no Global one, `-Stop`), then three clients at
+once including a Global one (two session clients and a default client of another checkout, which must start normally).

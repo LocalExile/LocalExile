@@ -5,7 +5,8 @@ $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'live.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-foreach ($name in @('Need', 'Get-Stack', 'Get-SessionName', 'Test-Here', 'Get-OwnClients', 'Get-OwnServers', 'Select-LocalGateway')) {
+foreach ($name in @('Need', 'Get-Stack', 'Get-SessionName', 'Test-Here', 'Get-OwnClients', 'Get-OwnServers', 'Select-LocalGateway',
+        'Get-OwnLaunchers', 'Get-RenamedClientIds', 'Get-GlobalSlotHolders', 'Start-SessionLauncher')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $false)
@@ -21,7 +22,8 @@ $launch = [scriptblock]::Create($branch.Extent.Text)
 
 $repo = Join-Path ([IO.Path]::GetTempPath()) "localexile-live-test-$PID"
 $clients = Join-Path $repo 'data\clients'
-New-Item -ItemType Directory -Force $clients | Out-Null
+$out = Join-Path $repo 'logs'
+New-Item -ItemType Directory -Force $clients, $out | Out-Null
 $ownExe = Join-Path $repo 'Client\Game.patched.exe'
 $ClientOnly = $true
 $NoClient = $false
@@ -205,6 +207,75 @@ try {
     Assert (($own -join ',') -eq '10,11,20,21,22,23,24') "own servers: $($own -join ',')"
     $own = @(Get-OwnServers 'Auth' | ForEach-Object { $_.ProcessId } | Sort-Object)
     Assert (($own -join ',') -eq '10,11') "own Auth only: $($own -join ',')"
+
+    # Session clients start through nullifier.py; its record names the launcher by PID, start time and command line.
+    Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue
+    $t0 = [datetime]'2026-10-31T10:00:00'
+    $launcherLine = "`"$repo\.venv\Scripts\python.exe`" $repo\scripts\dev\nullifier.py --cwd $repo\data\clients\s1"
+    $script:processes = @(
+        [pscustomobject]@{ Name = 'python.exe'; ProcessId = 70; ParentProcessId = 1; CommandLine = $launcherLine; ExecutablePath = $null; CreationDate = $t0 }
+        [pscustomobject]@{ Name = 'python.exe'; ProcessId = 71; ParentProcessId = 1; CommandLine = 'python other.py'; ExecutablePath = $null; CreationDate = $t0 }
+        [pscustomobject]@{ Name = 'python.exe'; ProcessId = 72; ParentProcessId = 1; CommandLine = $launcherLine.Replace($repo, "$repo-b"); ExecutablePath = $null; CreationDate = $t0 }
+        (Client 80 $ownExe $t0)
+        (Client 81 $ownExe $t0)
+        (Client 82 'C:\Other\Client\Game.patched.exe' $t0))
+    function Launched($session, $client, $launcher, $launcherStarted = $t0) {
+        [ordered]@{ pid = $client; started = $t0.ToFileTimeUtc(); session = $session; launcher = $launcher; launcherStarted = $launcherStarted.ToFileTimeUtc() } |
+            ConvertTo-Json | Set-Content (Join-Path $clients "$session.json")
+    }
+    Launched 's1' 80 70
+    Assert ((@(Get-OwnLaunchers 's1').ProcessId -join ',') -eq '70') 'the recorded launcher must be found'
+    Assert ((@(Get-OwnLaunchers).ProcessId -join ',') -eq '70') 'all launchers of this checkout'
+    Launched 's2' 81 71
+    Assert (@(Get-OwnLaunchers 's2').Count -eq 0) 'a recorded PID running something else is not a launcher'
+    Launched 's2' 81 72
+    Assert (@(Get-OwnLaunchers 's2').Count -eq 0) "another checkout's launcher is not this one's"
+    Launched 's2' 81 70 ([datetime]'2026-10-31T09:00:00')
+    Assert (@(Get-OwnLaunchers 's2').Count -eq 0) 'a reused launcher PID (other start time) is not the launcher'
+    # Only this checkout's session clients hold no machine-wide slot: the default client counts the others.
+    Assert ((@(Get-RenamedClientIds) | Sort-Object) -join ',' -eq '80,81') 'session clients with a launcher are renamed'
+    Assert ((@(Get-GlobalSlotHolders).ProcessId -join ',') -eq '82') "only clients outside this checkout's sessions hold slots"
+    Remove-Item (Join-Path $clients '*.json')
+    Assert ((@(Get-GlobalSlotHolders).ProcessId | Sort-Object) -join ',' -eq '80,81,82') 'without records every client counts'
+
+    # The launch: the launcher's arguments, the wait for its record, and the cleanup when it fails.
+    $script:LauncherTimeout = 2
+    function Get-Python { 'python.exe' }
+    $script:wrapperExited = $false
+    $script:stopped = @()
+    $script:launch = $null
+    function Start-Detached($exe, $arguments, $log, $err, [switch]$PassThru) {
+        $script:launch = @($exe) + $arguments
+        if ($script:writeRecord) {
+            $r = Get-Content $script:writeRecord -Raw | ConvertFrom-Json
+            $r | Add-Member -Force pid 90; $r | Add-Member -Force launcher 91
+            $r | ConvertTo-Json | Set-Content $script:writeRecord
+        }
+        [pscustomobject]@{ Id = 95; HasExited = $script:wrapperExited }
+    }
+    function Stop-Wrapper($wrapper) { $script:stopped += $wrapper.Id }
+    $stack = Get-Stack 21000
+    $record = Join-Path $clients 's3.json'
+    @{ pid = 0; started = 1; session = 's3' } | ConvertTo-Json | Set-Content $record
+    $script:writeRecord = $record
+    $said = Start-SessionLauncher 's3' (Join-Path $clients 's3') $record $stack $true
+    $line = $script:launch -join ' '
+    Assert ($line -like "*scripts\dev\nullifier.py --cwd $clients\s3 --record $record --patch-port 21000 --login-port 21002 --renderer null --trim-seconds 10") "launcher arguments: $line"
+    Assert ("$said" -like 'client pid 90 (session s3*launcher 91; Null renderer)') "launch report: $said"
+    Assert ($script:stopped.Count -eq 0) 'a started launcher must keep running'
+    $null = Start-SessionLauncher 's3' (Join-Path $clients 's3') $record $stack $false
+    Assert (($script:launch -join ' ') -like '*--renderer configured') 'without -Nullifier the settings decide the renderer'
+    # The launcher ends before recording, or records nothing in time: it is stopped, the record goes, and it throws.
+    foreach ($exited in $true, $false) {
+        @{ pid = 0; started = 1; session = 's3' } | ConvertTo-Json | Set-Content $record
+        $script:writeRecord = $null; $script:wrapperExited = $exited; $script:stopped = @()
+        $message = $null
+        try { Start-SessionLauncher 's3' (Join-Path $clients 's3') $record $stack $true | Out-Null } catch { $message = $_.Exception.Message }
+        Assert ($message -like 'the session client did not start*') "a failed launch must throw: $message"
+        Assert (($script:stopped -join ',') -eq '95') 'a failed launch must stop its launcher'
+        Assert (-not (Test-Path $record)) 'a failed launch must remove its pending record'
+    }
+    $null = Get-Stack 0
 }
 finally {
     $env:Game_PORT_BASE = $null

@@ -17,6 +17,7 @@ from unittest.mock import Mock, call, patch
 from client_control import (
     ClientControl, chat_packet, collect_replies, connection_ports, find_client, flask_packet, launched_path, log_mark,
     normalize, process_info, read_records, read_replies, run_request, same_path, session_name, stack_port, tp_text,
+    waypoint_packet,
 )
 
 
@@ -71,6 +72,33 @@ class ClientControlTests(unittest.TestCase):
         for bad in [{}, {"slot": 1, "key": 2}, {"slot": 5}, {"key": 0}, {"key": "1"}, {"slot": True}]:
             with self.assertRaises(ValueError):
                 flask_packet(bad)
+
+    def test_waypoint_travel_is_the_pin_message(self):
+        self.assertEqual(waypoint_packet({"area": 0x7ad2}), ([0x00, 0x4d, 0x7a, 0xd2, 0, 0, 0x2f, 0x00, 0], 0x7ad2))
+        self.assertEqual(waypoint_packet({"area": "0x235c"})[1], 0x235c)
+        for bad in [{}, {"area": 0}, {"area": 0x10000}, {"area": "x"}, {"area": True}, {"area": 1.5}]:
+            with self.assertRaises(ValueError):
+                waypoint_packet(bad)
+
+    def test_waypoint_travel_and_frames_go_through_the_bridge(self):
+        control = ClientControl.__new__(ClientControl)
+        control.rpc = Mock(return_value={"submitted": True})
+        self.assertEqual(control.execute({"command": "waypoint:travel", "area": "0x7ad2"}),
+                         {"submitted": True, "area": 0x7ad2})
+        control.rpc.assert_called_once_with("interaction", bytes=[0x00, 0x4d, 0x7a, 0xd2, 0, 0, 0x2f, 0x00, 0])
+        control.attach = Mock()
+        control.pid = 7
+        control.script = Mock()
+        control.script.exports_sync.frames.return_value = {"frames": 92, "seconds": 10.0, "fpsSinceLastCall": 9.2}
+        self.assertEqual(control.execute({"command": "game:frames"}),
+                         {"pid": 7, "frames": 92, "seconds": 10.0, "fpsSinceLastCall": 9.2})
+        control.attach.assert_called_once()
+
+    def test_bridge_script_allows_the_travel_message_and_counts_frames(self):
+        source = Path(__file__).with_name("client-control.js").read_text(encoding="utf-8")
+        self.assertIn("0x4d:9", source)
+        self.assertIn("frameCount.frames++", source)
+        self.assertIn("rpc.exports.frames", source)
 
     def test_replies_are_the_gateway_chat_lines_after_the_mark(self):
         nl = chr(10)
