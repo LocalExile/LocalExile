@@ -14,7 +14,7 @@ static class StationaryCollision
     {
         var types = Load("data/object-types.json");
         // NPCs.dat registers Id aliases on Metadata's OT (e.g. later-act versions of a town NPC).
-        using var npcs = JsonDocument.Parse(File.ReadAllBytes("data/tables/NPCs.json"));
+        using var npcs = GameTables.Open("data/tables/NPCs.json");
         foreach (var npc in npcs.RootElement.EnumerateArray())
             if (npc.GetProperty("Id").GetString() is { } id && !types.ContainsKey(id)
                 && npc.TryGetProperty("Metadata", out var m) && m.GetString() is { } metadata

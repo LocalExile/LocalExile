@@ -95,7 +95,8 @@ try
 {
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
-    GameData.Open(Saves.Db.Path);
+    // The short-lived parsing thread releases its pooled buffers after startup.
+    GameTables.Isolated(() => GameData.Open(Saves.Db.Path));
     Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
 }
 catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)

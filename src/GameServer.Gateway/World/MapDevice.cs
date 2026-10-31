@@ -40,8 +40,8 @@ sealed class MapDevice
         string maps = Path.Combine(folder, "tables", "Maps.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
         if (File.Exists(maps) && File.Exists(areas))
         {
-            using var m = JsonDocument.Parse(File.ReadAllBytes(maps));
-            using var a = JsonDocument.Parse(File.ReadAllBytes(areas));
+            using var m = GameTables.Open(maps);
+            using var a = GameTables.Open(areas);
             int areaCount = a.RootElement.GetArrayLength();
             foreach (var row in m.RootElement.EnumerateArray())
             {

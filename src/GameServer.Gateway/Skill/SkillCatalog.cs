@@ -588,7 +588,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         string path = Path.Combine(folder, "tables", "WeaponTypes.json");
         var result = new Dictionary<int, (int, int, int, int)>();
         if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = GameTables.Open(path);
         foreach (var r in d.RootElement.EnumerateArray())
             result.TryAdd(r.GetProperty("BaseItemTypesKey").GetInt32(), (r.GetProperty("Speed").GetInt32(), r.GetProperty("DamageMin").GetInt32(),
                 r.GetProperty("DamageMax").GetInt32(), r.GetProperty("RangeMax").GetInt32()));
@@ -1114,8 +1114,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 gess = Table("GrantedEffectStatSets");
             if (!File.Exists(ge) || !File.Exists(gepl) || !File.Exists(gesspl)) return null;
             using var g = GameTables.Open(ge);
-            using var p = JsonDocument.Parse(File.ReadAllBytes(gepl));
-            using var s = JsonDocument.Parse(File.ReadAllBytes(gesspl));
+            using var p = GameTables.Open(gepl);
+            using var s = GameTables.Open(gesspl);
             static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
             static int[] Ints(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
                 ? [.. v.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Number ? (int)Math.Round(x.GetDouble()) : -1)] : [];

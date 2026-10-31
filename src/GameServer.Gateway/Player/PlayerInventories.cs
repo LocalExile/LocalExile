@@ -1011,8 +1011,8 @@ sealed class PlayerInventories
             Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no {chars} or {gems}"} (extract the tables and data/item-types.json first, Agents/GettingStarted.md)");
             return inv;
         }
-        using var c = JsonDocument.Parse(File.ReadAllBytes(chars));
-        using var g = JsonDocument.Parse(File.ReadAllBytes(gems));
+        using var c = GameTables.Open(chars);
+        using var g = GameTables.Open(gems);
         var row = c.RootElement[characterRow];
         void Put(byte inventory, byte x, byte y, ItemCatalog.BaseType? t)
         {

@@ -94,7 +94,7 @@ sealed class StashRules
 
         if (File.Exists(Table("CurrencyItems")))
         {
-            using var d = JsonDocument.Parse(File.ReadAllBytes(Table("CurrencyItems")));
+            using var d = GameTables.Open(Table("CurrencyItems"));
             foreach (var r in d.RootElement.EnumerateArray())
                 if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b
                     && HashOfRow(b.GetInt32()) is uint hash
@@ -103,21 +103,21 @@ sealed class StashRules
                     rules._currencyTabStack[hash] = (ushort)size;
         }
 
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(Table("StashTabAffinities"))))
+        using (var d = GameTables.Open(Table("StashTabAffinities")))
             foreach (var r in d.RootElement.EnumerateArray())
                 rules._heldBy[r.GetProperty("Id").GetInt32()] = [.. r.GetProperty("__col2").EnumerateArray().Select(t => (byte)t.GetInt32())];
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(Table("StashTabAffinityByBaseItemType"))))
+        using (var d = GameTables.Open(Table("StashTabAffinityByBaseItemType")))
             foreach (var r in d.RootElement.EnumerateArray())
                 if (HashOfRow(r.GetProperty("BaseItemType").GetInt32()) is uint hash)
                     foreach (var a in r.GetProperty("StashTabAffinityId").EnumerateArray()) Give(hash, a.GetInt32());
 
         // By the item's class category. Maps (category Map) are not in the table, only map keys: the map tab holds both.
         var byCategory = new Dictionary<int, int> { [25] = Maps };
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(Table("StashtabAffinityByItemClassCategory"))))
+        using (var d = GameTables.Open(Table("StashtabAffinityByItemClassCategory")))
             foreach (var r in d.RootElement.EnumerateArray())
                 byCategory[r.GetProperty("ItemClassCategory").GetInt32()] = r.GetProperty("StashTabAffinityId").GetInt32();
         var categoryOfClass = new Dictionary<string, int>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(Table("ItemClasses"))))
+        using (var d = GameTables.Open(Table("ItemClasses")))
             foreach (var r in d.RootElement.EnumerateArray())
                 if (r.GetProperty("ItemClassCategory") is { ValueKind: JsonValueKind.Number } c) categoryOfClass[r.GetProperty("Id").GetString() ?? ""] = c.GetInt32();
         foreach (var t in rows)
@@ -128,7 +128,7 @@ sealed class StashRules
         {
             var slots = rules._slots[tabType] = [];
             var spare = new List<(int Y, int X, int Slot)>();
-            using var d = JsonDocument.Parse(File.ReadAllBytes(Table(table)));
+            using var d = GameTables.Open(Table(table));
             foreach (var r in d.RootElement.EnumerateArray())
             {
                 int slot = r.GetProperty("FirstSlotIndex").GetInt32();
@@ -169,7 +169,7 @@ sealed class StashRules
         Layout("DeliriumStashTabLayout", Delirium, DeliriumItems);
         // Divination cards: the table lists the cards in order, without slot numbers; a card's slot is its row (our guess).
         var cards = rules._slots[Divination] = [];
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(Table("DivinationCardStashTabLayout"))))
+        using (var d = GameTables.Open(Table("DivinationCardStashTabLayout")))
             foreach (var (r, i) in d.RootElement.EnumerateArray().Select((r, i) => (r, i)))
                 if (r.GetProperty("StoredItem") is { ValueKind: JsonValueKind.Number } c && HashOfRow(c.GetInt32()) is uint card)
                 {

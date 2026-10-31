@@ -8,8 +8,8 @@ static class AntiquarianEffects
     public const ushort AdrenalineDefinition = 1090, WardBrokenDefinition = 1878;
     static readonly Lazy<IReadOnlyDictionary<uint, int>> adrenaline = new(() =>
     {
-        using var templates = JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffTemplates.json"));
-        using var definitions = JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffDefinitions.json"));
+        using var templates = GameTables.Open("data/tables/BuffTemplates.json");
+        using var definitions = GameTables.Open("data/tables/BuffDefinitions.json");
         var template = templates.RootElement[503];
         if (template.GetProperty("BuffDefinitionsKey").GetInt32() != AdrenalineDefinition)
             throw new InvalidDataException("Target Adrenaline template mismatch");

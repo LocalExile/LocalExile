@@ -1,11 +1,13 @@
-# usage: scripts/perf/startup.ps1 [-PortBase 23000] [-Runs 3] [-SettleSeconds 10] [-Configuration Debug] [-Env @{ NAME = 'value' }]
+# usage: scripts/perf/startup.ps1 [-PortBase 23020] [-Runs 3] [-SettleSeconds 10] [-Configuration Debug] [-Env @{ NAME = 'value' }]
 # Measures one server stack's startup and resident cost (Agents/docs/dev/performance.md): starts the built Auth, then the
 # built Gateway, on PortBase+1 … +3 with a private copy of the save database, times each to its "listening" line, waits
 # SettleSeconds, records private bytes / working set / GC heap (dotnet-counters, when artifacts/tools has it), and
 # stops exactly the processes it started. Never touches the default ports; the Patch server is not part of it.
 # Run from the repository root after `dotnet build`.
+# PortBase: a block of 10 ports of the worktree's own; the defaults of stack.ps1 (23000), watch.ps1 (23010) and
+# startup.ps1 (23020) do not overlap. The shell's location and environment are as they were afterwards.
 param(
-    [int] $PortBase = 23000,
+    [int] $PortBase = 23020,
     [int] $Runs = 3,
     [int] $SettleSeconds = 10,
     [string] $Configuration = 'Debug',
@@ -13,7 +15,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-Set-Location $repo
+Push-Location $repo
+try {
 $out = Join-Path $repo 'artifacts\perf'
 New-Item -ItemType Directory -Force $out | Out-Null
 $bin = "bin\$Configuration\net10.0"
@@ -93,3 +96,5 @@ function Median($values) { $v = @($values | Sort-Object); $v[[int][math]::Floor(
 "median of restarts: Auth ready {0} ms, Gateway ready {1} ms; Auth private {2} MB; Gateway private {3} MB, working set {4} MB, GC heap {5} MB, GC committed {6} MB" -f `
     (Median $restarts.AuthReadyMs), (Median $restarts.GatewayReadyMs), (Median $restarts.AuthPrivateMB),
     (Median $restarts.GatewayPrivateMB), (Median $restarts.GatewayWorkingSetMB), (Median $restarts.GatewayGcHeapMB), (Median $restarts.GatewayGcCommittedMB)
+}
+finally { Pop-Location }

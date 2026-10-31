@@ -91,7 +91,7 @@ static class HideoutCatalog
         var result = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)>(StringComparer.Ordinal);
         const string file = "data/object-types.json";
         if (!File.Exists(file)) return result;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+        using var doc = GameTables.Open(file);
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
         {
             string type = t.GetProperty("type").GetString()!;

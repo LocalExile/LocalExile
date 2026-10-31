@@ -161,9 +161,9 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
         if (!File.Exists(Table("Words")) || !File.Exists(Table("UniqueStashLayout")) || !File.Exists(Table("ItemVisualIdentity")))
             return result;
-        using var words = JsonDocument.Parse(File.ReadAllBytes(Table("Words")));
-        using var layout = JsonDocument.Parse(File.ReadAllBytes(Table("UniqueStashLayout")));
-        using var visuals = JsonDocument.Parse(File.ReadAllBytes(Table("ItemVisualIdentity")));
+        using var words = GameTables.Open(Table("Words"));
+        using var layout = GameTables.Open(Table("UniqueStashLayout"));
+        using var visuals = GameTables.Open(Table("ItemVisualIdentity"));
         // Unique names are wordlist 6 (rare names use 1 and 2); a layout row links the word to the unique artwork.
         // Keep every wordlist row, not only the definitions known at startup: a definition added to the database later
         // can then resolve its existing client word and art without a code change.

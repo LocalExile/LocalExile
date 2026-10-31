@@ -28,7 +28,7 @@ sealed class AtlasPassives(string folder = "data")
         var nodes = new Dictionary<ushort, Node>();
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
         if (!File.Exists(path)) return nodes;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         foreach (var row in doc.RootElement.EnumerateArray())
         {
             string id = row.GetProperty("Id").GetString() ?? "";

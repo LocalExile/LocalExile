@@ -167,7 +167,7 @@ sealed class TimelessJewelEngine(string folder = "data")
         if (!new[] { versionsPath, skillsPath, additionsPath }.All(File.Exists)) return null;
 
         var versions = new Dictionary<int, TreeVersion>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(versionsPath)))
+        using (var d = GameTables.Open(versionsPath))
         {
             int row = 0;
             foreach (var r in d.RootElement.EnumerateArray())

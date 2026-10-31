@@ -182,7 +182,7 @@ sealed class CosmeticEffects(string folder = "data")
         var types = new Dictionary<string, (IReadOnlyList<string>?, StateMachineData?)>();
         string path = Path.Combine(folder, "object-types.json");
         if (!File.Exists(path)) return types;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
         {
             string type = t.GetProperty("type").GetString() ?? "";

@@ -46,7 +46,7 @@ sealed class ItemCatalog
         var map = new Dictionary<string, ushort>(StringComparer.Ordinal);
         string path = Path.Combine(folder, "tables", "ItemVisualIdentity.json");
         if (!File.Exists(path)) return map;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         foreach (var r in doc.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { Length: > 0 } id
                 && r.GetProperty("HASH16") is { ValueKind: JsonValueKind.Number } h)
@@ -348,10 +348,10 @@ sealed class ItemCatalog
         var result = new Dictionary<int, Flasks.Flask>();
         if (!File.Exists(flasks) || !File.Exists(charges)) return result;
         var perUse = new Dictionary<string, (int Max, int PerCharge)>();
-        using (var c = JsonDocument.Parse(File.ReadAllBytes(charges)))
+        using (var c = GameTables.Open(charges))
             foreach (var r in c.RootElement.EnumerateArray())
                 perUse.TryAdd(r.GetProperty("BaseItemTypesKey").GetString() ?? "", (r.GetProperty("MaxCharges").GetInt32(), r.GetProperty("PerCharge").GetInt32()));
-        using var f = JsonDocument.Parse(File.ReadAllBytes(flasks));
+        using var f = GameTables.Open(flasks);
         foreach (var r in f.RootElement.EnumerateArray())
             if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b && b.GetInt32() < rows.Count &&
                 perUse.TryGetValue(rows[b.GetInt32()].Id, out var use) &&
@@ -375,11 +375,11 @@ sealed class ItemCatalog
         var result = new Dictionary<int, GemType>();
         string[] needed = ["SkillGems", "GemEffects", "BaseItemTypes", "ItemExperiencePerLevel", "ItemExperienceTypes"];
         if (needed.Any(n => !File.Exists(Table(n)))) return result;
-        using var g = JsonDocument.Parse(File.ReadAllBytes(Table("SkillGems")));
-        using var e = JsonDocument.Parse(File.ReadAllBytes(Table("GemEffects")));
-        using var b = JsonDocument.Parse(File.ReadAllBytes(Table("BaseItemTypes")));
-        using var x = JsonDocument.Parse(File.ReadAllBytes(Table("ItemExperiencePerLevel")));
-        using var xt = JsonDocument.Parse(File.ReadAllBytes(Table("ItemExperienceTypes")));
+        using var g = GameTables.Open(Table("SkillGems"));
+        using var e = GameTables.Open(Table("GemEffects"));
+        using var b = GameTables.Open(Table("BaseItemTypes"));
+        using var x = GameTables.Open(Table("ItemExperiencePerLevel"));
+        using var xt = GameTables.Open(Table("ItemExperienceTypes"));
         static int Row(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
         // Null or absent means no alternate; row zero remains a real effect, and must not be treated as missing.
         int Effect(JsonElement r, string name) => hardMode && Row(r, name + "Hardmode") is int alternate and >= 0
@@ -492,7 +492,7 @@ sealed class ItemCatalog
         var itemTags = new Dictionary<string, IReadOnlyList<string>>();
         string types = Path.Combine(folder, "item-types.json");
         if (!File.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(types)))
+        using (var doc = GameTables.Open(types))
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
                 components[t.GetProperty("type").GetString()!] =
@@ -518,7 +518,7 @@ sealed class ItemCatalog
         string currencyPath = Path.Combine(folder, "tables", "CurrencyItems.json");
         if (File.Exists(currencyPath))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(currencyPath));
+            using var doc = GameTables.Open(currencyPath);
             foreach (var r in doc.RootElement.EnumerateArray())
                 if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b && r.GetProperty("StackSize").GetInt32() is > 1 and var size)
                 {

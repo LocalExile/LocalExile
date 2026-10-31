@@ -127,16 +127,16 @@ static class UtilityFlasks
         string StatName(JsonElement row) => stats.Name((uint)row.GetInt32() + 1);
 
         var charges = new Dictionary<string, (int Max, int PerUse)>();
-        using (var c = JsonDocument.Parse(File.ReadAllBytes(Table("ComponentCharges"))))
+        using (var c = GameTables.Open(Table("ComponentCharges")))
             foreach (var r in c.RootElement.EnumerateArray())
                 charges.TryAdd(r.GetProperty("BaseItemTypesKey").GetString() ?? "", (r.GetProperty("MaxCharges").GetInt32(), r.GetProperty("PerCharge").GetInt32()));
-        using var buffs = JsonDocument.Parse(File.ReadAllBytes(Table("BuffDefinitions")));
+        using var buffs = GameTables.Open(Table("BuffDefinitions"));
         var buffRows = buffs.RootElement.EnumerateArray().ToList();
         int onslaught = buffRows.FindIndex(b => b.GetProperty("Id").GetString() == OnslaughtBuff);
         ExtraBuff? onslaughtBuff = null;
         if (onslaught >= 0)
         {
-            using var templates = JsonDocument.Parse(File.ReadAllBytes(Table("BuffTemplates")));
+            using var templates = GameTables.Open(Table("BuffTemplates"));
             foreach (var t in templates.RootElement.EnumerateArray())
                 if (t.GetProperty("Id").GetString() == OnslaughtTemplate + (hardMode ? "HardMode" : "")
                     && t.GetProperty("BuffDefinitionsKey") is { ValueKind: JsonValueKind.Number } k && k.GetInt32() == onslaught)
@@ -145,7 +145,7 @@ static class UtilityFlasks
                             .Zip(t.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32()))]);
         }
 
-        using var flasks = JsonDocument.Parse(File.ReadAllBytes(Table("Flasks")));
+        using var flasks = GameTables.Open(Table("Flasks"));
         foreach (var f in flasks.RootElement.EnumerateArray())
         {
             if (f.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } b || b.GetInt32() >= rows.Count

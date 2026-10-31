@@ -19,6 +19,8 @@
 #               within seconds and the client stays in game. An edit hot reload cannot apply (a changed signature, a new
 #               static initializer) rebuilds and restarts the Gateway, which drops the client to the login screen.
 #   -NoHotReload  start the built Gateway without `dotnet watch`. Agents/GettingStarted.md step 10.
+#   -Release    build and run Release servers and modules without hot reload (Agents/docs/dev/performance.md).
+#   -Debug      build and run Debug (default). The last configuration is remembered for -Only and -ClientOnly.
 #   -ClientOnly open the client (of -Session) when it is closed; the servers must be running (refused without them; a
 #               running client stays). With -Walkmaps (default ports and client) also this checkout's walk-map recorder,
 #               unless it runs. Nothing is built, extracted or restarted.
@@ -49,10 +51,15 @@
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+if ($Release -and $Debug) { throw '-Release and -Debug cannot be combined' }
+$configurationFile = Join-Path $repo 'data\live-configuration.txt'
+$remembered = if (Test-Path $configurationFile) { Get-Content $configurationFile -TotalCount 1 } else { $null }
+$configuration = if ($Release) { 'Release' } elseif ($Debug) { 'Debug' } elseif ($remembered -in 'Debug', 'Release') { $remembered } else { 'Debug' }
+if ($configuration -eq 'Release') { $NoHotReload = $true }
 $out = Join-Path $repo 'logs'
 $clients = Join-Path $repo 'data\clients'
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -313,7 +320,7 @@ function Stop-Wrapper($wrapper) {
 # (read first; reading works while clients run) does not already. When it cannot be written: with -Strict (before
 # anything was stopped) the script stops; otherwise a warning, and the client's own Log In may go elsewhere.
 function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
-    $patch = Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll'
+    $patch = Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll"
     $ggpk = Join-Path $repo 'Client\Content.ggpk'
     $list = @(& dotnet $patch gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
     if ($LASTEXITCODE -eq 0 -and $list.Count -and -not @($list | Where-Object { "$_" -notmatch "^[^;]*;[^;]*;127\.0\.0\.1:$loginPort;" }).Count) { return }
@@ -341,7 +348,7 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
     # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
-    & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') root-hash (Join-Path $client 'Content.ggpk') --save 2>$null | Out-Null
+    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash (Join-Path $client 'Content.ggpk') --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
     $folder = $client
     if ($session -ne 'default') {
@@ -608,7 +615,7 @@ if (-not $NoBuild) {
     # A watched Gateway builds itself.
     foreach ($s in ($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })) {
         Step "building GameServer.$s ..."
-        dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
+        dotnet build (Join-Path $repo "src\GameServer.$s") -c $configuration -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
     }
     # The modules in Modules\ and the mods (Mods\Source\ into Mods\Binaries\), which the Gateway loads; it compiles Leagues\ itself
@@ -622,10 +629,10 @@ if (-not $NoBuild) {
         $solution = Join-Path $out 'live-modules.slnx'
         $projects = $mods | ForEach-Object { "  <Project Path=`"$($_.FullName.Substring($repo.Length + 1).Insert(0, '..\').Replace('\', '/'))`" />" }
         Set-Content $solution (@('<Solution>') + $projects + '</Solution>') -Encoding utf8
-        $output = @(dotnet build $solution -v q -nologo)
+        $output = @(dotnet build $solution -c $configuration -v q -nologo)
         if ($LASTEXITCODE -eq 0) {
             # StaleModules: the modules were just checked against this Gateway, and one that did not change keeps its old date.
-            $gatewayBin = Join-Path $repo "src\GameServer.Gateway\bin\Debug\net10.0"
+            $gatewayBin = Join-Path $repo "src\GameServer.Gateway\bin\$configuration\net10.0"
             Set-Content (Join-Path $gatewayBin 'modules-checked') (Get-Date -Format o)
         }
         else {
@@ -635,7 +642,9 @@ if (-not $NoBuild) {
     }
 }
 
-$bin = 'bin\Debug\net10.0'
+$bin = "bin\$configuration\net10.0"
+# A full run decides the build configuration later partial runs use.
+if (-not $Only) { Set-Content -Path $configurationFile -Value $configuration -Encoding ascii }
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
 # The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
 $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
