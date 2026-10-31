@@ -4,7 +4,7 @@ partial class Program
 {
     /// <summary>Left in the character's saved data from the moment of a Hardcore death until it has moved, so that a crash in between
     /// cannot bring the character back.</summary>
-    const string HardcoreDeathMark = "hardcore.dead";
+    internal const string HardcoreDeathMark = "hardcore.dead";
 
     // Called synchronously inside the lethal damage mutation, before its first network write. The player sees the death screen and
     // stays connected; the character (only: stashes stay) moves to the parent league once they have left (CommitHardcoreDeath).

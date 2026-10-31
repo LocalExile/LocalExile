@@ -54,7 +54,7 @@ removed while it runs. A connection is in one league, and only that league's mod
 A module has no knowledge of leagues, and is not changed by one. A league needing even a small difference uses a module of its own, which may share code.
 One copy of a module runs for every league listing it, since one connection is in one league; its hooks run per player. A module no league lists does not load.
 
-- **Core** (`Modules/Core/`) is ordinary modules that new leagues get by default: `npcdialogue`, `harvest`, `heist`, `delve`. Group related things in one module.
+- **Core** (`Modules/Core/`) is ordinary modules that new leagues get by default: `npcdialogue`, `harvest`, `heist`, `delve`, `social`, `atlas`, `bench`, `cosmetics`. Group related things in one module.
 - **Hot reload:** a new build in `bin/`, an edited `module.json`, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
@@ -65,7 +65,7 @@ One copy of a module runs for every league listing it, since one connection is i
 `IModuleContext` is what a mod has, and `ProvideLeagueRules`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcOption`.
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
-A module may also use `GameServer.Core`, the client protocol and shared types; mods may not. The Gateway stays internal. A module's per-player state is its
-own (`ConditionalWeakTable<IPlayer, …>`), so a hot reload starts it over, and objects it placed stop answering until the player's next area.
+A module can alter the game fully: it compiles against the Gateway and its internals (add its assembly to `InternalsVisibleTo` in `GameServer.Gateway.csproj`), with `using static Program` and `ConnOf(player)`. Mods see only `GameServer.Modding`. Per-player state in a module's own
+`ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `ClientState` survives.
 
 Code: `ModHost.cs` (one class, three instances in `Program.Mods.cs`), `ServerHooks.cs`, `ServerLeagues.cs`, `Program.ModuleWorld.cs`, `LeagueCatalog.cs`.

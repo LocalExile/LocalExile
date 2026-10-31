@@ -4,10 +4,10 @@ using GameServer.Core.Protocol.Login;
 
 partial class Program
 {
-    static IReadOnlyDictionary<string, HideoutPlacement>? SavedHideoutPlacements(ClientState conn) =>
+    internal static IReadOnlyDictionary<string, HideoutPlacement>? SavedHideoutPlacements(ClientState conn) =>
         CharacterSaves.Load(CharacterName(conn))?.HideoutPlacements?.GetValueOrDefault(conn.Layout.Id);
 
-    static void PrepareHideoutWaypoint(ClientState conn)
+    internal static void PrepareHideoutWaypoint(ClientState conn)
     {
         if (HideoutCatalog.ByArea(conn.Layout.Hash) is null || conn.Layout.Waypoint is not { } waypoint) return;
         if (SavedHideoutPlacements(conn)?.GetValueOrDefault("waypoint") is { } p)
@@ -18,7 +18,7 @@ partial class Program
             waypoint.Rotation, -1);
     }
 
-    static async Task MoveHideoutObject(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    internal static async Task MoveHideoutObject(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, InstanceHideoutEditing.Move move)
     {
         if (!conn.PlayerSent || conn.PendingTransfer is not null) return;

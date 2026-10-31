@@ -10,8 +10,8 @@ partial class Program
     // A league (Leagues/<Name>/) is a set of modules (Modules/, Modules/Core/); a mod (Mods/) is a small modification, global and the
     // user's own. Agents/docs/dev/modules.md. The leagues and their module lists are read when the Gateway starts, and do not change
     // while it runs; the code of a loaded league, module or mod hot-reloads.
-    static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";
-    static string LeaguesFolder => Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues";
+    internal static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";
+    internal static string LeaguesFolder => Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues";
     internal static readonly IReadOnlyList<string> CoreModules = ServerLeagues.CoreModules(ModulesFolder);
 
     internal static readonly ModHost ServerLeagueCode = new(LeaguesFolder, Console.WriteLine, modules: true, leagues: true)
@@ -30,7 +30,7 @@ partial class Program
     internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine);
     internal static readonly ServerHooks ServerHooks = new(ServerLeagueCode, ServerModules, ServerMods);
 
-    static void StartMods()
+    internal static void StartMods()
     {
         var leagues = LeagueCatalog.Startup;
         if (leagues.FindLoaded(LeagueCatalog.Standard) is null)
@@ -48,14 +48,14 @@ partial class Program
     }
 
     // /mod_enable and /mod_disable.
-    static Task SetModEnabled(ClientState conn, string[] args, bool enabled)
+    internal static Task SetModEnabled(ClientState conn, string[] args, bool enabled)
     {
         if (args.Length != 1) throw new ArgumentException("which mod? /mod lists them");
         return conn.Commands!.Reply(ServerMods.SetEnabled(args[0], enabled)
             ? $"Mod {args[0]} {(enabled ? "enabled" : "disabled")} (/mod for the list)." : $"No mod \"{args[0]}\" in {ServerMods.Folder}/ (/mod for the list).");
     }
 
-    static readonly ConditionalWeakTable<ClientState, ModPlayer> ModPlayers = new();
+    internal static readonly ConditionalWeakTable<ClientState, ModPlayer> ModPlayers = new();
 
     /// <summary>The player as mods see it (one per connection).</summary>
     internal static Mod.IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, c => new ModPlayer(c));
@@ -63,12 +63,12 @@ partial class Program
     /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
     internal static ClientState ConnOf(Mod.IPlayer player) => ((ModPlayer)player).Conn;
 
-    static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
+    internal static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
         new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
             Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y);
 
     // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
-    static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
+    internal static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
     {
         if (UniquesFor(conn).Find(query) is { } unique
             && UniquesFor(conn).Create(unique.Name, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
@@ -79,7 +79,7 @@ partial class Program
         return new(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, type);
     }
 
-    sealed class ModPlayer(ClientState conn) : Mod.IPlayer
+    internal sealed class ModPlayer(ClientState conn) : Mod.IPlayer
     {
         public ClientState Conn => conn;
         public string Character => CharacterName(conn);

@@ -4,7 +4,7 @@ using GameServer.Core.World;
 
 partial class Program
 {
-    static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
+    internal static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
         GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster monster, double at)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
@@ -12,7 +12,7 @@ partial class Program
     }
 
     // Called synchronously under XP -> combat lock. The outbox contains notifications of committed results.
-    static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
+    internal static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
         MonsterHit hit, int damage, ProjectileOffense shot, bool critical)
     {
         var conn = session.Conn;
@@ -63,7 +63,7 @@ partial class Program
         }
     }
 
-    static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
+    internal static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
     {
         var stage = monster.Stage!;
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
@@ -81,7 +81,7 @@ partial class Program
         });
     }
 
-    static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random)
+    internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random)
     {
         var conn = session.Conn;
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
@@ -164,16 +164,16 @@ partial class Program
         }
     }
 
-    static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
+    internal static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
         PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground), ground);
 
-    static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
+    internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {
         session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()));
         session.Packet(InstanceProtocol.EnterWakeZone(id));
     }
 
-    static void CommitProjectileFlaskGain(ProjectileSession session,
+    internal static void CommitProjectileFlaskGain(ProjectileSession session,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)
     {
         var conn = session.Conn;
@@ -197,7 +197,7 @@ partial class Program
                 items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed));
     }
 
-    static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
+    internal static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
     {
         var conn = session.Conn;
         if (!conn.FlaskChargeCarry.CritReady(at)) return;

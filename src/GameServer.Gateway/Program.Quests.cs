@@ -8,18 +8,18 @@ partial class Program
 {
     // Sets or clears quest flags for the character (saved at once) and sends the player's flag set again; one change at a
     // time per connection (QuestGate), so a background sync never interleaves with another change.
-    static async Task SetQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)
+    internal static async Task SetQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         await conn.QuestGate.WaitAsync();
         try { await SetQuestFlagsHeld(remote, stream, ciphers, conn, flags, on); }
         finally { conn.QuestGate.Release(); }
     }
 
-    sealed record QuestFlagCommit(List<string> Changed, List<int> All,
+    internal sealed record QuestFlagCommit(List<string> Changed, List<int> All,
         List<string> Effective, List<uint> Removed);
 
     // Gameplay and persistence commit before any notification. Caller holds the combat lock when used by simulation.
-    static QuestFlagCommit? CommitQuestFlags(ClientState conn, IEnumerable<string> flags, bool on = true)
+    internal static QuestFlagCommit? CommitQuestFlags(ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         lock (conn.Monsters)
         {
@@ -50,7 +50,7 @@ partial class Program
         }
     }
 
-    static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    internal static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         QuestFlagCommit? committed;
@@ -58,7 +58,7 @@ partial class Program
         if (committed is not null) await PublishQuestFlags(remote, stream, ciphers, conn, committed, on);
     }
 
-    static async Task PublishQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    internal static async Task PublishQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, QuestFlagCommit change, bool on = true)
     {
         foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: quest flag {flag} {(on ? "set" : "cleared")}");
@@ -87,7 +87,7 @@ partial class Program
     // The rooms' server objects a quest manages (Quests.RoomObjectRemovedBy), where the room fit places them, while the
     // character lacks the flag that takes them away: The Twilight Strand's force wall (Tutorial_Blocker_3) blocks the way to
     // the gate until Hillock is dead (12-quests.md §6). Ids from QuestRoomObjectFirstId.
-    static async Task SpawnQuestRoomObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnQuestRoomObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var notes = new List<string>();
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes)
@@ -125,17 +125,17 @@ partial class Program
 
     // The quest flag an area transition needs (Quests.FlagToEnter), or null. Such an exit is created only once the character
     // has the flag: The Twilight Strand's gate into Lioneye's Watch appears when Hillock dies (a1q1, 12-quests.md §6).
-    static string? TransitionFlag(ClientState conn, AreaTransitionObject transition) =>
+    internal static string? TransitionFlag(ClientState conn, AreaTransitionObject transition) =>
         AreaTransitionCatalog.IdOf(transition.DestinationHash16) is { } dest ? Quests.FlagToEnter(conn.Layout.Id, dest) : null;
 
-    static bool TransitionShown(ClientState conn, AreaTransitionObject transition) =>
+    internal static bool TransitionShown(ClientState conn, AreaTransitionObject transition) =>
         TransitionFlag(conn, transition) is not { } flag || ClientHasQuestFlag(conn, flag);
 
     // A quest flag as the client has it: the character's own, or one the World panel's access flags carry (an activated
     // waypoint's area, 16-waypoints.md §4: the Submerged Passage's waypoint brings a1q4-PlacedGlyphs). The client opens
     // its ways by these, so the server's checks follow them.
-    static bool ClientHasQuestFlag(ClientState conn, string flag) => Quests.ClientHas(flag, conn.QuestFlagsSnapshot(), PlayerQuestFlags(conn));
-    static async Task SpawnOpeningTutorial(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static bool ClientHasQuestFlag(ClientState conn, string flag) => Quests.ClientHas(flag, conn.QuestFlagsSnapshot(), PlayerQuestFlags(conn));
+    internal static async Task SpawnOpeningTutorial(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (conn.Layout.Id != TutorialObjects.Strand || CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial) return;
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, []);
@@ -162,7 +162,7 @@ partial class Program
         _ = TrySpawnTutorialChest(remote, stream, ciphers, conn);
     }
 
-    static async Task TrySpawnTutorialChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task TrySpawnTutorialChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts) return;
         try
@@ -188,7 +188,7 @@ partial class Program
         { if (!conn.Closed) Console.WriteLine($"[gateway] tutorial chest: {ex.Message}"); }
     }
 
-    static async Task TalkToWoundedExile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,uint id,SpawnedNpc npc)
+    internal static async Task TalkToWoundedExile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,uint id,SpawnedNpc npc)
     {
         if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { Talked: false } || conn.TutorialSceneRunning) return;
         bool armed = ItemsOf(conn).Items(PlayerInventories.Weapon1).Count > 0;
@@ -201,7 +201,7 @@ partial class Program
         _ = RunOpeningScene(remote,stream,ciphers,conn,id,npc);
     }
 
-    static async Task RunOpeningScene(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,uint id,SpawnedNpc npc)
+    internal static async Task RunOpeningScene(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,uint id,SpawnedNpc npc)
     {
         try
         {
@@ -222,7 +222,7 @@ partial class Program
         finally { conn.TutorialSceneRunning=false; }
     }
 
-    static async Task SpawnTutorialZombie(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn)
+    internal static async Task SpawnTutorialZombie(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn)
     {
         if(Environment.GetEnvironmentVariable("Game_MONSTERS")=="0" || conn.TutorialZombiePlacement is not { } spawn) return;
         lock(conn.Monsters) if(conn.Monsters.Values.Any(m=>m.Variety?.Id==TutorialObjects.Zombie)) return;
@@ -230,7 +230,7 @@ partial class Program
             await SpawnMonster(remote,stream,ciphers,conn,zombie,1,MonsterRarity.Normal,spawn.X,spawn.Y);
     }
 
-    static async Task DropTutorialGem(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,bool support,int x,int y)
+    internal static async Task DropTutorialGem(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,bool support,int x,int y)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts && support) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial || (support ? tutorial.SupportClaimed : tutorial.SkillClaimed)) return;
@@ -242,7 +242,7 @@ partial class Program
         await Send(remote,stream,ciphers,InstanceProtocol.EnterWakeZone(id),null);
     }
 
-    static async Task OpenTutorialChest(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
+    internal static async Task OpenTutorialChest(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return;
@@ -265,17 +265,17 @@ partial class Program
     }
 
     // Ids of the invisible SunkenPassageBlockers on the server's walk estimate (blockers only: the client spawns them).
-    const uint PassageBlockerFirstId = 0xff000000;
+    internal const uint PassageBlockerFirstId = 0xff000000;
     // a1q4's objects have ids of their own, between the quest room objects (QuestRoomObjectFirstId) and the waypoint, so
     // they never meet the ids other code takes from NextObjectId: the nests (+ their index), the wall, the waterfall and
     // the opened nests (+ 0x20 + their index).
-    const uint GlyphObjectFirstId = 0x2e80, GlyphWallObjectId = GlyphObjectFirstId + 0x10, GlyphWaterObjectId = GlyphObjectFirstId + 0x11,
+    internal const uint GlyphObjectFirstId = 0x2e80, GlyphWallObjectId = GlyphObjectFirstId + 0x10, GlyphWaterObjectId = GlyphObjectFirstId + 0x11,
         OpenedNestFirstId = GlyphObjectFirstId + 0x20;
 
     // a1q4 "Breaking Some Eggs" (GlyphQuest, 12-quests.md §2–4): The Mud Flats' three Rhoa Nests, the Glyph Wall and the
     // waterfall where the recorder captured them, and the client's invisible blockers on the server's walk estimate until
     // PlacedGlyphs. The recorder writes the capture while the client generates the area: wait briefly for it.
-    static async Task SpawnGlyphQuest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnGlyphQuest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         await RemoveLeftoverGlyphs(remote, stream, ciphers, conn);
         if (conn.Layout.Id != GlyphQuest.Area) return;
@@ -292,7 +292,7 @@ partial class Program
         });
     }
 
-    static GlyphQuest.Layout? LoadGlyphLayout(string remote, ClientState conn)
+    internal static GlyphQuest.Layout? LoadGlyphLayout(string remote, ClientState conn)
     {
         try { return GlyphQuest.Load(conn.Layout.Id, conn.Seed); }
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
@@ -302,7 +302,7 @@ partial class Program
         }
     }
 
-    static async Task CreateGlyphObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GlyphQuest.Layout layout)
+    internal static async Task CreateGlyphObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GlyphQuest.Layout layout)
     {
         try
         {
@@ -345,9 +345,9 @@ partial class Program
     }
 
     // Which glyph (0–2) an item is, or null.
-    static int? GlyphIndex(Item item) => GlyphQuest.GlyphOf(Items.ByHash(item.TypeHash)?.Id);
+    internal static int? GlyphIndex(Item item) => GlyphQuest.GlyphOf(Items.ByHash(item.TypeHash)?.Id);
 
-    static void SetPassageBlockers(ClientState conn, bool on)
+    internal static void SetPassageBlockers(ClientState conn, bool on)
     {
         if (conn.Glyphs is not { } layout) return;
         for (int i = 0; i < layout.Blockers.Count; i++)
@@ -358,7 +358,7 @@ partial class Program
     // PlacedGlyphs as the client has it changed: the wall and the waterfall play their transition (0x2ba to
     // Transitionable), and the invisible blockers leave the server's walk estimate (the client drops its own when it gets
     // the flag). Cleared (dev): the other way.
-    static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
+    internal static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
     {
         lock (conn.Monsters)
         {
@@ -375,7 +375,7 @@ partial class Program
     // The HaveGlyph flags follow the glyphs the character carries (GlyphQuest.SyncFlags), whatever took them away (a drop,
     // a sale, the stash). Runs from the player tick: it reads the flags as a snapshot and changes them inside
     // conn.QuestGate, and it changes no inventory (RemoveLeftoverGlyphs does that on the message path).
-    static async Task SyncGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SyncGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         await conn.QuestGate.WaitAsync();
         try
@@ -392,7 +392,7 @@ partial class Program
 
     // Once the glyphs are placed, glyphs still carried go (the .it remove_flag): a copy taken back from the stash or given.
     // On entering an area, from the message path, so its 0xbf sends keep their order with the other inventory changes.
-    static async Task RemoveLeftoverGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RemoveLeftoverGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var items = ItemsOf(conn);
         var carried = GlyphQuest.Carried(items).Where(c => GlyphIndex(c.Item.Item) is not null).ToList();
@@ -412,7 +412,7 @@ partial class Program
     }
 
     // C→S 0x24 on a Rhoa Nest: walk up, open it (once per instance) and drop its glyph, unless the character has it already.
-    static async Task OpenRhoaNest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, GlyphQuest.Nest nest)
+    internal static async Task OpenRhoaNest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, GlyphQuest.Nest nest)
     {
         var at = nest.At;
         if (conn.Instance.ChestOpened(at.X, at.Y)) return;
@@ -445,7 +445,7 @@ partial class Program
 
     // A nest's glyph on the instance's ground, unless the glyphs are placed or a copy is carried, in the stash or on this
     // instance's ground (GlyphQuest.NestDrops): a glyph lost another way drops again.
-    static async Task DropGlyph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GlyphQuest.Nest nest)
+    internal static async Task DropGlyph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GlyphQuest.Nest nest)
     {
         int g = nest.Glyph;
         if (Items.Find(GlyphQuest.Glyphs[g]) is not { Supported: true } type)
@@ -468,7 +468,7 @@ partial class Program
 
     // C→S 0x24 on the Glyph Wall: walk up; seeing it sets SeenGlyphWall; with all three glyphs it takes them and sets
     // PlacedGlyphs (SetQuestFlags then opens the passage).
-    static async Task UseGlyphWall(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use)
+    internal static async Task UseGlyphWall(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use)
     {
         if (conn.Glyphs?.Wall is not { } wall) return;
         int action = Interlocked.Increment(ref conn.ActionCount);
@@ -488,7 +488,7 @@ partial class Program
         await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), null);
     }
 
-    static async Task PlaceGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task PlaceGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var items = ItemsOf(conn);
         List<(byte Row, InventoryItem Item)>? removed;

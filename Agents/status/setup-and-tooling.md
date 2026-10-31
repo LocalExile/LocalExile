@@ -53,7 +53,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   modules listed per league, with `Modules/Core/` by default. Characters of a deleted or ended league cannot be entered.
   Not tried in the client: a blocked character.
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
-  What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
+  Trades and parties, Atlas passives, the crafting bench and cosmetics are Core modules too. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
   `Mods/Source/` has six examples, of which only `example` is on by default.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area

@@ -7,7 +7,7 @@ partial class Program
     internal static readonly Lazy<VendorRecipes> VendorSales = new(() => new(Items));
 
     // Creates one NPC (0x2b9, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
-    static async Task SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
+    internal static async Task SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
         int x, int y, float rotation)
     {
         uint id = conn.NextObjectId++;
@@ -22,7 +22,7 @@ partial class Program
     }
 
     // The town's NPCs (NpcCatalog.In) at their cells.
-    static async Task SpawnTownNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnTownNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var notes = new List<string>();
         var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
@@ -40,7 +40,7 @@ partial class Program
     }
 
     // A click on an NPC (C→S 0x24 on its object): the client walks to it first; follow it and answer once the player is there.
-    static async Task TalkToNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task TalkToNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, SpawnedNpc npc, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, npc.X, npc.Y, Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size), out var objectWalk)) return;
@@ -79,7 +79,7 @@ partial class Program
     // C→S 0x85: the dialogue window was closed or, while a talk plays, Continue was pressed. The client stays in its dialogue
     // state (and the player cannot move) until the server answers: back to the option list (0x84 0xff) after a talk, else
     // 0x84 with object 0, which ends the dialogue.
-    static async Task CloseNpcDialogue(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task CloseNpcDialogue(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         uint id = conn.TalkingTo;
@@ -107,7 +107,7 @@ partial class Program
     }
 
     // C→S 0x82: an option picked in the NPC dialogue window (an NPCTalk row of the NPC talked to).
-    static async Task ChooseNpcOption(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte index)
+    internal static async Task ChooseNpcOption(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte index)
     {
         uint id = conn.TalkingTo;
         SpawnedNpc? npc;
@@ -241,7 +241,7 @@ partial class Program
             $"0x00bf inventory {buy.InventoryId}: bought item {bought.Id} from {shop.Npc.Npc.Name}, offer {item.Id}, at ({buy.X}, {buy.Y}) ({buy})");
     }
 
-    static async Task ClaimNpcReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint itemId)
+    internal static async Task ClaimNpcReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint itemId)
     {
         if (conn.NpcRewardOffer is not int offer || !conn.NpcRewardItems.TryGetValue(itemId, out var reward)) return;
         SpawnedNpc? npc;
@@ -341,7 +341,7 @@ partial class Program
     // the main inventory on a Ctrl-click); the NPC answers with one Scroll Fragment per offered item in its own offer. As in
     // the saved item and its inventory cell remain reserved until the sale ends (PlayerInventories.Offer).
     // The client sees the item only in its offer grid.
-    static async Task OfferForSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale,
+    internal static async Task OfferForSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale,
         uint fromInventory, uint itemId, byte x, byte y)
     {
         var items = ItemsOf(conn);
@@ -360,7 +360,7 @@ partial class Program
     }
 
     // Taking an offered item back restores its original inventory view and removes its offer entry.
-    static async Task TakeFromSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale, uint itemId)
+    internal static async Task TakeFromSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale, uint itemId)
     {
         var items = ItemsOf(conn);
         if (items.TakeBack(itemId) is not var (row, back))
@@ -376,7 +376,7 @@ partial class Program
     }
 
     // Quote once on each offer change. The same immutable outputs are displayed and paid at acceptance.
-    static async Task SendSaleReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale)
+    internal static async Task SendSaleReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale)
     {
         var items = ItemsOf(conn);
         var offered = items.Offered().OrderBy(i => i.Id).ToList();
@@ -420,14 +420,14 @@ partial class Program
     }
 
     // C→S 0xb1: Cancel (u8 0). The offered items go back to the inventory and S→C 0xb9 closes the window.
-    static async Task AnswerSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint Other, byte Answer) a)
+    internal static async Task AnswerSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint Other, byte Answer) a)
     {
         Console.WriteLine($"[gateway] {remote} <= 0x00b1 trade answer {a.Answer} (trade {a.Other})");
         await CloseSale(remote, stream, ciphers, conn, accepted: a.Answer != 0);
     }
 
     // An item Shift-clicked in an inventory while the sell window is open goes into a free cell of the offer.
-    static async Task OfferFromInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale, uint inventory, uint itemId)
+    internal static async Task OfferFromInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale, uint inventory, uint itemId)
     {
         var items = ItemsOf(conn);
         byte? row = PlayerInventories.Row(inventory);
@@ -446,7 +446,7 @@ partial class Program
     // Ends the sale. Accepted: the offered items are gone and the NPC's offer goes into the inventory, in one save; when the
     // offer doesn't fit (the offered items' cells free up first, so it nearly always does), nothing changes and the window
     // stays open. Cancelled: every offered item is in its cell again (it kept it). Then S→C 0xb9 closes the window.
-    static async Task CloseSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool accepted)
+    internal static async Task CloseSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool accepted)
     {
         NpcSale? sale;
         lock (conn.Npcs) sale = conn.Sale;

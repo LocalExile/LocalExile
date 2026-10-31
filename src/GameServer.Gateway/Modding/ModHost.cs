@@ -40,6 +40,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     readonly HookList<Func<MonsterKill, Task>> _kills = new();
     readonly HookList<Func<ObjectUse, Task<bool>>> _objects = new();
     readonly HookList<Func<IPlayer, Task>> _hideouts = new();
+    readonly HookList<Func<IPlayer, string, Task>> _leaving = new();
     readonly HookList<Func<IPlayer, IEnumerable<(string Log, byte[] Message)>>> _enter = new();
     readonly HookList<Func<IPlayer, AreaHeader?>> _headers = new();
     readonly HookList<Func<NpcOption, Task<bool>>> _npcOptions = new();
@@ -237,6 +238,11 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             if (await Guard(hook.Mod, "OnObjectUsed", async () => taken = await hook.Run(use)) && taken) return true;
         }
         return false;
+    }
+
+    public async Task PlayerLeaving(IPlayer player, string why)
+    {
+        foreach (var hook in _leaving.Items) if (On(hook.Mod, player)) await Guard(hook.Mod, "OnPlayerLeaving", () => hook.Run(player, why));
     }
 
     public async Task HideoutReady(IPlayer player)
@@ -605,7 +611,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     void Remove(LoadedMod mod)
     {
         ImmutableInterlocked.Update(ref _commands, c => c.RemoveRange(c.Where(e => e.Value.Mod == mod).Select(e => e.Key)));
-        _ticks.Remove(mod); _packets.Remove(mod); _areas.Remove(mod); _kills.Remove(mod); _objects.Remove(mod); _hideouts.Remove(mod); _enter.Remove(mod); _headers.Remove(mod); _npcOptions.Remove(mod);
+        _ticks.Remove(mod); _packets.Remove(mod); _areas.Remove(mod); _kills.Remove(mod); _objects.Remove(mod); _hideouts.Remove(mod); _leaving.Remove(mod); _enter.Remove(mod); _headers.Remove(mod); _npcOptions.Remove(mod);
         _drops.Remove(mod); _experience.Remove(mod); _stats.Remove(mod);
         if (mod.ProvidesRules) ServerLeagues.RemoveRules(mod.Manifest.Id);
         if (leagues) ServerLeagues.RemoveCode(mod.Manifest.Id);
@@ -769,6 +775,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
 
         public IPlayerWorld World(IPlayer player) => (host.WorldOf ?? throw new InvalidOperationException("this server gives modules no world"))(player);
         public IDisposable OnHideoutReady(Func<IPlayer, Task> ready) => Add(host._hideouts, ready);
+        public IDisposable OnPlayerLeaving(Func<IPlayer, string, Task> leaving) => Add(host._leaving, leaving);
         public IDisposable OnEnterMessages(Func<IPlayer, IEnumerable<(string Log, byte[] Message)>> messages) => Add(host._enter, messages);
         public IDisposable OnAreaHeader(Func<IPlayer, AreaHeader?> header) => Add(host._headers, header);
         public IDisposable OnNpcOption(Func<NpcOption, Task<bool>> run) => Add(host._npcOptions, run);

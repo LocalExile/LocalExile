@@ -8,16 +8,16 @@ partial class Program
     /// <summary>The modules a connection's league lists.</summary>
     internal static IReadOnlySet<string> ModulesFor(ClientState conn) => LeagueFor(conn).Modules;
 
-    sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
+    internal sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
     {
         public string? Get(string key) => get(key);
         public bool Change(string key, Func<string?, string?> apply) => change(key, apply);
     }
 
-    static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
-    static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
+    internal static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
+    internal static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
 
-    sealed class ModuleWorld(ClientState conn) : IPlayerWorld
+    internal sealed class ModuleWorld(ClientState conn) : IPlayerWorld
     {
         Task Send(byte[] message, string? log) => Program.Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, message, log);
 

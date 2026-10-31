@@ -15,6 +15,10 @@
   <!-- The Gateway's types are internal (top-level program); its tests reach them. -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+    <InternalsVisibleTo Include="cosmetics" />
+    <InternalsVisibleTo Include="bench" />
+    <InternalsVisibleTo Include="atlas" />
+    <InternalsVisibleTo Include="social" />
   </ItemGroup>
 
   <PropertyGroup>

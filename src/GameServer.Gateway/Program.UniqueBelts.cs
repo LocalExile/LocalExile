@@ -17,7 +17,7 @@ partial class Program
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>
-    static Dictionary<uint, int> WithStolenMods(ClientState conn, Dictionary<uint, int> sources)
+    internal static Dictionary<uint, int> WithStolenMods(ClientState conn, Dictionary<uint, int> sources)
     {
         var stolen = conn.StolenMods.Stats();
         if (stolen.Count == 0) return sources;
@@ -71,7 +71,7 @@ partial class Program
         return packets;
     }
 
-    static async Task RunUniqueBeltEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunUniqueBeltEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         const int StepMs = 250;
         while (!conn.Closed && !conn.RageRetired)

@@ -5,67 +5,6 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
 partial class Program
 {
-    // C→S 0x24: approach the bench before opening the ordinary crafting window (0x7b kind 0x33, bench type 0).
-    static async Task OpenCraftingBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use, double requestedAt)
-    {
-        if (!LeagueFor(conn).Rules.CraftingBench) return;
-        if (!TryBeginObjectWalk(conn, requestedAt, conn.CraftingBenchAt.X, conn.CraftingBenchAt.Y, conn.StationaryInteractionSize(conn.CraftingBenchObject), out var objectWalk)) return;
-        var (action, now, here, stop, arrive) = objectWalk;
-        Console.WriteLine($"[gateway] {remote} <= 0x0024 crafting bench ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (conn.Closed || !PlayerActionCurrent(conn, action)
-            || !PlayerWalk.InWalkUpRange(stop, conn.CraftingBenchAt, conn.StationaryInteractionSize(conn.CraftingBenchObject))) return;
-        conn.BenchOpen = true;
-        conn.ModuleWindow = null;
-        await RefreshBenchBalance(remote, stream, ciphers, conn);
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.CraftingBenchUi),
-            "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(conn, action));
-    }
-
-    static async Task MoveToBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint ItemId, bool IntoBench) request)
-    {
-        if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen) return;
-        var items = ItemsOf(conn);
-        if (ItemMoves.MoveToBench(items, request.ItemId, request.IntoBench, ShapeOf) is not { } move)
-        {
-            Console.WriteLine($"[gateway] {remote} <= 0x00e9 Ctrl + click item {request.ItemId} {(request.IntoBench ? "onto" : "off")} the crafting bench: refused (not there, slot taken or no room)");
-            return;
-        }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.From),
-            items.NextRevision(move.From), [request.ItemId], []), $"0x00e9 Ctrl + click: item {request.ItemId} leaves row {move.From}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.To),
-            items.NextRevision(move.To), [], [move.Placed]), $"0x00e9 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
-    }
-
-    static async Task CraftBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Recipe, bool Bound) request)
-    {
-        if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen || HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
-        var items = ItemsOf(conn);
-        var stash = PersonalStashOf(conn);
-        var result = ItemMoves.CraftAtBench(items, stash, Bench, request.Recipe, Random.Shared);
-        if (result is null)
-        {
-            var target = items.Items(PlayerInventories.CraftingBench).Select(i => i.Item).FirstOrDefault();
-            string mods = target is null ? "" : string.Join(", ", target.Mods.Select(m => Items.Mods.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}"));
-            Console.WriteLine($"[gateway] {remote} <= 0x015d bench recipe {request.Recipe} ({Bench.Find(request.Recipe)?.Mod?.Id ?? Bench.Find(request.Recipe)?.Name}) refused on " +
-                (target is null ? "no item" : $"{Items.ByHash(target.TypeHash)?.Id} {target.Rarity} ilvl {target.ItemLevel} [{mods}]"));
-            await RefreshBenchBalance(remote, stream, ciphers, conn);
-            await Send(remote, stream, ciphers, InstanceChat.ChatLine("Craft refused: incompatible item or insufficient currency in inventory and stash."), "bench craft refused");
-            return;
-        }
-        foreach (var payment in result.Payments)
-        {
-            if (payment.Inventory is { } paid)
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-                    items.NextRevision(PlayerInventories.MainInventory), [.. paid.Removed, .. paid.Changed.Select(c => c.Id)], paid.Changed), "bench currency paid from inventory");
-            await SendStashPayment(remote, stream, ciphers, conn, stash, payment.Stash);
-        }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.CraftingBench),
-            items.NextRevision(PlayerInventories.CraftingBench), [result.Changed.Id], [result.Changed]), $"bench recipe {request.Recipe}: crafted item {result.Changed.Id}");
-        await RefreshBenchBalance(remote, stream, ciphers, conn);
-    }
-
     internal static async Task RefreshBenchBalance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool clear = false)
     {
         clear |= !LeagueFor(conn).Rules.CraftingBench;
@@ -87,7 +26,7 @@ partial class Program
     // A click on the guild stash (C→S 0x24): walk there, then its tab list (S→C 0x136 kind 1) and its panel (0x7b kind 2).
     // While it is open the stash messages (0xc7, 0x28, 0x2a, Ctrl + click …) act on it (StashOf); the personal stash's open
     // switches back.
-    static async Task OpenGuildStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    internal static async Task OpenGuildStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (conn.Ssf || conn.GuildStashObject == 0) return;
         if (!TryBeginObjectWalk(conn, requestedAt, conn.GuildStashAt.X, conn.GuildStashAt.Y, ClientState.StashBlockerSize, out var objectWalk)) return;
@@ -104,7 +43,7 @@ partial class Program
     }
 
     // A hideout's placed doodads (HideoutCatalog.IsPlaced: the map device) from its decoration, with their HideoutDoodad data.
-    static async Task SpawnHideoutDoodads(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnHideoutDoodads(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (HideoutFurniture(conn) is not { } scene) return;
         foreach (var d in new[] { scene.Device })

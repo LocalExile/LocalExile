@@ -60,6 +60,9 @@ public interface IModContext
 /// leagues that list it. The hooks of the league run first, then its modules', then mods'.</summary>
 public interface IModuleContext : IModContext
 {
+    /// <summary>The player is about to leave the area or the game, with why.</summary>
+    IDisposable OnPlayerLeaving(Func<IPlayer, string, Task> leaving);
+
     /// <summary>The rules this module gives the leagues that use it; the first in a league's list that gives any wins.</summary>
     void ProvideLeagueRules(Func<LeagueRules> rules);
 

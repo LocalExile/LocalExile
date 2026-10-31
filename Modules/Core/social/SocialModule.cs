@@ -1,42 +1,104 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Modding;
+using static Program;
 
-/// <summary>
-/// A trade between two players in one instance. Each client shows two offer inventories (manager 1): its own offer
-/// (<see cref="Program.PlayerTradeMine"/>) and the other player's (<see cref="Program.PlayerTradeTheirs"/>). An offered
-/// item stays reserved in its owner's inventory (PlayerInventories.Offer, hidden from that client like a sale) until the
-/// trade completes or ends. Guarded by its own lock; the sends happen outside it.
-/// </summary>
-sealed class PlayerTrade(ClientState a, ClientState b)
+namespace GameServer.Modules.Social;
+
+/// <summary>Trades between players, and parties.</summary>
+public sealed class SocialModule : IModule
 {
-    public readonly ClientState A = a, B = b;
-    public readonly object Lock = new();
-    public bool Over;
-    /// <summary>Per client: the revision of its own offer inventory and of the other's, as last sent to it.</summary>
-    public readonly Dictionary<ClientState, (uint Mine, uint Theirs)> Revisions = new() { [a] = (0, 0), [b] = (0, 0) };
-    /// <summary>Per client: the revision of the other's offer it accepted, or null.</summary>
-    public readonly Dictionary<ClientState, uint?> Accepted = new() { [a] = null, [b] = null };
-    /// <summary>Per offering client: its item id → the id the other client sees it under (its own id space).</summary>
-    public readonly Dictionary<ClientState, Dictionary<uint, uint>> Views = new() { [a] = [], [b] = [] };
-
-    public ClientState Other(ClientState c) => ReferenceEquals(c, A) ? B : A;
+    /// <inheritdoc/>
+    public void Load(IModuleContext module)
+    {
+        static (ClientState Conn, string Remote) Of(Packet p) => (ConnOf(p.Player), ConnOf(p.Player).Wire.Remote);
+        module.OnPlayerLeaving((player, why) => SocialFeature.CancelPlayerTrade(ConnOf(player), why));
+        module.OnPacket(InstanceNpcs.TradeOfferId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            if (conn.Trade is not { } trade) return false;
+            var offer = InstanceNpcs.ReadTradeOffer(p.Bytes.ToArray());
+            await SocialFeature.PlayerTradeOffer(remote, conn, trade, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
+            return true;
+        });
+        foreach (ushort id in new[] { InstanceNpcs.TradeTakeBackId, InstanceNpcs.TradeMoveAllId })
+            module.OnPacket(id, async p =>
+            {
+                var (conn, remote) = Of(p);
+                if (conn.Trade is not { } trade) return false;
+                var (item, inventory) = InstanceNpcs.ReadTradeMove(p.Bytes.ToArray());
+                await SocialFeature.PlayerTradeOffer(remote, conn, trade, inventory, item);
+                return true;
+            });
+        module.OnPacket(InstanceNpcs.TradeAcceptId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            if (conn.Trade is not { } trade) return false;
+            await SocialFeature.PlayerTradeAccept(remote, conn, trade, InstanceNpcs.ReadTradeAccept(p.Bytes.ToArray()));
+            return true;
+        });
+        module.OnPacket(InstanceNpcs.TradeUnacceptId, async p =>
+        {
+            var (conn, _) = Of(p);
+            if (conn.Trade is not { } trade) return false;
+            await SocialFeature.PlayerTradeUnaccept(conn, trade);
+            return true;
+        });
+        module.OnPacket(InstanceNpcs.TradeAnswerId, async p =>
+        {
+            var (conn, _) = Of(p);
+            if (conn.Trade is not null) await SocialFeature.CancelPlayerTrade(conn, "cancelled");
+            else if (conn.TradeRequestTo != 0) await SocialFeature.CancelTradeRequest(conn);
+            else if (InstanceNpcs.ReadTradeAnswer(p.Bytes.ToArray()).Other != 0 && conn.Sale is null)
+                await SocialFeature.DeclineTradeRequest(conn, InstanceNpcs.ReadTradeAnswer(p.Bytes.ToArray()).Other);
+            else return false;
+            return true;
+        });
+        module.OnPacket(InstanceSocial.TradeRequestAcceptId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            await SocialFeature.AcceptTradeRequest(remote, conn, InstanceSocial.ReadTradeRequestAccept(p.Bytes.ToArray()));
+            return true;
+        });
+        module.OnPacket(InstanceSocial.TradeRequestId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            await SocialFeature.RequestTrade(remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceSocial.ReadTradeRequest(p.Bytes.ToArray()));
+            return true;
+        });
+        module.OnPacket(InstanceSocial.PartyInviteId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(p.Bytes.ToArray()));
+            return true;
+        });
+        module.OnPacket(InstanceSocial.PartyAcceptId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            await SocialFeature.AcceptParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
+            return true;
+        });
+        module.OnPacket(InstanceSocial.PartyLeaveId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
+            return true;
+        });
+    }
 }
 
-partial class Program
+static class SocialFeature
 {
     /// <summary>The two offer inventories of a player trade (manager 1): the NPC sale's (OpenNpcSale), as a player is never
     /// in both. The grid stayed empty with 0x7e0 / 0x7e1 although the item's 0xbf was the sale's (live 2026-10-28).</summary>
-    internal const uint PlayerTradeMine = NpcShops.FirstTabId + 0x10, PlayerTradeTheirs = PlayerTradeMine + 1;
 
     /// <summary>0xb8 flags for a player (0x140dccdf0): bit 1 alone is the request notification for the other player, bit 0
     /// alone the requester's "Waiting for player to accept trade request..." box (with Cancel), both bits the trade window
     /// (and bit 0 the active trade for Ctrl + click, 0x140d62ec0); 0x10 lets Accept send 0xb6 without hovering each item.
     /// Neither bit shows nothing (live 2026-10-28).</summary>
-    const byte PlayerTradeWaitingFlags = InstanceNpcs.TradeActive,
-        PlayerTradeOpenFlags = InstanceNpcs.TradeActive | InstanceSocial.TradeRequestFlag | InstanceNpcs.TradeNoMouseOver;
 
-    static Task SendTo(ClientState c, byte[] bytes, string? log) => c.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
+    internal static Task SendTo(ClientState c, byte[] bytes, string? log) => c.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
 
     // Presence is shared even when SSF world state is private. Check the authoritative modes at each trade boundary.
     internal static bool PlayerTradeAllowed(ClientState a, ClientState b) =>
@@ -48,14 +110,14 @@ partial class Program
         && a.PlayerLife > 0 && b.PlayerLife > 0 && !a.HardcoreDeathRecorded && !b.HardcoreDeathRecorded;
 
     // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table.
-    static async Task Introduce(ClientState to, ClientState about) =>
+    internal static async Task Introduce(ClientState to, ClientState about) =>
         await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Pools.Level),
             $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
     // inventories must exist (inventory 0 crashed both clients at 0x1402d0a99 through the grid 0x1403174b4). A fresh
     // pair also empties what an earlier trade left in them.
-    static async Task FreshOffers(ClientState c)
+    internal static async Task FreshOffers(ClientState c)
     {
         foreach (var inv in new[] { PlayerTradeMine, PlayerTradeTheirs })
             await SendTo(c, InstanceInventories.AddInventory(inv, NpcShops.Offer, NpcShops.Manager), $"0x00c0 trade offer {inv}");
@@ -63,12 +125,11 @@ partial class Program
 
     /// <summary>0xa9 member bytes (0x142149d80 maps them: 0 → invited, 1 → member, 2 → leader as the handler uses
     /// them, anything else → none), as live 2026-10-29.</summary>
-    const byte PartyInvited = 0, PartyMember = 1, PartyLeader = 2;
-    static int _nextPartyId = 0x100;
+    internal static int _nextPartyId = 0x100;
 
     // C→S 0x93: "Invite to Party" with the other character's name. Both sides learn each other (0xa7); the invited player
     // gets a party list (0xa9) with the inviter and themself.
-    static async Task InviteToParty(string remote, ClientState conn, string name)
+    internal static async Task InviteToParty(string remote, ClientState conn, string name)
     {
         var other = conn.Instance.Presence.PlayersExcept(0).Select(p => p.Owner)
             .FirstOrDefault(o => o is { Outbox: not null } && !ReferenceEquals(o, conn) && string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase));
@@ -87,10 +148,10 @@ partial class Program
     }
 
     /// <summary>Open invites by party id: the inviter (leader) and the invited player.</summary>
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (ClientState Leader, ClientState Invited)> PartyInvites = new();
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (ClientState Leader, ClientState Invited)> PartyInvites = new();
 
     // C→S 0x95: Accept on the invite. Both players get the party (0xa9) with themselves at their own index (+0x6e).
-    static async Task AcceptParty(string remote, ClientState conn, uint party)
+    internal static async Task AcceptParty(string remote, ClientState conn, uint party)
     {
         if (!PartyInvites.TryRemove(party, out var invite) || !ReferenceEquals(invite.Invited, conn))
         {
@@ -105,12 +166,12 @@ partial class Program
     }
 
     /// <summary>The parties formed here by id: the leader first, then the members in joining order.</summary>
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, List<ClientState>> Parties = new();
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, List<ClientState>> Parties = new();
 
     // The party (0xa9) to each member, with that member's own index (+0x6e). Members are listed by account name, the key
     // of the known-player table (0xa7) the client resolves them in, and every member, the player too, must be in it:
     // without the player's own entry the joining client crashed building its party panel (live 2026-10-29).
-    static async Task SendParty(uint party)
+    internal static async Task SendParty(uint party)
     {
         if (!Parties.TryGetValue(party, out var list)) return;
         ClientState[] members;
@@ -129,7 +190,7 @@ partial class Program
 
     // C→S 0x96: "Leave Party". The player gets the party removed (0xaa); with fewer than two left the party is disbanded
     // for everyone, otherwise the others get the smaller party (the next member leads when the leader leaves).
-    static async Task LeaveParty(string remote, ClientState conn, uint party)
+    internal static async Task LeaveParty(string remote, ClientState conn, uint party)
     {
         if (!Parties.TryGetValue(party, out var list)) { Console.WriteLine($"[gateway] {remote} <= 0x0096 leave party 0x{party:x}: no such party"); return; }
         ClientState[] left;
@@ -144,7 +205,7 @@ partial class Program
 
     // C→S 0xba: "Trade" on another player in the same instance. The requester sees the waiting notice (0xb8 without
     // flags) and the other player the request (0xb8 with TradeRequestFlag and the requester's name), answered by 0xb0.
-    static async Task RequestTrade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint target)
+    internal static async Task RequestTrade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint target)
     {
         if (conn.Instance.Player(target) is not { Owner: { Outbox: not null } other } || !PlayerTradeAllowed(conn, other)
             || other.Trade is not null || conn.Trade is not null)
@@ -165,7 +226,7 @@ partial class Program
     }
 
     // C→S 0xb1 (u32 the requester, u8) from the notification: the request declined; the requester's box closes.
-    static async Task DeclineTradeRequest(ClientState conn, uint requester)
+    internal static async Task DeclineTradeRequest(ClientState conn, uint requester)
     {
         Console.WriteLine($"[gateway] {CharacterName(conn)} declined the trade request from 0x{requester:x}");
         await SendTo(conn, InstanceNpcs.TradeClose(requester, false), "0x00b9 trade request declined");
@@ -174,7 +235,7 @@ partial class Program
     }
 
     // C→S 0xb1 on the requester's waiting box (Cancel): the box and the other player's notification close (0xb9).
-    static async Task CancelTradeRequest(ClientState conn)
+    internal static async Task CancelTradeRequest(ClientState conn)
     {
         uint to = conn.TradeRequestTo;
         conn.TradeRequestTo = 0;
@@ -185,7 +246,7 @@ partial class Program
     }
 
     // C→S 0xb0: the request accepted (u32 the requester's object id). Both get the open trade window.
-    static async Task AcceptTradeRequest(string remote, ClientState conn, uint requester)
+    internal static async Task AcceptTradeRequest(string remote, ClientState conn, uint requester)
     {
         if (conn.Instance.Player(requester) is not { Owner: { } other } || other.TradeRequestTo != conn.PeerId
             || !PlayerTradeAllowed(conn, other) || other.Trade is not null || conn.Trade is not null)
@@ -210,7 +271,7 @@ partial class Program
 
     // C→S 0xb2 / 0xb3 / 0xb5 while a player trade is open: an item into the offer (a drop at x, y, or Ctrl / Shift
     // click into the first free cell), or an offered item taken back.
-    static async Task PlayerTradeOffer(string remote, ClientState conn, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
+    internal static async Task PlayerTradeOffer(string remote, ClientState conn, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
     {
         if (!PlayerTradeAllowed(conn, trade.Other(conn)))
         {
@@ -258,7 +319,7 @@ partial class Program
         await SendTradeState(trade);
     }
 
-    static async Task PlayerTradeTakeBack(string remote, ClientState conn, PlayerTrade trade, uint itemId)
+    internal static async Task PlayerTradeTakeBack(string remote, ClientState conn, PlayerTrade trade, uint itemId)
     {
         var items = ItemsOf(conn);
         if (items.TakeBack(itemId) is not var (row, back)) return;
@@ -283,7 +344,7 @@ partial class Program
 
     // C→S 0xb6: Accept, with the revision of the other's offer this client saw. Both accepted on the current offers
     // completes the trade; any later change clears both acceptances.
-    static async Task PlayerTradeAccept(string remote, ClientState conn, PlayerTrade trade, uint revision)
+    internal static async Task PlayerTradeAccept(string remote, ClientState conn, PlayerTrade trade, uint revision)
     {
         if (!PlayerTradeAllowed(conn, trade.Other(conn)))
         {
@@ -304,7 +365,7 @@ partial class Program
     }
 
     // C→S 0xb7: Cancel Accept.
-    static async Task PlayerTradeUnaccept(ClientState conn, PlayerTrade trade)
+    internal static async Task PlayerTradeUnaccept(ClientState conn, PlayerTrade trade)
     {
         lock (trade.Lock) trade.Accepted[conn] = null;
         await SendTradeState(trade);
@@ -313,11 +374,10 @@ partial class Program
     /// <summary>0xb8 flags bit 2 (0x04): this player accepted, its own offer grid is greyed and Accept turns into Cancel
     /// Accept (C→S 0xb7); bit 3 (0x08): the other player accepted, their offer grid is greyed. The trade window copies
     /// the struct (0x140c32800) and sets the grids' +0x33b from +0x378 bits 2 and 3 (0x140c37140).</summary>
-    const byte TradeMineAccepted = 0x04, TradeTheirsAccepted = 0x08;
 
     // The open window again with each side's acceptance: 0xb8 for the same other party updates the existing window
     // (found by that id, 0x140c38d70) and keeps its grids.
-    static async Task SendTradeState(PlayerTrade trade)
+    internal static async Task SendTradeState(PlayerTrade trade)
     {
         foreach (var c in new[] { trade.A, trade.B })
         {
@@ -335,7 +395,7 @@ partial class Program
     }
 
     // Both accepted: eligibility and both saves commit before either player can die or leave during the exchange.
-    static async Task CompletePlayerTrade(PlayerTrade trade)
+    internal static async Task CompletePlayerTrade(PlayerTrade trade)
     {
         PlayerInventories.Stacking? gotA = null, gotB = null;
         bool prohibited = false, noRoom = false;
@@ -417,7 +477,7 @@ partial class Program
         }
     }
 
-    static async Task EndTradeView(ClientState c, ClientState other, bool accepted)
+    internal static async Task EndTradeView(ClientState c, ClientState other, bool accepted)
     {
         c.Trade = null;
         c.TradeRequestTo = 0;

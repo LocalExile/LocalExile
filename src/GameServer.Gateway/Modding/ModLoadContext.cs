@@ -12,15 +12,14 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
     : AssemblyLoadContext($"mod {id}", isCollectible: true)
 {
     static readonly string Contracts = typeof(IMod).Assembly.GetName().Name!;
-    static readonly string Shared = typeof(GameServer.Core.Protocol.Instance.Item).Assembly.GetName().Name!;
     static readonly string CopyRoot = Path.Combine(Path.GetTempPath(), "localexile-mod-copy");
     readonly Lock copyGate = new();
     internal string CopyDirectory { get; } = Path.Combine(CopyRoot, Guid.NewGuid().ToString("N"));
 
     protected override Assembly? Load(AssemblyName name)
     {
-        // A module may use the client protocol and shared types too.
-        if (name.Name == Contracts || (module && name.Name == Shared)) return null;
+        // A module can alter the game fully: the server's assemblies are the host's own copies.
+        if (name.Name == Contracts || (module && name.Name?.StartsWith("GameServer.", StringComparison.Ordinal) == true)) return null;
         if (name.Name?.StartsWith("GameServer.", StringComparison.Ordinal) == true)
             throw new FileNotFoundException($"a mod can use GameServer.Modding, not {name.Name} (the server's own code)");
         foreach (var dependency in dependencies)

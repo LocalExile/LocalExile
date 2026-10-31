@@ -6,7 +6,7 @@ partial class Program
 {
     // A click on the map device (C→S 0x24): walk there, then S→C 0x7b kind 5 opens the map device window (21-hideouts.md §4).
     // Its slots and the activation are not served yet.
-    static async Task UseMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task UseMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, HideoutCatalog.Doodad device, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, device.X, device.Y, StashReach, out var objectWalk, centreRange: true)) return;
@@ -20,7 +20,7 @@ partial class Program
 
     // C→S 0x00e7: an Atlas map node picked in the hideout map device (u16 WorldAreas HASH16, u8). The layout becomes
     // what the next generic map key opens.
-    static async Task SelectAtlasMap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Area, byte Mode) picked)
+    internal static async Task SelectAtlasMap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Area, byte Mode) picked)
     {
         var layout = MapDevices.Value.Atlas?.ByHash16(picked.Area);
         if (layout is not null && CharacterName(conn) is { } character)
@@ -35,7 +35,7 @@ partial class Program
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): every slot must hold a map or a map fragment, and
     // exactly one map. Then the slots are consumed, the map's area opens (the first portal taken makes its instance) and its
     // portals appear around the device, replacing any open before. Otherwise nothing changes and the chat says why.
-    static async Task ActivateMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Target, byte Index) activate)
+    internal static async Task ActivateMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Target, byte Index) activate)
     {
         HideoutCatalog.Doodad? device;
         lock (conn.HideoutDoodads) device = conn.HideoutDoodads.Values.FirstOrDefault();
@@ -69,7 +69,7 @@ partial class Program
     // burst is not done yet (live 2026-10-20), so each portal is listed MapPortalListMs after its create; on entering the
     // area the objects also wait until the world is active (firstAfterMs). A newer Activate or the portals' removal stops
     // the sequence.
-    static Task SpawnMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MapDevice.OpenMap open, int firstAfterMs = 0)
+    internal static Task SpawnMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MapDevice.OpenMap open, int firstAfterMs = 0)
     {
         HideoutCatalog.Doodad? device;
         uint deviceId;
@@ -102,13 +102,13 @@ partial class Program
         return Task.CompletedTask;
     }
 
-    static void SendMapPortalsLater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, int delayMs) =>
+    internal static void SendMapPortalsLater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, int delayMs) =>
         _ = Task.Delay(delayMs).ContinueWith(async _ => { if (!conn.Closed) await SendMapPortals(remote, stream, ciphers, conn, deviceId, area); });
 
     // Removes and recreates the map portals that stand, at the same places and with the current rotation, then lists them
     // again: the client builds a portal's visual from its object, so a rotated portal effect can be tried without reopening
     // the device. Returns how many were rebuilt.
-    static async Task<int> RebuildMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task<int> RebuildMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         uint deviceId;
         lock (conn.HideoutDoodads) deviceId = conn.HideoutDoodads.Keys.FirstOrDefault();
@@ -141,7 +141,7 @@ partial class Program
 
     // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device: 0x008f
     // carries the variation of every entry and the client re-applies the visual. False when nothing stands.
-    static async Task<bool> ResendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task<bool> ResendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         uint deviceId;
         lock (conn.HideoutDoodads) deviceId = conn.HideoutDoodads.Keys.FirstOrDefault();
@@ -154,7 +154,7 @@ partial class Program
 
     // S→C 0x8f: the device's portals and where they lead (21-hideouts.md §5). Without it the client never draws them; a
     // portal listed with area 0 (one just taken) closes.
-    static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
+    internal static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
     {
         byte style = conn.MapPortalStyle;
         List<uint> ids;
@@ -168,7 +168,7 @@ partial class Program
 
     // Created closed (hidden), a map device portal is drawn and targetable once it is opened (Transitionable 0 → 1). Sent in
     // the same burst as its creation, the update hung the client (live 2026-10-20), so it goes once the portal is built.
-    static void OpenMapPortalLater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, int delayMs) =>
+    internal static void OpenMapPortalLater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, int delayMs) =>
         _ = Task.Delay(delayMs).ContinueWith(async _ =>
         {
             bool still;
@@ -176,7 +176,7 @@ partial class Program
             if (still && !conn.Closed) await Send(remote, stream, ciphers, MapPortalObject.OpenUpdate(id), $"0x02ba map portal 0x{id:x} opens");
         });
 
-    static async Task RemoveMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RemoveMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         List<uint> ids;
         Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them
@@ -191,7 +191,7 @@ partial class Program
 
     // A click on a map portal (C→S 0x24): walk there, then the portal is used up and the player goes into the open map, a new
     // instance for the first portal and that same instance for the others.
-    static async Task UseMapPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task UseMapPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, (int X, int Y, int Index) at, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, AreaTransitionObjectSize, out var objectWalk)) return;
@@ -225,7 +225,7 @@ partial class Program
 
     // In a map's area (one a map item opens): a portal back to the hideout next to the arrival point, listed in 0x8f without
     // a device once the world is active (21-hideouts.md §5). It is not used up.
-    static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || HomeHideout(conn) is not { } hideout) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
@@ -249,7 +249,7 @@ partial class Program
     // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the
     // portal again at its cell; in the town or hideout it leads to, a portal back beside the arrival, which brings the player
     // to that cell (SpotArrivals).
-    static async Task SpawnTownPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnTownPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!OpenPortals.TryGetValue(CharacterName(conn), out var open)) return;
         if (open.Area == conn.Layout.Hash && open.Instance == conn.InstanceNumber)
@@ -275,7 +275,7 @@ partial class Program
 
     // A click on the portal back (C→S 0x24, the map's own or a Portal Scroll's): walk there, then to the hideout next to its
     // waypoint, or to the town the scroll's portal leads to (ReturnPortalTo), at its spawn.
-    static async Task UseMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task UseMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, (int X, int Y) at, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, AreaTransitionObjectSize, out var objectWalk)) return;
@@ -293,7 +293,7 @@ partial class Program
     // stands, replacing the one there was (the scroll's earlier one, or a map's own portal back). From a map it leads to the
     // hideout (the player came through its map device), anywhere else to the character's last town. In a town or a hideout
     // nothing happens and nothing is spent.
-    static async Task UsePortalScroll(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row, InventoryItem item,
+    internal static async Task UsePortalScroll(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row, InventoryItem item,
         ItemCatalog.BaseType type)
     {
         if (!PortalAllowed(conn))
@@ -311,14 +311,14 @@ partial class Program
     }
 
     // Whether a town portal can open here: not in a town or a hideout, and not where the area's own mods forbid portals.
-    static bool PortalAllowed(ClientState conn) =>
+    internal static bool PortalAllowed(ClientState conn) =>
         WaypointCatalog.Areas.Find(conn.Layout.Hash) is not { IsTown: true } && HideoutCatalog.Hideouts.All(h => h.AreaHash16 != conn.Layout.Hash)
         && !AreaMods.Value.DisablesPortals(conn.Layout.Id);
 
     // A town portal (Portal Scroll, the Portal skill) beside (px, py): from a map to the hideout, anywhere else to the
     // character's last town. It replaces the one there was, and the character's town / hideout gets a portal back to it
     // (OpenPortals, SpawnBackPortal), which brings the player back to this cell of this instance.
-    static async Task OpenTownPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int px, int py, string why,
+    internal static async Task OpenTownPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int px, int py, string why,
         bool replace = true)
     {
         ushort here = conn.Layout.Hash;

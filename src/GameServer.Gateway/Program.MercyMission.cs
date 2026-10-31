@@ -10,15 +10,15 @@ using GameServer.Core.Diagnostics;
 // once-a-second tick syncs the flag alone.
 partial class Program
 {
-    static bool MercyDone(ClientState conn) => MercyMission.Done(conn.HasQuestFlag);
+    internal static bool MercyDone(ClientState conn) => MercyMission.Done(conn.HasQuestFlag);
 
-    static ItemCatalog.BaseType? MedicineChestType() => Items.Find(MercyMission.MedicineChest) is { Supported: true } type ? type : null;
+    internal static ItemCatalog.BaseType? MedicineChestType() => Items.Find(MercyMission.MedicineChest) is { Supported: true } type ? type : null;
 
-    static bool IsMedicineChest(Item item) => Items.ByHash(item.TypeHash)?.Id == MercyMission.MedicineChest;
+    internal static bool IsMedicineChest(Item item) => Items.ByHash(item.TypeHash)?.Id == MercyMission.MedicineChest;
 
     // Hailrake died on The Tidal Island: the Medicine Chest where he fell (the item's drop_monsters), unless Nessa has it
     // already, this character carries one or one lies on this instance's ground (MercyMission.HailrakeDrops).
-    static async Task DropQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string varietyId, (int X, int Y) at)
+    internal static async Task DropQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string varietyId, (int X, int Y) at)
     {
         if (!MercyMission.DropsChest(conn.Layout.Id, varietyId)) return;
         if (MedicineChestType() is not { } type)
@@ -42,7 +42,7 @@ partial class Program
     // C→S 0x24 on a ground item. A Medicine Chest the character still needs is picked up as any item, then its flag follows.
     // After Nessa has one (the .it remove_flag), the player walks to it as for a pickup (the echo, the same action check)
     // and the chest is removed from the ground instead of entering the inventory. False when the item is not a chest.
-    static async Task<bool> PickUpQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground,
+    internal static async Task<bool> PickUpQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         switch (MercyMission.PickupOf(IsMedicineChest(ground.Item), MercyDone(conn)))
@@ -69,7 +69,7 @@ partial class Program
     // HaveMedicineChest follows the chest the character carries (MercyMission.Sync), whatever took it away (a drop, a sale,
     // the stash). With removeItems (the message path only, so the 0xbf revisions stay in order with the other inventory
     // changes), a chest carried after Nessa has one goes (the .it remove_flag).
-    static async Task SyncQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool removeItems)
+    internal static async Task SyncQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool removeItems)
     {
         if (MedicineChestType() is not { } type) return;
         await conn.QuestGate.WaitAsync();
@@ -97,7 +97,7 @@ partial class Program
 
     // A safety net for the flag about once a second while the player is in this area (started with the area): flags only,
     // no inventory change. An error is logged and the next tick runs again; the loop ends with the connection.
-    static async Task RunMercyMission(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunMercyMission(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         while (!conn.Closed)
         {
@@ -116,7 +116,7 @@ partial class Program
     // C→S 0x82 on an NPCTalk row that sets NessaCongratulated (Nessa's "The Medicine Chest"): she takes the chest with the
     // flag (MercyMission.HandIn, one save). Without a chest the talk does not happen: the option list comes back. True
     // when the talk may go on.
-    static async Task<bool> HandInQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Talk talk)
+    internal static async Task<bool> HandInQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Talk talk)
     {
         if (!MercyMission.HandsIn(talk.StartFlag, MercyDone(conn))) return true;
         var items = ItemsOf(conn);

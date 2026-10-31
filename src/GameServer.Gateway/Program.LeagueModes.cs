@@ -9,14 +9,14 @@ partial class Program
         conn.LeagueModule ??= ServerLeagues.Resolve(conn.LeagueForm, conn.League, LeagueCatalog.Startup, CoreModules);
 
     // The game files' two sets of data; a league picks one (league.json "dataSet").
-    static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));
-    static readonly Lazy<SkillCatalog> HardModeSkills = new(() => new("data", hardMode: true));
-    static readonly Lazy<PassiveTree> HardModePassives = new(() => new("data", hardMode: true));
-    static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
-    static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
-    static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
+    internal static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));
+    internal static readonly Lazy<SkillCatalog> HardModeSkills = new(() => new("data", hardMode: true));
+    internal static readonly Lazy<PassiveTree> HardModePassives = new(() => new("data", hardMode: true));
+    internal static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
+    internal static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
+    internal static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
     // Drops read the league's gem rules when they are built, so each HardMode league has its own.
-    static readonly ConcurrentDictionary<string, Lazy<ItemDrops>> HardModeDrops = new();
+    internal static readonly ConcurrentDictionary<string, Lazy<ItemDrops>> HardModeDrops = new();
 
     internal static ItemCatalog ItemsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeItems.Value : Items;
     internal static SkillCatalog SkillsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeSkills.Value : Skills;
@@ -27,7 +27,7 @@ partial class Program
     internal static ItemDrops DropsFor(ClientState conn) => LeagueFor(conn) is { HardMode: true } league
         ? HardModeDrops.GetOrAdd(league.Id, _ => new(() => new(HardModeItems.Value, HardModeRolls.Value, hardMode: true, uniques: HardModeUniques.Value, league: league.Rules))).Value : Drops;
 
-    sealed class VitalsAdmission
+    internal sealed class VitalsAdmission
     {
         public readonly Lock Gate = new();
         public Guid Latest;
@@ -35,8 +35,8 @@ partial class Program
 
     // Registration precedes expensive progress preparation. An older preparation cannot claim resources after a
     // newer connection was admitted. Entries are removed when their latest connection finishes, including refusals.
-    static readonly ConcurrentDictionary<(string Database, Guid Character), VitalsAdmission> VitalsAdmissions = new();
-    static (string, Guid)? VitalsAdmissionKey(ClientState conn) => conn.CharacterId is { } id
+    internal static readonly ConcurrentDictionary<(string Database, Guid Character), VitalsAdmission> VitalsAdmissions = new();
+    internal static (string, Guid)? VitalsAdmissionKey(ClientState conn) => conn.CharacterId is { } id
         ? (Path.GetFullPath(Saves.Db.Path).ToUpperInvariant(), id) : null;
 
     internal static void RegisterVitalsAdmission(ClientState conn)

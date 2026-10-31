@@ -9,7 +9,7 @@ using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
 {
-    static void SaveUnsavedProgressNow(string? why)
+    internal static void SaveUnsavedProgressNow(string? why)
     {
         try
         {
@@ -25,7 +25,7 @@ partial class Program
         }
     }
 
-    static string? FindUp(string relative)
+    internal static string? FindUp(string relative)
     {
         for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, relative))) return Path.Combine(dir.FullName, relative);
@@ -54,7 +54,7 @@ partial class Program
         return level;
     }
 
-    static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
+    internal static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
     {
         string remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
         // Nagle off: it would hold a small 0x1c back until the previous write is acknowledged (up to ~200 ms, issue #46).
@@ -194,7 +194,7 @@ partial class Program
                     inbox.Complete();
                     await handlers;
                     // An open trade ends with its owner: the other side gets its items back in view and the window closes.
-                    try { await CancelPlayerTrade(conn, "disconnected"); }
+                    try { await ServerHooks.PlayerLeaving(PlayerOf(conn), "disconnected"); }
                     catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
                 }
             }
@@ -250,7 +250,7 @@ partial class Program
     // The read loop's part: decrypts one read, frames it (InstanceProtocol.SplitClientMessages), answers its 0x1b ticks with
     // 0x1c at once and queues the rest for RunHandlers. readAt is when the read completed: a tick answered more than
     // ClientInbox.SlowAfter later is logged.
-    static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, ClientState conn,
+    internal static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, ClientState conn,
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
@@ -282,7 +282,7 @@ partial class Program
 
     // The connection's handler task: every message but the ticks, one read at a time and in order (ClientInbox). A handler
     // that runs longer than ClientInbox.SlowAfter is logged. An error or 0x153 closes the connection by cancelling the read.
-    static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ClientInbox inbox, CancellationTokenSource reading)
     {
         await Task.Yield();   // the read loop starts at once; the handlers run beside it
@@ -334,7 +334,7 @@ partial class Program
     // The server frame clock (Agents/docs/protocol/07 §6): S→C 0x2b6 sets the frame length, then 0x2b5 ends a frame every
     // FrameMs. A lockstep client advances its world by exactly these frames, running the messages of each at its start (it
     // is drawn and its world runs; its moves are not served yet); a predictive client ignores them.
-    static async Task RunServerFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RunServerFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
@@ -353,7 +353,7 @@ partial class Program
 
     // The Escape menu (C→S 0x1d4, 22-pause.md) pauses the area outside towns and hideouts, where the client does not ask
     // anyway: the Clock stops, the monster AI and the player tick skip their steps, and S→C 0x1d3 pauses the client's world.
-    static async Task SetPaused(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool pause)
+    internal static async Task SetPaused(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool pause)
     {
         ushort here = conn.Layout.Hash;
         if (pause && (WaypointCatalog.Areas.Find(here) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == here)))
@@ -366,7 +366,7 @@ partial class Program
         await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
     }
 
-    static async Task WhilePaused(ClientState conn)
+    internal static async Task WhilePaused(ClientState conn)
     {
         while (conn.Paused && !conn.Closed) await Task.Delay(100);
     }
@@ -409,7 +409,7 @@ partial class Program
 
     // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this
     // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
-    static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
+    internal static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
     {
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
@@ -429,7 +429,7 @@ partial class Program
 
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone
     // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
-    static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
+    internal static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
 
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();

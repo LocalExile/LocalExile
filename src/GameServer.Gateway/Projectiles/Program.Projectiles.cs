@@ -7,7 +7,7 @@ using GameServer.Core.World;
 
 partial class Program
 {
-    static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
+    internal static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
     internal sealed class ProjectileSession : IProjectileWorld
     {
@@ -472,7 +472,7 @@ partial class Program
         };
     }
 
-    static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -483,7 +483,7 @@ partial class Program
         }
     }
 
-    static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
+    internal static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
 
     // Advance and replace actor motion/life in the same critical section. A flush followed by a separate
     // Monsters lock leaves a race in which the pump can consume the replacement as historical movement.
@@ -491,7 +491,7 @@ partial class Program
     internal static double ProjectileWorldTime(ClientState conn) => conn.ProjectileRuntime is { Active: true } session
         ? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond : conn.Clock.Elapsed.TotalSeconds;
 
-    sealed class ProjectileMutationScope : IDisposable
+    internal sealed class ProjectileMutationScope : IDisposable
     {
         readonly System.Threading.Lock experience;
         readonly ConnectionPerformance.LockScope actorLock;

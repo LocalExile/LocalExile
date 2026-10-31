@@ -27,14 +27,14 @@ partial class Program
     internal static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands("", null!, null!, null!).Usages;
 
     // /stash_place and the like: <x> <y> <degrees>.
-    static (int X, int Y, float Degrees) PlaceArgs(string[] args, string usage) =>
+    internal static (int X, int Y, float Degrees) PlaceArgs(string[] args, string usage) =>
         args.Length == 3 && int.TryParse(args[0], out int x) && int.TryParse(args[1], out int y) && float.TryParse(args[2],
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees)
             ? (x, y, degrees) : throw new ArgumentException($"{usage} <x> <y> <degrees>");
 
     // A stationary object moved and turned in place (S→C 0x1b7 and the Positioned rotation update, as the hideout editor
     // does), with its path blocker; until the player leaves the area.
-    static async Task MoveStationary(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    internal static async Task MoveStationary(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         int x, int y, float degrees, int blockerSize, string what)
     {
         conn.SetBlocker(id, x, y, blockerSize);
@@ -44,7 +44,7 @@ partial class Program
     }
 
     // The chat commands of one connection (ChatCommands.cs).
-    static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         return new ChatCommands
         {

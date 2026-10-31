@@ -187,16 +187,6 @@ partial class Program
             }
             else if (id == InstancePause.RequestId)
                 await SetPaused(remote, stream, ciphers, conn, InstancePause.ReadRequest(bytes));
-            else if (id == InstanceMicrotransactions.RequestId)
-            {
-                var asked = InstanceMicrotransactions.ReadRequest(bytes);
-                Console.WriteLine($"[gateway] {remote} <= 0x01f2 microtransaction lists asked: {asked}");
-                await AnswerMtxRequest(remote, stream, ciphers, asked);
-            }
-            else if (id == InstanceMicrotransactions.SlotId)
-                await PickCosmetic(remote, stream, ciphers, conn, InstanceMicrotransactions.ReadSlot(bytes));
-            else if (id == InstanceMicrotransactions.SkillPickId)
-                await PickSkillCosmetic(remote, stream, ciphers, conn, InstanceMicrotransactions.ReadSkillPick(bytes));
             else if (id == InstanceProtocol.UseInstantSkillAtLocationId)
             {
                 var (x, y, skill) = InstanceProtocol.ReadUseInstantSkillAtLocation(bytes);
@@ -391,28 +381,6 @@ partial class Program
                 _ = Resurrect(remote, stream, ciphers, conn, InstanceProtocol.ReadResurrectInTown(bytes));
             else if (id == InstanceNpcs.DialogueClosedId)
                 await CloseNpcDialogue(remote, stream, ciphers, conn);
-            else if (id == InstanceNpcs.TradeOfferId && conn.Trade is { } offerTrade)
-            {
-                var offer = InstanceNpcs.ReadTradeOffer(bytes);
-                await PlayerTradeOffer(remote, conn, offerTrade, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
-            }
-            else if (id is InstanceNpcs.TradeTakeBackId or InstanceNpcs.TradeMoveAllId && conn.Trade is { } moveTrade)
-            {
-                var (item, inventory) = InstanceNpcs.ReadTradeMove(bytes);
-                await PlayerTradeOffer(remote, conn, moveTrade, inventory, item);
-            }
-            else if (id == InstanceNpcs.TradeAcceptId && conn.Trade is { } acceptTrade)
-                await PlayerTradeAccept(remote, conn, acceptTrade, InstanceNpcs.ReadTradeAccept(bytes));
-            else if (id == InstanceNpcs.TradeUnacceptId && conn.Trade is { } unacceptTrade)
-                await PlayerTradeUnaccept(conn, unacceptTrade);
-            else if (id == InstanceNpcs.TradeAnswerId && conn.Trade is not null)
-                await CancelPlayerTrade(conn, "cancelled");
-            else if (id == InstanceNpcs.TradeAnswerId && conn.TradeRequestTo != 0)
-                await CancelTradeRequest(conn);
-            else if (id == InstanceNpcs.TradeAnswerId && InstanceNpcs.ReadTradeAnswer(bytes).Other != 0 && conn.Sale is null)
-                await DeclineTradeRequest(conn, InstanceNpcs.ReadTradeAnswer(bytes).Other);
-            else if (id == InstanceSocial.TradeRequestAcceptId)
-                await AcceptTradeRequest(remote, conn, InstanceSocial.ReadTradeRequestAccept(bytes));
             else if (id == InstanceNpcs.TradeOfferId)
             {
                 var offer = InstanceNpcs.ReadTradeOffer(bytes);
@@ -532,16 +500,6 @@ partial class Program
                 await ActivateMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadActivate(bytes));
             else if (id == InstanceMapDevice.SelectMapId)
                 await SelectAtlasMap(remote, stream, ciphers, conn, InstanceMapDevice.ReadSelectMap(bytes));
-            else if (id == InstanceEntities.AtlasAllocateId)
-            {
-                var (preset, node) = InstanceEntities.ReadAtlasAllocate(bytes);
-                await ChangeAtlasPassive(remote, stream, ciphers, conn, preset, node, allocate: true);
-            }
-            else if (id == InstanceEntities.AtlasRefundId)
-            {
-                var (preset, node, _) = InstanceEntities.ReadAtlasRefund(bytes);
-                await ChangeAtlasPassive(remote, stream, ciphers, conn, preset, node, allocate: false);
-            }
             else if (id == InstanceStash.MoveTabId)
                 Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash tab into a folder (not handled): {Convert.ToHexString(bytes)}");
             else if (id == InstanceNpcs.OptionId)
@@ -550,10 +508,6 @@ partial class Program
                 await MoveHideoutObject(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadMove(bytes));
             else if (id == InstanceHideouts.SelectId)
                 await SelectHideout(remote, stream, ciphers, conn, InstanceHideouts.ReadSelect(bytes));
-            else if (id == InstanceBench.MoveId)
-                await MoveToBench(remote, stream, ciphers, conn, InstanceBench.ReadMove(bytes));
-            else if (id == InstanceBench.CraftId)
-                await CraftBench(remote, stream, ciphers, conn, InstanceBench.ReadCraft(bytes));
             else if (id == InstanceChat.ChatId)
             {
                 var chat = InstanceChat.ReadChat(bytes);
@@ -579,14 +533,6 @@ partial class Program
             }
             else if (id == InstanceWaypoints.TravelId)
                 _ = TravelByWaypoint(remote, stream, ciphers, conn, InstanceWaypoints.ReadTravel(bytes));
-            else if (id == InstanceSocial.TradeRequestId)
-                await RequestTrade(remote, stream, ciphers, conn, InstanceSocial.ReadTradeRequest(bytes));
-            else if (id == InstanceSocial.PartyInviteId)
-                await InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(bytes));
-            else if (id == InstanceSocial.PartyAcceptId)
-                await AcceptParty(remote, conn, InstanceSocial.ReadPartyAccept(bytes));
-            else if (id == InstanceSocial.PartyLeaveId)
-                await LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(bytes));
             else if (id == InstanceSocial.FriendAddId)
                 Console.WriteLine($"[gateway] {remote} <= 0x0080 add friend \"{InstanceSocial.ReadFriendAdd(bytes).Name}\" (not handled yet)");
             else if (id == InstanceProtocol.AreaGeneratedId)
@@ -645,7 +591,6 @@ partial class Program
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
-                    await SpawnPets(remote, stream, ciphers, conn);
                     await SendGroundItems(remote, stream, ciphers, conn);
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);

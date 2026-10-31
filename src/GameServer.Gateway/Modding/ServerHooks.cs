@@ -41,6 +41,11 @@ sealed class ServerHooks(params ModHost[] hosts)
         return false;
     }
 
+    public async Task PlayerLeaving(IPlayer player, string why)
+    {
+        foreach (var host in hosts) await host.PlayerLeaving(player, why);
+    }
+
     public async Task HideoutReady(IPlayer player)
     {
         foreach (var host in hosts) await host.HideoutReady(player);
