@@ -180,4 +180,96 @@ public class FlaskEnchantTests
         Assert.Null(Enkindle(item));
         Assert.Null(Instill(item));
     }
+
+    static Item EnchantedFlask(ItemCatalog catalog)
+    {
+        var mod = catalog.Mods.ById("FlaskEnchantmentSealIncreasedEffect_")!;
+        return ItemCatalog.Create(catalog.Find("Diamond Flask")!) with
+        {
+            Mods = [mod.Roll(ModSection.Enchant, new Random(1))],
+        };
+    }
+
+    static ClientState EnchantConnection(bool ruthless = false)
+    {
+        TestSaves.Ensure();
+        return new(new(ushort.MaxValue, "enkindling-charges", 128, 128, 32, 32, null, []), 0, 1)
+            { Character = "enkindling-charges", Ruthless = ruthless };
+    }
+
+    static InventoryItem OnBar(Item item) => new(1, 0, 0, item);
+
+    static void StartEffect(ClientState conn, InventoryItem flask, ItemCatalog catalog, double ends) =>
+        conn.UtilityFlaskEffects.Start(new(flask.Id, 0, "Diamond Flask",
+            catalog.UtilityFlaskOf(catalog.Find("Diamond Flask")!)!, 10, null, [], 0, ends));
+
+    [Fact]
+    public void Enkindled_flask_cannot_gain_charges_while_its_effect_is_active()
+    {
+        var conn = EnchantConnection();
+        var catalog = Program.ItemsFor(conn);
+        var flask = OnBar(EnchantedFlask(catalog));
+        StartEffect(conn, flask, catalog, ends: 1000);
+
+        Assert.False(Program.CanGainFlaskCharges(conn, flask));
+    }
+
+    [Fact]
+    public void Expired_enkindled_effect_does_not_block_charges()
+    {
+        var conn = EnchantConnection();
+        var catalog = Program.ItemsFor(conn);
+        var flask = OnBar(EnchantedFlask(catalog));
+        StartEffect(conn, flask, catalog, ends: -1);
+
+        Assert.True(Program.CanGainFlaskCharges(conn, flask));
+    }
+
+    [Fact]
+    public void Paused_clock_keeps_the_enkindling_prohibition()
+    {
+        var conn = EnchantConnection();
+        var catalog = Program.ItemsFor(conn);
+        var flask = OnBar(EnchantedFlask(catalog));
+        conn.Clock.Stop();
+        try
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            StartEffect(conn, flask, catalog, ends: now + 0.01);
+            Thread.Sleep(50);
+
+            Assert.False(Program.CanGainFlaskCharges(conn, flask));
+        }
+        finally
+        {
+            conn.Clock.Start();
+            conn.UtilityFlaskEffects.End(double.MaxValue, true, out _);
+        }
+    }
+
+    [Fact]
+    public void Active_ordinary_utility_flask_can_still_gain_charges()
+    {
+        var conn = EnchantConnection();
+        var catalog = Program.ItemsFor(conn);
+        var flask = OnBar(ItemCatalog.Create(catalog.Find("Diamond Flask")!) with { ItemLevel = 84 });
+        StartEffect(conn, flask, catalog, ends: 1000);
+
+        Assert.True(Program.CanGainFlaskCharges(conn, flask));
+    }
+
+    [Fact]
+    public void Ruthless_active_flask_rule_is_preserved_and_its_exception_still_applies()
+    {
+        var conn = EnchantConnection(ruthless: true);
+        var catalog = Program.ItemsFor(conn);
+        var flask = OnBar(ItemCatalog.Create(catalog.Find("Diamond Flask")!) with { ItemLevel = 84 });
+        StartEffect(conn, flask, catalog, ends: 1000);
+
+        Assert.False(Program.CanGainFlaskCharges(conn, flask));
+
+        uint key = Program.Stats.Key("hard_mode_utility_flask_gain_charges_while_active")!.Value;
+        conn.PlayerStats[key] = 1;
+        Assert.True(Program.CanGainFlaskCharges(conn, flask));
+    }
 }

@@ -361,7 +361,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Effect`) with the game's 250/100/100/100/100 weights. Life/mana, corrupted/mirrored, non-flask and
   unsupported/unmodifiable targets are refused before spending. An existing Enkindling is replaced; an existing
   Instilling and the flask's explicit affixes, quality, charges, rarity and name stay. Harvest/bench flask
-  enchantments (GenerationType 3, family `FlaskEnchantment`) are removed. CoE pool/weights and native coexistence
+  enchantments (GenerationType 3, family `FlaskEnchantment`) are removed. The `Gains no Charges during Effect`
+  drawback is enforced by `CanGainFlaskCharges` for kills, hits, crits, the every-3-seconds recovery, refills and
+  projectiles while the effect runs; expired effects and pause are covered. CoE pool/weights and native coexistence
   checks have automated coverage; see [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb", and
   [evidence](../docs/re/enkindling-coe.md).
 - **Instilling Orb:** the Searing Exarch counterpart: a utility flask gets one of the fifteen spawnable GenerationType

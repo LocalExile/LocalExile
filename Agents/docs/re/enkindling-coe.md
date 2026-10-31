@@ -81,15 +81,27 @@ Harvest/bench flask enchantments. Harvest flask enchantments were removed in 3.2
 them. The local rule removes them when either orb is applied, while preserving unrelated implicits. The 2026-10-30
 native run used new flasks and did not exercise a legacy Harvest item; the removal is covered by unit tests.
 
+## Runtime drawback
+
+`local_flask_cannot_gain_charges_during_flask_effect` is a local stat (`Stats.dat` `IsLocal`), so
+`ItemModStats.Local` sees it on the enchant. `Program.CanGainFlaskCharges` reads it while the flask's own
+`UtilityFlaskEffects` entry is live (`Ends > Clock.Elapsed`): every charge source goes through that predicate — kills,
+hits, critical strikes, the every-3-seconds recovery, the vendor/resurrection refill and the projectile gain path. An
+expired entry does not block, and a paused clock keeps the effect (and therefore the prohibition) running. The
+prohibition is absolute: it applies before the Ruthless rule and its `hard_mode_utility_flask_gain_charges_while_active`
+exception.
+
 ## Automated coverage
 
 `FlaskEnchantTests` checks the five-row pool, the 250/100 weights, all five outcomes, the no-charge stat and value
 ranges, coexistence and same-type replacement, Harvest removal with unrelated implicit preservation, every rarity,
-life/mana/non-flask/corrupted/mirrored/unknown refusal.
+life/mana/non-flask/corrupted/mirrored/unknown refusal, and the active/expired/paused charge prohibition, including
+the unchanged ordinary and Ruthless rules.
 
 `FlaskEnchantGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: all inventory/stash
 and Shift combinations, one orb spent per success, coexistence after two different orbs, explicit-affix and quality
-preservation, save reload, and refusal without spending.
+preservation, save reload, and refusal without spending. `FlaskModifierGatewayTests` covers the shared charge-gain path
+and the projectile path with an active Enkindled flask.
 
 Native acceptance: 2026-10-30, 3.29.3b client; Enkindling and Instilling both appeared on one flask, repeated use
 replaced only its own type, magic explicit affixes stayed, and life/mana flasks were refused.

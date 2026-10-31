@@ -872,7 +872,10 @@ Enkindling uses the five GenerationType 21 rows (Domain 1) with the game's spawn
 - `FlaskEnchantmentSealReducedChargesUsed`: 25-35% reduced Charges per use
 - `FlaskEnchantmentSealMaximumCharges____`: +40-60 to Maximum Charges
 
-Every one also carries `Gains no Charges during Effect` (stat value 1).
+Every one also carries `Gains no Charges during Effect` (stat value 1). While the enchanted flask's effect runs,
+`Program.CanGainFlaskCharges` refuses every charge source (kills, hits, critical strikes, the every-3-seconds
+recovery, refills and projectiles); an expired effect no longer blocks, and the paused clock keeps the effect active.
+This is absolute and separate from the Ruthless active-flask rule.
 
 Instilling uses the fifteen spawnable GenerationType 22 rows (Domain 1), equal weight: adjacent flask used, reused at
 the end of the flask's effect, charges reach full, guard skill used, travel skill used, hit a rare/unique enemy,
