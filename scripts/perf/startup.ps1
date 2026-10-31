@@ -60,7 +60,8 @@ for ($run = 1; $run -le $Runs; $run++) {
     $started = @()
     $saved = @{}
     $vars = @{ Game_SAVES_DB = $db; Game_LOGIN_PORT = "$($PortBase + 1)"; Game_AUTH_CONTROL_PORT = "$($PortBase + 2)";
-               Game_GATEWAY_PORT = "$($PortBase + 3)"; Game_DEV_PORT = "$($PortBase + 4)" } + $Env
+               Game_GATEWAY_PORT = "$($PortBase + 3)"; Game_DEV_PORT = "$($PortBase + 4)" }
+    foreach ($k in $Env.Keys) { $vars[$k] = $Env[$k] }   # -Env may also override these
     foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
     try {
         $authLog = Join-Path $out "auth-$run.log"; $gwLog = Join-Path $out "gateway-$run.log"
