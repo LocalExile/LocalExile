@@ -16,6 +16,11 @@ public static class InstanceDelve
     public const byte UpgradesUi = 0x1d;
     public const ushort RouteId = 0x241;
 
+    /// <summary>S→C 0x226: previous and current sulphite, both u16 BE. Unlike the full state packet,
+    /// this event refreshes the native gauge's fill fraction, including an unchanged-value refresh.</summary>
+    public static byte[] SulphiteChanged(ushort previous, ushort current) =>
+        new LoginWriter().U16(0x226).U16(previous).U16(current).ToArray();
+
     public readonly record struct RoutePoint(int BlockX, int BlockY, int CellX, int CellY);
 
     /// <summary>C→S 0x241: byte count, then four big-endian coordinates per selected path point.</summary>
@@ -107,7 +112,7 @@ public sealed record DelveMapViewerObject(int GridX, int GridY, float Rotation)
     public const string MetadataPath = "Metadata/Terrain/Leagues/Delve/Objects/DelveMapViewer";
 
     public byte[] Blob() => new BlobWriter().U8(0).U8(0)
-        .I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0)
+        .I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(EffectObject.FixedRotation).U8(0)
         .U8(1).WStr32(DelveRobotObject.Model)
         .U8(1) // Transitionable
         .U8(0) // MinimapIcon
@@ -138,7 +143,9 @@ public sealed record DelveCrawlerAttachmentObject(int GridX, int GridY, uint Par
         {
             w.U8(1).Stats([]).U32(0).U32(0).U8(0).U16(0); // Transitionable, Stats, Buffs
             Pool(w, 1); Pool(w, 0); Pool(w, 0); w.U8(0);
-            w.U32(0).U32(0).U8(1).U8(0); // DelveLight: powered, no links; this type is not a robot variation.
+            // 0x1415d88d0 reads the first four bytes as the float radius (+0x58),
+            // which 0x141e189e0 scales for the player/depth. Zero suppresses area illumination.
+            w.F32(60).U32(0).U8(1).U8(0); // Crawler radius, no links, powered; not a robot variation.
         }
         return w.U8(0).ToArray();
     }

@@ -22,25 +22,25 @@ an idle minute (`-IdleSeconds`). `scripts/perf/watch.ps1` does the same for a Ga
 Each perf script takes `-PortBase`, a block of 10 ports of the worktree's own (defaults: stack.ps1 23000, watch.ps1
 23010, startup.ps1 23020, which do not overlap), and leaves the shell's location and environment as they were.
 
-**In-process scenarios**: `PerfBenchmarkTests` in the Gateway tests, which run only with `Game_PERF=1` (otherwise they
-are reported as skipped):
+**In-process scenarios**: `scripts/perf/PerfBench`, a console tool (not a test: it waits on real time) that reaches the
+Gateway's and the game module's internals:
 
 ```
-$env:Game_PERF = '1'; $env:Game_PERF_LABEL = 'my-change'
-dotnet test tests/GameServer.Gateway.Tests -c Release --filter FullyQualifiedName~PerfBenchmarkTests.Area_instance_creation
+$env:Game_PERF_LABEL = 'my-change'
+dotnet run -c Release --project scripts/perf/PerfBench -- area
 ```
 
-Run one test per process (catalogues load once per process). Results go to the test output and, as JSON lines, to
+One scenario per process (catalogues load once per process). Results go to stdout and, as JSON lines, to
 `artifacts/perf/bench.jsonl`.
 
-| Test | What it measures |
+| Scenario | What it measures |
 |---|---|
-| `Catalogue_loads` | the first-player loads in a fixed order (Program's statics, stats, items, skills, the skill-type sets, monsters, packs, area transitions, waypoints, the passive tree): time, allocation and what each retains |
-| `Area_instance_creation` | six supported areas at seeds nobody asked for before: the layout (server level generation, `AreaLayouts.For`) and the monster population over a loopback connection; the GGPK caches and the heap afterwards. `Game_PERF_MORE_AREAS=N` adds N more layouts, as a long session visits them |
-| `Busy_instance_ticks` | The Coast with 60 monsters of its pack kinds (and a Sand Spitter, for projectiles) around a walking player and 140 idle ones farther away; the real `RunMonsterAi` loop with swings, contacts and projectiles, every packet encrypted and sent. Process CPU per game second, measured after a 5 s warm-up (a fresh process first spends seconds in tier-1 JIT) |
-| `Monster_planner` | `PlanMonsterAi` alone over the same crowd, 2000 steps: time, process CPU and allocation per step |
-| `Single_player_memory` | one player's Gateway: the startup loads (`GameData.Open`), then the town, a combat area (The Coast, its packs) and a boss area (The Twilight Strand, Hillock), each entered and held as a connection does; after each, the heap, its large-object part and private bytes. With `Game_PERF_DECODER_IDLE_MS=2000` also the boss area once level generation has gone idle |
-| `Idle_player_cpu` | one player standing in town with the per-connection loops a connection starts (recovery, player tick, charges, rage, server frames, monster AI …): process CPU, allocation and bytes sent per second |
+| `catalogue` | the first-player loads in a fixed order (Program's statics, stats, items, skills, the skill-type sets, monsters, packs, area transitions, waypoints, the passive tree): time, allocation and what each retains |
+| `area` | six supported areas at seeds nobody asked for before: the layout (server level generation, `AreaLayouts.For`) and the monster population over a loopback connection; the GGPK caches and the heap afterwards. `Game_PERF_MORE_AREAS=N` adds N more layouts, as a long session visits them |
+| `busy` | The Coast with 60 monsters of its pack kinds (and a Sand Spitter, for projectiles) around a walking player and 140 idle ones farther away; the real `RunMonsterAi` loop with swings, contacts and projectiles, every packet encrypted and sent. Process CPU per game second, measured after a 5 s warm-up (a fresh process first spends seconds in tier-1 JIT) |
+| `planner` | `PlanMonsterAi` alone over the same crowd, 2000 steps: time, process CPU and allocation per step |
+| `single` | one player's Gateway: the startup loads (`GameData.Open`), then the town, a combat area (The Coast, its packs) and a boss area (The Twilight Strand, Hillock), each entered and held as a connection does; after each, the heap, its large-object part and private bytes. With `Game_PERF_DECODER_IDLE_MS=2000` also the boss area once level generation has gone idle |
+| `idle` | one player standing in town with the per-connection loops a connection starts (recovery, player tick, charges, rage, server frames, monster AI …): process CPU, allocation and bytes sent per second |
 
 The busy instance is the same in every run (fixed placement, no buried monsters, which rise on a wall-clock watch);
 `PopulateArea` is not, because it seeds placement with the process's randomized `HashCode`. Timings on a shared
@@ -48,8 +48,8 @@ machine vary by ±20 %: compare several runs, and prefer allocation, which is ex
 
 **Profiles**: set `DOTNET_EnableEventPipe=1`, `DOTNET_EventPipeOutputPath=…\trace-{pid}.nettrace` and
 `DOTNET_EventPipeConfig=Microsoft-DotNETCore-SampleProfiler:0:5,Microsoft-Windows-DotNETRuntime:0x4c14fccbd:5` for a
-test run: CPU samples and allocation ticks with stacks (read them with TraceEvent or `dotnet-trace report`).
-`Game_PERF_HOLD=1` keeps the area and single-player tests' state alive for `dotnet-gcdump collect`; a heap dump's
+run: CPU samples and allocation ticks with stacks (read them with TraceEvent or `dotnet-trace report`).
+`Game_PERF_HOLD=1` keeps the area and single-player scenarios' state alive for `dotnet-gcdump collect`; a heap dump's
 largest objects and what holds them show where the memory is (the pass below found most of it that way).
 
 ## Results (2026-10-30, this branch against origin/main 89b7aa90, same machine)
@@ -109,11 +109,14 @@ single-player cost counts eight times. Measured against `contrib/server-perf` (c
 | One player (test host): startup / town / combat area / boss area, GC heap | 527 / 718 / 809 / 830 MB | 187 / 273 / 361 / 379 MB |
 | … the same, private bytes | 568 / 761 / 855 / 877 MB | 223 / 311 / 401 / 412 MB |
 | … in the boss area once generation has gone idle | (as above) | 347 MB heap, 372 MB private |
-| One idle player in town: CPU, allocation (Idle_player_cpu, Release) | not measured before | 58 ms per second, 13 MB per second |
+| One player, after merging main (the `single` scenario in its own process): GC heap | | 46 / 148 / 242 / 264 MB; 231 MB once generation is idle |
+| … the same, private bytes | | 75 / 180 / 276 / 291 MB; 255 MB once generation is idle |
+| One idle player in town: CPU, allocation (`idle` scenario, Release) | not measured before | 52-59 ms per second, 12-14 MB per second |
 
-The test host adds ~115 MB of its own to the in-process figures (its startup heap is 187 MB, a Gateway's idle heap
-71 MB). A one-player stack therefore takes roughly 115 MB idle and ~300 MB with its player in a combat or boss area
-(~380 MB for the minute the Oodle worker runs after a generation), against ~0.7 GB idle and ~1.1 GB before (Debug with
+The first single-player rows were measured in the Gateway test host, which added ~115 MB of its own; after main moved
+the benchmarks into `scripts/perf/PerfBench` they run in a process of their own, close to a Gateway's figures. A
+one-player stack therefore takes roughly 115 MB idle and ~300 MB with its player in a combat or boss area (~380 MB for
+the minute the Oodle worker runs after a generation), against ~0.7 GB idle and ~1.1 GB before (Debug with
 `dotnet watch`, the worker kept): eight stacks ~2.4 GB instead of ~8.8 GB.
 
 What changed:
@@ -133,7 +136,7 @@ What changed:
   after the last generation (`ServerLevels.DecoderIdle`). Everything stays per stack: no decoder, cache or game data is
   shared between stacks, whose code and tables may differ.
 - **`live.ps1 -Release`** runs the Release builds without `dotnet watch`; the monster AI is 1.6-2.3x faster there, the
-  memory the same (Single_player_memory within 1 MB).
+  memory the same (the `single` scenario within 1 MB).
 
 Tried and dropped: `DOTNET_gcConcurrent=0`, `DOTNET_TieredPGO=0`, `DOTNET_GCConserveMemory=9`, `DOTNET_GCHighMemPercent`,
 the `DOTNET_SYSTEM_BUFFERS_SHAREDARRAYPOOL_*` limits and `DOTNET_GCName=clrgc.dll` (worse) on the idle stack (all within a

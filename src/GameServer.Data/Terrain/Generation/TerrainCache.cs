@@ -545,6 +545,9 @@ public sealed class TerrainCache(Func<string, byte[]?> read)
     /// <summary>A room (.arm): its dictionary, tag, size and slot grid. Slot keys are resolved to paths.</summary>
     public RoomDef? Room(string path) => Get<RoomDef>("arm", path, d => ParseRoom(path, TerrainText.Decode(d)));
 
+    /// <summary>A room file as <see cref="Terrain.RoomFile"/> reads it (its named points), parsed once (AreaExits).</summary>
+    public Terrain.RoomFile? ArmFile(string path) => Get<Terrain.RoomFile>("armfile", path, d => Terrain.RoomFile.Parse(TerrainText.Decode(d)));
+
     /// <summary><c>0x142a0f3a0</c>'s header up to the unit overlap (room data +1): version, dictionary, unit size (x, then
     /// y before version 31), then the overlap after version 21 (0 before).</summary>
     static int HeaderOverlap(string text)

@@ -306,6 +306,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   continuation children still get server objects.
   An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
   Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
+  Spark's action fires through the same client method, so its sparks are the client's too; they live the skill's
+  `skill_effect_duration`, which gem skills now carry (without it no spark was drawn; static RE 2026-10-30, not yet
+  checked live). The server's Spark flight is still straight, not the client's wander, so its hits can land where no
+  spark is drawn.
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
@@ -538,7 +542,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ten native checks verify flat sources, independent increases, prohibition, clearing and relog.
   Controls matched 1080 Life/minute to 18/second and 3339 Mana/minute to recovery near 55.65/second.
   Fortification's exact expiry integration uses the same factors, with automated modifier/prohibition coverage.
-  Regeneration conversions and named conditional/more modifiers remain separate work.
+  Zealot's Oath (`keystone_zealots_oath`, and Geofri's Sanctuary's `regenerate_energy_shield_instead_of_life`) moves
+  life regeneration, including Fortification, Turtle Shell and the existing Enduring Cry recovery path, to Energy
+  Shield; the panel and resource writer share the split, and ES recovery prohibitions drop the converted part. Live on
+  Qblolz, toggling Geofri's stat with `/set_stat`: off gave 9974 Life/minute and 6697 ES/minute; on gave 0 Life and
+  16672 ES/minute.
+  Conditional flask/item sources and other regeneration conversions remain separate work.
   See [20](../docs/protocol/20-damage.md), "Continuous resource updates".
 - Determination and Grace truncate their scaled flat/more aura inputs before character-wide defence calculation.
   Normal and Ruthless native data and quality isolation have regression coverage.
@@ -1164,7 +1173,8 @@ and can require explicit recipes.
   Encrypted-wire held-gate tests cover a queued clamp, cleared prediction, death and unchanged-state suppression;
   native checks of this queued-send case remain pending.
   Live checks covered absorption, regeneration, interrupted recharge and chaos bypass.
-  Special ES keystones, recoup and conditional substitutions remain unimplemented; ordinary ES leech uses the shared recovery writer (§5b).
+  Zealot's Oath is implemented; other special ES keystones, recoup and conditional substitutions remain
+  unimplemented; ordinary ES leech uses the shared recovery writer (§5b).
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
   Maximum-mana added lightning has original-head native checks and resolved automated checks.
   Not yet: exposure, aura-dependent penetration, other added damage,

@@ -85,6 +85,12 @@ These are suggestions that have worked well, for people and agents alike; use yo
   before saving such an edit.
 - **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
+  Keep the monster AI cadence collection nonparallel: its socket-latency assertion retains its 300 ms limit, so
+  parallel catalogue loads and their GC pauses must not run beside it. Arcane Might's area fixture measures its
+  projectile range from the weapon-contact origin to the target, rather than assuming the player is the origin.
+  Tests of a single area sweep await its executor, so a sustained channel cannot add a second contact during assertions.
+  Gateway collections run sequentially by default; this retains all tests, assertions and in-test concurrency while
+  avoiding unrelated catalogue-load/GC contention. Expect less overlap between test classes.
 - **Auth and Patch are not watched.** Changes there still need `live.ps1 -Only Auth` or `-Only Patch`.
 
 ## What a good run looks like

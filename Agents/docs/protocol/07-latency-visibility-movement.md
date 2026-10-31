@@ -49,9 +49,13 @@ to 0.5–4 s. Measured afterwards: no 0x1c later than 50 ms in a crowded Coast s
 
 Tick latency does not measure queued gameplay work.
 `ConnectionPerformance` separately records socket-read-to-handler queue age, handler duration, send-gate wait/hold,
-wire-gate wait/hold, socket writes, hot combat-lock wait/hold, channel lateness, surround time and blocker-index builds.
+wire-gate wait/hold, socket writes, hot combat-lock wait/hold, channel lateness, surround time, blocker-index builds and
+each client message's handling (`Message`, the message id as the operation, such as `0x0025`).
 The `LocalExile.Gateway` meter exports duration histograms in milliseconds, surround allocations in bytes and pending
 input batches; tags contain operation names, never character or account identifiers.
+The duration histogram also carries `LevelGen`, one sample per generated area with its area id, outside any connection.
+An outside tool reads the meter without changing the server, for example
+`dotnet-counters monitor -p <Gateway pid> --counters LocalExile.Gateway` or the launcher's Performance tab.
 Closed connections discard their abandoned backlog so its depth does not remain in the process total.
 At most one `[latency]` log summary is emitted per connection every ten seconds when an interval sample reaches 50 ms.
 Set `$env:Game_TRACE = 'latency'` (or the older `$env:Game_LATENCY_METRICS = '1'`) in the PowerShell session before

@@ -83,33 +83,44 @@ static async Task Serve(LoginServerKeys keys)
     var listener = new TcpListener(bind, port);
     listener.Start();
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
+    // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
+    // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
+    // keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it cannot build seed 1
+    // (ServerLevelAreas.SeedsInPlaceOfOne). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
+    // generation off) pins them all that way. Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
+    string worldAreas = Path.Combine("data", "tables", "WorldAreas.json");
+    string baseline = GameServer.Core.World.ServerLevelAreas.BaselineFile;
     // Game_SEED=<n> (dev) gives every new non-hideout instance that seed instead, for generation traces of one seed.
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
     // The WorldAreas loads run on a thread of their own: the parse buffers ArrayPool keeps for a thread go with it (they
     // were ~20 MB of the idle Auth's 33), then one collection gives their memory back (performance.md).
-    var (towns, hideouts, hideoutAreas, randomAreas) = Isolated(() =>
+    var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne) = Isolated(() =>
     {
-        // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
-        var towns = GameServer.Core.World.WorldAreaTowns.Load(Path.Combine("data", "tables", "WorldAreas.json"));
-        // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
-        // keeps seed 1, the seed its captures were dumped at. Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns
-        // the Gateway's generation off) pins them all to 1. Hideouts have a fixed layout: always 1.
-        var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(Path.Combine("data", "tables", "WorldAreas.json"));
-        var hideoutAreas = GameServer.Core.World.WorldAreaHideouts.LoadAreas(Path.Combine("data", "tables", "WorldAreas.json"));
+        var towns = GameServer.Core.World.WorldAreaTowns.Load(worldAreas);
+        var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(worldAreas);
+        var hideoutAreas = GameServer.Core.World.WorldAreaHideouts.LoadAreas(worldAreas);
         var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
             ? new HashSet<ushort>()
-            : GameServer.Core.World.ServerLevelAreas.Hashes(Path.Combine("data", "tables", "WorldAreas.json"),
-                GameServer.Core.World.ServerLevelAreas.Load(GameServer.Core.World.ServerLevelAreas.BaselineFile, m => Console.WriteLine($"[auth] {m}")));
-        return (towns, hideouts, hideoutAreas, randomAreas);
+            : GameServer.Core.World.ServerLevelAreas.Hashes(worldAreas,
+                GameServer.Core.World.ServerLevelAreas.Load(baseline, m => Console.WriteLine($"[auth] {m}")));
+        var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
+            GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(baseline, m => Console.WriteLine($"[auth] {m}")));
+        return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne);
     });
     GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-    Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s)");
+    Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s); " +
+        $"{inPlaceOfOne.Count} area(s) the client cannot build at seed 1 get another seed in its place");
+    var seeds = new GameServer.Core.World.AreaSeeds
+    {
+        Hideouts = hideouts,
+        Random = randomAreas,
+        InPlaceOfOne = inPlaceOfOne,
+        Fixed = fixedSeed,
+    };
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);
     var registry = new GameServer.Core.World.InstanceRegistry
     {
-        SeedFor = fixedSeed is { } seed
-            ? area => hideouts.Contains(area) ? 1u : seed
-            : area => randomAreas.Contains(area) && !hideouts.Contains(area) ? (uint)Random.Shared.Next(1, int.MaxValue) : 1u,
+        SeedFor = seeds.For,
         Towns = towns.Select(t => t.Hash16).ToHashSet(),
     };
     Console.WriteLine($"[auth] towns: {towns.Count} ({string.Join(", ", towns.Select(t => t.Id))})");
@@ -117,8 +128,8 @@ static async Task Serve(LoginServerKeys keys)
         CharacterHome.SelectedHideout(progress, character) is { } area && hideoutAreas.TryGetValue(area, out ushort hash) ? hash : null);
     _ = directory.ServeControlAsync(InstanceControl.Port);
     Console.WriteLine($"[auth] login server on tcp/{port}");
-    // Game_LEAGUES: comma-separated base leagues (default Standard, Allflame), each with its Hardcore / SSF / Ruthless variants.
-    Console.WriteLine($"[auth] leagues: {string.Join(", ", LeagueCatalog.FromEnvironment().All.Select(l => l.Name))}");
+    // Game_LEAGUES: comma-separated base leagues (default Standard and those the league modules declare), each with its variants.
+    Console.WriteLine($"[auth] leagues: {string.Join(", ", LeagueCatalog.Startup.All.Select(l => l.Name))}");
     while (true)
     {
         var tcp = await listener.AcceptTcpClientAsync();
@@ -126,16 +137,25 @@ static async Task Serve(LoginServerKeys keys)
     }
 }
 
+// A load on a thread of its own (the Gateway's GameTables.Isolated); on the calling thread when none can start.
 static T Isolated<T>(Func<T> load)
 {
     T result = default!;
     System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
-    var thread = new Thread(() =>
+    Thread thread;
+    try
     {
-        try { result = load(); }
-        catch (Exception ex) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
-    }) { Name = "game data load", IsBackground = true };
-    thread.Start();
+        thread = new Thread(() =>
+        {
+            try { result = load(); }
+            catch (Exception ex) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
+        }) { Name = "game data load", IsBackground = true };
+        thread.Start();
+    }
+    catch (Exception ex) when (ex is OutOfMemoryException or ThreadStartException)
+    {
+        return load();
+    }
     thread.Join();
     failure?.Throw();
     return result;
@@ -169,7 +189,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { Keyring = keyring, Leagues = LeagueCatalog.FromEnvironment(), CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
+            var session = new LoginServerSession(accounts) { Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
             byte[] rest = buf[used..have];
             try

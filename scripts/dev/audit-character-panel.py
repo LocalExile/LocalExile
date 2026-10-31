@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("artifacts/issue75-review/panel-inventory.json"))
     parser.add_argument("--ledger", type=Path, default=Path("Agents/docs/dev/issue75-stat-ledger.md"))
     args = parser.parse_args()
-    if not Path("src/GameServer.Gateway/PanelStats.cs").is_file():
+    if not Path("src/GameServer.Gateway/Player/PanelStats.cs").is_file():
         parser.error("Run this command from the repository root.")
     stats, stats_hash = read_table("Stats")
     panel, panel_hash = read_table("CharacterPanelStats")
