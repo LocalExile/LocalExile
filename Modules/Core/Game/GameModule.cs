@@ -71,9 +71,8 @@ sealed class GameLogic : IGameLogic
     public void Left(ClientState conn)
     {
         Rules.ForgetVitalsAdmission(conn);
-        // The instance keeps its monsters as they are now, for the next connection (#12).
-        if (conn.MonstersPlaced)
-            lock (conn.Monsters) conn.Instance.Monsters = SavedMonster.Save(conn.Monsters.Values, conn.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(conn));
+        // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
+        if (conn.MonstersPlaced) Rules.KeepInstanceMonsters(conn);
     }
 
     public IDisposable ProjectileMutation(ClientState conn) => Rules.ProjectileMutation(conn, advance: false);

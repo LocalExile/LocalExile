@@ -15,9 +15,10 @@ static partial class CommandsRules
         var (physical, elemental) = PlayerDamageReduction(conn, stats);
         if (type == DamageType.Physical)
             return $"{DamageModel.ArmourReduction(effectiveArmour, amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
+        int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
         return $"{DamageModel.Capped(resistance, maxResistance)}% resistance" +
-            (type == DamageType.Chaos && conn.Pools.ArmourAppliesToChaosDamage
-                ? $" + {DamageModel.ArmourReduction(effectiveArmour, DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"
+            (share > 0
+                ? $" + {DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"
                 : "") +
             (DamageTypes.IsElemental(type) && elemental > 0 ? $" + {elemental}% elemental damage reduction" : "");
     }

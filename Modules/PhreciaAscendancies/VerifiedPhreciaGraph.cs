@@ -14,11 +14,21 @@ internal static class VerifiedPhreciaGraph
         if (Convert.ToHexString(SHA256.HashData(ordinary)) != Normal
             || Convert.ToHexString(SHA256.HashData(alternate)) != Combined)
             throw new AscendancyRuleException($"{className} needs the separately reviewed 3.29.3b combined passive graph. "
-                + $"Read-only verification failed; see Agents/docs/game/{className.ToLowerInvariant()}.md");
+                + $"Read-only verification failed; see Agents/docs/game/{className.ToLowerInvariant().Replace(' ', '-')}.md");
     }
+
+    /// <summary>Tests: the two graphs' bytes in place of the installed archive's (the admission is checked without the
+    /// 66 GB Client/Content.ggpk). Null in production.</summary>
+    internal static Func<(byte[] Ordinary, byte[] Alternate)>? InstalledGraphs;
 
     public static void RequireInstalled(string className = "Gambler")
     {
+        if (InstalledGraphs is { } installed)
+        {
+            var (ordinary, alternate) = installed();
+            Verify(ordinary, alternate, className);
+            return;
+        }
         try
         {
             // The client's own graph files as extracted (data/game-files.zip), hashed whole here.

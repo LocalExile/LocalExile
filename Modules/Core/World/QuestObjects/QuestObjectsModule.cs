@@ -45,6 +45,17 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             await TalkToWoundedExile(remote, stream, ciphers, conn, id, npc);
             return true;
         });
+        // Deathrattle: a warcry opens the quest chests within its radius.
+        On(GameEvents.ChestsOpened, async (conn, at, radius) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            if (conn.TutorialChestId != 0 && conn.TutorialChest is { } chest && Dist((chest.X, chest.Y), at) <= radius)
+                await OpenTutorialChestCore(remote, stream, ciphers, conn, conn.TutorialChestId, chest);
+            List<(uint Id, GlyphQuest.Nest Nest)> nests;
+            lock (conn.GlyphNests)
+                nests = [.. conn.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
+            foreach (var (id, nest) in nests) await OpenRhoaNestCore(remote, stream, ciphers, conn, id, nest);
+        });
         On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
         {
             var (remote, stream, ciphers) = conn.Wire;
