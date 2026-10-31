@@ -1502,12 +1502,13 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} /pos ({x}, {y}) in {conn.Layout.Id}");
             await conn.Commands!.Reply($"({x}, {y}) in {conn.Layout.Id}");
         })
-        .Add("game_data", "/game_data reload | reference | mod <mod> <stat> <min> <max> | clear_mod <mod> [stat] | limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | settings | list (dev: SQLite game-data overrides; no restart)", async args =>
+        .Add("game_data", "/game_data reload | reference | mod <mod> <stat> <min> <max> | clear_mod <mod> [stat] | limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | unique_weight <name> <weight> [ruthless] | clear_unique_weight <name> | unique_weights [filter] | settings | list (dev: SQLite game-data overrides; no restart)", async args =>
         {
             if (args.Length == 0)
             {
                 await conn.Commands!.Reply("Usage: /game_data reload | reference | mod <mod> <stat> <min> <max> | clear_mod <mod> [stat] | " +
-                    "limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | settings | list");
+                    "limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | " +
+                    "unique_weight <name> <weight> [ruthless] | clear_unique_weight <name> | unique_weights [filter] | settings | list");
                 return;
             }
             if (GameData.Store is not { } store)
@@ -1526,11 +1527,97 @@ partial class Program
                         return;
                     case "reference":
                         bool seeded = GameDataReference.Seed(store, force: true);
+                        bool weightsSeeded = GameDataWeights.Seed(store, force: true);
+                        GameDataWeights.Reload(store);
                         var (stats, mods, modStats) = store.ReferenceCounts();
+                        var (weights, weightOverrides) = store.UniqueWeightCounts();
                         await conn.Commands!.Reply(seeded
-                            ? $"Reference tables rebuilt: {stats} stat(s), {mods} mod(s), {modStats} default mod stat row(s)"
+                            ? $"Reference tables rebuilt: {stats} stat(s), {mods} mod(s), {modStats} default mod stat row(s); " +
+                              (weightsSeeded ? $"{weights} unique weight(s)" : "unique weights need VillageUniqueDisenchantValues.json")
                             : "Reference tables need the extracted game tables (scripts/dev/extract-data.ps1)");
+                        if (weightOverrides > 0) await conn.Commands!.Reply($"  {weightOverrides} unique weight override(s) kept");
                         return;
+                    case "unique_weight":
+                        {
+                            if (args.Length < 3)
+                            {
+                                await conn.Commands!.Reply("Usage: /game_data unique_weight <name> <weight 0..1> [ruthless 0..1]");
+                                return;
+                            }
+                            static bool TryWeight(string text, out double value) =>
+                                double.TryParse(text, System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out value);
+                            int valueCount = 0;
+                            double normal, ruthless;
+                            if (args.Length >= 4 && TryWeight(args[^1], out double last) && TryWeight(args[^2], out double second))
+                            {
+                                normal = second;
+                                ruthless = last;
+                                valueCount = 2;
+                            }
+                            else if (TryWeight(args[^1], out double one))
+                            {
+                                normal = ruthless = one;
+                                valueCount = 1;
+                            }
+                            else
+                            {
+                                await conn.Commands!.Reply("Unique weight must be a number 0..1");
+                                return;
+                            }
+                            string name = string.Join(' ', args[1..^valueCount]);
+                            if (name.Length == 0 || !double.IsFinite(normal) || !double.IsFinite(ruthless)
+                                || normal is < 0 or > 1 || ruthless is < 0 or > 1)
+                            {
+                                await conn.Commands!.Reply("Usage: /game_data unique_weight <name> <weight 0..1> [ruthless 0..1]");
+                                return;
+                            }
+                            var all = store.LoadUniqueWeights();
+                            var match = all.FirstOrDefault(row => row.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                                ?? all.FirstOrDefault(row => row.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+                            if (match is null)
+                            {
+                                await conn.Commands!.Reply($"No unique weight \"{name}\"");
+                                return;
+                            }
+                            store.SetUniqueWeight(match.Name, normal, ruthless);
+                            GameData.Reload("unique weight");
+                            await conn.Commands!.Reply($"{match.Name}: {normal} normal, {ruthless} Ruthless");
+                            return;
+                        }
+                    case "clear_unique_weight":
+                        {
+                            if (args.Length < 2)
+                            {
+                                await conn.Commands!.Reply("Usage: /game_data clear_unique_weight <name>");
+                                return;
+                            }
+                            string name = string.Join(' ', args[1..]);
+                            store.ClearUniqueWeight(name);
+                            GameData.Reload("clear unique weight");
+                            await conn.Commands!.Reply($"Cleared the unique weight override for {name}");
+                            return;
+                        }
+                    case "unique_weights":
+                        {
+                            var all = store.LoadUniqueWeights();
+                            var overrides = store.LoadUniqueWeightOverrides()
+                                .ToDictionary(row => row.Name, row => row, StringComparer.OrdinalIgnoreCase);
+                            string filter = args.Length > 1 ? string.Join(' ', args[1..]) : "";
+                            var matches = all.Where(row => filter.Length == 0
+                                || row.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                            await conn.Commands!.Reply($"{matches.Count} unique weight(s)" +
+                                (filter.Length > 0 ? $" matching \"{filter}\"" : "") +
+                                (overrides.Count > 0 ? $", {overrides.Count} override(s)" : ""));
+                            foreach (var row in matches.Take(40))
+                            {
+                                var effective = overrides.GetValueOrDefault(row.Name) ?? row;
+                                await conn.Commands!.Reply($"  {row.Name}: {effective.Weight} normal, " +
+                                    $"{effective.RuthlessWeight} Ruthless" + (overrides.ContainsKey(row.Name) ? " (override)" : ""));
+                            }
+                            if (matches.Count > 40) await conn.Commands!.Reply("  ... use a filter to narrow the list");
+                            return;
+                        }
                     case "mod":
                         {
                             if (args.Length != 5 || !int.TryParse(args[2], out int stat) || !int.TryParse(args[3], out int min)
@@ -1646,13 +1733,16 @@ partial class Program
                         var reference = store.ReferenceCounts();
                         await conn.Commands!.Reply($"  reference: {reference.Stats} stat(s), {reference.Mods} mod(s), " +
                             $"{reference.ModStats} default mod stat row(s)");
+                        var uniqueWeights = store.UniqueWeightCounts();
+                        await conn.Commands!.Reply($"  unique weights: {uniqueWeights.Weights} row(s), " +
+                            $"{uniqueWeights.Overrides} override(s)");
                         foreach (var (key, range) in GameData.Current.ModRanges.OrderBy(kv => kv.Key.ModId).ThenBy(kv => kv.Key.Index))
                             await conn.Commands!.Reply($"  mod {key.ModId}[{key.Index}] = {range.Min}..{range.Max}");
                         foreach (var (key, value) in GameData.Current.Limits.OrderBy(kv => kv.Key))
                             await conn.Commands!.Reply($"  limit {key} = {value}" + (value == 0 ? " (unlimited)" : ""));
                         return;
                     default:
-                        await conn.Commands!.Reply("Unknown /game_data action; use reload, reference, mod, clear_mod, limit, clear_limit, setting, clear_setting, settings or list");
+                        await conn.Commands!.Reply("Unknown /game_data action; use reload, reference, mod, clear_mod, limit, clear_limit, setting, clear_setting, unique_weight, clear_unique_weight, unique_weights, settings or list");
                         return;
                 }
             }

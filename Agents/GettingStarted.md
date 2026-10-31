@@ -222,6 +222,7 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 | `catalog_entries` | 1,302 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
 | `system_settings` | 45 | the code defaults |
 | `stats` / `mods` / `mod_stats` | 23,346 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
+| `unique_weights` | 1,527 | `data\tables\VillageUniqueDisenchantValues.json` and `Words.json` |
 | `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
 
 The same file holds characters, accounts and stashes; deleting it resets them too. The Gateway log shows
