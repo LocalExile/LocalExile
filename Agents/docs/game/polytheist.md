@@ -147,7 +147,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   radius, the player's death and a refund take the buff off at the next tick; a new area is a new connection. The
   invisible aura buff on the player is not sent: it has no stats and no visual, so the client has nothing to show or
   derive. The Saboteur's Born in the Shadows uses the same template and gets the same aura.
-- **Blind on monsters** (`Program.Blinded`): a monster is Blinded by the player while it stands in their smoke cloud or
+- **Blind on monsters** (`Game.Blinded`): a monster is Blinded by the player while it stands in their smoke cloud or
   in the passive aura. Each source keeps its own set and its own buff, so one ending never un-blinds the other. Blind
   is 20% less accuracy (its hits on the player) and 20% less evasion (the player's default attack and projectile
   attacks; PoB's Blind). Both sources count as "Enemies Blinded by you".
@@ -266,7 +266,7 @@ These effects are not faked. Each waits for an engine system that does not exist
 
 The default Phrecia gate stays closed.
 `Game_VERIFIED_POLYTHEIST=1` admits only this identity, after the same read-only installed-graph check as Gambler
-(`VerifiedGamblerGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`).
+(`VerifiedPhreciaGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`).
 A client with the original Phrecia graph is refused before any save, and the refusal points to this page.
 Nothing installs or patches the archive.
 
@@ -322,4 +322,5 @@ The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukha
 - With Gruthkul (on another Polytheist Templar, `/add_passive 59443 61900 30769 5266`) nothing explodes; refund 5266
   and 30769 in the ascendancy tree and the explosions come back.
 
-Coverage: `AscendancyGatewayIntegrationTests.Polytheist` and `VerifiedGamblerGraphTests`.
+Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Gateway tests went with the Gateway test reset of `3877f119`.

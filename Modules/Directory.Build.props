@@ -1,0 +1,55 @@
+<Project>
+  <!-- The repository's settings (nullable, warnings as errors), then what makes a project here a module. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- A module: <any folders>/<id>/<Name>.csproj in Modules/ builds into that folder's bin/ (gitignored) as <id>.dll. Deleting the folder removes the
+       module at the next start; the running Gateway hot-reloads a new build (Agents/docs/dev/modules.md). -->
+  <PropertyGroup>
+    <ModuleId>$(MSBuildProjectName.ToLowerInvariant())</ModuleId>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>$(ModuleId)</AssemblyName>
+    <OutputPath>$(MSBuildProjectDirectory)\bin\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compiled against, not copied: every module uses the Gateway's own GameServer.Modding. -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\GameServer.Modding\GameServer.Modding.csproj" Private="false" />
+    <!-- The server itself: a module can alter the game fully. -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\GameServer.Gateway\GameServer.Gateway.csproj" Private="false" />
+    <!-- The client protocol and shared types. -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\GameServer.Core\GameServer.Core.csproj" Private="false" />
+  </ItemGroup>
+
+  <!-- The game's rules. Not copied: the host loads the game module, and those that depend on it share it. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Game'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)Core\Game\Game.csproj" Private="false" />
+    <Using Include="Program" Static="true" />
+    <Using Include="Game" Static="true" />
+  </ItemGroup>
+
+  <!-- A module's internals are open to the other modules. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="atlas" />
+    <InternalsVisibleTo Include="bench" />
+    <InternalsVisibleTo Include="commands" />
+    <InternalsVisibleTo Include="cosmetics" />
+    <InternalsVisibleTo Include="delve" />
+    <InternalsVisibleTo Include="harvest" />
+    <InternalsVisibleTo Include="heist" />
+    <InternalsVisibleTo Include="hideoutediting" />
+    <InternalsVisibleTo Include="mercy" />
+    <InternalsVisibleTo Include="npcdialogue" />
+    <InternalsVisibleTo Include="portals" />
+    <InternalsVisibleTo Include="phreciaascendancies" />
+    <InternalsVisibleTo Include="questobjects" />
+    <InternalsVisibleTo Include="ruthless" />
+    <InternalsVisibleTo Include="social" />
+    <InternalsVisibleTo Include="tattoos" />
+    <InternalsVisibleTo Include="uniquebelts" />
+    <InternalsVisibleTo Include="vendors" />
+    <!-- scripts/perf/PerfBench: the in-process performance measurements (Agents/docs/dev/performance.md). -->
+    <InternalsVisibleTo Include="perfbench" />
+  </ItemGroup>
+</Project>

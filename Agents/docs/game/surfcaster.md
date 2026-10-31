@@ -190,7 +190,7 @@ Three legal eight-point builds cover all 18 non-start nodes:
 
 The default Phrecia gate stays closed.
 `Game_VERIFIED_SURFCASTER=1` admits only this identity after the same read-only installed-graph check as Gambler
-(`VerifiedGamblerGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`). A client with the original Phrecia graph is
+(`VerifiedPhreciaGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`). A client with the original Phrecia graph is
 refused before any save. Nothing installs or patches the archive.
 
 With the graph installed, start through `scripts/dev/live.ps1` and run:
@@ -249,21 +249,5 @@ hit roll it.
 Hit a normal monster: it runs about 5 m away from you without attacking (`0x01ab monster … flees`), then comes back.
 A rare or unique monster never flees, and a magic one flees from about half of the hits.
 
-Coverage: `AscendancyGatewayIntegrationTests.Surfcaster` (the small nodes' cast speed and flee chance against plain
-stats, the rarity's chance not to flee, the flee point, a forced flee through the hit, the AI walking a fleeing
-monster in reach instead of swinging and its return after the walk; Ghost of the Deep against plain stats with its publication,
-reload and refund; Changing Seasons on a physical and a cold hit, a freeze and the unaffected flag; the monster
-ailment model's floor, caps, freeze threshold and strongest effect; shock against plain increased damage taken; the
-default attack, an area sweep, a projectile's contact and Righteous Fire's burn each counting a target's shock and
-Glacial Wave chill like a twin with the same increased damage taken from its mods; chill and freeze in the monster AI
-with their buffs, the fixed buff instances and the additive durations; a frozen monster not starting its swing, a
-chilled one reaching its contact later and a freeze before the contact cancelling the hit; Mirrored and Unstoppable;
-Stormy Seas' cold critical strike shocking only with the node; Glacial Wave's damage taken, burn, the monster's swing
-and its ignite against plain values; Brine Bound's freeze on a landed swing, the 1 s minimum and Cannot be Frozen
-against plain stats; Within the Tempest's kill shock from the default attack, and the 15-cell spread from a corpse and
-a hit shock, 21 cells with 100% increased area of effect, and a weaker, wider shock reaching past a stronger one's
-radius; Faster Casting's cast speed in the spell record's total; an area skill's sweep, a projectile's contact and
-Righteous Fire's burn each inflicting and killing, a unique's corpse keeping a killing critical strike's 50% shock
-and spreading it, a normal monster shattering, and a Mirrored monster's reflected freeze landing after the sweep, so
-the monster after it is still hit and the kill before it still gives experience; the passive buff sent on area
-entry), the buff layout in `InstanceEntitiesTests` and `VerifiedGamblerGraphTests`.
+Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Gateway tests went with the Gateway test reset of `3877f119`.

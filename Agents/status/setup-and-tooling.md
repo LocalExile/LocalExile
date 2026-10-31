@@ -10,12 +10,30 @@ Part of [Status](../Status.md); what to build next in this area is in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
   Code: `scripts/dev/extract-data.ps1`, `GameDataFiles.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 7.
+- The servers run without `Client/`: level generation and the Phrecia graph check read `data/game-files.zip` (every file
+  of the types they read), the HNC mask and GGPK root hash come from `data/client-constants.json`, and Node is not needed
+  at run time. `live.ps1` refreshes the root hash before each client start, because the gateway list in the GGPK changes it.
+  Code: `scripts/re/game-pack`, `GamePack.cs`, `ClientConstants.cs`.
+- Player releases, started by hand: a workflow builds a draft with a self-contained zip, and `LocalExile.exe` takes a player
+  from the client to the game with no SDK, Python or Node installed (`--json` for a GUI).
+  Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
+  Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
+  Docs: [releases](../docs/dev/releases.md).
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
-- Dev account service: register, log in, create characters (JSON-lines over TCP).
+- Dev account service: register, log in, create characters, list every account (JSON-lines over TCP).
   Code: `GameServer.Host`, `GameServer.DevClient`.
   Docs: [dev-server.md](../docs/dev-server.md).
+- Hooks for outside tools such as the desktop launcher: `live.ps1 -Stop` (also with `-Only` or `-NoClient`),
+  `live.ps1 -ClientOnly -Walkmaps` (the client and its walk-map recorder against running servers), the
+  Gateway's `commands` and `values <kind>` modes (its chat commands, their argument kinds and values, as JSON lines),
+  and the dev host's `accounts`.
+  Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
+  the account list from the real save database.
+  Code: `scripts/dev/live.ps1`, `Program.Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
+  Docs: [GettingStarted](../GettingStarted.md) step 10, [10](../docs/protocol/10-chat-and-commands.md) §4,
+  [dev-server.md](../docs/dev-server.md).
 - Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
   which applies saved code edits to the running server; `HotReload.cs` logs each applied edit and tells players in
   chat when a save starts a reload, when it is applied, when it fails to compile (first three errors, from
@@ -38,7 +56,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
-  `Mods/Source/` has six examples; only `example` is on by default.
+  Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
+  Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
+  Leagues ([modules](../docs/dev/modules.md)) are folders in `Leagues/`, read once at start: cards and check boxes as in the real create screen, a parent to migrate to, Void, and
+  modules listed per league in its `modules.json`. Characters of a deleted or ended league cannot be entered.
+  Not tried in the client: a blocked character.
+  Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
+  Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, Mercy Mission, quest objects, hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
+  without Harvest places no station. Not tried in the client after the move.
+  `Mods/Source/` has six examples, of which only `example` is on by default.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
   `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.
@@ -46,8 +72,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
   dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
   context being freed.
-  Missing: catalog overrides, and the hooks not yet tried with the client (drops, experience, stats, packets).
-  Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `Program.Mods.cs`, `Mods/Source/`.
+  Assemblies load from a private temporary disk copy rather than collectible memory streams; original build outputs
+  remain free, and collected contexts release their copied files. Loader and cleanup regressions cover this path.
+  Unit-tested as well: scripts (load, reload, compile errors, no server references, dependencies, unload), league modules
+  (fallback, required features, tunables, scoped hooks) and built-ins.
+  Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
+  Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
+  `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
@@ -57,6 +88,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   This standalone layer has no new native launch proof; client archive mutation requires separate agreement.
   Code: `PassiveSkillGraph.cs`, `AdditionalAscendancyGraph.cs`, `GameFileSystem.cs`, `scripts/re/passive-graphs`.
   Docs: [passive graph data guide](../docs/dev/passive-graph-data.md).
+
+- Several stacks and clients on one PC: `live.ps1 -PortBase N` runs a checkout's servers on their own five ports
+  (remembered in `data\stack.json`; Auth now sends the client to that Gateway), `-Session NAME` starts more clients of a
+  stack, each in its own folder with its own settings file, saved login, `Client.txt` and PID record, and `-Stop` stops
+  the checkout's own servers and clients. Whatever `live.ps1` stops is the checkout's own; a stack off the default ports
+  never writes the shared GGPK gateway list. The bridge (`--session`) attaches to its session's client and filters the
+  Gateway's chat replies by that client's connection.
+  Verified: a stack on 21000-21004 started, restarted and stopped next to another checkout's live stack and client on the
+  default ports, which kept running; a session client started in its own folder on that stack (its own `Client.txt`,
+  the linked GGPK, the shared sound banks and Streamline through junctions). Tests: `scripts/dev/test_live_client_only.ps1`
+  (ports, sessions, PID records, process ownership, the real gateway-list read while the GGPK is held),
+  `test_client_control.py` (a real process started through a real junction), `GgpkMaintenanceTests`. Not yet seen live:
+  the session's settings file in use and a bridge login on a session (the memory guard stopped the client while loading).
+  Code: `scripts/dev/live.ps1`, `scripts/dev/client_control.py`, `GatewayEndpoint.cs`.
+  Docs: [live testing](../docs/dev/live-testing.md#several-stacks-and-clients).
 
 - Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its
   messages), the reason on every `DISCONNECT` line, archived logs of the last 10 full runs, each connection's last 256
@@ -68,25 +114,43 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
   Docs: [debugging](../docs/dev/debugging.md).
 
+- Cheap session clients: `live.ps1 -Session S` starts every session client through `scripts/dev/nullifier.py`, which
+  spawns it in its session folder inside a kill-on-close job, with a Frida agent that gives its two-copies mutexes
+  session-local names (so it never takes one of the two Global\PoERunMutexA/B slots the user's client needs), keeps
+  its window from taking focus, never lets it confine, move, capture or hide the user's mouse, install global input
+  hooks or register background raw input, and sets below-normal priority and EcoQoS; `-Nullifier` adds the engine's
+  own Null renderer (no GPU device; the agent fixes the Null index buffer's missing format, which crashed area entry),
+  working-set trimming, the allocator returning freed memory at once (mimalloc `purge_delay=0`) and the Null buffers'
+  unused CPU copies left uncommitted until touched. `live.ps1 -Agent` starts the servers and one such client (port
+  block picked automatically when none is recorded). New sessions default to the cheap DirectX 11 preset. Live
+  2026-10-31: login, play, slash commands, chat, `/tp`, waypoint travel and `/goto` with both renderers; DirectX 11
+  preset 4.3 GB commit, 1.7 GB VRAM; Null (lean defaults) 1.58 GB commit (1.93 GB before), no GPU memory, ~20 % of a
+  core in town, 5–9 % standing after travel (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %). The coverage tour
+  (`nullifier-tour.py`: every act's town and a combat area, the Act 1 boss area, a map, the hideout, a fight with the
+  default attack in each combat area) passed 27/27 under Null with the lean defaults; startup movies are skipped
+  (`--nologo`) and the loading-screen movies close by themselves. The game database cannot be shared between clients:
+  loaded tables hold process-specific pointers (headless client §6).
+  Offline tests: `test_nullifier.py`, `test-nullifier-mutex.cjs`, `test_client_control.py`, `test_live_client_only.ps1`.
+  Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`, `nullifier-tour.py`.
+  Docs: [headless client](../docs/dev/headless-client.md).
+
 ## Not working yet
 
 Nothing yet.
 
 ## Tests
 
-`dotnet test tests/GameServer.Core.Tests` (378 tests), `tests/GameServer.Data.Tests` (15) and
-`tests/GameServer.Gateway.Tests` (376: currency on items (from the inventory or a stash tab), the currency tab's
-crafting slot, gem levels, gem requirements (level and attributes) and the level stall, the level-up stopped between
-two levels, the gem level-up and lock messages and the saved lock flag, quality and variants, stable gem skill ids,
-the save database and its transactions, stash tab rules, Ctrl + click moves, item moves with failing saves, inventory
-moves, stacks, the start weapon on the ground, flasks, arrival points, instance ground items and monsters, quests,
-passives, spell suppression, attack speed, critical strikes, accuracy, armour/evasion, item mods, auras, damage
-conversion and the account stash) pass.
-Tests that need the real client pass quietly without `Client/`.
+The Gateway tests were wiped when the game moved into modules; `tests/GameServer.Gateway.Tests` holds only the shared setup until new ones land. Rules for new tests: AGENTS.md.
 
 Teleport-name controls use an unmapped synthetic destination, so real WorldAreas data cannot change their labels.
 Bow hit-recovery controls explicitly start their connection clock before checking input admission.
 These fixture corrections leave production catalogs and the shared module initializer unchanged.
+The Arcane Might area fixture measures range from the weapon-contact origin to its target.
+Monster AI cadence tests run in a nonparallel collection: their real 300 ms socket-latency limit is unchanged,
+but unrelated catalogue loads and GC pauses no longer run beside that measurement.
+The per-target area accuracy regression awaits one completed sweep instead of racing a sustained Cyclone channel.
+Gateway test collections now run sequentially by default to keep real socket deadlines and collectible mod contexts
+away from unrelated catalogue-load/GC contention. Individual concurrency tests still run their own concurrent tasks.
 
 ## Tooling
 

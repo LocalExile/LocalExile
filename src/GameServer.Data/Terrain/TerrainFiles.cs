@@ -169,6 +169,15 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
     /// <summary>The dictionary string for a 1-based index (0 or out of range → "").</summary>
     public string Dict(int index) => index >= 1 && index <= Dictionary.Count ? Dictionary[index - 1] : "";
 
+    /// <summary>Whether a room object's type is a quest server object: an NPC (Fairgraves on his ship, Piety in The Upper
+    /// Prison and at Prisoner's Gate), a quest object (MerveilExitBlocker, the spike blockage) or a quest chest (the
+    /// Allflame's); lore objects (Metadata/NPC/Info/: letters, diaries) are not. scripts/re/atlas room-points keeps the
+    /// rooms that have one, and the Gateway places those objects where the client placed the room.</summary>
+    public static bool IsQuestObject(string type) =>
+        (type.StartsWith("Metadata/NPC/", StringComparison.OrdinalIgnoreCase) || type.StartsWith("Metadata/QuestObjects/", StringComparison.OrdinalIgnoreCase)
+            || type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.OrdinalIgnoreCase))
+        && !type.StartsWith("Metadata/NPC/Info/", StringComparison.OrdinalIgnoreCase);
+
     public static RoomFile Parse(string text)
     {
         var lines = TerrainText.Lines(text).Select(TerrainText.Tokenize).ToArray();

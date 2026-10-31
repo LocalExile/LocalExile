@@ -849,7 +849,12 @@ The formula follows the reference library's pinned PoB `16de4b82d57f1c0de6eb40f3
 `CalcDefence.lua` regeneration section, with native 3.29.3b stat IDs and modifier rows.
 This is an accepted 3.29.x reference, not proof of exact official-server arithmetic for every conditional mechanic.
 No generic Life/Mana regeneration `+%_final` input exists in the native table; derived virtual outputs are not raw sources.
-Zealot's Oath, other regeneration conversions and named conditional/more modifiers remain separate work.
+Zealot's Oath applies life regeneration to Energy Shield instead of Life:
+`keystone_zealots_oath` and Geofri's Sanctuary's `regenerate_energy_shield_instead_of_life` share the split in
+`PanelStats.LifeRegeneration`; the resource writer also converts Fortification and Turtle Shell regeneration. An ES
+recovery prohibition (`no_energy_shield_recharge_or_regeneration`, `cannot_recover_energy_shield` or
+`no_energy_shield_recovery`) drops the converted part rather than returning it to Life. Conditional flask/item sources
+and other regeneration conversions remain separate work.
 
 Ten native controls verified flat sources, independent increase buckets, prohibition, source clearing and relog.
 The 600/minute Life control became 1080 with 50% regeneration and 20% recovery, matching actual 18 Life/second.
@@ -1246,7 +1251,7 @@ See [Gambler's exact source, threshold, formula and presentation limits](../game
 Each `SpawnedMonster` has a `MonsterElementalAilments`, changed under the Monsters lock on the connection's pauseable
 clock (`ProjectileWorldTime`). The default attack, area skills and projectiles (ordinary bow shots included) take the
 hit's damage with `MonsterHitDamage` (the target's shock and chill at the hit's time) and then call
-`AilmentsOnHitLocked` (`Program.MonsterAilments.cs`) for every hit that landed, a killing one included, so a hit does
+`AilmentsOnHitLocked` (`MonsterAilments.cs`) for every hit that landed, a killing one included, so a hit does
 not gain from its own shock. The older `MonsterDamage`, `MonsterTakes*` and `MonsterBurn` without a time leave the
 target's shock and chill out; a new player hit path needs both calls ([Surfcaster](../game/surfcaster.md), Hit paths).
 The damage per type is the resisted packet × the monster's damage taken × the critical multiplier on a critical

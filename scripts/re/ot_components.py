@@ -43,7 +43,8 @@ GROUND_TRUTH_READ = {"Metadata/Characters/Int/Int": 10, "Metadata/MiscellaneousO
 
 
 def cache_name(path):
-    return os.path.join(CACHE, path.replace("/", "_"))
+    # \\?\: these names are long, and a release's install folder can take them past Windows' 260 characters.
+    return "\\\\?\\" + os.path.join(CACHE, path.replace("/", "_"))
 
 
 def fetch(paths):
@@ -61,7 +62,9 @@ def fetch(paths):
         batches.append(cur)
     n = 0
     for batch in batches:
-        cmd = ["dotnet", "run", "--project", proj] + (["--no-build"] if built else []) + ["--", GGPK, CACHE] + batch
+        # A release has no SDK: its launcher names the published tool.
+        tool = [os.environ["Game_GGDUMP_EXE"]] if "Game_GGDUMP_EXE" in os.environ else ["dotnet", "run", "--project", proj] + (["--no-build"] if built else []) + ["--"]
+        cmd = tool + [GGPK, CACHE] + batch
         out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
         built = True
         for line in out.splitlines():

@@ -23,6 +23,8 @@ The shipped alternate graph contains older ordinary-tree topology.
 A separately agreed client-compatible graph is required before Phrecia can be enabled in an actual game connection.
 Antiquarian has an explicit `Game_VERIFIED_ANTIQUARIAN=1` opt-in which verifies exact installed archive bytes read-only.
 Its [whole-class audit](antiquarian.md) records the hashes, all node consumers, legal builds and native acceptance.
+Behemoth is supplied by the optional Phrecia module behind `Game_VERIFIED_BEHEMOTH=1` and the same graph check.
+Its shared Rampage/Vaal engines and pending modular acceptance are described in [Behemoth](behemoth.md).
 Other Phrecia choices are refused before saving, and their existing saves refuse admission before inventory loading
 or passive normalization, retaining their data.
 There is no automatic graph installation, recovery, archive rewrite, or memory-hook workaround in this slice.

@@ -9,6 +9,28 @@
     <Project Path="src/GameServer.DevClient/GameServer.DevClient.csproj" />
     <Project Path="src/GameServer.Patch/GameServer.Patch.csproj" />
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
+    <Project Path="src/LocalExile/LocalExile.csproj" />
+  </Folder>
+  <Folder Name="/Modules/">
+    <Project Path="Modules/Core/Game/Game.csproj" />
+    <Project Path="Modules/Core/Content/Delve/Delve.csproj" />
+    <Project Path="Modules/Core/Content/Harvest/Harvest.csproj" />
+    <Project Path="Modules/Core/Content/Heist/Heist.csproj" />
+    <Project Path="Modules/Core/World/HideoutEditing/HideoutEditing.csproj" />
+    <Project Path="Modules/Core/Player/Commands/Commands.csproj" />
+    <Project Path="Modules/Core/NPC/Vendors/Vendors.csproj" />
+    <Project Path="Modules/Core/World/Portals/Portals.csproj" />
+    <Project Path="Modules/Core/World/QuestObjects/QuestObjects.csproj" />
+    <Project Path="Modules/Core/Item/UniqueBelts/UniqueBelts.csproj" />
+    <Project Path="Modules/Core/Content/Mercy/Mercy.csproj" />
+    <Project Path="Modules/Core/Item/Tattoos/Tattoos.csproj" />
+    <Project Path="Modules/Core/Item/Cosmetics/Cosmetics.csproj" />
+    <Project Path="Modules/Core/Item/Bench/Bench.csproj" />
+    <Project Path="Modules/Core/World/Atlas/Atlas.csproj" />
+    <Project Path="Modules/Core/Player/Social/Social.csproj" />
+    <Project Path="Modules/Core/NPC/NpcDialogue/NpcDialogue.csproj" />
+    <Project Path="Modules/Ruthless/Ruthless.csproj" />
+    <Project Path="Modules/PhreciaAscendancies/PhreciaAscendancies.csproj" />
   </Folder>
   <Folder Name="/Mods/Source/">
     <Project Path="Mods/Source/BossLoot/BossLoot.csproj" />
@@ -22,7 +44,6 @@
     <Project Path="tests/GameServer.Data.Tests/GameServer.Data.Tests.csproj" />
     <Project Path="tests/GameServer.Core.Tests/GameServer.Core.Tests.csproj" />
     <Project Path="tests/GameServer.Gateway.Tests/GameServer.Gateway.Tests.csproj" />
-    <Project Path="tests/GameServer.Modding.TestMod/GameServer.Modding.TestMod.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="Tools/PoEDataExtractor/PoEDataExtractor.csproj" />

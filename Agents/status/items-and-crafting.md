@@ -127,6 +127,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceItems.cs`, Gateway (`ModCatalog.cs`, `ItemRolls.cs`, `ItemDrops.cs`, `ItemModStats.cs`,
   `ItemWeapons.cs`, `ItemDefences.cs`, `ItemCatalog.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2a-§2c.
+- Item states (verified live 2026-10-30): the six influences, split, synthesised, corrupted, mirrored and fractured,
+  and crafted and enchanted mods show in the client's tooltip and Ctrl+C text, and survive a relog and a Gateway restart.
+  `/item_state` switches them on the held item.
+  An influence opens its class's influence mods to every roll and Harvest swap (`InfluenceTags.dat`), the uniques PoB marks Shaper or
+  Elder carry it, and the Fracturing Orb refuses influenced and synthesised items without spending the orb.
+  Nothing in play creates these states yet, and no mechanic reads influence.
+  Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
+  Docs: [13](../docs/protocol/13-items.md) §2f.
 - Game-data overrides (implemented 2026-10-30): the SQLite overlay `mod_stat_overrides`, `limit_overrides`,
   `catalog_entries` and `system_settings` in `data/saves.db` changes mod roll ranges, item limits, catalogues and
   numeric settings through `/game_data`; the Gateway loads the rows at startup, keeps the reference mod/base lists in
@@ -135,16 +143,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   after the check.
   Limits currently cover the Historic timeless jewel, Impossible Escape, radius unique jewels and the tattoo total/group
   caps. `catalog_entries` now seeds and reloads the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect
-  and jewel-art catalogues (1,302 / 76 / 43 / 6 / 48 / 190 rows on the live database; the unique rows are the full
+  and jewel-art catalogues (1,299 / 76 / 43 / 6 / 48 / 190 rows on the live database; the unique rows are the full
   generated PoB catalogue); the code arrays are the fresh-database seed. `catalog_seed_keys` records the applied
-  defaults, so a row deleted by an admin stays deleted while a genuinely new default is added. The
+  defaults, so a row deleted by an admin stays deleted while a genuinely new default is added, and a new unique seed
+  revision corrects the rows nobody edited. The
   `stats`/`mods`/`mod_stats` tables hold 23,346 / 40,355 / 60,695 reference rows and `effective_mod_stats` joins the
   range overrides. A fresh database gets all of them on the first Gateway start; `extract-data.ps1` checks `Stats.json`,
   `Mods.json`, `BaseItemTypes.json`, `ItemClasses.json`, `Tags.json` and `UniqueStashLayout.json` as part of its `tables`
-  entry. `system_settings` seeds 45 numeric knobs: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
+  entry. `system_settings` seeds 51 numeric knobs: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
   shield 3, belt 0, two-handed 6), rare prefix/suffix caps (3/3 ordinary, 2/2 jewels), passive points per level, gold
-  chance/amount/auto-loot, six drop multipliers, pack density/size, experience multiplier, maximum level, default
-  tattoo/jewel limits and grace period; `/game_data setting` changes a number and reloads it. Live: a wand set to six
+  chance/amount/auto-loot, the 150-cell projectile maximum range, six drop multipliers, pack density/size, experience
+  multiplier, maximum level, default tattoo/jewel limits and grace period; `/game_data setting` changes a number and
+  reloads it. Live: a wand set to six
   sockets accepted `RRGBBB` and was reduced back to three; `passive_points_per_level = 2` made the 0x33 client budget
   and server budget agree at 1198 points. The item-template schema exists, but custom item templates, custom names and
   the admin panel are not implemented yet.
@@ -192,12 +202,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   bases) are left out, the atlas bases kept. Currency runs from Scrolls of Wisdom down to the Mirror, each from its
   DropLevel. A unique's weight is the inverse of its disenchant value (`VillageUniqueDisenchantValues`, Ruthless has its
   own column), so a Mageblood is about 840 times as rare as a Wanderlust, and a base whose uniques add up to less than 1
-  mostly gives a rare instead. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
+  mostly gives a rare instead. The 1,527 reference weights are seeded into `unique_weights`; `/game_data unique_weight`
+  and `clear_unique_weight` edit the override layer live. Schema upgrades, repeated reference rebuilds and a reopened
+  database preserve overrides; invalid or non-finite weights are rejected before writing. The extracted JSON remains the fallback before seeding.
+  Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are still
+  loaded from JSON; moving them would also require clearing the affix-pool cache on reload. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
   monsters.
   Code: `ItemDrops.cs`, Gateway (`DropLoot`, `CommitProjectileKill`).
   Docs: [15](../docs/protocol/15-progression.md) §3.
 
 ## Partly working
+
+- Utility-flask orbs: Enkindling and Instilling use native weighted enchant pools, replacing previous enchantments.
+  Enkindling coefficients and the active-effect charge-gain lock are wired; Instilling uses paid flask-use events.
+  Automated checks pass. Native checks confirmed both currency transactions, enchant replacement, maximum-charge
+  clamping, the active-effect charge lock and automatic use after hitting a rare monster.
+  Incoming Bleed/Poison sources remain absent, although their enchantment conditions are represented.
+  See [13-items](../docs/protocol/13-items.md), utility flask orb enchantments.
+
 
 - Sacred Orb rerolls: ordinary and Shift-repeat currency routes replace only the shared defence base roll (0..31).
   Requires Armour/Mods components and a known variable native range.
@@ -220,7 +242,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `ItemDefences.cs`, `ItemModStats.cs`, Gateway (`Program.Equipment.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2-§2d.
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)
-  and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` curates each definition.
+  and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
+  1,299 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`),
+  compared with poedb's item cards, with the differences that remain on the roadmap. Divine and Blessed Orbs reroll
+  within a unique's own rolls, and an admin's `/game_data mod` range wins over them.
+  Every definition but the five tinctures creates, writes and reloads by test (the server cannot write the Tincture
+  component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
+  Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
+  Atziri's Reign.
+  `/item <name> <base name>` reaches one base of a unique with several (`/item Grand Spectrum Cobalt Jewel`).
   `/item Mageblood` creates the Heavy Belt unique with its name, artwork and fixed mods (the Strength is the base
   implicit); the client shows the unique tooltip.
   While Mageblood is worn, the leftmost 2–4 magic utility flasks in the flask bar apply their effects permanently without
@@ -364,7 +394,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   with 4+ explicit mods is fractured and kept by every other currency, Scouring included; shown fractured (magic
   properties u8 +0x7a). The admission checks now also require a supported non-`Unmodifiable` base whose
   `ItemClasses.CanBeFractured` is set, and refuse corrupted/mirrored/already-fractured items; metamod-protected mods
-  stay eligible. Influence, synthesis and veiled modifiers are not modelled. Native 2026-10-30: a four-mod rare wand
+  stay eligible; influenced and synthesised items are refused. Veiled modifiers are not modelled. Native 2026-10-30: a four-mod rare wand
   was fractured, a second use was refused without spending. See [13](../docs/protocol/13-items.md), "Fracturing Orb",
   and [the game rules](../docs/re/fracturing-mirror-mechanics.md).
 - **Mirror of Kalandra (verified live, 2026-10-21; rules rechecked 2026-10-30):** a mirrored copy (Mods flag bit 1) of

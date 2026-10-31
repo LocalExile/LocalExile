@@ -1,6 +1,6 @@
 # Editable game data
 
-**Status: in progress (mod roll ranges, item limits, system numbers, the 1,302-row unique catalogue, the
+**Status: in progress (mod roll ranges, item limits, system numbers, the 1,299-row unique catalogue, the
 unique/jewel/tattoo catalogue rows and the Stats/Mods reference tables are editable; item templates and the admin UI
 are next).** This page analyses what can safely become editable from the database, what cannot, and the cache/reload
 shape the server uses so an edit takes effect without a restart. The schema and the `/game_data` commands below are
@@ -86,6 +86,7 @@ tables. The server can only create items the client can resolve by an existing h
 | `gold_drop_multiplier` | 1 | multiplier on the mode's gold amount; the Ruthless 0.25 base still applies |
 | `gold_drop_chance_multiplier` | 1 | multiplier on the per-rarity gold drop chance |
 | `gold_auto_loot_radius` | 15 | cells within which gold is picked up without a click |
+| `projectile_maximum_range_cells` | 150 | one projectile movement instance's maximum flight (150 cells = 15 m); fork/chain/split start a fresh instance |
 | `drop_multiplier_currency`, `drop_multiplier_equipment`, `drop_multiplier_flasks`, `drop_multiplier_gems` | 1 | category weights in the ordinary drop roll |
 | `drop_multiplier_maps` | 1 | generic map drop chance |
 | `drop_multiplier_unique_rarity` | 1 | equipment magic/rare-roll multiplier; unique item drops themselves are not in the drop table yet |
@@ -129,6 +130,8 @@ The app-facing defaults are seeded once from the extracted tables:
 | `mods` | 40,355 | every Mods.dat row: id, HASH16, name, domain, generation type, level, ModType |
 | `mod_stats` | 60,695 | each mod's default `stat_id`, index, min, max and local flag |
 | `effective_mod_stats` view | - | `mod_stats` with `mod_stat_overrides` applied |
+| `unique_weights` | 1,527 | unique drop weight (normal and Ruthless) derived from `VillageUniqueDisenchantValues.json` |
+| `unique_weight_overrides` | 0 until edited | per-unique normal/Ruthless weight overrides |
 
 To edit a range, take the key from `mod_stats.mod_id`/`stat_index` or `stats.id`; the override table does not invent
 keys. Example:
@@ -138,10 +141,19 @@ SELECT stat_id, minimum, maximum FROM effective_mod_stats
 WHERE mod_id = 'LocalAddedPhysicalDamage9' ORDER BY stat_index;
 ```
 
-`/game_data reference` rebuilds the three reference tables from `data/tables` after an extraction change; the override
-rows are not touched. The full unique-item catalogue is `catalog_entries.kind = 'unique_item'` with 1,302 rows from
-PoB's Export/Uniques files; `unique_item` keys are `name|base` because a few names have several bases. The two curated
-3.29 definitions (Mageblood and Crown of Eyes) stay first for their established item behavior.
+`/game_data reference` rebuilds the reference tables and `unique_weights` from `data/tables` after an extraction change;
+the override rows are not touched. The full unique-item catalogue is `catalog_entries.kind = 'unique_item'` with 1,299
+rows from PoB's Export/Uniques files; `unique_item` keys are `name|base` because a few names have several bases. The two
+curated 3.29 definitions (Mageblood and Crown of Eyes) stay first for their established item behavior.
+
+Unique drop weights are **absolute** (0..1): `ItemDrops.PickUnique` compares each weight directly and the rest of the
+range is "no unique". A unique missing from `unique_weights` weighs zero and does not drop. Edit one with
+`/game_data unique_weight <name> <weight 0..1> [ruthless 0..1]`, clear it with `clear_unique_weight`, and list with
+`unique_weights [filter]`; `/game_data reload` publishes the provider without a restart. The extracted JSON remains the
+fallback until the reference table is seeded.
+
+Mod affix weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are **not** in the database
+yet; they are the next reference-table candidate. Stat roll ranges already live in `mod_stats` and their overrides.
 
 ### Candidate lists currently in code
 
@@ -149,7 +161,7 @@ The first slice covers mod ranges and limits; the item/jewel catalogue rows belo
 
 | Candidate | Where | State | Why / what it unlocks |
 |---|---|---|---|
-| Unique item definitions | `UniqueCatalog.Seed` | **Done** | Base, mod ids and values for Mageblood, Crown of Eyes and the rest; the seed is the current two definitions. Uses existing client hashes. |
+| Unique item definitions | `UniqueCatalog.Seed` | **Done** | Base, implicits, mod ids and roll overrides for Mageblood, Crown of Eyes and the rest (`scripts/re/unique_items.py`). Uses existing client hashes. |
 | Radius jewel definitions and variants | `RadiusJewelCatalogue.Seed`, `RingVariants`, `NodeVariants` | **Done** | 76 jewel rows (43 radius + 33 threshold), base/mod/variant/value/limit. The shared variant arrays stay code constants. |
 | Non-radius unique jewels | `UniqueJewelCatalogue.SeedGlobal`, `SeedSpecial` | **Done** | 42 global + 1 special jewel definitions generated from PoB. |
 | Threshold jewel definitions | `ThresholdJewelCatalogue.Seed` | **Done** | 33 threshold jewels with base, limit and client mods. |
@@ -163,7 +175,7 @@ The first slice covers mod ranges and limits; the item/jewel catalogue rows belo
 | Quest flags and World panel pins | `Quests.WorldPanelPins`, `EveryCharacter`, `Quests.All` scripts | **Yes, with care** | Flags and pins are data, but a wrong flag can reveal locked content. Keep the known-good list as the seed. |
 | Vendor recipe edge cases | `VendorRecipes` oil/rune upgrade arrays, `VendorEquipmentRecipes` | **Some** | The main recipe/pricing tables already come from JSON. The small hardcoded oil/rune chains can move; the recipe algorithm stays code. |
 | Gem/utility/monster mapping lists | `GemSources.DropOnlySupports`, `GemSupportDamage.Unconditional`, `UtilityFlasks.Modelled`/`PanelOnly`/`DuringEffect`, `MonsterMods.Modelled`/`Vacuous`/`SelfAuraMods`, `HarvestCrafting.Metamods`, `EssenceCrafting.Columns`, `SkillCatalog.ProjectileFallbacks` | **Yes, later** | These are server mapping tables. Move one typed family at a time with tests; the consumers are code. |
-| Ruthless/league policy lists | `RuthlessGemRules.UnavailableBases`, `UnavailableEffects`; `SingleUseCooldown.Unsupported`; `GemVendorStock` | **Yes, later** | Policy/config, not client data. |
+| Ruthless/league policy lists | `RuthlessLeague.Of` (`UnavailableGemBases`, `UnavailableGemEffects`, in `Modules/ruthless/`); `SingleUseCooldown.Unsupported`; `GemVendorStock` | **Yes, later** | Policy/config, not client data. |
 | Charge/damage/panel rule lists | `ChargeEffects`, `ChargeGains`, `DamageImmunities`, `PanelStats.Sums`, `StatKeys` | **No as raw tables, low priority** | They encode calculation order and stat semantics. A data-driven rule engine would be a separate, tested project. |
 | Protocol and component lists | message ids, `InstanceItems.ComponentOrder`, `BaseComponents`, `PlayerDefaults`, packet layouts | **No** | The client and the server must agree exactly; these are code/protocol, not user settings. |
 | Terrain/RNG tables | `EdgeShaping`, `TileKey`, pathfinder tables, level-generator constants | **No** | Reverse-engineered algorithms; changing them needs a generator gate and baseline, not a settings table. |
@@ -294,6 +306,27 @@ CREATE TABLE IF NOT EXISTS catalog_seed_keys (
     PRIMARY KEY (kind, key)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS catalog_seed_defaults (
+    kind TEXT NOT NULL,                   -- the catalogue kind (unique_item for now)
+    key TEXT NOT NULL,                    -- a default key
+    payload TEXT NOT NULL,                -- the payload the seed last gave it; a row still holding this is unedited
+    PRIMARY KEY (kind, key)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS unique_weights (
+    name TEXT PRIMARY KEY,                -- Words.dat unique name
+    weight REAL NOT NULL,                 -- 0..1, absolute: the remainder is "no unique"
+    ruthless_weight REAL NOT NULL,
+    updated_utc TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS unique_weight_overrides (
+    name TEXT PRIMARY KEY,
+    weight REAL NOT NULL,
+    ruthless_weight REAL NOT NULL,
+    updated_utc TEXT NOT NULL
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS item_templates (
     id TEXT PRIMARY KEY,                  -- admin id, e.g. fire_wand
     label TEXT NOT NULL,                  -- admin label, not sent to the client
@@ -336,6 +369,26 @@ database is the runtime source. `catalog_seed_keys` records the defaults the see
 keys new to the current seed, so a row deleted by an admin (or a whole kind emptied) stays deleted. On the first run
 with this tracking, an existing catalogue is kept and the current seed becomes the baseline, preserving deletions made
 before the table existed. `catalog_seeded:<kind>` in `game_data_meta` remains as an informational first-run flag.
+
+A seed correction would not reach those rows by itself, so `GameDataCatalog.UniqueSeedRevision` carries it: raise it
+when `UniqueItemSeed` corrects existing rows. `catalog_seed_defaults` holds the payload the seed last gave each key, and
+on the first start with a new revision, `RefreshSeed` gives the new default to every enabled `unique_item` row that
+still holds it; it removes such a row whose key left the seed, as a corrected base type changes the key. The whole pass
+is one transaction, before `Seed` adds the keys new to the seed. Comparing payloads means an edit by any route counts,
+with or without a new `updated_utc`, and stays through every later revision. So does a disabled row, and a row no seed
+gave. An edit put back to the exact default reads as unedited. A deleted or disabled row stays that way, unless the
+correction gave that unique a new key, which reads as a new default: the new row is enabled.
+
+A database from before `catalog_seed_defaults` has no payloads to compare, so its first revision goes by time: a row
+counts as unedited when its `updated_utc` is no later than `catalog_seed_written:<kind>` (a build of this work that had
+only the timestamp), else `catalog_seeded:<kind>`, and only a key the previous seed gave can be removed. On that one
+pass, a hand edit that left `updated_utc` alone, or wrote it in another format, cannot be told from a seed row, and a row
+`Seed` added after the first seed reads as edited, so it keeps its old default.
+
+Going back to an older build is not supported for these rows. It adds its own seed's keys back, which have no recorded
+default, so they stay beside the corrected rows when the newer build returns (a stale base found first by `/item`, and
+uniques the newer seed removed). Restore a backup of `saves.db` instead. A database from a build with the overlay but
+without `catalog_seed_keys` (branch builds before the merge) keeps the rows whose key moved, uncorrected.
 
 `Mod` keeps its base `ModStat` values. The effective range is resolved through a `ModRangeProvider` held by the
 `ModCatalog`:
@@ -384,9 +437,10 @@ call `Lazy.Value` again; it should replace a snapshot field.
 warms the reference data the admin panel needs (mod list, base list, tags, existing limits). That warm-up is one read per
 catalogue, not a query per item. The first connection then sees the same snapshot.
 
-On a fresh database the same open also seeds the overlay: `GameDataCatalog.Reload` writes the catalogue rows,
-`SystemSettings.Reload` the 45 settings, and `GameDataReference.Seed` the `stats`/`mods`/`mod_stats` tables from
-`data/tables/Stats.json` and `Mods.json`. The Gateway logs the reference counts every start
+On a fresh database the same open also seeds the overlay: `GameDataWeights.Seed` writes the 1,527 unique weights,
+`GameDataCatalog.Reload` writes the catalogue rows, `SystemSettings.Reload` the 51 settings, and `GameDataReference.Seed`
+the `stats`/`mods`/`mod_stats` tables from `data/tables/Stats.json` and `Mods.json`. The Gateway logs the reference
+counts every start
 (`[gateway] game data reference: 23346 stat(s), 40355 mod(s), 60695 default mod stat row(s)`); `empty` means the
 extraction is missing those tables. `scripts/dev/extract-data.ps1` checks `BaseItemTypes.json`, `ItemClasses.json`,
 `Stats.json`, `Mods.json`, `Tags.json` and `UniqueStashLayout.json` as part of its `tables` entry, so a partial
@@ -407,7 +461,8 @@ fresh installation. Stop the Gateway first: a running process keeps its own snap
 
 The first interface is the developer chat command (implemented):
 
-- `/game_data list` — the current revision, the catalogue counts and the `stats`/`mods`/`mod_stats` reference row counts;
+- `/game_data list` - the current revision, the catalogue counts, the `stats`/`mods`/`mod_stats` reference row counts and
+  the unique weight/override counts;
 - `/game_data reload` — re-read the override tables and publish a new snapshot;
 - `/game_data mod <mod-id> <stat-index> <min> <max>` — set a range;
 - `/game_data clear_mod <mod-id> [stat-index]`;
@@ -430,7 +485,7 @@ server process edits the same file later, add a `revision` check or a file-watch
    through `RangeAt`/`MaxValues`, DB set/clear commands, tests. This proves the no-restart cache.
 3. **Limits (done).** `LimitSettings` for timeless, radius jewels, Impossible Escape and tattoo groups; the hard-coded
    checks now read the effective limit; tests cover the changed group limit.
-4. **Content catalogues (done).** `catalog_entries` stores the full 1,302-row unique-item catalogue (generated from
+4. **Content catalogues (done).** `catalog_entries` stores the full 1,299-row unique-item catalogue (generated from
    PoB's Export/Uniques files), radius jewels, threshold jewels, unique jewels, timeless jewels, tattoo effects and
    unique jewel art. `stats`/`mods`/`mod_stats` hold the default stat keys and ranges behind
    `effective_mod_stats`. The current code arrays seed each kind on the first run; after that the database is the
@@ -477,10 +532,13 @@ Live check 2026-10-30 (Gateway and real client):
   jewel art rows. `/game_data list` reported the same counts.
 - The reference seed filled `stats` (23,346), `mods` (40,355) and `mod_stats` (60,695); the
   `effective_mod_stats` view returned the default range for `LocalAddedPhysicalDamage9` as 22..29 and 45..52.
+- The unique weight seed filled `unique_weights` with 1,527 rows (normal and Ruthless). `/game_data unique_weight Mageblood
+  0.5 0.25` showed the override in `unique_weights Mageblood`; `/game_data reference` rebuilt the reference weights and
+  kept the override; `clear_unique_weight Mageblood` restored the extracted value.
 - Changing the `Crown of Eyes` row's `ItemLevel` from 86 to 50 in `catalog_entries`, `/game_data reload`, and
   `/item Crown of Eyes` produced an ilvl 50 item. Restoring 86 and reloading published revision 3 with the original
   values.
-- `system_settings` seeded 45 rows: 21 socket caps (wand 3, body 6, helmet/gloves/boots 4, shield 3, belt 0, two-handed 6),
+- `system_settings` seeded 51 rows: 21 socket caps (wand 3, body 6, helmet/gloves/boots 4, shield 3, belt 0, two-handed 6),
   `passive_points_per_level` 1, the gold/drop/pack/experience/max-level/limit/grace defaults above. `/game_data settings`
   listed them; the first upgrade added the new keys without overwriting existing rows.
 - Set `socket_max_wand` 6, created a Kinetic Wand, and `/sockets RRGBBB` gave it six sockets; set the key back to 3 and

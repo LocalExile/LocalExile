@@ -219,7 +219,7 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
 
 The default Phrecia gate stays closed.
 `Game_VERIFIED_ANCESTRAL_COMMANDER=1` admits only this identity after the same read-only installed-graph check as
-Gambler (`VerifiedGamblerGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`).
+Gambler (`VerifiedPhreciaGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`).
 A client with the original Phrecia graph is refused before any save. Nothing installs or patches the archive.
 
 With the graph installed, start through `scripts/dev/live.ps1` and run:
@@ -257,4 +257,5 @@ With a `/spawn_mob <variety> unique` close by, a totem killed by those hits show
 which 45% of each hit comes from the next totem.
 Check that the totems rise and die with their animation, and that the client lets a third be placed.
 
-Coverage: `AscendancyGatewayIntegrationTests.AncestralCommander` and `VerifiedGamblerGraphTests`.
+Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Gateway tests went with the Gateway test reset of `3877f119`.

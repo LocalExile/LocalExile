@@ -187,7 +187,7 @@ skill is RandomElement), and monsters attacking the relic (none do, so it ends o
 
 ## Link skills
 
-Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link (`LinkSkills`, `Program.LinkSkills.cs`).
+Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link (`LinkSkills`, `LinkSkills.cs`).
 There is no party play, so a link can only take one of the player's minions, and only with Deep Connections.
 
 - **Cast.** Every cast route (0x24 on an object or on the player, 0x25 at the ground) ends in `CastGemSkill`. A link
@@ -261,7 +261,7 @@ is the player, that the client draws both buffs as sent, and whether the game ch
 
 The default Phrecia gate stays closed.
 `Game_VERIFIED_PALADIN=1` admits only this identity after the same read-only installed-graph check as Gambler
-(`VerifiedGamblerGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`). A client with the original Phrecia graph is
+(`VerifiedPhreciaGraph`, ordinary `82D82CD3…` and combined `F2766B5A…`). A client with the original Phrecia graph is
 refused before any save. Nothing installs or patches the archive.
 
 With the graph installed, start through `scripts/dev/live.ps1` and run:
@@ -306,4 +306,5 @@ up 60% faster until they end.
 None of the three builds at the top has both Elemental Valiance and Deep Connections, so their links have nothing to
 target.
 
-Coverage: `AscendancyGatewayIntegrationTests.Paladin`.
+Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Gateway tests went with the Gateway test reset of `3877f119`.

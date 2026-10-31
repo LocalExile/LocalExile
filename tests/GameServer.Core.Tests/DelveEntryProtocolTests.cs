@@ -5,6 +5,34 @@ namespace GameServer.Core.Tests;
 
 public sealed class DelveEntryProtocolTests
 {
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(123u)]
+    public void Trail_lamp_uses_native_radius_power_and_previous_object_link(uint previous)
+    {
+        using var r = new BinaryReader(new MemoryStream(new DelveTrailLightObject(10, 20, previous).Blob()));
+        r.ReadBytes(2);
+        Assert.Equal(10, r.ReadInt32()); Assert.Equal(20, r.ReadInt32());
+        r.ReadBytes(8); // rest of Positioned
+        Assert.Equal(0, r.ReadByte()); // original lamp AO
+        Assert.Equal(1, r.ReadByte()); // transitioned
+        r.ReadBytes(12); // Stats, Buffs
+        r.ReadBytes(55); // Life pools and flag
+        Assert.Equal(25f, r.ReadSingle());
+        Assert.Equal(previous == 0 ? 0u : 1u, r.ReadUInt32());
+        Assert.Equal(1, r.ReadByte()); Assert.Equal(0, r.ReadByte());
+        if (previous != 0) Assert.Equal(previous, r.ReadUInt32());
+        Assert.Equal(0, r.ReadByte());
+        Assert.Equal(r.BaseStream.Length, r.BaseStream.Position);
+    }
+    [Fact]
+    public void Crawler_orientation_uses_native_float_bits_and_unlocks_the_next_turn() =>
+        Assert.Equal("01B90000002A0000000000003F80000000", Convert.ToHexString(InstanceProtocol.Orientation(42, 1)));
+
+    [Fact]
+    public void Sulphite_fill_refresh_has_network_order_old_and_new_values() =>
+        Assert.Equal("022601F401F4", Convert.ToHexString(InstanceDelve.SulphiteChanged(500, 500)));
+
     [Fact]
     public void Mine_enables_the_shared_upgrade_container_without_changing_the_extra_terrain()
     {
@@ -101,7 +129,7 @@ public sealed class DelveEntryProtocolTests
             Assert.Equal(1, reader.ReadByte()); // transitioned
             Assert.Equal(new byte[12], reader.ReadBytes(12)); // Stats and Buffs
             Assert.Equal(1u, reader.ReadUInt32()); reader.ReadBytes(50 + 1); // remaining pools and Life flags
-            Assert.Equal(0u, reader.ReadUInt32()); Assert.Equal(0u, reader.ReadUInt32());
+            Assert.Equal(60f, reader.ReadSingle()); Assert.Equal(0u, reader.ReadUInt32());
             Assert.Equal(1, reader.ReadByte()); Assert.Equal(0, reader.ReadByte()); // powered, not a robot variation
         }
         Assert.Equal(0, reader.ReadByte());
