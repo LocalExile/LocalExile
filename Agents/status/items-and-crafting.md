@@ -127,6 +127,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceItems.cs`, Gateway (`ModCatalog.cs`, `ItemRolls.cs`, `ItemDrops.cs`, `ItemModStats.cs`,
   `ItemWeapons.cs`, `ItemDefences.cs`, `ItemCatalog.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2a-§2c.
+- Item states (verified live 2026-10-30): the six influences, split, synthesised, corrupted, mirrored and fractured,
+  and crafted and enchanted mods show in the client's tooltip and Ctrl+C text, and survive a relog and a Gateway restart.
+  `/item_state` switches them on the held item.
+  An influence opens its class's influence mods to every roll (`InfluenceTags.dat`), the uniques PoB marks Shaper or
+  Elder carry it, and the Fracturing Orb refuses influenced and synthesised items without spending the orb.
+  Nothing in play creates these states yet, and no mechanic reads influence.
+  Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
+  Docs: [13](../docs/protocol/13-items.md) §2f.
 - Game-data overrides (implemented 2026-10-30): the SQLite overlay `mod_stat_overrides`, `limit_overrides`,
   `catalog_entries` and `system_settings` in `data/saves.db` changes mod roll ranges, item limits, catalogues and
   numeric settings through `/game_data`; the Gateway loads the rows at startup, keeps the reference mod/base lists in
@@ -220,20 +228,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fresh real-client checks of the merged branch and other unique/conditional mechanics remain open.
   Code: `ItemDefences.cs`, `ItemModStats.cs`, Gateway (`Program.Equipment.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2-§2d.
-- **Item states:** influences, split and synthesised are modelled, sent and saved with the item, beside corrupted,
-  mirrored and fractured; `/item_state` switches them on the held item.
-  An influence opens its class's influence mods to every roll (`InfluenceTags.dat`), the uniques PoB marks Shaper or
-  Elder carry it, and the Fracturing Orb refuses influenced and synthesised items.
-  Automated coverage pins the bytes, saves, tags and refusals; the fields come from the client's readers and debug
-  dumps. Not seen in the real client yet: the tooltip lines, the icons and the influence bit order.
-  Nothing in play creates them yet, and no mechanic reads influence.
-  Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
-  Docs: [13](../docs/protocol/13-items.md) §2f.
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
   1,297 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`).
   Every definition but the five tinctures creates, writes and reloads by test (the server cannot write the Tincture
-  component); Mageblood and Crown of Eyes were seen in the client, the others not yet.
+  component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
+  Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
+  Atziri's Reign.
   `/item <name> <base name>` reaches one base of a unique with several (`/item Grand Spectrum Cobalt Jewel`).
   `/item Mageblood` creates the Heavy Belt unique with its name, artwork and fixed mods (the Strength is the base
   implicit); the client shows the unique tooltip.

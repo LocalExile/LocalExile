@@ -26,8 +26,8 @@ features.
   magic and rare items roll, drop unidentified and a Scroll of Wisdom identifies them (13 §2b);
   equipped items' mods count on the character (13 §2c).
   Life/mana flask charges, recovery, native drinking sound and full-pool refusal are implemented (13 §8).
-  Item states are in (13 §2f); open: seeing them in the real client (#60), currency that creates them, and
-  area and monster mods (#61).
+  Item states are in and verified live (13 §2f); open: currency that creates them and the mechanics that read them
+  (#60's follow-ups), and area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
 - **Start:** other currency through C→S 0x71 (13 §4: Alteration, Augmentation, Regal, Alchemy,

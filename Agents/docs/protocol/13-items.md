@@ -427,8 +427,7 @@ A refusal code near a check names it too: the code is a ClientStrings row + 1 (`
 
 **Influence bits.** Bit n is Influence n of `InfluenceTags.dat` and `InfluenceExalts.dat`: 0 Shaper, 1 Elder, 2 Crusader,
 3 Redeemer, 4 Hunter, 5 Warlord.
-The order is read from those two tables and the item popup's own mask (bits 0-5 in that order); no client code that joins
-Base `+0xc6` to the table was found, so it rests on the live check below.
+Each bit was sent alone and the client's Ctrl+C text named that influence (live 2026-10-30; below).
 The client tests `+0xc6` for zero in its crafting checks (`0x141d57ea0` "Item has influence", `0x141f85860` "Item has no
 influence") and reads each bit when it draws the item (`0x1415703a0`).
 
@@ -455,7 +454,19 @@ Uniques that PoB marks Shaper or Elder Item carry it in their definition (25 of 
 `ItemRolls.Fracture` refuses influenced and synthesised items (`ItemErrorCannotFractureSpecialItems`, "Cannot Fracture
 Influenced or Fractured Items", and poewiki for synthesised); a split item stays eligible.
 Tests pin the bytes, the saves, the tags and the refusals.
-Not seen in the real client yet: the tooltip lines, the influence icons and the bit order.
+
+Live 2026-10-30, on a rare Iron Ring with `/item_state`, read from the client's Ctrl+C text and tooltip:
+
+- Influences show as icons in the tooltip header and an overlay on the item's art; the tooltip has no line for them, and
+  the copied text says "Shaper Item", "Elder Item", "Crusader Item", "Redeemer Item", "Hunter Item", "Warlord Item".
+- Split and Corrupted are tooltip lines (Corrupted in red), and Mirrored too.
+- Synthesised renames the base ("Synthesised Iron Ring") and copies as "Synthesised Item".
+- A Domain 9 mod copies as `Master Crafted Prefix Modifier` with its own tooltip colour, and an enchant as `(enchant)`.
+- A Fracturing Orb on a Shaper ring was refused, leaving 3 orbs; the same ring without the influence fractured, leaving 2.
+- The ring's copied text was the same after a relog and after a Gateway restart, and a fractured ring kept its mod.
+
+Tooltips only show while the client has focus, and Alt pins one; a check by screenshot has to keep both in mind.
+
 Nothing in play creates these states yet: Conqueror's Orbs, Awakener's Orb, Beastcrafting and synthesis are follow-ups, and
 so are the mechanics that read influence (Spirit Charges, Elder/Shaper conditions, `PanelStats`), influenced vendor sets,
 foil, Foulborn and vestigial items.
