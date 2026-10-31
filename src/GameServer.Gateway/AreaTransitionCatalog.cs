@@ -34,7 +34,7 @@ static class AreaTransitionCatalog
             return [];
         }
         // A layout the Gateway generates itself knows each object's room and graph node: that decides (§8).
-        if (ServerLevels.For(id, seed) is { } level)
+        if (UseLayout && ServerLevels.For(id, seed) is { } level)
             return [.. FromLayout(area, level, notes).Select((t, i) => (FirstId + (uint)i, t with { InTown = area.IsTown }))];
         var topologies = area.Topologies ?? [];
         var captured = LoadCapture(id, seed);
@@ -117,11 +117,16 @@ static class AreaTransitionCatalog
     /// disabled teleport (an arena's way in that the real game unlocks, e.g. the Upper Prison's into Brutus's room) is
     /// created open: the encounters that would unlock it are not modelled.</summary>
     static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, List<string> notes) =>
-        FromExits(area.Id, area.Hash16, area.Connections ?? [], level.Exits, notes);
+        FromExits(area.Id, area.Hash16, area.Connections ?? [], level.Exits, notes, level.Entrances);
 
-    /// <summary><see cref="FromLayout"/> for an area's id, HASH16, WorldAreas connections and placed exits.</summary>
+    /// <summary><see cref="FromLayout"/> for an area's id, HASH16, WorldAreas connections and placed exits.
+    /// <paramref name="entrances"/> (the layout's entrance points): an enabled "entranceN" that got no object, to an area
+    /// no other exit leads to, is an exit without a model at its point. In the game that is a portal or an NPC's boat
+    /// that appears there (The Harvest's way to Highgate after Malachai, Weylam's boat at The Beacon and the Brine King's
+    /// Reef), or a town's exit no tile marks (Karui Shores' camp.arm "entrance1" to Oriath, as the atlas's point-only
+    /// exits); a quest gate on the destination still applies (Quests.FlagToEnter).</summary>
     internal static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
-        IReadOnlyList<PlacedExit> exits, List<string> notes)
+        IReadOnlyList<PlacedExit> exits, List<string> notes, IReadOnlyList<EntrancePoint>? entrances = null)
     {
         var placed = new List<AreaTransitionObject>();
         foreach (var e in exits)
@@ -165,6 +170,14 @@ static class AreaTransitionCatalog
                     break;
             }
         }
+        foreach (var p in entrances ?? [])
+        {
+            if (!p.Enabled || connections.FirstOrDefault(c => c.Index == p.Number) is not { } to) continue;
+            if (exits.Any(e => e.Kind == ExitKind.Entrance && e.Enabled && e.Number == p.Number)) continue;
+            if (placed.Any(t => t.DestinationHash16 == to.Hash16 && t.TeleportTo is null)) continue;
+            placed.Add(new AreaTransitionObject(p.X, p.Y, to.Hash16));
+            notes.Add($"entrance{p.Number} → {to.Id} at its point ({p.X}, {p.Y}): no object of its own, an exit without a model");
+        }
         return placed;
     }
 
@@ -194,11 +207,11 @@ static class AreaTransitionCatalog
     /// <summary>Where a player arriving from <paramref name="from"/> belongs in a generated layout: the named point of the
     /// "entranceN" (enabled or not) whose connection is that area, e.g. The Submerged Passage's Depths return
     /// (entrance4disabled) for a player coming up from The Flooded Depths.</summary>
-    public static (int X, int Y)? EntrancePoint(ushort hash, string id, uint seed, ushort from)
+    public static (int X, int Y)? EntrancePoint(ushort hash, IReadOnlyList<EntrancePoint> entrances, ushort from)
     {
-        if (Atlas.Value?.GetValueOrDefault(hash)?.Connections is not { } connections || ServerLevels.For(id, seed) is not { } level) return null;
+        if (Atlas.Value?.GetValueOrDefault(hash)?.Connections is not { } connections) return null;
         var numbers = connections.Where(c => c.Hash16 == from).Select(c => c.Index).ToHashSet();
-        return level.Entrances.Where(p => numbers.Contains(p.Number)).OrderBy(p => p.Enabled ? 1 : 0).Select(p => ((int, int)?)(p.X, p.Y)).FirstOrDefault();
+        return entrances.Where(p => numbers.Contains(p.Number)).OrderBy(p => p.Enabled ? 1 : 0).Select(p => ((int, int)?)(p.X, p.Y)).FirstOrDefault();
     }
 
     internal static bool TryDelveEntrance(string area, string? model, out ushort destination)
@@ -259,9 +272,14 @@ static class AreaTransitionCatalog
         }
     });
 
-    /// <summary>Whether a scripts/walkmaps capture wins over the layout the Gateway generates (off for scripts/re/exits,
-    /// which audits the generated layouts).</summary>
+    /// <summary>Whether a scripts/walkmaps capture is read for an area the Gateway does not generate (on). A generated
+    /// layout never reads one (<see cref="For"/>); scripts/re/exits turns captures off so that its comparison with the
+    /// model matching (<see cref="UseLayout"/> off) runs on the generated objects too.</summary>
     internal static bool UseCaptures { get; set; } = true;
+
+    /// <summary>Whether a generated layout's exits come from its graph nodes (§8, on), or from §7's model matching over
+    /// its objects (off: scripts/re/exits compares the two).</summary>
+    internal static bool UseLayout { get; set; } = true;
 
     /// <summary>True once scripts/walkmaps saved this layout's tile objects.</summary>
     public static bool Captured(string id, uint seed) => UseCaptures && File.Exists(CaptureFile(id, seed));

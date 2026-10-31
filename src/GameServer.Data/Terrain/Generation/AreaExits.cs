@@ -44,9 +44,9 @@ public sealed record EntrancePoint(int Number, bool Enabled, int X, int Y);
 /// </summary>
 public static class AreaExits
 {
-    static readonly Regex EntranceDescription = new(@"^entrance(\d+)(disabled)?$", RegexOptions.IgnoreCase);
-    static readonly Regex TeleportDescription = new(@"^teleport(\d+)(disabled)?(?:-(.*))?$", RegexOptions.IgnoreCase);
-    static readonly Regex TelepadDescription = new(@"^telepad(\d+)$", RegexOptions.IgnoreCase);
+    static readonly Regex EntranceDescription = new(@"^entrance\s*(\d+)(-?disabled)?$", RegexOptions.IgnoreCase);
+    static readonly Regex TeleportDescription = new(@"^teleport\s*(\d+)(disabled)?(?:[-=](.*))?$", RegexOptions.IgnoreCase);
+    static readonly Regex TelepadDescription = new(@"^telepad\s*(\d+)(?:-.*)?$", RegexOptions.IgnoreCase);
     static readonly Regex EntrancePointName = new(@"^entrance(\d*)$", RegexOptions.IgnoreCase);
     static readonly Regex TeleportPointName = new(@"^(?:telepad|teleport)(\d*)$", RegexOptions.IgnoreCase);
 
@@ -61,41 +61,57 @@ public static class AreaExits
         return objects;
     }
 
-    /// <summary>Each transition object of the layout with its role.</summary>
-    public static List<PlacedExit> Resolve(TerrainCache files, GenerationResult result) =>
-        Resolve(Rooms(files, result.Records.SelectMany(r => r.Rooms)), Objects(files, result));
+    /// <summary>Each transition object of the layout with its role, and where each "entranceN" is (<see cref="Entrances"/>).
+    /// <paramref name="usable"/>: whether a player can walk up to an object at a cell (a walkable cell in reach).</summary>
+    public static (List<PlacedExit> Exits, List<EntrancePoint> Entrances) Resolve(TerrainCache files, GenerationResult result,
+        Func<int, int, bool>? usable = null)
+    {
+        var rooms = Rooms(files, result.Records.SelectMany(r => r.Rooms));
+        var objects = Objects(files, result);
+        return (Resolve(rooms, objects, usable), Entrances(rooms, objects));
+    }
 
     /// <summary>Where each "entranceN" of the layout is (its slot, else its room's first transition object, else the
     /// room's centre).</summary>
-    public static List<EntrancePoint> Entrances(TerrainCache files, GenerationResult result)
+    public static List<EntrancePoint> Entrances(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects)
     {
-        var objects = Objects(files, result);
         var points = new List<EntrancePoint>();
-        foreach (var room in Rooms(files, result.Records.SelectMany(r => r.Rooms)))
+        foreach (var room in rooms)
             foreach (var d in room.Descriptions.Where(d => d.Kind == ExitKind.Entrance))
             {
-                (int X, int Y) at = room.SlotOf(d) is { } p ? (p.X, p.Y)
-                    : objects.FirstOrDefault(o => room.Contains(o.X, o.Y)) is { } o ? (o.X, o.Y) : room.Centre;
+                var inRoom = objects.FirstOrDefault(o => room.Contains(o.X, o.Y));
+                (int X, int Y) at = room.SlotOf(d) is { } p ? (p.X, p.Y) : inRoom is { } o ? (o.X, o.Y) : room.Centre;
                 points.Add(new EntrancePoint(d.Number, d.Enabled, at.X, at.Y));
             }
         return points;
     }
 
     /// <summary>The roles of <paramref name="objects"/> in a layout of rooms (<see cref="Rooms"/>).</summary>
-    public static List<PlacedExit> Resolve(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects)
+    public static List<PlacedExit> Resolve(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects,
+        Func<int, int, bool>? usable = null)
     {
         var exits = new List<PlacedExit>();
         var byRoom = new Dictionary<LayoutRoom, List<PlacedTileObject>>();
         foreach (var o in objects)
         {
-            // The room it stands in: the last placed whose footprint holds it (rooms placed later lie on top).
-            var room = rooms.LastOrDefault(r => r.Contains(o.X, o.Y));
+            // The room it stands in: of those whose footprint holds it, one whose node names an exit (a background fill
+            // room around The Rogue Harbour's rooms names none), the last placed (rooms placed later lie on top).
+            // An object a few cells outside such a room, in one that names none, is the exit room's (The Cathedral
+            // Rooftop's Kitava ladder, 3 cells off bossentry.arm in a fill room).
+            var room = rooms.LastOrDefault(r => r.Contains(o.X, o.Y) && r.Descriptions.Any(d => !d.IsTelepad))
+                ?? rooms.LastOrDefault(r => r.Contains(o.X, o.Y, 23) && r.Descriptions.Any(d => !d.IsTelepad))
+                ?? rooms.LastOrDefault(r => r.Contains(o.X, o.Y));
             if (room is null) { exits.Add(new PlacedExit(o, ExitKind.Unused, 0, false, null, null, null, "in no placed room")); continue; }
             if (!byRoom.TryGetValue(room, out var list)) byRoom[room] = list = [];
             list.Add(o);
         }
+        var roomOf = new Dictionary<PlacedTileObject, LayoutRoom>(ReferenceEqualityComparer.Instance);
         foreach (var (room, list) in byRoom)
-            exits.AddRange(Assign(room, list, rooms));
+        {
+            exits.AddRange(Assign(room, list, rooms, usable));
+            foreach (var o in list) roomOf[o] = room;
+        }
+        ArriveByTheGateBack(exits, roomOf, rooms);
         // The objects' order (the client's tile order).
         var order = new Dictionary<PlacedTileObject, int>(ReferenceEqualityComparer.Instance);
         for (int i = 0; i < objects.Count; i++) order.TryAdd(objects[i], i);
@@ -118,53 +134,70 @@ public static class AreaExits
         readonly Dictionary<Description, RoomPoint> _slots = new(ReferenceEqualityComparer.Instance);
 
         public string Name => Path.GetFileName(Room.Room.Path);
-        public bool Contains(int x, int y) =>
-            x >= Room.X * 23 && y >= Room.Y * 23 && x < (Room.X + Room.Width) * 23 && y < (Room.Y + Room.Height) * 23;
+        public bool Contains(int x, int y, int margin = 0) =>
+            x >= Room.X * 23 - margin && y >= Room.Y * 23 - margin && x < (Room.X + Room.Width) * 23 + margin
+            && y < (Room.Y + Room.Height) * 23 + margin;
         public (int X, int Y) Centre => (Room.X * 23 + Room.Width * 23 / 2, Room.Y * 23 + Room.Height * 23 / 2);
         public RoomPoint? SlotOf(Description d) => _slots.GetValueOrDefault(d);
 
         // Slots: numbered points by number; then the k-th generic point of a kind for the k-th description of that kind
         // (teleports and telepads each count from the first "telepad"/"teleport" point); then points left over, in order.
-        internal void PlaceSlots()
+        int Number(RoomPoint p, Regex r) => r.Match(p.Name).Groups[1].Value is { Length: > 0 } n ? int.Parse(n) : 0;
+        List<RoomPoint> EntrancePoints => [.. Points.Where(p => EntrancePointName.IsMatch(p.Name))];
+        List<RoomPoint> TeleportPoints => [.. Points.Where(p => TeleportPointName.IsMatch(p.Name))];
+
+        // Phase 1, the room alone: entrances (numbered points by number, then the k-th generic "entrance" point for the
+        // k-th enabled one: a disabled one is only an arrival point, The Control Blocks' "entrance2disabled"
+        // "entrance1") and telepads (by number, then the k-th generic "telepad"/"teleport" point).
+        internal void PlaceArrivals()
         {
-            var entrancePoints = Points.Where(p => EntrancePointName.IsMatch(p.Name)).ToList();
-            var teleportPoints = Points.Where(p => TeleportPointName.IsMatch(p.Name)).ToList();
-            int Number(RoomPoint p, Regex r) => r.Match(p.Name).Groups[1].Value is { Length: > 0 } n ? int.Parse(n) : 0;
-            var taken = new HashSet<RoomPoint>(ReferenceEqualityComparer.Instance);
-            void Place(IEnumerable<Description> descriptions, List<RoomPoint> points, Regex name, bool telepads)
+            void Place(IEnumerable<Description> descriptions, List<RoomPoint> points, Regex name)
             {
                 var list = descriptions.ToList();
                 foreach (var d in list)
-                    if (points.FirstOrDefault(p => Number(p, name) == d.Number) is { } numbered) { _slots[d] = numbered; taken.Add(numbered); }
+                    if (points.FirstOrDefault(p => Number(p, name) == d.Number) is { } numbered) _slots[d] = numbered;
                 var generic = points.Where(p => Number(p, name) == 0).ToList();
-                var free = new List<RoomPoint>(generic);
+                int k = 0;
                 foreach (var d in list.Where(d => !_slots.ContainsKey(d)))
-                {
-                    // A telepad shares a gate's point but never its own gate's: the arrival comes from where that point's
-                    // gate leads (The Weaver's treasure room: "teleport1" and "telepad2" at one point).
-                    var point = telepads
-                        ? free.FirstOrDefault(p => !_slots.Any(s => s.Key.Kind == ExitKind.Teleport && s.Key.Number == d.Number && ReferenceEquals(s.Value, p))) ?? free.FirstOrDefault()
-                        : free.FirstOrDefault();
-                    if (point is null) break;
-                    _slots[d] = point;
-                    free.Remove(point);
-                    if (!telepads) taken.Add(point);
-                }
+                    if (k < generic.Count) _slots[d] = generic[k++];
             }
-            // Enabled entrances first: a disabled one is only an arrival point and is never created (The Control Blocks'
-            // entrance room: "entrance2disabled" "entrance1", one "entrance" point).
-            Place(Descriptions.Where(d => d.Kind == ExitKind.Entrance).OrderBy(d => d.Enabled ? 0 : 1), entrancePoints, EntrancePointName, false);
-            Place(Descriptions.Where(d => d.Kind == ExitKind.Teleport), teleportPoints, TeleportPointName, false);
-            // Telepads share the gates' points (an arrival is next to the gate back).
-            Place(Descriptions.Where(d => d.IsTelepad), teleportPoints, TeleportPointName, true);
-            var left = entrancePoints.Concat(teleportPoints).Where(p => !taken.Contains(p)).ToList();
+            Place(Descriptions.Where(d => d.Kind == ExitKind.Entrance).OrderBy(d => d.Enabled ? 0 : 1), EntrancePoints, EntrancePointName);
+            Place(Descriptions.Where(d => d.IsTelepad), TeleportPoints, TeleportPointName);
+        }
+
+        // Phase 2, with every room's telepads: a gate stands beside the arrival from the place it leads to: "teleportM"
+        // takes the slot of this room's "telepadK" whose "teleportK" stands in the room of "telepadM" (K ≠ M). The
+        // Cathedral Rooftop's bossentry ("telepad1" "telepad2" "telepad3" "teleport4" "teleport3-ArenaNameKitava"
+        // "teleport1-%areaname%" "teleport5-…Ladder"): the arena gate teleport3 is at telepad1's point, its way out
+        // teleport1 at telepad3's, the way to the dock teleport4 at telepad2's (the dock's teleport2 lands there). Else a
+        // numbered point, else the k-th generic one no gate took; then points left over; a telepad without a point
+        // arrives at its room's gate.
+        internal void PlaceGates(IReadOnlyList<LayoutRoom> rooms)
+        {
+            LayoutRoom? RoomOf(Func<Description, bool> which) =>
+                rooms.Where(r => r.Descriptions.Any(which)).OrderBy(r => ReferenceEquals(r, this) ? 1 : 0).FirstOrDefault();
+            var teleportPoints = TeleportPoints;
+            var gates = Descriptions.Where(d => d.Kind == ExitKind.Teleport).ToList();
+            var gateTaken = new HashSet<RoomPoint>(ReferenceEqualityComparer.Instance);
+            foreach (var g in gates)
+            {
+                if (teleportPoints.FirstOrDefault(p => Number(p, TeleportPointName) == g.Number) is { } numbered) { _slots[g] = numbered; continue; }
+                var target = RoomOf(d => d.IsTelepad && d.Number == g.Number);
+                var arrival = Descriptions.Where(d => d.IsTelepad && d.Number != g.Number && _slots.ContainsKey(d))
+                    .FirstOrDefault(d => target is not null && ReferenceEquals(RoomOf(t => t.Kind == ExitKind.Teleport && t.Number == d.Number), target));
+                if (arrival is not null) { _slots[g] = _slots[arrival]; gateTaken.Add(_slots[g]); }
+            }
+            var generic = teleportPoints.Where(p => Number(p, TeleportPointName) == 0).ToList();
+            foreach (var g in gates.Where(g => !_slots.ContainsKey(g)))
+                if (generic.FirstOrDefault(p => !gateTaken.Contains(p)) is { } free) { _slots[g] = free; gateTaken.Add(free); }
+            var taken = new HashSet<RoomPoint>(_slots.Where(s => !s.Key.IsTelepad).Select(s => s.Value), ReferenceEqualityComparer.Instance);
+            var left = EntrancePoints.Concat(teleportPoints).Where(p => !taken.Contains(p)).ToList();
             foreach (var d in Descriptions.Where(d => !_slots.ContainsKey(d) && !d.IsTelepad))
             {
                 if (left.Count == 0) break;
                 _slots[d] = left[0];
                 left.RemoveAt(0);
             }
-            // A telepad in a room without teleport points arrives at the room's gate (another number's), else its first point.
             foreach (var d in Descriptions.Where(d => d.IsTelepad && !_slots.ContainsKey(d)))
                 if (_slots.FirstOrDefault(s => s.Key.Kind == ExitKind.Teleport && s.Key.Number != d.Number).Value is { } gate) _slots[d] = gate;
                 else if (Points.FirstOrDefault(p => EntrancePointName.IsMatch(p.Name) || TeleportPointName.IsMatch(p.Name)) is { } any) _slots[d] = any;
@@ -174,13 +207,9 @@ public static class AreaExits
     /// <summary>The placed rooms with their points, descriptions and slots.</summary>
     public static List<LayoutRoom> Rooms(TerrainCache files, IEnumerable<PlacedRoom> rooms)
     {
-        var list = new List<LayoutRoom>();
-        foreach (var r in rooms)
-        {
-            var room = new LayoutRoom { Room = r, Points = Points(files, r), Descriptions = Descriptions(r) };
-            room.PlaceSlots();
-            list.Add(room);
-        }
+        var list = rooms.Select(r => new LayoutRoom { Room = r, Points = Points(files, r), Descriptions = Descriptions(r) }).ToList();
+        foreach (var room in list) room.PlaceArrivals();
+        foreach (var room in list) room.PlaceGates(list);
         return list;
     }
 
@@ -188,8 +217,7 @@ public static class AreaExits
     // (named by a Metadata path), in file order.
     static List<RoomPoint> Points(TerrainCache files, PlacedRoom room)
     {
-        if (files.Text(room.Room.Path) is not { } text) return [];
-        var file = RoomFile.Parse(text);
+        if (files.ArmFile(room.Room.Path) is not { } file) return [];
         int w = room.Room.Width * 23, h = room.Room.Height * 23;
         var points = new List<RoomPoint>();
         foreach (var p in file.Points)
@@ -219,7 +247,8 @@ public static class AreaExits
 
     static long Distance(int x, int y, PlacedTileObject o) => (long)(x - o.X) * (x - o.X) + (long)(y - o.Y) * (y - o.Y);
 
-    static IEnumerable<PlacedExit> Assign(LayoutRoom room, List<PlacedTileObject> objects, IReadOnlyList<LayoutRoom> rooms)
+    static IEnumerable<PlacedExit> Assign(LayoutRoom room, List<PlacedTileObject> objects, IReadOnlyList<LayoutRoom> rooms,
+        Func<int, int, bool>? usable)
     {
         var exitsOfNode = room.Descriptions.Where(d => !d.IsTelepad).OrderBy(d => d.Enabled || d.Kind == ExitKind.Teleport ? 0 : 1).ToList();
         if (exitsOfNode.Count == 0)
@@ -228,13 +257,19 @@ public static class AreaExits
                 yield return new PlacedExit(o, ExitKind.Unused, 0, false, null, null, room.Name, $"{room.Name}'s node names no exit");
             yield break;
         }
-        // Each exit with a slot takes the nearest object (closest pairs first); exits without one take what is left.
+        // Each exit with a slot takes the nearest object (closest pairs first); exits without one take what is left. An
+        // object no player can walk up to comes after every usable one (The Harbour Bridge arena's transition1 door, 44
+        // cells from walkable ground; The Lower Prison's ceiling marker). Of gates tied for an object, one leading to
+        // another room picks first.
         var pick = new Dictionary<PlacedTileObject, (Description D, string Why)>(ReferenceEqualityComparer.Instance);
+        bool Usable(PlacedTileObject o) => usable?.Invoke(o.X, o.Y) != false;
+        bool Inward(Description d) => d.Kind == ExitKind.Teleport
+            && rooms.Where(r => r.Descriptions.Any(t => t.IsTelepad && t.Number == d.Number)).All(r => ReferenceEquals(r, room));
         var pairs = from d in exitsOfNode
                     let slot = room.SlotOf(d)
                     where slot is not null
                     from o in objects
-                    orderby Distance(slot.X, slot.Y, o)
+                    orderby Usable(o) ? 0 : 1, Distance(slot.X, slot.Y, o), Inward(d) ? 1 : 0
                     select (d, o, slot);
         var done = new HashSet<Description>(ReferenceEqualityComparer.Instance);
         foreach (var (d, o, slot) in pairs)
@@ -244,7 +279,7 @@ public static class AreaExits
             done.Add(d);
         }
         foreach (var d in exitsOfNode.Where(d => !done.Contains(d)))
-            if (objects.FirstOrDefault(o => !pick.ContainsKey(o)) is { } o)
+            if (objects.Where(o => !pick.ContainsKey(o)).OrderBy(o => Usable(o) ? 0 : 1).FirstOrDefault() is { } o)
                 pick[o] = (d, $"{room.Name}, no point for it");
         foreach (var o in objects)
         {
@@ -261,6 +296,28 @@ public static class AreaExits
                 if (target is null) why += $", no telepad{d.Number}";
             }
             yield return new PlacedExit(o, d.Kind, d.Number, d.Enabled, d.Label, target, room.Name, why);
+        }
+    }
+
+    // An arrival is next to the gate back: "teleportN" in room S lands in the room R that names "telepadN", beside R's
+    // gate (another number's) whose own telepad is in S, at that gate's object. The Hall of Grandmasters' main.arm has
+    // eight gates to the arena entrances and eight arrivals from them at "telepad" points that repeat; each arrival is at
+    // the door back to its arena. Without such a gate the telepad's slot stays.
+    static void ArriveByTheGateBack(List<PlacedExit> exits, Dictionary<PlacedTileObject, LayoutRoom> roomOf, IReadOnlyList<LayoutRoom> rooms)
+    {
+        LayoutRoom? PadRoom(int n, LayoutRoom from)
+        {
+            var pads = rooms.Where(r => r.Descriptions.Any(d => d.IsTelepad && d.Number == n)).ToList();
+            return pads.FirstOrDefault(r => !ReferenceEquals(r, from)) ?? pads.FirstOrDefault();
+        }
+        var gates = exits.Where(e => e.Kind == ExitKind.Teleport).ToList();
+        for (int i = 0; i < exits.Count; i++)
+        {
+            var e = exits[i];
+            if (e.Kind != ExitKind.Teleport || !roomOf.TryGetValue(e.Object, out var from) || PadRoom(e.Number, from) is not { } to) continue;
+            var back = gates.FirstOrDefault(g => g.Number != e.Number && roomOf.TryGetValue(g.Object, out var r) && ReferenceEquals(r, to)
+                && PadRoom(g.Number, to) is { } there && ReferenceEquals(there, from));
+            if (back is not null) exits[i] = e with { Target = (back.Object.X, back.Object.Y) };
         }
     }
 

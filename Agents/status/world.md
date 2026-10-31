@@ -36,17 +36,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: Gateway (`RunServerFrames`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §6.
 - Area transitions in every area, with their destinations, models (the arch highlighted on hover), rotation and
-  height. In a layout the Gateway generates, each exit's destination comes from the graph node of the room it stands
-  in ("entranceN" → Connections[N − 1], "teleportN" → the "telepadN" slot, as gates within the area: the Upper Prison's
-  way to the Warden's Quarters, boss arenas); other areas use the walk-map recorder's capture and the atlas.
-  The offline audit `scripts/re/exits` checks acts 1–10 at four seeds each: 8 of 600 loads keep a problem (two
-  boss arenas, 1_5_8 and 2_8_13, below), from 221 with the atlas's model matching;
+  height.
+  In a layout the Gateway generates, each exit leads where the graph node of its room says: "entranceN" to
+  Connections[N − 1], "teleportN" to the "telepadN" slot as a gate within the area (the Upper Prison's way to the
+  Warden's Quarters, boss arenas).
+  Other areas use the walk-map recorder's capture and the atlas.
+  The offline audit `scripts/re/exits` checks every generated area at several seeds;
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
   Native requirement removal/restoration, four town/Coast transfers, spell payment, ES recovery and relog controls pass.
-  Code: Gateway (`AreaTransitionCatalog.cs`), `AreaExits.cs`, `scripts/walkmaps`, `scripts/re/atlas`, `scripts/re/exits`,
-  Auth's instance registry.
+  Code: Gateway (`AreaTransitionCatalog.cs`), `AreaExits.cs`, `scripts/walkmaps`, `scripts/re/atlas`,
+  `scripts/re/exits`, Auth's instance registry.
   Docs: [08](../docs/protocol/08-area-transitions.md) §8, [09](../docs/protocol/09-area-change.md).
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance
@@ -153,10 +154,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Area transitions of a generated area the Gateway does not generate itself need a `-Walkmaps` capture for its seed.
   Exits the game opens later are not modelled: "teleportNdisabled" gates (an arena's way in, a shortcut back) are
-  created open, and an "entranceN" whose room holds no object (the portal to town after Malachai, Kitava, the Brine
-  King) is not created. Two boss rooms have more gates than named points and pair them wrongly: The Cathedral
-  Rooftop (1_5_8, Kitava's arena) and The Harbour Bridge (2_8_13, the arena's inner gate)
-  ([08](../docs/protocol/08-area-transitions.md) §8).
+  created open.
+  An "entranceN" with no object of its own (the portal to Highgate after Malachai, Weylam's boat) is an exit without a
+  model at its point, there from the start.
+  The move the game makes when a fight ends is not modelled: The Rotting Core's way to Weylam's boat (telepad16)
+  after the Depraved Trinity ([08](../docs/protocol/08-area-transitions.md) §8).
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.

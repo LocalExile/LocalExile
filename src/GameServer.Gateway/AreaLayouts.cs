@@ -125,7 +125,7 @@ static class AreaLayouts
             return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height) with
             {
                 CellHeights = generated.Heights,
-                EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, id, seed, from),
+                EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from),
             };
         byte[]? cells = LoadCells(id, seed, out int w, out int h);
         return WithCells(hash, id, seed, cells, w, h);

@@ -40,4 +40,22 @@ public class AreaTransitionLayoutTests
         Assert.Equal((90, 90), placed[1].TeleportTo);
         Assert.Contains(notes, n => n.Contains("entrance3") && n.Contains("not created"));
     }
+
+    [Fact]
+    public void An_entrance_without_an_object_of_its_own_is_an_exit_at_its_point()
+    {
+        // Karui Shores' camp.arm "entrance1" to Oriath and The Harvest's boss_2 "entrance2" to Highgate (the game's portal
+        // after Malachai; the room's only object is the arena gate): exits without a model at the entrance point. Not for
+        // a disabled entrance, one that has its object, or a destination another exit already reaches.
+        var notes = new List<string>();
+        AreaTransitionCatalog.AtlasConnection[] connections = [new(1, "a", 0x3333), new(2, "b", 0x4444), new(3, "c", 0x5555), new(4, "a", 0x3333)];
+        var placed = AreaTransitionCatalog.FromExits("x", 0x6666, connections,
+            [Exit("gate.ao", 50, 50, ExitKind.Teleport, 1, target: (90, 90)), Exit("door.ao", 20, 20, ExitKind.Entrance, 3)], notes,
+            [new EntrancePoint(1, true, 563, 157), new EntrancePoint(2, false, 10, 10), new EntrancePoint(3, true, 21, 21),
+             new EntrancePoint(4, true, 30, 30)]);
+        Assert.Equal(3, placed.Count);
+        var point = placed[2];
+        Assert.Equal((563, 157, (ushort)0x3333), (point.GridX, point.GridY, point.DestinationHash16));
+        Assert.Null(point.Model);
+    }
 }
