@@ -166,7 +166,7 @@ partial class Program
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
                 CannotBeStunned = !friendly && KingInMists.IsBoss(variety),
                 KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
-                KingGrace = !friendly && (KingInMists.IsBoss3(variety) || KingInMists.IsFetish(variety)),
+                KingGrace = !friendly && KingInMists.IsBoss3(variety),
             }, emerge, waits);
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).

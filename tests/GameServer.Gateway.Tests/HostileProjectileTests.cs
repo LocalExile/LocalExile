@@ -88,7 +88,8 @@ public class HostileProjectileTests
         Assert.Equal("projectile_01", wand!.DefaultAnimation);
         Assert.Equal((OrdinaryRangedAttack.WandImpactAnimation, (int)(OrdinaryRangedAttack.WandImpactSeconds * 1000)), (wand.Impact!.Index, wand.Impact.Ms));
 
-        // A once-only flight clip is stretched over the flight; a default-animation flight needs no clip of its own.
+        // A once-only flight clip is stretched over the flight. Even a flight the .ao declares as its default gets the
+        // explicit clip: a server-created projectile object must be told to animate (live 2026-10-31).
         var presentation = Program.MonsterProjectilePresentation(mortar, flightSeconds: 0.25);
         Assert.NotNull(presentation);
         Assert.Equal(1u, presentation!.FlightClip);
@@ -97,7 +98,7 @@ public class HostileProjectileTests
         Assert.Equal(ProjectileRuntime.Time(0.666), presentation.ImpactLifetime);
         var bolt = Program.MonsterProjectilePresentation(wand, 0.5);
         Assert.NotNull(bolt);
-        Assert.Null(bolt!.FlightClip);
+        Assert.Equal(1u, bolt!.FlightClip);
         Assert.Equal(0u, bolt.ImpactClip);
         Assert.Null(Program.MonsterProjectilePresentation(null, 0.5));
     }

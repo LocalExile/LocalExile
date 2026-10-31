@@ -25,6 +25,8 @@ static class KingInMists
     const string WerewolfMaze = "Metadata/Monsters/LeagueAzmeri/Werewolves/WerewolfMaze";
     const string MeleeSpiderMaze = "Metadata/Monsters/LeagueAzmeri/Spiders/MeleeSpiderMaze";
     internal const string MysticFetish = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2RitualPillar";
+    internal const string CentralShrine = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2";
+    internal const string CentralShrineModel = "Metadata/Terrain/Doodads/Leagues/Azmeri/HugeRitualShrine01_01.ao";
 
     // The arena.arm object points, relative to its "mapboss" point (162, 174): the three Mystic Fetishes
     // (94, 122), (230, 123) and (160, 238), and the central HugeRitualShrine (162, 162). The client places the room
@@ -174,13 +176,14 @@ static class KingInMists
         attack.Damage.Scale(0.55).Add(DamageType.Chaos, attack.Damage[DamageType.Physical].Scale(0.18)))
         with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugBomb", 400, Lobbed: true, 2) { AreaRadius = 9 } };
 
+    // The official cast releases six BugSoulrend projectiles (Projectiles.dat: collision radius 3, speed 200).
     static MonsterAttack BugRend(MonsterAttack attack) => With(attack, BugRendSkill, 1.0, 48,
         attack.Damage.Scale(0.8))
-        with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 6) };
+        with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 3) { Count = 6 } };
 
     static MonsterAttack BugRendSingle(MonsterAttack attack) => With(attack, BugRendSingleSkill, 1.0, 48,
         attack.Damage.Scale(0.8))
-        with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 1) };
+        with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 3) };
 
     static MonsterAttack Punishment(MonsterAttack attack) => With(attack, PunishmentSkill, 1.0, 40,
         attack.Damage.Scale(0.9));
@@ -203,9 +206,11 @@ static class KingInMists
     {
         (int X, int Y) _origin;
         int _phase = IsBoss3(boss.Variety) ? 3 : 1;
-        int _altars;
+        int _altars, _nextAltar;
         ushort? _portentBuff;
         readonly uint?[] _fetishes = new uint?[3];
+        uint? _centralShrine;
+        StateMachineData? _centralShrineStates;
         double _nextSlam, _nextCascade, _nextProjectile, _nextTeleport, _nextEffigy, _nextBomb, _nextRend, _nextChase;
         double _nextHex, _nextPunishment, _graceUntil;
         bool _barShown, _mazeStarted, _hexDance;
@@ -227,6 +232,7 @@ static class KingInMists
             try
             {
                 await FindOrSpawnFetishes();
+                await SpawnCentralShrine();
                 while (true)
                 {
                     await Task.Delay(50);
@@ -489,44 +495,185 @@ static class KingInMists
             await Program.MonsterSwing(remote, stream, ciphers, conn, id, boss, action, attack, area, radius);
         }
 
+        // The official phase-1 loop is: teleport to a fetish, channel GSVoodooKingRitual into it, then
+        // EASVoodooKingReturnFromEdge back to the centre. The teleport and return are actions with their own one-second
+        // clips; moving the object (0x1b7) at the action's departure and ending the action before the next one keeps the
+        // model from being left in a teleport/channel pose. A hit on the King or the fetish dying during the channel
+        // interrupts it: the fetish is not activated and no hazard is summoned.
         async Task TeleportToAltar(double now)
         {
-            int which = _altars++;
+            int which = NextFetish();
+            if (which < 0)
+            {
+                _altars = 3;
+                return;
+            }
             var (fx, fy) = FetishPoint(which);
             var (x, y) = BossStandPoint(fx, fy);
             var at = boss.Walk.Position(now);
-            boss.Walk.Teleport(x, y, now);
-            boss.BusyUntil = now + 1.6;
+            boss.BusyUntil = now + 2.6;
             boss.LastTarget = null;
             int action;
             lock (conn.Monsters) action = ++boss.ActionGeneration;
-            await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
+            if (!await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
                 () => InstanceProtocol.ActionStarted(id, at.X, at.Y, x, y, TeleportSkill, Program.MonsterActionSequence, 0x0408),
-                $"0x01ab King in the Mists teleports next to Mystic Fetish {which + 1} at ({x}, {y})");
+                $"0x01ab King in the Mists teleports next to Mystic Fetish {which + 1} at ({x}, {y})")) return;
+            // Teleport's clip is one second (GrantedEffects CastTime 1000). Move the object at the departure end, then
+            // end the action so the ritual does not replace a still-running teleport clip.
+            await Task.Delay(750);
+            if (!Present()) return;
+            double movedAt = conn.Clock.Elapsed.TotalSeconds;
+            lock (conn.Monsters) boss.Walk.Teleport(x, y, movedAt);
             await Program.Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, x, y),
                 $"0x01b7 King in the Mists teleports to ({x}, {y})");
-            await ActivateFetish(which);
-            if (_fetishes[which] is { } fetishId)
+            await Task.Delay(350);
+            if (!Present()) return;
+            bool teleportFlinching;
+            lock (conn.Monsters) teleportFlinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+            if (!teleportFlinching)
+                await Program.Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id),
+                    "0x01ac King in the Mists teleport ends");
+
+            if (_fetishes[which] is not { } fetishId) return;
+            var (tx, ty) = FetishPoint(which);
+            int channel;
+            double startedAt;
+            uint startLife;
+            lock (conn.Monsters)
             {
-                // The official 3.29.3b capture activates a fetish with GSVoodooKingRitual targeted at the fetish. The
-                // fetish itself casts the matching hazard. Do not end the teleport action or send a second position
-                // packet: the extra 0x1ac/0x1b7 pair made the client model freeze/snap.
-                await CastAt(RitualSkill, fetishId, "performs the Mystic Fetish ritual");
-                await Task.Delay(600);
+                startedAt = conn.Clock.Elapsed.TotalSeconds;
+                var here = boss.Walk.Position(startedAt);
+                boss.Walk.Order(here.X, here.Y, startedAt);   // a channel stops the teleport/chase
+                channel = ++boss.ActionGeneration;
+                boss.BusyUntil = Math.Max(boss.BusyUntil, startedAt + 3.2);
+                startLife = boss.Life;
+            }
+            Console.WriteLine($"[gateway] {remote} King in the Mists 0x{id:x} phase {_phase}: channels into Mystic Fetish {which + 1}");
+            if (!await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, channel,
+                () => InstanceProtocol.ActionStarted(id, x, y, tx, ty, RitualSkill,
+                    Program.MonsterActionSequence, 0x0408, targetObjectId: fetishId),
+                $"0x01ab King in the Mists channels GSVoodooKingRitual into Mystic Fetish {which + 1}"))
+            {
+                // A hit between the teleport and the channel invalidated it. Let the flinch finish, return to the
+                // centre and retry later instead of leaving the model at the fetish.
+                while (Present() && conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil) await Task.Delay(50);
+                if (Present()) await ReturnToCentre();
+                _nextTeleport = conn.Clock.Elapsed.TotalSeconds + 5;
+                return;
+            }
+
+            bool interrupted = false;
+            double until = startedAt + 2.5;
+            while (conn.Clock.Elapsed.TotalSeconds < until)
+            {
+                await Task.Delay(50);
                 if (!Present()) return;
+                if (conn.Paused) continue;
+                lock (conn.Monsters)
+                    if (boss.Dead || boss.Life < startLife || boss.ActionGeneration != channel)
+                        interrupted = true;
+                if (!FetishAlive(which)) interrupted = true;
+                if (interrupted) break;
+            }
+
+            bool flinching;
+            lock (conn.Monsters) flinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+            if (!flinching)
+                await Program.Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id),
+                    interrupted ? "0x01ac King in the Mists ritual interrupted" : "0x01ac King in the Mists ritual ends");
+            if (!interrupted)
+            {
+                await ActivateFetish(which);
+                await AdvanceCentralShrine();
                 await CastFetish(which);
             }
-            _nextTeleport = now + 10;
+            // A hit reaction owns the actor until its recovery ends; starting the return action before that would
+            // replace the flinch and leave the model at the fetish.
+            while (Present() && conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil) await Task.Delay(50);
+            if (!Present()) return;
+            await ReturnToCentre();
+            _nextAltar = (which + 1) % _fetishes.Length;
+            if (interrupted)
+            {
+                // The ritual did not count: the King tries another fetish later.
+                _nextTeleport = conn.Clock.Elapsed.TotalSeconds + 5;
+                return;
+            }
+            _altars++;
+            _nextTeleport = conn.Clock.Elapsed.TotalSeconds + 10;
             conn.KingPortentStacks = Math.Min(3, conn.KingPortentStacks + 1);
-            conn.KingPortentUntil = now + 30;
-            await AddPortentBuff(now + 30);
+            conn.KingPortentUntil = conn.Clock.Elapsed.TotalSeconds + 30;
+            await AddPortentBuff(conn.KingPortentUntil);
             await Summon(PoisonRat, 2 + which);
             // The third fetish is the last one: "the darkness, exultant". The phase itself changes at 30% life (Run),
             // not here.
         }
 
+        // The official ReturnFromEdge clip is also one second (Teleport, granted effect 8343). Start it at the fetish,
+        // move the object back to the arena centre at departure, and end the action before the next decision.
+        async Task ReturnToCentre()
+        {
+            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            var here = boss.Walk.Position(startedAt);
+            var (cx, cy) = _origin;
+            if (Distance(here.X, here.Y, cx, cy) <= 2) return;
+            int action;
+            lock (conn.Monsters)
+            {
+                action = ++boss.ActionGeneration;
+                boss.BusyUntil = Math.Max(boss.BusyUntil, startedAt + 2.0);
+            }
+            if (!await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
+                () => InstanceProtocol.ActionStarted(id, here.X, here.Y, cx, cy, ReturnFromEdgeSkill,
+                    Program.MonsterActionSequence, 0x0408, targetObjectId: id),
+                $"0x01ab King in the Mists returns from the Mystic Fetish to ({cx}, {cy})")) return;
+            await Task.Delay(650);
+            if (!Present()) return;
+            double movedAt = conn.Clock.Elapsed.TotalSeconds;
+            lock (conn.Monsters) boss.Walk.Teleport(cx, cy, movedAt);
+            await Program.Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, cx, cy),
+                $"0x01b7 King in the Mists returns to the arena centre at ({cx}, {cy})");
+            await Task.Delay(350);
+            if (!Present()) return;
+            bool flinching;
+            lock (conn.Monsters) flinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+            if (!flinching)
+                await Program.Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id),
+                    "0x01ac King in the Mists return ends");
+        }
+
+        // The central HugeRitualShrine01_01.ao actor is a room object, not a doodad: the official server creates
+        // RitualPillar2 at the arena.arm object point (mapboss-relative (0, -12)). Its active_pillars state is the
+        // number of completed fetish rituals, so its first update is the shrine's start animation.
+        async Task SpawnCentralShrine()
+        {
+            if (_centralShrine is not null) return;
+            var (x, y) = conn.Layout.Near((_origin.X, _origin.Y - 12));
+            uint shrineId = conn.NextObjectId++;
+            var states = new StateMachineData([0], 0, ["active_pillars"]);
+            _centralShrine = shrineId;
+            _centralShrineStates = states;
+            var obj = new RitualPillarObject(x, y, 0f, CentralShrineModel, states);
+            await Program.Send(remote, stream, ciphers,
+                InstanceEntities.CreateObject(shrineId, InstanceEntities.ObjectTypeHash(CentralShrine), obj.Blob()),
+                $"0x02b9 create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
+            await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(shrineId),
+                $"0x01a9 central HugeRitualShrine 0x{shrineId:x} enters wake zone");
+        }
+
+        async Task AdvanceCentralShrine()
+        {
+            if (_centralShrine is not { } shrineId || _centralShrineStates is not { } states) return;
+            int value = Math.Min(3, states.SharedStates[0] + 1);
+            states = states.Set("active_pillars", value);
+            _centralShrineStates = states;
+            await Program.Send(remote, stream, ciphers,
+                InstanceEntities.StateMachineUpdate(shrineId, RitualPillarObject.StateMachineComponentIndex, states),
+                $"0x02ba central HugeRitualShrine 0x{shrineId:x} active_pillars = {value}");
+        }
+
         // The three Mystic Fetishes are room objects of arena.arm (not doodads), so the server has to create them. They
-        // are friendly, stationary shrines; PlanMonsterAi skips their variety.
+        // are hostile, stationary and destructible; PlanMonsterAi skips their variety.
         async Task FindOrSpawnFetishes()
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
@@ -567,6 +714,23 @@ static class KingInMists
             return conn.Layout.Near((_origin.X + dx, _origin.Y + dy));
         }
 
+        bool FetishAlive(int which)
+        {
+            if (_fetishes[which] is not { } fetishId) return false;
+            lock (conn.Monsters)
+                return conn.Monsters.TryGetValue(fetishId, out var fetish) && !fetish.Dead && fetish.Life > 0;
+        }
+
+        int NextFetish()
+        {
+            for (int k = 0; k < _fetishes.Length; k++)
+            {
+                int which = (_nextAltar + k) % _fetishes.Length;
+                if (FetishAlive(which)) return which;
+            }
+            return -1;
+        }
+
         // The King stands a few cells in front of the fetish, on the platform, instead of inside the shrine's footprint.
         (int X, int Y) BossStandPoint(int fx, int fy)
         {
@@ -588,27 +752,6 @@ static class KingInMists
             lock (conn.Monsters) fetish.States = states;
             await Program.Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(fetishId, (byte)index, states),
                 $"0x02ba Mystic Fetish {which + 1} activates");
-        }
-
-        // A non-damaging skill aimed at another object (the official GSVoodooKingRitual targets the fetish, not the
-        // player). The client plays the skill's own animation and the target receives the ritual.
-        async Task CastAt(ushort skill, uint target, string label)
-        {
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
-            int action;
-            (int X, int Y) at;
-            lock (conn.Monsters)
-            {
-                at = boss.Walk.Position(startedAt);
-                boss.Walk.Order(at.X, at.Y, startedAt);
-                action = ++boss.ActionGeneration;
-                boss.BusyUntil = Math.Max(boss.BusyUntil, startedAt + 2.0);
-            }
-            Console.WriteLine($"[gateway] {remote} King in the Mists 0x{id:x} phase {_phase}: {label}");
-            await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
-                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skill,
-                    Program.MonsterActionSequence, 0x0408, targetObjectId: target),
-                $"0x01ab King in the Mists {label}");
         }
 
         // The official fetishes cast their own hazard (RatSwarm, CorruptedBloodDegen, SummonFrogSwamps) when the King's

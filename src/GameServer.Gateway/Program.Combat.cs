@@ -1180,6 +1180,9 @@ partial class Program
         lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
         await SendVaalSouls(remote, stream, ciphers, conn);
         if (m.Variety is not { } variety || !m.Hostile) return;
+        // A Mystic Fetish is a destructible arena object: breaking it interrupts the King's ritual and gives no
+        // experience, loot or quest progress of its own.
+        if (KingInMists.IsFetish(variety)) return;
         var killer = PlayerOf(conn);
         var monster = ModMonster(m, at);
         await ServerMods.MonsterKilled(new(killer, monster));

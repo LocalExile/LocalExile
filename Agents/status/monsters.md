@@ -105,19 +105,24 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
-  Mystic Fetishes as visible shrines, teleports next to them and activates them (Portent Vapors stacks), summons Plagued
-  Rats and an effigy; at 30% life it slams its staff, teleports the player into the same-area hedge maze (wisps, exit
+  Mystic Fetishes as visible shrines, teleports next to them, channels the ritual into one (interruptible by hitting the
+  King or breaking the fetish) and returns to the centre (Portent Vapors stacks), summons Plagued Rats and an effigy; the
+  central `RitualPillar2` shrine is created and advances its `active_pillars` animation with each completed ritual. At
+  30% life it slams its staff, teleports the player into the same-area hedge maze (wisps, exit
   portal and Branching Affliction) and becomes the treant (`VoodooKingBoss3`, about 26.6M life) on the return, with a
   7 s emergence grace, Treant Slam, Bug Bomb, Bugrend, effigy summons and a walk that follows a kiting player. The kill
   rolls the guaranteed unique (with That Which Was Taken paired with The Light of Meaning), Hextoad/Hexpass and The
   Endless Darkness.
   The 2026-10-31 official 3.29.3b capture (docs, "Official 3.29.3b capture") showed the real fight differs. Those
-  differences are now implemented: fetish activation is `GSVoodooKingRitual` targeted at the fetish; the fetish
-  state-machine activation and spawned hazard actors represent the ritual (no raw hazard `0x1ab`, because the
-  default-stance `SpellAreaOfEffect` clip is missing); the fetishes are hostile and damage-immune; the maze uses a
-  room-graph route with real `GuidingLightDaemonMaze_` actors plus a werewolf and spider; the treant uses
-  Meditation/Dance/Punishment; BugRend is the official `VoodooKingBugRend`/`BugRendSingle` + `BugSoulrend`; the
-  emergence grace is 7 s and the morph waits for the full clip.
+  differences are now implemented: fetish activation is a `GSVoodooKingRitual` channel targeted at the fetish, then
+  `EASVoodooKingReturnFromEdge`; the fetish state-machine activation and spawned hazard actors represent the ritual
+  (no raw hazard `0x1ab`, because the default-stance `SpellAreaOfEffect` clip is missing); the fetishes are hostile and
+  destructible (no experience or loot); the central shrine's `active_pillars` state drives the start/quarter/half/full
+  animation; the maze uses a room-graph route with real `GuidingLightDaemonMaze_` actors plus a werewolf and spider;
+  the treant uses Meditation/Dance/Punishment; BugRend is the official `VoodooKingBugRend`/`BugRendSingle` +
+  `BugSoulrend` with six projectiles; the emergence grace is 7 s and the morph waits for the full clip. Teleport and
+  return actions move the object at departure and end before the next action, so the model is not left in a
+  teleport/channel pose.
   Not yet: blood/caustic ground objects, the Ritual imprisonment/maim movement rule, the phase-trigger confirmation,
   ground hazards, monster energy shield, Shadow Surge/Mystic Miasma damage over time, corpse items, the Unlight
   Altar/Bloodline and the remaining native animation captures.

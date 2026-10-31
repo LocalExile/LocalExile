@@ -220,14 +220,18 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   serializes one action at a time.
 - Phase 1: creates the three `VoodooKingBoss2RitualPillar` Mystic Fetishes at the `arena.arm` object points
   (mapboss-relative `(94, 122)`, `(230, 123)` and `(160, 238)`; world `(232, 490)`, `(368, 491)` and `(298, 606)` at
-  seed 1). On the 10-second cadence it teleports next to one, sets the fetish's StateMachine `active` state, sends
-  `GSVoodooKingRitual` **targeted at the fetish**, waits for the ritual, then spawns that fetish's hazard actors (rats
-  or toads). It does not send a raw `0x1ab` hazard action to the fetish: `RitualPillar.act` does not carry the
-  `SpellAreaOfEffect` animation in its default stance, and the state-machine activation is the visible ritual. The
-  fetishes are hostile and damage-immune (`KingGrace`), so they neither show the friendly outline nor die. It adds
+  seed 1). On the 10-second cadence it teleports next to one, then plays `GSVoodooKingRitual` **targeted at the
+  fetish** as a 2.5-second channel. A hit on the King or the fetish reaching 0 life during the channel interrupts it:
+  the fetish is not activated, no hazard actors are spawned, and the King returns to the centre without a Portent
+  Vapors stack. A completed channel sets the fetish's StateMachine `active` state, advances the central shrine's
+  `active_pillars` state, and spawns that fetish's hazard actors (rats or toads). It does not send a raw `0x1ab`
+  hazard action to the fetish: `RitualPillar.act` does not carry the `SpellAreaOfEffect` animation in its default
+  stance, and the state-machine activation is the visible ritual. The fetishes are hostile, stationary and
+  destructible; breaking one gives no experience or loot and removes it from the King's rotation. The humanoid adds
   Portent Vapors stacks, casts Ritual of Meditation, uses Vine Slam and Vine Cascade, and fires its spell projectile
-  every 4 s at range. The humanoid is immobile, so it does not walk. The central `HugeRitualShrine01_01.ao` is the
-  room's own static model.
+  every 4 s at range. It is immobile, so it does not walk. The central `HugeRitualShrine01_01.ao` is a server object
+  (`RitualPillar2`) created at the `arena.arm` point mapboss-relative `(0, -12)`; its `active_pillars` state
+  (0 = `idle_inactive`, 1–3 = `idle_active_01`–`_03`) is the shrine's start/quarter/half/full animation.
 - At 30% life (`TakeDamageLocked` floors the humanoid there): plays the staff slam and the maze-opening animation,
   teleports the player to the nearest `maze_entrance.arm` telepad, applies Branching Affliction, builds a **room-graph
   route** from the entrance room to `maze_exit.arm` (BFS over the placed maze rooms, each leg checked with the actual
@@ -236,17 +240,20 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
 - On the maze return: teleports the humanoid back to the mapboss, plays the staff slam and waits for the full
   `EASVoodooKingBecomeATree` morph (5.5 s), removes the humanoid, spawns `VoodooKingBoss3` with `KingGrace` (7 s,
   matching the official first-action timing) and starts phase 3.
-- Phase 3: Treant Slam, Bug Bomb, Bugrend (`BugSoulrend`), Summon Effigy, Ritual of Meditation/Dance (icon/duration
-  only), VoodooKingPunishment and the default attack. The treant walks after a player that kites it (`Move` 0x2909)
-  instead of standing at the altar between casts. Before a cast, the controller aligns the client model to the server's
-  walk cell (`0x1b7`), so the projectile origin is where the model is shown.
+- Phase 3: Treant Slam, Bug Bomb, Bugrend (`BugSoulrend`, six projectiles), Summon Effigy, Ritual of Meditation/Dance
+  (icon/duration only), VoodooKingPunishment and the default attack. The treant walks after a player that kites it
+  (`Move` 0x2909) instead of standing at the altar between casts. There is no pre-cast model alignment: the action's
+  own start coordinates are the server's walk cell, so the projectile origin and the model agree without an extra
+  `0x1b7`. The server-created projectile objects always receive an explicit flight `0x1b2` (even when the `.ao` declares
+  the same default animation) and enter the wake zone, so the default-animation King projectiles are drawn.
 - `ItemDrops.KingInMists` rolls the guaranteed unique, Hextoad, Hexpass and The Endless Darkness.
 
-Open: the phase-trigger confirmation (official third-Ritual line vs the branch's 30% gate), blood/caustic ground
-objects, the Ritual imprisonment/maim movement rule, the portal's click interaction, exact maze route/wisp curve,
-Branching Affliction/Shadow Surge/Mystic Miasma damage over time, a half-finished maze after death/logout, monster
-energy shield, corpse items, the Unlight Altar and Bloodline, exact AI/cooldown timings, and native animation capture for
-the remaining actions. The arena's own `EndQuestFlags`/`StartQuestFlags` and the War for the Wildwood quest are not
+Open: the phase-trigger confirmation (official third-Ritual line vs the branch's 30% gate), whether a destroyed fetish
+returns for a later ritual or stays broken, exact central-shrine state timing, blood/caustic ground objects, the Ritual
+imprisonment/maim movement rule, the portal's click interaction, exact maze route/wisp curve, Branching
+Affliction/Shadow Surge/Mystic Miasma damage over time, a half-finished maze after death/logout, monster energy shield,
+corpse items, the Unlight Altar and Bloodline, exact AI/cooldown timings, and native animation capture for the remaining
+actions. The arena's own `EndQuestFlags`/`StartQuestFlags` and the War for the Wildwood quest are not
 wired to the fragment yet.
 
 ## Official 3.29.3b capture (2026-10-31)
@@ -411,15 +418,16 @@ VineSlam -> Meditation -> Melee -> VineSlam -> Melee -> SummonDeathAuraEffigy
 
 | Area | Official 3.29.3b | This branch (`KingInMists.cs`) | Remaining |
 |---|---|---|---|
-| Fetish activation | `GSVoodooKingRitual` **targeted at the fetish**, then `EASVoodooKingReturnFromEdge` self | Implemented: teleport next to the fetish, `RitualSkill` with `targetObjectId = fetishId`, `ReturnFromEdge`, return to the arena centre | The exact TeleportFlee/dash movement sequence |
+| Fetish activation | `GSVoodooKingRitual` **targeted at the fetish**, then `EASVoodooKingReturnFromEdge` self | Implemented: teleport action, 2.5 s `RitualSkill` channel with `targetObjectId = fetishId`, interrupt on damage/fetish death, `ReturnFromEdge` action back to the centre, with the action lifecycle ended before the next one | The exact TeleportFlee/dash movement sequence |
 | Fetish hazards | Fetish actors cast `RatSwarm`, `CorruptedBloodDegen`, `SummonFrogSwamps`; toads/swamp/blood objects | Implemented: state-machine activation + rats/toads; no raw hazard `0x1ab` (the ACT lacks the default-stance `SpellAreaOfEffect` clip) | `VoodooKingSwampGround` and blood/caustic ground objects; hazard DoT |
+| Central shrine | `RitualPillar2` actor and `HugeRitualShrine01_01.ao`; `active_pillars` 0–3 | Implemented: server object at the `arena.arm` point, state update per completed ritual (`idle_inactive` → `idle_active_01`–`_03`) | Exact official state timing (capture logged actor creation, not 0x2ba) |
 | Phase 1 hexes | Meditation `0x4006` on the player | Implemented: `CastHex` plays Meditation, applies BuffDefinitions 2358 and removes the icon after 8 s | Imprisonment/maim movement rule |
 | Phase 2 | Same area; `GuidingLightDaemonMaze_`, `WerewolfMaze`, `MeleeSpiderMaze`; Guiding Lights move along the route | Implemented: room-graph BFS route with walkable legs; real `GuidingLightDaemonMaze_` actors move along it; one werewolf and one spider spawn at the middle | Exact route/wisp curve and the full maze population |
 | Phase 3 skills | Slam, Meditation, Dance, Effigy, BugBomb, Punishment, BugRend/BugRendSingle, BugBombImpact, SwarmPulse | Implemented: Slam, BugBomb, BugRend, Effigy, Meditation/Dance, Punishment; BugBombImpact/SwarmPulse are in the actor list | Shadow Surge, BugBombImpact/SwarmPulse action tuning |
 | BugRend | `VoodooKingBugRend`/`BugRendSingle` + `BugSoulrend` projectiles (six) | Implemented: official effect + `BugSoulrend`, six projectiles | — |
 | Emergence grace | First action ~7 s after spawn; first chat line ~11 s | 7 s | — |
 | Phase trigger | Third fetish `Ritual`/`Embrace nothingness!` immediately before the maze; HP not captured | 30% life floor and trigger (Qblolz's requested behavior) | Hook `0x1b1` LifeUpdate on the next official run; decide whether 30% is the actual trigger or only a coincidence |
-| Teleport model | TeleportFlee/dash + Ritual target + ReturnFromEdge | Implemented: ritual/return sequence and `Align` 0x1b7 before casts | Exact TeleportFlee/dash sequence |
+| Teleport model | TeleportFlee/dash + Ritual target + ReturnFromEdge | Implemented: the teleport and ReturnFromEdge actions play their one-second clips; `0x1b7` moves the object at departure and `0x1ac` ends the action before the next one, so the model is not left in a teleport/channel pose | Exact TeleportFlee/dash sequence |
 
 ### Next capture (to settle the trigger)
 

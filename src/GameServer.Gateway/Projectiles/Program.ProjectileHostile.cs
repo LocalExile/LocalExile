@@ -52,7 +52,7 @@ partial class Program
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         var profile = new ProjectileProfile(projectile.Metadata)
         {
-            Speed = speed, Radius = projectile.CollisionRadius, Count = 1, Lobbed = projectile.Lobbed,
+            Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
             // A lobbed shot's range is its landing distance; a straight one flies on past the aim.
             Range = projectile.Lobbed ? landing : Math.Max(distance, a.Range) * 1.5 + 5,
             DirectDamage = !projectile.Lobbed,
@@ -72,16 +72,18 @@ partial class Program
             { Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}") { Presentation = presentation } };
     }
 
-    /// <summary>A server-created projectile object plays nothing by itself. Start the rig's flight clip at spawn unless the
-    /// .ao plays it as its default anyway (the wand bolt), stretching a once-only clip over the flight (the mortar's 1 s
-    /// <c>proj</c> over its arc: <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c>), and play
-    /// the impact clip where it stops, keeping the object for the clip's length. Null without clip data: the object
-    /// then flies as its .ao presents it by itself.</summary>
+    /// <summary>A server-created projectile object plays nothing by itself. Start the rig's flight clip at spawn even
+    /// when the .ao declares the same default animation: the explicit 0x1b2 is what guarantees the server object is
+    /// drawn and animated (live 2026-10-31: the King's default-animation projectiles were static/invisible). A once-only
+    /// clip is stretched over the flight (the mortar's 1 s <c>proj</c> over its arc:
+    /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c>), and the impact clip plays where it
+    /// stops, keeping the object for the clip's length. Null without clip data: the object then flies as its .ao
+    /// presents it by itself.</summary>
     internal static ProjectilePresentation? MonsterProjectilePresentation(SkillCatalog.ProjectileClips? clips, double flightSeconds)
     {
         if (clips is null || clips is { Flight: null, Impact: null }) return null;
         var presentation = new ProjectilePresentation();
-        if (clips.Flight is { } flight && clips.DefaultAnimation != flight.Name)
+        if (clips.Flight is { } flight)
             presentation = presentation with
             {
                 FlightClip = flight.Index,
