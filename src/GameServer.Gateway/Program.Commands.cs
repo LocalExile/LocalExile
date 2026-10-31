@@ -231,7 +231,7 @@ partial class Program
                 var uniqueAdded = new List<InventoryItem>();
                 for (int i = 0; i < count; i++)
                 {
-                    if (UniquesFor(conn).Create(unique.Name, Random.Shared) is not { } createdUnique
+                    if (UniquesFor(conn).Create(unique, Random.Shared) is not { } createdUnique
                         || ItemsFor(conn).ByHash(createdUnique.TypeHash) is not { } uniqueType
                         || uniqueItems.FreeCell(PlayerInventories.MainInventory, uniqueType.Width, uniqueType.Height, ShapeOf) is not { } uniqueCell) break;
                     uniqueAdded.Add(uniqueItems.Put(PlayerInventories.MainInventory,

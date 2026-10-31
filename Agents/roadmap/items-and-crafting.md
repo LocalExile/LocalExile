@@ -30,8 +30,8 @@ features.
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
 - **Start:** other currency through C→S 0x71 (13 §4: Alteration, Augmentation, Regal, Alchemy,
-  Chaos, Scouring can reuse `ItemRolls`); the other uniques and special mods (#60, 13 §2e: `UniqueCatalog` defines
-  Mageblood; each remaining unique needs its base type, mod rows and ranges curated), unique drops/chancing, and
+  Chaos, Scouring can reuse `ItemRolls`); special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
+  has every unique's base, mods and rolls, the mechanics behind those mods are the open part), chancing, and
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant,
   Enkindling).
   Transmutation's CoE comparison and admission checks are implemented; recheck Shift/stash and manual UI use natively.
@@ -106,7 +106,7 @@ features.
 
 - **Editable game data and limits:** the SQLite overlay, snapshot/reload foundation, mod roll ranges and item limits are
   implemented and live-checked. The unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
-  catalogues are now in `catalog_entries` (including the full 1,302-row unique catalogue), seeded from the current code
+  catalogues are now in `catalog_entries` (including the full 1,297-row unique catalogue), seeded from the current code
   arrays and swapped on `/game_data reload`. The `stats`/`mods`/`mod_stats` reference tables and
   `effective_mod_stats` view give an editor the default keys and ranges without opening the JSON. `system_settings` now
   holds socket caps by item class, passive points per level, drop/pack/experience/max-level/gold/default-limit/grace
