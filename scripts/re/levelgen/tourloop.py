@@ -48,11 +48,15 @@ def control(*args, stdin=None, timeout=120):
 
 
 def client_running():
-    return "Game.patched" in ps("Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName").stdout
+    """This checkout's client (started from its Client folder), not another checkout's."""
+    client = ROOT / "Client" / "Game.patched.exe"
+    return ps(f"@(Get-CimInstance Win32_Process -Filter \"Name = 'Game.patched.exe'\" | Where-Object {{ $_.ExecutablePath -eq '{client}' }}).Count"
+              ).stdout.strip() not in ("", "0")
 
 
 def recorder_running():
-    r = ps("Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | Where-Object { $_.CommandLine -like '*walkmaps.py*' } | "
+    walkmaps = ROOT / "scripts" / "walkmaps" / "walkmaps.py"  # this checkout's recorder (live.ps1 starts it by full path)
+    r = ps(f"Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | Where-Object {{ $_.CommandLine -like '*{walkmaps}*' }} | "
            "Select-Object -ExpandProperty ProcessId")
     return r.stdout.strip() != ""
 
@@ -62,9 +66,8 @@ def gateway_listening():
 
 
 def stop_all():
-    ps("Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force; "
-       "foreach ($c in Get-NetTCPConnection -LocalPort 6112 -State Listen -ErrorAction SilentlyContinue) { "
-       "$p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; if ($p.ProcessName -eq 'dotnet') { Stop-Process -Id $p.Id -Force } }")
+    """This checkout's client, recorder and servers (live.ps1 -Stop), never another checkout's."""
+    ps(f"& '{ROOT / 'scripts' / 'dev' / 'live.ps1'}' -Stop")
     time.sleep(2)
 
 
