@@ -1109,8 +1109,13 @@ static partial class Game
     // (BossFights; the stage is then taken, so it runs once).
     internal static (uint Life, bool StageStarts) TakeDamageLocked(SpawnedMonster m, int damage)
     {
-        // While the stage runs the boss cannot die: its life fills up at the end anyway.
-        if (m.StageRunning) return ((uint)Math.Max(1, (long)m.Life - damage), false);
+        // While the stage runs the boss cannot die: its life fills up at the end anyway. The humanoid King also waits for
+        // the maze/treant phase before the treant form takes over; a burst cannot skip it. Its floor is 30% life (the
+        // phase 2 trigger), while the treant's emergence grace refuses all damage.
+        if (m.KingGrace) return (m.Life, false);
+        if (m.StageRunning || m.KingPhaseLocked)
+            return ((uint)Math.Max(m.KingPhaseLocked ? (long)m.MaxLife * 30 / 100 : 1,
+                (long)m.Life - damage), false);
         var (life, starts) = BossFights.Damage(m.Life, m.MaxLife, damage, m.StageTaken ? null : m.Stage);
         if (starts)
         {
@@ -1166,6 +1171,9 @@ static partial class Game
         lock (conn.Monsters) { at = m.Walk.Position(now); player = conn.Walk.Position(now); alive = conn.PlayerLife > 0; }
         await SendVaalSouls(remote, stream, ciphers, conn);
         if (m.Variety is not { } variety || !m.Hostile) return;
+        // A Mystic Fetish is a destructible arena object: breaking it interrupts the King's ritual and gives no
+        // experience, loot or quest progress of its own.
+        if (KingInMists.IsFetish(variety)) return;
         var killer = PlayerOf(conn);
         var monster = ModMonster(m, at);
         await Program.ServerHooks.MonsterKilled(new(killer, monster));
@@ -1200,6 +1208,10 @@ static partial class Game
         // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
         var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(m, at));
         List<ItemDrops.Drop> drops = [];
+        // The King in the Mists always drops one of four uniques, plus its support gems and card. Its humanoid form is
+        // removed without a death, so only the treant (Boss3) reaches here.
+        if (KingInMists.IsBoss3(m.Variety))
+            drops.AddRange(DropsFor(conn).KingInMists(m.Level, Random.Shared));
         if (modded is not { Cancel: true })
         {
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),

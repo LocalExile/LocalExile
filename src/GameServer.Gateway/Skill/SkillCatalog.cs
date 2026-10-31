@@ -589,12 +589,17 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// aimed and damage an area there.</summary>
     public sealed record MonsterProjectileInfo(string Metadata, int Speed, bool Lobbed, double CollisionRadius)
     {
+        /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; one otherwise).</summary>
+        public int Count { get; init; } = 1;
         /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
         /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
         public string? AnimationKey { get; init; }
         /// <summary>The skill's <c>projectile_minimum_range</c> in world units (the Spitter's 50): a lob lands no closer
         /// to the monster than this. 0 without the stat.</summary>
         public int MinimumRange { get; init; }
+        /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
+        /// fallback, and a boss skill may name its own).</summary>
+        public double AreaRadius { get; init; }
     }
 
     /// <summary>One clip of a monster's attack pool (data/monster-contacts.json, scripts/re/monster_contacts.py): its name,

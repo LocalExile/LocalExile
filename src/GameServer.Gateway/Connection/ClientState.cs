@@ -91,6 +91,12 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
 {
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
+    /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
+    public bool CannotBeStunned { get; init; }
+    /// <summary>The humanoid King's life cannot reach 0 before the three fetishes hand the fight to the treant.</summary>
+    public bool KingPhaseLocked { get; init; }
+    /// <summary>The treant's emergence grace: hits do nothing until KingInMists clears it.</summary>
+    public bool KingGrace;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
@@ -201,6 +207,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool LeavingArea;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
+    // applies the increased damage taken to his hits; the buff icon and count are presentation.
+    public int KingPortentStacks;
+    public double KingPortentUntil = double.NegativeInfinity;
+    /// <summary>The Crux of Nothingness arena's "mapboss" cell: the King's spawn and the base of the fixed Mystic Fetish
+    /// offsets (KingInMists.cs). Set when the area is populated, so both forms use the same origin.</summary>
+    public (int X, int Y)? KingOrigin;
     public Random IncomingHitRandom = Random.Shared;
     // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
     public Random IgniteRandom = Random.Shared;
