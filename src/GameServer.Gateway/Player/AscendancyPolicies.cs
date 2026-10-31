@@ -9,7 +9,8 @@ interface IAscendancyFamilyPolicy
     bool Supports(AscendancyIdentity identity);
     void RequirePlayable(AscendancyIdentity identity);
     IReadOnlyDictionary<uint, int>? AreaStats { get; }
-    IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node);
+    IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node,
+        IReadOnlyList<(uint Key, int Value)> modeStats);
 }
 
 /// <summary>Normal ascendancies are built in. Optional families require a live provider listed by this connection's league.</summary>
@@ -32,9 +33,7 @@ static class AscendancyPolicies
     public static bool Available(ClientState conn, AscendancyIdentity selection)
     {
         if (selection.Family == AscendancyFamily.Normal) return true;
-        if (!_providers.TryGetValue(selection.Family, out var entry)) return false;
-        lock (entry.Gate)
-            return entry.Live(conn) && entry.Policy!.Supports(selection);
+        return ReadPolicy(conn, selection) is not null;
     }
 
     /// <summary>Holds a synchronous admission/commit boundary. Never keep it across an await or acquire the host lock.</summary>
@@ -58,12 +57,14 @@ static class AscendancyPolicies
 
     public static void RequirePlayable(ClientState conn, AscendancyIdentity? selection)
     {
-        using var admission = Enter(conn, selection, verifyGraph: true);
+        if (selection is not null && selection.Family != AscendancyFamily.Normal)
+            (ReadPolicy(conn, selection) ?? throw Unavailable(selection)).RequirePlayable(selection);
     }
 
     public static void RequireAvailable(ClientState conn, AscendancyIdentity? selection)
     {
-        using var admission = Enter(conn, selection);
+        if (selection is not null && selection.Family != AscendancyFamily.Normal
+            && ReadPolicy(conn, selection) is null) throw Unavailable(selection);
     }
 
     public static void SelectionChanged(ClientState conn)
@@ -83,17 +84,27 @@ static class AscendancyPolicies
 
     public static IReadOnlyDictionary<uint, int>? AreaStats(ClientState conn, AscendancyIdentity? selection)
     {
-        using var admission = Enter(conn, selection);
         return selection is null || selection.Family == AscendancyFamily.Normal ? null
-            : _providers[selection.Family].Policy!.AreaStats;
+            : (ReadPolicy(conn, selection) ?? throw Unavailable(selection)).AreaStats;
     }
 
     public static IReadOnlyList<(uint Key, int Value)> NodeStats(ClientState conn,
-        AscendancyCatalog.Definition definition, ushort node)
+        AscendancyCatalog.Definition definition, ushort node, IReadOnlyList<(uint Key, int Value)> modeStats)
     {
-        using var admission = Enter(conn, definition.Identity);
-        return definition.Identity.Family == AscendancyFamily.Normal ? definition.Nodes[node].Stats
-            : _providers[definition.Identity.Family].Policy!.NodeStats(definition, node);
+        return definition.Identity.Family == AscendancyFamily.Normal ? modeStats
+            : (ReadPolicy(conn, definition.Identity) ?? throw Unavailable(definition.Identity))
+                .NodeStats(definition, node, modeStats);
+    }
+
+    // Source/availability queries also run inside saved-progress transactions. They must never acquire the
+    // provider commit gate there: mutating paths use connection -> provider -> database ordering.
+    // Policies are pure readers; a local snapshot may finish reading while its owner is retiring.
+    static IAscendancyFamilyPolicy? ReadPolicy(ClientState conn, AscendancyIdentity selection)
+    {
+        if (!_providers.TryGetValue(selection.Family, out var entry)) return null;
+        var policy = Volatile.Read(ref entry.Policy);
+        return policy is not null && (Monitor.IsEntered(entry.Gate) || entry.Live(conn)) && policy.Supports(selection)
+            ? policy : null;
     }
 
     static AscendancyRuleException Unavailable(AscendancyIdentity selection) => new(
@@ -115,7 +126,7 @@ static class AscendancyPolicies
             lock (Gate)
             {
                 if (Policy is null) return;
-                Policy = null;
+                Volatile.Write(ref Policy, null);
                 ImmutableInterlocked.Update(ref _providers, entries =>
                     entries.TryGetValue(_family, out var current) && ReferenceEquals(current, this)
                         ? entries.Remove(_family) : entries);

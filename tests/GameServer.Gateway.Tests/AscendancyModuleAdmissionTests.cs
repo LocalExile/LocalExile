@@ -35,7 +35,12 @@ public sealed class AscendancyModuleAdmissionTests
         var node = new AscendancyCatalog.Node(19, "source", "source", [], false, 0, false, false, [(123u, 7)]);
         var definition = new AscendancyCatalog.Definition(identity, "test", 1, 0, 1, 0,
             new Dictionary<ushort, AscendancyCatalog.Node> { [19] = node });
-        Assert.Equal(node.Stats, AscendancyPolicies.NodeStats(admitted, definition, 19));
+        Assert.Equal(node.Stats, AscendancyPolicies.NodeStats(admitted, definition, 19, node.Stats));
+        // The source resolver supplies the current data mode; an ordinary HardMode node must not use catalog normal stats.
+        IReadOnlyList<(uint Key, int Value)> hardMode = [(456u, 3)];
+        Assert.Same(hardMode, AscendancyPolicies.NodeStats(excluded, definition with { Identity = normal }, 19, hardMode));
+        Assert.Same(hardMode, AscendancyPolicies.NodeStats(admitted, definition, 19, hardMode));
+        Saves.Atomically(() => AscendancyPolicies.RequireAvailable(admitted, identity));
 
         // Merely validating a normal candidate must not detach a failed/abandoned selection change.
         AscendancyPolicies.RequirePlayable(admitted, normal);
@@ -91,7 +96,8 @@ public sealed class AscendancyModuleAdmissionTests
             if (RejectGraph) throw new AscendancyRuleException("Unverified graph");
         }
         public IReadOnlyDictionary<uint, int>? AreaStats => new Dictionary<uint, int> { [21146] = 1 };
-        public IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node) => definition.Nodes[node].Stats;
+        public IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node,
+            IReadOnlyList<(uint Key, int Value)> modeStats) => modeStats;
     }
 
     sealed class SaveFixture : IDisposable

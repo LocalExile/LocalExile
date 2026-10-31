@@ -38,8 +38,9 @@ internal sealed class PhreciaFamilyPolicy : IAscendancyFamilyPolicy
 
     // The module owns the optional source, while Game continues to consume ordinary stat keys. No graph reads
     // occur during stat rebuilding, and unsupported families, revisions or classes contribute nothing.
-    public IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node) =>
-        Supports(definition.Identity) ? definition.Nodes[node].Stats : [];
+    public IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node,
+        IReadOnlyList<(uint Key, int Value)> modeStats) =>
+        Supports(definition.Identity) && definition.Nodes.ContainsKey(node) ? modeStats : [];
 
     static PhreciaClass? Find(AscendancyIdentity identity) =>
         ImplementedClasses.FirstOrDefault(implementation => implementation.Matches(identity));

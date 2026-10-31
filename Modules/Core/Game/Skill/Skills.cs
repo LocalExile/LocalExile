@@ -950,6 +950,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             if (HardcoreProgressBlocked(conn)) return conn.Pools.Level;
             // An allocation/refund may have committed after capture, even when this level did not need a trim.
             // Rebuild against the current runtime snapshot; keep the durable comparison for other connections.
@@ -969,6 +970,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             if (HardcoreProgressBlocked(conn)) return conn.Pools.Level;
             var change = Saves.Atomically(() =>
             {
@@ -998,6 +1000,7 @@ static partial class Game
         conn.Passives = [.. change.Nodes];
         conn.MasteryEffects = new(change.Masteries);
         conn.MainAscendancy = change.Ascendancy;
+        AscendancyPolicies.SelectionChanged(conn);
         conn.ExtraPassivePoints = change.ExtraPoints;
         conn.RefundPoints = change.RefundPoints;
         conn.SavedPassiveProgress = new(change.Ascendancy, change.Nodes, change.Masteries, change.RefundPoints);

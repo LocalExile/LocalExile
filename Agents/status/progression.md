@@ -200,7 +200,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Existing class capabilities and passive sources are extracted into the optional `PhreciaAscendancies` module.
   The Phrecia league lists it explicitly; Idols remains a separate unimplemented feature.
   Module absence refuses saved-family admission without changing progress; reload requires affected players to re-enter.
-  Current modular native acceptance remains pending; historical class checks below retain their original scope.
+  Bounded modular native checks cover the three class sources, paid refunds, normal controls and reload re-entry.
+  Historical whole-class checks below retain their original scope.
   Docs: [module boundary, scope and reload policy](../docs/game/phrecia-modules.md).
   Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
   Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.

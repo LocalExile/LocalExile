@@ -185,7 +185,7 @@ static partial class Game
         foreach (ushort node in nodes)
             if (tree.Find(node) is { } passive)
                 nodeStats[node] = passive.IsAscendancy && selectedDefinition is not null
-                    ? AscendancyPolicies.NodeStats(conn, selectedDefinition, node) : passive.Stats;
+                    ? AscendancyPolicies.NodeStats(conn, selectedDefinition, node, passive.Stats) : passive.Stats;
         // An applied tattoo replaces the allocated passive's stats. A timeless jewel that replaces the node still
         // wins (the tattoo is disabled); an augmenting timeless jewel adds its stats to the tattoo stats.
         // Makanga/Honoured Makanga tattoos are conditional on the number of allocated direct neighbours: when the

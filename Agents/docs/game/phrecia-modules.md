@@ -27,6 +27,7 @@ Normal and unascended characters have no alternate-graph verification requiremen
 Ward, Adrenaline, stun recovery, luck, attributes, item requirements and other stat-driven consumers remain reusable
 in `Core/Game`, including their non-Phrecia item and ordinary-class sources.
 The optional module supplies Phrecia node stats before the existing equipment/attribute qualification pass.
+The common resolver passes the current mode vector, preserving HardMode alternates for ordinary and optional nodes.
 The existing allocation, connectivity, awards, paid refund and compare-and-save rules remain shared.
 Save family, stable identity, revision, nodes, awards and unknown fields keep their existing representation.
 
@@ -44,6 +45,8 @@ Restoring the module allows the existing progress to be admitted again.
 Stopping makes it inactive, cancels its token and releases owned resources.
 The family registration is owned by that lifetime, rather than by a module-name string alone.
 Synchronous progress commits admitted under the provider gate finish before registration retirement.
+Read-only policy queries take no provider lock, including saved-progress validation inside database transactions.
+Mutations follow connection, provider, then database lock order.
 Retirement removes the old policy and closes affected Phrecia area connections; players reconnect to current rules.
 This conservative reload policy prevents continued play with missing class drawbacks.
 Ordinary characters and connections in leagues that do not use the family remain open.
@@ -61,4 +64,8 @@ Those PRs remain separate and are updated against actual merged predecessors.
 Historical tests and native checks from before the module restructuring do not establish this candidate's readiness.
 The Gateway regressions exercise host lifetime cleanup and optional-family admission, source/selector ownership,
 durable progress retention, ordinary controls and replacement generation isolation without real-time waits.
+The bounded native migration smoke checks one legal source-producing allocation for each of the three classes,
+paid resets and normal graph controls, optional-module reload/re-entry with retained progress,
+and an ordinary connection remaining playable across that reload.
+It does not repeat historical whole-class combat matrices.
 Current solution, Core/Data/Gateway and native acceptance receipts belong to the exact tested base/head in `logs/`.

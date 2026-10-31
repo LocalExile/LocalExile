@@ -33,7 +33,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   [read-only analysis artifacts](../docs/dev/passive-graph-data.md), without installing a client graph.
 - **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/PhreciaAscendancies`.
   Its league composition is independent of Idols; the latter has client data but no gameplay implementation.
-  **Next:** finish current modular native acceptance and adapt the separate class PRs in their declared merge order.
+  **Next:** adapt the separate class PRs in their declared merge order and verify their module-owned runtimes.
   See [module scope and delivery](../docs/game/phrecia-modules.md).
 - **Known:** command selection, saved identities, separate point awards, paid refunds and ordinary/ascendancy
   graph connectivity now have automated coverage; see [scope and limitations](../docs/game/ascendancies.md).
