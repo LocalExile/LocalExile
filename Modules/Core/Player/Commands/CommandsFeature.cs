@@ -244,7 +244,7 @@ static class CommandsFeature
                 var uniqueAdded = new List<InventoryItem>();
                 for (int i = 0; i < count; i++)
                 {
-                    if (UniquesFor(conn).Create(unique.Name, Random.Shared) is not { } createdUnique
+                    if (UniquesFor(conn).Create(unique, Random.Shared) is not { } createdUnique
                         || ItemsFor(conn).ByHash(createdUnique.TypeHash) is not { } uniqueType
                         || uniqueItems.FreeCell(PlayerInventories.MainInventory, uniqueType.Width, uniqueType.Height, ShapeOf) is not { } uniqueCell) break;
                     uniqueAdded.Add(uniqueItems.Put(PlayerInventories.MainInventory,
@@ -850,6 +850,14 @@ static class CommandsFeature
                 throw new ArgumentException("defence base roll 0 to 31");
             await ChangeHeldItem(remote, stream, ciphers, conn, i => i with { DefenceBaseRoll = roll },
                 $"defence base roll {roll} / {Item.MaximumDefenceBaseRoll}", "Armour");
+        })
+        .Add("item_state", "/item_state [corrupted|mirrored|split|synthesised|shaper|elder|crusader|redeemer|hunter|warlord|clear …] (switches them on the held item; without a state, shows them)", async args =>
+        {
+            if (ItemsOf(conn).Items(PlayerInventories.Cursor) is not [var held, ..]) { await conn.Commands!.Reply("Hold an item first"); return; }
+            if (args.Length == 0) { await conn.Commands!.Reply(ItemStates.Describe(held.Item)); return; }
+            var result = args.Aggregate(held.Item, (item, state) => ItemStates.Toggle(item, state) ?? throw new ArgumentException($"no state {state}"));
+            await ChangeHeldItem(remote, stream, ciphers, conn, i => args.Aggregate(i, (item, state) => ItemStates.Toggle(item, state)!),
+                ItemStates.Describe(result), args.Any(ItemStates.NeedsMods) ? "Mods" : "Base");
         })
         .Add("rarity", "/rarity <normal|magic|rare|unique> [unid] (the held item)", async args =>
         {
