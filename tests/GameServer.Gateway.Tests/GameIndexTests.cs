@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Text;
 using GameServer.Data.Ggpk;
 
-namespace GameServer.Data.Tests;
+namespace GameServer.Gateway.Tests;
 
 public class GameIndexTests
 {
