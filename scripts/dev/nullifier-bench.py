@@ -175,7 +175,10 @@ def main():
             line = lines.get(timeout=options.rpc_timeout)
             if line is None:
                 raise RuntimeError("the launcher ended")
-            return json.loads(line)
+            try:
+                return json.loads(line)
+            except ValueError:
+                raise RuntimeError(f"unexpected launcher output: {line.strip()[:300]}") from None
 
         started = read()
         if not started.get("ok"):

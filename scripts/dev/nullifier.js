@@ -92,7 +92,8 @@ if (OPTIONS.nullRenderer) {
     // eax = kind; r8 = byte size (end - begin); format 0x65 with size/2 indices, 0x66 with size/4.
     w.putMovRegRegOffsetPtr('eax', 'rcx', 0x148);
     w.putMovRegRegOffsetPtr('r8', 'rcx', 0x138);
-    w.putSubRegRegOffsetPtr('r8', 'rcx', 0x130);
+    w.putMovRegRegOffsetPtr('r9', 'rcx', 0x130);
+    w.putSubRegReg('r8', 'r9');
     w.putCmpRegI32('eax', 1);
     w.putJccShortLabel('jne', 'wide', 'no-hint');
     w.putMovRegU32('eax', 0x65);

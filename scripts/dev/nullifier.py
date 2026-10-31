@@ -307,7 +307,9 @@ def main():
     os.environ["Game_LOGIN_PORT"] = str(options.login_port)  # client_control's login connects here
 
     device = frida.get_local_device()
-    pid = device.spawn(argv, cwd=str(folder), env=env)
+    # stdio "pipe": the client also logs to its standard output, which must not reach this script's JSON lines; Frida
+    # reads it (the "output" events, dropped here) so it never blocks.
+    pid = device.spawn(argv, cwd=str(folder), env=env, stdio="pipe")
     child = session = None
     try:
         child = Child(pid)  # in its job before it runs a single instruction
