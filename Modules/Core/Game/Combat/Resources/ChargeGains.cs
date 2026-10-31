@@ -133,7 +133,11 @@ static class ChargeGains
     }
 
     /// <summary>"% chance that if you would gain … Charges, you instead gain up to maximum … Charges".</summary>
-    public static string ToMaximumStat(ChargeType type) => $"gain_maximum_{Charges.Name(type)}_charges_on_{Charges.Name(type)}_charge_gained_%_chance";
+    public static string ToMaximumStat(ChargeType type) => ToMaximumStats[(int)type is >= 0 and < 3 ? (int)type : throw new ArgumentOutOfRangeException(nameof(type))];
+
+    // Built once: every stat snapshot observes them (ChargeSession.Observe).
+    static readonly string[] ToMaximumStats =
+        [.. Charges.Types.Select(t => $"gain_maximum_{Charges.Name(t)}_charges_on_{Charges.Name(t)}_charge_gained_%_chance")];
 
     /// <summary>A charge granted over time, while its condition holds: every <c>Period</c> seconds, <c>Count</c>
     /// charges.</summary>

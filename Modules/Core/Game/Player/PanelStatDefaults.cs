@@ -21,5 +21,9 @@ static class PanelStatDefaults
     /// <summary>The inherent value of one stat (0 for any other): what <see cref="Compute"/> adds to its raw sources.
     /// The charge expansion (WithCharges) reads the special per-charge coefficients through this before the defaults
     /// enter the published sources.</summary>
-    public static int Default(string stat) => Inherent.FirstOrDefault(s => s.Stat == stat).Value;
+    public static int Default(string stat) => Defaults.GetValueOrDefault(stat);
+
+    // Default asks for every per-charge stat of every snapshot: one lookup instead of a scan (the first entry of a name wins).
+    static readonly System.Collections.Frozen.FrozenDictionary<string, int> Defaults =
+        System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(Inherent.DistinctBy(s => s.Stat), s => s.Stat, s => s.Value, StringComparer.Ordinal);
 }
