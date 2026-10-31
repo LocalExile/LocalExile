@@ -529,7 +529,7 @@ MonsterVarieties row and poses it; no living monster is created. Its 41-byte blo
 |---|---|
 | Positioned | x, y i32 LE, rotation f32 LE, u16, u8, u8 0x02, u8, u8 1 |
 | Animated | u8 0: none, the task supplies the model |
-| HideoutDoodad | u32 2905168814, then variation u8 and appearance u8 |
+| HideoutDoodad | u32 2905168814, variation u8, flag u8 0 |
 | Inventories | u8 0, u8 0: none, no equipped items |
 | tasks | u8 1, u16 42230, then the task: u16 MonsterVarieties **HASH16**, u16 scale, u8 0 (no Animated blob), u32 0 (no model override) |
 
