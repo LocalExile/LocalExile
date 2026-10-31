@@ -158,11 +158,13 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 }
 
 # Starts the session's client through this stack's patching server and records its PID. A named session runs in its own
-# folder, data\clients\<session>\: the client opens Content.ggpk, config.json and logs\Client.txt in its working folder,
-# so the folder gets a hard link to the shared Content.ggpk (the same file: nothing is copied or written) and a
-# config.json naming the session's own settings file and saved login (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME,
-# in Documents\My Games\Path of Exile). A new settings file starts as a copy of the default client's without its [LOGIN]
-# section: no saved login to send to whichever login server the shared gateway list names.
+# folder, data\clients\<session>\: the client opens Content.ggpk, config.json, its asset folders (FMOD sound banks,
+# Streamline, D3D12), CachedHLSLShaders and logs\Client.txt in its working folder (live 2026-10-30). So the folder gets a
+# hard link to the shared Content.ggpk (the same file: nothing is copied or written), junctions to the shared asset
+# folders, its own shader cache and log, and a config.json naming the session's own settings file and saved login
+# (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME, in Documents\My Games\Path of Exile). A new settings file starts as a
+# copy of the default client's without its [LOGIN] section: no saved login to send to whichever login server the shared
+# gateway list names.
 function Start-Client([string]$session, $stack) {
     $client = Join-Path $repo 'Client'
     $folder = $client
@@ -177,6 +179,10 @@ function Start-Client([string]$session, $stack) {
             if ($a.Length -ne $b.Length -or $a.LastWriteTimeUtc -ne $b.LastWriteTimeUtc) { Remove-Item $link -Force }
         }
         if (-not (Test-Path $link)) { New-Item -ItemType HardLink -Path $link -Target $shared | Out-Null }
+        foreach ($assets in Get-ChildItem $client -Directory | Where-Object { $_.Name -notin 'logs', 'CachedHLSLShaders' }) {
+            $junction = Join-Path $folder $assets.Name
+            if (-not (Test-Path $junction)) { New-Item -ItemType Junction -Path $junction -Target $assets.FullName | Out-Null }
+        }
         $prefix = "localexile-$(Split-Path $repo -Leaf)-$session"
         [ordered]@{ GGG_CONFIG_FILE_NAME = "${prefix}_Config.ini"; GGG_CREDENTIAL_FILE_NAME = "${prefix}_login.credentials" } |
             ConvertTo-Json | Set-Content (Join-Path $folder 'config.json') -Encoding ascii
