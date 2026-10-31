@@ -545,6 +545,13 @@ partial class Program
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
                     name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
                     name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0));
+            // Devout of Lunaris: the client aims a self-targeted Nova at the cursor only on
+            // virtual_self_targeted_skills_target_location_instead, which its calculator (FUN_142896650) derives from these
+            // three stats; network stats run no calculators (04 §4.1a), so without it the Nova stayed on the caster (live).
+            if (new[] { "nova_spells_cast_at_target_location", "casting_spell", "skill_is_nova_skill" }
+                    .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
+                && Stats.Key("virtual_self_targeted_skills_target_location_instead") is uint novaKey)
+                stats[novaKey] = 1;
             if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SupportedCriticalChance(conn, id);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
@@ -590,6 +597,10 @@ partial class Program
                 if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
                 Console.WriteLine($"[gateway] Cyclone area: base {baseRadius}, radius {radius}, increased area {increased}%, radius scale {radiusPercent}%");
             }
+            // Other area skills: the client's effect builders read the final radius (0x4876) too; without it Ice Nova drew
+            // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
+            else if (Get("active_skill_base_area_of_effect_radius") > 0 && Stats.Key("active_skill_area_of_effect_radius") is uint finalRadius)
+                stats[finalRadius] = SkillRadius(conn, own, SkillsFor(conn).IsSpell(effect), effect);
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
             if (!SkillsFor(conn).IsAttack(effect) && Get("display_skill_deals_secondary_damage") != 0

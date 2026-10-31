@@ -186,8 +186,10 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   skills and Novas without a self target (Shockwave Totem, Stormblast Mine, Dark Pact) keep the aimed point either
   way. The client derives
   `virtual_self_targeted_skills_target_location_instead` from this stat, `casting_spell` and `skill_is_nova_skill`
-  (`FUN_142896650`), so the Gateway now publishes `skill_is_nova_skill` in Nova skills' records. Which point the client
-  sends for a Nova with the stat is not checked live yet ([11](../protocol/11-skills.md) §9a).
+  (`FUN_142896650`), but network stats run no calculators ([04](../protocol/04-player-entity.md) §4.1a), so the Gateway
+  publishes `skill_is_nova_skill` and the derived flag itself in the Nova's record when all three hold. Without the flag
+  the client sent Ice Nova as a cast on the player (live 2026-10-30); with it, a cast at the cursor, which the server
+  centres there ([11](../protocol/11-skills.md) §9a).
 - **Devout of Lunaris, Spells fire 2 additional Projectiles** (`spells_number_of_additional_projectiles`): the projectile
   profile adds them to spells only (`GatewayProjectileModifiers`), for the release and the skill record's
   `total_number_of_projectiles_to_fire` alike.

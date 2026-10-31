@@ -514,6 +514,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal((aim, aim, aim, aim, self), (Centre("ShockwaveTotem"), Centre("StormblastMine"), Centre("DarkPact"),
             Centre("IceNovaAltX"), Centre("VaalColdSnap")));
         Assert.Equal((1, 1), (Panel(nova.Id, "skill_is_nova_skill"), Panel(fireball.Id, "total_number_of_projectiles_to_fire")));
+        // The client draws an area skill at the record's final radius (live: Ice Nova drew nothing without it).
+        int recordNova = Panel(nova.Id, "active_skill_base_area_of_effect_radius");
+        Assert.Equal(recordNova, Panel(nova.Id, "active_skill_area_of_effect_radius"));
+        Assert.Equal(0, Panel(nova.Id, "virtual_self_targeted_skills_target_location_instead"));
 
         Assert.Null((await game.Change(PolytheistBuilds[1], true)).Error);
         // Nova Spells Cast at the targeted location (a self-targeted spell that is no Nova stays on the caster); Spells
@@ -521,6 +525,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal((false, true), await game.PolytheistAreaSpell(nova.Id, self, aim));
         Assert.Equal(self, Centre("VaalColdSnap"));
         Assert.Equal(3, Panel(fireball.Id, "total_number_of_projectiles_to_fire"));
+        // The client aims the Nova at the cursor only on the derived flag, which the server sends (no calculators run).
+        Assert.Equal((1, 0), (Panel(nova.Id, "virtual_self_targeted_skills_target_location_instead"),
+            Panel(fireball.Id, "virtual_self_targeted_skills_target_location_instead")));
+        Assert.Equal((int)Math.Floor(recordNova * Math.Floor(100 * Math.Sqrt(1.3)) / 100), Panel(nova.Id, "active_skill_area_of_effect_radius"));
         int baseNova = Program.Skills.EffectStats(nova.Effect, 1).Single(kv => kv.Item1 == Program.Stats.Key("active_skill_base_area_of_effect_radius")).Item2;
         Assert.Equal((int)Math.Floor(baseNova * Math.Floor(100 * Math.Sqrt(1.3)) / 100), Radius(nova, true));
         Assert.Equal(baseNova, plainNova);

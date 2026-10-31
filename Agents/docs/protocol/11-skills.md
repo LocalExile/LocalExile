@@ -2488,6 +2488,8 @@ matching [Path of Building's skill definitions](https://github.com/PathOfBuildin
 an explicit positive base stat takes precedence. Other skills keep their existing data/fallback base.
 Client evidence: `0x1414b13c0` reads final radius stat 0x4876 to scale its cyclone effect; the shared
 cyclone path `0x141d434c0` also reads 0x4876 (or the base 0x4875 in its conditional-radius path).
+Other area skills' effects read 0x4876 as well: every skill whose record has a base radius (0x4875) also gets its final
+radius, the one its hit uses (`SkillRadius`). Without it Ice Nova's nova drew nothing (live 2026-10-30).
 Increased area is not increased radius: +300% area changes radius 16 → 32, +0% restores 16 without
 other modifiers. Tests cover this calculation, spell-area exclusion, explicit bases and the fallback.
 Additional melee-range/stage modifiers specific to Cyclone remain outside this initial area model.

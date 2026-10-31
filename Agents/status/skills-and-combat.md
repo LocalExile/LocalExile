@@ -1395,8 +1395,10 @@ and can require explicit recipes.
   Totem, mine and trap skills and Novas without a self target (Shockwave Totem, Stormblast Mine, Dark Pact) keep the
   aimed point.
   With `nova_spells_cast_at_target_location` (Devout of Lunaris) self-targeted Novas hit around the aimed point, and
-  Nova skill records carry `skill_is_nova_skill`, which the client needs to target them there.
-  Gateway coverage only; which point the client sends with the stat is not checked live.
+  Nova skill records carry `skill_is_nova_skill` and, with the stat, the derived
+  `virtual_self_targeted_skills_target_location_instead`, so the client casts them at the cursor (live 2026-10-30).
+  Area skill records carry their final `active_skill_area_of_effect_radius`, which the client draws them at; without it
+  Ice Nova drew nothing (live 2026-10-30).
   Code: `SkillCatalog.IsSelfTargeted`, `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 
