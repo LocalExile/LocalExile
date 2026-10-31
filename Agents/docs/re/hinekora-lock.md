@@ -75,8 +75,13 @@ Native run 2026-10-31:
 ## Open: native preview popup
 
 The `0x29f` handler dispatches to the `+0x48f0` event bus, but the bus has **no listener** in every tested state
-(hover with a currency, real `0x29c`/`0x29f`, item tooltip open, after the Lock). The client logs the message and
-drops the event, so the preview popup does not render. The window that should register the listener is still to be
-found; the likely candidates are `ItemPopupCreateInfo` / `ItemDisplayCaseWindow` (`ConnectEvents` lambda names at
-`0x44b0c14` / `0x44b0d64`). The server-side preview/commit identity and all refusal/persistence rules are covered by
+(hover with a currency, real `0x29c`/`0x29f`, item tooltip open, after the Lock). Live handler evidence: the
+handler's `r13` equals the instance-client/world pointer, `[world+0x48f0] = 0` and `[world+0x48f8]` is the listener
+sentinel node whose first qword (vtable) is 0; the dispatch loop therefore does not run. The client logs the message
+and drops the event, so the preview popup does not render.
+
+The `ItemDisplayCaseWindow` lambda names (`0x44b0c14` / `0x44b0d64`) are the **Ancestral league item display case**,
+not the foresight preview; `ClientItemDisplayCase`/`ItemDisplayCase` are game components. The next target is
+`ItemView::GetItemPopupCreateInfo` / `ItemPopupGeneric::DoInitialise` and the `ItemPopupCreateInfo` field that would
+create the preview window. The server-side preview/commit identity and all refusal/persistence rules are covered by
 the Gateway tests.
