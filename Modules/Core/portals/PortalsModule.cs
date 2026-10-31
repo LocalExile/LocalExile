@@ -26,6 +26,7 @@ public sealed class PortalsModule : IModule, IDisposable
         module.OnAreaGenerated(async player =>
         {
             var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+            await SpawnHideoutDoodads(remote, stream, ciphers, conn);
             await SpawnMapReturnPortal(remote, stream, ciphers, conn);
             await SpawnTownPortals(remote, stream, ciphers, conn);
             // The portals of the character's open map stand at the device again.

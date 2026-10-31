@@ -15,6 +15,8 @@
   <!-- The Gateway's types are internal (top-level program); its tests reach them. -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+    <InternalsVisibleTo Include="hideoutediting" />
+    <InternalsVisibleTo Include="commands" />
     <InternalsVisibleTo Include="vendors" />
     <InternalsVisibleTo Include="portals" />
     <InternalsVisibleTo Include="questobjects" />

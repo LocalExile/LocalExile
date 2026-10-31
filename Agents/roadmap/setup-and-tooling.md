@@ -18,7 +18,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   League migration: the client's Migrate and Migrate All buttons, and the differences they show, for ended leagues. Send 0x1a with the account's ended
   leagues, log a live click for the C→S message (not found statically: `0x140cc7aa0` dispatches through vtable `0x1431e8660`), then move characters, stash tabs, gold and
   modules' saved data to the parent in one transaction.
-  Existing systems keep moving into `Modules/Core/`: ascendancy trials, the quest flags and their rewards, stash rules, Antiquarian's and Mageblood's flask stats.
+  New systems start as modules in `Modules/Core/`.
   The Gateway tests do not start the module host yet, so dispatch tests of moved features need `ServerModules.Start` in `TestEnvironment`.
   start as a module.
 - Rebuild the reverse-engineering setup from a fresh clone (Ghidra import, REA, Frida) and fix whatever the guide

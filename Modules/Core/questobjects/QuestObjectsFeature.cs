@@ -169,4 +169,17 @@ static class QuestObjectsFeature
     }
 
 
+    internal static async Task TalkToWoundedExile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,uint id,SpawnedNpc npc)
+    {
+        if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { Talked: false } || conn.TutorialSceneRunning) return;
+        bool armed = ItemsOf(conn).Items(PlayerInventories.Weapon1).Count > 0;
+        conn.InNpcTalk = true;
+        await Send(remote,stream,ciphers,InstanceNpcs.Talk(id,armed ? (byte)2 : (byte)1),"0x0084 dying exile: class weapon check");
+        if (!armed) return;
+        conn.TutorialSceneRunning = true;
+        CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { Talked=true });
+        await SetQuestFlags(remote,stream,ciphers,conn,["TalkedToWoundedExile"]);
+        _ = RunOpeningScene(remote,stream,ciphers,conn,id,npc);
+    }
+
 }

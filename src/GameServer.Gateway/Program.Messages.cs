@@ -468,8 +468,6 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash tab into a folder (not handled): {Convert.ToHexString(bytes)}");
             else if (id == InstanceNpcs.OptionId)
                 await ChooseNpcOption(remote, stream, ciphers, conn, InstanceNpcs.ReadOption(bytes));
-            else if (id == InstanceHideoutEditing.MoveId)
-                await MoveHideoutObject(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadMove(bytes));
             else if (id == InstanceHideouts.SelectId)
                 await SelectHideout(remote, stream, ciphers, conn, InstanceHideouts.ReadSelect(bytes));
             else if (id == InstanceChat.ChatId)
@@ -559,7 +557,6 @@ partial class Program
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);
                     await SpawnTownStash(remote, stream, ciphers, conn);
-                    await SpawnHideoutDoodads(remote, stream, ciphers, conn);
                     // All stationary objects must exist before validating the arrival cell.
                     await PushOutOfCollision(remote, stream, ciphers, conn);
                     await conn.Commands!.Reply($"Area generated at Seed: {conn.Seed}");

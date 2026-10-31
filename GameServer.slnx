@@ -14,6 +14,8 @@
     <Project Path="Modules/Core/delve/Delve.csproj" />
     <Project Path="Modules/Core/harvest/Harvest.csproj" />
     <Project Path="Modules/Core/heist/Heist.csproj" />
+    <Project Path="Modules/Core/hideoutediting/HideoutEditing.csproj" />
+    <Project Path="Modules/Core/commands/Commands.csproj" />
     <Project Path="Modules/Core/vendors/Vendors.csproj" />
     <Project Path="Modules/Core/portals/Portals.csproj" />
     <Project Path="Modules/Core/questobjects/QuestObjects.csproj" />

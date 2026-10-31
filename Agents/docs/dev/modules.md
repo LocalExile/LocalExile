@@ -49,12 +49,17 @@ removed while it runs. A connection is in one league, and only that league's mod
 - **A Hardcore death:** the death screen appears, and the character stays where it is until the player leaves by its Exit (or any other way). The connection closes first; then the character alone, with what it carries, moves to the parent league. Stashes and gold stay. A saved mark covers a crash in between.
 - **A league's code** is a public class deriving `League` in its `Source/`, with the hooks of a module for its own players, and `Rules`. Saving it hot-reloads.
 
+## What stays in the Gateway
+
+The framework: connections and packets, movement and collision, casting and resolving a hit with all it reads (life, ward, energy shield, rage, charges, fortification, souls, leech, auras,
+cooldowns, flask stats, monster mods), character stats and experience, items, stash storage, talking to an NPC, quest flags, and `league`, `mod` and `module` commands.
+
 ## Modules
 
 A module has no knowledge of leagues, and is not changed by one. A league needing even a small difference uses a module of its own, which may share code.
 One copy of a module runs for every league listing it, since one connection is in one league; its hooks run per player. A module no league lists does not load.
 
-- **Core** (`Modules/Core/`) is ordinary modules that new leagues get by default: `npcdialogue`, `vendors`, `questobjects`, `mercy`, `portals`, `tattoos`, `uniquebelts`, `harvest`, `heist`, `delve`, `social`, `atlas`, `bench`, `cosmetics`. Group related things in one module.
+- **Core** (`Modules/Core/`) is ordinary modules that new leagues get by default: `commands`, `npcdialogue`, `vendors`, `questobjects`, `hideoutediting`, `mercy`, `portals`, `tattoos`, `uniquebelts`, `harvest`, `heist`, `delve`, `social`, `atlas`, `bench`, `cosmetics`. Group related things in one module.
 - **Hot reload:** a new build in `bin/`, an edited `module.json`, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.

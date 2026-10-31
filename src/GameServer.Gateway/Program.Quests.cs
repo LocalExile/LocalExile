@@ -122,19 +122,6 @@ partial class Program
         { if (!conn.Closed) Console.WriteLine($"[gateway] tutorial chest: {ex.Message}"); }
     }
 
-    internal static async Task TalkToWoundedExile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,uint id,SpawnedNpc npc)
-    {
-        if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { Talked: false } || conn.TutorialSceneRunning) return;
-        bool armed = ItemsOf(conn).Items(PlayerInventories.Weapon1).Count > 0;
-        conn.InNpcTalk = true;
-        await Send(remote,stream,ciphers,InstanceNpcs.Talk(id,armed ? (byte)2 : (byte)1),"0x0084 dying exile: class weapon check");
-        if (!armed) return;
-        conn.TutorialSceneRunning = true;
-        CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { Talked=true });
-        await SetQuestFlags(remote,stream,ciphers,conn,["TalkedToWoundedExile"]);
-        _ = RunOpeningScene(remote,stream,ciphers,conn,id,npc);
-    }
-
     internal static async Task RunOpeningScene(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,uint id,SpawnedNpc npc)
     {
         try
@@ -334,6 +321,7 @@ partial class Program
         await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.PlacedGlyphs]);
         await SetQuestFlags(remote, stream, ciphers, conn, GlyphQuest.HaveGlyph, on: false);
     }
+
 
 
     internal static async Task DropTutorialGem(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,bool support,int x,int y)

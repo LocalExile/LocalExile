@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Net.Sockets;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
@@ -39,6 +41,10 @@ sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string Varie
 static class GameEvents
 {
     public static readonly GameEvent<Action<KillContext>> Kill = new();
+    /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
+    public static readonly GameEvent<Func<ClientState, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
+    /// <summary>A connection's chat commands are made: a module adds to them.</summary>
+    public static readonly GameEvent<Func<ChatCommands, string, NetworkStream, ConnectionCiphers, ClientState, ChatCommands>> CommandsBuilding = new();
     public static readonly GameEvent<Func<ClientState, Dictionary<uint, int>, Dictionary<uint, int>>> PlayerStatSources = new();
     public static readonly GameEvent<Func<ClientState, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
@@ -56,6 +62,18 @@ static class GameEvents
     public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
     /// <summary>A currency used; true when it was this module's.</summary>
     public static readonly GameEvent<Func<ClientState, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
+
+    public static async Task<bool> AnyNpcTalk(ClientState conn, uint id, SpawnedNpc npc)
+    {
+        foreach (var run in NpcTalk.For(conn)) if (await run(conn, id, npc)) return true;
+        return false;
+    }
+
+    public static ChatCommands RunCommandsBuilding(ClientState conn, ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers)
+    {
+        foreach (var run in CommandsBuilding.For(conn)) commands = run(commands, remote, stream, ciphers, conn);
+        return commands;
+    }
 
     public static async Task RunKill(KillContext kill)
     {

@@ -27,6 +27,8 @@
     <!-- The league modules: TestEnvironment registers them, as the host does in the server. -->
     <ProjectReference Include="..\..\Modules\ruthless\Ruthless.csproj" />
     <ProjectReference Include="..\..\Modules\Core\harvest\Harvest.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\hideoutediting\HideoutEditing.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\commands\Commands.csproj" />
     <ProjectReference Include="..\..\Modules\Core\vendors\Vendors.csproj" />
     <ProjectReference Include="..\..\Modules\Core\portals\Portals.csproj" />
     <ProjectReference Include="..\..\Modules\Core\questobjects\QuestObjects.csproj" />

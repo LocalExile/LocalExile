@@ -38,6 +38,13 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             var (remote, stream, ciphers) = kill.Conn.Wire;
             kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
         });
+        On(GameEvents.NpcTalk, async (conn, id, npc) =>
+        {
+            if (npc.Npc.Id != TutorialObjects.Exile) return false;
+            var (remote, stream, ciphers) = conn.Wire;
+            await TalkToWoundedExile(remote, stream, ciphers, conn, id, npc);
+            return true;
+        });
         On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
         {
             var (remote, stream, ciphers) = conn.Wire;

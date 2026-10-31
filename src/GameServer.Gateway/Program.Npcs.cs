@@ -67,11 +67,7 @@ partial class Program
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
         conn.NpcRewardOffer = null;
-        if (npc.Npc.Id == TutorialObjects.Exile)
-        {
-            await TalkToWoundedExile(remote, stream, ciphers, conn, id, npc);
-            return;
-        }
+        if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
             still: () => PlayerActionCurrent(conn, action));
     }
