@@ -291,6 +291,20 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                 items.NextRevision(PlayerInventories.MainInventory), [], added), $"0x00bf inventory 1: /item {type} × {added.Count}");
         }, "item")
+        .Add("item_give", "/item_give <item as JSON> (dev: an item the launcher's item crafter composed, with its mods, into the inventory; Agents/docs/dev/item-crafter.md)", async args =>
+        {
+            if (args.Length == 0) throw new ArgumentException("which item?");
+            if (ItemsFor(conn).Error is { } error) { await conn.Commands!.Reply(error); return; }
+            if (ItemCrafter.Build(ItemsFor(conn), RollsFor(conn), string.Join(' ', args), conn.Pools.Level, Random.Shared, out string? why) is not { } created
+                || ItemsFor(conn).ByHash(created.TypeHash) is not { } type)
+            { await conn.Commands!.Reply(why ?? "Unknown item type"); return; }
+            var items = ItemsOf(conn);
+            if (items.FreeCell(PlayerInventories.MainInventory, type.Width, type.Height, ShapeOf) is not { } cell) { await conn.Commands!.Reply("No room in the inventory"); return; }
+            var added = items.Put(PlayerInventories.MainInventory, new InventoryItem(items.NewItemId(), cell.X, cell.Y, created));
+            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                items.NextRevision(PlayerInventories.MainInventory), [], [added]), $"0x00bf inventory 1: /item_give {type}, {created.Rarity}, {created.Mods.Count} mod(s)");
+            await conn.Commands!.Reply($"Added {(created.NameWords.Count > 0 ? RollsFor(conn).NameOf(created.NameWords) + " " : "")}{type.Name}");
+        })
         .Add("stash_place", "/stash_place <x> <y> <degrees> (dev: move and turn the stash of this area until you leave it; it opens from its new cell)", async args =>
         {
             if (conn.StashObject == 0) { await conn.Commands!.Reply("No stash in this area"); return; }
