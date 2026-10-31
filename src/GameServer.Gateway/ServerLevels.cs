@@ -153,8 +153,9 @@ static class ServerLevels
     {
         if (_files is not null) return _files;
         var oodle = new NodeOodleDecoder("node", Path.GetFullPath(Path.Combine("Tools", "ooz", "ooz_worker.mjs")));
-        // A small bundle cache: the decompressed-chunk cache in front of it serves the repeated reads, and the default
-        // 1 GiB filled up over a long session (~20 MB per new area) in every Gateway of a multi-stack machine.
+        // A small bundle cache: a read whose chunks are all in the decompressed-chunk cache needs no bundle, and the
+        // default 1 GiB ceiling would be every Gateway's on a multi-stack machine (the perf benchmark's 46 areas filled
+        // 173 MB of it; Agents/docs/dev/performance.md).
         _fs = GameFileSystem.Open(Path.GetFullPath(Path.Combine("Client", "Content.ggpk")), oodle, bundleCacheBytes: 128L << 20);
         return _files = new TerrainCache(Read);
     }

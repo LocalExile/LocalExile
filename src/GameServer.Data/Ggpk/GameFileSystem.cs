@@ -6,7 +6,7 @@ namespace GameServer.Data.Ggpk;
 /// <summary>
 /// Read-only view over a standalone <c>Content.ggpk</c>: resolves files through
 /// the bundle index and decompresses bundle chunks with managed Oodle (OozSharp).
-/// No native Oodle library is required.
+/// No native Oodle library is required. Thread-safe: reads are serialized by one lock (the caches are not concurrent).
 /// </summary>
 public sealed class GameFileSystem : IDisposable
 {
@@ -28,6 +28,11 @@ public sealed class GameFileSystem : IDisposable
     private readonly Dictionary<(int Bundle, int Chunk), LinkedListNode<((int Bundle, int Chunk) Key, byte[] Data)>> _chunks = new();
     private readonly LinkedList<((int Bundle, int Chunk) Key, byte[] Data)> _chunkLru = new();
     private long _chunkBytes;
+    // Each read bundle's layout (a few numbers): a file whose chunks are all cached needs no bundle at all.
+    private readonly Dictionary<int, (int DecompressedSize, int Granularity)> _layouts = new();
+    private readonly object _gate = new();
+    // How many bundles were read from the GGPK (the perf benchmarks read it).
+    private long _bundleReads;
 
     public GameIndex Index { get; }
 
@@ -68,8 +73,37 @@ public sealed class GameFileSystem : IDisposable
             return false;
         }
         int bundle = loc.BundleIndex;
-        data = BundleFile.DecompressSlice(GetBundle(bundle), loc.Offset, loc.Size,
-            (chunk, compressed, size) => DecompressChunk(bundle, chunk, compressed, size));
+        lock (_gate)
+        {
+            if (_layouts.TryGetValue(bundle, out var layout) && TryCachedSlice(bundle, layout, loc.Offset, loc.Size, out data))
+                return true;
+            byte[] raw = GetBundle(bundle);
+            _layouts[bundle] = BundleFile.Layout(raw);
+            data = BundleFile.DecompressSlice(raw, loc.Offset, loc.Size,
+                (chunk, compressed, size) => DecompressChunk(bundle, chunk, compressed, size));
+        }
+        return true;
+    }
+
+    // The slice from the decompressed-chunk cache alone, when every chunk it covers is there.
+    private bool TryCachedSlice(int bundle, (int DecompressedSize, int Granularity) layout, int offset, int size, out byte[] data)
+    {
+        data = [];
+        if (size <= 0 || layout.Granularity <= 0 || offset < 0 || offset + size > layout.DecompressedSize) return false;
+        int first = offset / layout.Granularity, last = (offset + size - 1) / layout.Granularity;
+        for (int chunk = first; chunk <= last; chunk++)
+            if (!_chunks.ContainsKey((bundle, chunk))) return false;
+        data = new byte[size];
+        for (int chunk = first, written = 0; chunk <= last; chunk++)
+        {
+            var node = _chunks[(bundle, chunk)];
+            _chunkLru.Remove(node);
+            _chunkLru.AddFirst(node);
+            int start = chunk * layout.Granularity;
+            int begin = Math.Max(offset - start, 0), end = Math.Min(offset + size - start, node.Value.Data.Length);
+            node.Value.Data.AsSpan(begin, end - begin).CopyTo(data.AsSpan(written));
+            written += end - begin;
+        }
         return true;
     }
 
@@ -103,15 +137,20 @@ public sealed class GameFileSystem : IDisposable
         return data;
     }
 
+    /// <summary>Drops every cached bundle, decompressed chunk and bundle layout.</summary>
     public void ClearBundleCache()
     {
-        _bundleCache.Clear();
-        _lru.Clear();
-        _lruNodes.Clear();
-        _cacheBytes = 0;
-        _chunks.Clear();
-        _chunkLru.Clear();
-        _chunkBytes = 0;
+        lock (_gate)
+        {
+            _bundleCache.Clear();
+            _lru.Clear();
+            _lruNodes.Clear();
+            _cacheBytes = 0;
+            _chunks.Clear();
+            _chunkLru.Clear();
+            _chunkBytes = 0;
+            _layouts.Clear();
+        }
     }
 
     private byte[] GetBundle(int index)
@@ -123,6 +162,7 @@ public sealed class GameFileSystem : IDisposable
         }
 
         byte[] raw = ReadGgpkFile(_ggpk, Index.BundleFiles[index]);
+        _bundleReads++;
         _bundleCache[index] = raw;
         _lruNodes[index] = _lru.AddFirst(index);
         _cacheBytes += raw.Length;

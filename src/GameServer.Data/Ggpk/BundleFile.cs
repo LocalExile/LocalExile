@@ -24,6 +24,10 @@ public static class BundleFile
     public static int DecompressedSize(ReadOnlySpan<byte> bundle)
         => BinaryPrimitives.ReadInt32LittleEndian(bundle[DecompressedSizeOffset..]);
 
+    /// <summary>A bundle's decompressed size and its chunk size (every chunk but the last decompresses to it).</summary>
+    public static (int DecompressedSize, int Granularity) Layout(ReadOnlySpan<byte> bundle)
+        => (DecompressedSize(bundle), BinaryPrimitives.ReadInt32LittleEndian(bundle[GranularityOffset..]));
+
     public static byte[] DecompressWhole(ReadOnlySpan<byte> bundle, IOodleDecoder decoder)
     {
         int size = DecompressedSize(bundle);

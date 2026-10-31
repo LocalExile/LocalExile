@@ -218,9 +218,13 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         Record("area", "live heap after full GC MB", GC.GetTotalMemory(false) / 1048576.0, "MB");
         Record("area", "process private MB", PrivateMegabytes(), "MB");
         if (typeof(ServerLevels).GetField("_fs", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null) is { } fs)
+        {
             foreach (string field in new[] { "_cacheBytes", "_chunkBytes" })
                 if (fs.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance) is { } f)
                     Record("area", $"game files {field} MB", (long)f.GetValue(fs)! / 1048576.0, "MB");
+            if (fs.GetType().GetField("_bundleReads", BindingFlags.NonPublic | BindingFlags.Instance) is { } reads)
+                Record("area", "game files bundle reads", (long)reads.GetValue(fs)!, "");
+        }
         await Hold("area");
     }
 
