@@ -69,9 +69,16 @@ public sealed partial class DelveModule : IModule
     public void Load(IModuleContext module)
     {
         // The gauge and the Subterranean Chart read the character's sulphite from it, in the encampment and the mine.
-        module.OnEnterMessages(player => player.AreaId.StartsWith("Delve", StringComparison.Ordinal)
-            ? [("0x0228 Delve resources and equipment", DelveData(module.World(player))),
-               .. Enumerable.Repeat(("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(Sulphite(module.World(player).CharacterData), Sulphite(module.World(player).CharacterData))), 2)] : []);
+        // Two arrays: sending encrypts a message in place, so the same one cannot go twice.
+        module.OnEnterMessages(player =>
+        {
+            if (!player.AreaId.StartsWith("Delve", StringComparison.Ordinal)) return [];
+            var world = module.World(player);
+            ushort amount = Sulphite(world.CharacterData);
+            return [("0x0228 Delve resources and equipment", DelveData(world)),
+                ("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(amount, amount)),
+                ("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(amount, amount))];
+        });
         module.OnAreaHeader(player => player.AreaId switch
         {
             "Delve_Main" => new AreaHeader(InstanceDelve.FirstMineTerrain(), [2]),
