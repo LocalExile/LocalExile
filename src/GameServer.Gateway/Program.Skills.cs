@@ -231,6 +231,7 @@ partial class Program
                 stats[regen] = (int)Math.Clamp((long)stats.GetValueOrDefault(regen)
                     + value.LifeRegenerationPerMinutePercent(session.RegenPerStack), int.MinValue, int.MaxValue);
         }
+        var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(Get, conn.Pools.Life);
         var (mainLocal, offLocal) = HandLocalStats(conn);
         // Capture only for a skill publication. Recovery-only callers avoid these extra immutable copies.
         panelSources = capturePanelSources
@@ -245,8 +246,8 @@ partial class Program
                 name => Stats.Key(name) is uint key && rawOverrides.TryGetValue(key, out int value) ? value : null,
                 CriticalOnLowLife(conn, stats)))
             .Concat(FlaskCharges.GainStats(Get))
-            .Concat(new[] { ("energy_shield_recovery_per_minute", (int)Math.Round(EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, conn.EnergyShield.Recharging))),
-                ("total_energy_shield_recovery_per_minute_from_regeneration", (int)Math.Round(EnergyShield.RegenPerMinute(conn.Pools.EnergyShield, Get))),
+            .Concat(new[] { ("energy_shield_recovery_per_minute", (int)Math.Round(EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, conn.EnergyShield.Recharging) + lifeRegenerationToEnergyShield)),
+                ("total_energy_shield_recovery_per_minute_from_regeneration", (int)Math.Round(EnergyShield.RegenPerMinute(conn.Pools.EnergyShield, Get) + lifeRegenerationToEnergyShield)),
                 ("energy_shield_recharge_rate_per_minute", (int)Math.Round(EnergyShield.RechargePerMinute(conn.Pools.EnergyShield, Get))),
                 ("energy_shield_recharge_active", 0) })
             .Concat(ChargePanelStats.Compute(Get)))

@@ -44,6 +44,13 @@ sealed class EnergyShield
         Math.Max(0, get("base_energy_shield_regeneration_rate_per_minute") + max * get("base_energy_shield_regeneration_rate_per_minute_%") / 100.0)
         * Math.Max(0, 1 + get("energy_shield_regeneration_rate_+%") / 100.0)
         * Math.Max(0, 1 + get("energy_shield_recovery_rate_+%") / 100.0);
+
+    /// <summary>Whether life regeneration converted to Energy Shield by Zealot's Oath may run. The native ES
+    /// regeneration prohibitions apply to the converted amount as well.</summary>
+    public static bool ConversionAllowed(Func<string, int> get) =>
+        get("no_energy_shield_recharge_or_regeneration") == 0 &&
+        get("cannot_recover_energy_shield") == 0 &&
+        get("no_energy_shield_recovery") == 0;
     // The ordinary 0x1b3 virtual recharge-active stat does not start the client's recharge predictor. Feed its
     // verified native recovery input during the recharge phase instead; keep the recharge-rate stat for the panel.
     public static double PredictionPerMinute(uint max, Func<string,int> get, bool recharging) =>
