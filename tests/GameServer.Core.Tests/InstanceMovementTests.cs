@@ -85,7 +85,7 @@ public class InstanceMovementTests
         Assert.Equal("001C0000000012345678", Convert.ToHexString(InstanceProtocol.Pong(0, 0, 0x12345678)));
         Assert.Equal("01BA00001000000000000000000000E8000000E5000000004214000000",
             Convert.ToHexString(InstanceProtocol.MoveTo(0x1000, 232, 229, 37f)));
-        Assert.Equal("01B700001000000000000000000000E8000000E50000000000000000",
+        Assert.Equal("01B700001000000000000000000000E8000000E57FFFFFFF00000000",
             Convert.ToHexString(InstanceProtocol.Teleport(0x1000, 232, 229)));
     }
 

@@ -94,8 +94,9 @@ partial class Program
             .Select(o => (Object: o, Flag: Quests.RoomObjectRemovedBy(conn.Layout.Id, o.Type)))
             .Where(o => o.Flag is not null).ToList();
         if (objects.Count == 0) return;
-        // The walls guard the exits their flag opens; the boss's side is the room's "mapboss" point (else the arrival).
-        var boss = AreaPopulation.LoadPoints(conn.Layout.Id, conn.Seed, []).FirstOrDefault(p => p.Name == "mapboss");
+        // The walls guard the exits their flag opens; the boss's side is the room's boss point ("mapboss", "mapboss2" …,
+        // AreaPopulation.BossPoint; else the arrival).
+        var boss = AreaPopulation.LoadPoints(conn.Layout.Id, conn.Seed, []).FirstOrDefault(p => AreaPopulation.BossPoint(p.Name) is not null);
         var from = conn.Layout.Near(boss is null ? (conn.Layout.SpawnX, conn.Layout.SpawnY) : (boss.X, boss.Y));
         uint id = QuestRoomObjectFirstId;
         foreach (var (o, flag) in objects)

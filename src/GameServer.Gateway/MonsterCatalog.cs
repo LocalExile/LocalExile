@@ -190,6 +190,9 @@ sealed class MonsterCatalog(string folder = "data")
 
     /// <summary>A MonsterVarieties row by number, or by Id: exact, then the last path segment, then any part of it,
     /// then the display name. Several matches: the first one the blob writer supports.</summary>
+    /// <summary>Every MonsterVarieties row (the launcher's suggestions).</summary>
+    public IReadOnlyList<Variety> All => _rows.Value.Rows;
+
     public Variety? Find(string query)
     {
         var rows = _rows.Value.Rows;
@@ -252,19 +255,24 @@ sealed class MonsterCatalog(string folder = "data")
             {
                 string id = r.GetProperty("Id").GetString() ?? "";
                 string baseType = r.GetProperty("BaseMonsterTypeIndex").GetString() ?? "";
+                // The .ot the client builds the object from: a type file under the variety's own Id when there is one
+                // (Metadata/Monsters/KitavaBoss/KitavaFinal.ot, whose base column names Kitava1), else the base type. With
+                // Kitava1's list, KitavaFinal got a Transitionable byte its own type does not read, which the client took
+                // for the task count: "Buffer Underflow" (live 2026-10-30). 17 varieties serialise differently that way.
+                string type = components.ContainsKey(id) ? id : baseType;
                 string? ao = r.GetProperty("AOFiles").EnumerateArray().Select(a => a.GetString()).FirstOrDefault();
                 rows.Add(new Variety(rows.Count, id, r.GetProperty("Name").GetString() ?? "", baseType, ao,
-                    components.Count == 0 ? null : components.GetValueOrDefault(baseType),
+                    components.Count == 0 ? null : components.GetValueOrDefault(type),
                     r.GetProperty("LifeMultiplier").GetInt32(),
                     r.GetProperty("MonsterTypesKey").ValueKind == JsonValueKind.Number ? r.GetProperty("MonsterTypesKey").GetInt32() : -1,
-                    stateMachines.GetValueOrDefault(baseType), transitionStates.GetValueOrDefault(baseType, (byte)1),
+                    stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
                     r.GetProperty("MovementSpeed").GetInt32(), r.GetProperty("ObjectSize").GetInt32(), r.GetProperty("MaxAgroRange").GetInt32(),
                     [.. r.GetProperty("GrantedEffectsKeys").EnumerateArray().Select(e => e.GetInt32())],
                     r.GetProperty("AttackSpeed").GetInt32(), r.GetProperty("MaximumAttackDistance").GetInt32(),
                     r.GetProperty("DamageMultiplier").GetInt32(), r.GetProperty("ExperienceMultiplier").GetInt32(),
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
                     {
-                        LifeData = lifeData.GetValueOrDefault(baseType) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
+                        LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
                     });

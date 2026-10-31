@@ -16,8 +16,10 @@ using GameServer.Core.Protocol.Instance;
 ///    unidentified, at the monster's level plus <see cref="ItemLevelBonus"/>.
 /// </summary>
 sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool ruthless = false, AtlasCatalog? maps = null,
-    UniqueCatalog? uniques = null)
+    UniqueCatalog? uniques = null, UniqueWeightProvider? uniqueWeights = null)
 {
+    readonly UniqueWeightProvider _uniqueWeightProvider = uniqueWeights ?? UniqueWeightProvider.Default;
+
     /// <summary>A dropped piece of equipment's chances by the monster's rarity, each of what the earlier ones left: first
     /// unique, then rare, then magic.</summary>
     public readonly record struct Chances(double Unique, double Rare, double Magic);
@@ -98,6 +100,18 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     volatile UniqueIndex? _uniques;
 
     public sealed record Drop(Item Item, ItemCatalog.BaseType Type);
+
+    /// <summary>A reward container's explicit number of rolls, without a monster's quantity or personal/mod multipliers.</summary>
+    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng)
+    {
+        if (count < 0 || count > 2000) throw new ArgumentOutOfRangeException(nameof(count));
+        var chances = WithIncreasedRarity(RarityChances(MonsterRarity.Rare), increasedRarity,
+            SystemSettings.Default.DropMultiplier("unique_rarity"));
+        var result = new List<Drop>();
+        for (int attempt = 0; result.Count < count && attempt < count * 8; attempt++)
+            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop) result.Add(drop);
+        return result;
+    }
 
     /// <summary>The items a monster of this level and rarity drops (possibly none). The quantity multiplier scales how
     /// many: each of the monster's rolls happens floor(multiplier) times, and once more with the fraction's chance (below
@@ -251,11 +265,14 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     /// <summary>How likely a unique is once its base rolled one: the inverse of its disenchant value
     /// (VillageUniqueDisenchantValues, Ruthless has its own column), the client's own measure of how rare a unique is:
     /// Wanderlust 1.06, Kaom's Heart 43, Mageblood 891. The table leaves out old names and some non-equipment; those do not
-    /// drop. Without the table every unique weighs 1.</summary>
+    /// drop. The Gateway publishes the seeded/overridden weights through <see cref="UniqueWeightProvider"/>; without a
+    /// reference table the extracted JSON is the fallback and every unique weighs 1.</summary>
     internal double UniqueWeight(string name) =>
-        _uniqueWeights.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(name) : 1;
+        _uniqueWeightProvider.HasTable
+            ? _uniqueWeightProvider.Weight(name, ruthless)
+            : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(name) : 1;
 
-    private readonly Lazy<Dictionary<string, double>> _uniqueWeights = new(() => LoadUniqueWeights(folder, ruthless));
+    private readonly Lazy<Dictionary<string, double>> _uniqueWeightsFile = new(() => LoadUniqueWeights(folder, ruthless));
 
     static Dictionary<string, double> LoadUniqueWeights(string folder, bool ruthless)
     {

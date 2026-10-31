@@ -59,7 +59,7 @@ static class CharacterSaves
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
         ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, List<string>? AtlasCompletedLayouts = null,
-        byte? AtlasActivePreset = null)
+        byte? AtlasActivePreset = null, int? CompletedDelveDepth = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -86,6 +86,9 @@ static class CharacterSaves
 
     public static void Write(string character, Save save) =>
         Saves.Put(SaveDatabase.Table.Characters, character, JsonSerializer.Serialize(save, Opts));
+
+    public static void CompleteDelveDepth(string character, int depth) =>
+        Update(character, save => save with { CompletedDelveDepth = Math.Max(save.CompletedDelveDepth ?? 0, depth) });
 
     public static void SetHideoutPlacement(string character, string area, string key, HideoutPlacement placement) =>
         Update(character, save =>

@@ -7,6 +7,11 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
+// Keep the 300 ms socket-latency assertion away from parallel catalogue loads and their GC pauses.
+[CollectionDefinition("Monster AI wall-clock", DisableParallelization = true)]
+public sealed class MonsterAiWallClockCollection { }
+
+[Collection("Monster AI wall-clock")]
 public class MonsterAiCadenceTests
 {
     const uint MonsterId = 0x3000;

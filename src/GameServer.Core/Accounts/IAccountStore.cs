@@ -4,6 +4,8 @@ public interface IAccountStore
 {
     Account? FindAccount(string name);
     Account? GetAccount(Guid id);
+    /// <summary>Every account, by name.</summary>
+    IReadOnlyList<Account> Accounts();
     void AddAccount(Account account);
     void UpdateAccount(Account account);
     IReadOnlyList<Character> CharactersOf(Guid accountId);
