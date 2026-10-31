@@ -85,6 +85,12 @@ These are suggestions that have worked well, for people and agents alike; use yo
   before saving such an edit. `dotnet watch` does not build the modules, so the restarted Gateway builds those older
   than itself before it loads them (`StaleModules`); an older module would otherwise fail only when it runs, with a
   `MissingFieldException` or `MissingMethodException`. A module that does not build is named in the log.
+- **A module's edit needs only its own build.** `dotnet build <Module>.csproj -p:BuildProjectReferences=false` reloads
+  that module and leaves the Gateway running. It compiles against the Gateway's DLL on disk, so a member added only by a
+  hot reload is not visible to it until a restart.
+- **A reload wave costs one collection.** Forced collections stop every player's tick, so `UnloadCollector` runs one
+  pass after the last unload or load of a wave. While the game module reloads its old rules keep running, until the new
+  ones replace them; the other modules' hooks are absent between their unload and load.
 - **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
   Keep the monster AI cadence collection nonparallel: its socket-latency assertion retains its 300 ms limit, so

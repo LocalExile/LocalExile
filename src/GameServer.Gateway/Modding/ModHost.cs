@@ -541,6 +541,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         }
         _loaded[id] = mod;
         _failed.Remove(id);
+        UnloadCollector.Postpone();
         Tell($"{Tag} loaded {id} {manifest.Version} ({manifest.Kind.ToString().ToLowerInvariant()}, {mod.Hooks} hook(s))");
         return true;
     }
@@ -602,19 +603,9 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         return (weak, mod.Context?.CopyDirectory ?? "");
     }
 
-    async Task<bool> Collect((WeakReference Context, string CopyDirectory) unloaded)
-    {
-        var (context, copyDirectory) = unloaded;
-        for (int i = 0; i < 20 && context.IsAlive; i++)
-        {
-            await Task.Delay(i == 0 ? 0 : 100);
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-        }
-        if (context.IsAlive) log($"{Tag} an unloaded {Noun} is still in memory after 2 s: a thread, timer or task of it still runs, or something outside it holds one of its objects");
-        else if (copyDirectory.Length > 0 && !ModLoadContext.TryDeleteCopy(copyDirectory)) log($"{Tag} could not remove an unloaded {Noun}'s private copy");
-        return !context.IsAlive;
-    }
+    Task<bool> Collect((WeakReference Context, string CopyDirectory) unloaded) => UnloadCollector.Add(unloaded.Context, unloaded.CopyDirectory,
+        () => log($"{Tag} an unloaded {Noun} is still in memory after 2 s: a thread, timer or task of it still runs, or something outside it holds one of its objects"),
+        () => log($"{Tag} could not remove an unloaded {Noun}'s private copy"));
 
     void Remove(LoadedMod mod)
     {
