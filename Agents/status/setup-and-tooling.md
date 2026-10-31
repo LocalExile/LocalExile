@@ -71,12 +71,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cheap clients for agent sessions (opt-in): `scripts/dev/nullifier.py` starts the client in its own session folder
   (its own settings file, seeded from `config/nullifier_Config.ini`), in a kill-on-close job, with the engine's own
   Null renderer (no GPU device; a Frida agent turns it on and fixes the Null index buffer's missing format, which
-  crashed area entry), a window that never takes focus, below-normal priority and EcoQoS, and serves client_control's
-  commands (plus `waypoint:travel`, `nullifier:stats`) for that client only. Live 2026-10-31: login, play, 60 s in
-  town, slash commands, chat, `/tp`, waypoint travel and `/goto` all worked at 1.9 GB private commit, no GPU memory
-  and ~15 % of a core (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %); `--trim-seconds 10` keeps it resident at
-  50–230 MB. Only Lioneye's Watch and The Coast were entered. `--renderer configured` (DirectX 11 preset, 4.3 GB,
-  1.7 GB VRAM) is the verified fallback. Offline tests: `scripts/dev/test_nullifier.py`.
+  crashed area entry), session-local names for the client's two-copies mutexes (so it never takes one of the two
+  Global\PoERunMutexA/B slots other clients need; offline-tested), a window that never takes focus, below-normal
+  priority and EcoQoS, and serves client_control's commands (plus `waypoint:travel`, `nullifier:stats`) for that
+  client only. Live 2026-10-31: login, play, 60 s in town, slash commands, chat, `/tp`, waypoint travel and `/goto`
+  all worked at 1.9 GB private commit, no GPU memory and ~15 % of a core (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %);
+  `--trim-seconds 10` keeps it resident at 50–230 MB. Only Lioneye's Watch and The Coast were entered. `--renderer
+  configured` (DirectX 11 preset, 4.3 GB, 1.7 GB VRAM) is the verified fallback. Offline tests:
+  `scripts/dev/test_nullifier.py`, `test-nullifier-mutex.cjs`.
   Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`.
   Docs: [headless client](../docs/dev/headless-client.md).
 

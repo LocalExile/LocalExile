@@ -84,6 +84,21 @@ class NullifierTests(unittest.TestCase):
         self.assertNotIn("password", text.lower())
         self.assertNotIn("[LOGIN]", text)  # no saved login for whichever login server the gateway list names
 
+    def test_run_mutex_prefix_is_session_local_and_unique(self):
+        a = nullifier.run_mutex_prefix(Path("data/clients/bot1"))
+        b = nullifier.run_mutex_prefix(Path("data/clients/bot2"))
+        self.assertTrue(a.startswith("Local\\LocalExile-") and a.endswith("-"), a)
+        self.assertNotIn("Global", a)
+        self.assertNotEqual(a, b)
+        self.assertNotIn("\\", a[len("Local\\"):])  # one namespace separator only
+        self.assertRegex(nullifier.run_mutex_prefix(Path("x y/a b")), r"^Local\\LocalExile-[A-Za-z0-9_-]+-$")
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_agent_renames_only_the_two_copies_mutexes(self):
+        result = subprocess.run(["node", str(Path(__file__).with_name("test-nullifier-mutex.cjs"))], text=True,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_agent_parses_with_options(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -3,7 +3,8 @@
 // nullifier.py prepends `const OPTIONS = {...};`. No input simulation and no executable patching on disk; the hooks
 // live only in this process and only for its life. The settings file is not this script's business: the client runs
 // in a folder whose config.json names its own settings file.
-// Always: the window is never activated (no focus stealing). Everything else only when asked for:
+// Always: the window is never activated (no focus stealing), and the two-copies mutexes get session-local names
+// (runMutexPrefix). Everything else only when asked for:
 //   window        minimized | hidden | normal: how the window shows.
 //   nullRenderer  the engine's own "Render: OFF" switch: it then creates its Null device (no D3D/Vulkan device, no
 //                 swap chain, no GPU memory, no texture uploads) instead of the configured DirectX/Vulkan one, and
@@ -38,6 +39,33 @@ function whenLoaded(name, install) {
     done = true; install(m);
   }});
   keep.push(observer);
+}
+
+// The client allows two copies per PC: at startup (0x140101d85) it creates Global\PoERunMutexA, takes it with a zero
+// wait, else Global\PoERunMutexB, else throws "You may only run up to two copies of Path of Exile at a time." The
+// handles are never used again. Our clients get session-local names instead (OPTIONS.runMutexPrefix + "PoERunMutexA"
+// / "B", e.g. Local\LocalExile-pr-x-bot1-PoERunMutexA), so they never take one of the two Global slots the user's and
+// other sessions' clients need. Only these two exact names are renamed: PathOfExileSingleInstance (file-association
+// hand-off), Global\PoERunMutexCrashUpload and LMDB's Global\MDB… locks (the shared shader cache) stay as they are.
+if (OPTIONS.runMutexPrefix) {
+  const renamed = {};
+  for (const slot of ['A', 'B']) {
+    const name = OPTIONS.runMutexPrefix + 'PoERunMutex' + slot;
+    const key = 'global\\poerunmutex' + slot.toLowerCase();
+    renamed[key] = {name, wide: Memory.allocUtf16String(name)};
+    keep.push(renamed[key].wide);
+  }
+  whenLoaded('kernelbase.dll', kernelbase => {
+    for (const api of ['CreateMutexW', 'CreateMutexExW', 'OpenMutexW']) {
+      const nameArg = api === 'CreateMutexW' ? 2 : api === 'CreateMutexExW' ? 1 : 2;
+      Interceptor.attach(kernelbase.getExportByName(api), {onEnter(args) {
+        const p = args[nameArg];
+        if (p.isNull()) return;
+        const target = renamed[(p.readUtf16String() || '').toLowerCase()];
+        if (target) { args[nameArg] = target.wide; log(`run mutex -> ${target.name}`); }
+      }});
+    }
+  });
 }
 
 // The window is created and shown as usual (the engine needs it), but never activated: it cannot take the keyboard

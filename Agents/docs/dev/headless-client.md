@@ -6,7 +6,7 @@ keep working. The tools are opt-in and do not change `live.ps1`'s normal client.
 
 | File | What it is |
 |---|---|
-| `scripts/dev/nullifier.js` | Frida agent loaded while the client is still suspended at spawn: a window that never takes focus; on request the engine's Null renderer (with the Null index-buffer fix), a frame-sleep cap, a frame counter, a crash log |
+| `scripts/dev/nullifier.js` | Frida agent loaded while the client is still suspended at spawn: a window that never takes focus, session-local two-copies mutexes (§1); on request the engine's Null renderer (with the Null index-buffer fix), a frame-sleep cap, a frame counter, a crash log |
 | `scripts/dev/nullifier.py` | launcher: prepares or checks the client's own folder, spawns `Client/Game.patched.exe` there with the agent, puts it in a kill-on-close job, applies the process limits, resumes it, then serves client_control's JSON-lines commands for **that client only** (`--stdio`) |
 | `config/nullifier_Config.ini` | settings preset (DirectX 11, 800×600 window, low textures, 10 fps, effects off, sound muted, no `[LOGIN]`) that seeds each client's own settings file |
 | `scripts/dev/nullifier-measure.ps1` | read-only sampler of one pid: private commit, working set, CPU, GPU engine utilisation, dedicated/shared GPU memory |
@@ -52,10 +52,30 @@ file through `CreateFileW`/`MoveFileExW` hooks instead; it missed the client's r
 object with `KILL_ON_JOB_CLOSE`, so it never outlives the launcher however that ends, and it is terminated when the
 Frida session detaches (unhooked it must not keep running). Priority, EcoQoS, affinity, trimming, liveness and
 termination all use the one process handle opened at the spawn; nothing looks a pid up again (Windows hands an exited
-client's pid to the next new process; before this an earlier version once attached to such a process). The launcher
-refuses to start a third client: the client allows two copies per PC (it takes `Global\PoERunMutexA` or `B`,
-`0x140101d85`; a third waits invisibly on its "only two copies" dialog). In default mode the agent installs only the
-focus guard; the engine hook, frame counter, exception handler and file hooks only with the options that need them.
+client's pid to the next new process; before this an earlier version once attached to such a process). In default
+mode the agent installs only the focus guard and the two-copies renaming below; the engine hook, frame counter,
+exception handler and file hooks only with the options that need them.
+
+**The two-copies limit.** The client allows two copies per PC. Right at startup (`0x140101680`, at `0x140101d85`) it
+calls `CreateMutexW(NULL, FALSE, "Global\PoERunMutexA")` and `WaitForSingleObject(handle, 0)`; if another process
+owns it (`WAIT_TIMEOUT`) it does the same with `Global\PoERunMutexB`, and if that is owned too it throws "You may only
+run up to two copies of Path of Exile at a time." (`0x140102587`), which shows as a dialog the client then waits on, so
+a third copy hangs invisibly. The handles are never stored, released or looked at again: the mutexes exist only for
+this count. Every client we started therefore used to take one of the two machine-wide slots that the user's and
+the other sessions' clients need. `nullifier.js` (always, renderer or not) rewrites exactly these two names in
+`CreateMutexW`/`CreateMutexExW`/`OpenMutexW` (the client imports only `CreateMutexW`) to
+`Local\LocalExile-<checkout>-<folder>-PoERunMutexA`/`B`: a session-local name per client folder, so our clients never
+take a Global slot and never block each other across folders (two clients in the same folder still share a pair).
+The hook is installed while the client is still suspended, before its first instruction. Nothing else uses those
+names. What the count does not guard, and what stays shared between all copies whatever their number:
+`PathOfExileSingleInstance` (a session mutex for handing a `.build`/`.filter` file to a running client's window,
+`0x140100780`), `Global\PoERunMutexCrashUpload` (crash-report upload), and LMDB's own `Global\MDB…` locks around the
+shared shader and pipeline caches in `%LOCALAPPDATA%\Path of Exile` (multi-process safe by design, up to 126 readers);
+these names are left alone. The startup "Wiping cache …tmp" of that folder runs in every copy, independent of the
+mutexes. Settings, saved login and `Client.txt` are per folder (§1); `Content.ggpk` is opened read-only and shared.
+So the launcher no longer refuses to start a client when two already run: ours do not count.
+The renaming is checked offline (`scripts/dev/test-nullifier-mutex.cjs`, with Frida's API stubbed) but has not
+run against the real client yet: the measurements in §3 predate it, and live launches are paused.
 
 Commands added to client_control's set: `waypoint:travel` (`area`: a WorldAreas HASH16; sends the World panel pin's
 C→S 0x4d, [16](../protocol/16-waypoints.md) §3; the Gateway accepts it only for an activated waypoint, so use

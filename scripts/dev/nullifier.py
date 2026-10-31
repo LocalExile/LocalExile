@@ -12,8 +12,9 @@ folder whose config.json is missing or names the default poeoffline_/production_
 settings are never written.
 
 It spawns Client/Game.patched.exe suspended through Frida with scripts/dev/nullifier.js (a window that never takes
-focus; optionally the engine's own Null renderer, a frame-sleep cap, frame statistics, a crash log), puts it in a job
-object that kills it when this script ends, applies the process limits (priority, EcoQoS, affinity, working set
+focus, session-local names for the client's two-copies mutexes so it never takes one of the user's two Global
+slots; optionally the engine's own Null renderer, a frame-sleep cap, frame statistics, a crash log), puts it in a
+job object that kills it when this script ends, applies the process limits (priority, EcoQoS, affinity, working set
 trimming) through the one process handle it keeps from the spawn, resumes it, and then serves client_control.py's
 JSON-lines commands for THIS process only (--stdio), or just waits. The client lives exactly as long as this script
 and its Frida session: it is terminated when either ends. It never touches another process: nothing is found by name
@@ -215,10 +216,12 @@ def write_record(path, values):
     os.replace(temporary, path)
 
 
-def running_clients():
-    """How many Game.patched.exe run (read-only): the client allows two per PC (Global\\PoERunMutexA, B; 0x140101d85)
-    and a third waits forever on its "only two copies" dialog."""
-    return sum(1 for p in frida.get_local_device().enumerate_processes() if p.name.lower() == "game.patched.exe")
+def run_mutex_prefix(folder):
+    r"""The session-local namespace for the client's two-copies mutexes (nullifier.js renames Global\PoERunMutexA/B to
+    <prefix>PoERunMutexA/B), so clients we launch never take one of the two Global slots the user's and other
+    sessions' clients need. Unique per checkout and client folder."""
+    tag = re.sub(r"[^A-Za-z0-9_-]", "_", f"{ROOT.name}-{Path(folder).name}")[:80]
+    return "Local\\LocalExile-" + tag + "-"
 
 
 class PidClientControl(client_control.ClientControl):
@@ -291,12 +294,11 @@ def main():
     if os.path.normcase(os.path.abspath(folder)) == os.path.normcase(os.path.abspath(CLIENT.parent)):
         raise SystemExit("the shared Client folder has no config.json of its own: use --session or a session --cwd")
     settings = settings_name(folder)
-    if running_clients() >= 2:
-        raise SystemExit("two clients already run: the client allows at most two copies per PC")
     agent_options = {
         "nullRenderer": options.renderer == "null", "noRenderJobs": options.no_render_jobs,
         "noTextureUpload": options.no_texture_upload, "frameSleepMs": max(0, options.frame_sleep_ms),
         "frameStats": options.frame_stats, "window": options.window, "traceFiles": options.trace_files,
+        "runMutexPrefix": run_mutex_prefix(folder),
         "crashLog": str(Path(os.path.abspath(options.crash_log))) if options.crash_log else None}
     argv = [str(CLIENT), "--patching-server", f"127.0.0.1:{options.patch_port}", "--nologo"]
     if not options.sound:
