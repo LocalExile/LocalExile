@@ -373,6 +373,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>The portal cosmetic: the MicrotransactionPortalVariations row every portal is listed with (0x008f +0x26),
     /// 0 for the base effect. Applied to portals already standing as well as to new ones.</summary>
     public ushort CosmeticPortalVariation;
+    /// <summary>The portrait frame the character logged in with (Auth's ticket): what the client draws and other players
+    /// are told. A pick reaches it at the next login, as the pick's message says.</summary>
+    public ushort PortraitFrame { get; init; }
     /// <summary>The worn cosmetics as 0x1f3 lists them (WornCosmetics), read from the save on first use; null after a
     /// pick, so the next use reads it again.</summary>
     public List<InstanceMicrotransactions.Equipped>? WornCosmetics;

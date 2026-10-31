@@ -69,6 +69,8 @@ static partial class Game
     internal static readonly SkillArt Art = new();
     // The Cosmetics tab's Portrait slot (MicrotransactionSlot 16).
     internal const byte PortraitSlot = 16;
+    // The Cosmetics tab's Social Frame slot (MicrotransactionSlot 17): the portrait frames.
+    internal const byte SocialFrameSlot = 17;
     // Per character: the ids of worn items whose requirements are not met (CharacterStatSources).
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = new(StringComparer.OrdinalIgnoreCase);
     // The character panel's Spell Suppression chance stats (the client reads the final value).

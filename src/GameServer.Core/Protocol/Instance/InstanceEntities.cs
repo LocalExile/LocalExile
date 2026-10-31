@@ -931,7 +931,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null)
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
@@ -988,7 +988,8 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         w.WStr32(Name)
          .U8(ClassIndex)     // Characters.dat row; bit5 and bits6-7 are the ascendancy (0x142156d80)
          .U32(Experience)    // 0x141e7f6b0 → +0x18c; the level is derived from it (+0x1ac)
-         .U32(0).U16(0)
+         .U32(0)
+         .U16(PortraitFrame) // +0x1a8: the portrait frame (MicrotransactionSocialFrameVariations Index, 0 = the default)
          .U16(Portrait)      // +0x1aa: the portrait variation (MicrotransactionCharacterPortraitVariations __col1, 0 = the class's)
          ;
         WriteFlagSet(w, QuestFlags);   // the quest flags (+0x1b8, 0x141e83340)

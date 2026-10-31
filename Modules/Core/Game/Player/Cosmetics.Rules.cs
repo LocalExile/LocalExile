@@ -74,4 +74,9 @@ static partial class Game
     // The worn portrait's variation (the Player component's +0x1aa), 0 for the class's own.
     internal static ushort WornPortrait(ClientState conn) =>
         WornCosmetics(conn).FirstOrDefault(w => w.Slot == PortraitSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Portrait ?? 0 : (ushort)0;
+
+    // The portrait frame in the Social Frame slot, 0 for the default. What the client draws is the one it logged in with
+    // (ClientState.PortraitFrame).
+    internal static ushort WornFrame(ClientState conn) =>
+        WornCosmetics(conn).FirstOrDefault(w => w.Slot == SocialFrameSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Frame ?? 0 : (ushort)0;
 }

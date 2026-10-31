@@ -13,10 +13,12 @@ public enum CharacterClass { Scion, Marauder, Ranger, Witch, Duelist, Templar, S
 /// <see cref="AccountService.StartingArea"/>.</param>
 /// <param name="Portrait">The worn portrait (a MicrotransactionCharacterPortraitVariations variation, 0 = the class's):
 /// the character list shows it (the Gateway reports picks with "set_portrait").</param>
+/// <param name="PortraitFrame">The worn portrait frame (a MicrotransactionSocialFrameVariations Index, 0 = the default):
+/// the character list shows it, and the game takes it at the next login ("set_portrait_frame").</param>
 public sealed record Character(
     Guid Id, Guid AccountId, string Name, CharacterClass Class, int Level,
     string League, string AreaId, DateTimeOffset CreatedUtc, DateTimeOffset LastPlayedUtc, string? LastTown = null,
-    ushort Portrait = 0, HardcoreDeathRecord? HardcoreDeath = null);
+    ushort Portrait = 0, HardcoreDeathRecord? HardcoreDeath = null, ushort PortraitFrame = 0);
 
 /// <summary>A committed Hardcore death. The source league is retained after migration; a league form can make deaths terminal.
 /// Stored with the account's character record, separately from mutable inventory/progress saves.</summary>

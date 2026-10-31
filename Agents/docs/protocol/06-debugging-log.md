@@ -11,7 +11,7 @@ and what changed. Times are local. Logs: `Tools/re/out/live-{auth,gateway,patch}
 | Login handshake + 0x03 → 0x04 | worked with a Python smoke client, then with the real client |
 | 0x04 with the account name in the wide string | client popped up a message box with the name. Now sent empty |
 | no push after 0x04 | client waited. Sending an empty 0x1b moved it on to the character screen |
-| 0x18 → 0x15 probes | mapped level (+0x48), class (+0x4a), portrait (+0x44/+0x46), red marker (+0x49) |
+| 0x18 → 0x15 probes | mapped level (+0x48), class (+0x4a), portrait frame (+0x44), portrait (+0x46), red marker (+0x49) |
 | 0x0e → 0x14 (port at +0x30, area 0x235c, zero key) | client connected to :6112 and sent 30 plaintext bytes (0x0F + 0x0E), then reset |
 
 ## This session
