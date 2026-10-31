@@ -55,8 +55,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `module.json` (`league`) and to the Gateway with `ILeague`, and a character whose module is missing or off plays by Standard's rules
   with its saves untouched.
   Not tried in the client: a Ruthless character with the folder there, then deleted; the create screen's list from the declarations.
-  Harvest, Heist and Delve are built-in modules in `Features/`, reached through the hooks, each turned on by a folder in `Modules/`.
-  They still use Gateway internals, so they are not separate assemblies. Not tried in the client after the move.
+  Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
+  A league picks modules with `uses`, `inherits` and `without`; a module runs only for the players whose league has it, so a hideout
+  without Harvest places no station. Not tried in the client after the move.
   `Mods/Source/` has six examples, of which only `example` is on by default; `Modules/` has the leagues `standard`, `ruthless` and `allflame`, and `harvest`, `heist` and `delve`.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
@@ -71,7 +72,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (fallback, required features, tunables, scoped hooks) and built-ins.
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
-  `Features/`, `Mods/Source/`.
+  `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.

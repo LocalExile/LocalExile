@@ -16,8 +16,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - Mods: the rest after the [mod host](../status/setup-and-tooling.md) ([modding](../docs/dev/modding.md)).
   Catalog overrides (a mod replacing rows of the Gateway's catalogs) are the hook the host does not have yet.
   Legacy and custom leagues become [modules](../docs/dev/modules.md), as Ruthless and Allflame are.
-  Existing systems keep moving out of the static `Program` one at a time. Harvest, Heist and Delve are built-in modules; making
-  them separate assemblies needs contracts for items, stash and objects. Survivors does not exist in the Gateway yet and should
+  Existing systems keep moving out of the static `Program` one at a time, as Harvest, Heist and Delve have. Survivors does not exist in the Gateway yet and should
   start as a module.
 - Rebuild the reverse-engineering setup from a fresh clone (Ghidra import, REA, Frida) and fix whatever the guide
   misses.

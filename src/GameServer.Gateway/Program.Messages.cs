@@ -687,7 +687,7 @@ partial class Program
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
-            // Unframed messages have mods' hooks too (Delve's chart request).
+            // Unframed messages have the hooks too.
             if (ServerHooks.WantsPacket(uid)) await ServerHooks.Packet(PlayerOf(conn), uid, unknown);
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
             if (uid == InstanceTransfer.LeaveAreaAckId && conn.PendingTransfer is { } t) await Transfer(remote, stream, ciphers, conn, t);

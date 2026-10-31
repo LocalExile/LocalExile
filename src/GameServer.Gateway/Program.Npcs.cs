@@ -171,7 +171,7 @@ partial class Program
                 await IdentifyInventory(remote, stream, ciphers, conn, npc);
                 break;
             default:
-                // A script a module answers (Niko's Delve options), when this league uses that module.
+                // A script a module answers, when this league uses that module.
                 if (talk.Category == "Quests" && await ServerHooks.RunNpcScript(new(PlayerOf(conn), npc.Npc.Name, talk.Option, talk.Script)))
                 {
                     conn.InNpcTalk = false;

@@ -131,7 +131,7 @@ partial class Program
             await UseMapDevice(remote, stream, ciphers, conn, use, doodad, requestedAt);
             return;
         }
-        // Objects of a mod's (Delve's, Harvest's, Heist's).
+        // Objects of a module or mod.
         if (await ServerHooks.ObjectUsed(new(PlayerOf(conn), use.TargetId, requestedAt))) return;
         if (conn.StashObject != 0 && use.TargetId == conn.StashObject)
         {

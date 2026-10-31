@@ -22,13 +22,13 @@ A module is a big overhaul of the game, such as a league. A [mod](modding.md) is
   the running module as it is, and a new build that throws while loading goes back to the assemblies it had. Saving a project's
   source does nothing until it is built: `dotnet build Modules\<id>`.
 - `live.ps1` builds every project in `Modules\`.
-- `dotnet build`, a `.csproj` and `"assembly": "bin/<id>.dll"`, or loose `.cs` files implementing `IModule` and no project.
+- A module is a `.csproj` and `"assembly": "bin/<id>.dll"`, or loose `.cs` files implementing `IModule` and no project.
 
 Everything else works as for a [mod](modding.md): the manifest's other fields and the hooks. Hooks of modules run before those of
 mods, and a module's command wins over a mod's of the same name. A mod cannot add a league, and `kind: league` in a `mod.json` is
 refused.
 Code: `ModHost.cs` (one class, two instances: `Program.ServerModules`, `Program.ServerMods`), `ServerHooks.cs`, `ServerLeagues.cs`,
-`Features/`, `Modules/`.
+`Program.ModuleWorld.cs`, `Modules/`.
 
 To make one, copy `Modules/allflame/`, rename the folder and the `.csproj`, and set the id and `assembly` in its `module.json`. The
 folder's name is the id, in lower case.
@@ -66,7 +66,7 @@ A league has two halves, because the Auth server gives the client its list and d
 | `Id` | lower case, as `IPlayer.LeagueId` says it; a form's characters are found by it, so it is the module's id |
 | `ClientLeagueName` | the base league it takes, with that league's Hardcore and SSF variants |
 | `Rules` | a `LeagueRules`, read at each use, so a tunables file hot-reloads: multipliers, saved life and mana, shops, vendors, rewards, flasks, gems |
-| `RequiredFeatures` | modules that must be loaded (a built-in's id counts) |
+| `RequiredFeatures` | modules that must be loaded, else its characters play by the defaults |
 | `Catalogs` | the game files' data set: `Standard` or `HardMode` |
 | `Load(league)` | the league's hooks: an `IModContext` whose hooks run only for this league's players |
 
@@ -78,11 +78,42 @@ A league has two halves, because the Auth server gives the client its list and d
   (`Game_RUTHLESS_RULES` moves it, `config/ruthless.example.json` shows it), reread at most once a second, keeping the last good
   ones through a bad edit. `Modules/allflame/` and `Modules/standard/` are the smallest leagues: a declaration, and Standard's rules.
 
-## Built-in modules
+## Using modules together
 
-`src/GameServer.Gateway/Features/` holds server features moved out of the static `Program`, each an `IModule` the Gateway registers
-with `AddBuiltIn`: `harvest`, `heist` and `delve`. Each has a folder in `Modules/` with only a `module.json`, which is what turns it on. Their packets, object clicks, area setup and chat commands reach them through
-the same hooks every module has, and `/module` lists them. They have no load context, so they do not reload.
-Their bodies still call Gateway internals (`using static Program`, the connection from `ConnOf(player)`), so they cannot be
-built as separate assemblies yet: that needs contracts for items, stash and objects. With `harvest`'s or `heist`'s folder gone the hideout
-does not place the station or the locker.
+A module is not necessarily a league: only one with a `league` section in its `module.json` is on the game menu. `harvest`, `heist`
+and `delve` are plain modules, and leagues choose them:
+
+```json
+{ "id": "grim", "kind": "league", "inherits": ["standard"], "uses": ["my-feature"], "without": ["harvest"] }
+```
+
+| Field | Means | If it is missing |
+|---|---|---|
+| `inherits` | loads first; its hooks run for this module's players, and a league with null `Rules` has its rules; several are allowed | this module does not load, and `/module` says why |
+| `uses` | its hooks run for this module's players too | nothing: it is simply not there |
+| `without` | not for this module's players, though inherited or used | nothing |
+| `depends` | loads first, its assemblies are usable, nothing more | this module does not load |
+
+`Standard` uses `harvest`, `heist` and `delve`; `ruthless` and `allflame` inherit it.
+
+A module's hooks run only for players whose league has it in that set (`IPlayer.Uses`), kept per connection until the next area. So
+taking a module from a league leaves nothing to crash on, whichever way: delete its folder, or remove it from `uses` or add it to `without`:
+
+- A hideout does not place that module's station. Its reserved spot (`HideoutSlot`) stays free, so nothing else in the layout moves.
+- Its messages reach no handler and its objects do not exist. Saved data stays, untouched, for when it comes back: its keys in the
+  saves, an item left in Harvest's slot.
+- Its dialogue option (Niko's) does nothing beyond a log line.
+
+## What a module sees
+
+`IModuleContext` is what a mod has, and `AddLeague`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcScript`.
+`IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, crafting in a slot (with payment), item rules
+(`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
+A module may also use `GameServer.Core`, the client protocol and shared types, and mods may not. `InstanceDelve` and `InstanceHarvest` stay
+there because they describe the client's messages, and the framing of every read needs their lengths. The Gateway stays internal.
+
+- A module's per-player state is its own: a `ConditionalWeakTable<IPlayer, …>` in the module, as `heist` has. A hot reload starts it over,
+  so objects it placed stop answering until the player's next area.
+- The framework still names Delve in two places, to read saves from before it was a module (`AccountStash.Save.Delve`, `CharacterSaves.Save.Sulphite`),
+  and game data it serves everyone (areas, stash tabs, `Delve` sockets, world panel pins).
+
