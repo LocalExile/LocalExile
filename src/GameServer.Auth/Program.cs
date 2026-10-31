@@ -83,19 +83,26 @@ static async Task Serve(LoginServerKeys keys)
     var listener = new TcpListener(bind, port);
     listener.Start();
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
-    // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
-    var towns = GameServer.Core.World.WorldAreaTowns.Load(Path.Combine("data", "tables", "WorldAreas.json"));
-    // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
-    // keeps seed 1, the seed its captures were dumped at. Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns
-    // the Gateway's generation off) pins them all to 1. Hideouts have a fixed layout: always 1.
-    var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(Path.Combine("data", "tables", "WorldAreas.json"));
     // Game_SEED=<n> (dev) gives every new non-hideout instance that seed instead, for generation traces of one seed.
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
-    var hideoutAreas = GameServer.Core.World.WorldAreaHideouts.LoadAreas(Path.Combine("data", "tables", "WorldAreas.json"));
-    var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
-        ? new HashSet<ushort>()
-        : GameServer.Core.World.ServerLevelAreas.Hashes(Path.Combine("data", "tables", "WorldAreas.json"),
-            GameServer.Core.World.ServerLevelAreas.Load(GameServer.Core.World.ServerLevelAreas.BaselineFile, m => Console.WriteLine($"[auth] {m}")));
+    // The WorldAreas loads run on a thread of their own: the parse buffers ArrayPool keeps for a thread go with it (they
+    // were ~20 MB of the idle Auth's 33), then one collection gives their memory back (performance.md).
+    var (towns, hideouts, hideoutAreas, randomAreas) = Isolated(() =>
+    {
+        // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
+        var towns = GameServer.Core.World.WorldAreaTowns.Load(Path.Combine("data", "tables", "WorldAreas.json"));
+        // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
+        // keeps seed 1, the seed its captures were dumped at. Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns
+        // the Gateway's generation off) pins them all to 1. Hideouts have a fixed layout: always 1.
+        var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(Path.Combine("data", "tables", "WorldAreas.json"));
+        var hideoutAreas = GameServer.Core.World.WorldAreaHideouts.LoadAreas(Path.Combine("data", "tables", "WorldAreas.json"));
+        var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
+            ? new HashSet<ushort>()
+            : GameServer.Core.World.ServerLevelAreas.Hashes(Path.Combine("data", "tables", "WorldAreas.json"),
+                GameServer.Core.World.ServerLevelAreas.Load(GameServer.Core.World.ServerLevelAreas.BaselineFile, m => Console.WriteLine($"[auth] {m}")));
+        return (towns, hideouts, hideoutAreas, randomAreas);
+    });
+    GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s)");
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);
     var registry = new GameServer.Core.World.InstanceRegistry
@@ -117,6 +124,21 @@ static async Task Serve(LoginServerKeys keys)
         var tcp = await listener.AcceptTcpClientAsync();
         _ = Task.Run(() => HandleConnection(tcp, keys, accounts, keyring, directory));
     }
+}
+
+static T Isolated<T>(Func<T> load)
+{
+    T result = default!;
+    System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
+    var thread = new Thread(() =>
+    {
+        try { result = load(); }
+        catch (Exception ex) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
+    }) { Name = "game data load", IsBackground = true };
+    thread.Start();
+    thread.Join();
+    failure?.Throw();
+    return result;
 }
 
 static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountService accounts, InstanceKeyring keyring, InstanceDirectory directory)
