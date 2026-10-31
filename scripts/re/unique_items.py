@@ -46,6 +46,8 @@ RANGE = re.compile(r"\[(-?\d+),(-?\d+)\]")
 # A line of example craft PoB keeps on the item; it is not the unique's own.
 CRAFTED = "{crafted}"
 FRACTURED = "{fractured}"
+# The Eldritch ones have no state of their own: the client reads them from the implicit mods.
+INFLUENCES = {f"{name} Item": name for name in ("Shaper", "Elder", "Crusader", "Redeemer", "Hunter", "Warlord")}
 ROLL = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)|(?<![A-Za-z])(\d+(?:\.\d+)?)")
 
 
@@ -118,7 +120,7 @@ def resolve(lines, chosen, known_mods, text_map, unknown, flags):
         text = in_variant(line, chosen)
         if text is None or text.startswith(CRAFTED):
             continue
-        if text in ("Corrupted", "Mirrored"):
+        if text in ("Corrupted", "Mirrored") or text in INFLUENCES:
             flags.add(text)
             continue
         if META.match(text):
@@ -220,6 +222,8 @@ def main():
                 "ranges": overrides(mod_rows, implicits + explicits),
                 "corrupted": "Corrupted" in meta or "Corrupted" in flags,
                 "mirrored": "Mirrored" in flags,
+                "influences": sorted(INFLUENCES[text] for text in {in_variant(line, chosen) for line in meta} | flags
+                                     if text in INFLUENCES),
             })
 
     # Stable output; duplicate names (Stormblood, Grand Spectrum, Combat Focus) keep every base variant.
@@ -228,6 +232,7 @@ def main():
     lines = [
         "// Generated from Path of Building src/Export/Uniques/*.lua for the target 3.29.3b data.",
         "// Do not edit by hand; regenerate with scripts/re/unique_items.py (a read-only third-party reference).",
+        "using GameServer.Core.Protocol.Instance;",
         "",
         "/// <summary>The full unique-item seed: name, base type, Mods.dat ids and the unique's implicits. The catalogue",
         "/// table keeps the runtime rows; this array is the fresh-database fallback.</summary>",
@@ -246,6 +251,8 @@ def main():
             options.append("Corrupted: true")
         if row["mirrored"]:
             options.append("Mirrored: true")
+        if row["influences"]:
+            options.append("Influences: " + " | ".join(f"ItemInfluence.{name}" for name in row["influences"]))
         lines.append(f'        new({json.dumps(row["name"], ensure_ascii=False)}, {json.dumps(row["base"])}, '
                      f'{", ".join(options)}),')
     lines += ["    ];", "}", ""]
@@ -260,6 +267,7 @@ def main():
     print("corrupted:", sum(1 for row in rows if row["corrupted"]))
     print("with their own implicits:", sum(1 for row in rows if row["implicits"] is not None))
     print("with roll overrides:", sum(1 for row in rows if row["ranges"]))
+    print("influenced:", sum(1 for row in rows if row["influences"]))
     print("duplicate names:", [(name, count) for name, count in names.items() if count > 1])
 
 

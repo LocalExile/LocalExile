@@ -13,7 +13,8 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     /// (null keeps the base's). <paramref name="Ranges"/> are "mod id:stat index:min:max" for a current roll that
     /// differs from the Mods.dat row, which legacy variants of a unique can share.</summary>
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
-        bool Corrupted = false, string[]? Implicits = null, string[]? Ranges = null, bool Mirrored = false);
+        bool Corrupted = false, string[]? Implicits = null, string[]? Ranges = null, bool Mirrored = false,
+        ItemInfluence Influences = ItemInfluence.None);
 
     /// <summary>The two entries whose curated 3.29 data differs from the PoB export used for the full catalogue.</summary>
     static readonly Definition[] Curated =
@@ -62,7 +63,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         var item = ItemCatalog.Create(type) with
         {
             ItemLevel = definition.ItemLevel, Rarity = ItemRarity.Unique, Identified = true,
-            Corrupted = definition.Corrupted, Mirrored = definition.Mirrored,
+            Corrupted = definition.Corrupted, Mirrored = definition.Mirrored, Influences = definition.Influences,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
         var mods = item.Mods.ToList();

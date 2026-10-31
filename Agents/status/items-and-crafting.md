@@ -220,6 +220,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fresh real-client checks of the merged branch and other unique/conditional mechanics remain open.
   Code: `ItemDefences.cs`, `ItemModStats.cs`, Gateway (`Program.Equipment.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2-§2d.
+- **Item states:** influences, split and synthesised are modelled, sent and saved with the item, beside corrupted,
+  mirrored and fractured; `/item_state` switches them on the held item.
+  An influence opens its class's influence mods to every roll (`InfluenceTags.dat`), the uniques PoB marks Shaper or
+  Elder carry it, and the Fracturing Orb refuses influenced and synthesised items.
+  Automated coverage pins the bytes, saves, tags and refusals; the fields come from the client's readers and debug
+  dumps. Not seen in the real client yet: the tooltip lines, the icons and the influence bit order.
+  Nothing in play creates them yet, and no mechanic reads influence.
+  Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
+  Docs: [13](../docs/protocol/13-items.md) §2f.
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
   1,297 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`).
@@ -369,7 +378,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   with 4+ explicit mods is fractured and kept by every other currency, Scouring included; shown fractured (magic
   properties u8 +0x7a). The admission checks now also require a supported non-`Unmodifiable` base whose
   `ItemClasses.CanBeFractured` is set, and refuse corrupted/mirrored/already-fractured items; metamod-protected mods
-  stay eligible. Influence, synthesis and veiled modifiers are not modelled. Native 2026-10-30: a four-mod rare wand
+  stay eligible; influenced and synthesised items are refused. Veiled modifiers are not modelled. Native 2026-10-30: a four-mod rare wand
   was fractured, a second use was refused without spending. See [13](../docs/protocol/13-items.md), "Fracturing Orb",
   and [the game rules](../docs/re/fracturing-mirror-mechanics.md).
 - **Mirror of Kalandra (verified live, 2026-10-21; rules rechecked 2026-10-30):** a mirrored copy (Mods flag bit 1) of

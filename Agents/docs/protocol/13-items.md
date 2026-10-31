@@ -51,8 +51,8 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 
 | Component | Vtable | Read | Data |
 |---|---|---|---|
-| Base | `0x1435e0168` | `0x1421e69c0` | u16 ItemVisualIdentity **HASH16** (unknown → "Attempt to set visual identity to NULL"), u8 +0xc0, u8 +0xc7 flags, u16 flags (low bit0 → u8, bit1 flavour text u16, bit2 wide string, bit3 u32, bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact); high bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 |
-| Mods | `0x1435df838` | `0x1421df6e0` | u8 +0x2b8 (item level), u8 +0x2bc (the level requirement, kept as sent: §2d), u16 flags (bit6 incubator u16 u16 u8, bit4 → u8, bit15 → 0x1c8 record `0x1424b70c0`), base magic properties `0x142201d70` (rarity, identified, mod lists: §2a), u8, u8 |
+| Base | `0x1435e0168` | `0x1421e69c0` | u16 ItemVisualIdentity **HASH16** (unknown → "Attempt to set visual identity to NULL"), u8 +0xc0, u8 +0xc7 flags, u16 flags (low bit0 → u8, bit1 flavour text u16, bit2 wide string, bit3 u32, bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact); high bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 the influences (§2f) |
+| Mods | `0x1435df838` | `0x1421df6e0` | u8 +0x2b8 (item level), u8 +0x2bc (the level requirement, kept as sent: §2d), u16 flags (§2f: bit1 mirrored, bit2 split, bit4 relic, bit5 synthesised, bit6 incubator u16 u16 u8 and then bit4's u8, bit7 → 0x1c8 record `0x1424b70c0`), base magic properties `0x142201d70` (rarity, identified, mod lists: §2a), u8, u8 |
 | Quality | `0x14363acd8` | `0x1424aec50` | u8 |
 | Charges | `0x143639a48` | `0x14249d4b0` | signed compact (`0x141e490e0`) |
 | Stack | `0x143634b10` | `0x1423f4b30` | u16 stack size (§4a) |
@@ -151,7 +151,7 @@ Gateway's `ModCatalog.cs`.
 ```
 u16  flags   bits 0-2 rarity (0 normal, 1 magic, 2 rare, 3 unique), bit 3 identified,
              one bit per mod list (below), bit 7 custom name, bit 8 Words.dat name, bit 9 alternate quality
-u8           (+0x7a, unknown; 0)
+u8           (+0x7a, the fractured explicit count; 0 on monsters)
 bit 9:  u8 AlternateQualityTypes row, u8
 bit 4:  implicit list      bit 6: enchant list      bit 10: scourge list      bit 11: hidden list
 identified only:
@@ -404,6 +404,61 @@ time left, replaced at each change by the same ticker. Death and an area change 
 character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of melee, area and projectile contacts
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
 the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
+
+## 2f. Item states
+
+What an item is besides its mods, and where each state travels.
+Fields come from the client's readers and its debug dumps of the two components, Base `0x1421e7570` and Mods
+`0x1421e1190`, which print each field's name.
+A refusal code near a check names it too: the code is a ClientStrings row + 1 (`0x1762` is
+`ItemErrorFailedRerollVariableDefence`, row `0x1761`).
+
+| State | Where | Server |
+|---|---|---|
+| Corrupted | Base `+0xc7` bit 0 | `Item.Corrupted` |
+| Influences | Base `+0xc6`, one bit per influence | `Item.Influences` |
+| Mirrored | Mods flags bit 1, `+0x2df` (`duplicated`) | `Item.Mirrored` |
+| Split | Mods flags bit 2, `+0x2e0` (`split`) | `Item.Split` |
+| Synthesised | Mods flags bit 5, `+0x2e5` (`synthetic`) | `Item.Synthesised` |
+| Fractured | magic properties u8 `+0x7a` (`+0xb2` of Mods): the count of fractured explicits, which come first | `Item.FracturedCount` |
+| Eater / Exarch | the implicit list: mods of GenerationType 29 / 28, no state of their own | an ordinary implicit |
+| Crafted | the explicit list: mods of Mods.dat Domain 9 (`BenchCrafting.IsCrafted`) | an ordinary explicit |
+| Enchanted | the enchant list (§2a): GenerationType 10 and other enchantment rows | `ModSection.Enchant` |
+
+**Influence bits.** Bit n is Influence n of `InfluenceTags.dat` and `InfluenceExalts.dat`: 0 Shaper, 1 Elder, 2 Crusader,
+3 Redeemer, 4 Hunter, 5 Warlord.
+The order is read from those two tables and the item popup's own mask (bits 0-5 in that order); no client code that joins
+Base `+0xc6` to the table was found, so it rests on the live check below.
+The client tests `+0xc6` for zero in its crafting checks (`0x141d57ea0` "Item has influence", `0x141f85860` "Item has no
+influence") and reads each bit when it draws the item (`0x1415703a0`).
+
+**Influence mods** are ordinary prefixes and suffixes behind a tag per item class: `InfluenceTags.dat` gives 24 classes a
+tag per influence (boots_shaper, ring_eyrie, body_armour_adjudicator …), and 1,446 Mods.dat rows spawn only with one.
+`ItemRolls.Pool` adds those tags for an influenced item, so every roll, bench reroll and affix currency can reach them.
+`shaper_item` and `elder_item` exist in Tags.dat, but no mod's spawn weights use them.
+
+**Other Mods flags.** Bit 3 `disable_mirrored_visuals` (`+0x2e1`), bit 4 relic (`+0x2e3`, a foil look) with a
+RelicItemEffectVariations row as a u8 after the incubator data, bit 6 incubator, bit 7 the 0x1c8 record `0x1424b70c0`, bit 10
+vestigial (`+0x2e7`, `ItemErrorCannotApplyToVestigialItem`).
+Bits 0, 8 and 9 are unnamed.
+`+0x2e2` is no wire field: it marks the client's lazily built caches (`0x1421e1930`).
+
+**Other Base `+0xc7` bits.** Bit 2 locked to character, bit 3 locked to account (`0x1421e7570`); bit 5 changes what the
+writer `0x1421e64a0` sends.
+
+Display kinds of a mod line (`0x1424df5c0`): 2 crafted, 3 fractured, 4 mutated (Foulborn), 7 divergent.
+
+`/item_state [state …]` switches corrupted, mirrored, split, synthesised and each influence on the held item, and `clear`
+removes them all (`ItemStates`).
+They are saved with the item in characters and stash tabs; a save from before reads as none of them.
+Uniques that PoB marks Shaper or Elder Item carry it in their definition (25 of them).
+`ItemRolls.Fracture` refuses influenced and synthesised items (`ItemErrorCannotFractureSpecialItems`, "Cannot Fracture
+Influenced or Fractured Items", and poewiki for synthesised); a split item stays eligible.
+Tests pin the bytes, the saves, the tags and the refusals.
+Not seen in the real client yet: the tooltip lines, the influence icons and the bit order.
+Nothing in play creates these states yet: Conqueror's Orbs, Awakener's Orb, Beastcrafting and synthesis are follow-ups, and
+so are the mechanics that read influence (Spirit Charges, Elder/Shaper conditions, `PanelStats`), influenced vendor sets,
+foil, Foulborn and vestigial items.
 
 ## 3. Inventories with items (S→C 0xc0) and changes (S→C 0xbf)
 
@@ -814,7 +869,7 @@ The client is told through the magic properties' u8 `+0x7a` (the byte right afte
 the fractured explicit count, the first explicits being the fractured ones. Verified live: those mods show fractured.
 Tried first and wrong: the Mods component's flag bit 4 with a u8 after the flags shifted the item (it showed magic).
 
-Influence, synthesis and veiled modifiers are not modelled, so those official refusals cannot be exercised locally.
+Influenced and synthesised items are refused (§2f). Veiled modifiers are not modelled.
 See [the game rules](../re/fracturing-mirror-mechanics.md).
 
 ### Mirror of Kalandra (2026-10-21, verified live; rules rechecked 2026-10-30)
@@ -1402,8 +1457,8 @@ Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`); test
 - Gem levels and experience, support gems and links.
 - The game's own affix counts, rarity chances and drop rates; unsupported currency and individual local/unique /
   corrupted / crafted / influenced item mechanics (#60), beyond the implemented weapon and defence rules in §2;
-  unexplained ObjectMagicProperties +0x7a and bit 9, unsupported quality effects and remaining meanings of
-  Base +0xc0 / +0xc6 / +0xc7.
+  unexplained ObjectMagicProperties bit 9, unsupported quality effects and remaining meanings of
+  Base +0xc0, Base +0xc7 bits 1, 4, 6, 7 and Mods flags bits 0, 8, 9 (§2f).
 - C→S 0x2d and 0x12 (5 bytes, seen once); 0x4a's flag bit 1, its u16 and its other callers (`0x140b34140`,
   `0x14031c0a0`: probably currency use on an item).
 - Unsupported currencies beyond those implemented in §4.
