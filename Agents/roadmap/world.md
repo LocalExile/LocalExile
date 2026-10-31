@@ -69,8 +69,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     the floor graph from the rooms the server sends.
   - Deepwater (2): the 3.29 league's DeepwaterEncounter and DeepwaterEncounterVoyage, built from a biome grid the
     server sends; the only seed-1 traces the port does not match.
-- For a daily labyrinth: port the rest of `0x1424e30f0` (connections, secrets) and send the layout message
-  (`0x141ec7220`: seed, node, difficulty).
+- The daily Labyrinth layout is the first step of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
 ## 3. Gameplay
@@ -104,6 +103,52 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   [08](../docs/protocol/08-area-transitions.md) §3): in the real game the player comes out on the town side of the
   gate.
   Other one-way links fall back to the area's spawn until their named entrance points are added.
+
+### The Labyrinth
+
+- **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the
+  supported ones ([re/011](../docs/re/011-level-generation.md), "Labyrinth pass").
+  The boss ends use the layout the client builds with seed 0: the server sends no daily layout.
+  The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
+  Labyrinth pin always shows.
+  Ascendancy points come only from the `/ascendancy_points` dev command (`AscendancyProgress`: two per tier, once);
+  choosing the ascendancy through the native Altar is #151.
+  The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
+  level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
+  AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
+  `AreaTransitionCatalog` does not know the Labyrinth areas yet.
+- **Known (trials):** the server generates all 18 trial areas (LabyrinthTrials; the Normal six are The Lower
+  Prison, The Crypt Level 1, The Chamber of Sins Level 2, The Crematorium, The Catacombs and The Imperial Gardens).
+  The trial is two rooms the generator already places: in The Lower Prison the `labyrinth_intro` node takes
+  `axiom_intro.arm` and `labyrinth_end` takes `axiom_intro_end.arm`.
+  Their object lines hold the trial: `LabyrinthIntroDoor`, `Puzzle_Parts/Door_Closed`, `Puzzle_Parts/Switch_Once`,
+  a `LabyrinthTrialGlyph`, `LabyrinthCascadeSpikeTrap`s, `LabyrinthTrialPlaque` and `LabyrinthTrialReturnPortal`.
+  The Gateway places none of them yet: `AreaObjects` keeps only transitions, waypoints and `QuestTypes`.
+- **Start**, one pull request per step, in this order:
+  1. The Normal Trials of Ascendancy: place the trial rooms' object lines (as `AreaObjects.RoomObjects` places room
+     waypoints), open the intro door, the switch and its door, and complete the trial at the plaque, whose portal
+     returns to the door.
+     Find the client's interaction with these objects and how it learns a completed trial (LabyrinthTrials columns
+     1–3 are unread) before choosing what the save keeps; the real game shares trials per account and league.
+  2. The trial traps: each trial teaches one kind (spikes, saws, furnaces, darts, ...), the same objects as the
+     Labyrinth's; their timing and damage.
+  3. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
+     data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).
+     The node's LabyrinthNodeOverrides and secrets then apply in `LabyrinthPass`; the levelgen gate stays green.
+  4. A run: the plaza's device opens a tier once its required trials are done (Labyrinths `RequiredTrials`), and each
+     room is an instance linked by the layout's connections.
+     No waypoints inside; a portal out, a death or a logout ends the run.
+     Find what the client sends at the device and at a type 5 transition before choosing a server state.
+  5. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
+     `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
+  6. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
+     awards the tier's two points through `AscendancyProgress` and sets the tier's quest flag (Labyrinths
+     `QuestFlag`); agree the shared code with #151.
+  7. The Cruel and Merciless trials, then secrets and darkshrines, the Divine Font (LabyrinthCraftOptions),
+     enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
+- **Done when:** a character completes the six Normal trials, enters the day's Normal Labyrinth from the plaza,
+  walks its rooms, defeats Izaro three times and chooses an ascendancy at the Altar, keeping it and its two points
+  after a relog.
 
 ## 4. Server design
 
