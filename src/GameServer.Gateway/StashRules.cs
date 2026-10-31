@@ -102,7 +102,7 @@ sealed class StashRules
                     rules._currencyTabStack[hash] = (ushort)size;
         }
 
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(Table("StashTabAffinities"))))
+        using (var d = GameTables.Open(Table("StashTabAffinities")))
             foreach (var r in d.RootElement.EnumerateArray())
                 rules._heldBy[r.GetProperty("Id").GetInt32()] = [.. r.GetProperty("__col2").EnumerateArray().Select(t => (byte)t.GetInt32())];
         using (var d = JsonDocument.Parse(File.ReadAllBytes(Table("StashTabAffinityByBaseItemType"))))

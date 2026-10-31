@@ -82,12 +82,12 @@ sealed class AscendancyCatalog(string folder = "data")
         string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
         if (!new[] { graphPath, characterPath, ascendancyPath, passivePath }.All(File.Exists)) return [];
 
-        using var graphs = JsonDocument.Parse(File.ReadAllBytes(graphPath));
+        using var graphs = GameTables.Open(graphPath);
         if (graphs.RootElement.GetProperty("revision").GetString() != Revision)
             throw new InvalidDataException($"{graphPath}: expected ascendancy data revision {Revision}");
-        using var characters = JsonDocument.Parse(File.ReadAllBytes(characterPath));
+        using var characters = GameTables.Open(characterPath);
         byte[] baseClasses = characters.RootElement.EnumerateArray().Select(r => checked((byte)r.GetProperty("IntegerId").GetInt32())).ToArray();
-        using var ascendancies = JsonDocument.Parse(File.ReadAllBytes(ascendancyPath));
+        using var ascendancies = GameTables.Open(ascendancyPath);
         using var passives = JsonDocument.Parse(File.ReadAllBytes(passivePath));
         var rows = new Dictionary<ushort, JsonElement>();
         foreach (var r in passives.RootElement.EnumerateArray())

@@ -202,6 +202,11 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
                 Record("single", $"{phase}: GC committed MB", info.TotalCommittedBytes / 1048576.0, "MB");
                 Record("single", $"{phase}: process private MB", PrivateMegabytes(), "MB");
             }
+            // Started before the loads, as the Gateway starts it.
+            string? settle = Environment.GetEnvironmentVariable("Game_PERF_SETTLE");
+            using var stop = new CancellationTokenSource();
+            var settler = settle == "1" && typeof(Program).Assembly.GetType("MemorySettler") is { } type
+                ? (Task)type.GetMethod("Run")!.Invoke(null, [stop.Token])! : Task.CompletedTask;
             var open = typeof(Program).Assembly.GetType("GameTables")?.GetMethod("Isolated", [typeof(Action)]);
             Action startup = () => GameData.Open(db);
             if (open is not null) open.Invoke(null, [startup]); else startup();
@@ -228,6 +233,19 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
                 foreach (string field in new[] { "_cacheBytes", "_chunkBytes" })
                     if (fs.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance) is { } f)
                         Record("single", $"game files {field} MB", (long)f.GetValue(fs)! / 1048576.0, "MB");
+            // Game_PERF_SETTLE=1 / 0: two minutes more with / without the Gateway's MemorySettler, then the heap and private
+            // bytes as they are (no collection of the test's own).
+            if (settle is not null)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(130));
+                stop.Cancel();
+                await settler;
+                GC.Collect(0);   // an ephemeral collection: it reports the whole heap's size and trims nothing
+                var after = GC.GetGCMemoryInfo(GCKind.Ephemeral);
+                Record("single", $"after 130 s (settler {settle}): heap MB", after.HeapSizeBytes / 1048576.0, "MB");
+                Record("single", $"after 130 s (settler {settle}): GC committed MB", after.TotalCommittedBytes / 1048576.0, "MB");
+                Record("single", $"after 130 s (settler {settle}): process private MB", PrivateMegabytes(), "MB");
+            }
             await Hold("single");
             GC.KeepAlive(held);
         }

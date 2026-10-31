@@ -60,7 +60,7 @@ sealed class MonsterCatalog(string folder = "data")
     {
         string path = Path.Combine(folder, "monster-takehit.json");
         if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = GameTables.Open(path);
         var result = new Dictionary<string, HitAnimation[]>();
         foreach (var p in doc.RootElement.EnumerateObject())
         {
@@ -219,7 +219,7 @@ sealed class MonsterCatalog(string folder = "data")
         string types = Path.Combine(folder, "object-types.json");
         if (File.Exists(types))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(types));
+            using var doc = GameTables.Open(types);
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
                 int read = t.GetProperty("read").GetInt32();
@@ -281,8 +281,8 @@ sealed class MonsterCatalog(string folder = "data")
         string classes = Path.Combine(folder, "tables", "ItemClasses.json");
         string bases = Path.Combine(folder, "tables", "BaseItemTypes.json");
         if (!File.Exists(classes) || !File.Exists(bases)) return [];
-        using var c = JsonDocument.Parse(File.ReadAllBytes(classes));
-        using var b = JsonDocument.Parse(File.ReadAllBytes(bases));
+        using var c = GameTables.Open(classes);
+        using var b = GameTables.Open(bases);
         var rangedClasses = c.RootElement.EnumerateArray().Select((row, index) => (row, index))
             .Where(p => p.row.GetProperty("Id").GetString() is "Bow" or "Wand").Select(p => p.index).ToHashSet();
         return b.RootElement.EnumerateArray()
