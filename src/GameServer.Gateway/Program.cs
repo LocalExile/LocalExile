@@ -64,7 +64,9 @@ if (!File.Exists(clientExe))
     Console.Error.WriteLine($"[gateway] client executable not found ({clientExe}); set Game_CLIENT_EXE");
     return 1;
 }
-HncSender.LoadMask(File.ReadAllBytes(clientExe));
+// Not in this method's own frame: a Debug build keeps a temporary alive until the method returns, and Main runs for the
+// Gateway's life, so the 76 MB executable stayed in memory (GameTables.Isolated).
+GameTables.Isolated(() => HncSender.LoadMask(File.ReadAllBytes(clientExe)));
 if (GameDataFiles.Warning() is { } missingData) Console.WriteLine(missingData);
 
 // Characters and stashes: the save database (Saves). Saves from before it (data/saves, data/stashes) go into it once; one
@@ -73,7 +75,8 @@ try
 {
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
-    GameData.Open(Saves.Db.Path);
+    // On a thread of its own, so the parse buffers it rents do not stay with the main thread (GameTables.Isolated).
+    GameTables.Isolated(() => GameData.Open(Saves.Db.Path));
     Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
 }
 catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)

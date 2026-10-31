@@ -61,8 +61,10 @@ static class GameTables
                 Interlocked.Increment(ref _reuses);
                 return new(key, shared);
             }
-        // Parsed outside the lock; a concurrent parse of the same file keeps the first one.
-        var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        // Parsed outside the lock, on a thread of its own (its pool buffers go with it); a concurrent parse of the same
+        // file keeps the first one.
+        byte[] bytes = File.ReadAllBytes(path);
+        var document = Isolated(() => JsonDocument.Parse(bytes));
         Interlocked.Increment(ref _parses);
         lock (Gate)
         {
@@ -80,6 +82,30 @@ static class GameTables
         }
     }
 
+    /// <summary>
+    /// Runs a load on a thread of its own and waits for it. JsonDocument rents its buffers from ArrayPool&lt;byte&gt;.Shared,
+    /// which keeps a returned buffer in the returning thread's slot (and per-core stacks) with no idle trim: the startup
+    /// loads (Mods.json alone rents a 128 MB buffer) left ~240 MB of them in the main thread for the life of the
+    /// Gateway. A thread that ends takes its slots with it. The load's result and exceptions are the caller's.
+    /// </summary>
+    public static T Isolated<T>(Func<T> load)
+    {
+        T result = default!;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { result = load(); }
+            catch (Exception ex) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
+        }, 16 << 20) { Name = "game data load", IsBackground = true };
+        thread.Start();
+        thread.Join();
+        failure?.Throw();
+        return result;
+    }
+
+    /// <inheritdoc cref="Isolated{T}(Func{T})"/>
+    public static void Isolated(Action load) => Isolated(() => { load(); return 0; });
+
     /// <summary>Disposes every parse nobody is using now (the Gateway calls it once its startup loads are done).</summary>
     public static void Release()
     {
@@ -88,7 +114,7 @@ static class GameTables
             {
                 entry.Expiry?.Dispose();
                 Entries.Remove(key);
-                entry.Document.Dispose();
+                Isolated(entry.Document.Dispose);   // its buffers go back to the pool of a thread that ends
             }
     }
 
@@ -99,7 +125,7 @@ static class GameTables
             if (entry.Users > 0 || !Entries.TryGetValue(key, out var current) || !ReferenceEquals(current, entry)) return;
             Entries.Remove(key);
             entry.Expiry?.Dispose();
-            entry.Document.Dispose();
+            Isolated(entry.Document.Dispose);   // its buffers go back to the pool of a thread that ends
         }
     }
 }
