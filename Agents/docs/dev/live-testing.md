@@ -121,6 +121,10 @@ touching each other's.
   without the recorder): the recorder meets the Gateway in the shared `data\walkability\current.json`. It attaches to
   the default client by the PID `live.ps1` records (`walkmaps.py --record data\clients\default.json`), so other
   checkouts' clients may run.
+- **Only next to checkouts that have this.** A checkout whose `client_control.py`, `walkmaps.py` and `live.ps1`
+  predate these sessions finds its client by process name: any other `Game.patched.exe` beside its client stops its
+  bridge ("Multiple patched clients") or attaches it to the wrong client, and its `live.ps1` stops every client and every
+  GameServer process on the PC. Start an extra client only when every checkout with a running client has these scripts.
 - **Two clients per PC at most.** The client takes one of two machine-wide mutexes, `Global\PoERunMutexA` and
   `Global\PoERunMutexB` (`0x140101d85`), and with both taken it waits on a dialog, "You may only run up to two copies
   of Path of Exile at a time." (seen live 2026-10-31). The count is over every checkout's clients; `live.ps1` refuses a
