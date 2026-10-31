@@ -30,7 +30,17 @@ public static class BundleFile
         return DecompressSlice(bundle, 0, size, decoder);
     }
 
+    /// <summary>Decompresses chunk <paramref name="chunk"/> of a bundle (its compressed bytes) to
+    /// <paramref name="decompressedSize"/> bytes; the result may be a cached array the caller must not change.</summary>
+    public delegate byte[] ChunkDecoder(int chunk, ReadOnlySpan<byte> compressed, int decompressedSize);
+
     public static byte[] DecompressSlice(ReadOnlySpan<byte> bundle, int sliceOffset, int sliceSize, IOodleDecoder decoder)
+    {
+        ArgumentNullException.ThrowIfNull(decoder);
+        return DecompressSlice(bundle, sliceOffset, sliceSize, (_, compressed, size) => decoder.Decompress(compressed.ToArray(), size));
+    }
+
+    public static byte[] DecompressSlice(ReadOnlySpan<byte> bundle, int sliceOffset, int sliceSize, ChunkDecoder decoder)
     {
         ArgumentNullException.ThrowIfNull(decoder);
         if (sliceSize < 0)
@@ -61,7 +71,7 @@ public static class BundleFile
                 int begin = Math.Max(sliceOffset - decompOffset, 0);
                 int end = Math.Min(sliceOffset + sliceSize - decompOffset, decompChunkSize);
 
-                byte[] raw = decoder.Decompress(bundle.Slice(chunkBegin, chunkSize).ToArray(), decompChunkSize);
+                byte[] raw = decoder(idx, bundle.Slice(chunkBegin, chunkSize), decompChunkSize);
                 if (raw.Length < end)
                     throw new GgpkFormatException($"chunk produced {raw.Length} bytes, need {end}");
 

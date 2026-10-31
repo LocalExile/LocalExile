@@ -18,6 +18,13 @@ public sealed class GameFileSystem : IDisposable
     private readonly LinkedList<int> _lru = new();
     private readonly Dictionary<int, LinkedListNode<int>> _lruNodes = new();
     private long _cacheBytes;
+    // Decompressed chunks, most recent first: neighbouring small files (a level's terrain files) share 256 KB chunks,
+    // and decompressing one costs a round trip to the Node decoder. Their content never changes, so a chunk stays valid
+    // when its bundle leaves the bundle cache.
+    private const long ChunkCacheBudgetBytes = 64L << 20;
+    private readonly Dictionary<(int Bundle, int Chunk), LinkedListNode<((int Bundle, int Chunk) Key, byte[] Data)>> _chunks = new();
+    private readonly LinkedList<((int Bundle, int Chunk) Key, byte[] Data)> _chunkLru = new();
+    private long _chunkBytes;
 
     public GameIndex Index { get; }
 
@@ -55,8 +62,30 @@ public sealed class GameFileSystem : IDisposable
             data = Array.Empty<byte>();
             return false;
         }
-        data = BundleFile.DecompressSlice(GetBundle(loc.BundleIndex), loc.Offset, loc.Size, _oodle);
+        int bundle = loc.BundleIndex;
+        data = BundleFile.DecompressSlice(GetBundle(bundle), loc.Offset, loc.Size,
+            (chunk, compressed, size) => DecompressChunk(bundle, chunk, compressed, size));
         return true;
+    }
+
+    private byte[] DecompressChunk(int bundle, int chunk, ReadOnlySpan<byte> compressed, int size)
+    {
+        if (_chunks.TryGetValue((bundle, chunk), out var node))
+        {
+            _chunkLru.Remove(node);
+            _chunkLru.AddFirst(node);
+            return node.Value.Data;
+        }
+        byte[] data = _oodle.Decompress(compressed.ToArray(), size);
+        _chunks[(bundle, chunk)] = _chunkLru.AddFirst(((bundle, chunk), data));
+        _chunkBytes += data.Length;
+        while (_chunkBytes > ChunkCacheBudgetBytes && _chunkLru.Last is { } last)
+        {
+            _chunkLru.RemoveLast();
+            _chunks.Remove(last.Value.Key);
+            _chunkBytes -= last.Value.Data.Length;
+        }
+        return data;
     }
 
     /// <summary>Every file path in the bundle index (decompresses the path table once per call).</summary>
@@ -75,6 +104,9 @@ public sealed class GameFileSystem : IDisposable
         _lru.Clear();
         _lruNodes.Clear();
         _cacheBytes = 0;
+        _chunks.Clear();
+        _chunkLru.Clear();
+        _chunkBytes = 0;
     }
 
     private byte[] GetBundle(int index)
