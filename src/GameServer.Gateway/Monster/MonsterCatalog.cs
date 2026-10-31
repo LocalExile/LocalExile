@@ -18,6 +18,8 @@ sealed class MonsterCatalog(string folder = "data")
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
+        /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
+        public ushort Hash16 { get; init; }
         /// <summary>
         /// The row's movement speed roll range in percent: the two unnamed i32 columns before the f32 that precedes
         /// AilmentThreshold (<c>__col75</c>, <c>__col76</c>; (0, 0) for most rows, (−5, 5) for the Goatmen, (−10, 10)
@@ -273,6 +275,7 @@ sealed class MonsterCatalog(string folder = "data")
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
+                        Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
                     });
