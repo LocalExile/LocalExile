@@ -1216,7 +1216,8 @@ For example, a 6-second base with 30% local and 20% global duration lasts `6 * 1
 quality or local more modifiers. Quicksilver with only 20% quality remains 7.2 seconds in ordinary mode.
 The raw global sum includes the per-player-level source once and ignores the virtual display seed.
 Effect uses §8's raw flat-plus-player-level resolver, adding local effect and `magic_utility_flask_effect_+%` only
-on a magic utility flask. Onslaught keeps its own separate effect stat. Values use the existing PoB `ScaleAddMod`
+on a magic utility flask. A flask's Onslaught takes that effect too, added to the character's `onslaught_effect_+%`
+(wiki Silver Flask and Onslaught: flask effect applies to Onslaught a flask grants since 3.20). Values use the existing PoB `ScaleAddMod`
 rounding projection with final integer saturation; that representational guard is not an upper balance cap.
 Global duration, local duration and effect are distinct operations. The new per-level effect source does not establish
 all unique acquisition/conditional mechanics, native tooltip behavior or official fractional duration rounding.
