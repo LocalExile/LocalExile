@@ -23,7 +23,8 @@ already has it). Run from the repository root:
 
 `game:open` attaches to an existing client, or calls `live.ps1 -ClientOnly`. That switch starts only the copied client
 with the local patching-server argument and requires the local servers already running; it does not restart services,
-rebuild, extract data, or close an existing client. It waits up to 60 seconds for a native menu, so login can immediately
+rebuild, extract data, or close an existing client. With `-Walkmaps` (default ports and client only) it also starts
+the walk-map recorder beside the client unless this checkout's recorder already runs. It waits up to 60 seconds for a native menu, so login can immediately
 follow its successful result. Before opening a closed client on the default ports, it points the cached GGPK gateway
 list at the local Auth when the list does not already (a stack on its own ports never writes the shared GGPK: the
 bridge's login connects to its Auth by port); an existing client returns before that.

@@ -13,11 +13,15 @@
 #               (otherwise the run goes on without the recorder).
 #   -Only Gateway[,Auth,Patch]   rebuild and restart only these servers; the others and the client keep running (implies
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
+#               With -Walkmaps the restarted Gateway announces loads again, and this checkout's recorder already running
+#               is kept.
 #   The Gateway runs under `dotnet watch` (.NET hot reload): a saved edit to its code applies to the running server
 #               within seconds and the client stays in game. An edit hot reload cannot apply (a changed signature, a new
 #               static initializer) rebuilds and restarts the Gateway, which drops the client to the login screen.
 #   -NoHotReload  start the built Gateway without `dotnet watch`. Agents/GettingStarted.md step 10.
-#   -ClientOnly open the client (of -Session) when it is closed; the servers must be running. Nothing else is touched.
+#   -ClientOnly open the client (of -Session) when it is closed; the servers must be running (refused without them; a
+#               running client stays). With -Walkmaps (default ports and client) also this checkout's walk-map recorder,
+#               unless it runs. Nothing is built, extracted or restarted.
 #   -PortBase N run this checkout's stack on ports N to N+4 (Patch, Patch web, Auth login, Auth control, Gateway) instead
 #               of 12995, 8080, 20493, 20495 and 6112, beside another checkout's stack. Game_PORT_BASE does the same. The
 #               base is remembered in data\stack.json for later runs and scripts/dev/client_control.py; 0 = default ports.
@@ -33,7 +37,8 @@
 #               trimmed working set (about 1.9 GB commit, no GPU memory, ~15 % of a core). Without it the session's
 #               settings decide the renderer (the preset: DirectX 11).
 #   -SeedConfig F  (also Game_CLIENT_SEED_CONFIG) start the -Session client's settings file over from F (without [LOGIN]).
-#   -Stop       stop this checkout's servers, walk-map recorder and clients; with -ClientOnly only the -Session client.
+#   -Stop       stop this checkout's clients (and their launchers), walk-map recorder and servers, then exit; with -Only
+#               only those servers, with -NoClient everything but the clients, with -ClientOnly only the -Session client.
 #   Several stacks and clients on one PC: Agents/docs/dev/live-testing.md ("Several stacks and clients"). Whatever this
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
@@ -226,6 +231,23 @@ function Get-OwnWalkmaps {
         Where-Object { $_.CommandLine -like '*walkmaps.py*' -and (Test-Here $_) })
 }
 
+# The walk-map recorder attaches to the default client (by the PID and start time recorded in data\clients\default.json)
+# and ends with it, so each new client needs one. This checkout's recorder already running is kept (only one ever
+# attaches); the previous one's logs move to logs\archive\<time>-walkmaps\.
+function Start-Recorder([string]$python) {
+    if (@(Get-OwnWalkmaps).Count) { Write-Output 'walk-map recorder already running'; return }
+    $archive = Join-Path (Join-Path $out 'archive') ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-walkmaps')
+    foreach ($name in 'walkmaps.log', 'walkmaps.err') {
+        $path = Join-Path $out $name
+        if ((Test-Path $path) -and (Get-Item $path).Length -gt 0) {
+            New-Item -ItemType Directory -Force $archive | Out-Null
+            Move-Item $path $archive -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Start-Detached $python @((Join-Path $repo 'scripts\walkmaps\walkmaps.py'), '--record', (Join-Path $clients 'default.json')) (Join-Path $out 'walkmaps.log') (Join-Path $out 'walkmaps.err')
+    Write-Output 'walk-map capture on (logs\walkmaps.log)'
+}
+
 function Stop-Processes($processes) {
     foreach ($p in $processes) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
 }
@@ -366,14 +388,37 @@ $nullifierMode = $Nullifier -or "$env:Game_CLIENT_NULLIFIER" -in '1', 'true'
 if ($nullifierMode -and $session -eq 'default' -and -not $Stop) { throw '-Nullifier needs -Session: the default client starts as before' }
 $ports = @{ Auth = @($stack.Ports.login, $stack.Ports.control); Patch = @($stack.Ports.patch, $stack.Ports.patchWeb); Gateway = @($stack.Ports.gateway) }
 
+# -Stop: this checkout's processes only, as everywhere in this script. The -Session client (and its launcher) with
+# -ClientOnly; the given servers with -Only; everything but the clients with -NoClient; else the clients (launchers
+# first: their job objects end their clients with them), the walk-map recorder and the servers.
 if ($Stop) {
-    # Launchers first: their job objects end their clients with them.
-    $stopping = if ($ClientOnly) { @(Get-OwnLaunchers $session) + @(Get-OwnClients $session) }
-        else { @(Get-OwnLaunchers) + @(Get-OwnClients) + @(Get-OwnWalkmaps) + @(Get-OwnServers 'Auth', 'Patch', 'Gateway') }
+    if ($Walkmaps) { throw '-Stop cannot be combined with -Walkmaps' }
+    if ($ClientOnly -and ($Only -or $NoClient)) { throw '-Stop -ClientOnly cannot be combined with -Only or -NoClient' }
+    $parts = [ordered]@{}
+    if ($ClientOnly) { $parts['client'] = @(Get-OwnLaunchers $session) + @(Get-OwnClients $session) }
+    else {
+        if (-not $Only -and -not $NoClient) { $parts['client'] = @(Get-OwnLaunchers) + @(Get-OwnClients) }
+        if (-not $Only) { $parts['walk-map recorder'] = @(Get-OwnWalkmaps) }
+        $names = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
+        foreach ($s in $names) { $parts[$s] = @(Get-OwnServers $s) }
+    }
+    $stopping = @($parts.Values | ForEach-Object { $_ })
     Stop-Processes $stopping
     if ($ClientOnly) { Remove-Item (Join-Path $clients "$session.json") -ErrorAction SilentlyContinue }
-    else { Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue }
-    Write-Output "stopped $(@($stopping).Count) process(es) of $repo"
+    elseif ($parts.Contains('client')) { Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue }
+    # Until this stack's ports of the stopped servers are free of this checkout's processes, so that a start right
+    # after this one can bind them (another program there is not waited for: a start reports it).
+    $stoppedServers = @($parts.Keys | Where-Object { $_ -in 'Auth', 'Patch', 'Gateway' -and $parts[$_].Count })
+    $serverPorts = @($stoppedServers | ForEach-Object { $ports[$_] })
+    $stoppedIds = @($stopping | ForEach-Object { [int]$_.ProcessId })
+    $deadline = (Get-Date).AddSeconds(10)
+    while (@($serverPorts | Where-Object { @(Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue |
+            Where-Object { [int]$_.OwningProcess -in $stoppedIds }).Count }).Count) {
+        if ((Get-Date) -gt $deadline) { throw 'servers still listening after 10 s' }
+        Start-Sleep -Milliseconds 200
+    }
+    $what = @($parts.Keys | Where-Object { $parts[$_].Count })
+    Write-Output $(if ($what.Count) { "stopped: $($what -join ', ') ($($stopping.Count) process(es) of $repo)" } else { 'nothing was running' })
     return
 }
 
@@ -384,10 +429,18 @@ Need (Test-Path (Join-Path $repo 'Client\Game.patched.exe')) 'Client\Game.patche
 Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
 
 # The control bridge can open a closed client without restarting the servers or touching any other client.
+# With -Walkmaps the recorder starts beside the default client of the default ports (and the Gateway announces area
+# loads to it only when it was started with -Walkmaps too).
 if ($ClientOnly) {
-    if ($NoClient -or $Only -or $Walkmaps) { throw '-ClientOnly cannot be combined with -NoClient, -Only or -Walkmaps' }
+    if ($NoClient -or $Only) { throw '-ClientOnly cannot be combined with -NoClient or -Only' }
+    if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
+        Write-Warning '-Walkmaps records only on the default ports and for the default client session; no walk-map recorder'
+        $Walkmaps = $false
+    }
+    $python = if ($Walkmaps) { Get-Python '-Walkmaps' } else { $null }
     $existing = @(Get-OwnClients $session)
     if ($existing.Count) {
+        if ($Walkmaps) { Start-Recorder $python }
         Write-Output "client already running: $($existing[0].ProcessId)"
         return
     }
@@ -396,6 +449,7 @@ if ($ClientOnly) {
     }
     if ($session -eq 'default') { Assert-GlobalSlot }
     if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
+    if ($Walkmaps) { Start-Recorder $python }
     Start-Client $session $stack $SeedConfig $nullifierMode
     return
 }
@@ -566,9 +620,10 @@ foreach ($name in ($servers | Where-Object { $_ -ne 'Patch' } | ForEach-Object {
     if ($err) { throw "$name failed to start (logs\live-$name.err):`n$err" }
 }
 
+# -Only keeps this checkout's recorder that already runs (it stopped none above), so only one ever attaches.
 if ($Walkmaps) {
-    Start-Detached $python @((Join-Path $repo 'scripts\walkmaps\walkmaps.py'), '--record', (Join-Path $clients 'default.json')) (Join-Path $out 'walkmaps.log') (Join-Path $out 'walkmaps.err')
-    Write-Output 'walk-map capture on (logs\walkmaps.log)'
+    if ($Only -and @(Get-OwnWalkmaps).Count) { Write-Output 'walk-map capture on (logs\walkmaps.log; the running recorder is kept)' }
+    else { Start-Recorder $python }
 }
 
 if (-not $NoClient) { Start-Client $session $stack $SeedConfig $nullifierMode }

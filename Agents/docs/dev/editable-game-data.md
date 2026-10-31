@@ -129,6 +129,8 @@ The app-facing defaults are seeded once from the extracted tables:
 | `mods` | 40,355 | every Mods.dat row: id, HASH16, name, domain, generation type, level, ModType |
 | `mod_stats` | 60,695 | each mod's default `stat_id`, index, min, max and local flag |
 | `effective_mod_stats` view | - | `mod_stats` with `mod_stat_overrides` applied |
+| `unique_weights` | 1,527 | unique drop weight (normal and Ruthless) derived from `VillageUniqueDisenchantValues.json` |
+| `unique_weight_overrides` | 0 until edited | per-unique normal/Ruthless weight overrides |
 
 To edit a range, take the key from `mod_stats.mod_id`/`stat_index` or `stats.id`; the override table does not invent
 keys. Example:
@@ -138,10 +140,19 @@ SELECT stat_id, minimum, maximum FROM effective_mod_stats
 WHERE mod_id = 'LocalAddedPhysicalDamage9' ORDER BY stat_index;
 ```
 
-`/game_data reference` rebuilds the three reference tables from `data/tables` after an extraction change; the override
-rows are not touched. The full unique-item catalogue is `catalog_entries.kind = 'unique_item'` with 1,302 rows from
-PoB's Export/Uniques files; `unique_item` keys are `name|base` because a few names have several bases. The two curated
-3.29 definitions (Mageblood and Crown of Eyes) stay first for their established item behavior.
+`/game_data reference` rebuilds the reference tables and `unique_weights` from `data/tables` after an extraction change;
+the override rows are not touched. The full unique-item catalogue is `catalog_entries.kind = 'unique_item'` with 1,302
+rows from PoB's Export/Uniques files; `unique_item` keys are `name|base` because a few names have several bases. The two
+curated 3.29 definitions (Mageblood and Crown of Eyes) stay first for their established item behavior.
+
+Unique drop weights are **absolute** (0..1): `ItemDrops.PickUnique` compares each weight directly and the rest of the
+range is "no unique". A unique missing from `unique_weights` weighs zero and does not drop. Edit one with
+`/game_data unique_weight <name> <weight 0..1> [ruthless 0..1]`, clear it with `clear_unique_weight`, and list with
+`unique_weights [filter]`; `/game_data reload` publishes the provider without a restart. The extracted JSON remains the
+fallback until the reference table is seeded.
+
+Mod affix weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are **not** in the database
+yet; they are the next reference-table candidate. Stat roll ranges already live in `mod_stats` and their overrides.
 
 ### Candidate lists currently in code
 
@@ -294,6 +305,20 @@ CREATE TABLE IF NOT EXISTS catalog_seed_keys (
     PRIMARY KEY (kind, key)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS unique_weights (
+    name TEXT PRIMARY KEY,                -- Words.dat unique name
+    weight REAL NOT NULL,                 -- 0..1, absolute: the remainder is "no unique"
+    ruthless_weight REAL NOT NULL,
+    updated_utc TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS unique_weight_overrides (
+    name TEXT PRIMARY KEY,
+    weight REAL NOT NULL,
+    ruthless_weight REAL NOT NULL,
+    updated_utc TEXT NOT NULL
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS item_templates (
     id TEXT PRIMARY KEY,                  -- admin id, e.g. fire_wand
     label TEXT NOT NULL,                  -- admin label, not sent to the client
@@ -384,9 +409,10 @@ call `Lazy.Value` again; it should replace a snapshot field.
 warms the reference data the admin panel needs (mod list, base list, tags, existing limits). That warm-up is one read per
 catalogue, not a query per item. The first connection then sees the same snapshot.
 
-On a fresh database the same open also seeds the overlay: `GameDataCatalog.Reload` writes the catalogue rows,
-`SystemSettings.Reload` the 45 settings, and `GameDataReference.Seed` the `stats`/`mods`/`mod_stats` tables from
-`data/tables/Stats.json` and `Mods.json`. The Gateway logs the reference counts every start
+On a fresh database the same open also seeds the overlay: `GameDataWeights.Seed` writes the 1,527 unique weights,
+`GameDataCatalog.Reload` writes the catalogue rows, `SystemSettings.Reload` the 45 settings, and `GameDataReference.Seed`
+the `stats`/`mods`/`mod_stats` tables from `data/tables/Stats.json` and `Mods.json`. The Gateway logs the reference
+counts every start
 (`[gateway] game data reference: 23346 stat(s), 40355 mod(s), 60695 default mod stat row(s)`); `empty` means the
 extraction is missing those tables. `scripts/dev/extract-data.ps1` checks `BaseItemTypes.json`, `ItemClasses.json`,
 `Stats.json`, `Mods.json`, `Tags.json` and `UniqueStashLayout.json` as part of its `tables` entry, so a partial
@@ -407,7 +433,8 @@ fresh installation. Stop the Gateway first: a running process keeps its own snap
 
 The first interface is the developer chat command (implemented):
 
-- `/game_data list` — the current revision, the catalogue counts and the `stats`/`mods`/`mod_stats` reference row counts;
+- `/game_data list` - the current revision, the catalogue counts, the `stats`/`mods`/`mod_stats` reference row counts and
+  the unique weight/override counts;
 - `/game_data reload` — re-read the override tables and publish a new snapshot;
 - `/game_data mod <mod-id> <stat-index> <min> <max>` — set a range;
 - `/game_data clear_mod <mod-id> [stat-index]`;
@@ -477,6 +504,9 @@ Live check 2026-10-30 (Gateway and real client):
   jewel art rows. `/game_data list` reported the same counts.
 - The reference seed filled `stats` (23,346), `mods` (40,355) and `mod_stats` (60,695); the
   `effective_mod_stats` view returned the default range for `LocalAddedPhysicalDamage9` as 22..29 and 45..52.
+- The unique weight seed filled `unique_weights` with 1,527 rows (normal and Ruthless). `/game_data unique_weight Mageblood
+  0.5 0.25` showed the override in `unique_weights Mageblood`; `/game_data reference` rebuilt the reference weights and
+  kept the override; `clear_unique_weight Mageblood` restored the extracted value.
 - Changing the `Crown of Eyes` row's `ItemLevel` from 86 to 50 in `catalog_entries`, `/game_data reload`, and
   `/item Crown of Eyes` produced an ilvl 50 item. Restoring 86 and reloading published revision 3 with the original
   values.

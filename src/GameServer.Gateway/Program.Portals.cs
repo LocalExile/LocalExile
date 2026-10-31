@@ -26,6 +26,7 @@ partial class Program
         if (layout is not null && CharacterName(conn) is { } character)
         {
             MapDevices.Value.Atlas!.Select(character, layout);
+            CharacterSaves.SetAtlasLayout(character, layout.Id);
             Console.WriteLine($"[gateway] {remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} selected: {layout.Name} ({layout.Id}), mode 0x{picked.Mode:x2}");
         }
         else Console.WriteLine($"[gateway] {remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} (mode 0x{picked.Mode:x2}) is not a known layout");

@@ -19,6 +19,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `mapboss` point with its boss pack (Fire Fury beside the campfire, verified live 2026-10-18);
   room points are found by fitting rooms to the doodads `-Walkmaps` captures.
   The Tidal Island's boat rooms are too sparse to fit and use their captured placement: Hailrake stands on the wreck.
+  Rooms with a boss point take their actual placement (captured or generated); an unplaced sibling room adds none.
+  `mapboss<n>[WG]` is the n-th of the area's bosses, sub-graph rooms included (Brutus, Merveil).
+  `mapboss`, `force:mapboss` (Kitava) and `mapbosspack` take every boss left, once (The Den's two, both seals).
+  Named packs bring their boss (Pikerivet, The Burning Man); The Quay's Tolman stands at his spawner.
+  The Ashen Fields' boss is the bandit lord the character spared in Act 2, or Greust (`MapBossOverride`).
+  A boss whose point is off the walk map stands on the nearest walkable cell; the boss pack stands once per area.
+  `CampaignBossPlacementTests` (`Game_BOSS_CHECK=1`) checks every boss of the act 1–10 areas the Gateway generates.
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
 - Emerge monsters (Gravel Eaters, Dripping Dead, the Twilight Strand's Drowned …) are created buried, cannot be hit
@@ -125,3 +132,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
   other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
   a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
+  Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
+  ([17](../docs/protocol/17-npcs.md)).
+  Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
+  layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
+  A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) is left to a fight or quest
+  that does not create it yet.

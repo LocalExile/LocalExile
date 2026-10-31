@@ -25,6 +25,21 @@ using GameServer.Core.Diagnostics;
 // Port: Game_GATEWAY_PORT (default 6112). Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET), shared with
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
 
+// `commands`: one JSON line per chat command ({"name", "usage", "args"}) for tools such as the desktop launcher, then
+// exit; nothing starts. `values <kind>`: what an argument of that kind can be ({"value", "detail"}), from the Gateway's
+// own catalogs. Before ServerLog, whose timestamps would break the JSON lines.
+if (args is ["commands"])
+{
+    foreach (var (name, usage, arguments) in CommandUsages()) Console.WriteLine(JsonSerializer.Serialize(new { name, usage, args = arguments }));
+    return 0;
+}
+if (args is ["values", var kind])
+{
+    if (CompletionValues(kind) is not { } values) { Console.Error.WriteLine($"[gateway] no values of kind {kind}"); return 1; }
+    foreach (var (value, detail) in values) Console.WriteLine(JsonSerializer.Serialize(new { value, detail }));
+    return 0;
+}
+
 ServerLog.Install("gateway");
 
 // dotnet run --project src/GameServer.Gateway -- seed-game-data [database]

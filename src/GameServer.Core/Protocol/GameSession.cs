@@ -39,6 +39,7 @@ public sealed class GameSession(AccountService accounts, InstanceManager instanc
                 "login" => Login(req),
                 "resume" => Resume(req),
                 "characters" => Characters(),
+                "accounts" => Accounts(),
                 "create_character" => CreateCharacter(req),
                 "delete_character" => DeleteCharacter(req),
                 "enter_world" => EnterWorld(req),
@@ -144,6 +145,27 @@ public sealed class GameSession(AccountService accounts, InstanceManager instanc
         var inst = instances.Current(_active.Id);
         return inst is null ? Err("not_in_world")
             : Ok(("character", _active.Name), ("instance", Describe(inst)));
+    }
+
+    /// <summary>Every account and its characters, without logging in: a local dev tool's overview (the desktop launcher's
+    /// account list). Names, dates and character summaries only; no hashes, tokens or saves.</summary>
+    private string Accounts()
+    {
+        var list = new JsonArray();
+        foreach (var (account, characters) in accounts.AccountsWithCharacters())
+        {
+            var chars = new JsonArray();
+            foreach (var c in characters)
+            {
+                var d = Describe(c);
+                d["last_town"] = c.LastTown;
+                d["last_played"] = c.LastPlayedUtc.ToString("O");
+                d["dead"] = c.HardcoreDeath is { PermanentlyDead: true } ? "permanent" : c.HardcoreDeath?.SourceLeague;
+                chars.Add(d);
+            }
+            list.Add(new JsonObject { ["name"] = account.Name, ["created"] = account.CreatedUtc.ToString("O"), ["characters"] = chars });
+        }
+        return Ok(("accounts", list));
     }
 
     private static JsonObject Describe(Character c) => new()

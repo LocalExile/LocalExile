@@ -223,6 +223,7 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 | `catalog_entries` | 1,302 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
 | `system_settings` | 45 | the code defaults |
 | `stats` / `mods` / `mod_stats` | 23,346 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
+| `unique_weights` | 1,527 | `data\tables\VillageUniqueDisenchantValues.json` and `Words.json` |
 | `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
 
 The same file holds characters, accounts and stashes; deleting it resets them too. The Gateway log shows
@@ -369,7 +370,15 @@ connection's last packets in `logs\packets\`. `Game_TRACE` adds dev traces, and 
 all for an issue ([debugging](docs/dev/debugging.md)).
 
 `live.ps1` options:
+- `-Stop` stops this checkout's clients, walk-map recorder and servers, a watched Gateway included, then waits until
+  their ports are free (with `-Only Gateway` only that server, with `-NoClient` everything but the clients, with
+  `-ClientOnly -Session S` only that session's client). Another checkout's processes are never stopped
+  ([live testing](docs/dev/live-testing.md), "Several stacks and clients").
 - `-NoClient` restarts the servers but keeps the running client.
+- `-ClientOnly` starts only the client, against servers that already run: nothing is built, extracted or restarted, and
+  a running client stays. With `-Walkmaps` (default ports and client) it also starts this checkout's walk-map recorder
+  unless it runs (the recorder ends with its client, so each new client needs one); the Gateway announces area loads
+  to it only if it was started with `-Walkmaps` too.
 - `-Only Gateway` (or `Auth`, `Patch`, comma-separated) rebuilds and restarts only those servers; the client and the
   other servers keep running. After a Gateway change hot reload cannot apply this is all you need: the client drops to
   the login screen, log in and Play again.

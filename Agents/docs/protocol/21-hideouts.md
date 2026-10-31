@@ -161,8 +161,9 @@ the device. Fragments are consumed with the map but add nothing yet.
 Generic 3.29 maps use the **MapKey** component (read `0x1424ae7c0`: u8 flags, then optional u32/u16/u8; zero is enough
 because `MapKeyTierN` names the tier). `/item Map (Tier 5)` makes one. `MapKeys.dat` supplies its tier and the map opens
 the Atlas layout selected for the character in the native panel; `/atlas <layout id or name>` is a dev fallback. The
-first starting node (Cells) is the default. The map area currently keeps the layout's WorldAreas level; map-tier level
-selection is still to come.
+first starting node (Cells) is the default. The selection is saved per character and restored on login. A generic
+map's area level follows its tier (`tier + 67`: tier 1 = 68, tier 16 = 83); old area-named maps keep their WorldAreas
+level.
 
 **Portals** are `Metadata/MiscellaneousObjects/MultiplexPortal` (`MapPortalObject`): Positioned, BaseEvents, StateMachine,
 Animated, Portal, Transitionable, MinimapIcon, InteractionAction, all read except BaseEvents (Frida

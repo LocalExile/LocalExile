@@ -20,6 +20,9 @@ sealed class StatCatalog(string folder = "data")
     private bool _keysBuilt;
 
     /// <summary>A key from a name ("attack_speed_+%"), a decimal key or a 0x hex key.</summary>
+    /// <summary>Every stat's name, by client key − 1.</summary>
+    public IReadOnlyList<string> Names => _names.Value;
+
     public uint? Key(string text)
     {
         if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&

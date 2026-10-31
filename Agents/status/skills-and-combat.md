@@ -306,6 +306,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   continuation children still get server objects.
   An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
   Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
+  Spark's action fires through the same client method, so its sparks are the client's too; they live the skill's
+  `skill_effect_duration`, which gem skills now carry (without it no spark was drawn; static RE 2026-10-30, not yet
+  checked live). The server's Spark flight is still straight, not the client's wander, so its hits can land where no
+  spark is drawn.
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named

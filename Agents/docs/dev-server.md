@@ -17,6 +17,7 @@ Env: `Game_DEV_PORT`, `Game_DEV_BIND`, `Game_SAVES_DB` (the database), `Game_DEV
 | `register` | name, password | name 3–32 `[A-Za-z0-9_-]`, password ≥ 4 |
 | `login` / `resume` | name+password / token | sets the connection's account; returns token |
 | `characters` | | list of the account's characters |
+| `accounts` | | every account (name, created) with its characters (class, level, league, last town, last played, Hardcore death); no login needed, no secrets: for local tools such as the desktop launcher |
 | `create_character` | name, class | class: scion marauder ranger witch duelist templar shadow |
 | `delete_character` | name | |
 | `enter_world` | name | joins the character's last area; returns instance `{id, area, seed, monster_level, players}` |

@@ -21,14 +21,16 @@ build wrote it) is kept as it is by the next write. Nothing is cached across pro
 the database directly, and a write waits for another process's transaction to end.
 
 The same file also holds the server's game-data overlay (`game_data_meta`, `mod_stat_overrides`, `limit_overrides`,
-`system_settings`, `catalog_entries`, `catalog_seed_keys`, the `stats`/`mods`/`mod_stats` reference tables, the
-`effective_mod_stats` view and the future `item_templates`), which is not player progress: the Gateway loads it into
+`system_settings`, `catalog_entries`, `catalog_seed_keys`, the `stats`/`mods`/`mod_stats` reference tables,
+`unique_weights`/`unique_weight_overrides`, the `effective_mod_stats` view and the future `item_templates`), which is
+not player progress: the Gateway loads it into
 an in-memory snapshot at startup and republishes the snapshot after a `/game_data` edit. See
 [editable game data](dev/editable-game-data.md) for the client-compatibility boundary and the cache rules.
 
 The first Gateway start after `scripts/dev/extract-data.ps1` creates the overlay tables and fills them once:
 `catalog_entries` with the 1,302-row unique catalogue and the jewel/tattoo rows, `system_settings` with its 45 defaults,
-and `stats`/`mods`/`mod_stats` with 23,346 / 40,355 / 60,695 rows from `data/tables/Stats.json` and `Mods.json`.
+`stats`/`mods`/`mod_stats` with 23,346 / 40,355 / 60,695 rows from `data/tables/Stats.json` and `Mods.json`, and
+`unique_weights` with 1,527 unique drop weights from `VillageUniqueDisenchantValues.json`.
 Later starts add only seed keys new to the build; edited rows and rows deleted by an admin stay as they are. The Gateway
 log reports the reference counts (`[gateway] game data reference: ...`); `/game_data reference` rebuilds the reference
 tables without a restart. `dotnet run --project src/GameServer.Gateway -- seed-game-data` fills the overlay without

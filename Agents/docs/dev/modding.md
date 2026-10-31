@@ -87,7 +87,10 @@ Players in game read `Mods: loaded <id> …`, `Mods: unloaded <id>` or `Mods: <i
 Gateway's log does with `[mods]`.
 
 - A reload starts the mod's state over: its fields and statics are new. What it saved (its own files) stays.
-- The assemblies are loaded from a copy in memory, so a build can overwrite them while the mod runs.
+- The assemblies and symbols load from a private disk copy under the system temporary directory, so a build can
+  overwrite the originals while the mod runs. Path-backed loading avoids the loader/finalizer failure reproduced
+  with collectible `LoadFromStream` assemblies on Windows .NET 10. The copy is removed after its context is collected;
+  a retained context or a failed file removal is logged. No client files are involved.
 - `/mod` lists the mods with their version, kind and hook count, and why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across

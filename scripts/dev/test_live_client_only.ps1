@@ -19,6 +19,11 @@ $branch = $ast.Find({ param($node)
 }, $false)
 if (-not $branch) { throw 'missing ClientOnly branch' }
 $launch = [scriptblock]::Create($branch.Extent.Text)
+$stopBranch = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '$Stop'
+}, $false)
+if (-not $stopBranch) { throw 'missing Stop branch' }
+$stopRun = [scriptblock]::Create($stopBranch.Extent.Text)
 
 $repo = Join-Path ([IO.Path]::GetTempPath()) "localexile-live-test-$PID"
 $clients = Join-Path $repo 'data\clients'
@@ -300,6 +305,77 @@ try {
         Assert (($script:stopped -join ',') -eq '95') 'a failed launch must stop its launcher'
         Assert (-not (Test-Path $record)) 'a failed launch must remove its pending record'
     }
+    # -Stop: this checkout's processes only, in upstream's variants (-Only: those servers; -NoClient: all but the
+    # clients; -ClientOnly: the session's client and launcher).
+    $Stop = $true
+    function Get-OwnLaunchers($session) { if ($session) { ,@([pscustomobject]@{ ProcessId = 301 }) } else { @([pscustomobject]@{ ProcessId = 301 }, [pscustomobject]@{ ProcessId = 302 }) } }
+    function Get-OwnClients($session) { if ($session) { ,@([pscustomobject]@{ ProcessId = 311 }) } else { @([pscustomobject]@{ ProcessId = 311 }, [pscustomobject]@{ ProcessId = 312 }) } }
+    function Get-OwnWalkmaps { ,@([pscustomobject]@{ ProcessId = 321 }) }
+    function Get-OwnServers($names) { @($names | ForEach-Object { [pscustomobject]@{ ProcessId = @{ Auth = 331; Patch = 332; Gateway = 333 }[$_] } }) }
+    function Stop-Processes($processes) { $script:killed = @($processes | ForEach-Object { $_.ProcessId } | Sort-Object) }
+    function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) }
+    $stack = Get-Stack 0
+    $ports = @{ Auth = @(20493, 20495); Patch = @(12995, 8080); Gateway = @(6112) }
+    function StopWith([bool]$clientOnly, [string[]]$only, [bool]$noClient) {
+        $script:killed = @(); $ClientOnly = $clientOnly; $Only = $only; $NoClient = $noClient; $Walkmaps = $false
+        Set-Content (Join-Path $clients 'default.json') '{}'; Set-Content (Join-Path $clients 's1.json') '{}'
+        $said = & $stopRun
+        [pscustomobject]@{ Killed = ($script:killed -join ','); Said = "$said"; Default = (Test-Path (Join-Path $clients 'default.json')); S1 = (Test-Path (Join-Path $clients 's1.json')) }
+    }
+    $session = 'default'
+    $r = StopWith $false @() $false
+    Assert ($r.Killed -eq '301,302,311,312,321,331,332,333') "full -Stop: $($r.Killed)"
+    Assert ($r.Said -like 'stopped: client, walk-map recorder, Auth, Patch, Gateway (8 process(es)*') "full -Stop report: $($r.Said)"
+    Assert (-not $r.Default -and -not $r.S1) 'a full -Stop removes the client records'
+    $r = StopWith $false @('Gateway') $false
+    Assert ($r.Killed -eq '333') "-Stop -Only Gateway must stop only that server: $($r.Killed)"
+    Assert ($r.Default -and $r.S1) '-Stop -Only keeps the client records'
+    $r = StopWith $false @() $true
+    Assert ($r.Killed -eq '321,331,332,333') "-Stop -NoClient must keep the clients: $($r.Killed)"
+    Assert ($r.Default -and $r.S1) '-Stop -NoClient keeps the client records'
+    $session = 's1'
+    $r = StopWith $true @() $false
+    Assert ($r.Killed -eq '301,311') "-Stop -ClientOnly must stop only the session client and its launcher: $($r.Killed)"
+    Assert ($r.Default -and -not $r.S1) '-Stop -ClientOnly removes only that record'
+    $failed = $null; try { StopWith $true @('Gateway') $false | Out-Null } catch { $failed = $_.Exception.Message }
+    Assert ($failed -like '*cannot be combined*') "-Stop -ClientOnly -Only must be refused: $failed"
+    $Walkmaps = $true; $failed = $null; try { & $stopRun | Out-Null } catch { $failed = $_.Exception.Message }
+    Assert ($failed -like '*-Walkmaps*') "-Stop -Walkmaps must be refused: $failed"
+    $Walkmaps = $false; $Stop = $false; $ClientOnly = $true; $Only = @(); $NoClient = $false; $session = 'default'
+    Remove-Item function:Get-OwnLaunchers, function:Get-OwnClients, function:Get-OwnWalkmaps, function:Get-OwnServers,
+        function:Stop-Processes, function:Get-NetTCPConnection
+    foreach ($name in 'Get-OwnLaunchers', 'Get-OwnClients', 'Get-OwnWalkmaps', 'Get-OwnServers') {
+        $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $false)
+        if ($definition) { . ([scriptblock]::Create($definition.Extent.Text)) }
+    }
+    Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue
+
+    $launch = [scriptblock]::Create($branch.Extent.Text)  # (the launcher test above reused the name)
+    # -ClientOnly -Walkmaps: the recorder beside the default client on the default ports (also for a client already
+    # running), never for a session or a stack on its own ports.
+    function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) [pscustomobject]@{ LocalPort = $LocalPort } }
+    function Get-Python { 'python.exe' }
+    function Start-Recorder($python) { $script:events.Add("recorder:$python") }
+    function Assert-GlobalSlot { }
+    $script:listed = @('Europe;Local (EU);127.0.0.1:20493;127.0.0.1;false')
+    $script:processes = @()
+    $Walkmaps = $true
+    $stack = Get-Stack 0; $session = 'default'
+    Run
+    Assert (($script:events -join ',') -eq 'gateway-read,recorder:python.exe,launch:default') "-ClientOnly -Walkmaps must start the recorder before the client: $($script:events -join ',')"
+    $script:processes = @(Client 42 $ownExe)
+    Run
+    Assert (($script:events -join ',') -eq 'recorder:python.exe') "a running default client still gets its recorder: $($script:events -join ',')"
+    $script:processes = @()
+    $session = 's1'
+    $script:events.Clear(); & $launch 3>$null | Out-Null
+    Assert (($script:events -join ',') -eq 'gateway-read,launch:s1') "a session gets no recorder: $($script:events -join ',')"
+    $session = 'default'; $stack = Get-Stack 21000
+    $script:events.Clear(); & $launch 3>$null | Out-Null
+    Assert (($script:events -join ',') -eq 'launch:default') "a stack on its own ports gets no recorder: $($script:events -join ',')"
+    $null = Get-Stack 0; $Walkmaps = $false
+    Remove-Item function:Get-Python, function:Start-Recorder, function:Get-NetTCPConnection, function:Assert-GlobalSlot
+
     # A start that throws after the pending record was written removes it (the real Start-Client with the default
     # client: no session folder or settings file is made).
     $real = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Start-Client' }, $false)

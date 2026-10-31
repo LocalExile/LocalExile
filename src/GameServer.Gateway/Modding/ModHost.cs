@@ -337,8 +337,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
             mod.Unloaded = true;
             Remove(mod);
             foreach (var disposable in mod.Entries.OfType<IDisposable>()) Guard(mod, "Dispose", disposable.Dispose);
-            mod.Entries.Clear();
-            context.Unload();
+            _unloads[id] = Collect(Unload(mod));
             if (ex is TypeInitializationException or System.Reflection.TargetInvocationException && ex.InnerException is { } inner) ex = inner;
             Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}" : $"{ex.GetType().Name}: {ex.Message}");
             return false;
@@ -362,16 +361,17 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
 
     // Kept out of Unload(string) so no local of that frame holds the context while it is collected.
     [MethodImpl(MethodImplOptions.NoInlining)]
-    static WeakReference Unload(LoadedMod mod)
+    static (WeakReference Context, string CopyDirectory) Unload(LoadedMod mod)
     {
         mod.Entries.Clear();
         var weak = new WeakReference(mod.Context);
         mod.Context.Unload();
-        return weak;
+        return (weak, mod.Context.CopyDirectory);
     }
 
-    async Task<bool> Collect(WeakReference context)
+    async Task<bool> Collect((WeakReference Context, string CopyDirectory) unloaded)
     {
+        var (context, copyDirectory) = unloaded;
         for (int i = 0; i < 20 && context.IsAlive; i++)
         {
             await Task.Delay(i == 0 ? 0 : 100);
@@ -379,6 +379,7 @@ sealed class ModHost(string folder, Action<string> log) : IDisposable
             GC.WaitForPendingFinalizers();
         }
         if (context.IsAlive) log("[mods] an unloaded mod is still in memory after 2 s: a thread, timer or task of it still runs, or something outside it holds one of its objects");
+        else if (!ModLoadContext.TryDeleteCopy(copyDirectory)) log("[mods] could not remove an unloaded mod's private copy");
         return !context.IsAlive;
     }
 

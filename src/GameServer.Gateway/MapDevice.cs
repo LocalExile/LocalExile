@@ -15,8 +15,13 @@ sealed class MapDevice
     /// <summary>ItemClasses Ids the slots take.</summary>
     public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment";
 
-    /// <summary>The area a map item opens: WorldAreas HASH16, Id and name, and the map's tier.</summary>
-    public sealed record MapArea(ushort Hash16, string Id, string Name, int Tier);
+    /// <summary>The area a map item opens: WorldAreas HASH16, Id and name, the map's tier and the level it plays at.</summary>
+    public sealed record MapArea(ushort Hash16, string Id, string Name, int Tier)
+    {
+        /// <summary>The area level: the WorldAreas level for old area-named maps, or the map tier's level for generic
+        /// maps. 0 leaves the client's own WorldAreas level in place.</summary>
+        public int Level { get; init; }
+    }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
     private readonly AtlasCatalog? _atlas;
@@ -45,7 +50,10 @@ sealed class MapDevice
                     || area.GetInt32() >= areaCount || hashOfRow(item.GetInt32()) is not uint hash) continue;
                 var wa = a.RootElement[area.GetInt32()];
                 byType.TryAdd(hash, new MapArea((ushort)wa.GetProperty("HASH16").GetInt32(), wa.GetProperty("Id").GetString() ?? "",
-                    wa.GetProperty("Name").GetString() ?? "", row.GetProperty("Tier").GetInt32()));
+                    wa.GetProperty("Name").GetString() ?? "", row.GetProperty("Tier").GetInt32())
+                {
+                    Level = wa.GetProperty("AreaLevel").GetInt32(),
+                });
             }
         }
         return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder));
@@ -85,13 +93,16 @@ sealed class MapDevice
         if (_atlas?.TierOf(maps[0].TypeHash) is int tier)
         {
             if (_atlas.Selected(character) is { } layout)
-                return new(layout.Hash16, layout.Id, layout.Name, tier);
+                return new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
             why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";
             return null;
         }
         why = $"{maps[0].Name} opens no known area.";
         return null;
     }
+
+    /// <summary>A generic map's area level: tier 1 is 68 and tier 16 is 83 (3.29 rules).</summary>
+    public static int MapLevel(int tier) => Math.Clamp(tier + 67, 1, 100);
 
     /// <summary>A character's opened map: its area, its instance (0 until the first portal is taken) and the places around
     /// the device (0 to <see cref="PortalCount"/> - 1, <see cref="PortalCell"/>) whose portal is still there.</summary>

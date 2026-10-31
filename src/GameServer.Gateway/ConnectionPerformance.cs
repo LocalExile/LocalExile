@@ -5,7 +5,7 @@ using System.Text;
 enum LatencyPhase
 {
     InputQueue, Handler, SendWait, SendHold, WireWait, WireHold, SocketWrite,
-    CombatWait, CombatHold, ChannelLate, Surround, BlockerBuild, Count,
+    CombatWait, CombatHold, ChannelLate, Surround, BlockerBuild, Message, Count,
 }
 
 /// <summary>Monotonic server timings, independent of the client's tick/latency display. No account/character tags.</summary>
@@ -16,6 +16,7 @@ sealed class ConnectionPerformance
     static readonly Histogram<long> Allocations = Meter.CreateHistogram<long>("localexile.gateway.surround.allocations", "By");
     static readonly UpDownCounter<long> Pending = Meter.CreateUpDownCounter<long>("localexile.gateway.pending_batches");
     static readonly string[] Names = Enum.GetNames<LatencyPhase>();
+    static readonly string?[] MessageIds = new string?[ushort.MaxValue + 1];   // "0x0025", made once per id
     static readonly bool Verbose = GameServer.Core.Diagnostics.ServerTrace.Latency;   // Game_TRACE=latency (or Game_LATENCY_METRICS=1)
     readonly Sample[] samples = Enumerable.Range(0, (int)LatencyPhase.Count).Select(_ => new Sample()).ToArray();
     long reportedAt = Stopwatch.GetTimestamp();
@@ -34,6 +35,21 @@ sealed class ConnectionPerformance
 
     public void RecordMilliseconds(LatencyPhase phase, double ms, string operation = "all") =>
         RecordTicks(phase, (long)(Math.Max(0, ms) * Stopwatch.Frequency / 1000), operation);
+
+    /// <summary>Times one client message's handling (<c>using var</c> in the dispatch loop): the Message phase, its id as
+    /// the operation, so a tool reading the meter sees what each message costs.</summary>
+    public MessageScope Message(ushort id) => new(this, MessageIds[id] ??= $"0x{id:x4}");
+
+    public readonly struct MessageScope(ConnectionPerformance owner, string operation) : IDisposable
+    {
+        readonly long startedAt = Stopwatch.GetTimestamp();
+        public void Dispose() => owner.Elapsed(LatencyPhase.Message, startedAt, operation);
+    }
+
+    /// <summary>A server-wide duration outside any connection (an area's level generation): the meter only, as
+    /// <paramref name="phase"/> with <paramref name="operation"/>; the connections' log summaries do not show it.</summary>
+    public static void Server(string phase, TimeSpan took, string operation) =>
+        Milliseconds.Record(took.TotalMilliseconds, new("phase", phase), new("operation", operation));
 
     void RecordTicks(LatencyPhase phase, long ticks, string operation)
     {
