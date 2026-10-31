@@ -193,7 +193,12 @@ public class GameDataTests
         Assert.Equal(3, SystemSettings.Seeds["rare_max_suffixes"]);
         Assert.Equal(2, SystemSettings.Seeds["rare_jewel_max_prefixes"]);
         Assert.Equal(2, SystemSettings.Seeds["rare_jewel_max_suffixes"]);
-        Assert.Equal(45, SystemSettings.Seeds.Count);
+        Assert.Equal(15, SystemSettings.Seeds["delve_reward_min_items"]);
+        Assert.Equal(20, SystemSettings.Seeds["delve_reward_max_items"]);
+        Assert.Equal(10, SystemSettings.Seeds["delve_reward_quantity_per_depth_pct"]);
+        Assert.Equal(5, SystemSettings.Seeds["delve_reward_rarity_per_depth_pct"]);
+        Assert.Equal(250, SystemSettings.Seeds["delve_reward_item_cap"]);
+        Assert.Equal(50, SystemSettings.Seeds.Count);
     }
 
     [Fact]

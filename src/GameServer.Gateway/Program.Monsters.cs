@@ -58,7 +58,8 @@ partial class Program
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null)
     {
-        uint id = conn.NextObjectId++;
+        uint id;
+        lock (conn.Monsters) id = conn.NextObjectId++;
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         if (bodySize >= 0)
         {

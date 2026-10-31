@@ -180,5 +180,46 @@ public sealed class EnergyShieldPanelStatsTests : IDisposable
         Assert.Equal(expected, stats[Key(Prediction)]);
     }
 
+    [Theory]
+    [InlineData("keystone_zealots_oath")]
+    [InlineData("regenerate_energy_shield_instead_of_life")]
+    public void Zealots_oath_applies_life_regeneration_to_energy_shield(string source)
+    {
+        var conn = Character(1000);
+        Set(conn, "base_life_regeneration_rate_per_minute", 600);
+        Set(conn, source, 1);
+
+        var stats = Program.CharacterPlayerStats(conn);
+        Assert.Equal(600, stats[Key(RegenerationDisplay)]);
+        Assert.Equal(600, stats[Key(Prediction)]);
+        Assert.Equal(0, stats.GetValueOrDefault(Key("total_life_recovery_per_minute_from_regeneration")));
+        Assert.Equal(0, stats.GetValueOrDefault(Key("life_recovery_per_minute")));
+        var published = Published(conn);
+        Assert.Equal(600, published[Key(RegenerationDisplay)]);
+        Assert.Equal(0, published.GetValueOrDefault(Key("life_recovery_per_minute")));
+
+        Set(conn, source, 0);
+        var restored = Program.CharacterPlayerStats(conn);
+        Assert.Equal(0, restored[Key(RegenerationDisplay)]);
+        Assert.Equal(600, restored.GetValueOrDefault(Key("total_life_recovery_per_minute_from_regeneration")));
+        Assert.Equal(600, restored.GetValueOrDefault(Key("life_recovery_per_minute")));
+    }
+
+    [Theory]
+    [InlineData("no_energy_shield_recharge_or_regeneration")]
+    [InlineData("cannot_recover_energy_shield")]
+    [InlineData("no_energy_shield_recovery")]
+    public void A_prohibited_energy_shield_recovery_drops_converted_life_regeneration(string prohibition)
+    {
+        var conn = Character(1000);
+        Set(conn, "base_life_regeneration_rate_per_minute", 600);
+        Set(conn, "keystone_zealots_oath", 1);
+        Set(conn, prohibition, 1);
+
+        var stats = Program.CharacterPlayerStats(conn);
+        Assert.Equal(0, stats[Key(RegenerationDisplay)]);
+        Assert.Equal(0, stats.GetValueOrDefault(Key("life_recovery_per_minute")));
+    }
+
     public void Dispose() => PlayerInventories.Forget(_name);
 }
