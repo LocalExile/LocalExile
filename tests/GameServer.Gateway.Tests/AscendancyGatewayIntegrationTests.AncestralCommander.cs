@@ -267,6 +267,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         foreach (var character in new[] { game, plain, none })
         {
             var state = character.State;
+            // Every strike lands: a miss against the monsters' evasion would drop a hit at random.
+            lock (state.Monsters) state.PlayerStats[GamblerKey("global_always_hit")] = 1;
             character.Items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Club")!) with
             {
                 Sockets = [new(SocketColour.White, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemHeavyStrike")!))],
