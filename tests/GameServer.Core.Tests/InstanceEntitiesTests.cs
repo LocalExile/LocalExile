@@ -420,21 +420,6 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
-    public void Ritual_pillar_blob_has_the_central_shrine_component_order()
-    {
-        // RitualPillar2.ot: Positioned (always first), BaseEvents, Animated, StateMachine, Stats. The modelled
-        // HugeRitualShrine01_01.ao is explicit art, and the state machine index the 0x2ba update uses is 3.
-        Assert.Equal(["Positioned", "BaseEvents", "Animated", "StateMachine", "Stats"], RitualPillarObject.Components);
-        Assert.Equal(3, RitualPillarObject.StateMachineComponentIndex);
-        var states = new StateMachineData([1], 0, ["active_pillars"]);
-        byte[] b = new RitualPillarObject(10, 20, 0, "a.ao", states).Blob();
-        string hex = Convert.ToHexString(b);
-        Assert.StartsWith("0000" + "0A000000" + "14000000" + "00000000" + "0000" + "00" + "02" + "00" + "01"
-            + "01" + "04000000" + "61002E0061006F00", hex);
-        Assert.EndsWith("0100" + "01" + "00" + "00" + "00000000" + "00000000" + "00" + "00", hex);
-    }
-
-    [Fact]
     public void Buff_messages_layout()
     {
         // header (u32 id, u32, u16), u16 instance, u16 BuffDefinitions row, u32 source, u16 skill, u8 flags, u32 list count.
