@@ -201,6 +201,34 @@ static class CommandsFeature
             var (x, y) = conn.SpawnNear(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, rarity, x, y, name, friendly);
         }, "monster")
+        .Add("statue", "/statue <MonsterVarieties row, Id or name> [variation] (dev: place that monster's stone statue at the player)", async args =>
+        {
+            if (args.Length == 0)
+            {
+                await conn.Commands!.Reply("Usage: /statue <MonsterVarieties row, Id or name> [variation]");
+                return;
+            }
+            if (Monsters.Error is { } error) { await conn.Commands!.Reply(error); return; }
+            // 5 = the stone statue actor variation; 6 the dead pose, 7 another stance (the task reads this as its flag).
+            byte variation = 5;
+            if (args.Length > 1 && byte.TryParse(args[^1], out byte v)) { variation = v; args = args[..^1]; }
+            string query = string.Join(' ', args);
+            if (Monsters.Find(query) is not { } variety) { await conn.Commands!.Reply($"No monster matches \"{query}\"."); return; }
+            var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            uint id = conn.NextObjectId++;
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
+                InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
+                InstanceMonsterStatue.Blob(x, y, variety.Hash16, 100, variation)),
+                $"0x02b9 monster statue of {variety} at ({x}, {y})");
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
+                $"0x01a9 monster statue 0x{id:x} enters wake zone");
+            await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+                $"0x1b2 monster statue 0x{id:x} idle");
+            if (HomeHideout(conn)?.AreaHash16 == conn.Layout.Hash && CharacterName(conn) is { } character)
+                CharacterSaves.AddMonsterStatue(character, conn.Layout.Id,
+                    new CharacterSaves.SavedMonsterStatue(x, y, 0, variety.Hash16, 100, variation));
+            await conn.Commands!.Reply($"Monster statue of {variety} at ({x}, {y}) (object 0x{id:x}).");
+        }, "monster")
         .Add("item", "/item <BaseItemTypes row, Id, name or unique> [count] [magic|rare] (into the inventory, e.g. /item Small Life Flask 2, /item Iron Ring rare, /item Mageblood)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("which item?");

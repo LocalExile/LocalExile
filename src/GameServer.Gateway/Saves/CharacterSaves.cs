@@ -31,6 +31,9 @@ static class CharacterSaves
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
+    /// <summary>A Monster Statue decoration: the MonsterVarieties HASH16 and the actor variation (5 the stone pose).</summary>
+    public sealed record SavedMonsterStatue(int X, int Y, float Rotation, ushort MonsterHash16, ushort Scale = 100, byte Variation = 5);
+
     /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1) and the 0x1f9 option byte it was picked with.</summary>
     public sealed record SavedCosmetic(uint Record, byte Option = 0);
 
@@ -55,6 +58,7 @@ static class CharacterSaves
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null,
         OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
+        Dictionary<string, List<SavedMonsterStatue>>? MonsterStatues = null,
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
@@ -96,6 +100,21 @@ static class CharacterSaves
             positions[key] = placement;
             areas[area] = positions;
             return save with { HideoutPlacements = areas };
+        });
+
+    /// <summary>The Monster Statue decorations saved for one hideout area.</summary>
+    public static IReadOnlyList<SavedMonsterStatue> MonsterStatues(string character, string area) =>
+        Load(character)?.MonsterStatues?.GetValueOrDefault(area) ?? [];
+
+    public static void AddMonsterStatue(string character, string area, SavedMonsterStatue statue) =>
+        Update(character, save =>
+        {
+            var areas = save.MonsterStatues is null
+                ? new Dictionary<string, List<SavedMonsterStatue>>() : new(save.MonsterStatues);
+            var list = areas.TryGetValue(area, out var prior) ? new List<SavedMonsterStatue>(prior) : [];
+            list.Add(statue);
+            areas[area] = list;
+            return save with { MonsterStatues = areas };
         });
 
     public static void SetSelectedHideout(string character, string area) => Update(character, s => s with { SelectedHideout = area });
