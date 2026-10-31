@@ -85,6 +85,8 @@ public sealed record ControlResponse
     public bool Ssf { get; init; }
     /// <summary>The league form (<see cref="GameServer.Core.Accounts.League.Form"/>): the module the character plays by.</summary>
     public string? LeagueForm { get; init; }
+    /// <summary>"migrate_league": how many characters moved to the parent league.</summary>
+    public int Migrated { get; init; }
     /// <summary>The character's class: Characters.dat IntegerId (CharacterClass), the Witch (3) if unknown.</summary>
     public int Class { get; init; } = 3;
     /// <summary>The character's level (from the account store).</summary>

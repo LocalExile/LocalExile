@@ -56,12 +56,12 @@ public interface IModContext
     IDisposable ModifyStats(Action<StatSheet> modify);
 }
 
-/// <summary>What a module can do: everything a mod can, and overhauls. The hooks of modules run before those of mods.</summary>
+/// <summary>What a module (or a league's own code) can do: everything a mod can, and overhauls. It runs only for the players of
+/// leagues that list it. The hooks of the league run first, then its modules', then mods'.</summary>
 public interface IModuleContext : IModContext
 {
-    /// <summary>A league (<see cref="ILeague"/>): its characters play by its rules while this module is loaded. Its client name
-    /// and id must be free.</summary>
-    IDisposable AddLeague(ILeague league);
+    /// <summary>The rules this module gives the leagues that use it; the first in a league's list that gives any wins.</summary>
+    void ProvideLeagueRules(Func<LeagueRules> rules);
 
     /// <summary>What the module can do with this player's world.</summary>
     IPlayerWorld World(IPlayer player);
@@ -75,6 +75,7 @@ public interface IModuleContext : IModContext
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     IDisposable OnAreaHeader(Func<IPlayer, AreaHeader?> header);
 
-    /// <summary>An NPC's dialogue option whose script the server has no answer for. Return true when it was this module's.</summary>
-    IDisposable OnNpcScript(Func<NpcScript, Task<bool>> run);
+    /// <summary>An option picked in an NPC's dialogue; the Gateway only talks to NPCs, and what an option does is a module's.
+    /// Return true when it was this module's. An option nothing answers does nothing.</summary>
+    IDisposable OnNpcOption(Func<NpcOption, Task<bool>> run);
 }

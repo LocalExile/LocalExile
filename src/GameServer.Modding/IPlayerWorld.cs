@@ -62,6 +62,27 @@ public interface IPlayerWorld
     /// <summary>The item rules of the player's data set.</summary>
     IItemCrafting Crafting { get; }
 
+    /// <summary>The NPC dialogue plays this option's text and audio; Continue returns to the options.</summary>
+    Task NpcSay(NpcOption option);
+
+    /// <summary>Ends the dialogue state without closing the window: another screen takes over.</summary>
+    void NpcEndTalk();
+
+    /// <summary>Closes the NPC dialogue.</summary>
+    Task NpcClose(string log);
+
+    /// <summary>Opens the buy window of the NPC talked to.</summary>
+    Task NpcOpenShop();
+
+    /// <summary>Opens the sell window of the NPC talked to.</summary>
+    Task NpcOpenSale();
+
+    /// <summary>Identifies every unidentified item in the main inventory, free.</summary>
+    Task NpcIdentifyItems();
+
+    /// <summary>Opens a quest's reward window. False when the offer has nothing for this character, or was taken.</summary>
+    Task<bool> NpcOfferReward(int offer);
+
     /// <summary>The id of the one item in an inventory row, 0 when there is none.</summary>
     uint ItemIdIn(byte row);
 

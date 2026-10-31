@@ -122,69 +122,35 @@ partial class Program
         if (!await HandInQuestItems(remote, stream, ciphers, conn, talk)) return;   // a1q5: Nessa takes the Medicine Chest
         if (talk.StartFlag is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
         conn.NpcFinishFlag = talk.FinishFlag;
-        switch (talk.Category)
-        {
-            case "SelectHideout":
-                conn.InNpcTalk = false;
-                conn.TalkingTo = 0;
-                await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close NPC dialogue for hideout selection");
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.HideoutSelectionUi,
-                    talk.OpensGuildHideouts ? 1u : 0u), $"0x007b open hideout selection ({(talk.OpensGuildHideouts ? "guild" : "character")})");
-                break;
-            case "QuestReward" when talk.RewardOffer is { } offer:
-                var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
-                var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
-                    .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), LeagueFor(conn).HardMode ? RollsFor(conn) : null)))
-                    .Where(c => c.Item is not null).ToArray();
-                if (rewardCatalog.Find(offer) is not { } rewardOffer || conn.QuestFlags.Contains(rewardOffer.TakenFlag)
-                    || rewardItems.Length == 0) break;
-                conn.InNpcTalk = false;
-                conn.NpcRewardOffer = offer;
-                conn.NpcRewardItems = rewardItems.ToDictionary(c => c.Choice.Id, c => c.Item!);
-                await Send(remote, stream, ciphers, InstanceInventories.AddInventory(0x600, NpcShops.Tab, NpcShops.Manager,
-                    QuestRewardCatalog.Arrange(rewardItems.Select(c => (c.Choice.Id, c.Item!)), ItemsFor(conn))),
-                    $"0x00c0 quest reward inventory: offer {offer}, {rewardItems.Length} choices");
-                await Send(remote, stream, ciphers, InstanceNpcs.OpenQuestReward(0x600, checked((ushort)offer)),
-                    $"0x0087 reward inventory 0x600: quest reward offer {offer}");
-                break;
-            case "Gossip" or "Quests" or "QuestReward" when talk.TextAudio.Count > 0:
-                // 0x84 with the row's index: the client opens the dialogue window on that NPCTalk row (its text and audio).
-                conn.InNpcTalk = true;
-                await Send(remote, stream, ciphers, InstanceNpcs.Talk(id, (byte)talk.Index),
-                    $"0x0084 npc 0x{id:x} {npc.Npc.Name} talks: NPCTalk row {talk.Row} \"{talk.Option}\" (index {talk.Index})");
-                break;
-            case "BuyItems":
-                await OpenNpcShop(remote, stream, ciphers, conn, id, npc);
-                break;
-            case "SellItems":
-                await OpenNpcSale(remote, stream, ciphers, conn, npc);
-                break;
-            // Bestel's Respecialisation (script: SendOpenScreen( CharacterPassiveTreeScreen, 1 )): the character's passive tree,
-            // S→C 0x7b kind 0x5f with 1. Its refunds come back as C→S 0x36 (per node) and 0x37 (Refund All), paid in gold.
-            case "RespecPassivePointsForGold":
-                conn.InNpcTalk = false;
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.PassiveTreeUi, 1), "0x007b open the passive tree (respec)");
-                break;
-            // Nessa's Identify Items (script: triggerer.IdentifyItems(), then the IdentifyAll sound): every unidentified item
-            // in the main inventory, free. The sound effect is not sent (its message is not mapped).
-            case "IdentifyItems":
-                await IdentifyInventory(remote, stream, ciphers, conn, npc);
-                break;
-            default:
-                // A script a module answers, when this league uses that module.
-                if (talk.Category == "Quests" && await ServerHooks.RunNpcScript(new(PlayerOf(conn), npc.Npc.Name, talk.Option, talk.Script)))
-                {
-                    conn.InNpcTalk = false;
-                    break;
-                }
-                Console.WriteLine($"[gateway] {remote} npc option category {talk.Category} is not implemented yet");
-                break;
-        }
+        // What an option does is a module's (Modules/Core/npcdialogue); one nothing answers does nothing.
+        if (!await ServerHooks.RunNpcOption(new(PlayerOf(conn), npc.Npc.Name, talk.Category, talk.Option, talk.Script, talk.TextAudio.Count > 0,
+                talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer)))
+            Console.WriteLine($"[gateway] {remote} npc option category {talk.Category}: no module answers it");
+    }
+
+    // A quest's reward window (0xc0 and 0x87). False when the offer has nothing for this character, or was taken.
+    internal static async Task<bool> OfferNpcReward(ClientState conn, int offer)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
+        var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
+            .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), LeagueFor(conn).HardMode ? RollsFor(conn) : null)))
+            .Where(c => c.Item is not null).ToArray();
+        if (rewardCatalog.Find(offer) is not { } rewardOffer || conn.QuestFlags.Contains(rewardOffer.TakenFlag) || rewardItems.Length == 0) return false;
+        conn.InNpcTalk = false;
+        conn.NpcRewardOffer = offer;
+        conn.NpcRewardItems = rewardItems.ToDictionary(c => c.Choice.Id, c => c.Item!);
+        await Send(remote, stream, ciphers, InstanceInventories.AddInventory(0x600, NpcShops.Tab, NpcShops.Manager,
+            QuestRewardCatalog.Arrange(rewardItems.Select(c => (c.Choice.Id, c.Item!)), ItemsFor(conn))),
+            $"0x00c0 quest reward inventory: offer {offer}, {rewardItems.Length} choices");
+        await Send(remote, stream, ciphers, InstanceNpcs.OpenQuestReward(0x600, checked((ushort)offer)),
+            $"0x0087 reward inventory 0x600: quest reward offer {offer}");
+        return true;
     }
 
     // An NPC's Identify Items: the main inventory's unidentified items become identified (their explicit mods and rare names
     // are sent from now on). Removing and adding the same ids in one 0xbf replaces them on the client (see UseItemOn).
-    static async Task IdentifyInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedNpc npc)
+    internal static async Task IdentifyInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedNpc npc)
     {
         const byte row = PlayerInventories.MainInventory;
         var items = ItemsOf(conn);
@@ -529,7 +495,7 @@ partial class Program
 
     // Sell Items: two empty offer inventories (manager 1: the player's offer, the NPC's), then S→C 0xb8 with no other party
     // (an NPC sale) opens the sell window. Being tested.
-    static async Task OpenNpcSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedNpc npc)
+    internal static async Task OpenNpcSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedNpc npc)
     {
         if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         uint mine = NpcShops.FirstTabId + 0x10, theirs = mine + 1;

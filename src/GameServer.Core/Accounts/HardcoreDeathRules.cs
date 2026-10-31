@@ -27,7 +27,7 @@ public static class HardcoreDeathRules
             throw new InvalidOperationException("The character no longer belongs to the ticket's league");
         return character with
         {
-            League = source.PermanentDeath ? VoidLeague : source.Ssf ? $"SSF {source.Base}" : source.Base,
+            League = source.PermanentDeath ? VoidLeague : source.DeathLeague ?? source.Parent ?? (source.Ssf ? $"SSF {source.Base}" : source.Base),
             HardcoreDeath = new(source.Name, atUtc, source.PermanentDeath),
         };
     }

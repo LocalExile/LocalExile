@@ -110,18 +110,23 @@ public sealed class DelveModule : IModule
             }
             return false;
         });
-        module.OnNpcScript(async talk =>
+        module.OnNpcOption(async talk =>
         {
+            // Text comes first, as for any NPC: these are the options with only a script.
+            if (talk.Category != "Quests" || talk.HasText) return false;
+            var world = module.World(talk.Player);
             // Niko's View Subterranean Chart: SendOpenScreen( DelveMapScreen, 1 ), S→C 0x7b kind 0x1c with 1.
             if (talk.Script.Contains("DelveMapScreen", StringComparison.Ordinal))
             {
+                world.NpcEndTalk();
                 await talk.Player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 1), "0x007b open the Delve chart");
                 return true;
             }
             // Niko's Visit Mine Encampment: BeginDelve(), to the Azurite Mine Encampment, as /goto does.
             if (talk.Script.Contains("BeginDelve", StringComparison.Ordinal))
             {
-                if (!await module.World(talk.Player).TravelTo(HubId, $"{talk.Npc}: {talk.Option}"))
+                world.NpcEndTalk();
+                if (!await world.TravelTo(HubId, $"{talk.Npc}: {talk.Option}"))
                     module.Log($"{talk.Option}: {HubId} is not in data/area-transitions.json");
                 return true;
             }

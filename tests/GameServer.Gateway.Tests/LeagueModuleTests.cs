@@ -1,22 +1,42 @@
-using GameServer.Modding;
+using GameServer.Core.Accounts;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class LeagueModuleTests
 {
-    sealed class CustomLeague(string name, params string[] features) : ILeague
+    static readonly LeagueCatalog Leagues = LeagueCatalog.FromFolder("Leagues");
+    static readonly string[] Core = ["harvest", "heist", "delve"];
+
+    [Fact]
+    public void A_league_gets_core_less_what_it_removes_plus_what_it_adds_each_once()
     {
-        public string Id => name.ToLowerInvariant();
-        public string ClientLeagueName => name;
-        public LeagueRules Rules { get; set; } = new() { GoldMultiplier = 3 };
-        public IReadOnlyList<string> RequiredFeatures => features;
+        var league = new League("Grim", "Grim", false, false) { RemoveModules = ["harvest"], AddModules = ["ruthless", "heist"] };
+        Assert.Equal(["delve", "heist", "ruthless"], ServerLeagues.ModulesOf(league, Core).Order());
     }
 
     [Fact]
-    public void Ruthless_characters_get_the_module_with_its_data_and_rules()
+    public void Void_has_no_modules_and_Standard_has_core()
     {
-        var league = ServerLeagues.Resolve("ruthless", "SSF Hardcore Ruthless", _ => true);
-        Assert.Equal(("ruthless", true), (league.Id, league.HardMode));
+        Assert.Empty(ServerLeagues.ModulesOf(Leagues.FindLoaded("Void")!, Core));
+        Assert.Equal(Core.Order(), ServerLeagues.ModulesOf(Leagues.FindLoaded("Standard")!, Core).Order());
+    }
+
+    [Fact]
+    public void A_module_no_league_lists_is_not_wanted()
+    {
+        var wanted = ServerLeagues.Wanted(Leagues, Core);
+        Assert.Contains("ruthless", wanted);
+        Assert.DoesNotContain("nobody-lists-this", wanted);
+    }
+
+    [Theory]
+    [InlineData("Ruthless")]
+    [InlineData("Hardcore Ruthless")]
+    [InlineData("HC SSF R Allflame")]
+    public void Every_ruthless_league_has_the_hardmode_data_and_rules(string name)
+    {
+        var league = ServerLeagues.Resolve(null, name, Leagues, Core);
+        Assert.True(league.HardMode);
         Assert.True(league.Rules.PersistsVitals);
         Assert.False(league.Rules.AllowsGemBase("Metadata/Items/Gems/SkillGemFrostblink"));
     }
@@ -24,69 +44,28 @@ public sealed class LeagueModuleTests
     [Theory]
     [InlineData("Standard")]
     [InlineData("Hardcore")]
-    [InlineData(null)]
-    public void Other_leagues_without_a_module_are_standard(string? name) =>
-        Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, name, _ => true));
-
-    [Theory]
     [InlineData("Allflame")]
-    [InlineData("Hardcore Allflame")]
-    [InlineData("HC SSF Allflame")]
-    public void A_base_league_module_takes_its_hardcore_and_ssf_variants(string name) =>
-        Assert.Equal("allflame", ServerLeagues.Resolve(null, name, _ => true).Id);
+    public void Other_leagues_have_the_default_rules(string name)
+    {
+        var league = ServerLeagues.Resolve(null, name, Leagues, Core);
+        Assert.False(league.HardMode);
+        Assert.False(league.Rules.PersistsVitals);
+    }
 
     [Fact]
-    public void Each_module_has_its_own_rules_with_no_league_named_in_the_framework()
+    public void A_league_that_is_not_loaded_falls_back_for_what_still_reaches_the_gateway()
     {
-        var ruthless = ServerLeagues.Resolve("ruthless", "Ruthless", _ => true).Rules;
+        Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, "Gone", Leagues, Core));
+    }
+
+    [Fact]
+    public void Each_rules_setting_is_the_modules_with_no_league_named_in_the_framework()
+    {
+        var ruthless = ServerLeagues.Resolve(null, "Ruthless", Leagues, Core).Rules;
         Assert.False(ruthless.SellsGemsAt("Metadata/NPC/Act1/Nessa"));
         Assert.True(ruthless.SellsGemsAt("Metadata/NPC/Act3/Siosa"));
         Assert.True(ruthless.RefillsVitalsAt("Metadata/NPC/Act1/Nessa"));
         Assert.False(ruthless.RefillsVitalsAt("Metadata/NPC/Act3/Siosa"));
-        Assert.True(ruthless.RefillsVitalsAt("Metadata/NPC/League/Delve/DelveMiner"));
-        Assert.True(LeagueRules.Standard.SellsGemsAt("Metadata/NPC/Act1/Nessa"));
-        Assert.False(LeagueRules.Standard.RefillsVitalsAt("Metadata/NPC/Act1/Nessa"));
-    }
-
-    [Fact]
-    public void A_custom_league_takes_its_name_until_it_unloads_then_its_characters_are_standard()
-    {
-        var custom = new CustomLeague("Testlands");
-        Assert.True(ServerLeagues.Add(custom));
-        Assert.False(ServerLeagues.Add(new CustomLeague("Testlands")));
-        try
-        {
-            var league = ServerLeagues.Resolve(null, "Testlands", _ => true);
-            Assert.Equal(("testlands", 3d), (league.Id, league.Rules.GoldMultiplier));
-            custom.Rules = new() { GoldMultiplier = 5 };
-            Assert.Equal(5, league.Rules.GoldMultiplier);   // tunables apply at once
-            ServerLeagues.Remove(custom);
-            Assert.Equal(5, league.Rules.GoldMultiplier);   // the connection keeps its rules until its next area
-            Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, "Testlands", _ => true));
-        }
-        finally { ServerLeagues.Remove(custom); }
-    }
-
-    [Fact]
-    public void A_league_whose_feature_is_not_loaded_is_standard()
-    {
-        var custom = new CustomLeague("Needy", "harvest");
-        Assert.True(ServerLeagues.Add(custom));
-        try
-        {
-            string? logged = null;
-            Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, "Needy", _ => false, line => logged = line));
-            Assert.Contains("needs harvest", logged);
-            Assert.Equal("needy", ServerLeagues.Resolve(null, "Needy", id => id == "harvest").Id);
-        }
-        finally { ServerLeagues.Remove(custom); }
-    }
-
-    [Fact]
-    public void A_ruthless_character_without_the_module_plays_by_standard_rules_on_a_connection()
-    {
-        var conn = new ClientState(new(ushort.MaxValue, "LeagueTest", 128, 128, 32, 32, null, []), 0, 1) { LeagueForm = "ruthless", LeagueModule = LeagueRuntime.Standard };
-        Assert.False(Program.LeagueFor(conn).HardMode);
-        Assert.Same(Program.Items, Program.ItemsFor(conn));
+        Assert.True(GameServer.Modding.LeagueRules.Standard.SellsGemsAt("Metadata/NPC/Act1/Nessa"));
     }
 }

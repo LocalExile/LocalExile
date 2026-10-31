@@ -4,30 +4,26 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.Ruthless;
 
-/// <summary>Registers the Ruthless league.</summary>
+/// <summary>Ruthless's rules, for the leagues that use this module.</summary>
 public sealed class RuthlessModule : IModule
 {
     /// <inheritdoc/>
-    public void Load(IModuleContext module) => module.AddLeague(new RuthlessLeague(
-        Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES") ?? Path.Combine("config", "ruthless.json"), module.Log));
+    public void Load(IModuleContext module)
+    {
+        var rules = new RuthlessRulesSource(Environment.GetEnvironmentVariable("Game_RUTHLESS_RULES") ?? Path.Combine("config", "ruthless.json"), module.Log);
+        module.ProvideLeagueRules(() => rules.Rules);
+    }
 }
 
 /// <summary>Ruthless: its known mechanics, and the numbers the retail server does not publish, from a file that hot-reloads.</summary>
-public sealed class RuthlessLeague(string settingsPath, Action<string>? log = null, TimeProvider? time = null) : ILeague
+public sealed class RuthlessRulesSource(string settingsPath, Action<string>? log = null, TimeProvider? time = null)
 {
     readonly RuthlessRulesFile _settings = new(settingsPath, log, time);
     readonly Lock _gate = new();
     RuthlessRules? _from;
     LeagueRules _rules = LeagueRules.Standard;
 
-    /// <inheritdoc/>
-    public string Id => "ruthless";
-    /// <inheritdoc/>
-    public string ClientLeagueName => "Ruthless";
-    /// <inheritdoc/>
-    public LeagueCatalogs Catalogs => LeagueCatalogs.HardMode;
-
-    /// <inheritdoc/>
+    /// <summary>The rules now.</summary>
     public LeagueRules Rules
     {
         get

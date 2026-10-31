@@ -1,82 +1,72 @@
 global using LeagueRules = GameServer.Modding.LeagueRules;
 using System.Collections.Immutable;
 using GameServer.Core.Accounts;
-using GameServer.Modding;
+using LeagueCode = GameServer.Modding.League;
 
-/// <summary>A connection's league (<c>Program.LeagueFor</c>): Standard, or what a module said. It holds no object of the
-/// module (the data is the shared contracts'), so a connection does not keep an unloaded mod in memory.</summary>
-sealed class LeagueRuntime(string id, string name, bool hardMode, LeagueRules rules)
+/// <summary>A connection's league (<c>Program.LeagueFor</c>), fixed until its next area. It holds no object of a module, so a
+/// connection does not keep a reloaded assembly in memory.</summary>
+sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
 {
-    public static readonly LeagueRuntime Standard = new("standard", LeagueCatalog.Standard, false, LeagueRules.Standard);
+    /// <summary>The rules' defaults, with no modules: a league that is not loaded, for what still reaches the Gateway.</summary>
+    public static readonly LeagueRuntime Standard = new(new League(LeagueCatalog.Standard, LeagueCatalog.Standard, false, false), ImmutableHashSet<string>.Empty);
 
-    LeagueRules _rules = rules;
-
-    public string Id { get; } = id;
-    public string Name { get; } = name;
+    public string Id => definition.Name;
+    public string Name => definition.Name;
+    public IReadOnlySet<string> Modules => modules;
 
     /// <summary>Uses the game files' HardMode data; fixed for the connection, as its items and skills are.</summary>
-    public bool HardMode { get; } = hardMode;
+    public bool HardMode { get; } = definition.DataSet == "HardMode";
 
-    /// <summary>The module's rules now (its tunables hot-reload), the last ones it gave once it has unloaded.</summary>
-    public LeagueRules Rules => ServerLeagues.Live(Id) is { } rules ? _rules = rules : _rules;
+    /// <summary>The league's rules now: its tunables hot-reload.</summary>
+    public LeagueRules Rules => ServerLeagues.RulesOf(definition, modules);
 }
 
-/// <summary>The league modules that are loaded (<see cref="IModContext.AddLeague"/>): who a character's league belongs to.
-/// Standard is built in; a league with no module, or one whose required features are not loaded, plays as Standard.</summary>
+/// <summary>Which modules each league has, and the rules they give. Set when the Gateway starts: leagues are not loaded, unloaded,
+/// added or removed while it runs. One copy of each module serves every league that lists it; its hooks run per player's league.</summary>
 static class ServerLeagues
 {
-    static ImmutableDictionary<string, IReadOnlyList<string>> _inherits = ImmutableDictionary.Create<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-    static ImmutableDictionary<string, ILeague> _leagues = ImmutableDictionary.Create<string, ILeague>(StringComparer.OrdinalIgnoreCase);
+    static ImmutableDictionary<string, Func<LeagueRules>> _rules = ImmutableDictionary.Create<string, Func<LeagueRules>>(StringComparer.OrdinalIgnoreCase);
+    static ImmutableDictionary<string, LeagueCode> _code = ImmutableDictionary.Create<string, LeagueCode>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Registers a league under its client name; false when one has that name or id already.</summary>
-    public static bool Add(ILeague league, IReadOnlyList<string>? inherits = null)
+    public static void AddRules(string module, Func<LeagueRules> rules) => ImmutableInterlocked.AddOrUpdate(ref _rules, module, rules, (_, _) => rules);
+    public static void RemoveRules(string module) => ImmutableInterlocked.TryRemove(ref _rules, module, out _);
+    public static void SetCode(string league, LeagueCode code) => ImmutableInterlocked.AddOrUpdate(ref _code, league, code, (_, _) => code);
+    public static void RemoveCode(string league) => ImmutableInterlocked.TryRemove(ref _code, league, out _);
+
+    /// <summary>The rules a module gives now.</summary>
+    public static LeagueRules? Live(string module) => _rules.GetValueOrDefault(module)?.Invoke();
+
+    public static LeagueRules RulesOf(League league, IReadOnlySet<string> modules)
     {
-        string id = league.Id;
-        ImmutableInterlocked.AddOrUpdate(ref _inherits, id, inherits ?? [], (_, _) => inherits ?? []);
-        return ImmutableInterlocked.Update(ref _leagues, all =>
-            all.Values.Any(l => l.Id.Equals(id, StringComparison.OrdinalIgnoreCase)) ? all : all.Add(league.ClientLeagueName, league))
-            && ReferenceEquals(_leagues.GetValueOrDefault(league.ClientLeagueName), league);
-    }
-
-    public static void Remove(ILeague league) =>
-        ImmutableInterlocked.Update(ref _leagues, all => all.RemoveRange(all.Where(l => ReferenceEquals(l.Value, league)).Select(l => l.Key)));
-
-    public static LeagueRules? Live(string id) => Find(id) is { } league ? RulesOf(league, 0) : null;
-
-    static ILeague? Find(string id) => _leagues.Values.FirstOrDefault(l => l.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-
-    // Its own, else the first module it inherits that has any, else the defaults.
-    static LeagueRules RulesOf(ILeague league, int depth)
-    {
-        if (league.Rules is { } own) return own;
-        if (depth < 16)
-            foreach (string parent in _inherits.GetValueOrDefault(league.Id) ?? [])
-                if (Find(parent) is { } found) return RulesOf(found, depth + 1);
+        if (_code.GetValueOrDefault(league.Name)?.Rules is { } own) return own;
+        foreach (string module in league.AddModules)
+            if (modules.Contains(module) && _rules.GetValueOrDefault(module) is { } rules) return rules();
+        foreach (var (module, rules) in _rules)
+            if (modules.Contains(module)) return rules();
         return LeagueRules.Standard;
     }
 
-    // Without the standard module's folder LeagueRuntime.Standard is what is left: the rules' defaults.
-    /// <summary>A character's module: the one of its league form (<see cref="ILeague.Id"/>), else the one named as its league
-    /// or that league's base (Hardcore X is X). Standard when there is none, or a feature it needs is not loaded.</summary>
-    public static LeagueRuntime Resolve(string? form, string? name, Func<string, bool> loaded, Action<string>? log = null)
+    /// <summary>Every module in Modules/Core: what a league gets by default.</summary>
+    public static IReadOnlyList<string> CoreModules(string modulesFolder)
     {
-        var all = _leagues;
-        ILeague? league = form is null ? null : all.Values.FirstOrDefault(l => l.Id.Equals(form, StringComparison.OrdinalIgnoreCase));
-        if (league is null && form is null && !all.TryGetValue(name ?? LeagueCatalog.Standard, out league)
-            && LeagueCatalog.Startup.ResolveSavedLeague(name)?.Base is { } baseName)
-            all.TryGetValue(baseName, out league);
-        if (league is null)
-        {
-            // A form always means a module; a base league without one (Hardcore, SSF) is just Standard's rules.
-            if (form is not null) log?.Invoke($"[leagues] no module for {form}: {name} plays by Standard's rules");
-            return LeagueRuntime.Standard;
-        }
-        var missing = league.RequiredFeatures.Where(f => !loaded(f)).ToList();
-        if (missing.Count > 0)
-        {
-            log?.Invoke($"[leagues] {league.Id} needs {string.Join(", ", missing)}: {name} plays by Standard's rules");
-            return LeagueRuntime.Standard;
-        }
-        return new(league.Id, league.ClientLeagueName, league.Catalogs == LeagueCatalogs.HardMode, RulesOf(league, 0));
+        string core = Path.Combine(modulesFolder, "Core");
+        return Directory.Exists(core) ? [.. Directory.GetDirectories(core).Where(d => File.Exists(Path.Combine(d, ModHost.ModuleManifestFile))).Select(d => Path.GetFileName(d)!)] : [];
+    }
+
+    /// <summary>A league's modules: Core unless it says otherwise, less what it removes, plus what it adds. Each once.</summary>
+    public static IReadOnlySet<string> ModulesOf(League league, IReadOnlyList<string> core) =>
+        (league.CoreModules ? core : []).Except(league.RemoveModules, StringComparer.OrdinalIgnoreCase).Concat(league.AddModules).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every module any loaded league lists: the others do not load.</summary>
+    public static IReadOnlySet<string> Wanted(LeagueCatalog leagues, IReadOnlyList<string> core) =>
+        leagues.Loaded.SelectMany(l => ModulesOf(l, core)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A character's league, by name; a form's first league for a connection made without one. A league that is not
+    /// loaded cannot be entered, so this is only for what still reaches the Gateway.</summary>
+    public static LeagueRuntime Resolve(string? form, string? name, LeagueCatalog leagues, IReadOnlyList<string> core)
+    {
+        var league = leagues.FindLoaded(name ?? (form is null ? LeagueCatalog.Standard : null))
+            ?? (form is null ? null : leagues.Loaded.FirstOrDefault(l => l.Form == form && !l.Hardcore && !l.Ssf));
+        return league is null ? LeagueRuntime.Standard : new(league, ModulesOf(league, core));
     }
 }

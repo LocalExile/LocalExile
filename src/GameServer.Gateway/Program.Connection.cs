@@ -126,6 +126,8 @@ partial class Program
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Wire = (remote, stream, ciphers);
+                // The stash of an ended league that migrated here comes in before anything reads this one.
+                if (conn.Account is not null) PersonalStashOf(conn).AbsorbMigrated(ItemsFor(conn));
                 conn.Commands = Commands(remote, stream, ciphers, conn);
                 HotReload.Register(conn);
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;

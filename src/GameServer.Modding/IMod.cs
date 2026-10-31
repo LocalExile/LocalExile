@@ -16,9 +16,9 @@ public interface IMod
 }
 
 /// <summary>
-/// A module's entry point: a big overhaul of the game, such as a league, where a mod (<see cref="IMod"/>) is a small modification.
-/// Modules live in <c>Modules/Binaries/</c>, have their own <c>/module</c> commands, and load and reload as mods do. They get
-/// what mods get and what only they can do (<see cref="IModuleContext"/>).
+/// A module's entry point: anything from an NPC's dialogue to a whole game system, where a mod (<see cref="IMod"/>) is a small
+/// modification. Modules live in <c>Modules/</c> and <c>Modules/Core/</c>, and load only when a league lists them. They get what mods
+/// get and what only they can do (<see cref="IModuleContext"/>).
 /// </summary>
 public interface IModule
 {
@@ -31,7 +31,7 @@ public enum ModKind
 {
     /// <summary>A feature others may depend on.</summary>
     Feature,
-    /// <summary>A league: modules only.</summary>
+    /// <summary>A league: not a mod or a module, kept so an old manifest says what is wrong.</summary>
     League,
     /// <summary>A small script.</summary>
     Script,
@@ -44,21 +44,7 @@ public enum ModKind
 /// <param name="Depends">Ids loaded before this mod; it does not load while one is missing or failed.</param>
 /// <param name="Assembly">The file name of the mod's assembly in its folder, <c>&lt;id&gt;.dll</c> by default.</param>
 /// <param name="Enabled">Whether it loads until /mod_enable or /mod_disable says otherwise; true by default.</param>
-public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadOnlyList<string> Depends, string Assembly, bool Enabled = true)
-{
-    /// <summary>Modules this one extends, loaded first: their hooks run for this one's players, and a league without rules of its
-    /// own has their rules. A missing one keeps this module from loading.</summary>
-    public IReadOnlyList<string> Inherits { get; init; } = [];
-
-    /// <summary>Modules this one's players also get. Unlike <see cref="Inherits"/>, a missing one is simply not there.</summary>
-    public IReadOnlyList<string> Uses { get; init; } = [];
-
-    /// <summary>Modules this one's players do not get, though it inherits or uses them.</summary>
-    public IReadOnlyList<string> Without { get; init; } = [];
-
-    /// <summary>What must load first.</summary>
-    public IReadOnlyList<string> Requires => [.. Depends.Concat(Inherits).Distinct()];
-}
+public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadOnlyList<string> Depends, string Assembly, bool Enabled = true);
 
 /// <summary>A monster's rarity.</summary>
 public enum MonsterRarity

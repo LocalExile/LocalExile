@@ -1,9 +1,0 @@
-{
-  "id": "standard",
-  "version": "1.0.0",
-  "kind": "league",
-  "depends": [],
-  "uses": ["harvest", "heist", "delve"],
-  "assembly": "bin/standard.dll",
-  "league": { "bases": ["Standard"] }
-}

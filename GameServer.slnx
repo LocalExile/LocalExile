@@ -11,12 +11,11 @@
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
   </Folder>
   <Folder Name="/Modules/">
-    <Project Path="Modules/allflame/Allflame.csproj" />
-    <Project Path="Modules/delve/Delve.csproj" />
-    <Project Path="Modules/harvest/Harvest.csproj" />
-    <Project Path="Modules/heist/Heist.csproj" />
+    <Project Path="Modules/Core/delve/Delve.csproj" />
+    <Project Path="Modules/Core/harvest/Harvest.csproj" />
+    <Project Path="Modules/Core/heist/Heist.csproj" />
+    <Project Path="Modules/Core/npcdialogue/NpcDialogue.csproj" />
     <Project Path="Modules/ruthless/Ruthless.csproj" />
-    <Project Path="Modules/standard/Standard.csproj" />
   </Folder>
   <Folder Name="/Mods/Source/">
     <Project Path="Mods/Source/BossLoot/BossLoot.csproj" />

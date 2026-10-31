@@ -1,7 +1,7 @@
 # Mods
 
-Mods are small modifications. A big overhaul, such as a league, is a [module](modules.md): it has its own folder and commands, and
-only a module can add a league.
+Mods are small modifications, global, and the user's own: `Mods/` is gitignored, and another app will install them. A game system is a [module](modules.md), and only a
+league lists one.
 A mod is a C# assembly, or loose `.cs` files, the Gateway loads from `Mods/Binaries/<id>/` while it runs, and reloads when its
 files change, without a rebuild or restart of the Gateway. A mod sees only the `GameServer.Modding` API; the Gateway, Core and Data stay
 internal to the server.

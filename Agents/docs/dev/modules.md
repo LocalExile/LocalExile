@@ -1,119 +1,73 @@
-# Modules
+# Leagues and modules
 
-A module is a big overhaul of the game, such as a league. A [mod](modding.md) is a small modification.
+The Gateway is the framework: casting a spell, talking to an NPC, handling packets. **Modules** do everything else, **leagues** are sets
+of modules, and [mods](modding.md) are small modifications, global and the user's own.
 
-| | Mod | Module |
-|---|---|---|
-| Is | a tweak: a command, drop or experience changes | an overhaul: a league, a game system |
-| Entry point | `IMod`, `IModContext` | `IModule`, `IModuleContext`: all a mod has, and `AddLeague` |
-| Folder | `Mods/Source/`, `Mods/Binaries/<id>/` | `Modules/<id>/`: source and build together |
-| Manifest | `mod.json` | `module.json` |
-| Off | `/mod_disable`, `enabled`, `mod-state.txt` | delete the folder, restart |
-| Loads | any time, and unloads | once, when the Gateway starts; never unloads |
-| Chat | `/mod`, `/mod_reload`, `/mod_enable`, `/mod_disable` | `/module`, `/module_reload` |
-| Settings | `Game_MODS`, `Game_MODS_FOLDER` | `Game_MODULES`, `Game_MODULES_FOLDER` |
+| | Mod | Module | League |
+|---|---|---|---|
+| Is | a tweak | a game system: NPC dialogue, Delve, Pantheons | what a character lives in, shown in game |
+| Folder | `Mods/` (gitignored as a whole; installed by the user) | `Modules/<id>/`, `Modules/Core/<id>/` | `Leagues/<Name>/` |
+| Entry point | `IMod` | `IModule` | `league.json`; optionally a class deriving `League` |
+| Loads | any time | when the Gateway starts, if a league lists it | when the Gateway starts, if its folder exists |
+| Hot reload | yes | yes | its code, yes |
 
-## A module's life
-
-- **Off:** delete `Modules/<id>/` and restart Auth and the Gateway. There is no command or state file. A deleted folder has no effect
-  on a running Gateway: the module stays until it stops, and a new folder waits for the next start.
-- **Hot reload:** a new build in `Modules/<id>/bin/`, an edited `module.json`, a saved loose `.cs` file or `/module_reload [id]` reloads a
-  loaded module and those that depend on it; their state starts over. Bad new files (a failed compile, a half-written build) leave
-  the running module as it is, and a new build that throws while loading goes back to the assemblies it had. Saving a project's
-  source does nothing until it is built: `dotnet build Modules\<id>`.
-- `live.ps1` builds every project in `Modules\`.
-- A module is a `.csproj` and `"assembly": "bin/<id>.dll"`, or loose `.cs` files implementing `IModule` and no project.
-
-Everything else works as for a [mod](modding.md): the manifest's other fields and the hooks. Hooks of modules run before those of
-mods, and a module's command wins over a mod's of the same name. A mod cannot add a league, and `kind: league` in a `mod.json` is
-refused.
-Code: `ModHost.cs` (one class, two instances: `Program.ServerModules`, `Program.ServerMods`), `ServerHooks.cs`, `ServerLeagues.cs`,
-`Program.ModuleWorld.cs`, `Modules/`.
-
-To make one, copy `Modules/allflame/`, rename the folder and the `.csproj`, and set the id and `assembly` in its `module.json`. The
-folder's name is the id, in lower case.
+Built output (`bin/`, `obj/`) is gitignored everywhere. `live.ps1` builds every project in `Leagues\`, `Modules\` and `Mods\Source\`.
 
 ## Leagues
 
-Every league is a module, Standard too, and an upcoming league changes
-the framework only to add something generic that any league could use: a rule, a hook, a declaration field. Never its name.
-What still says Ruthless in `src/` is the client's wire names (`LeagueEntry.RuthlessParent`, its flag) and the game tables' column
-names (`IndexRuthless`, `ShopRuthless`, `RuthlessValue`).
-
-A league has two halves, because the Auth server gives the client its list and does not load modules:
-
-**In `module.json`, what Auth reads when it starts.**
+`Leagues/` decides what exists. Leagues and their module lists are read once when a server starts: nothing is loaded, unloaded, added or
+removed while it runs. A connection is in one league, and only that league's modules run for it.
 
 ```json
-"league": {
-  "bases": ["Necropolis"],
-  "form": {
-    "standardNames": { "plain": "Grim", "hardcore": "Hardcore Grim", "ssf": "SSF Grim", "hardcoreSsf": "SSF Hardcore Grim" },
-    "challengeNames": { "plain": "Grim {base}", "hardcore": "HC Grim {base}", "ssf": "SSF Grim {base}", "hardcoreSsf": "HC SSF G {base}" },
-    "description": "Added to the card text.",
-    "permanentDeath": true
-  }
+{
+  "name": "Ruthless Allflame",
+  "base": "Allflame",
+  "parent": "Ruthless",
+  "entryOf": "Allflame", "entryKind": "form",
+  "form": "ruthless",
+  "description": "The text on its card.",
+  "addModules": ["ruthless"], "removeModules": ["harvest"],
+  "dataSet": "HardMode"
 }
 ```
 
-- `bases` are base leagues, each with Hardcore and SSF variants. `Game_LEAGUES` replaces the offered bases.
-- `form` is a family of variants of every base, reached with the client's one form check box. Its id is the module's id.
-
-**In code, an `ILeague` registered with `module.AddLeague(league)`**, what the Gateway asks through `Program.LeagueFor(conn)`:
-
-| Member | What it is |
+| Field | Means |
 |---|---|
-| `Id` | lower case, as `IPlayer.LeagueId` says it; a form's characters are found by it, so it is the module's id |
-| `ClientLeagueName` | the base league it takes, with that league's Hardcore and SSF variants |
-| `Rules` | a `LeagueRules`, read at each use, so a tunables file hot-reloads: multipliers, saved life and mana, shops, vendors, rewards, flasks, gems |
-| `RequiredFeatures` | modules that must be loaded, else its characters play by the defaults |
-| `Catalogs` | the game files' data set: `Standard` or `HardMode` |
-| `Load(league)` | the league's hooks: an `IModContext` whose hooks run only for this league's players |
+| `parent` | where its characters, stash and gold go if it ends. Not inheritance: nothing else passes on. Must lead to `Standard` or `Void`, else it does not load |
+| `entryOf`, `entryKind` | a check box (`hardcore`, `ssf`, `form`: the client's Ruthless box) on that league's card. With none, it has its own card, as `Hardcore Allflame` does |
+| `hardcore`, `ssf`, `form` | its modes. A Hardcore league's parent is the non-hardcore one |
+| `deathLeague` | where a Hardcore death goes, if not the parent. `Void` means permanently dead |
+| `addModules`, `removeModules` | changes to its list. Every league gets all of `Modules/Core/` unless `"core": false`. A module listed twice stops the league loading |
+| `ended` | no new characters, and the migration list offers it |
+| `creatable: false` | not on the create screen (Void) |
+| `dataSet` | `HardMode`: the game files' HardMode tables |
 
-- A character whose module's folder was deleted, or whose module lacks a required feature, plays by the rules' defaults, which are
-  Standard's, keeping its league name, stash and saves; nothing is converted, and it returns when the folder does. Its league's
-  variants are no longer declared, so a Hardcore one is not Hardcore meanwhile. Deleting `standard` too leaves those defaults; the
-  create screen then offers what the other modules declare.
-- `Modules/ruthless/` holds Ruthless: its names, rules, gem lists and tunables. Its numbers stay in `config/ruthless.json`
-  (`Game_RUTHLESS_RULES` moves it, `config/ruthless.example.json` shows it), reread at most once a second, keeping the last good
-  ones through a bad edit. `Modules/allflame/` and `Modules/standard/` are the smallest leagues: a declaration, and Standard's rules.
+- **Standard** is required: the Gateway refuses to start without it. Its modules change like any league's.
+- **Void** has no modules and cannot be created in. Its characters are listed and cannot be entered. A custom event league can have it as parent,
+  so that nothing it drops reaches Standard.
+- **A deleted league's** characters are listed, marked, and cannot be entered. Nothing is converted, and they return with the folder.
+- **Migration** (`ended: true`): the client's list shows the league. `/migrate`, in that league, moves the account's characters to the parent now, and the
+  Gateway merges the stash (as tabs named after the league), gold and modules' saved data into the parent's when it next loads a connection.
+  The client's own Migrate buttons are not connected yet: their message is not identified ([protocol](../protocol/01-login.md)).
+- **A league's code** is optional: a public class deriving `League` in its folder, with the hooks of a module for its own players, and `Rules`.
 
-## Using modules together
+## Modules
 
-A module is not necessarily a league: only one with a `league` section in its `module.json` is on the game menu. `harvest`, `heist`
-and `delve` are plain modules, and leagues choose them:
+A module has no knowledge of leagues, and is not changed by one. A league needing even a small difference uses a module of its own, which may share code.
+One copy of a module runs for every league listing it, since one connection is in one league; its hooks run per player. A module no league lists does not load.
 
-```json
-{ "id": "grim", "kind": "league", "inherits": ["standard"], "uses": ["my-feature"], "without": ["harvest"] }
-```
-
-| Field | Means | If it is missing |
-|---|---|---|
-| `inherits` | loads first; its hooks run for this module's players, and a league with null `Rules` has its rules; several are allowed | this module does not load, and `/module` says why |
-| `uses` | its hooks run for this module's players too | nothing: it is simply not there |
-| `without` | not for this module's players, though inherited or used | nothing |
-| `depends` | loads first, its assemblies are usable, nothing more | this module does not load |
-
-`Standard` uses `harvest`, `heist` and `delve`; `ruthless` and `allflame` inherit it.
-
-A module's hooks run only for players whose league has it in that set (`IPlayer.Uses`), kept per connection until the next area. So
-taking a module from a league leaves nothing to crash on, whichever way: delete its folder, or remove it from `uses` or add it to `without`:
-
-- A hideout does not place that module's station. Its reserved spot (`HideoutSlot`) stays free, so nothing else in the layout moves.
-- Its messages reach no handler and its objects do not exist. Saved data stays, untouched, for when it comes back: its keys in the
-  saves, an item left in Harvest's slot.
-- Its dialogue option (Niko's) does nothing beyond a log line.
+- **Core** (`Modules/Core/`) is ordinary modules that new leagues get by default: `npcdialogue`, `harvest`, `heist`, `delve`. Group related things in one module.
+- **Hot reload:** a new build in `bin/`, an edited `module.json`, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
+  Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
+- **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
+- **To make one:** copy `Modules/Core/heist/`, rename the folder and `.csproj`, set the id and `assembly`, and list it in the leagues that want it.
 
 ## What a module sees
 
-`IModuleContext` is what a mod has, and `AddLeague`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcScript`.
-`IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, crafting in a slot (with payment), item rules
+`IModuleContext` is what a mod has, and `ProvideLeagueRules`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcOption`.
+`IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
-A module may also use `GameServer.Core`, the client protocol and shared types, and mods may not. `InstanceDelve` and `InstanceHarvest` stay
-there because they describe the client's messages, and the framing of every read needs their lengths. The Gateway stays internal.
+A module may also use `GameServer.Core`, the client protocol and shared types; mods may not. The Gateway stays internal. A module's per-player state is its
+own (`ConditionalWeakTable<IPlayer, …>`), so a hot reload starts it over, and objects it placed stop answering until the player's next area.
 
-- A module's per-player state is its own: a `ConditionalWeakTable<IPlayer, …>` in the module, as `heist` has. A hot reload starts it over,
-  so objects it placed stop answering until the player's next area.
-- The framework still names Delve in two places, to read saves from before it was a module (`AccountStash.Save.Delve`, `CharacterSaves.Save.Sulphite`),
-  and game data it serves everyone (areas, stash tabs, `Delve` sockets, world panel pins).
-
+Code: `ModHost.cs` (one class, three instances in `Program.Mods.cs`), `ServerHooks.cs`, `ServerLeagues.cs`, `Program.ModuleWorld.cs`, `LeagueCatalog.cs`.

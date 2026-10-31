@@ -180,8 +180,6 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public string? LeagueForm { get; init; }
     /// <summary>The league this connection plays by (Program.LeagueFor); LeagueForm above is the character's league form, from Auth.</summary>
     internal LeagueRuntime? LeagueModule;
-    /// <summary>The modules this connection uses (Program.ModulesFor), kept until its next area.</summary>
-    internal IReadOnlySet<string>? ActiveModules;
     /// <summary>The hideout scene furnishing this area, for the modules placing stations.</summary>
     internal HideoutScene? CurrentHideoutScene;
     /// <summary>The module whose native window is open (IPlayerWorld.OpenWindow).</summary>

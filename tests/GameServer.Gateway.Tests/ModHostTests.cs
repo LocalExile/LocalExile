@@ -360,38 +360,11 @@ public sealed class ModHostTests : IDisposable
     }
 
     [Fact]
-    public async Task A_module_adds_a_league_whose_hooks_run_only_for_its_players()
-    {
-        AddScript("custom", """
-            public sealed class Custom : ILeague
-            {
-                public string Id => "scoped";
-                public string ClientLeagueName => "Scoped League";
-                public LeagueRules Rules { get; } = new();
-                public void Load(IModContext league) => league.OnTick((p, _) => p.Tell("tick"));
-            }
-            public sealed class CustomModule : IModule { public void Load(IModuleContext module) => module.AddLeague(new Custom()); }
-            """);
-        using var host = new ModHost(_root, _ => { }, modules: true);
-        host.Start(watch: false);
-        await host.Tick(_player, 1);
-        Assert.Empty(_player.Told);
-        _player.LeagueId = "scoped";
-        await host.Tick(_player, 1);
-        Assert.Equal(["tick"], _player.Told);
-        Assert.Equal("scoped", ServerLeagues.Resolve(null, "Scoped League", _ => true).Id);
-        host.Dispose();
-        Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, "Scoped League", _ => true));
-    }
-
-    [Fact]
     public void A_mod_cannot_be_a_league()
     {
-        AddScript("script", "public sealed class M : IMod { public void Load(IModContext mod) => mod.AddLeague(null!); }");
         AddMod("manifest", """{ "kind": "league" }""");
         _host.Start(watch: false);
-        Assert.Contains("CS1061", _host.Mods().Single(m => m.Id == "script").Error);
-        Assert.Contains("a league is a module", _host.Mods().Single(m => m.Id == "manifest").Error);
+        Assert.Contains("a league belongs in Leagues/", _host.Mods().Single(m => m.Id == "manifest").Error);
     }
 
     [Fact]
@@ -444,27 +417,26 @@ public sealed class ModHostTests : IDisposable
     }
 
     [Fact]
-    public void A_league_gets_what_it_inherits_and_uses_without_what_it_removes_and_a_missing_use_is_no_error()
+    public async Task Core_modules_load_like_the_others_and_only_when_a_league_wants_them()
     {
-        AddModule("harvest", "{ }");
-        AddModule("delve", "{ }");
-        AddModule("base", """{ "uses": ["harvest", "delve", "not-installed"] }""");
-        AddModule("child", """{ "inherits": ["base"], "without": ["delve"] }""");
-        using var host = new ModHost(_root, _ => { }, modules: true);
+        Directory.CreateDirectory(Path.Combine(_root, "Core"));
+        foreach (string id in new[] { "wanted", "unwanted" })
+            AddScript(Path.Combine("Core", id), "public sealed class M_" + id + " : IModule { public void Load(IModuleContext module) => module.OnChatCommand(\"" + id + "\", \"/x\", c => c.Player.Tell(\"ran\")); }");
+        using var host = new ModHost(_root, _ => { }, modules: true) { Wanted = () => new HashSet<string> { "wanted" } };
         host.Start(watch: false);
-        Assert.All(host.Mods(), m => Assert.Null(m.Error));
-        Assert.Equal(["base", "child", "harvest"], host.ModulesOf("child").Order());
-        Assert.Equal(["base", "delve", "harvest"], host.ModulesOf("base").Order());
-        Assert.Empty(host.ModulesOf("not-loaded"));
+        Assert.True(host.IsLoaded("wanted"));
+        Assert.False(host.IsLoaded("unwanted"));
+        Assert.True(await host.RunCommand(_player, "wanted", []));
     }
 
     [Fact]
-    public void A_module_that_inherits_a_missing_one_does_not_load()
+    public void A_league_with_no_code_loads_with_nothing_to_run()
     {
-        AddModule("child", """{ "inherits": ["gone"] }""");
-        using var host = new ModHost(_root, _ => { }, modules: true);
+        Directory.CreateDirectory(Path.Combine(_root, "Plain"));
+        File.WriteAllText(Path.Combine(_root, "Plain", ModHost.LeagueManifestFile), """{ "parent": "Standard" }""");
+        using var host = new ModHost(_root, _ => { }, modules: true, leagues: true);
         host.Start(watch: false);
-        Assert.Contains("needs gone", host.Mods().Single().Error);
+        Assert.True(host.IsLoaded("Plain"));
     }
 
     [Fact]
@@ -487,24 +459,6 @@ public sealed class ModHostTests : IDisposable
         Assert.False(await host.ObjectUsed(new(_player, 1, 0)));
         Assert.False(await host.RunCommand(_player, "station", []));
         Assert.Equal(3, _player.Told.Count);
-    }
-
-    [Fact]
-    public void A_league_without_rules_has_those_of_what_it_inherits()
-    {
-        var parent = new RulesLeague("rules-parent", new() { GoldMultiplier = 7 });
-        var child = new RulesLeague("rules-child", null);
-        Assert.True(ServerLeagues.Add(parent));
-        Assert.True(ServerLeagues.Add(child, ["rules-parent"]));
-        try { Assert.Equal(7, ServerLeagues.Live("rules-child")!.GoldMultiplier); }
-        finally { ServerLeagues.Remove(parent); ServerLeagues.Remove(child); }
-    }
-
-    sealed class RulesLeague(string id, LeagueRules? rules) : ILeague
-    {
-        public string Id => id;
-        public string ClientLeagueName => id;
-        public LeagueRules? Rules => rules;
     }
 
     [Fact]

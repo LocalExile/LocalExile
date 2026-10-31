@@ -1,5 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <!-- The Allflame challenge league as a module (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
-
-</Project>

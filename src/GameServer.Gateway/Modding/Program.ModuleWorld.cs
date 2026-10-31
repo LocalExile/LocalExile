@@ -5,10 +5,8 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 // What modules can do with a player's world (IPlayerWorld), in the Gateway's terms.
 partial class Program
 {
-    /// <summary>The modules a league uses: its own, what it inherits and uses, without what it removes. A connection keeps its
-    /// set until its next area. A module named here that is not loaded is simply not there.</summary>
-    internal static IReadOnlySet<string> ModulesFor(ClientState conn) =>
-        conn.ActiveModules ??= ServerModules.ModulesOf(LeagueFor(conn).Id);
+    /// <summary>The modules a connection's league lists.</summary>
+    internal static IReadOnlySet<string> ModulesFor(ClientState conn) => LeagueFor(conn).Modules;
 
     sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
     {
@@ -83,6 +81,31 @@ partial class Program
             (key, change) => CharacterSaves.ChangeModuleData(CharacterName(conn), key, change));
 
         public IItemCrafting Crafting => LeagueFor(conn).HardMode ? HardModeCrafting.Value : StandardCrafting.Value;
+
+        SpawnedNpc? TalkingTo()
+        {
+            lock (conn.Npcs) return conn.Npcs.GetValueOrDefault(conn.TalkingTo);
+        }
+
+        public Task NpcSay(NpcOption option)
+        {
+            conn.InNpcTalk = true;
+            return Send(InstanceNpcs.Talk(conn.TalkingTo, (byte)option.Index), $"0x0084 npc 0x{conn.TalkingTo:x} {option.Npc} talks: NPCTalk row {option.Row} \"{option.Option}\" (index {option.Index})");
+        }
+
+        public void NpcEndTalk() => conn.InNpcTalk = false;
+
+        public Task NpcClose(string log)
+        {
+            conn.InNpcTalk = false;
+            conn.TalkingTo = 0;
+            return Send(InstanceNpcs.Talk(0), log);
+        }
+
+        public Task NpcOpenShop() => TalkingTo() is { } npc ? OpenNpcShop(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, conn.TalkingTo, npc) : Task.CompletedTask;
+        public Task NpcOpenSale() => TalkingTo() is { } npc ? OpenNpcSale(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, npc) : Task.CompletedTask;
+        public Task NpcIdentifyItems() => TalkingTo() is { } npc ? IdentifyInventory(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, npc) : Task.CompletedTask;
+        public Task<bool> NpcOfferReward(int offer) => OfferNpcReward(conn, offer);
 
         public uint ItemIdIn(byte row) => ItemsOf(conn).Items(row).FirstOrDefault()?.Id ?? 0;
 

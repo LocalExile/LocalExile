@@ -1,56 +1,76 @@
 using GameServer.Modding;
 
-/// <summary>What the Gateway calls where it does the same thing itself: the hooks of the modules, then those of the mods.</summary>
-sealed class ServerHooks(ModHost modules, ModHost mods)
+/// <summary>What the Gateway calls where it does the same thing itself: the hooks of the league's own code, of its modules, then of
+/// the mods.</summary>
+sealed class ServerHooks(params ModHost[] hosts)
 {
-    public IEnumerable<(string Name, string Usage)> Commands => modules.Commands.Concat(mods.Commands);
+    public IEnumerable<(string Name, string Usage)> Commands => hosts.SelectMany(h => h.Commands);
 
-    public async Task<bool> RunCommand(IPlayer player, string name, IReadOnlyList<string> args) =>
-        await modules.RunCommand(player, name, args) || await mods.RunCommand(player, name, args);
+    public async Task<bool> RunCommand(IPlayer player, string name, IReadOnlyList<string> args)
+    {
+        foreach (var host in hosts) if (await host.RunCommand(player, name, args)) return true;
+        return false;
+    }
 
     public async Task Tick(IPlayer player, double seconds)
     {
-        await modules.Tick(player, seconds);
-        await mods.Tick(player, seconds);
+        foreach (var host in hosts) await host.Tick(player, seconds);
     }
 
-    public bool WantsPacket(ushort opcode) => modules.WantsPacket(opcode) || mods.WantsPacket(opcode);
+    public bool WantsPacket(ushort opcode) => hosts.Any(h => h.WantsPacket(opcode));
 
-    public async Task<bool> Packet(IPlayer player, ushort opcode, byte[] bytes) =>
-        await modules.Packet(player, opcode, bytes) || await mods.Packet(player, opcode, bytes);
+    public async Task<bool> Packet(IPlayer player, ushort opcode, byte[] bytes)
+    {
+        foreach (var host in hosts) if (await host.Packet(player, opcode, bytes)) return true;
+        return false;
+    }
 
     public async Task AreaGenerated(IPlayer player)
     {
-        await modules.AreaGenerated(player);
-        await mods.AreaGenerated(player);
+        foreach (var host in hosts) await host.AreaGenerated(player);
     }
 
     public async Task MonsterKilled(MonsterKill kill)
     {
-        await modules.MonsterKilled(kill);
-        await mods.MonsterKilled(kill);
+        foreach (var host in hosts) await host.MonsterKilled(kill);
     }
 
-    public async Task<bool> ObjectUsed(ObjectUse use) => await modules.ObjectUsed(use) || await mods.ObjectUsed(use);
+    public async Task<bool> ObjectUsed(ObjectUse use)
+    {
+        foreach (var host in hosts) if (await host.ObjectUsed(use)) return true;
+        return false;
+    }
 
-    public Task HideoutReady(IPlayer player) => modules.HideoutReady(player);
-    public List<(string Log, byte[] Message)> EnterMessages(IPlayer player) => modules.EnterMessages(player);
-    public AreaHeader? Header(IPlayer player) => modules.Header(player);
-    public Task<bool> RunNpcScript(NpcScript talk) => modules.RunNpcScript(talk);
+    public async Task HideoutReady(IPlayer player)
+    {
+        foreach (var host in hosts) await host.HideoutReady(player);
+    }
+
+    public List<(string Log, byte[] Message)> EnterMessages(IPlayer player) => [.. hosts.SelectMany(h => h.EnterMessages(player))];
+
+    public AreaHeader? Header(IPlayer player) => hosts.Select(h => h.Header(player)).FirstOrDefault(h => h is not null);
+
+    public async Task<bool> RunNpcOption(NpcOption talk)
+    {
+        foreach (var host in hosts) if (await host.RunNpcOption(talk)) return true;
+        return false;
+    }
 
     public DropRoll? Drops(IPlayer player, MonsterInfo monster)
     {
-        if (!modules.ChangesDrops && !mods.ChangesDrops) return null;
+        if (!hosts.Any(h => h.ChangesDrops)) return null;
         var roll = new DropRoll(player, monster);
-        modules.ModifyDrops(roll);
-        mods.ModifyDrops(roll);
+        foreach (var host in hosts) host.ModifyDrops(roll);
         return roll;
     }
 
-    public uint Experience(IPlayer player, MonsterInfo monster, uint experience) =>
-        mods.Experience(player, monster, modules.Experience(player, monster, experience));
+    public uint Experience(IPlayer player, MonsterInfo monster, uint experience)
+    {
+        foreach (var host in hosts) experience = host.Experience(player, monster, experience);
+        return experience;
+    }
 
-    public bool ChangesStats => modules.ChangesStats || mods.ChangesStats;
+    public bool ChangesStats => hosts.Any(h => h.ChangesStats);
 
-    public IEnumerable<KeyValuePair<string, int>> Stats(IPlayer player) => modules.Stats(player).Concat(mods.Stats(player));
+    public IEnumerable<KeyValuePair<string, int>> Stats(IPlayer player) => hosts.SelectMany(h => h.Stats(player));
 }

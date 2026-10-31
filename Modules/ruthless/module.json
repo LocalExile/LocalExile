@@ -1,16 +1,7 @@
 {
   "id": "ruthless",
   "version": "1.0.0",
-  "kind": "league",
+  "kind": "feature",
   "depends": [],
-  "inherits": ["standard"],
-  "assembly": "bin/ruthless.dll",
-  "league": {
-    "form": {
-      "standardNames": { "plain": "Ruthless", "hardcore": "Hardcore Ruthless", "ssf": "SSF Ruthless", "hardcoreSsf": "SSF Hardcore Ruthless" },
-      "challengeNames": { "plain": "Ruthless {base}", "hardcore": "HC Ruthless {base}", "ssf": "SSF Ruthless {base}", "hardcoreSsf": "HC SSF R {base}" },
-      "description": "Ruthless: extreme item scarcity.",
-      "permanentDeath": true
-    }
-  }
+  "assembly": "bin/ruthless.dll"
 }

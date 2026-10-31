@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using GameServer.Core.Accounts;
 using Mod = GameServer.Modding;
 
 // The mods in Mods/Binaries/ (ModHost, Agents/docs/dev/modding.md) and what the Gateway shows them: a player (ModPlayer) and the
@@ -6,27 +7,40 @@ using Mod = GameServer.Modding;
 // message dispatch, the area's setup, a kill, its drops and experience, the character's stats).
 partial class Program
 {
-    // Modules (Agents/docs/dev/modules.md) are overhauls, mods small modifications. A module is a folder in Modules/, loaded at the start
-    // of the Gateway and there until it stops; it may hot-reload. Delete the folder to turn it off.
-    // Game_MODULES=0 and Game_MODS=0 load none from their folder; Game_MODULES_FOLDER and Game_MODS_FOLDER move it (relative
-    // to the repository root, like data/).
-    internal static readonly ModHost ServerModules = new ModHost(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules", Console.WriteLine, modules: true)
+    // A league (Leagues/<Name>/) is a set of modules (Modules/, Modules/Core/); a mod (Mods/) is a small modification, global and the
+    // user's own. Agents/docs/dev/modules.md. The leagues and their module lists are read when the Gateway starts, and do not change
+    // while it runs; the code of a loaded league, module or mod hot-reloads.
+    static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";
+    static string LeaguesFolder => Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues";
+    internal static readonly IReadOnlyList<string> CoreModules = ServerLeagues.CoreModules(ModulesFolder);
+
+    internal static readonly ModHost ServerLeagueCode = new(LeaguesFolder, Console.WriteLine, modules: true, leagues: true)
     {
-        // A module runs only for the players whose league uses it, so taking one from a league leaves nothing behind.
+        Active = (player, id) => player.LeagueId.Equals(id, StringComparison.OrdinalIgnoreCase),
+        WorldOf = player => new ModuleWorld(ConnOf(player)),
+    };
+
+    internal static readonly ModHost ServerModules = new(ModulesFolder, Console.WriteLine, modules: true)
+    {
+        Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup, CoreModules),
+        // A module runs only for the players whose league lists it, so a league without one has nothing of it to break on.
         Active = (player, id) => ModulesFor(ConnOf(player)).Contains(id),
         WorldOf = player => new ModuleWorld(ConnOf(player)),
     };
     internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine);
-    internal static readonly ServerHooks ServerHooks = new(ServerModules, ServerMods);
+    internal static readonly ServerHooks ServerHooks = new(ServerLeagueCode, ServerModules, ServerMods);
 
     static void StartMods()
     {
-        if (Environment.GetEnvironmentVariable("Game_MODULES") == "0") Console.WriteLine("[modules] off (Game_MODULES=0)");
-        else
-        {
-            ServerModules.Changed += line => HotReload.Tell(line.Replace("[modules] ", "Modules: "));
-            ServerModules.Start();
-        }
+        var leagues = LeagueCatalog.Startup;
+        if (leagues.FindLoaded(LeagueCatalog.Standard) is null)
+            throw new InvalidOperationException($"The Standard league is required: no {Path.Combine(LeaguesFolder, LeagueCatalog.Standard, ModHost.LeagueManifestFile)}");
+        foreach (string error in leagues.Errors) Console.WriteLine($"[leagues] not loaded: {error}");
+        Console.WriteLine($"[leagues] loaded: {string.Join(", ", leagues.Loaded.Select(l => l.Name + (l.Ended ? " (ended)" : "")))}");
+        ServerLeagueCode.Changed += line => HotReload.Tell(line.Replace("[leagues] ", "Leagues: "));
+        ServerLeagueCode.Start();
+        ServerModules.Changed += line => HotReload.Tell(line.Replace("[modules] ", "Modules: "));
+        ServerModules.Start();
         if (Environment.GetEnvironmentVariable("Game_MODS") == "0") { Console.WriteLine("[mods] off (Game_MODS=0)"); return; }
         // A mod (re)loaded or failed while players are in: they read it in chat, as a hot reload.
         ServerMods.Changed += line => HotReload.Tell(line.Replace("[mods] ", "Mods: "));
@@ -74,7 +88,7 @@ partial class Program
         public bool Hardcore => conn.Hardcore;
         public bool SoloSelfFound => conn.Ssf;
         public string LeagueId => LeagueFor(conn).Id;
-        public bool Uses(string module) => ModulesFor(conn).Contains(module);
+        public bool Uses(string module) => LeagueFor(conn).Modules.Contains(module);
         public int Level => conn.Pools.Level;
         public string AreaId => conn.Layout.Id;
         public uint Seed => conn.Seed;

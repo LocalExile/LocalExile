@@ -104,8 +104,7 @@ sealed class AccountStash
 
     /// <summary>The stash key of an account in a league: every league has its own stash and gold. Standard (and a
     /// character without a league) keeps the account's own key, so the stash it had before leagues counted stays there.</summary>
-    public static string Key(string account, string? league) =>
-        string.IsNullOrEmpty(league) || league.Equals("Standard", StringComparison.OrdinalIgnoreCase) ? account : $"{account} ({league})";
+    public static string Key(string account, string? league) => GameServer.Core.Accounts.LeagueCatalog.StashKey(account, league);
 
     /// <summary>The account's stash, loaded from the save database or made with the starter tabs. A saved item the game
     /// data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>
@@ -196,6 +195,39 @@ sealed class AccountStash
     /// <summary>The account's gold (S→C 0x2a9).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }
 
+
+    /// <summary>Takes in the stashes of ended leagues that migrated here: their tabs with their items (new ids, the league's name on the
+    /// tab), their gold and modules' data the same way; those stashes are left empty. Idempotent: the mark goes with the commit.</summary>
+    public void AbsorbMigrated(ItemCatalog catalog)
+    {
+        string prefix = GameServer.Core.Accounts.LeagueCatalog.MigrationPrefix(_account);
+        foreach (string mark in Saves.Db.Keys(SaveDatabase.Table.Stashes, prefix))
+        {
+            string fromKey = mark[prefix.Length..];
+            var from = For(fromKey, catalog);
+            Saves.Atomically(() =>
+            {
+                List<int> added = [];
+                lock (_lock) lock (from._lock)
+                {
+                    foreach (var tab in from._tabs.Where(t => t.Items.Count > 0))
+                    {
+                        var copy = new TabState(tab.Saved with { Name = fromKey[(fromKey.IndexOf('(') + 1)..].TrimEnd(')') + ": " + tab.Saved.Name, Items = [] });
+                        foreach (var item in tab.Items) copy.Items.Add(item with { Id = _nextItemId++ });
+                        _tabs.Add(copy);
+                        added.Add(_tabs.Count - 1);
+                        tab.Items.Clear();
+                    }
+                    _gold += from._gold;
+                    from._gold = 0;
+                    foreach (var (key, value) in from._moduleData) _moduleData.TryAdd(key, value);
+                }
+                Persist([.. added]);
+                from.Persist([.. Enumerable.Range(0, from.Count)]);
+                Saves.Db.Delete(SaveDatabase.Table.Stashes, mark);
+            });
+        }
+    }
 
     /// <summary>A module's saved text (IPlayerWorld.AccountData).</summary>
     public string? ModuleData(string key) { lock (_lock) return _moduleData.GetValueOrDefault(key); }

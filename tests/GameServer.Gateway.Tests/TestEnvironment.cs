@@ -4,6 +4,8 @@ namespace GameServer.Gateway.Tests;
 
 static class TestEnvironment
 {
+    static readonly GameServer.Modules.Ruthless.RuthlessRulesSource Ruthless = new(Path.Combine("config", "ruthless.json"));
+
     // Real dispatch tests use Program's production catalogs, whose paths are relative to the repository root.
     // Set this once before parallel tests or lazy catalogs initialize, rather than changing process CWD in a test.
     [ModuleInitializer]
@@ -17,16 +19,8 @@ static class TestEnvironment
                     && Directory.Exists(Path.Combine(dir.FullName, "data", "tables")))
                 {
                     Directory.SetCurrentDirectory(dir.FullName);
-                    // The league modules, as the host and Auth see them in the server, whether or not they are built.
-                    string mods = Path.Combine(Path.GetTempPath(), "localexile-test-modules-" + Environment.ProcessId);
-                    foreach (string module in new[] { "standard", "ruthless", "allflame", "harvest", "heist", "delve" })
-                    {
-                        Directory.CreateDirectory(Path.Combine(mods, module));
-                        File.Copy(Path.Combine(dir.FullName, "Modules", module, "module.json"), Path.Combine(mods, module, "module.json"), overwrite: true);
-                    }
-                    Environment.SetEnvironmentVariable("Game_MODULES_FOLDER", mods);
-                    ServerLeagues.Add(new GameServer.Modules.Ruthless.RuthlessLeague(Path.Combine("config", "ruthless.json")));
-                    ServerLeagues.Add(new GameServer.Modules.Allflame.AllflameLeague());
+                    // The modules' code is not loaded here; Ruthless's rules are what its leagues' tests read.
+                    ServerLeagues.AddRules("ruthless", () => Ruthless.Rules);
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout with data/tables.");

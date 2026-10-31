@@ -3,20 +3,38 @@ using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Core.Accounts;
 
-/// <summary>A league characters can be created in. A variant (Hardcore, SSF, a league form or a combination) names the
-/// league it is a form of in the matching parent field, as the client's create screen expects (<see cref="LeagueEntry"/>).</summary>
+/// <summary>A league (<c>Leagues/&lt;Name&gt;/league.json</c>): where characters live, a set of modules, and where they go next.
+/// A variant the client shows through a check box on another league's card names it in <see cref="EntryOf"/>; with none it has a
+/// card of its own.</summary>
 public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, string? Form = null,
     string SsfParent = "", string HardcoreParent = "", string FormParent = "", string FormDescription = "", bool PermanentDeath = false)
 {
-    public bool IsMain => !Hardcore && !Ssf && Form is null;
+    /// <summary>Where its characters go when it ends, or when it is removed by migration. Not C# inheritance: nothing else passes on.</summary>
+    public string? Parent { get; init; }
+    /// <summary>The league whose card shows this one's check box.</summary>
+    public string? EntryOf { get; init; }
+    /// <summary>The text on its card; the client crashes on an empty one.</summary>
+    public string? CardText { get; init; }
+    /// <summary>Where a Hardcore death sends a character, if not the parent.</summary>
+    public string? DeathLeague { get; init; }
+    /// <summary>Offered on the create screen.</summary>
+    public bool Creatable { get; init; } = true;
+    /// <summary>It has ended: no new characters, and its characters and stashes can migrate to the parent.</summary>
+    public bool Ended { get; init; }
+    /// <summary>"HardMode": which of the game files' data its characters use.</summary>
+    public string? DataSet { get; init; }
+    /// <summary>Whether it gets every module in Modules/Core by default.</summary>
+    public bool CoreModules { get; init; } = true;
+    public IReadOnlyList<string> AddModules { get; init; } = [];
+    public IReadOnlyList<string> RemoveModules { get; init; } = [];
+    /// <summary>False for a character's league with no folder: it can be listed but not entered.</summary>
+    public bool Loaded { get; init; } = true;
+
+    public bool IsMain => EntryOf is null;
 
     /// <summary>The card text. It must not be empty: the create screen's card (0x140cc8820) throws "invalid string
     /// position" on an empty one and the client crashes (live 2026-10-18). A leading '#' makes it a lookup key.</summary>
-    public string Description =>
-        (string.Equals(Base, LeagueCatalog.Standard, StringComparison.OrdinalIgnoreCase) ? "The permanent league." : $"The {Base} challenge league.")
-        + (Hardcore ? " Characters that die move to the parent league." : "")
-        + (Ssf ? " Solo Self-Found: no trading or parties." : "")
-        + (Form is null || FormDescription.Length == 0 ? "" : " " + FormDescription);
+    public string Description => CardText is { Length: > 0 } text ? text : $"The {Name} league.";
 
     /// <summary>The S→C 0x1b entry. Main leagues get a card on the create screen; variants are reached through its check
     /// boxes. The client has one check box for a league form, and its wire names call it Ruthless.</summary>
@@ -26,139 +44,119 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
         0, 0, 0, 0xd1);
 }
 
-/// <summary>What a form's four variants are called; {base} is the base league's name.</summary>
-public sealed record LeagueFormNames(string Plain, string Hardcore, string Ssf, string HardcoreSsf);
-
-/// <summary>A family of variants of every base league, declared by a module (its <c>module.json</c>), reached with the
-/// client's form check box.</summary>
-/// <param name="Id">The module's id: the Gateway finds the rules by it.</param>
-/// <param name="StandardNames">The variants of Standard.</param>
-/// <param name="ChallengeNames">The variants of any other base league.</param>
-/// <param name="Description">Added to the variants' card text.</param>
-/// <param name="PermanentDeath">A Hardcore death in this form is final, instead of moving to the parent league.</param>
-public sealed record LeagueForm(string Id, LeagueFormNames StandardNames, LeagueFormNames ChallengeNames, string Description = "", bool PermanentDeath = false);
-
-/// <summary>What one module's <c>module.json</c> says about leagues ("league": { "bases": [...], "form": {...} }).</summary>
-public sealed record LeagueDeclaration(IReadOnlyList<string> Bases, LeagueForm? Form);
-
 /// <summary>
-/// The server's leagues: each base league with its Hardcore and SSF variants, and those of every league form. Named as the
-/// official servers name them. Only Standard is the server's own: the rest come from league modules, read here from their
-/// <c>module.json</c> because the Auth server, which gives the client this list, does not load them.
-/// <c>Game_LEAGUES</c> (comma-separated) replaces the base leagues on offer. Any name works: the client has no league list
-/// of its own.
+/// The leagues in <c>Game_LEAGUES_FOLDER</c> (default Leagues), read once when a server starts. Standard is required; every other
+/// league's parents must lead to Standard or Void, and one that does not is not loaded. Auth and the Gateway read the same folders.
+/// Any name works: the client has no league list of its own.
 /// </summary>
 public sealed class LeagueCatalog
 {
     public const string Standard = "Standard";
 
+    /// <summary>The leagues that are loaded, ended and Void included.</summary>
+    public IReadOnlyList<League> Loaded { get; }
+
+    /// <summary>What can be created in.</summary>
     public IReadOnlyList<League> All { get; }
 
-    /// <summary>The forms on offer.</summary>
-    public IReadOnlyList<LeagueForm> Forms { get; }
+    /// <summary>Why a folder's league did not load.</summary>
+    public IReadOnlyList<string> Errors { get; }
 
-    // Also what is off or no longer offered: saved characters keep their league's identity.
-    readonly IReadOnlyList<League> _saved;
-
-    /// <param name="baseLeagues">The base leagues to offer.</param>
-    /// <param name="forms">The forms to offer.</param>
-    /// <param name="savedBases">More base leagues saved characters may be in.</param>
-    public LeagueCatalog(IEnumerable<string> baseLeagues, IEnumerable<LeagueForm>? forms = null,
-        IEnumerable<string>? savedBases = null)
+    public LeagueCatalog(IEnumerable<League> leagues, IReadOnlyList<string>? errors = null)
     {
-        Forms = [.. forms ?? []];
-        var bases = baseLeagues.Select(n => n.Trim()).Where(n => n.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (bases.Count == 0) bases.Add(Standard);
-        All = [.. bases.SelectMany(b => Variants(b, Forms))];
-        
-        _saved = [.. bases.Append(Standard).Concat(savedBases ?? []).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(b => Variants(b, Forms))];
+        var errs = new List<string>(errors ?? []);
+        var list = leagues.ToList();
+        var byName = list.ToDictionary(l => l.Name, StringComparer.OrdinalIgnoreCase);
+        bool Rooted(League l)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (League? at = l; at is not null; at = at.Parent is { } p && byName.TryGetValue(p, out var next) ? next : null)
+            {
+                if (!seen.Add(at.Name)) return false;
+                if (at.Parent is null) return at.Name.Equals(Standard, StringComparison.OrdinalIgnoreCase) || at.Name.Equals(HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase);
+                if (!byName.ContainsKey(at.Parent)) return false;
+            }
+            return false;
+        }
+        var good = new List<League>();
+        foreach (var l in list)
+        {
+            if (!Rooted(l)) { errs.Add($"{l.Name}: its parents do not lead to Standard or Void"); continue; }
+            if (l.AddModules.Distinct(StringComparer.OrdinalIgnoreCase).Count() != l.AddModules.Count) { errs.Add($"{l.Name}: a module is listed twice"); continue; }
+            good.Add(l);
+        }
+        Loaded = good;
+        Errors = errs;
+        All = [.. good.Where(l => l.Creatable && !l.Ended)];
     }
 
-    /// <summary>The configured leagues and those of the module folders in <c>Game_MODULES_FOLDER</c> (default Modules).
-    /// A league whose folder was deleted is not offered, and its saved characters keep their league's name on Standard.</summary>
-    public static LeagueCatalog FromEnvironment()
+    /// <summary>The leagues in a folder, each a subfolder with a league.json.</summary>
+    public static LeagueCatalog FromFolder(string folder)
     {
-        var declared = Environment.GetEnvironmentVariable("Game_MODULES") == "0" ? []
-            : Declarations(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules");
-        var bases = declared.SelectMany(d => d.Bases).OrderBy(b => !b.Equals(Standard, StringComparison.OrdinalIgnoreCase)).ToList();
-        IEnumerable<string> offered = Environment.GetEnvironmentVariable("Game_LEAGUES") is { Length: > 0 } list ? list.Split(',') : bases;
-        return new(offered, declared.Select(d => d.Form).OfType<LeagueForm>(), bases);
+        var leagues = new List<League>();
+        var errors = new List<string>();
+        foreach (string dir in Directory.Exists(folder) ? Directory.GetDirectories(folder) : [])
+        {
+            string path = Path.Combine(dir, "league.json");
+            if (!File.Exists(path)) continue;
+            try { leagues.Add(Read(Path.GetFileName(dir), path)); }
+            catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or IOException) { errors.Add($"{Path.GetFileName(dir)}: {e.Message}"); }
+        }
+        return new(leagues.OrderBy(l => !l.Name.Equals(Standard, StringComparison.OrdinalIgnoreCase)), errors);
     }
 
-    /// <summary>The leagues as they were when this server started: modules come and go only with a restart.</summary>
+    static League Read(string folderName, string path)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(path), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        var r = doc.RootElement;
+        string? Text(string n) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        bool Flag(string n, bool or = false) => r.TryGetProperty(n, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : or;
+        string[] List(string n) => r.TryGetProperty(n, out var v) ? [.. v.EnumerateArray().Select(e => e.GetString()!)] : [];
+        string name = Text("name") ?? folderName;
+        string? entryOf = Text("entryOf"), kind = Text("entryKind");
+        return new League(name, Text("base") ?? name, Flag("hardcore"), Flag("ssf"), Text("form"),
+            SsfParent: kind == "ssf" ? entryOf ?? "" : "", HardcoreParent: kind == "hardcore" ? entryOf ?? "" : "", FormParent: kind == "form" ? entryOf ?? "" : "",
+            PermanentDeath: string.Equals(Text("deathLeague"), HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase))
+        {
+            Parent = Text("parent"), EntryOf = entryOf, CardText = Text("description"), DeathLeague = Text("deathLeague"),
+            Creatable = Flag("creatable", true), Ended = Flag("ended"), DataSet = Text("dataSet"), CoreModules = Flag("core", true),
+            AddModules = List("addModules"), RemoveModules = List("removeModules"),
+        };
+    }
+
+    /// <summary>The leagues in the configured folder.</summary>
+    public static LeagueCatalog FromEnvironment() => FromFolder(Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues");
+
+    /// <summary>The leagues as they were when this server started: leagues come and go only with a restart.</summary>
     public static LeagueCatalog Startup => _startup.Value;
     static readonly Lazy<LeagueCatalog> _startup = new(FromEnvironment);
 
-    /// <summary>Reads what each module folder declares.</summary>
-    public static IReadOnlyList<LeagueDeclaration> Declarations(string folder)
-    {
-        if (!Directory.Exists(folder)) return [];
-        var result = new List<LeagueDeclaration>();
-        try
-        {
-            foreach (string dir in Directory.GetDirectories(folder).Order(StringComparer.Ordinal))
-                if (Read(Path.GetFileName(dir), Path.Combine(dir, "module.json")) is { } declared) result.Add(declared);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.WriteLine($"[leagues] {folder}: {e.Message}"); }
-        return result;
-    }
+    /// <summary>The key of the mark a migration leaves in the saves: the Gateway merges that stash into the parent league's.</summary>
+    public static string MigrationMark(string account, string from, string to) => $"{MigrationPrefix(StashKey(account, to))}{StashKey(account, from)}";
 
-    static LeagueDeclaration? Read(string id, string path)
-    {
-        if (!File.Exists(path)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(path), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
-            if (!doc.RootElement.TryGetProperty("league", out var league)) return null;
-            string[] bases = league.TryGetProperty("bases", out var b) ? [.. b.EnumerateArray().Select(n => n.GetString()!)] : [];
-            LeagueForm? form = null;
-            if (league.TryGetProperty("form", out var f))
-            {
-                static LeagueFormNames Names(JsonElement n) => new(n.GetProperty("plain").GetString()!, n.GetProperty("hardcore").GetString()!,
-                    n.GetProperty("ssf").GetString()!, n.GetProperty("hardcoreSsf").GetString()!);
-                form = new(id, Names(f.GetProperty("standardNames")), Names(f.GetProperty("challengeNames")),
-                    f.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "",
-                    f.TryGetProperty("permanentDeath", out var p) && p.GetBoolean());
-            }
-            return new(bases, form);
-        }
-        catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            Console.WriteLine($"[leagues] {path}: {e.Message}");
-            return null;
-        }
-    }
+    /// <summary>What every mark for a stash starts with.</summary>
+    public static string MigrationPrefix(string stashKey) => $"migrate|{stashKey}|";
 
+    /// <summary>The stash key of an account in a league: every league has its own stash and gold. Standard (and a
+    /// character without a league) keeps the account's own key, so the stash it had before leagues counted stays there.</summary>
+    public static string StashKey(string account, string? league) =>
+        string.IsNullOrEmpty(league) || league.Equals(Standard, StringComparison.OrdinalIgnoreCase) ? account : $"{account} ({league})";
+
+    /// <summary>A league that can be created in.</summary>
     public League? Find(string? name) =>
         name is null ? null : All.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>A saved character's league, on offer or not. A name no module declares any more keeps its name (the ticket
-    /// and the stash go by it) and plays by Standard's rules. Creation uses <see cref="Find"/>.</summary>
-    public League? ResolveSavedLeague(string? name) => name is null ? null : Find(name)
-        ?? _saved.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase))
-        ?? new League(name, Standard, false, false);
+    /// <summary>A loaded league by name.</summary>
+    public League? FindLoaded(string? name) =>
+        name is null ? null : Loaded.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A saved character's league. One with no folder keeps its name (the ticket and the stash go by it) but is not
+    /// <see cref="League.Loaded"/>: the character can be listed and not entered, until the folder is back.</summary>
+    public League? ResolveSavedLeague(string? name) => name is null ? null : FindLoaded(name)
+        ?? new League(name, name, false, false) { Loaded = false };
+
+    /// <summary>Ended leagues, for the client's migration list.</summary>
+    public IEnumerable<League> Ended => Loaded.Where(l => l.Ended && l.Parent is not null);
 
     public IReadOnlyList<LeagueEntry> Entries() => [.. All.Select(l => l.Entry())];
-
-    private static IEnumerable<League> Variants(string b, IReadOnlyList<LeagueForm> forms)
-    {
-        bool std = string.Equals(b, Standard, StringComparison.OrdinalIgnoreCase);
-        string hc = std ? "Hardcore" : $"Hardcore {b}";
-        string ssf = $"SSF {b}";
-        string hcSsf = std ? "SSF Hardcore" : $"HC SSF {b}";
-        yield return new(b, b, false, false);
-        yield return new(hc, b, true, false, HardcoreParent: b);
-        yield return new(ssf, b, false, true, SsfParent: b);
-        yield return new(hcSsf, b, true, true, SsfParent: hc);
-        foreach (var form in forms)
-        {
-            var names = std ? form.StandardNames : form.ChallengeNames;
-            League Of(string name, bool hardcore, bool solo, string parent) => new(name.Replace("{base}", b), b, hardcore, solo, form.Id,
-                FormParent: parent, FormDescription: form.Description, PermanentDeath: form.PermanentDeath);
-            yield return Of(names.Plain, false, false, b);
-            yield return Of(names.Hardcore, true, false, hc);
-            yield return Of(names.Ssf, false, true, ssf);
-            yield return Of(names.HardcoreSsf, true, true, hcSsf);
-        }
-    }
 }

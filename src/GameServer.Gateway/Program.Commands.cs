@@ -1,3 +1,4 @@
+using GameServer.Core.Accounts;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -57,6 +58,16 @@ partial class Program
             ModCommand = (name, args) => ServerHooks.RunCommand(PlayerOf(conn), name, args),
             ModUsages = () => ServerHooks.Commands,
         }
+        .Add("migrate", "/migrate (this league has ended: move the account's characters, stash and gold to its parent league; relog after)", async _ =>
+        {
+            if (LeagueCatalog.Startup.FindLoaded(conn.League) is not { Ended: true, Parent: { } parent })
+            {
+                await conn.Commands!.Reply("This league has not ended.");
+                return;
+            }
+            var reply = await InstanceControl.CallAsync(new ControlRequest { Op = "migrate_league", Ticket = conn.Ticket });
+            await conn.Commands!.Reply(reply is { Ok: true } ? $"{reply.Migrated} character(s) moved to {parent}, with the stash and gold. Log in again." : $"Migration failed: {reply?.Error}");
+        })
         .Add("module", "/module (the modules loaded when the Gateway started, from the folders in Modules/: version, kind and hooks, and why others did not load)", async _ =>
         {
             var modules = ServerModules.Mods();

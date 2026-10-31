@@ -1,9 +1,0 @@
-{
-  "id": "allflame",
-  "version": "1.0.0",
-  "kind": "league",
-  "depends": [],
-  "inherits": ["standard"],
-  "assembly": "bin/allflame.dll",
-  "league": { "bases": ["Allflame"] }
-}

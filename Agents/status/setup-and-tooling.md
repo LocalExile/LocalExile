@@ -49,16 +49,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
-  Modules are overhauls, apart from mods ([modules](../docs/dev/modules.md)): each a folder `Modules/<id>/` with an `IModule` and `module.json`,
-  loaded once when the Gateway starts, never unloaded, hot-reloaded; deleting the folder turns one off. Only a module can add a league.
-  Leagues are external: Standard, Ruthless and Allflame are modules, declared to Auth in
-  `module.json` (`league`) and to the Gateway with `ILeague`, and a character whose module is missing or off plays by Standard's rules
-  with its saves untouched.
-  Not tried in the client: a Ruthless character with the folder there, then deleted; the create screen's list from the declarations.
+  Leagues ([modules](../docs/dev/modules.md)) are folders in `Leagues/`, read once at start: cards and check boxes as in the real create screen, a parent to migrate to, Void, and
+  modules listed per league, with `Modules/Core/` by default. A deleted league's characters cannot be entered. `/migrate` moves characters, stash and gold; the client's Migrate buttons are not connected.
+  Not tried in the client: the create screen from these folders, a blocked character, a migration.
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
-  A league picks modules with `uses`, `inherits` and `without`; a module runs only for the players whose league has it, so a hideout
+  What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  `Mods/Source/` has six examples, of which only `example` is on by default; `Modules/` has the leagues `standard`, `ruthless` and `allflame`, and `harvest`, `heist` and `delve`.
+  `Mods/Source/` has six examples, of which only `example` is on by default.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
   `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.

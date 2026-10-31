@@ -18,10 +18,10 @@ public interface IPlayer
     /// <summary>Solo self-found.</summary>
     bool SoloSelfFound { get; }
 
-    /// <summary>The league module this connection plays by (<see cref="ILeague.Id"/>), "standard" when none.</summary>
+    /// <summary>The league this connection plays in, by name.</summary>
     string LeagueId { get; }
 
-    /// <summary>Whether this connection's league uses a module: its own, what it inherits and uses, without what it removes.</summary>
+    /// <summary>Whether this connection's league uses a module.</summary>
     bool Uses(string module);
 
     /// <summary>The character's level.</summary>

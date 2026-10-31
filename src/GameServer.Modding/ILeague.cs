@@ -1,42 +1,17 @@
 namespace GameServer.Modding;
 
 /// <summary>
-/// A league, registered by a module with <see cref="IModuleContext.AddLeague"/>. Standard is built into the server: a character
-/// whose league has no loaded module, or whose module needs a feature that is not loaded, plays by Standard's rules, keeping
-/// its league and saves, and returns to its own rules when the module is back. A connection keeps the module it started with
-/// until the next area.
+/// A league's own code, optional: a public class in <c>Leagues/&lt;Name&gt;/</c>. A league is a module too: it gets the same hooks, for
+/// its own players, and hot-reloads. What it is (name, parent, the client's card, its modules) is in its <c>league.json</c>, read once
+/// when the Gateway starts. A league does not change another module; for a difference, use a module of its own.
 /// </summary>
-public interface ILeague
+public abstract class League : IModule
 {
-    /// <summary>The module's id, lower case: what <see cref="IPlayer.LeagueId"/> says.</summary>
-    string Id { get; }
+    /// <summary>This league's rules, over its modules'. Null: its modules', else the defaults.</summary>
+    public virtual LeagueRules? Rules => null;
 
-    /// <summary>The league's name in the client's league list: it takes the league of that name with its Hardcore and SSF
-    /// variants. A league form (<c>module.json</c> "league"."form") is found by <see cref="Id"/> instead: the module's id.</summary>
-    string ClientLeagueName { get; }
-
-    /// <summary>The rules now. Asked often, so return a kept object; a new value applies at once (a tunables file). Null: those of
-    /// the module it inherits.</summary>
-    LeagueRules? Rules { get; }
-
-    /// <summary>Modules that must be loaded for this league's characters to use it.</summary>
-    IReadOnlyList<string> RequiredFeatures => [];
-
-    /// <summary>Which of the game files' data the league's characters use.</summary>
-    LeagueCatalogs Catalogs => LeagueCatalogs.Standard;
-
-    /// <summary>The league's hooks. <paramref name="league"/> is the module's context, but its hooks run only for this league's
-    /// players; they are removed with the module.</summary>
-    void Load(IModContext league) { }
-}
-
-/// <summary>The sets of catalog data the game files have.</summary>
-public enum LeagueCatalogs
-{
-    /// <summary>The ordinary tables and columns.</summary>
-    Standard,
-    /// <summary>The game files' HardMode tables and columns: items, gems, passives, drops, rewards, vendor prices.</summary>
-    HardMode,
+    /// <inheritdoc/>
+    public virtual void Load(IModuleContext league) { }
 }
 
 /// <summary>What the server asks of a league. The defaults are Standard's.</summary>

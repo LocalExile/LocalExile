@@ -13,7 +13,7 @@ using GameServer.Modding;
 /// Every hook a mod registers is held here, in the host's lists, and nowhere else in the server: unloading a mod removes
 /// them all, so no static of the server keeps one of its types alive and the context can be collected.
 /// </remarks>
-sealed class ModHost(string folder, Action<string> log, bool modules = false) : IDisposable
+sealed class ModHost(string folder, Action<string> log, bool modules = false, bool leagues = false) : IDisposable
 {
     /// <summary>A change was applied (a mod loaded, unloaded or failed): the line it logged.</summary>
     public event Action<string>? Changed;
@@ -42,7 +42,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     readonly HookList<Func<IPlayer, Task>> _hideouts = new();
     readonly HookList<Func<IPlayer, IEnumerable<(string Log, byte[] Message)>>> _enter = new();
     readonly HookList<Func<IPlayer, AreaHeader?>> _headers = new();
-    readonly HookList<Func<NpcScript, Task<bool>>> _npcScripts = new();
+    readonly HookList<Func<NpcOption, Task<bool>>> _npcOptions = new();
     readonly HookList<Action<DropRoll>> _drops = new();
     readonly HookList<Action<ExperienceGain>> _experience = new();
     readonly HookList<Action<StatSheet>> _stats = new();
@@ -56,34 +56,25 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     /// <summary>A module's manifest. Modules have no state file: deleting a module's folder is what turns it off.</summary>
     public const string ModuleManifestFile = "module.json";
 
-    string Manifest => modules ? ModuleManifestFile : ManifestFile;
+    /// <summary>A league's manifest, in a host of leagues' code (<c>modules</c> as well).</summary>
+    public const string LeagueManifestFile = "league.json";
+
+    string Manifest => leagues ? LeagueManifestFile : modules ? ModuleManifestFile : ManifestFile;
     // What its lines start with.
-    string Tag => modules ? "[modules]" : "[mods]";
-    string Noun => modules ? "module" : "mod";
+    string Tag => leagues ? "[leagues]" : modules ? "[modules]" : "[mods]";
+    string Noun => leagues ? "league" : modules ? "module" : "mod";
+    /// <summary>A host of modules loads only these: a module lives in a league. Null: all.</summary>
+    public Func<IReadOnlySet<string>>? Wanted { get; init; }
+
     /// <summary>Whether a module's hooks run for this player (a host of modules; the league's set). Null: always.</summary>
     public Func<IPlayer, string, bool>? Active { get; init; }
 
     /// <summary>What <see cref="IModuleContext.World"/> gives.</summary>
     public Func<IPlayer, IPlayerWorld>? WorldOf { get; init; }
 
-    bool On(LoadedMod mod, IPlayer player) => Active?.Invoke(player, mod.Manifest.Id) != false;
+    bool IsHostOfModules => modules;
 
-    /// <summary>The modules a league's players get: it, what it inherits and uses, without what it removes, as far as loaded.</summary>
-    public IReadOnlySet<string> ModulesOf(string id)
-    {
-        lock (_gate)
-        {
-            HashSet<string> Of(string one, HashSet<string> seen)
-            {
-                if (!seen.Add(one) || !_loaded.TryGetValue(one, out var mod)) return [];
-                var all = new HashSet<string>(StringComparer.Ordinal) { one };
-                foreach (string next in mod.Manifest.Inherits.Concat(mod.Manifest.Uses)) all.UnionWith(Of(next, seen));
-                all.ExceptWith(mod.Manifest.Without);
-                return all;
-            }
-            return Of(id, new(StringComparer.Ordinal));
-        }
-    }
+    bool On(LoadedMod mod, IPlayer player) => Active?.Invoke(player, mod.Manifest.Id) != false;
 
     public static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(400);
     const int BusyRetries = 5;
@@ -162,7 +153,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         if (modules) throw new InvalidOperationException("a module is turned off by deleting its folder");
         lock (_gate)
         {
-            if (id != Path.GetFileName(id) || !IsMod(Path.Combine(Folder, id))) return false;
+            if (id != Path.GetFileName(id) || (DirOf(id) is not { } dir || !IsMod(dir))) return false;
             _choices[id] = enabled;
             File.WriteAllLines(Path.Combine(Folder, StateFile), _choices.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} {(c.Value ? "on" : "off")}"));
             if (!enabled) foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
@@ -268,13 +259,13 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         return header;
     }
 
-    public async Task<bool> RunNpcScript(NpcScript talk)
+    public async Task<bool> RunNpcOption(NpcOption talk)
     {
-        foreach (var hook in _npcScripts.Items)
+        foreach (var hook in _npcOptions.Items)
         {
             if (!On(hook.Mod, talk.Player)) continue;
             bool taken = false;
-            if (await Guard(hook.Mod, "OnNpcScript", async () => taken = await hook.Run(talk)) && taken) return true;
+            if (await Guard(hook.Mod, "OnNpcOption", async () => taken = await hook.Run(talk)) && taken) return true;
         }
         return false;
     }
@@ -336,11 +327,14 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     void Touched(string path)
     {
         string relative = Path.GetRelativePath(Path.GetFullPath(Folder), path);
-        string id = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+        var parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // Modules/Core/<id>/ is as Modules/<id>/.
+        if (modules && !leagues && parts is ["Core", _, ..]) parts = parts[1..];
+        string id = parts[0];
         if (id is "" or "." or ".." or StateFile || relative.StartsWith("..", StringComparison.Ordinal)) return;
         // A module's source and its build's scratch are not the module: its build's output is.
-        if (modules && relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) is [_, var part, ..]
-            && (part == "obj" || (part != "bin" && part != Manifest && HasProject(Path.Combine(Folder, id))))) return;
+        if (modules && parts is [_, var part, ..]
+            && (part == "obj" || (part != "bin" && part != Manifest && HasProject(DirOf(id) ?? "")))) return;
         Later(id, busy: 0);
     }
 
@@ -423,9 +417,11 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     {
         var waiting = new Dictionary<string, (ModManifest Manifest, string Folder)>(StringComparer.Ordinal);
         _off.Clear();
-        foreach (string dir in Directory.Exists(Folder) ? Directory.GetDirectories(Folder) : [])
+        var wanted = Wanted?.Invoke();
+        foreach (string dir in Dirs())
         {
             string id = Path.GetFileName(dir);
+            if (wanted?.Contains(id) == false) continue;   // in no league
             if (_loaded.ContainsKey(id)) continue;
             string manifestPath = Path.Combine(dir, Manifest);
             if (!IsMod(dir)) { _failed.Remove(id); continue; }   // not a mod (yet)
@@ -434,28 +430,28 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
                 // Scripts need no manifest.
                 var manifest = File.Exists(manifestPath) ? ReadManifest(id, File.ReadAllText(manifestPath))
                     : new ModManifest(id, "0", ModKind.Script, [], id + ".dll");
-                if (!modules && manifest.Kind == ModKind.League) throw new FormatException("a league is a module: it belongs in Modules/, with a module.json");
+                if (!leagues && manifest.Kind == ModKind.League) throw new FormatException("a league belongs in Leagues/, with a league.json");
                 if (modules || _choices.GetValueOrDefault(id, manifest.Enabled)) waiting[id] = (manifest, dir);
                 else { _off.Add(id); _failed.Remove(id); }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Fail(id, $"busy: {ex.Message}"); }
             catch (Exception ex) when (ex is JsonException or FormatException) { Fail(id, $"{Manifest}: {ex.Message}"); }
         }
-        foreach (string gone in _failed.Keys.Where(id => !Directory.Exists(Path.Combine(Folder, id))).ToList()) _failed.Remove(gone);
+        foreach (string gone in _failed.Keys.Where(id => DirOf(id) is null).ToList()) _failed.Remove(gone);
         bool progress = true;
         while (progress && waiting.Count > 0)
         {
             progress = false;
             foreach (var (id, (manifest, dir)) in waiting.ToList())
             {
-                if (!manifest.Requires.All(_loaded.ContainsKey)) continue;
+                if (!manifest.Depends.All(_loaded.ContainsKey)) continue;
                 waiting.Remove(id);
                 progress |= Load(manifest, dir);
             }
         }
         foreach (var (id, (manifest, _)) in waiting)
         {
-            var missing = manifest.Requires.Where(d => !_loaded.ContainsKey(d)).ToList();
+            var missing = manifest.Depends.Where(d => !_loaded.ContainsKey(d)).ToList();
             Fail(id, $"needs {string.Join(", ", missing.Select(d => _off.Contains(d) ? $"{d} (disabled)" : _failed.ContainsKey(d) || waiting.ContainsKey(d) ? $"{d} (not loaded)" : $"{d} (no such mod)"))}");
         }
     }
@@ -470,6 +466,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     {
         string path = Path.Combine(dir, manifest.Assembly);
         string[] scripts = modules && HasProject(dir) ? [] : ModScripts.Sources(dir);
+        if (leagues && !File.Exists(path) && scripts.Length == 0) return new([], null);   // a league with no code of its own
         if (!File.Exists(path) && scripts.Length == 0) throw new FileNotFoundException($"no {manifest.Assembly} in the {Noun}'s folder (built yet?)");
         List<(byte[], byte[]?)> assemblies = [];
         if (File.Exists(path))
@@ -486,7 +483,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     bool Load(ModManifest manifest, string dir, Images? images = null)
     {
         string id = manifest.Id;
-        var context = new ModLoadContext(id, Path.GetFullPath(dir), modules, [.. manifest.Requires.Select(d => _loaded[d].Context).OfType<ModLoadContext>()]);
+        var context = new ModLoadContext(id, Path.GetFullPath(dir), modules, [.. manifest.Depends.Select(d => _loaded[d].Context).OfType<ModLoadContext>()]);
         var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context);
         try
         {
@@ -494,12 +491,13 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
             mod.ScriptImage = mod.Images.Scripts;
             List<Assembly> assemblies = [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
             var entries = assemblies.SelectMany(a => a.GetExportedTypes())
-                .Where(t => (modules ? typeof(IModule) : typeof(IMod)).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }).ToList();
-            if (entries.Count == 0) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
+                .Where(t => (leagues ? typeof(League) : modules ? typeof(IModule) : typeof(IMod)).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }).ToList();
+            if (entries.Count == 0 && !leagues) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
             var api = new Context(this, mod);
             foreach (var type in entries)
             {
                 var entry = Activator.CreateInstance(type)!;
+                if (entry is League code) ServerLeagues.SetCode(id, code);
                 mod.Entries.Add(entry);
                 if (entry is IModule module) module.Load(api); else ((IMod)entry).Load(api);
             }
@@ -521,13 +519,27 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         return true;
     }
 
+    // The folders that may hold one: in a host of modules, Modules/Core/'s too.
+    IEnumerable<string> Dirs()
+    {
+        if (!Directory.Exists(Folder)) yield break;
+        foreach (string dir in Directory.GetDirectories(Folder))
+        {
+            if (modules && !leagues && Path.GetFileName(dir) == "Core")
+                foreach (string core in Directory.GetDirectories(dir)) yield return core;
+            else yield return dir;
+        }
+    }
+
+    string? DirOf(string id) => Dirs().FirstOrDefault(d => Path.GetFileName(d) == id);
+
     bool IsMod(string dir) => File.Exists(Path.Combine(dir, Manifest)) || (Directory.Exists(dir) && ModScripts.Sources(dir).Length > 0);
 
     // What a mod's scripts compile against, beyond the framework: its folder's assemblies and its dependencies'.
     IEnumerable<byte[]> ScriptReferences(ModManifest manifest, string folder)
     {
         foreach (string dll in Directory.GetFiles(folder, "*.dll")) yield return File.ReadAllBytes(dll);
-        foreach (string dependency in manifest.Requires)
+        foreach (string dependency in manifest.Depends)
         {
             var loaded = _loaded[dependency];
             string path = Path.Combine(loaded.Folder, loaded.Manifest.Assembly);
@@ -574,10 +586,10 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     void Remove(LoadedMod mod)
     {
         ImmutableInterlocked.Update(ref _commands, c => c.RemoveRange(c.Where(e => e.Value.Mod == mod).Select(e => e.Key)));
-        _ticks.Remove(mod); _packets.Remove(mod); _areas.Remove(mod); _kills.Remove(mod); _objects.Remove(mod); _hideouts.Remove(mod); _enter.Remove(mod); _headers.Remove(mod); _npcScripts.Remove(mod);
+        _ticks.Remove(mod); _packets.Remove(mod); _areas.Remove(mod); _kills.Remove(mod); _objects.Remove(mod); _hideouts.Remove(mod); _enter.Remove(mod); _headers.Remove(mod); _npcOptions.Remove(mod);
         _drops.Remove(mod); _experience.Remove(mod); _stats.Remove(mod);
-        foreach (var league in mod.Leagues) ServerLeagues.Remove(league);
-        mod.Leagues.Clear();
+        if (mod.ProvidesRules) ServerLeagues.RemoveRules(mod.Manifest.Id);
+        if (leagues) ServerLeagues.RemoveCode(mod.Manifest.Id);
     }
 
     void Fail(string id, string error)
@@ -601,7 +613,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         var all = new List<string> { id };
         for (int i = 0; i < all.Count; i++)
             foreach (var m in _loaded.Values)
-                if (m.Manifest.Requires.Contains(all[i]) && !all.Contains(m.Manifest.Id)) all.Add(m.Manifest.Id);
+                if (m.Manifest.Depends.Contains(all[i]) && !all.Contains(m.Manifest.Id)) all.Add(m.Manifest.Id);
         return all;
     }
 
@@ -613,7 +625,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         {
             if (order.Contains(id)) return;
             foreach (var m in _loaded.Values)
-                if (ids.Contains(m.Manifest.Id) && m.Manifest.Requires.Contains(id)) Visit(m.Manifest.Id);
+                if (ids.Contains(m.Manifest.Id) && m.Manifest.Depends.Contains(id)) Visit(m.Manifest.Id);
             order.Add(id);
         }
         foreach (string id in ids) Visit(id);
@@ -653,17 +665,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
                 JsonValueKind.False => false,
                 _ => throw new FormatException("\"enabled\" is not true or false"),
             };
-        List<string> Ids(string name)
-        {
-            var ids = new List<string>();
-            if (doc.RootElement.EnumerateObject().FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is not { Value.ValueKind: not JsonValueKind.Undefined } list) return ids;
-            if (list.Value.ValueKind != JsonValueKind.Array) throw new FormatException($"\"{name}\" is not a list of ids");
-            foreach (var e in list.Value.EnumerateArray())
-                ids.Add(e.ValueKind == JsonValueKind.String ? e.GetString()! : throw new FormatException($"\"{name}\" is not a list of ids"));
-            return ids;
-        }
-        return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", enabled)
-            { Inherits = Ids("inherits"), Uses = Ids("uses"), Without = Ids("without") };
+        return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", enabled);
     }
 
     sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext? context)
@@ -673,7 +675,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         /// <summary>Null for a built-in.</summary>
         public ModLoadContext? Context { get; } = context;
         public List<object> Entries { get; } = [];
-        public List<ILeague> Leagues { get; } = [];
+        public bool ProvidesRules;
         /// <summary>The compiled scripts, for the scripts of the mods that depend on this one.</summary>
         public byte[]? ScriptImage;
         /// <summary>What it was loaded from, to go back to when a module's new build does not load.</summary>
@@ -701,26 +703,6 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     {
         Action? _remove = remove;
         public void Dispose() => Interlocked.Exchange(ref _remove, null)?.Invoke();
-    }
-
-    // What a league's Load gets: the mod's context, with hooks that run only for that league's players.
-    sealed class LeagueScope(IModContext mod, string id) : IModContext
-    {
-        bool Mine(IPlayer player) => player.Uses(id);
-        public ModManifest Manifest => mod.Manifest;
-        public string Folder => mod.Folder;
-        public void Log(string message) => mod.Log(message);
-        public IDisposable OnChatCommand(string name, string usage, Func<ChatCommand, Task> run) =>
-            mod.OnChatCommand(name, usage, c => Mine(c.Player) ? run(c) : c.Player.Tell($"/{c.Name} is only for the league {id}."));
-        public IDisposable OnTick(Func<IPlayer, double, Task> tick) => mod.OnTick((p, s) => Mine(p) ? tick(p, s) : Task.CompletedTask);
-        public IDisposable OnPacket(ushort opcode, Func<Packet, Task<bool>> handle) =>
-            mod.OnPacket(opcode, p => Mine(p.Player) ? handle(p) : Task.FromResult(false));
-        public IDisposable OnAreaGenerated(Func<IPlayer, Task> generated) => mod.OnAreaGenerated(p => Mine(p) ? generated(p) : Task.CompletedTask);
-        public IDisposable OnMonsterKilled(Func<MonsterKill, Task> killed) => mod.OnMonsterKilled(k => Mine(k.Player) ? killed(k) : Task.CompletedTask);
-        public IDisposable OnObjectUsed(Func<ObjectUse, Task<bool>> used) => mod.OnObjectUsed(u => Mine(u.Player) ? used(u) : Task.FromResult(false));
-        public IDisposable ModifyDrops(Action<DropRoll> modify) => mod.ModifyDrops(d => { if (Mine(d.Player)) modify(d); });
-        public IDisposable ModifyExperience(Action<ExperienceGain> modify) => mod.ModifyExperience(e => { if (Mine(e.Player)) modify(e); });
-        public IDisposable ModifyStats(Action<StatSheet> modify) => mod.ModifyStats(s => { if (Mine(s.Player)) modify(s); });
     }
 
     // What a mod's Load gets. It refuses new hooks once its mod is unloaded (a task the mod left running).
@@ -759,23 +741,21 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         public IDisposable OnAreaGenerated(Func<IPlayer, Task> generated) => Add(host._areas, generated);
         public IDisposable OnMonsterKilled(Func<MonsterKill, Task> killed) => Add(host._kills, killed);
         public IDisposable OnObjectUsed(Func<ObjectUse, Task<bool>> used) => Add(host._objects, used);
+        public void ProvideLeagueRules(Func<LeagueRules> rules)
+        {
+            if (!host.IsHostOfModules) throw new InvalidOperationException("only a module gives a league rules");
+            mod.ProvidesRules = true;
+            ServerLeagues.AddRules(mod.Manifest.Id, rules);
+        }
+
         public IPlayerWorld World(IPlayer player) => (host.WorldOf ?? throw new InvalidOperationException("this server gives modules no world"))(player);
         public IDisposable OnHideoutReady(Func<IPlayer, Task> ready) => Add(host._hideouts, ready);
         public IDisposable OnEnterMessages(Func<IPlayer, IEnumerable<(string Log, byte[] Message)>> messages) => Add(host._enter, messages);
         public IDisposable OnAreaHeader(Func<IPlayer, AreaHeader?> header) => Add(host._headers, header);
-        public IDisposable OnNpcScript(Func<NpcScript, Task<bool>> run) => Add(host._npcScripts, run);
+        public IDisposable OnNpcOption(Func<NpcOption, Task<bool>> run) => Add(host._npcOptions, run);
         public IDisposable ModifyDrops(Action<DropRoll> modify) => Add(host._drops, modify);
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => Add(host._experience, modify);
         public IDisposable ModifyStats(Action<StatSheet> modify) => Add(host._stats, modify);
 
-        public IDisposable AddLeague(ILeague league)
-        {
-            if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
-            if (host.Tag != "[modules]") throw new InvalidOperationException("only a module can add a league");
-            if (!ServerLeagues.Add(league, mod.Manifest.Inherits)) throw new InvalidOperationException($"a league module already has {league.ClientLeagueName} or the id {league.Id}");
-            mod.Leagues.Add(league);
-            league.Load(new LeagueScope(this, league.Id));
-            return new Handle(() => { mod.Leagues.Remove(league); ServerLeagues.Remove(league); });
-        }
     }
 }
