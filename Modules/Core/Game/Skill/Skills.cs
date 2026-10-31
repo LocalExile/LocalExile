@@ -975,6 +975,7 @@ static partial class Game
             var change = Saves.Atomically(() =>
             {
                 var save = CharacterSaves.Load(CharacterName(conn)) ?? new CharacterSaves.Save([]);
+                AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, save.MainAscendancy?.Selection);
                 ValidateSavedProgress(conn, save);
                 var ascendancy = save.MainAscendancy ?? new();
                 var nodes = new List<ushort>(save.Passives ?? []);

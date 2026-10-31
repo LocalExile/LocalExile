@@ -67,6 +67,15 @@ static class AscendancyPolicies
             && ReadPolicy(conn, selection) is null) throw Unavailable(selection);
     }
 
+    /// <summary>Inside a transaction, reject another connection's family/class switch before writing or publishing.</summary>
+    public static void RequireCurrentSelection(AscendancyIdentity? expected, AscendancyIdentity? durable)
+    {
+        if (expected is null && durable is null) return;
+        if (expected is not null && durable is not null && expected.Family == durable.Family
+            && expected.Id == durable.Id && expected.Revision == durable.Revision) return;
+        throw new PassiveProgressConflictException();
+    }
+
     public static void SelectionChanged(ClientState conn)
     {
         // Bind only after a successful durable/runtime change, never while validating a prospective choice.

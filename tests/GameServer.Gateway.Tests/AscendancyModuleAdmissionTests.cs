@@ -18,6 +18,15 @@ public sealed class AscendancyModuleAdmissionTests
         Assert.True(AscendancyPolicies.Available(admitted, normal));
         Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
 
+        // A stale ordinary area's admission cannot authorize an award to the latest durable optional selection.
+        Assert.Throws<PassiveProgressConflictException>(() => CharacterSaves.ChangeMainAscendancy("admitted", latest =>
+        {
+            AscendancyPolicies.RequireCurrentSelection(normal, latest.Selection);
+            return latest with { Awards = [.. latest.EarnedAwards, "cruel"] };
+        }));
+        Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
+        AscendancyPolicies.RequireCurrentSelection(identity with { Unknown = [] }, identity);
+
         var owner = new ModuleLifetime("PhreciaAscendancies");
         var policy = new Policy(identity);
         using var registration = AscendancyPolicies.Register(owner, policy);

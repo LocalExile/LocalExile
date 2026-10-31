@@ -883,6 +883,7 @@ static class CommandsFeature
                 using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
                 next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
                 {
+                    AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, latest.Selection);
                     foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
                         latest = Game.AscendancyRules.Award(baseClass, latest, award);
                     return latest;
