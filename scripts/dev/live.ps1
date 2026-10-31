@@ -227,7 +227,8 @@ function Get-Python([string]$purpose) {
 # (ShellExecute) they inherit the environment (the Game_* settings) but no handles. -PassThru returns the cmd wrapper.
 function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err, [switch]$PassThru) {
     $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-    $p = Start-Process cmd.exe -ArgumentList "/c $line 1>`"$log`" 2>`"$err`"" -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+    # The outer quotes: cmd /c strips the first and the last quote of a line that starts with one (a quoted executable).
+    $p = Start-Process cmd.exe -ArgumentList "/c `"$line 1>`"$log`" 2>`"$err`"`"" -WorkingDirectory $repo -WindowStyle Hidden -PassThru
     if ($PassThru) { $p }
 }
 
