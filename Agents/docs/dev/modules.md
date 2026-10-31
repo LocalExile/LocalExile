@@ -80,6 +80,9 @@ One copy of a module runs for every league listing it, since one connection is i
 
 ## What a module sees
 
+`IModuleContext` includes a host-issued `Lifetime` for each load. Stopping cancels its token and releases
+resources registered through `Own`; it does not drain arbitrary tasks already running.
+The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this ownership for admission and reload.
 `IModuleContext` is what a mod has, and `ProvideLeagueRules`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcOption`.
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).

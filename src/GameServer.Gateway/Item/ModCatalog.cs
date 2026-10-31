@@ -48,7 +48,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
 
         /// <summary>The list a mod goes into when nothing else says so: prefixes and suffixes are explicit,
         /// enchantments enchants, everything else (base implicits, corruptions …) implicit.</summary>
-        public ModSection DefaultSection => GenerationType switch { 1 or 2 => ModSection.Explicit, 10 => ModSection.Enchant, _ => ModSection.Implicit };
+        public ModSection DefaultSection => GenerationType switch { 1 or 2 => ModSection.Explicit, 10 or 21 or 22 => ModSection.Enchant, _ => ModSection.Implicit };
 
         /// <summary>The effective range of one stat: the database override when present, else the base Mods.dat range.</summary>
         public (int Min, int Max) RangeAt(int index) =>
@@ -56,19 +56,23 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
                 ? Ranges?.Range(Id, index, Stats[index].Min, Stats[index].Max) ?? Normalise(Stats[index])
                 : (0, 0);
 
+        /// <summary>An admin's range (/game_data mod) applies to this stat.</summary>
+        public bool RangeOverridden(int index) => Ranges?.All.ContainsKey((Id, index)) == true;
+
         /// <summary>The effective maxima, in stat order (max-roll dev items and unique definitions use these).</summary>
         public IReadOnlyList<int> MaxValues() => [.. Stats.Select((_, i) => RangeAt(i).Max)];
 
         static (int Min, int Max) Normalise(ModStat stat) => (Math.Min(stat.Min, stat.Max), Math.Max(stat.Min, stat.Max));
 
-        /// <summary>The mod with a value per stat rolled in its effective range.</summary>
-        public ItemMod Roll(ModSection section, Random random)
+        /// <summary>The mod with a value per stat rolled in its effective range, or in <paramref name="range"/> for a
+        /// stat that gives one (a unique's own roll).</summary>
+        public ItemMod Roll(ModSection section, Random random, Func<int, (int Min, int Max)?>? range = null)
         {
             var values = new int[Stats.Count];
             for (int i = 0; i < values.Length; i++)
             {
-                var (min, max) = RangeAt(i);
-                values[i] = random.Next(min, max + 1);
+                var (min, max) = range?.Invoke(i) ?? RangeAt(i);
+                values[i] = random.Next(Math.Min(min, max), Math.Max(min, max) + 1);
             }
             return new(section, Hash, values);
         }
@@ -117,7 +121,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         var rows = new List<Mod>();
         if (!File.Exists(path) || !File.Exists(statsPath)) return (rows, [], []);
         List<(string Id, bool Local)> stats;
-        using (var s = JsonDocument.Parse(File.ReadAllBytes(statsPath)))
+        using (var s = GameTables.Open(statsPath))
             stats = [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("Id").GetString() ?? "", r.GetProperty("IsLocal").GetBoolean()))];
         List<string> modTypes = [];
         if (File.Exists(modTypePath))
@@ -130,7 +134,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         List<(string, int)> Weights(JsonElement r, string keys, string values) =>
             [.. r.GetProperty(keys).EnumerateArray().Zip(r.GetProperty(values).EnumerateArray(),
                 (k, v) => (k.GetInt32() < tags.Count ? tags[k.GetInt32()] : $"#{k.GetInt32()}", v.GetInt32()))];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = GameTables.Open(path);
         foreach (var r in d.RootElement.EnumerateArray())
         {
             bool alternate = hardMode && r.TryGetProperty("HasHardmodeStatValues", out var hardmode) && hardmode.GetBoolean();

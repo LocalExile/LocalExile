@@ -74,7 +74,7 @@ static partial class Game
                     : own.GetValueOrDefault(key) + value;
             }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
-        foreach (string stat in new[] { "mana_cost", "base_mana_cost" })
+        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "base_rage_cost", "total_base_rage_cost" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
         // Global added damage on support gems applies to this skill, not to the character or other link groups.
         foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })
@@ -114,12 +114,18 @@ static partial class Game
 
     internal static double SupportedAttackSeconds(ClientState conn, ushort skillId) => SupportedAttackSecondsFor(conn, skillId, null);
 
+    // Channelling repeats are not limited by the one-new-action-per-frame cap (Action speed, PoE Wiki): they use the
+    // speed-only interval so a very fast channel can hit more than 30 times a second.
+    static double SupportedChannelSeconds(ClientState conn, ushort skillId) =>
+        SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false);
+
     // The supported attack's swing time with the off-hand weapon of a dual-wielded pair: its own duration at the
     // off-hand increased speed (the main weapon's local speed taken back out), with the same supports.
     internal static double SupportedOffHandAttackSeconds(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand) =>
         SupportedAttackSecondsFor(conn, skillId, offHand);
 
-    internal static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand)
+    internal static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
+        bool clampToTick = true)
     {
         var stats = SupportedStats(conn, skillId);
         int Get(string stat) => Stats.Key(stat) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -135,7 +141,8 @@ static partial class Game
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats)
             : DualWieldPanel.OffHandSeconds(offHand, SkillCatalog.Unarmed.OffHandAttackSpeedPct(
                 stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct));
-        return Math.Max(TickSeconds, seconds / more / PlayerActionFactor(conn));
+        double paced = seconds / more / PlayerActionFactor(conn);
+        return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
     }
 
     internal static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)

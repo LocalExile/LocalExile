@@ -124,7 +124,7 @@ sealed partial class VendorRecipes
             var current = jewel.Item.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => _catalog.Mods.ByHash(m.Hash))
                 .FirstOrDefault(m => m?.Id.StartsWith("ChaosResist") == true && m.Stats.Count == 1);
             if (current is null) continue;
-            var tiers = _rolls.Pool(jewel.Type, 100).Select(p => p.Mod).Where(m => m.Stats.Count == 1 && m.Stats[0].Id == current.Stats[0].Id)
+            var tiers = _rolls.Pool(jewel.Type, 100, jewel.Item.Influences).Select(p => p.Mod).Where(m => m.Stats.Count == 1 && m.Stats[0].Id == current.Stats[0].Id)
                 .OrderBy(m => m.Level).ToList();
             var next = tiers.SkipWhile(m => m.Hash != current.Hash).Skip(1).FirstOrDefault();
             if (next is null) continue;

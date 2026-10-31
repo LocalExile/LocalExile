@@ -17,10 +17,11 @@ using GameServer.Data.Ggpk;
 // `--patching-server 127.0.0.1:12995` and it is told its local data is current, so it
 // skips patching and goes straight to the login screen. The welcome's web roots are always
 // this server (default http://127.0.0.1:8080/, Game_PATCH_WEB_ROOT to override), never the CDN.
-// Env: Game_PATCH_TCP_PORT (default 12995), Game_GGPK (default Client/Content.ggpk).
+// The hash comes from data/client-constants.json: the server never opens the client's files.
+// Env: Game_PATCH_TCP_PORT (default 12995).
 //
-// Tools (run while the client is closed):
-//   root-hash [ggpk]                      print the GGPK root hash
+// Tools (run while the client is closed; these do open the GGPK):
+//   root-hash [ggpk] [--save]             print the GGPK root hash; --save also writes it to data/client-constants.json
 //   gateway [ggpk]                        print the gateway list the client will use
 //   gateway [ggpk] --login <host:port>    point every gateway at <host:port>; the original
 //                                         is saved once to data/gateway_list.original.txt
@@ -60,10 +61,9 @@ if (useTls)
 
 var app = builder.Build();
 
-string ggpkPath = Environment.GetEnvironmentVariable("Game_GGPK") ?? Find("Client/Content.ggpk") ?? "Client/Content.ggpk";
 int patchTcpPort = int.TryParse(Environment.GetEnvironmentVariable("Game_PATCH_TCP_PORT"), out var ptp) ? ptp : 12995;
 var config = PatchServerConfig.From(Environment.GetEnvironmentVariable, listenUrl, passthroughFlag);
-_ = Task.Run(() => ServePatchProtocol(patchTcpPort, ggpkPath, config.WebRoot, config.BackupWebRoot));
+_ = Task.Run(() => ServePatchProtocol(patchTcpPort, config.WebRoot, config.BackupWebRoot));
 
 string cdnBase = config.CdnBase;
 string gatewayList = LoadGatewayList();
@@ -137,14 +137,11 @@ app.Run();
 return 0;
 
 // Answers with the GGPK's root hash, so the client's local data always looks current.
-static async Task ServePatchProtocol(int port, string ggpkPath, string webRoot, string backupWebRoot)
+static async Task ServePatchProtocol(int port, string webRoot, string backupWebRoot)
 {
-    // The running client locks Content.ggpk, so read the hash now (start this server before the client) and only
-    // refresh it per connection when the file can be opened.
-    byte[] cached = GgpkMaintenance.RootHash(ggpkPath);
     var listener = new TcpListener(IPAddress.Loopback, port);
     listener.Start();
-    Console.WriteLine($"[patch] patching protocol on tcp/{port}, ggpk={ggpkPath}, web root={webRoot}, backup={backupWebRoot}");
+    Console.WriteLine($"[patch] patching protocol on tcp/{port}, web root={webRoot}, backup={backupWebRoot}");
     while (true)
     {
         using var tcp = await listener.AcceptTcpClientAsync();
@@ -161,9 +158,9 @@ static async Task ServePatchProtocol(int port, string ggpkPath, string webRoot, 
                 if (n == 0) throw new IOException("closed before hello");
                 have += n;
             }
-            byte[] hash = cached;
-            try { hash = cached = GgpkMaintenance.RootHash(ggpkPath); }
-            catch (IOException) { Console.WriteLine($"[patch] {peer} GGPK is in use; sending the root hash read earlier"); }
+            // Read per connection: live.ps1 refreshes it before each client start. Without it the connection closes: a
+            // wrong hash would make the client start patching.
+            byte[] hash = ClientConstants.Load().GgpkRootHashBytes;
             Console.WriteLine($"[patch] {peer} hello v{version}{(version == PatchProtocol.ExpectedVersion ? "" : " (unexpected)")}; root hash {Convert.ToHexString(hash).ToLowerInvariant()}");
             await stream.WriteAsync(PatchProtocol.EncodeWelcome(hash, webRoot, backupWebRoot));
             // A client that still wants to patch sends more requests; log them (not implemented).
@@ -174,7 +171,7 @@ static async Task ServePatchProtocol(int port, string ggpkPath, string webRoot, 
                 Console.WriteLine($"[patch] {peer} sent {n} more bytes (unhandled): {Convert.ToHexString(buf, 0, Math.Min(n, 64))}");
             }
         }
-        catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException)
+        catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException or System.Text.Json.JsonException or FormatException)
         {
             Console.WriteLine($"[patch] {peer} error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
         }
@@ -189,6 +186,7 @@ static int GgpkTool(string[] args)
     if (args[0] == "root-hash")
     {
         Console.WriteLine(Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)).ToLowerInvariant());
+        if (rest.Contains("--save")) SaveRootHash(ggpk);
         return 0;
     }
     // The client reads gateway_list.txt, then Bundles2/gateway_list.txt if that exists (0x140cfc2d0); the last one wins.
@@ -209,6 +207,7 @@ static int GgpkTool(string[] args)
             return string.Join(';', f);
         }));
         GgpkMaintenance.ReplaceFile(ggpk, file, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(patched)]);
+        SaveRootHash(ggpk);
         Console.WriteLine($"[patch] {file} now points at {rest[at + 1]} (original saved to {backup})");
         current = GgpkMaintenance.TryReadFile(ggpk, file)!;
     }
@@ -217,12 +216,21 @@ static int GgpkTool(string[] args)
         string backup = Path.Combine("data", "gateway_list.original.txt");
         if (!File.Exists(backup)) { Console.Error.WriteLine($"[patch] no {backup}"); return 1; }
         GgpkMaintenance.ReplaceFile(ggpk, file, File.ReadAllBytes(backup));
+        SaveRootHash(ggpk);
         Console.WriteLine($"[patch] {file} restored from {backup}");
         current = GgpkMaintenance.TryReadFile(ggpk, file)!;
     }
     Console.WriteLine($"[patch] {file}:");
     Console.WriteLine(DecodeList(current).TrimEnd());
     return 0;
+}
+
+// A changed GGPK has a new root hash, which the Patch server answers with. Before the first extraction there is no file
+// to update (the extraction reads the hash itself).
+static void SaveRootHash(string ggpk)
+{
+    if (!File.Exists(ClientConstants.DefaultFile)) return;
+    (ClientConstants.Load() with { GgpkRootHash = Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)) }).Save();
 }
 
 static string DecodeList(byte[] b) =>

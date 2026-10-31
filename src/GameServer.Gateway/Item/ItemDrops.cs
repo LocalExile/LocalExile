@@ -242,7 +242,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
             _uniques = index = new(all, byBase);
         }
         if (!index.ByBase.TryGetValue(type.Id, out var candidates) || PickUnique(candidates, rng) is not { } chosen) return null;
-        return uniques.Create(chosen.Name, rng) is { } created ? created with { ItemLevel = (byte)Math.Clamp(level, 1, 100) } : null;
+        return uniques.Create(chosen, rng) is { } created ? created with { ItemLevel = (byte)Math.Clamp(level, 1, 100) } : null;
     }
 
     /// <summary>One of a base's uniques by weight, or null. The weights are absolute: while a base's add up to less than 1
@@ -267,7 +267,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     internal double UniqueWeight(string name) =>
         _uniqueWeightProvider.HasTable
             ? _uniqueWeightProvider.Weight(name, hardMode)
-            : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(name) : 1;
+            : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(UniqueCatalog.NameKey(name)) : 1;
 
     private readonly Lazy<Dictionary<string, double>> _uniqueWeightsFile = new(() => LoadUniqueWeights(folder, hardMode));
 
@@ -282,7 +282,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         {
             double value = row.GetProperty(hardMode ? "RuthlessValue" : "Value").GetDouble();
             if (value > 0 && wordsDoc.RootElement[row.GetProperty("UniqueName").GetInt32()].GetProperty("Text").GetString() is { Length: > 0 } text)
-                weights[text] = Math.Min(1, 1 / value);
+                weights[UniqueCatalog.NameKey(text)] = Math.Min(1, 1 / value);
         }
         return weights;
     }

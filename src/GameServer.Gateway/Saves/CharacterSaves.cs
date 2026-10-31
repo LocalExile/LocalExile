@@ -22,14 +22,18 @@ static class CharacterSaves
     public sealed record SavedMod(string Id, ModSection Section, List<int> Values);
 
     /// <summary>Mods: null in saves from before mods (the item gets its type's implicits again), else every mod.
-    /// A missing defence roll keeps the old minimum (zero); raw 32 preserves the native special state.</summary>
+    /// A missing defence roll keeps the old minimum (zero); raw 32 preserves the native special state. Saves from before
+    /// influences, split and synthesised read as none of them.</summary>
     public sealed record SavedItem(uint Type, byte ItemLevel = 1, byte Quality = 0, int Charges = 0, ushort StackSize = 1,
         List<SavedSocket>? Sockets = null, List<byte>? Links = null, int GemExperience = 0,
         ItemRarity Rarity = ItemRarity.Normal, bool Identified = true, List<SavedMod>? Mods = null, List<uint>? Name = null,
         int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null,
-        byte DefenceBaseRoll = 0);
+        byte DefenceBaseRoll = 0, ItemInfluence Influences = ItemInfluence.None, bool Split = false, bool Synthesised = false);
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
+
+    /// <summary>A Monster Statue decoration: the MonsterVarieties HASH16 and the actor variation (5 the stone pose).</summary>
+    public sealed record SavedMonsterStatue(int X, int Y, float Rotation, ushort MonsterHash16, ushort Scale = 100, byte Variation = 5);
 
     /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1) and the 0x1f9 option byte it was picked with.</summary>
     public sealed record SavedCosmetic(uint Record, byte Option = 0);
@@ -55,6 +59,7 @@ static class CharacterSaves
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, string? SelectedHideout = null,
         OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
+        Dictionary<string, List<SavedMonsterStatue>>? MonsterStatues = null,
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
@@ -96,6 +101,21 @@ static class CharacterSaves
             positions[key] = placement;
             areas[area] = positions;
             return save with { HideoutPlacements = areas };
+        });
+
+    /// <summary>The Monster Statue decorations saved for one hideout area.</summary>
+    public static IReadOnlyList<SavedMonsterStatue> MonsterStatues(string character, string area) =>
+        Load(character)?.MonsterStatues?.GetValueOrDefault(area) ?? [];
+
+    public static void AddMonsterStatue(string character, string area, SavedMonsterStatue statue) =>
+        Update(character, save =>
+        {
+            var areas = save.MonsterStatues is null
+                ? new Dictionary<string, List<SavedMonsterStatue>>() : new(save.MonsterStatues);
+            var list = areas.TryGetValue(area, out var prior) ? new List<SavedMonsterStatue>(prior) : [];
+            list.Add(statue);
+            areas[area] = list;
+            return save with { MonsterStatues = areas };
         });
 
     public static void SetSelectedHideout(string character, string area) => Update(character, s => s with { SelectedHideout = area });
@@ -440,7 +460,7 @@ static class CharacterSaves
         i.Links is null ? null : [.. i.Links], i.GemExperience, i.Rarity, i.Identified,
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
-        i.DefenceBaseRoll);
+        i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised);
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -458,6 +478,7 @@ static class CharacterSaves
             Sockets = emptyResonator ? ItemCatalog.ResonatorSocketList(t)
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
+            Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);

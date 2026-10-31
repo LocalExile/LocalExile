@@ -8,7 +8,7 @@ static partial class Game
 {
     // Called before inventory loading or any save normalization on a real connection.
     internal static void CheckAscendancyClientCompatibility(ClientState conn) =>
-        AscendancyClientCompatibility.RequirePlayable(CharacterSaves.Load(CharacterName(conn))?.MainAscendancy?.Selection);
+        AscendancyClientCompatibility.RequirePlayable(conn, CharacterSaves.Load(CharacterName(conn))?.MainAscendancy?.Selection);
 
     // Read-only admission checks, shared with LoadProgress: no inventory normalization or gold migration. A saved
     // Intuitive Leap/Thread of Hope needs the saved items to prove its bypass nodes, so PlayerInventories.For may load
@@ -20,6 +20,7 @@ static partial class Game
             throw new UnknownSavedItemException("allocated passives, but the passive tree (data/tables/PassiveSkills.json) is not loaded");
         var ordinary = save?.Passives ?? [];
         var ascendancy = save?.MainAscendancy ?? new();
+        AscendancyPolicies.RequireAvailable(conn, ascendancy.Selection);
         if (ordinary.Any(n => PassivesFor(conn).Find(n) is not { IsAscendancy: false }))
             throw new UnknownSavedItemException("unknown or ascendancy nodes in the ordinary passive allocation; the save was retained");
         Game.AscendancyRules.Validate((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, ascendancy);
@@ -51,6 +52,7 @@ static partial class Game
         lock (conn.Monsters)
         {
             conn.MainAscendancy = ascendancy;
+            AscendancyPolicies.SelectionChanged(conn);
             conn.Passives = [.. ordinary];
             var atlasPresets = save?.AtlasPassivePresets ?? [];
             for (int i = 0; i < conn.AtlasPassives.Length; i++)
@@ -133,14 +135,18 @@ static partial class Game
         Dictionary<ushort, string> tattoos;
         Dictionary<ushort, ushort> tattooKeystones;
         AscendancyFamily family;
+        AscendancyIdentity? selection;
         lock (conn.Monsters)
         {
             nodes = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).ToArray();
             masteries = conn.MasteryEffects;
             tattoos = new(conn.Tattoos);
             tattooKeystones = new(conn.TattooKeystones);
-            family = conn.MainAscendancy.Selection?.Family ?? AscendancyFamily.Normal;
+            selection = conn.MainAscendancy.Selection;
+            family = selection?.Family ?? AscendancyFamily.Normal;
         }
+        AscendancyPolicies.RequireAvailable(conn, selection);
+        var selectedDefinition = selection is null ? null : Ascendancies.Find(selection);
         var c = SkillsFor(conn).ClassFor(conn.ClassRow);
         Dictionary<uint, int> dev;
         lock (conn.Monsters) dev = new(conn.PlayerStats);
@@ -177,7 +183,9 @@ static partial class Game
             .FirstOrDefault(x => x.Spec is not null);
         var nodeStats = new Dictionary<ushort, IReadOnlyList<(uint Key, int Value)>>();
         foreach (ushort node in nodes)
-            if (tree.Find(node) is { } passive) nodeStats[node] = passive.Stats;
+            if (tree.Find(node) is { } passive)
+                nodeStats[node] = passive.IsAscendancy && selectedDefinition is not null
+                    ? AscendancyPolicies.NodeStats(conn, selectedDefinition, node, passive.Stats) : passive.Stats;
         // An applied tattoo replaces the allocated passive's stats. A timeless jewel that replaces the node still
         // wins (the tattoo is disabled); an augmenting timeless jewel adds its stats to the tattoo stats.
         // Makanga/Honoured Makanga tattoos are conditional on the number of allocated direct neighbours: when the
@@ -1101,8 +1109,8 @@ static partial class Game
     }
 
     // The native family selector is a world stat, independently of the character's stored league.
-    internal static IReadOnlyDictionary<uint, int>? LeagueStatsFor(AscendancyProgress progress) =>
-        progress.Selection?.Family == AscendancyFamily.Phrecia ? new Dictionary<uint, int> { [21146] = 1 } : null;
+    internal static IReadOnlyDictionary<uint, int>? LeagueStatsFor(ClientState conn) =>
+        AscendancyPolicies.AreaStats(conn, conn.MainAscendancy.Selection);
 
     internal static int AscendancyOrdinaryPoints(ClientState conn) =>
         Game.AscendancyRules.OrdinaryPointsGranted((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, conn.MainAscendancy);
@@ -1136,6 +1144,7 @@ static partial class Game
         // All network sends remain outside it (connection lock -> database, never connection lock -> cipher gate).
         lock (conn.Monsters)
         {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             var next = new List<ushort>(conn.Passives);
             var effects = new Dictionary<ushort, ushort>(conn.MasteryEffects);
             byte baseClass = (byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId;
@@ -1223,6 +1232,7 @@ static partial class Game
             {
                 conn.Passives = now;
                 conn.MainAscendancy = ascendancyNow;
+                AscendancyPolicies.SelectionChanged(conn);
                 conn.MasteryEffects = effectsNow;
                 conn.RefundPoints = refundsNow;
                 conn.SavedPassiveProgress = new(conn.MainAscendancy, now, effectsNow, refundsNow);

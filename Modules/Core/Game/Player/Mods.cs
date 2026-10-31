@@ -13,7 +13,7 @@ static partial class Game
     internal static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
     {
         if (UniquesFor(conn).Find(query) is { } unique
-            && UniquesFor(conn).Create(unique.Name, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
+            && UniquesFor(conn).Create(unique, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
             return new(created, uniqueType);
         if (ItemsFor(conn).Find(query) is not { Supported: true } type) return null;
         if (type.Stackable) return new(ItemCatalog.Create(type), type);

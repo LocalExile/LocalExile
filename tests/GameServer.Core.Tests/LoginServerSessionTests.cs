@@ -147,10 +147,10 @@ public class LoginServerSessionTests
         accounts.Register("dave", "pw1234");
         var session = new LoginServerSession(accounts);
         var leagues = Assert.IsType<LeagueList>(session.Handle(Request("dave", "pw1234"))[1]).Leagues;
-        Assert.Equal(16, leagues.Count);
+        Assert.Equal(17, leagues.Count);
         Assert.All(leagues, l => Assert.NotEmpty(l.Description)); // an empty one crashes the client's league card
         var main = leagues.Where(l => (l.Flags0 & LeagueEntry.Main) != 0).Select(l => l.Name);
-        Assert.Equal(["Allflame", "Hardcore Allflame", "Standard"], main.Order());
+        Assert.Equal(["Allflame", "Hardcore Allflame", "Phrecia", "Standard"], main.Order());
         var hc = Assert.Single(leagues, l => l.Name == "Hardcore");
         Assert.Equal(("Standard", LeagueEntry.Hardcore, LeagueEntry.Variant), (hc.HardcoreParent, hc.Flags0, hc.Flags1));
         Assert.Equal("Hardcore", Assert.Single(leagues, l => l.Name == "SSF Hardcore").SsfParent);

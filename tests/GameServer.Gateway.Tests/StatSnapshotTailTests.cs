@@ -14,6 +14,7 @@ public class StatSnapshotTailTests
     [Fact]
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
+        using var setup = new SnapshotSetup();
         Assert.True((bool)Rules.GetField("VerifyStatSnapshotTail", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!);
         string character = "StatTail" + Guid.NewGuid().ToString("N");
         var conn = Connection(character);
@@ -163,7 +164,74 @@ public class StatSnapshotTailTests
         Assert.Equal(0, Counter("StatSnapshotTailMismatches"));
     }
 
-    static Type Rules => TestEnvironment.GameRules.GetType("Game", throwOnError: true)!;
+    [Fact]
+    public void Warm_stages_still_observe_rampage_and_reconcile_ailments_with_current_action_speed()
+    {
+        using var setup = new SnapshotSetup();
+        var conn = Connection("StatEffects" + Guid.NewGuid().ToString("N"));
+        uint Key(string name) => Program.Stats.Key(name)!.Value;
+        conn.PlayerStats[Key(RampageSession.Source)] = 1;
+        Snapshot(conn);
+        conn.Rampage.Restore(new(40, 5), conn.Clock.Elapsed.TotalSeconds);
+        var rampaging = Snapshot(conn);
+        Assert.Equal(40, rampaging[Key("current_rampage_stacks")]);
+        Snapshot(conn); // All three pure stages are warm.
+        // An area's frozen transfer time can move independently of every cached input.
+        conn.LeavingArea = true;
+        conn.RampageTransferAt = conn.Clock.Elapsed.TotalSeconds + 6;
+        var expired = Snapshot(conn);
+        Assert.Equal(0, conn.Rampage.Current.Stacks);
+        Assert.Equal(0, expired[Key("current_rampage_stacks")]);
+        conn.LeavingArea = false;
+        conn.RampageTransferAt = null;
+
+        void Chill() => conn.ElementalAilments.Apply(DamagePacket.Of(DamageType.Cold, 400, 400),
+            DamagePacket.Of(DamageType.Cold, 400, 400), false, conn.PlayerMaxLife,
+            conn.Clock.Elapsed.TotalSeconds, _ => 0, new Random(1));
+        conn.PlayerStats[Key("action_speed_-%")] = -20;
+        Chill();
+        var chilled = Snapshot(conn);
+        Assert.Equal(-20, chilled[Key("action_speed_-%")]); // Explicit overrides still replace the final row.
+        Assert.Equal(-10, chilled[Key("intermediary_combined_action_speed_+%")]); // 30% chill + 20% faster.
+        conn.PlayerStats[Key("action_speed_cannot_be_reduced_below_base")] = 1;
+        var floored = Snapshot(conn);
+        Assert.Equal(0, floored[Key("intermediary_combined_action_speed_+%")]);
+        conn.PlayerStats[Key("cannot_be_chilled")] = 1;
+        Snapshot(conn); // Reconcile removes chill and warms all stages.
+        Chill(); // Add an effect after the warm snapshot without changing any stat input.
+        Snapshot(conn);
+        Assert.Equal(0, conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds).Chill);
+        Assert.Equal(0, Counter("StatSnapshotTailMismatches"));
+    }
+
+    // Keep the snapshot test's rules, saves and lifetime scoped. Starting the whole module host would register the
+    // optional Phrecia provider for unrelated admission tests and retain a database those tests can close.
+    sealed class SnapshotSetup : IDisposable
+    {
+        readonly string path = Path.Combine(Path.GetTempPath(), $"localexile-snapshot-{Guid.NewGuid():N}.db");
+        readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
+        readonly GameServer.Modding.IModuleLifetime? previousLifetime = global::Game.CombatLifetime;
+        readonly bool previousVerify = global::Game.VerifyStatSnapshotTail;
+        readonly ModuleLifetime lifetime = new("Game");
+        public SnapshotSetup()
+        {
+            Saves.Open(path);
+            global::Game.VerifyStatSnapshotTail = true;
+            global::Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        }
+        public void Dispose()
+        {
+            lifetime.Stop(ex => throw ex);
+            global::Game.CombatLifetime = previousLifetime;
+            global::Game.VerifyStatSnapshotTail = previousVerify;
+            Program.SetGameLogic(previousLogic!);
+            Saves.Db.Dispose();
+            foreach (string suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
+        }
+    }
+
+    static Type Rules => typeof(global::Game);
 
     // A rule of the Game module, by name and argument count.
     static object? Game(string method, params object?[] args) =>

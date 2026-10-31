@@ -9,12 +9,15 @@ using GameServer.Storage;
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
 //   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
+//   accounts                               print how many accounts there are
+//   register <account>                     create an account; its password is the first line of standard input
 //   [serve] [keys.json]                    accept logins: 0x0002 key exchange, then answer account login 0x03 with 0x04
 //                                          and log every decoded message (Agents/docs/re/009)
 // Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: the save database
 // (Game_SAVES_DB, default data/saves.db, shared with GameServer.Host and the Gateway; register through the Host), with an
 // older data/accounts.json (Game_DEV_DB) imported once. Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET),
-// shared with GameServer.Gateway. Instance control for the Gateway: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495).
+// shared with GameServer.Gateway. Instance control for the Gateway: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495). Play sends
+// the client to the Gateway at Game_GATEWAY_HOST:Game_GATEWAY_PORT (127.0.0.1:6112, GatewayEndpoint).
 
 const string DefaultKeys = "data/login-keys.json";
 string cmd = args.Length > 0 ? args[0] : "serve";
@@ -29,6 +32,15 @@ switch (cmd)
         var r = service.SetPassword(args[1], args[2]);
         Console.WriteLine(r.Ok ? $"[auth] password of {args[1]} changed; restart Auth (live.ps1 -Only Auth) to use it"
             : $"[auth] {args[1]}: {r.Error}");
+        return r.Ok ? 0 : 1;
+    }
+    case "accounts":
+        Console.WriteLine(SqliteAccountStore.Open().Accounts().Count);
+        return 0;
+    case "register" when args.Length >= 2:
+    {
+        var r = new AccountService(SqliteAccountStore.Open()).Register(args[1], Console.ReadLine() ?? "");
+        Console.WriteLine(r.Ok ? $"[auth] account {args[1]} created" : $"[auth] {args[1]}: {r.Error}");
         return r.Ok ? 0 : 1;
     }
     case "keygen" when args.Length >= 2:
@@ -157,7 +169,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
+            var session = new LoginServerSession(accounts) { InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
             byte[] rest = buf[used..have];
             try

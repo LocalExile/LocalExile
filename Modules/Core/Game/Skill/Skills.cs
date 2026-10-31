@@ -45,7 +45,7 @@ static partial class Game
         StatsScope.Value is { } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
 
     // The player's stats as the server sets them: what /set_stat set, then the attack's final values computed from them
-    // (the client derives nothing itself: 11-skills.md §4).
+    // (the client derives nothing itself: 11-skills.md Â§4).
     // FinalPlayerStats as a full 0x1b3, which only sets the stats it lists: every stat sent before that is gone now (a
     // stat only an unequipped item or a refunded passive gave) goes with 0, so the client does not keep its old value.
     internal static List<(uint, int)> PlayerStatsWithCleared(ClientState conn)
@@ -89,14 +89,14 @@ static partial class Game
         if (Stats.Key("main_hand_weapon_type") is uint weaponTypeKey && WeaponTypeStats.BowType(mainHand?.Type?.Class) is int bowType)
             stats.TryAdd(weaponTypeKey, bowType);
         // Both hands' weapon stats. A dual-wielded attack swings the off hand as well, and the client sets that strike's
-        // weapon up from the off hand's own final stats (it derives nothing itself, 11-skills.md §4).
+        // weapon up from the off hand's own final stats (it derives nothing itself, 11-skills.md Â§4).
         foreach (var (k, v) in WeaponStats(conn, WeaponOf(conn, mainHand), stats)) stats[k] = v;
         foreach (var (k, v) in CosmeticStats(conn).Where(s => !ActorScale.IsInput(s.Stat))) stats.TryAdd(k, v);
         return stats.Select(kv => (kv.Key, kv.Value));
     }
 
-    // The main hand's final weapon stats and, when the off hand holds a weapon, the off hand's too (off_hand_… instead of
-    // main_hand_…). Until issue #167 the Gateway sent no off-hand stat at all, so the second weapon of a dual-wielded attack
+    // The main hand's final weapon stats and, when the off hand holds a weapon, the off hand's too (off_hand_â€¦ instead of
+    // main_hand_â€¦). Until issue #167 the Gateway sent no off-hand stat at all, so the second weapon of a dual-wielded attack
     // had no attack time, damage or reach on the client; the off-hand animation of a Holy Strike on the ground then ran
     // with a null animation set and the next action crashed (0x141c988c1, AnimationController+0x180 = 0). Frida 2026-10-25:
     // while it creates the attack action the client reads off_hand_minimum/maximum_attack_distance.
@@ -209,6 +209,7 @@ static partial class Game
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet).Concat(conn.FlaskGrounds.PlayerStats()), Stats);
+        WithVaalPrevention(conn, stats);
         WithRage(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));
@@ -241,7 +242,21 @@ static partial class Game
                 mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary()) : null;
         // The tail reuses its last result while its inputs are the same (StatSnapshotCache.cs); the head above ran as always.
         var tailInputs = ReadStatSnapshotTailInputs(conn, stats, rawOverrides, devSet, mainLocal, offLocal, lifeRegenerationToEnergyShield);
-        stats = StatSnapshotTailFor(conn, tailInputs);
+        stats = StatSnapshotTailFor(conn, tailInputs, StatSnapshotStage.Panels);
+        WithRampage(conn, stats);
+        stats = StatSnapshotTailFor(conn, tailInputs with { Stats = stats }, StatSnapshotStage.Offence);
+        // Keep both side effects at their original positions, including on cache hits. Derived immunity and action-speed
+        // floors are resolved before reading the final stage's live inputs.
+        conn.ElementalAilments.Reconcile(Get);
+        var ailments = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+        var finalInputs = tailInputs with
+        {
+            Stats = stats,
+            Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
+            ActionFactor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, Get("action_speed_-%")),
+            SuppressionChance = Suppression(conn).Chance,
+        };
+        stats = StatSnapshotTailFor(conn, finalInputs, StatSnapshotStage.Critical);
         stats[OwnAuraRestriction.Disabled] = OwnAuraRestrictionValue(conn);
         if (Get("global_always_hit") != 0)
             foreach (string name in new[] { "main_hand_chance_to_hit_%", "off_hand_chance_to_hit_%",
@@ -448,7 +463,7 @@ static partial class Game
                     name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0));
             if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SupportedCriticalChance(conn, id);
-            // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
+            // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation â€¦) on this skill only.
             foreach (var (key, worn) in skillCosmetics)
                 if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Find(worn.Record) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                     foreach (var (k, v) in fx.Stats) stats[k] = v;
@@ -466,7 +481,7 @@ static partial class Game
                 if (Stats.Key("virtual_base_spell_cast_time_ms") is uint vk) stats[vk] = ms;
                 if (Stats.Key("hundred_times_casts_per_second") is uint hk) stats[hk] = (int)Math.Round(100_000.0 / Math.Max(1, ms));
             }
-            // A spell's tooltip DPS is its own hit (SpellDamage) × casts per second, not the default attack's values that
+            // A spell's tooltip DPS is its own hit (SpellDamage) Ã— casts per second, not the default attack's values that
             // came with the player's stats.
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
@@ -600,6 +615,8 @@ static partial class Game
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(conn, playerStats, own, stats);
             ApplyProjectilePanelStats(effect, stats);
+            if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
+                PublishVaalRageCost(conn, id, stats);
             if (SkillsFor(conn).FindByRow(id, effect, supported.Level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
                 Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
@@ -617,7 +634,7 @@ static partial class Game
     internal static string? SkillBarEntry(ClientState conn, ushort skillId) =>
         skillId == 0 ? "" : SkillEffectId(conn, skillId) ?? (SkillsFor(conn).ActionName(skillId) is { } a ? "Action/" + a : null);
 
-    // The saved skill bar as the player's current skill ids, sent with S→C 0x53. The default attack goes on slot 0 (left
+    // The saved skill bar as the player's current skill ids, sent with Sâ†’C 0x53. The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
     internal static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -731,7 +748,7 @@ static partial class Game
         return (level, str, dex, intel);
     }
 
-    // The value the client's requirement checks compare (virtual_*_for_requirements, 13-items.md §2d): what /set_stat set,
+    // The value the client's requirement checks compare (virtual_*_for_requirements, 13-items.md Â§2d): what /set_stat set,
     // else the character's attribute.
     internal static int RequirementAttribute(ClientState conn, string attribute, int value)
     {
@@ -797,7 +814,7 @@ static partial class Game
         return SkillsFor(conn).EffectId(effect) is { } effectId ? ProjectileDefinition(effectId)?.Unavailable?.Invoke(conn) : null;
     }
 
-    // ItemClasses row 36: the hand type the client gives an empty main hand (11-skills.md §10a, Unarmed 37 = row + 1).
+    // ItemClasses row 36: the hand type the client gives an empty main hand (11-skills.md Â§10a, Unarmed 37 = row + 1).
     internal const int UnarmedClassRow = 36;
 
     // A skill neither active hand can use (its ActiveSkills weapon restriction, the client's FUN_141ee8410): the client
@@ -848,7 +865,7 @@ static partial class Game
     internal static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
     // An attack gem used at the ground: a point beyond the weapon's reach is an attack-move (the client walks there);
-    // within reach it is a swing at the ground that pays the skill's mana even with nothing standing there (§5 of
+    // within reach it is a swing at the ground that pays the skill's mana even with nothing standing there (Â§5 of
     // 11-skills.md; live 2026-10-26: every empty point used to be walked, so swinging cost nothing).
     internal static bool GroundAttackWalks((int X, int Y) here, (int X, int Y) aim, double reach) => Dist(here, aim) > reach;
 
@@ -873,6 +890,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             if (HardcoreProgressBlocked(conn)) return conn.Pools.Level;
             // An allocation/refund may have committed after capture, even when this level did not need a trim.
             // Rebuild against the current runtime snapshot; keep the durable comparison for other connections.
@@ -892,10 +910,12 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             if (HardcoreProgressBlocked(conn)) return conn.Pools.Level;
             var change = Saves.Atomically(() =>
             {
                 var save = CharacterSaves.Load(CharacterName(conn)) ?? new CharacterSaves.Save([]);
+                AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, save.MainAscendancy?.Selection);
                 ValidateSavedProgress(conn, save);
                 var ascendancy = save.MainAscendancy ?? new();
                 var nodes = new List<ushort>(save.Passives ?? []);
@@ -921,6 +941,7 @@ static partial class Game
         conn.Passives = [.. change.Nodes];
         conn.MasteryEffects = new(change.Masteries);
         conn.MainAscendancy = change.Ascendancy;
+        AscendancyPolicies.SelectionChanged(conn);
         conn.ExtraPassivePoints = change.ExtraPoints;
         conn.RefundPoints = change.RefundPoints;
         conn.SavedPassiveProgress = new(change.Ascendancy, change.Nodes, change.Masteries, change.RefundPoints);
@@ -946,7 +967,7 @@ static partial class Game
     {
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {before} → {level} (life {conn.Pools.Life}, mana {conn.Pools.Mana}, {Progression.PassivePoints(level)} passive point(s))");
+        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {before} â†’ {level} (life {conn.Pools.Life}, mana {conn.Pools.Mana}, {Progression.PassivePoints(level)} passive point(s))");
         await SendCharacterStats(remote, stream, ciphers, conn, $"level {level}");
         int mana = UnreservedMana(conn);
         lock (conn.Monsters)
@@ -974,6 +995,7 @@ static partial class Game
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
     internal static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        RefreshVaalSouls(conn);
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
@@ -1014,8 +1036,8 @@ static partial class Game
         // The update can take a bound skill off the skill bar (live 2026-10-21: Haste's slot emptied when its aura went on,
         // and came back with the area change's 0x53), and a gem socketed again does not get its slot back by itself, so the
         // saved bar goes out again. Not when a skill the saved bar never had was added: the client binds a new skill to a free
-        // slot itself (C→S 0x4e), and the bar sent now would clear it there. A new gem skill gets an empty slot of the saved
-        // bar first (FillSkillBar: the right mouse button, then Q W E R T …), so it goes out with the bar.
+        // slot itself (Câ†’S 0x4e), and the bar sent now would clear it there. A new gem skill gets an empty slot of the saved
+        // bar first (FillSkillBar: the right mouse button, then Q W E R T â€¦), so it goes out with the bar.
         FillSkillBar(conn);
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
         if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))

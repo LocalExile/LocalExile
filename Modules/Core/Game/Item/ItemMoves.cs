@@ -71,7 +71,8 @@ static class ItemMoves
             if (items.RowOf(itemId) is not byte from || items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item)
             { reason = "the item is not in the inventories"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
-            if (!stash.Holds(tab, item.Item.TypeHash)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
+            tab = stash.UniqueDestination(tab, item.Item);
+            if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
             if (shape.MaxStack > 1)
             {
                 if (stash.AddStacked(tab, item.Item, shapeOf, out reason) is not { } stacked) return null;

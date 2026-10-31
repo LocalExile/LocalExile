@@ -31,6 +31,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Gem attacks still need their own accuracy rolls before these target conditions can affect them.
 - **Known:** pinned ordinary/Phrecia topology is available as
   [read-only analysis artifacts](../docs/dev/passive-graph-data.md), without installing a client graph.
+- **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/PhreciaAscendancies`.
+  Its league composition is independent of Idols; the latter has client data but no gameplay implementation.
+  Behemoth now supplies its descriptor and sources with generation-bound shared Rampage/Vaal engines.
+  **Next:** validate this modular Behemoth candidate, then adapt the remaining class PRs in actual merge order.
+  See [module scope and delivery](../docs/game/phrecia-modules.md).
 - **Known:** command selection, saved identities, separate point awards, paid refunds and ordinary/ascendancy
   graph connectivity now have automated coverage; see [scope and limitations](../docs/game/ascendancies.md).
   Ordinary command selection, refunds, relog and a Gateway restart are verified with a native Duelist/Slayer smoke.

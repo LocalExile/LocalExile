@@ -9,11 +9,11 @@ static partial class Game
     // panel's derived rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows) is a pure
     // function of StatSnapshotTailInputs: every value it reads is read once, before it, into the inputs, and the tail reads
     // nothing else of the connection. So a tail whose inputs equal the last one's has the last one's result, which a
-    // connection keeps (one entry). Idle, the energy-shield publication alone builds a snapshot on every 16 ms recovery step:
+    // connection keeps (one entry per stage). Rampage and ailment reconciliation run between the pure stages on every call. Idle, the energy-shield publication alone builds a snapshot on every 16 ms recovery step:
     // most of those reuse the tail. Agents/docs/dev/character-stat-lifecycle.md ("Snapshot cache").
 
     /// <summary>Everything the tail reads. Equal inputs (Matches) give an equal result, in the same order.</summary>
-    internal sealed class StatSnapshotTailInputs
+    internal sealed record StatSnapshotTailInputs
     {
         /// <summary>The head's stats, in their order (a dictionary's order is what the packets built from it list).</summary>
         public required Dictionary<uint, int> Stats;
@@ -34,8 +34,9 @@ static partial class Game
         public required double LifeRegenerationToEnergyShield;
         public required int BloodChargesHeld;
         public required bool BloodChargesShown;
-        /// <summary>is_ignited, is_chilled, is_frozen, is_shocked, action_speed_-%, intermediary_combined_action_speed_+%.</summary>
+        /// <summary>is_ignited, is_chilled, is_frozen, is_shocked, after reconciliation.</summary>
         public required int[] Ailments;
+        public double ActionFactor;
         public required int SuppressionChance;
         public required string? AttackEffectId;
 
@@ -60,7 +61,7 @@ static partial class Game
             && LifeRegenerationToEnergyShield.Equals(o.LifeRegenerationToEnergyShield)
             && BloodChargesHeld == o.BloodChargesHeld && BloodChargesShown == o.BloodChargesShown
             && SuppressionChance == o.SuppressionChance && AttackEffectId == o.AttackEffectId
-            && Ailments.AsSpan().SequenceEqual(o.Ailments)
+            && ActionFactor.Equals(o.ActionFactor) && Ailments.AsSpan().SequenceEqual(o.Ailments)
             && Pools.Equals(o.Pools)
             && SameItems(MainRow, o.MainRow) && SameItems(OffRow, o.OffRow)
             && MainInactive.AsSpan().SequenceEqual(o.MainInactive) && OffInactive.AsSpan().SequenceEqual(o.OffInactive)
@@ -93,7 +94,12 @@ static partial class Game
     // after they are published, so any thread may read them; a caller gets a copy of the result.
     internal sealed record StatSnapshotTail(StatSnapshotTailInputs Inputs, Dictionary<uint, int> Result);
     internal sealed class StatSnapshotTailSlot { public volatile StatSnapshotTail? Last; }
-    internal static readonly ConditionalWeakTable<ClientState, StatSnapshotTailSlot> StatSnapshotTails = new();
+    internal enum StatSnapshotStage { Panels, Offence, Critical }
+    internal sealed class StatSnapshotTailSlots
+    {
+        public readonly StatSnapshotTailSlot[] Stages = [new(), new(), new()];
+    }
+    internal static readonly ConditionalWeakTable<ClientState, StatSnapshotTailSlots> StatSnapshotTails = new();
 
     /// <summary>Game_STAT_SNAPSHOT_VERIFY=1 (or a test): every reused tail is also computed again and compared, in order.</summary>
     internal static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";
@@ -108,7 +114,6 @@ static partial class Game
         var mainRow = items.Items(PlayerInventories.Weapon1);
         var offRow = items.Items(PlayerInventories.Offhand1);
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(conn);
-        var ailments = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
         return new()
         {
             Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools,
@@ -120,27 +125,21 @@ static partial class Game
             EnergyShieldRecharging = conn.EnergyShield.Recharging,
             LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
-            Ailments =
-            [
-                ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0,
-                (int)Math.Round(100 * (1 - conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds))),
-                (int)Math.Round(-100 * (1 - conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds))),
-            ],
-            SuppressionChance = Suppression(conn).Chance,
+            Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(conn, SkillCatalog.FirstSkillId),
         };
     }
 
     // The tail on stats (the head's, changed in place): the last result when the inputs are the same, else computed.
-    internal static Dictionary<uint, int> StatSnapshotTailFor(ClientState conn, StatSnapshotTailInputs inputs)
+    internal static Dictionary<uint, int> StatSnapshotTailFor(ClientState conn, StatSnapshotTailInputs inputs, StatSnapshotStage stage)
     {
-        var slot = StatSnapshotTails.GetValue(conn, _ => new());
+        var slot = StatSnapshotTails.GetValue(conn, _ => new()).Stages[(int)stage];
         if (slot.Last is { } last && last.Inputs.Matches(inputs))
         {
             Interlocked.Increment(ref StatSnapshotTailHits);
             if (VerifyStatSnapshotTail)
             {
-                var fresh = ComputeStatSnapshotTail(inputs);
+                var fresh = ComputeStatSnapshotTail(inputs, stage);
                 if (!SameInOrder(fresh, last.Result))
                 {
                     Interlocked.Increment(ref StatSnapshotTailMismatches);
@@ -157,7 +156,7 @@ static partial class Game
         }
         Interlocked.Increment(ref StatSnapshotTailMisses);
         var key = new Dictionary<uint, int>(inputs.Stats);
-        var result = ComputeStatSnapshotTail(inputs);
+        var result = ComputeStatSnapshotTail(inputs, stage);
         inputs.Stats = key;
         // A reuse returns a copy of the result, so the first use does too: both are the same fresh, compacted dictionary
         // (one order and layout, whatever the tail did to build the result).
@@ -166,7 +165,7 @@ static partial class Game
     }
 
     // The tail: reads only inputs (and the game data). Changes inputs.Stats in place and returns it.
-    static Dictionary<uint, int> ComputeStatSnapshotTail(StatSnapshotTailInputs inputs)
+    static Dictionary<uint, int> ComputeStatSnapshotTail(StatSnapshotTailInputs inputs, StatSnapshotStage stage)
     {
         var stats = inputs.Stats;
         var rawOverrides = inputs.RawOverrides;
@@ -188,68 +187,79 @@ static partial class Game
         int AttackMultiplier(IReadOnlyDictionary<uint, int> player) =>
             AttackCriticalMultiplier(pools, Profile().Unarmed, MeleeAttack(), spell: false, player);
 
-        foreach (var (stat, value) in PanelStats.Compute(Get, n => mainLocal.GetValueOrDefault(n), n => offLocal.GetValueOrDefault(n),
-            playerLevel: pools.Level)
-            .Concat(PanelStats.FromPools(Get, pools))
-            .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
-            .Concat(PanelStats.Recovery(Get, pools.Life, pools.Mana))
-            .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield,
-                name => Stats.Key(name) is uint key && rawOverrides.TryGetValue(key, out int value) ? value : null,
-                OnLowLife(stats)))
-            .Concat(FlaskCharges.GainStats(Get))
-            .Concat(new[] { ("energy_shield_recovery_per_minute", (int)Math.Round(EnergyShield.PredictionPerMinute(pools.EnergyShield, Get, inputs.EnergyShieldRecharging) + inputs.LifeRegenerationToEnergyShield)),
-                ("total_energy_shield_recovery_per_minute_from_regeneration", (int)Math.Round(EnergyShield.RegenPerMinute(pools.EnergyShield, Get) + inputs.LifeRegenerationToEnergyShield)),
-                ("energy_shield_recharge_rate_per_minute", (int)Math.Round(EnergyShield.RechargePerMinute(pools.EnergyShield, Get))),
-                ("energy_shield_recharge_active", 0) })
-            .Concat(ChargePanelStats.Compute(Get)))
-            if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
-        // Special maxima mirror completed standard maxima, including explicit final replacements.
-        foreach (var (stat, value) in ChargePanelStats.MirroredMaximums(Get))
-            if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
-        // Reap's Blood Charges: the count held, the maximum and the rows' gate (BloodChargePanelRows).
-        foreach (var (stat, value) in BloodChargePanelRows(inputs.BloodChargesHeld, inputs.BloodChargesShown, Get))
-            if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
-        // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
-        // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
-        if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
-            && Stats.Key("attack_damage_+%") is uint attackDamage)
-            stats[attackDamage] = ArmourAttackDamage.Total(Get("attack_damage_+%"),
-                Get("physical_damage_reduction_rating"), Get(ArmourAttackDamage.Per450Armour),
-                Get("evasion_rating"), Get(ArmourAttackDamage.Per450Evasion));
-        // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
-        // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
-        if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))
-            stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
-                Get("strength"), Get(SkillDurationModifiers.PerTenStrength));
-        // Dreadful Attitude: increased damage per complete 5 of the lowest final attribute, from this snapshot only.
-        if (Get(LowestAttributeDamage) is int perFive and not 0 && Stats.Key("damage_+%") is uint damageKey && !devSet.Contains(damageKey))
-            stats[damageKey] = (int)Math.Clamp(Get("damage_+%") + (long)perFive
-                * (Math.Min(Get("strength"), Math.Min(Get("dexterity"), Get("intelligence"))) / 5), int.MinValue, int.MaxValue);
-        // Aristocrat: "cannot be X if A is higher than B" becomes the plain cannot_be_X while it holds (strictly higher),
-        // which the Defence tab shows and the ailment consumer reads.
-        foreach (var (conditional, plain, higher, lower) in AttributeAilmentConditions)
-            if (Get(conditional) != 0 && Get(higher) > Get(lower) && Stats.Key(plain) is uint plainKey && !devSet.Contains(plainKey))
-                stats[plainKey] = 1;
-        // The Offence tab's per-hand damage rows (issue #75): the hit the default attack actually swings with, so the panel
-        // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
-        // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
-        if (Stats.Key("skill_uses_main_hand") is uint usesMainHand && !devSet.Contains(usesMainHand)) stats[usesMainHand] = 1;
-        var attackConversion = DamageStats.Conversion(stats, Stats, attack: true);
-        var attack = AttackHitConverted(WeaponFor(), stats, MeleeAttack(), attackConversion);
-        foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
-            if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
-        // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
-        // conversion as its hit; an off hand that is not swung keeps no stale rows.
-        var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack(), Projectile: !MeleeAttack());
-        var ailmentRows = AilmentPanelStats.Compute(ailmentContext, SupportedAttackDamage.Raw(WeaponFor(), Get), attackConversion, Get);
-        if (OffhandWeaponFor() is { } offWeapon)
-            ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
-                SupportedAttackDamage.Raw(offWeapon, Get), attackConversion, Get));
-        foreach (var (stat, value) in ailmentRows)
-            if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
-        foreach (var (name, value) in new[] { "is_ignited", "is_chilled", "is_frozen", "is_shocked", "action_speed_-%",
-            "intermediary_combined_action_speed_+%" }.Zip(inputs.Ailments))
+        if (stage == StatSnapshotStage.Panels)
+        {
+            foreach (var (stat, value) in PanelStats.Compute(Get, n => mainLocal.GetValueOrDefault(n), n => offLocal.GetValueOrDefault(n),
+                playerLevel: pools.Level)
+                .Concat(PanelStats.FromPools(Get, pools))
+                .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
+                .Concat(PanelStats.Recovery(Get, pools.Life, pools.Mana))
+                .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield,
+                    name => Stats.Key(name) is uint key && rawOverrides.TryGetValue(key, out int value) ? value : null,
+                    OnLowLife(stats)))
+                .Concat(FlaskCharges.GainStats(Get))
+                .Concat(new[] { ("energy_shield_recovery_per_minute", (int)Math.Round(EnergyShield.PredictionPerMinute(pools.EnergyShield, Get, inputs.EnergyShieldRecharging) + inputs.LifeRegenerationToEnergyShield)),
+                    ("total_energy_shield_recovery_per_minute_from_regeneration", (int)Math.Round(EnergyShield.RegenPerMinute(pools.EnergyShield, Get) + inputs.LifeRegenerationToEnergyShield)),
+                    ("energy_shield_recharge_rate_per_minute", (int)Math.Round(EnergyShield.RechargePerMinute(pools.EnergyShield, Get))),
+                    ("energy_shield_recharge_active", 0) })
+                .Concat(ChargePanelStats.Compute(Get)))
+                if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+            // Special maxima mirror completed standard maxima, including explicit final replacements.
+            foreach (var (stat, value) in ChargePanelStats.MirroredMaximums(Get))
+                if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+            // Reap's Blood Charges: the count held, the maximum and the rows' gate (BloodChargePanelRows).
+            foreach (var (stat, value) in BloodChargePanelRows(inputs.BloodChargesHeld, inputs.BloodChargesShown, Get))
+                if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+            // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
+            // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
+            if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
+                && Stats.Key("attack_damage_+%") is uint attackDamage)
+                stats[attackDamage] = ArmourAttackDamage.Total(Get("attack_damage_+%"),
+                    Get("physical_damage_reduction_rating"), Get(ArmourAttackDamage.Per450Armour),
+                    Get("evasion_rating"), Get(ArmourAttackDamage.Per450Evasion));
+            return stats;
+        }
+        if (stage == StatSnapshotStage.Offence)
+        {
+            // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
+            // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
+            if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))
+                stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
+                    Get("strength"), Get(SkillDurationModifiers.PerTenStrength));
+            // Dreadful Attitude: increased damage per complete 5 of the lowest final attribute, from this snapshot only.
+            if (Get(LowestAttributeDamage) is int perFive and not 0 && Stats.Key("damage_+%") is uint damageKey && !devSet.Contains(damageKey))
+                stats[damageKey] = (int)Math.Clamp(Get("damage_+%") + (long)perFive
+                    * (Math.Min(Get("strength"), Math.Min(Get("dexterity"), Get("intelligence"))) / 5), int.MinValue, int.MaxValue);
+            // Aristocrat: "cannot be X if A is higher than B" becomes the plain cannot_be_X while it holds (strictly higher),
+            // which the Defence tab shows and the ailment consumer reads.
+            foreach (var (conditional, plain, higher, lower) in AttributeAilmentConditions)
+                if (Get(conditional) != 0 && Get(higher) > Get(lower) && Stats.Key(plain) is uint plainKey && !devSet.Contains(plainKey))
+                    stats[plainKey] = 1;
+            // The Offence tab's per-hand damage rows (issue #75): the hit the default attack actually swings with, so the panel
+            // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
+            // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
+            if (Stats.Key("skill_uses_main_hand") is uint usesMainHand && !devSet.Contains(usesMainHand)) stats[usesMainHand] = 1;
+            var attackConversion = DamageStats.Conversion(stats, Stats, attack: true);
+            var attack = AttackHitConverted(WeaponFor(), stats, MeleeAttack(), attackConversion);
+            foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
+                if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+            // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
+            // conversion as its hit; an off hand that is not swung keeps no stale rows.
+            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack(), Projectile: !MeleeAttack());
+            var ailmentRows = AilmentPanelStats.Compute(ailmentContext, SupportedAttackDamage.Raw(WeaponFor(), Get), attackConversion, Get);
+            if (OffhandWeaponFor() is { } offWeapon)
+                ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
+                    SupportedAttackDamage.Raw(offWeapon, Get), attackConversion, Get));
+            foreach (var (stat, value) in ailmentRows)
+                if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+            return stats;
+        }
+        foreach (var (name, value) in new[] { "is_ignited", "is_chilled", "is_frozen", "is_shocked" }.Zip(inputs.Ailments))
             if (Stats.Key(name) is uint key && value != 0) stats[key] = stats.GetValueOrDefault(key) + value;
+        if (Stats.Key("action_speed_-%") is uint actionSpeedKey && !devSet.Contains(actionSpeedKey))
+            stats[actionSpeedKey] = (int)Math.Round(100 * (1 - inputs.ActionFactor));
+        if (Stats.Key("intermediary_combined_action_speed_+%") is uint actionCombinedKey && !devSet.Contains(actionCombinedKey))
+            stats[actionCombinedKey] = (int)Math.Round(100 * (inputs.ActionFactor - 1));
         // The conditions as they are now; the player tick sends the chance again when they change.
         foreach (uint key in SuppressionChanceKeys) stats[key] = inputs.SuppressionChance;
         if (Stats.Key("main_hand_critical_strike_multiplier") is uint multiplier)
