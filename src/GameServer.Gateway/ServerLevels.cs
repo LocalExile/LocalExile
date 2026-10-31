@@ -35,16 +35,24 @@ static class ServerLevels
 
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
     static readonly object Gate = new();
-    static HashSet<string>? _supported;
+    static volatile HashSet<string>? _supported;
+    static readonly Lock SupportedGate = new();
     static TerrainCache? _files;
     static GameFileSystem? _fs;
-    static readonly ConcurrentDictionary<(string Area, uint Seed), Level?> Generated = new();
-    // Least recently asked for first: with random seeds every new instance is a new (area, seed), so only the last Kept
-    // stay (a level's grids are ~11 MB: 24 of them were 265 MB in the perf benchmark); an older one is generated again
-    // when asked for (0.2 s median, 0.6 s at most there; Agents/docs/dev/performance.md). Its own lock, so a level in
-    // use is not held up by another's generation.
-    static readonly LinkedList<(string Area, uint Seed)> Order = new();
-    static readonly Lock OrderGate = new();
+    // The levels kept for the next entry, with when each was last asked for (a timestamp written without a lock: the
+    // projectile and height lookups ask on every step). With random seeds every new instance is a new (area, seed), so
+    // only the Kept most recently used stay (a level's grids are ~11 MB: 24 of them were 265 MB in the perf benchmark);
+    // an older one is generated again when asked for (0.2 s median, 0.6 s at most there; performance.md). A failed
+    // generation (null) is kept too, so it is not retried, and goes first.
+    sealed class KeptLevel(Level? level)
+    {
+        public readonly Level? Level = level;
+        public long UsedAt = Stopwatch.GetTimestamp();
+    }
+    static readonly ConcurrentDictionary<(string Area, uint Seed), KeptLevel> Generated = new();
+    // Every level still in use: a connection's AreaLayout holds its level (AreaLayout.Level), so a level stays
+    // available, and is never generated again, while anybody plays it, however many others are generated meanwhile.
+    static readonly ConcurrentDictionary<(string Area, uint Seed), WeakReference<Level>> Live = new();
     const int Kept = 8;
     // Why the last generations that failed did (the exception in full), for the capture tour's records.
     static readonly ConcurrentDictionary<(string Area, uint Seed), string> Errors = new();
@@ -56,11 +64,14 @@ static class ServerLevels
     public static bool IsSupported(string areaId)
     {
         if (!Enabled) return false;
-        lock (Gate) return (_supported ??= LoadSupported(BaselineFile)).Contains(areaId);
+        var supported = _supported;
+        if (supported is null)
+            lock (SupportedGate) supported = _supported ??= LoadSupported(BaselineFile);
+        return supported.Contains(areaId);
     }
 
     /// <summary>Drops the supported list, so the next check reads <see cref="BaselineFile"/> again (tests).</summary>
-    internal static void Reload() { lock (Gate) _supported = null; }
+    internal static void Reload() { lock (SupportedGate) _supported = null; }
 
     /// <summary>The supported areas of a gate baseline (<see cref="GameServer.Core.World.ServerLevelAreas.Load"/>).</summary>
     internal static HashSet<string> LoadSupported(string file) =>
@@ -68,39 +79,46 @@ static class ServerLevels
 
     /// <summary>The generated layout of (area, seed), or null when the area is not supported or generation failed
     /// (the Gateway then falls back to the capture). Generated once per (area, seed) and kept while among the
-    /// <see cref="Kept"/> most recently asked for.</summary>
+    /// <see cref="Kept"/> most recently asked for, or while a layout in use holds it. Lock-free unless it generates.</summary>
     public static Level? For(string areaId, uint seed)
     {
         if (!IsSupported(areaId)) return null;
-        if (Generated.TryGetValue((areaId, seed), out var known)) { Touch((areaId, seed)); return known; }
+        if (Known((areaId, seed), out var known)) return known;
         lock (Gate)
         {
-            if (Generated.TryGetValue((areaId, seed), out known)) { Touch((areaId, seed)); return known; }
-            var level = Generated[(areaId, seed)] = Generate(areaId, seed);
-            lock (OrderGate)
-            {
-                Order.AddLast((areaId, seed));
-                while (Order.Count > Kept)
-                {
-                    var old = Order.First!.Value;
-                    Order.RemoveFirst();
-                    Generated.TryRemove(old, out _);
-                    Errors.TryRemove(old, out _);
-                }
-            }
+            if (Known((areaId, seed), out known)) return known;
+            var level = Generate(areaId, seed);
+            Generated[(areaId, seed)] = new(level);
+            if (level is not null) Live[(areaId, seed)] = new(level);
+            Trim();
             return level;
         }
     }
 
-    // A level asked for again becomes the most recently used.
-    static void Touch((string Area, uint Seed) key)
+    static bool Known((string Area, uint Seed) key, out Level? level)
     {
-        lock (OrderGate)
-            if (Order.Find(key) is { } node && node != Order.Last)
-            {
-                Order.Remove(node);
-                Order.AddLast(node);
-            }
+        if (Generated.TryGetValue(key, out var kept))
+        {
+            kept.UsedAt = Stopwatch.GetTimestamp();
+            level = kept.Level;
+            return true;
+        }
+        level = Live.TryGetValue(key, out var weak) && weak.TryGetTarget(out var live) ? live : null;
+        return level is not null;
+    }
+
+    // Under Gate: the kept levels beyond Kept go, failed generations first, then the least recently used; a level in use
+    // stays reachable through Live. Live forgets the levels nobody holds any more.
+    static void Trim()
+    {
+        while (Generated.Count > Kept)
+        {
+            var oldest = Generated.OrderBy(e => e.Value.Level is null ? 0 : 1).ThenBy(e => e.Value.UsedAt).First().Key;
+            Generated.TryRemove(oldest, out _);
+            Errors.TryRemove(oldest, out _);
+        }
+        foreach (var (key, weak) in Live)
+            if (!weak.TryGetTarget(out _)) Live.TryRemove(key, out _);
     }
 
     /// <summary>The seed an instance of a supported area is played at: its own, unless the port cannot generate it (a

@@ -195,6 +195,7 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             areas = [.. areas, .. ServerLevels.LoadSupported(ServerLevels.BaselineFile).Except(areas).Order(StringComparer.Ordinal)
                 .Where(a => AreaTransitionCatalog.HashOf(a) is not null).Take(more)];
         bool first = true;
+        AreaLayout? held = null;   // as a connection holds its layout while the others are generated
         foreach (string id in areas)
         {
             if (AreaTransitionCatalog.HashOf(id) is not ushort hash || !ServerLevels.IsSupported(id)) continue;
@@ -212,6 +213,7 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             var clock = Stopwatch.StartNew();
             var layout = AreaLayouts.For(hash, seed);
             double layoutMs = clock.Elapsed.TotalMilliseconds;
+            held ??= layout;
             Record("area", $"{id} layout{(first ? " (first: opens the game files)" : "")} ms", layoutMs, "ms");
             Record("area", $"{id} layout allocated MB", (Allocated() - before) / 1048576.0, "MB");
             Record("area", $"{id} layout retained MB", (GC.GetTotalMemory(forceFullCollection: true) - live) / 1048576.0, "MB");
@@ -239,11 +241,25 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             if (fs.GetType().GetField("_bundleReads", BindingFlags.NonPublic | BindingFlags.Instance) is { } reads)
                 Record("area", "game files bundle reads", (long)reads.GetValue(fs)!, "");
         }
+        // The first layout's level, held all along: still there, not generated again (1 = the same level).
+        if (held?.Level is { } level)
+        {
+            var timer = Stopwatch.StartNew();
+            bool same = ReferenceEquals(ServerLevels.For(held.Id, 1000u), level);
+            Record("area", "held level kept", same ? 1 : 0, "");
+            Record("area", "held level lookup ms", timer.Elapsed.TotalMilliseconds, "ms");
+            // What a projectile step's grid and height lookups pay per call (ProjectileGrid, TerrainHeights).
+            const int Calls = 1_000_000;
+            timer.Restart();
+            for (int i = 0; i < Calls; i++) ProjectileGrid.Blocks(held.Id, 1000u, i & 0xff, 100);
+            Record("area", "ProjectileGrid.Blocks ns per call (generated level)", timer.Elapsed.TotalMilliseconds * 1e6 / Calls, "ns");
+        }
         // The generated levels ServerLevels keeps for the next entry (their grids; the doodad lists are small beside them).
         if (typeof(ServerLevels).GetField("Generated", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null)
             is System.Collections.IDictionary kept)
         {
-            long bytes = kept.Values.OfType<ServerLevels.Level>().Sum(l => (long)l.Walk.Length + l.Heights.Length * 2L + l.Projectile.Length);
+            long bytes = kept.Values.Cast<object>().Select(v => v.GetType().GetField("Level")?.GetValue(v)).OfType<ServerLevels.Level>()
+                .Sum(l => (long)l.Walk.Length + l.Heights.Length * 2L + l.Projectile.Length);
             Record("area", "kept levels", kept.Count, "");
             Record("area", "kept levels' grids MB", bytes / 1048576.0, "MB");
         }

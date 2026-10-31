@@ -18,6 +18,10 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
     /// (<see cref="ServerLevels"/>); null for a capture.</summary>
     public short[]? CellHeights { get; init; }
 
+    /// <summary>The level the Gateway generated this layout from (<see cref="ServerLevels"/>); holding it keeps it
+    /// available to the projectile and height lookups for as long as a connection plays the layout.</summary>
+    public ServerLevels.Level? Level { get; init; }
+
     /// <summary>Whether the Gateway generated this layout from the seed (<see cref="ServerLevels"/>).</summary>
     public bool ServerGenerated => CellHeights is not null;
 
@@ -117,7 +121,7 @@ static class AreaLayouts
     {
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
-            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height) with { CellHeights = generated.Heights };
+            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height) with { CellHeights = generated.Heights, Level = generated };
         byte[]? cells = LoadCells(id, seed, out int w, out int h);
         return WithCells(hash, id, seed, cells, w, h);
     }
