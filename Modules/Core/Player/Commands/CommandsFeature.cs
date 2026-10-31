@@ -327,7 +327,7 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
-        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: slotted tabs add up to count, at most {ItemTabMax}; Gem and Unique add one of each available missing variant, e.g. /item_tab Unique 1)", async args =>
+        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: slotted tabs add up to count, at most {ItemTabMax}; Gem, Flask and Unique add one of each available missing variant, e.g. /item_tab Unique 1)", async args =>
         {
             if (args.Length < 2 || !int.TryParse(args[^1], out int requested) || requested < 1)
                 throw new ArgumentException("/item_tab <stash tab name> <count>, e.g. /item_tab Currency 1000");
@@ -346,6 +346,16 @@ static class CommandsFeature
                 await Game.RefreshUniqueCollection(remote, stream, ciphers, conn, stash, tab);
                 await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {collection.Added} unique(s) added, {collection.Present} already present, {collection.Skipped.Count} unavailable.");
                 if (collection.Skipped.Count > 0) Console.WriteLine($"[gateway] /item_tab unique unavailable: {string.Join(", ", collection.Skipped)}");
+                return;
+            }
+            if (stash.TabType(tab) == StashRules.Flask)
+            {
+                var flasks = stash.FillFlasks(tab, ItemsFor(conn), ShapeOf, out string flaskWhy);
+                if (flasks is null) { await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {flaskWhy}"); return; }
+                if (flasks.Added.Count > 0 && TabsSentOf(conn, stash).Contains(tab))
+                    await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [], flasks.Added),
+                        $"0x00bf stash tab {tab}: /item_tab {stash.NameOf(tab)}, {flasks.Added.Count} flask(s)");
+                await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\" (FlaskStash): {flasks.Added.Count} flask(s) added, {flasks.Full} already present, {flasks.Skipped} unavailable; one of each flask/tincture base and unique");
                 return;
             }
             if (stash.TabType(tab) == StashRules.Gem)

@@ -254,7 +254,15 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
     Inactive stored tinctures serialize their Tincture component as one zero byte; active tincture gameplay
     is outside this change. Current data fills 1309 cells; seven old names lack a matching layout and unique
     Heist contracts have no generator. Legacy collection entries can exceed the native league denominator.
-  - Refused: normal, premium, quad and flask tabs (no slot per type), and the remaining `NotShown` tabs.
+  - Flask tab (StashType 17, 250 × 4): `AccountStash.FillFlasks` adds one ordinary, fully charged flask or
+    inactive tincture per supported standard base, sorted by class, drop level and name, plus creatable uniques.
+    Ordinary flasks have 48 bases (life 12, mana 12, hybrid 6, utility 18); Royale duplicate bases are excluded.
+    Normal/magic items deduplicate by base hash. Uniques use base hash, Words name and visual identity,
+    so different uniques sharing a base coexist and do not suppress ordinary bases. Existing items are preserved.
+    `/item_tab <flask tab name> 1` uses free cells and sends the loaded tab an inventory change (`0xbf`).
+    Repeat/reload, tinctures, different uniques on one base and existing unique/magic coverage are tested.
+    Serialization of stored tinctures does not implement their active combat mechanics.
+  - Refused: normal, premium and quad tabs (no slot per type), and the remaining `NotShown` tabs.
   - Skipped:
     - types the server can't write;
     - a slot already holding another type;

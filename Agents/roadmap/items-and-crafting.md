@@ -32,8 +32,9 @@ features.
 - **Start:** other currency through C→S 0x71 (13 §4: Alteration, Augmentation, Regal, Alchemy,
   Chaos, Scouring can reuse `ItemRolls`); the other uniques and special mods (#60, 13 §2e: `UniqueCatalog` defines
   Mageblood; each remaining unique needs its base type, mod rows and ranges curated), unique drops/chancing, and
-  Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant,
-  Enkindling).
+  Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
+  Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
+  automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
   Transmutation's CoE comparison and admission checks are implemented; recheck Shift/stash and manual UI use natively.
   See [the evidence limits](../docs/re/transmutation-coe.md).
   Augmentation uses the same validated entry point and CoE-checked weighted pools; recheck its admission and

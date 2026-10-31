@@ -618,6 +618,23 @@ sealed partial class AccountStash
         return new([], added, present, skipped);
     }
 
+    /// <summary>One missing standard flask/tincture base and each creatable unique flask/tincture identity.</summary>
+    public SlotFill? FillFlasks(int tab, ItemCatalog catalog, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+    {
+        if (TabType(tab) != StashRules.Flask) { why = "select a Flask stash tab"; return null; }
+        static int Kind(ItemCatalog.BaseType t) => t.Class switch
+        { "LifeFlask" => 0, "ManaFlask" => 1, "HybridFlask" => 2, "UtilityFlask" => 3, "Tincture" => 4, _ => -1 };
+        var flasks = catalog.All.Where(t => t.Supported && Kind(t) >= 0 && !t.Id.EndsWith("Royale", StringComparison.Ordinal))
+            .OrderBy(Kind).ThenBy(t => t.DropLevel).ThenBy(t => t.Name, StringComparer.Ordinal).Select(t => ItemCatalog.Create(t));
+        var uniques = new UniqueCatalog(catalog);
+        var uniqueEntries = uniques.All.Where(d => catalog.Find(d.BaseTypeId) is { } t && Kind(t) >= 0)
+            .Select(d => uniques.Create(d.Name, Random.Shared)).ToArray();
+        string Key(Item i) => i.Rarity == ItemRarity.Unique
+            ? $"unique:{i.TypeHash:x8}:{i.VisualIdentity:x4}:{string.Join(",", i.NameWords)}" : $"base:{i.TypeHash:x8}";
+        var fill = FillCells(tab, flasks.Concat(uniqueEntries.OfType<Item>()).DistinctBy(Key), Key, shapeOf, out why);
+        return fill is null ? null : fill with { Skipped = fill.Skipped + uniqueEntries.Count(i => i is null) };
+    }
+
     /// <summary>The tab's StashType row, or null for no such tab.</summary>
     public byte? TabType(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Type : null; }
 

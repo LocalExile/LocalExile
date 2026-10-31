@@ -204,6 +204,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Utility-flask orbs: Enkindling and Instilling use native weighted enchant pools, replacing previous enchantments.
+  Enkindling coefficients and the active-effect charge-gain lock are wired; Instilling uses paid flask-use events.
+  Automated checks pass. Native checks confirmed both currency transactions, enchant replacement, maximum-charge
+  clamping, the active-effect charge lock and automatic use after hitting a rare monster.
+  Incoming Bleed/Poison sources remain absent, although their enchantment conditions are represented.
+  See [13-items](../docs/protocol/13-items.md), utility flask orb enchantments.
+
+
 - Sacred Orb rerolls: ordinary and Shift-repeat currency routes replace only the shared defence base roll (0..31).
   Requires Armour/Mods components and a known variable native range.
   Corrupted, mirrored and fixed-range targets are refused.

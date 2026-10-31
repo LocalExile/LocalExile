@@ -48,7 +48,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
 
         /// <summary>The list a mod goes into when nothing else says so: prefixes and suffixes are explicit,
         /// enchantments enchants, everything else (base implicits, corruptions …) implicit.</summary>
-        public ModSection DefaultSection => GenerationType switch { 1 or 2 => ModSection.Explicit, 10 => ModSection.Enchant, _ => ModSection.Implicit };
+        public ModSection DefaultSection => GenerationType switch { 1 or 2 => ModSection.Explicit, 10 or 21 or 22 => ModSection.Enchant, _ => ModSection.Implicit };
 
         /// <summary>The effective range of one stat: the database override when present, else the base Mods.dat range.</summary>
         public (int Min, int Max) RangeAt(int index) =>
