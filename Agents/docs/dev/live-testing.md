@@ -132,8 +132,9 @@ touching each other's.
   folder, `Client.txt`, settings, saved login and PID record.
 - **Walk maps** (`-Walkmaps`) only on the default ports and client session (elsewhere `live.ps1` warns and starts
   without the recorder): the recorder meets the Gateway in the shared `data\walkability\current.json`. It attaches to
-  the default client by the PID `live.ps1` records (`walkmaps.py --record data\clients\default.json`), so other
-  checkouts' clients may run.
+  the default client by the PID `live.ps1` records (`walkmaps.py --record data\clients\default.json`), and only when
+  that process's start time and launch path (this checkout's `Client\`) match the record, as the bridge checks it: a
+  stale record names no client. Other checkouts' clients may run.
 - **Only next to checkouts that have this.** A checkout whose `client_control.py`, `walkmaps.py` and `live.ps1`
   predate these sessions finds its client by process name: any other `Game.patched.exe` beside its client stops its
   bridge ("Multiple patched clients") or attaches it to the wrong client, and its `live.ps1` stops every client and every
@@ -144,9 +145,10 @@ touching each other's.
   client](headless-client.md), "The two-copies limit"). Session clients get session-local names instead
   (`Local\LocalExile-<checkout>-<session>-PoERunMutexA`/`B`), so they never take one of the two slots the user's and
   other checkouts' default clients need, and any number of them can run. The default client still needs a slot:
-  `live.ps1` refuses to start it when two other clients run, not counting this checkout's session clients (another
-  checkout's session clients cannot be told apart from here, so they count; the check errs on the safe side). Not
-  yet verified live: the renaming is tested offline.
+  `live.ps1` refuses to start it when two clients hold Global slots, and checks that before it stops or starts
+  anything (a full run would otherwise leave servers up for a client that cannot start). Session clients of any
+  checkout do not count: they are known by their launcher parent, the `--nologo` only the launcher passes, or the
+  records. Not yet verified live: the renaming is tested offline.
 - **Cheap session settings.** A session's new settings file starts from `config\nullifier_Config.ini` when the
   checkout has that preset (DirectX 11, 800x600, low textures, 10 fps, no sound), else from the default client's;
   `-SeedConfig <file>` (`Game_CLIENT_SEED_CONFIG`) starts it over from another file. Session clients run at below-normal

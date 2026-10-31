@@ -10,8 +10,9 @@ It spawns Client/Game.patched.exe suspended in that folder, puts it in a job obj
 ends however it ends, loads scripts/dev/nullifier.js (always: session-local names for the client's two-copies mutexes
 so it never takes one of the two Global\PoERunMutexA/B slots, and a window that never takes focus; with
 --renderer null: the engine's Null device; optionally a frame-sleep cap and a crash log), applies below-normal
-priority and EcoQoS through the one process handle it opened at the spawn, resumes the client, merges
-{pid, started, launcher, launcherStarted, ...} into the record (atomically), and waits until the client exits. The
+priority and EcoQoS through the one process handle it opened at the spawn, resumes the client, waits (30 s at most)
+for the agent's report that the client took its session-local mutex name (else it closes the client and fails),
+merges {pid, started, launcher, launcherStarted, ...} into the record (atomically), and waits until the client exits. The
 client is also terminated when the Frida session detaches: its hooks exist only while it does. Drive the client with
 client_control.py --session S; stop it with live.ps1 -Stop -ClientOnly -Session S (which stops this launcher, and the
 job its client). Agents/docs/dev/headless-client.md has the reverse engineering and the measurements.
@@ -93,21 +94,27 @@ class Child:
 
     def __init__(self, pid):
         self.pid = pid
-        # PROCESS_TERMINATE | SET_QUOTA | SET_INFORMATION | QUERY_INFORMATION | SYNCHRONIZE
-        self.handle = kernel.OpenProcess(0x0001 | 0x0100 | 0x0200 | 0x0400 | 0x00100000, False, pid)
-        check(self.handle, f"OpenProcess({pid})")
-        self.job = kernel.CreateJobObjectW(None, None)
-        check(self.job, "CreateJobObjectW")
-        limits = ExtendedLimits()
-        limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        check(kernel.SetInformationJobObject(self.job, 9, ctypes.byref(limits), ctypes.sizeof(limits)),
-              "SetInformationJobObject")
-        check(kernel.AssignProcessToJobObject(self.job, self.handle), "AssignProcessToJobObject")
-        # The pid cannot be reused while this handle is open, so process_info's answer is this process's.
-        info = client_control.process_info(pid)
-        if info is None or not client_control.same_path(info[0], CLIENT):
-            raise RuntimeError(f"spawned process {pid} is not {CLIENT}")
-        self.started = info[1]
+        self.handle = self.job = None
+        try:
+            # PROCESS_TERMINATE | SET_QUOTA | SET_INFORMATION | QUERY_INFORMATION | SYNCHRONIZE
+            self.handle = kernel.OpenProcess(0x0001 | 0x0100 | 0x0200 | 0x0400 | 0x00100000, False, pid)
+            check(self.handle, f"OpenProcess({pid})")
+            # The job first: from here on the client cannot outlive this launcher, whatever fails next.
+            self.job = kernel.CreateJobObjectW(None, None)
+            check(self.job, "CreateJobObjectW")
+            limits = ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            check(kernel.SetInformationJobObject(self.job, 9, ctypes.byref(limits), ctypes.sizeof(limits)),
+                  "SetInformationJobObject")
+            check(kernel.AssignProcessToJobObject(self.job, self.handle), "AssignProcessToJobObject")
+            # The pid cannot be reused while this handle is open, so process_info's answer is this process's.
+            info = client_control.process_info(pid)
+            if info is None or not client_control.same_path(info[0], CLIENT):
+                raise RuntimeError(f"spawned process {pid} is not {CLIENT}")
+            self.started = info[1]
+        except BaseException:
+            self.close()  # the suspended client goes (through the handle when there is one)
+            raise
 
     def alive(self):
         return self.handle is not None and kernel.WaitForSingleObject(self.handle, 0) == WAIT_TIMEOUT
@@ -132,7 +139,7 @@ class Child:
             psapi.EmptyWorkingSet(self.handle)
 
     def terminate(self):
-        if self.alive():
+        if self.handle is not None and kernel.WaitForSingleObject(self.handle, 0) == WAIT_TIMEOUT:
             kernel.TerminateProcess(self.handle, 1)
 
     def close(self):
@@ -162,8 +169,9 @@ def run_mutex_prefix(folder):
     return "Local\\LocalExile-" + tag + "-"
 
 
-def write_record(path, values):
-    """Merge `values` into the JSON at `path` (live.ps1's pending record keeps its other fields), atomically."""
+def write_record(path, values, attempts=40, pause=0.05):
+    """Merge `values` into the JSON at `path` (live.ps1's pending record keeps its other fields), atomically. Replacing
+    fails while a reader (live.ps1 polling it) has the file open; that is retried for up to attempts × pause seconds."""
     path = Path(path)
     record = {}
     if path.exists():
@@ -176,7 +184,15 @@ def write_record(path, values):
     handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
     with os.fdopen(handle, "w", encoding="ascii") as out:
         json.dump(record, out)
-    os.replace(temporary, path)
+    for attempt in range(attempts):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                os.unlink(temporary)
+                raise
+            time.sleep(pause)
 
 
 def agent_options(options, folder):
@@ -188,6 +204,7 @@ def agent_options(options, folder):
 
 
 def client_argv(options):
+    # --nologo also marks a launcher-started client for live.ps1 (Get-GlobalSlotHolders): no other start passes it.
     argv = [str(CLIENT), "--patching-server", f"127.0.0.1:{options.patch_port}", "--nologo"]
     return argv if options.sound else argv + ["--nosound"]
 
@@ -226,6 +243,9 @@ def parse(argv=None):
     return options
 
 
+MUTEX_CONFIRMATION_SECONDS = 30
+
+
 def main(argv=None):
     options = parse(argv)
     folder = Path(os.path.abspath(options.cwd))
@@ -241,6 +261,14 @@ def main(argv=None):
     # stdio "pipe": the client also logs to its standard output; Frida reads it (the "output" events, dropped).
     pid = device.spawn(client_argv(options), cwd=str(folder), env=env, stdio="pipe")
     child = session = None
+    renamed = threading.Event()
+
+    def on_message(message, data):
+        text = message.get("payload", {}).get("message") if message.get("type") == "send" else \
+            message.get("description", message)
+        if isinstance(text, str) and text.startswith("run mutex -> "):
+            renamed.set()
+        print(json.dumps({"nullifier": text}), flush=True)
     try:
         child = Child(pid)  # in its job before it runs a single instruction
         session = device.attach(pid)
@@ -248,12 +276,15 @@ def main(argv=None):
         script = session.create_script(f"const OPTIONS = {json.dumps(agent)};\n" + AGENT.read_text(encoding="utf-8")
                                        + "".join("\n" + p.read_text(encoding="utf-8") for p in options.probe),
                                        name="localexile-nullifier")
-        script.on("message", lambda message, data: print(json.dumps(
-            {"nullifier": message.get("payload", {}).get("message") if message.get("type") == "send"
-             else message.get("description", message)}), flush=True))
+        script.on("message", on_message)
         script.load()
         child.limit(options.priority, not options.no_eco_qos, options.affinity)
         device.resume(pid)
+        # The client takes its two-copies mutex first thing; without the agent's confirmation that it got the
+        # session-local name, it may hold (or wait for) a Global slot: it goes, and the launch fails.
+        if not renamed.wait(MUTEX_CONFIRMATION_SECONDS):
+            raise SystemExit(f"no run-mutex rename within {MUTEX_CONFIRMATION_SECONDS} s: the client is closed, not "
+                             "left holding one of the two machine-wide slots")
         own = client_control.process_info(os.getpid())
         launched = {"pid": pid, "started": child.started, "launcher": os.getpid(),
                     "launcherStarted": own[1] if own else None, "cwd": str(folder), "settings": settings,

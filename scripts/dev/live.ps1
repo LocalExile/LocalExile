@@ -141,10 +141,31 @@ function Get-OwnServers([string[]]$names) {
 }
 
 # Running clients that hold (or wait for) a machine-wide two-copies slot: all but this checkout's session clients.
-function Get-GlobalSlotHolders {
+# Running clients that hold (or wait for) a machine-wide two-copies slot. A client nullifier.py launched, from any
+# checkout, renames its mutexes and holds none: it is known by its parent (a python running nullifier.py, started before
+# it), by the --nologo only nullifier.py passes, or by this checkout's records. $exclude: PIDs not to count (this
+# checkout's clients that a full run is about to replace).
+function Get-GlobalSlotHolders([int[]]$exclude = @()) {
     $renamed = @(Get-RenamedClientIds)
-    @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq 'Game.patched.exe' -and $_.ProcessId -notin $renamed })
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $byId = @{}
+    foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
+    @($all | Where-Object {
+        if ($_.Name -ne 'Game.patched.exe' -or $_.ProcessId -in $renamed -or $_.ProcessId -in $exclude) { return $false }
+        if ("$($_.CommandLine)" -match '(^|\s)--nologo(\s|$)') { return $false }
+        $parent = $byId[[int]$_.ParentProcessId]
+        -not ($parent -and "$($parent.CommandLine)" -like '*nullifier.py*' -and $parent.CreationDate -le $_.CreationDate)
+    })
+}
+
+# The default client needs one of the two machine-wide slots. Checked before anything is stopped or started: a full
+# run would otherwise leave servers running for a client that cannot start.
+function Assert-GlobalSlot([int[]]$exclude = @()) {
+    $running = @(Get-GlobalSlotHolders $exclude)
+    if ($running.Count -ge 2) {
+        throw ("the client runs at most two copies per PC, and two run already (pids $(($running | ForEach-Object { $_.ProcessId }) -join ', ')); " +
+            'close one, or start this one as a -Session client, which needs no slot')
+    }
 }
 
 # Starts a session client through scripts/dev/nullifier.py, detached (it lives as long as its client), and waits until it
@@ -308,33 +329,35 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     }
     # The client runs at most two copies per PC: it takes one of two machine-wide mutexes (Global\PoERunMutexA, B;
     # 0x140101d85) and otherwise waits on "You may only run up to two copies of Path of Exile at a time." Session clients
-    # use session-local names instead, so only the default client needs a free slot. This checkout's session clients do
-    # not count; another checkout's do (they cannot be told apart from here): the check errs on the safe side.
-    if ($session -eq 'default') {
-        $running = @(Get-GlobalSlotHolders)
-        if ($running.Count -ge 2) {
-            throw "the client runs at most two copies per PC, and two run already (pids $(($running | ForEach-Object { $_.ProcessId }) -join ', ')); a -Session client does not need a slot"
-        }
-    }
+    # use session-local names instead, so only the default client needs a free slot: the callers check it first
+    # (Assert-GlobalSlot), before anything was stopped or started.
     # The record goes first as a pending launch (pid 0, the time before the start): until it has the PID, nobody takes
     # the new client for the default session's (Get-OwnClients, client_control.py).
     New-Item -ItemType Directory -Force $clients | Out-Null
     $record = Join-Path $clients "$session.json"
     [ordered]@{ pid = 0; started = (Get-Date).AddSeconds(-1).ToFileTimeUtc(); session = $session; folder = $folder; ports = $stack.Ports } |
         ConvertTo-Json | Set-Content $record -Encoding ascii
-    if ($session -ne 'default') {
-        Start-SessionLauncher $session $folder $record $stack $nullifier
-        return
+    # Whatever fails from here on leaves no pending record behind.
+    try {
+        if ($session -ne 'default') {
+            Start-SessionLauncher $session $folder $record $stack $nullifier
+            return
+        }
+        $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', "127.0.0.1:$($stack.Ports.patch)" -WorkingDirectory $folder -PassThru
+        $started = try { $p.StartTime.ToFileTimeUtc() } catch { $null }
+        if ($null -eq $started -or $p.HasExited) {
+            Remove-Item $record -ErrorAction SilentlyContinue
+            throw "the client exited right after starting (exit code $($p.ExitCode)); see $(Join-Path $folder 'logs\Client.txt')"
+        }
+        [ordered]@{ pid = $p.Id; started = $started; session = $session; folder = $folder; ports = $stack.Ports } |
+            ConvertTo-Json | Set-Content $record -Encoding ascii
+        Write-Output "client pid $($p.Id)"
     }
-    $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', "127.0.0.1:$($stack.Ports.patch)" -WorkingDirectory $folder -PassThru
-    $started = try { $p.StartTime.ToFileTimeUtc() } catch { $null }
-    if ($null -eq $started -or $p.HasExited) {
-        Remove-Item $record -ErrorAction SilentlyContinue
-        throw "the client exited right after starting (exit code $($p.ExitCode)); see $(Join-Path $folder 'logs\Client.txt')"
+    catch {
+        $current = try { Get-Content $record -Raw | ConvertFrom-Json } catch { $null }
+        if (-not $current -or -not $current.pid) { Remove-Item $record -ErrorAction SilentlyContinue }
+        throw
     }
-    [ordered]@{ pid = $p.Id; started = $started; session = $session; folder = $folder; ports = $stack.Ports } |
-        ConvertTo-Json | Set-Content $record -Encoding ascii
-    Write-Output "client pid $($p.Id)"
 }
 
 $stack = Get-Stack $PortBase
@@ -371,10 +394,15 @@ if ($ClientOnly) {
     foreach ($port in @($stack.Ports.patch, $stack.Ports.login, $stack.Ports.gateway)) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
+    if ($session -eq 'default') { Assert-GlobalSlot }
     if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
     Start-Client $session $stack $SeedConfig $nullifierMode
     return
 }
+
+# A default client needs a free machine-wide slot: checked before this run stops or starts anything (this checkout's own
+# clients do not count: the run replaces them).
+if (-not $NoClient -and -not $Only -and $session -eq 'default') { Assert-GlobalSlot @(Get-OwnClients | ForEach-Object { [int]$_.ProcessId }) }
 
 $python = $null
 # The recorder meets the Gateway in data\walkability\current.json, which every checkout's stack would share: it records

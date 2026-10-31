@@ -428,7 +428,9 @@ class ClientControl:
     def open(self):
         if self._find_client() is not None:
             return {"alreadyRunning": True, **self.ready()}
-        # ClientOnly never restarts services or kills a process. All launches still go through live.ps1.
+        # ClientOnly never restarts services or kills a process. All launches still go through live.ps1. Its worst case:
+        # the gateway-list read and write (a GGPK open each), the Python/Frida check and up to 60 s for a session
+        # launcher (whose own wait for the client's run-mutex rename is 30 s); 240 s leaves room for a slow disk.
         env = dict(os.environ, HTTP_PROXY="http://127.0.0.1:1", HTTPS_PROXY="http://127.0.0.1:1",
                    ALL_PROXY="http://127.0.0.1:1", NO_PROXY="localhost,127.0.0.1,::1")
         env.pop("GGG_CONFIG_FILE_NAME", None)
@@ -438,7 +440,7 @@ class ClientControl:
         with log.open("w", encoding="utf-8") as output:
             subprocess.run(["powershell.exe", "-NoProfile", "-File", str(ROOT / "scripts/dev/live.ps1"),
                             "-ClientOnly", "-Session", self.client_session], cwd=ROOT, env=env, stdout=output,
-                           stderr=subprocess.STDOUT, check=True, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW)
+                           stderr=subprocess.STDOUT, check=True, timeout=240, creationflags=subprocess.CREATE_NO_WINDOW)
         return {"alreadyRunning":False,**self.ready()}
 
     def execute(self, request):

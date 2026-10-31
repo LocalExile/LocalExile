@@ -1,7 +1,9 @@
 """Offline checks of the nullifier launcher and bench; no client is spawned or attached.
     .venv/Scripts/python.exe -m unittest discover -s scripts/dev -p test_nullifier.py
 """
+import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -44,6 +46,94 @@ class NullifierTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text()), {"pid": 7, "started": 8, "session": "s", "folder": "f",
                                                             "launcher": 9, "launcherStarted": 10})
             self.assertEqual([p.name for p in Path(folder).iterdir()], ["s.json"])
+
+    def test_record_replace_is_retried_while_a_reader_holds_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "s.json"
+            path.write_text("{}", encoding="ascii")
+            real = os.replace
+            calls = []
+
+            def flaky(source, target):
+                calls.append(source)
+                if len(calls) < 3:
+                    raise PermissionError(5, "Access is denied")
+                real(source, target)
+            with patch.object(nullifier.os, "replace", side_effect=flaky):
+                nullifier.write_record(path, {"pid": 7}, pause=0)
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(json.loads(path.read_text()), {"pid": 7})
+            with patch.object(nullifier.os, "replace", side_effect=PermissionError(5, "Access is denied")):
+                with self.assertRaises(PermissionError):
+                    nullifier.write_record(path, {"pid": 8}, attempts=3, pause=0)
+            self.assertEqual([p.name for p in Path(folder).iterdir()], ["s.json"])  # no temporary file left
+
+    def test_a_failed_child_setup_terminates_the_suspended_client(self):
+        calls = []
+        fake = type("Kernel", (), {})()
+        fake.OpenProcess = lambda *a: 1234
+        fake.CreateJobObjectW = lambda *a: 0  # fails right after the handle was opened
+        fake.WaitForSingleObject = lambda *a: nullifier.WAIT_TIMEOUT
+        fake.TerminateProcess = lambda handle, code: calls.append(("terminate", handle))
+        fake.CloseHandle = lambda handle: calls.append(("close", handle))
+        with patch.object(nullifier, "kernel", fake):
+            with self.assertRaises(OSError):
+                nullifier.Child(42)
+        self.assertEqual(calls, [("terminate", 1234), ("close", 1234)])
+
+    def launch(self, messages, alive=False):
+        """main() with Frida, the process handle and the settings check mocked; `messages` reach the agent's
+        message handler when the script loads."""
+        events = []
+
+        class Script:
+            def on(self, name, handler): self.handler = handler
+            def load(self):
+                for text in messages:
+                    self.handler({"type": "send", "payload": {"type": "log", "message": text}}, None)
+
+        class Session:
+            def on(self, *a): pass
+            def create_script(self, *a, **k): return Script()
+            def detach(self): events.append("detach")
+
+        class Device:
+            def spawn(self, argv, **k): events.append(("spawn", k["cwd"], k["stdio"])); return 4321
+            def attach(self, pid): return Session()
+            def resume(self, pid): events.append("resume")
+            def kill(self, pid): events.append("kill")
+
+        class FakeChild:
+            started = 99
+            def __init__(self, pid): self.pid = pid
+            def limit(self, *a): events.append("limit")
+            def alive(self): return alive
+            def trim(self): pass
+            def close(self): events.append("close")
+
+        with tempfile.TemporaryDirectory() as folder,                 patch.object(nullifier.frida, "get_local_device", return_value=Device()),                 patch.object(nullifier, "Child", FakeChild),                 patch.object(nullifier, "settings_name", return_value="localexile-x-s_Config.ini"),                 patch.object(nullifier, "MUTEX_CONFIRMATION_SECONDS", 0.05),                 patch.object(nullifier.client_control, "process_info", return_value=("python", 5)),                 contextlib.redirect_stdout(io.StringIO()):
+            record = Path(folder) / "s.json"
+            record.write_text(json.dumps({"pid": 0, "started": 1, "session": "s"}), encoding="ascii")
+            try:
+                nullifier.main(["--cwd", folder, "--record", str(record), "--patch-port", "1", "--login-port", "2"])
+                outcome = "ok"
+            except SystemExit as stop:
+                outcome = str(stop)
+            return outcome, events, json.loads(record.read_text())
+
+    def test_launch_waits_for_the_run_mutex_rename(self):
+        outcome, events, record = self.launch(["engine options: render=0", "run mutex -> Local\\X-PoERunMutexA"])
+        self.assertEqual(outcome, "ok")
+        self.assertEqual(events[0][2], "pipe")
+        self.assertEqual(events[1:3], ["limit", "resume"])
+        self.assertEqual((record["pid"], record["started"], record["launcherStarted"], record["session"]), (4321, 99, 5, "s"))
+        self.assertEqual(events[-2:], ["close", "detach"])
+
+    def test_launch_without_the_rename_closes_the_client_and_records_nothing(self):
+        outcome, events, record = self.launch(["engine options: render=0"], alive=True)
+        self.assertIn("no run-mutex rename", outcome)
+        self.assertIn("close", events)  # the client goes (the job and the handle)
+        self.assertEqual(record["pid"], 0)  # live.ps1 sees no client and fails the start
 
     def test_run_mutex_prefix_is_session_local_and_unique(self):
         a = nullifier.run_mutex_prefix(Path("data/clients/bot1"))
@@ -88,6 +178,27 @@ class NullifierTests(unittest.TestCase):
             agent.write_text("const OPTIONS = {};\n" + nullifier.AGENT.read_text(encoding="utf-8"), encoding="utf-8")
             result = subprocess.run(["node", "--check", str(agent)], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class WalkmapsRecordTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location(
+            "walkmaps", Path(__file__).resolve().parents[1] / "walkmaps" / "walkmaps.py")
+        self.walkmaps = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.walkmaps)
+
+    def test_only_the_recorded_live_client_is_attached_to(self):
+        client = str(nullifier.CLIENT)
+        with tempfile.TemporaryDirectory() as folder:
+            record = Path(folder) / "default.json"
+            record.write_text(json.dumps({"pid": 50, "started": 1_000_000_000}), encoding="ascii")
+            recorded = self.walkmaps.recorded_pid
+            self.assertEqual(recorded(str(record), info=lambda pid: (client, 1_000_000_000 + 5)), 50)
+            self.assertIsNone(recorded(str(record), info=lambda pid: None))  # gone
+            self.assertIsNone(recorded(str(record), info=lambda pid: (client, 9_000_000_000)))  # a reused pid
+            self.assertIsNone(recorded(str(record), info=lambda pid: ("C:/Other/Client/Game.patched.exe", 1_000_000_000)))
+            record.write_text(json.dumps({"pid": 0, "started": 1}), encoding="ascii")
+            self.assertIsNone(recorded(str(record), info=lambda pid: (client, 1)))  # a pending launch
 
 
 class BenchTests(unittest.TestCase):

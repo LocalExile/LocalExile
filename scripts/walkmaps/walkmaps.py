@@ -22,6 +22,8 @@ import sys
 import threading
 import time
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
+
 try:
     import frida
 except ImportError:
@@ -72,15 +74,25 @@ def main():
         pass
 
 
-def recorded_pid(record):
+def recorded_pid(record, info=None):
     """The client PID in a live.ps1 record (data/clients/<session>.json), or None while there is none (pid 0 while
-    live.ps1 is starting the client)."""
+    live.ps1 is starting the client) or the record is stale: the process with that PID must be the recorded one, by
+    its start time (a PID is reused once its process exits) and the path it was started by (this checkout's Client),
+    as client_control.find_client checks it."""
     try:
         with open(record, encoding="utf-8-sig") as f:
-            pid = int(json.load(f).get("pid") or 0)
-        return pid or None
+            saved = json.load(f)
+        pid, started = int(saved.get("pid") or 0), int(saved.get("started") or 0)
     except (OSError, ValueError, AttributeError, TypeError):
         return None
+    if not pid:
+        return None
+    import client_control  # scripts/dev, on sys.path (below)
+    details = (info or client_control.process_info)(pid)
+    if (details is None or abs(details[1] - started) >= 20_000_000
+            or not client_control.same_path(details[0], client_control.CLIENT)):
+        return None
+    return pid
 
 
 def attach(name, wait, record=None):

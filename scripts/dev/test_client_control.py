@@ -94,6 +94,18 @@ class ClientControlTests(unittest.TestCase):
                          {"pid": 7, "frames": 92, "seconds": 10.0, "fpsSinceLastCall": 9.2})
         control.attach.assert_called_once()
 
+    def test_open_outwaits_live_ps1s_session_start(self):
+        # live.ps1 -ClientOnly may take the gateway-list read and write, the Python check and up to 60 s for a session
+        # launcher: open() must not give up first.
+        control = ClientControl.__new__(ClientControl)
+        control.client_session = "s1"
+        control._find_client = Mock(return_value=None)
+        control.ready = Mock(return_value={"screen": "login"})
+        with tempfile.TemporaryDirectory() as folder, patch("client_control.ROOT", Path(folder)),                 patch("client_control.subprocess.run") as run:
+            control.open()
+        self.assertGreaterEqual(run.call_args.kwargs["timeout"], 180)
+        self.assertEqual(run.call_args.args[0][-3:], ["-ClientOnly", "-Session", "s1"])
+
     def test_bridge_script_allows_the_travel_message_and_counts_frames(self):
         source = Path(__file__).with_name("client-control.js").read_text(encoding="utf-8")
         self.assertIn("0x4d:9", source)

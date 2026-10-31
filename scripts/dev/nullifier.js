@@ -46,22 +46,30 @@ function whenLoaded(name, install) {
 // / "B", e.g. Local\LocalExile-pr-x-bot1-PoERunMutexA), so they never take one of the two Global slots the user's and
 // other sessions' clients need. Only these two exact names are renamed: PathOfExileSingleInstance (file-association
 // hand-off), Global\PoERunMutexCrashUpload and LMDB's Global\MDB… locks (the shared shader cache) stay as they are.
+// The client imports CreateMutexW (this check) and CreateMutexA / OpenMutexA (LMDB, 0x1411c0a40); all six name-taking
+// variants are watched, so the names are renamed whichever path asks for them. nullifier.py waits for the "run mutex
+// ->" line and fails the launch without it.
 if (OPTIONS.runMutexPrefix) {
   const renamed = {};
   for (const slot of ['A', 'B']) {
     const name = OPTIONS.runMutexPrefix + 'PoERunMutex' + slot;
     const key = 'global\\poerunmutex' + slot.toLowerCase();
-    renamed[key] = {name, wide: Memory.allocUtf16String(name)};
-    keep.push(renamed[key].wide);
+    renamed[key] = {name, wide: Memory.allocUtf16String(name), ansi: Memory.allocAnsiString(name)};
+    keep.push(renamed[key].wide, renamed[key].ansi);
   }
+  // [export, index of the name argument, wide]
+  const apis = [['CreateMutexW', 2, true], ['CreateMutexExW', 1, true], ['OpenMutexW', 2, true],
+    ['CreateMutexA', 2, false], ['CreateMutexExA', 1, false], ['OpenMutexA', 2, false]];
   whenLoaded('kernelbase.dll', kernelbase => {
-    for (const api of ['CreateMutexW', 'CreateMutexExW', 'OpenMutexW']) {
-      const nameArg = api === 'CreateMutexW' ? 2 : api === 'CreateMutexExW' ? 1 : 2;
-      Interceptor.attach(kernelbase.getExportByName(api), {onEnter(args) {
-        const p = args[nameArg];
+    for (const [api, index, wide] of apis) {
+      const target = kernelbase.findExportByName(api);
+      if (target === null) continue;
+      Interceptor.attach(target, {onEnter(args) {
+        const p = args[index];
         if (p.isNull()) return;
-        const target = renamed[(p.readUtf16String() || '').toLowerCase()];
-        if (target) { args[nameArg] = target.wide; log(`run mutex -> ${target.name}`); }
+        const name = (wide ? p.readUtf16String() : p.readAnsiString()) || '';
+        const to = renamed[name.toLowerCase()];
+        if (to) { args[index] = wide ? to.wide : to.ansi; log(`run mutex -> ${to.name}`); }
       }});
     }
   });

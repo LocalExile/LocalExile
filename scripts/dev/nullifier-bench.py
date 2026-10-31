@@ -34,7 +34,20 @@ import client_control  # noqa: E402  (same directory)
 ROOT = client_control.ROOT
 LIVE = ROOT / "scripts" / "dev" / "live.ps1"
 MEASURE = ROOT / "scripts" / "dev" / "nullifier-measure.ps1"
-USER_SETTINGS = Path(os.path.expanduser("~")) / "Documents" / "My Games" / "Path of Exile" / "poeoffline_Config.ini"
+def documents_folder():
+    """The user's Documents (FOLDERID_Documents), where it really is (it may be redirected, e.g. to OneDrive)."""
+    path = ctypes.c_wchar_p()
+    # {FDD39AD0-238F-46AF-ADB4-6C85480369C7} in GUID byte order
+    folder = (ctypes.c_byte * 16).from_buffer_copy(bytes.fromhex("d09ad3fd8f23af46adb46c85480369c7"))
+    if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(folder), 0, None, ctypes.byref(path)) != 0:
+        return Path(os.path.expanduser("~")) / "Documents"
+    try:
+        return Path(path.value)
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(path)
+
+
+USER_SETTINGS = documents_folder() / "My Games" / "Path of Exile" / "poeoffline_Config.ini"
 COAST = 0x7ad2  # WorldAreas 1_1_2 HASH16, a waypoint next to Lioneye's Watch
 
 kernel = ctypes.WinDLL("kernel32", use_last_error=True)

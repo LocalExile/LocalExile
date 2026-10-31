@@ -6,7 +6,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'live.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 foreach ($name in @('Need', 'Get-Stack', 'Get-SessionName', 'Test-Here', 'Get-OwnClients', 'Get-OwnServers', 'Select-LocalGateway',
-        'Get-OwnLaunchers', 'Get-RenamedClientIds', 'Get-GlobalSlotHolders', 'Start-SessionLauncher')) {
+        'Get-OwnLaunchers', 'Get-RenamedClientIds', 'Get-GlobalSlotHolders', 'Assert-GlobalSlot', 'Start-SessionLauncher')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $false)
@@ -92,9 +92,13 @@ try {
     $script:processes = @(Client 42 $ownExe)
     Run
     Assert ($script:events.Count -eq 0) 'existing client must return without writes or launch'
-    $script:processes = @(Client 43 'C:\Other\Client\Game.patched.exe'), (Client 44 "$repo-b\Client\Game.patched.exe")
+    $script:processes = @(Client 43 'C:\Other\Client\Game.patched.exe')
     Run
     Assert (($script:events -join ',') -eq 'gateway-read,launch:default') "another checkout's client must not block or be touched"
+    # Two other clients hold both machine-wide slots: a default client is refused before anything is written.
+    $script:processes = @(Client 43 'C:\Other\Client\Game.patched.exe'), (Client 44 "$repo-b\Client\Game.patched.exe")
+    Expect-Failure 'two run already'
+    Assert ($script:events.Count -eq 0) 'a refused default client must not touch the gateway list'
 
     # Named sessions: each is known by its record; an unrecorded client of this checkout is the default session's.
     $script:processes = @((Client 42 $ownExe), (Client 45 $ownExe ([datetime]'2026-10-30T21:05:00')))
@@ -232,11 +236,32 @@ try {
     Assert (@(Get-OwnLaunchers 's2').Count -eq 0) "another checkout's launcher is not this one's"
     Launched 's2' 81 70 ([datetime]'2026-10-31T09:00:00')
     Assert (@(Get-OwnLaunchers 's2').Count -eq 0) 'a reused launcher PID (other start time) is not the launcher'
-    # Only this checkout's session clients hold no machine-wide slot: the default client counts the others.
+    # Session clients hold no machine-wide slot, from any checkout: this checkout's by their records, another's by
+    # their launcher parent or the --nologo only nullifier.py passes. The default client counts only the others.
     Assert ((@(Get-RenamedClientIds) | Sort-Object) -join ',' -eq '80,81') 'session clients with a launcher are renamed'
     Assert ((@(Get-GlobalSlotHolders).ProcessId -join ',') -eq '82') "only clients outside this checkout's sessions hold slots"
     Remove-Item (Join-Path $clients '*.json')
-    Assert ((@(Get-GlobalSlotHolders).ProcessId | Sort-Object) -join ',' -eq '80,81,82') 'without records every client counts'
+    Assert ((@(Get-GlobalSlotHolders).ProcessId | Sort-Object) -join ',' -eq '80,81,82') 'without records or markers every client counts'
+    $otherLauncher = "`"C:\Python\python.exe`" D:\other\scripts\dev\nullifier.py --cwd D:\other\data\clients\x"
+    $script:processes = @(
+        [pscustomobject]@{ Name = 'python.exe'; ProcessId = 73; ParentProcessId = 1; CommandLine = $otherLauncher; CreationDate = $t0 }
+        [pscustomobject]@{ Name = 'python.exe'; ProcessId = 74; ParentProcessId = 1; CommandLine = $otherLauncher; CreationDate = $t0.AddMinutes(5) }
+        [pscustomobject]@{ Name = 'Game.patched.exe'; ProcessId = 83; ParentProcessId = 73; CommandLine = '"D:\other\Client\Game.patched.exe" --patching-server 127.0.0.1:21000'; CreationDate = $t0.AddSeconds(1) }
+        [pscustomobject]@{ Name = 'Game.patched.exe'; ProcessId = 84; ParentProcessId = 1; CommandLine = 'D:\other\Client\Game.patched.exe --patching-server 127.0.0.1:21000 --nologo --nosound'; CreationDate = $t0 }
+        [pscustomobject]@{ Name = 'Game.patched.exe'; ProcessId = 85; ParentProcessId = 74; CommandLine = '"D:\user\Client\Game.patched.exe" --patching-server 127.0.0.1:12995'; CreationDate = $t0.AddSeconds(2) }
+        [pscustomobject]@{ Name = 'Game.patched.exe'; ProcessId = 86; ParentProcessId = 1; CommandLine = '"D:\user\Client\Game.patched.exe" --patching-server 127.0.0.1:12995'; CreationDate = $t0 })
+    Assert ((@(Get-GlobalSlotHolders).ProcessId | Sort-Object) -join ',' -eq '85,86') "another checkout's session clients hold no slot; a reused launcher PID (a later python) does not count: $((@(Get-GlobalSlotHolders).ProcessId) -join ',')"
+    Assert ((@(Get-GlobalSlotHolders @(86)).ProcessId) -join ',' -eq '85') 'excluded clients (replaced by this run) do not count'
+    $failed = $null; try { Assert-GlobalSlot } catch { $failed = $_.Exception.Message }
+    Assert ($failed -like '*two run already (pids 85, 86)*') "two Global holders must refuse a default client: $failed"
+    Assert-GlobalSlot @(86)
+    # The checks come before anything is stopped or started: in the -ClientOnly branch before the gateway list and the
+    # launch, and for a full run at the top, before the extraction, the stops and the servers.
+    Assert ($branch.Extent.Text.IndexOf('Assert-GlobalSlot') -lt $branch.Extent.Text.IndexOf('Select-LocalGateway')) '-ClientOnly must check the slots before writing the gateway list'
+    $script = $ast.Extent.Text
+    $top = $script.IndexOf("Assert-GlobalSlot @(Get-OwnClients")
+    Assert ($top -gt 0 -and $top -lt $script.IndexOf("& (Join-Path `$PSScriptRoot 'extract-data.ps1')") -and
+        $top -lt $script.IndexOf('Stop-Processes (Get-OwnServers $servers)')) 'a full run must check the slots before stopping or starting anything'
 
     # The launch: the launcher's arguments, the wait for its record, and the cleanup when it fails.
     $script:LauncherTimeout = 2
@@ -275,6 +300,16 @@ try {
         Assert (($script:stopped -join ',') -eq '95') 'a failed launch must stop its launcher'
         Assert (-not (Test-Path $record)) 'a failed launch must remove its pending record'
     }
+    # A start that throws after the pending record was written removes it (the real Start-Client with the default
+    # client: no session folder or settings file is made).
+    $real = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Start-Client' }, $false)
+    . ([scriptblock]::Create($real.Extent.Text))
+    function Start-Process { throw 'cannot start' }
+    $message = $null
+    try { Start-Client 'default' (Get-Stack 0) '' $false | Out-Null } catch { $message = $_.Exception.Message }
+    Remove-Item function:Start-Process
+    Assert ($message -eq 'cannot start') "the start error must surface: $message"
+    Assert (-not (Test-Path (Join-Path $clients 'default.json'))) 'a failed start must remove its pending record'
     $null = Get-Stack 0
 }
 finally {
@@ -282,20 +317,16 @@ finally {
     Remove-Item $repo -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Not mocked: the real gateway-list read (GameServer.Patch gateway) on this checkout's GGPK while a client holds it, as
-# other checkouts' clients do. The list must be read; a write it might then want cannot happen while the GGPK is held.
+# Not mocked, and only on request (Game_TEST_SHARED_GGPK=1): the real gateway-list read (GameServer.Patch gateway,
+# without --login: it never writes) on this checkout's Client\Content.ggpk, which is shared with every checkout and
+# client. Select-LocalGateway is not run against it: it may write. The mocked checks above cover its logic.
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $patchDll = Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll'
 $ggpk = Join-Path $repo 'Client\Content.ggpk'
-if ((Test-Path $patchDll) -and (Test-Path $ggpk)) {
+if ($env:Game_TEST_SHARED_GGPK -eq '1' -and (Test-Path $patchDll) -and (Test-Path $ggpk)) {
     Remove-Item function:dotnet
-    $held = [IO.File]::Open($ggpk, 'Open', 'Read', 'Read')
-    try {
-        $listed = @(& dotnet $patchDll gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
-        Assert ($LASTEXITCODE -eq 0 -and $listed.Count -gt 0) "the gateway list must be readable while a client holds the GGPK (exit $LASTEXITCODE)"
-        Select-LocalGateway 20493 3>$null  # reads; never throws without -Strict
-    }
-    finally { $held.Dispose() }
+    $listed = @(& dotnet $patchDll gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
+    Assert ($LASTEXITCODE -eq 0 -and $listed.Count -gt 0) "the gateway list must be readable while clients hold the GGPK (exit $LASTEXITCODE)"
 }
-else { Write-Output 'skipped the real gateway-list read (no built GameServer.Patch or no Client\Content.ggpk)' }
-Write-Output 'live.ps1 client, port and ownership checks passed (mocked, and the real gateway-list read; no client or server started, nothing written).'
+else { Write-Output 'skipped the real gateway-list read (set Game_TEST_SHARED_GGPK=1; needs a built GameServer.Patch and Client\Content.ggpk)' }
+Write-Output 'live.ps1 client, port and ownership checks passed (mocked; no client or server started, nothing written).'

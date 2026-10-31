@@ -70,19 +70,24 @@ owns it (`WAIT_TIMEOUT`) it does the same with `Global\PoERunMutexB`, and if tha
 run up to two copies of Path of Exile at a time." (`0x140102587`), which shows as a dialog the client then waits on, so
 a third copy hangs invisibly. The handles are never stored, released or looked at again: the mutexes exist only for
 this count. A client of ours would therefore take one of the two machine-wide slots that the user's and the other
-sessions' clients need. `nullifier.js` (always, renderer or not) rewrites exactly these two names in
-`CreateMutexW`/`CreateMutexExW`/`OpenMutexW` (the client imports only `CreateMutexW`) to
+sessions' clients need. `nullifier.js` (always, renderer or not) rewrites exactly these two names in all six
+name-taking variants, `CreateMutexW`/`CreateMutexExW`/`OpenMutexW` and their ANSI forms (the client imports
+`CreateMutexW` for this check, and `CreateMutexA`/`OpenMutexA` in LMDB's code, `0x1411c0a40`), to
 `Local\LocalExile-<checkout>-<folder>-PoERunMutexA`/`B`: a session-local name per client folder, so session clients
 never take a Global slot and never block each other across folders (two clients in the same folder still share a
-pair). The hook is installed while the client is still suspended, before its first instruction. Nothing else uses
-those names. What the count does not guard, and what stays shared between all copies whatever their number:
+pair). The hooks are installed while the client is still suspended, before its first instruction, and each rename is
+reported; the launcher waits up to 30 s for that report after resuming the client, and without it closes the client
+and fails the launch, so a silent hook failure cannot leave a client holding a Global slot. Nothing else uses those
+names. What the count does not guard, and what stays shared between all copies whatever their number:
 `PathOfExileSingleInstance` (a session mutex for handing a `.build`/`.filter` file to a running client's window,
 `0x140100780`), `Global\PoERunMutexCrashUpload` (crash-report upload), and LMDB's own `Global\MDB…` locks around the
 shared shader and pipeline caches in `%LOCALAPPDATA%\Path of Exile` (multi-process safe by design, up to 126 readers);
 these names are left alone. The startup "Wiping cache …tmp" of that folder runs in every copy, independent of the
 mutexes. Settings, saved login and `Client.txt` are per folder; `Content.ggpk` is opened read-only and shared.
-`live.ps1` checks the slots only for the default client (two running clients that are not this checkout's session
-clients: it refuses). The renaming is checked offline (`scripts/dev/test-nullifier-mutex.cjs`, Frida's API stubbed);
+`live.ps1` checks the slots only for the default client, before it stops or starts anything: it refuses when two
+clients hold Global slots. A client a launcher started, from any checkout, holds none, and is known by its parent (a
+python running `nullifier.py`, started before it), by `--nologo` on its command line (only the launcher passes it),
+or by this checkout's records. The renaming is checked offline (`scripts/dev/test-nullifier-mutex.cjs`, Frida's API stubbed);
 it has not run against the real client yet (§5).
 
 A plain `client_control.py` from a checkout without sessions (`main` before the multi-instance work) finds its client
