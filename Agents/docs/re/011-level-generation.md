@@ -1406,9 +1406,27 @@ is left out of the gate's transitions check. `AreaLayouts`, `AreaTransitionCatal
 
 The supported areas come from the committed gate baseline. An area counts when its `capture` entry matches in tile
 hash, both grids, every port draw, the doodads, the cell heights and the transitions; a check without a capture does
-not count against it. Every logged load of the area must match too. The game files are opened on the first
-generation (Node runs the Oodle decoder). The result is kept per (area, seed), and `Game_SERVER_LEVELS=0` turns it
-off.
+not count against it. Every logged load of the area must match too.
+An area whose seed 1 the client cannot generate either has no seed-1 capture (§8 "Client failures").
+A tile hash fixes the tiles, their heights and their transitions, but not the walk and projectile grids, which the
+doodad stage stamps (§6c), so such an area needs a full trace at another seed.
+It counts when its `failure <area> 1` entry matches (the port fails where the client does) and a `load <area> <seed>`
+entry (the gate's check of a traced load of an area with no seed-1 trace) passes every check a seed-1 capture does.
+Any entry of the area that does not match (a load, a logged load, a failure the port does not reproduce) leaves it out.
+A seed the client built stands in for seed 1 (`ServerLevelAreas.SeedsInPlaceOfOne`): the lowest seed of its passing
+`load` entries, else of its logged loads the port matches by tile hash.
+Auth gives it to new instances where it would give seed 1 (`AreaSeeds`), and `ServerLevels.PlayableSeed` sends it in
+0x1d for seed 1 from any other path (or the first replacement of it the port generates).
+Evidence: a capture tour (`live.ps1 -Walkmaps`, `/tour`) of each such area at its lowest logged seed, then the gate on
+those areas (`gate.ps1 --only … -Save`).
+Every trace matches the client in tile hash, every draw up to the port's stop after the doodad stage, both grids cell
+for cell, every doodad, the cell heights and the transitions (where the recorder captured any): The Crossroads of acts 2
+and 7, Act 6's Twilight Strand and Southern Forest, The Karui Fortress, Descent13, Mastermind's Lair, the Abyss and
+Breach boss arenas and the Atlas maps whose seed 1 the client fails.
+The Estate Crossing Labyrinth sections keep their stand-in seed but are not generated: the tour cannot reach them
+(`AreaTransitionCatalog` does not know the Labyrinth areas).
+The game files are opened on the first generation (Node runs the Oodle decoder).
+The result is kept per (area, seed), and `Game_SERVER_LEVELS=0` turns it off.
 
 On entering any other area, the player is told "This map is generated on client-side and is not supported yet by
 the Server." (not during a capture tour). The room points (monster packs) still come from the doodad capture
@@ -1483,6 +1501,8 @@ the target open, so the recorder's write of the fourth object threw and left the
   also prints the work queue: seed-1 traces grouped by the client's caller at the first difference, every wrong
   logged load the same way (the biggest causes by loads held back), and stops grouped by reason. `-Save` makes the run the baseline (commit it with
   the change); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  An area with no seed-1 trace (the client fails seed 1) has each traced load at another seed checked as fully as a
+  seed-1 capture, as `load <area> <seed>` (§7: what makes such an area supported).
 - **Check:** `lg.ps1 hash <trace.gen.json>…` recomputes the tile hash from a
   traced grid. `… generate <area> <seed> [trace.gen.json]` runs the port and, with a trace, compares draw by draw
   (kind, argument, result; the first difference names the client's caller; the object scripts' LCG draws,
