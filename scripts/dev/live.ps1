@@ -36,6 +36,10 @@
 #   -Nullifier  (also Game_CLIENT_NULLIFIER=1) the -Session client without a GPU: the engine's Null renderer and a
 #               trimmed working set (about 1.9 GB commit, no GPU memory, ~15 % of a core). Without it the session's
 #               settings decide the renderer (the preset: DirectX 11).
+#   -Agent      one agent's whole setup in one command: this checkout's servers and one -Nullifier client of session
+#               'agent' (or -Session). The port base is -PortBase, else Game_PORT_BASE, else the one data\stack.json
+#               recorded, else the first block of 100 from 21000 to 29900 whose five ports nothing listens on and no
+#               sibling checkout's data\stack.json names; it is recorded in data\stack.json like -PortBase.
 #   -SeedConfig F  (also Game_CLIENT_SEED_CONFIG) start the -Session client's settings file over from F (without [LOGIN]).
 #   -Stop       stop this checkout's clients (and their launchers), walk-map recorder and servers, then exit; with -Only
 #               only those servers, with -NoClient everything but the clients, with -ClientOnly only the -Session client.
@@ -43,7 +47,7 @@
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -384,6 +388,24 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     }
 }
 
+# -Agent: a free port block when none is given or recorded (Get-Stack then records it).
+function Find-FreePortBase {
+    $claimed = @(Get-ChildItem (Split-Path $repo) -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $file = Join-Path $_.FullName 'data\stack.json'
+        if ($_.FullName -ne $repo -and (Test-Path $file)) { try { [int](Get-Content $file -Raw | ConvertFrom-Json).portBase } catch { } } })
+    $listening = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.LocalPort })
+    for ($base = 21000; $base -le 29900; $base += 100) {
+        if (@($claimed | Where-Object { [math]::Abs($_ - $base) -lt 5 }).Count) { continue }
+        if (-not @($base..($base + 4) | Where-Object { $_ -in $listening }).Count) { return $base }
+    }
+    throw 'no free port block between 21000 and 29900: give -PortBase'
+}
+if ($Agent) {
+    if (-not $Session) { $Session = 'agent' }
+    $Nullifier = [switch]$true
+    $recorded = if (Test-Path (Join-Path $repo 'data\stack.json')) { [int](Get-Content (Join-Path $repo 'data\stack.json') -Raw | ConvertFrom-Json).portBase } else { 0 }
+    if ($PortBase -lt 0 -and "$env:Game_PORT_BASE" -eq '' -and -not $recorded -and -not $Stop) { $PortBase = Find-FreePortBase }
+}
 $stack = Get-Stack $PortBase
 $session = Get-SessionName $Session
 $nullifierMode = $Nullifier -or "$env:Game_CLIENT_NULLIFIER" -in '1', 'true'

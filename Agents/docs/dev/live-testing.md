@@ -73,6 +73,12 @@ touching each other's.
 .\scripts\dev\live.ps1 -Stop                                # this checkout's servers and clients, nothing else
 ```
 
+One agent per checkout in one command: `.\scripts\dev\live.ps1 -Agent` starts this checkout's servers and one
+`-Nullifier` session client named `agent` (another with `-Session`); drive it with `-Session agent`. Its port base is
+`-PortBase`, else `Game_PORT_BASE`, else the one `data\stack.json` recorded, else the first block of 100 from 21000 to
+29900 whose five ports nothing listens on and that no sibling checkout's `data\stack.json` names; that base is then
+recorded like `-PortBase`. `-Agent -Stop` stops them again.
+
 - **Ports.** `-PortBase N` (or `Game_PORT_BASE`) puts the stack on N (Patch), N+1 (Patch web), N+2 (Auth login), N+3
   (Auth control) and N+4 (Gateway). `live.ps1` remembers the base in `data\stack.json`, so later runs, `-ClientOnly` and
   the bridge in the same checkout use it without being told again; `-PortBase 0` goes back to the default ports
