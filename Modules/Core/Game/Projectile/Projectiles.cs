@@ -223,6 +223,37 @@ static partial class Game
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
+            if (shot.RampageEpoch is long ownedEpoch)
+            {
+                if (!RampageEffectCurrent(Conn, ownedEpoch) || !target.Hostile || target.OwnerId is not null)
+                    return ProjectileHitResult.Miss;
+                if (!shot.Spell && !RampageAttackHits(target, shot.Accuracy, contact.At / (double)ProjectileRuntime.QuantaPerSecond, random))
+                    return ProjectileHitResult.Miss;
+                if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
+                var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
+                bool crit = random.Next(10000) < shot.CriticalChance;
+                var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
+                if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
+                var ownedHit = ApplyMonsterHitLocked(Conn, target, ownedDamage, rampageSource: true);
+                if (ownedHit is null) return ProjectileHitResult.Miss;
+                if (ownedHit.Value.StageStarts) CommitProjectileBossStage(this, contact.Target.Id, target, contact.At);
+                var stun = RampageStatusLocked(Conn, contact.Target.Id, target, shot.RampageSkill,
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+                Packet(() => RampageEffectCurrent(Conn, ownedEpoch)
+                        ? InstanceProtocol.LifeUpdate(contact.Target.Id, ownedHit.Value.Life) : null,
+                    $"Rampage projectile hit 0x{contact.Target.Id:x} for {ownedDamage}");
+                if (ownedHit.Value.Life == 0)
+                {
+                    CommitProjectileKill(this, contact.Target.Id, target, contact.At,
+                        contact.Projectile.RewardRandomSource, playerKill: false);
+                    if (shot.RampageSkill?.Get("explode_on_kill_%_fire_damage_to_deal") is int pct and > 0)
+                        Enqueue(() => RampageKillExplosion(remote, stream, ciphers, Conn, ownedEpoch,
+                            contact.Target.Id, target, pct));
+                }
+                else if (stun is not null)
+                    Enqueue(() => SendRampageStun(remote, stream, ciphers, Conn, stun));
+                return ProjectileHitResult.Hit;
+            }
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
             int hitChance = 100;
             if (!shot.Spell)
@@ -239,7 +270,8 @@ static partial class Game
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack,
                 CharacterPlayerStats(Conn)).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(CharacterPlayerStats(Conn));
-            var rolled = GameEvents.WithOutgoingDamage(Conn, CharacterPlayerStats(Conn), target, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random));
+            var player = CharacterPlayerStats(Conn);
+            var rolled = GameEvents.WithOutgoingDamage(Conn, player, target, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random));
             int chance = contact.Projectile.Form > 0 ? shot.SecondFormCriticalChance ?? shot.CriticalChance : shot.CriticalChance;
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll)
@@ -251,7 +283,7 @@ static partial class Game
             double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
             var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Mods.Effects["avoid_impale_%"]);
             damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
-            var hit = ApplyMonsterHitLocked(Conn, target, damage);
+            var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player);
             if (hit is null) return ProjectileHitResult.Miss;
             if (hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,

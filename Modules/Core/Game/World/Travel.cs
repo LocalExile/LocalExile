@@ -60,7 +60,7 @@ static partial class Game
             await Send(remote, stream, ciphers,
                 InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
                 $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
-                still: () => acknowledged = OwnAuraAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? true));
             if (!acknowledged) return;
             await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence,
@@ -391,6 +391,7 @@ static partial class Game
         }
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);
+        CarryRampage(conn, r.Ticket);
         CarryAntiquarian(conn, r.Ticket);
         CarryRage(conn, r.Ticket);
         CarryVaalSouls(conn, r.Ticket);

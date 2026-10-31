@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using GameServer.Modules.PhreciaAscendancies.Classes.Antiquarian;
 using GameServer.Modules.PhreciaAscendancies.Classes.Aristocrat;
 using GameServer.Modules.PhreciaAscendancies.Classes.Gambler;
+using GameServer.Modules.PhreciaAscendancies.Classes.Behemoth;
 
 namespace GameServer.Modules.PhreciaAscendancies;
 
@@ -15,6 +16,7 @@ internal sealed class PhreciaFamilyPolicy : IAscendancyFamilyPolicy
         GamblerClass.Descriptor,
         AntiquarianClass.Descriptor,
         AristocratClass.Descriptor,
+        BehemothClass.Descriptor,
     ];
 
     static readonly IReadOnlyDictionary<uint, int> GraphSelector =

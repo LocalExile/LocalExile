@@ -42,18 +42,32 @@ static partial class Game
     {
         using (ProjectileMutation(conn))
         {
+            using var sourceAdmission = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             ticket = null;
             SingleUseCooldownState? state = null;
             if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
                 || requestedAt is double asked && PlayerActionBlocked(conn, asked, conn.Clock.Elapsed.TotalSeconds)
                 || actionToken is int original && conn.ActionCount != original) return false;
-            // Soul counters do not enable an executor. Refuse the actual Vaal instance before action/movement,
-            // cooldown reservation or native acknowledgement, including when modifiers reduce its cost to zero.
-            if (skillId is ushort requested && GemSkillEffects(conn)
-                .Any(g => g.Id == requested && SkillsFor(conn).VaalSouls(g.Effect, g.Level) > 0)) return false;
             // Covers object/self and instant routes before creating or spending cooldown state or a new action.
             if ((skillId is ushort id ? ActorSkillInstanceDisabled(conn, effect, id)
                 : ActorSkillDisabled(conn, effect)) is not null) return false;
+            VaalUseReservation? vaal = null;
+            double? vaalAttackDeadline = null;
+            if (skillId is ushort requested && GemSkillEffects(conn)
+                .Any(g => g.Id == requested && SkillsFor(conn).VaalBudget(g.Effect, g.Level) is not null))
+            {
+                // No action/movement, cooldown reservation or payment for an unsupported/underfunded Vaal use.
+                if (!CurrentGameRules || !VaalExecutor(conn, effect) || (vaal = PlanVaalUse(conn, requested)) is null || !CanPayVaalUse(conn, vaal))
+                    return false;
+                if (reserve && !TryVaalAttackDeadline(conn, vaal, out vaalAttackDeadline)) return false;
+                if (reserve)
+                {
+                    var world = conn.RampageWorld;
+                    if (!conn.OwnedCombatWorker.Bind(conn, CombatLifetime!, world.SourceOwner, world, out long generation))
+                        return false;
+                    vaal.WorkGeneration = generation;
+                }
+            }
             if (plan is { } cooldown)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
@@ -62,6 +76,7 @@ static partial class Game
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
             }
             sideEffects();
+            if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
             if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
                 state, state!.UseVersion);
             return true;
