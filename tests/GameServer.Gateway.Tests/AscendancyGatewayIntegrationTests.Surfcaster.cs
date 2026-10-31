@@ -220,6 +220,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // A full-life physical hit: no chill without the node; with it a 30% chill that is 30% more action speed.
         Assert.Equal((1.0, 0, 0, 0, 1.0), Hit(plain.State, DamageType.Physical));
         Assert.Equal((1.3, 30, -30, 30, 1.3), Hit(game.State, DamageType.Physical));
+        // The player tick shows the chill as the chilled buff on the player, and takes it off when it ends.
+        var chilled = game.State.ElementalAilments.Snapshot(game.State.Clock.Elapsed.TotalSeconds);
+        ushort chill = MonsterElementalAilments.Instance(MonsterElementalAilments.Kind.Chill);
+        Assert.Equal([Program.AilmentBuff(Program.PlayerId, chill, MonsterElementalAilments.Kind.Chill, 30)],
+            Program.PlayerAilmentBuffs(default, chilled).Select(p => p.Packet));
+        Assert.Equal([InstanceEntities.RemoveBuff(Program.PlayerId, chill)],
+            Program.PlayerAilmentBuffs(chilled, default).Select(p => p.Packet));
         // A plain cold hit slows by the same chill.
         Assert.Equal((.7, -30, 30, -30, .7), Hit(plain.State, DamageType.Cold));
         plain.State.ElementalAilments.Clear();
@@ -385,7 +392,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
         bool Buff(uint id, MonsterElementalAilments.Kind kind, int magnitude) =>
             Sent(Program.AilmentBuff(id, MonsterElementalAilments.Instance(kind), kind, magnitude));
         Assert.True(Buff(0x101, MonsterElementalAilments.Kind.Chill, 30));
-        Assert.True(Buff(0x103, MonsterElementalAilments.Kind.Freeze, 100));
+        // Freeze has no value, so it carries its duration (flag 0x02, u68): the header up to the flags byte.
+        var freeze = Program.AilmentBuff(0x103, MonsterElementalAilments.Instance(MonsterElementalAilments.Kind.Freeze),
+            MonsterElementalAilments.Kind.Freeze, 100, seconds: 3);
+        Assert.Equal(0x02, freeze[22]);
+        Assert.True(Sent(freeze[..23]));
         uint speed = Program.Stats.Key("virtual_action_speed_+%")!.Value;
         Assert.True(Sent(InstanceEntities.StatsUpdate(0x101, [(speed, -30)])));
         Assert.False(Sent(InstanceEntities.StatsUpdate(0x102, [(speed, -30)])));

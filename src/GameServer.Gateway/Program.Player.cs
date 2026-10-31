@@ -469,6 +469,7 @@ partial class Program
             }
             if (conn.ElementalAilments.Snapshot(tickNow) is var nextAilments && nextAilments != ailments)
             {
+                await SendPlayerAilmentBuffs(remote, stream, ciphers, ailments, nextAilments);
                 ailments = nextAilments;
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
             }

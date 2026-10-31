@@ -1,3 +1,6 @@
+using System.Net.Sockets;
+using GameServer.Core.Protocol.Login;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 partial class Program
@@ -51,6 +54,30 @@ partial class Program
         }
         if (previousAction != conn.ElementalAilments.ActionFactor(until)) conn.ApplyMovementSpeed();
         return damage;
+    }
+
+    // The chilled, frozen and shocked buffs on the player, as on monsters (AilmentBuff, on the fixed top instances that
+    // NextBuff never hands out); a kind whose magnitude changed is sent again. The player's ignited buff is not sent.
+    static async Task SendPlayerAilmentBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        (bool Ignite, int Chill, bool Freeze, int Shock) before, (bool Ignite, int Chill, bool Freeze, int Shock) after)
+    {
+        foreach (var (packet, log) in PlayerAilmentBuffs(before, after)) await Send(remote, stream, ciphers, packet, log);
+    }
+
+    internal static List<(byte[] Packet, string Log)> PlayerAilmentBuffs((bool Ignite, int Chill, bool Freeze, int Shock) before,
+        (bool Ignite, int Chill, bool Freeze, int Shock) after)
+    {
+        var packets = new List<(byte[], string)>();
+        foreach (var (kind, old, now) in new[] { (MonsterElementalAilments.Kind.Chill, before.Chill, after.Chill),
+            (MonsterElementalAilments.Kind.Freeze, before.Freeze ? 100 : 0, after.Freeze ? 100 : 0),
+            (MonsterElementalAilments.Kind.Shock, before.Shock, after.Shock) })
+        {
+            if (old == now) continue;
+            ushort instance = MonsterElementalAilments.Instance(kind);
+            if (old > 0) packets.Add((InstanceEntities.RemoveBuff(PlayerId, instance), $"0x01c2 player {kind} ends"));
+            if (now > 0) packets.Add((AilmentBuff(PlayerId, instance, kind, now), $"0x01c1 player {kind} {now}%"));
+        }
+        return packets;
     }
 
     internal static bool PlayerActionBlocked(ClientState conn, double requestedAt, double now) =>

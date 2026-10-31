@@ -130,7 +130,7 @@ partial class Program
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
             }
             double action = m.Mods.Effects["action_speed_cannot_be_reduced_below_base"] > 0 ? 1 : 1 - a.Magnitude(Kind.Chill, now) / 100;
             double walk = m.Mods.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
@@ -155,7 +155,10 @@ partial class Program
     /// carry their one GrantedStats value (action_speed_-%_from_chill, base_damage_taken_+%_from_shock). The magnitude
     /// goes in both; what the client does with +0x82 is not known.
     /// </summary>
-    internal static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude) =>
+    // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
+    // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
+    internal static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: (ushort)magnitude,
-            values: kind == Kind.Freeze ? null : [(uint)magnitude]);
+            values: kind == Kind.Freeze ? null : [(uint)magnitude],
+            u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
 }

@@ -34,6 +34,9 @@ sealed class MonsterElementalAilments
     public double Magnitude(Kind kind, double now) =>
         effects.Count == 0 && spread is null ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
 
+    /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
+    public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => e.Until - now).DefaultIfEmpty().Max();
+
     /// <summary>Action speed: 0 while frozen, else less by the chill's effect.</summary>
     public double ActionFactor(double now) => Magnitude(Kind.Freeze, now) > 0 ? 0 : 1 - Magnitude(Kind.Chill, now) / 100;
 
