@@ -75,7 +75,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
 
     bool IsHostOfModules => modules;
 
-    bool On(LoadedMod mod, IPlayer player) => Active?.Invoke(player, mod.Manifest.Id) != false;
+    bool On(LoadedMod mod, IPlayer player) => !mod.Unloaded && mod.Lifetime.IsActive && Active?.Invoke(player, mod.Manifest.Id) != false;
 
     public static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(400);
     const int BusyRetries = 5;
@@ -315,12 +315,14 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
 
     async Task<bool> Guard(LoadedMod mod, string hook, Func<Task> run)
     {
+        if (mod.Unloaded || !mod.Lifetime.IsActive) return true;
         try { await run(); return true; }
         catch (Exception ex) { Failed(mod, hook, ex); return false; }
     }
 
-    bool Guard(LoadedMod mod, string hook, Action run)
+    bool Guard(LoadedMod mod, string hook, Action run, bool allowUnloaded = false)
     {
+        if (!allowUnloaded && (mod.Unloaded || !mod.Lifetime.IsActive)) return true;
         try { run(); return true; }
         catch (Exception ex) { Failed(mod, hook, ex); return false; }
     }
@@ -531,8 +533,9 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         catch (Exception ex)
         {
             mod.Unloaded = true;
+            mod.Lifetime.Stop(error => Failed(mod, "Stop", error));
             Remove(mod);
-            foreach (var disposable in mod.Entries.OfType<IDisposable>()) Guard(mod, "Dispose", disposable.Dispose);
+            foreach (var disposable in mod.Entries.OfType<IDisposable>()) Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
             _unloads[id] = Collect(Unload(mod));
             if (ex is TypeInitializationException or System.Reflection.TargetInvocationException && ex.InnerException is { } inner) ex = inner;
             Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}"
@@ -585,9 +588,10 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     {
         if (!_loaded.Remove(id, out var mod)) return;
         mod.Unloaded = true;
+        mod.Lifetime.Stop(error => Failed(mod, "Stop", error));
         Remove(mod);
         foreach (var disposable in mod.Entries.OfType<IDisposable>())
-            Guard(mod, "Dispose", disposable.Dispose);
+            Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
         _unloads[id] = Collect(Unload(mod));
         Tell($"{Tag} unloaded {id}");
     }
@@ -704,6 +708,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext? context)
     {
         public ModManifest Manifest { get; } = manifest;
+        public ModuleLifetime Lifetime { get; } = new(manifest.Id);
         public string Folder { get; } = folder;
         /// <summary>Null for a built-in.</summary>
         public ModLoadContext? Context { get; } = context;
@@ -742,6 +747,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     sealed class Context(ModHost host, LoadedMod mod) : IModuleContext
     {
         public ModManifest Manifest => mod.Manifest;
+        public IModuleLifetime Lifetime => mod.Lifetime;
         public string Folder => mod.Folder;
         public void Log(string message) => host.Write($"{host.Tag} {mod.Manifest.Id}: {message}");
 
@@ -750,7 +756,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
             var hook = list.Add(mod, run);
             Interlocked.Increment(ref mod.Hooks);
-            return new Handle(() => { list.Remove(hook); Interlocked.Decrement(ref mod.Hooks); });
+            return mod.Lifetime.Own(new Handle(() => { list.Remove(hook); Interlocked.Decrement(ref mod.Hooks); }));
         }
 
         public IDisposable OnChatCommand(string name, string usage, Func<ChatCommand, Task> run)
@@ -762,11 +768,11 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             if (!ImmutableInterlocked.TryAdd(ref host._commands, name, hook))
                 throw new InvalidOperationException($"/{name} belongs to mod {host._commands[name].Mod.Manifest.Id}");
             Interlocked.Increment(ref mod.Hooks);
-            return new Handle(() =>
+            return mod.Lifetime.Own(new Handle(() =>
             {
                 ImmutableInterlocked.Update(ref host._commands, c => c.TryGetValue(name, out var h) && h == hook ? c.Remove(name) : c);
                 Interlocked.Decrement(ref mod.Hooks);
-            });
+            }));
         }
 
         public IDisposable OnTick(Func<IPlayer, double, Task> tick) => Add(host._ticks, tick);
@@ -777,8 +783,12 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         public void ProvideLeagueRules(Func<LeagueRules> rules)
         {
             if (!host.IsHostOfModules) throw new InvalidOperationException("only a module gives a league rules");
-            mod.ProvidesRules = true;
-            ServerLeagues.AddRules(mod.Manifest.Id, rules);
+            lock (host._gate)
+            {
+                if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
+                mod.ProvidesRules = true;
+                ServerLeagues.AddRules(mod.Manifest.Id, rules);
+            }
         }
 
         public IPlayerWorld World(IPlayer player) => (host.WorldOf ?? throw new InvalidOperationException("this server gives modules no world"))(player);
