@@ -21,6 +21,8 @@ static class GameDataFiles
         ("data/tables/CraftingBenchOptions.json", "crafting bench recipes, unlocks and costs"),
         ("data/tables/CraftingItemClassCategories.json", "crafting bench item compatibility"),
         ("data/tables/DelveUpgrades.json", "Delve equipment upgrade prices, limits and stats"),
+        ("data/delve-paths.json", "authored Delve rail routes"),
+        ("data/tables/DelveLevelScaling.json", "Delve trip costs and monster levels"),
         ("data/tables/DelveFlares.json", "Delve flare prices"),
         ("data/tables/DelveDynamite.json", "Delve dynamite prices"),
         ("data/tables/UniqueMaps.json", "unique map shop identities"),

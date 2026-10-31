@@ -101,7 +101,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   with native checks for modifiers, clearing and separation from recharge.
   Ordinary Life/Mana regeneration now includes separate regeneration/recovery increases and matching prohibitions.
   Native actual-recovery, clearing and relog checks pass; Fortification expiry integration uses the same factors.
-  Regeneration conversions, named conditional/more modifiers and other recovery systems remain open.
+  Zealot's Oath now moves life regeneration to Energy Shield; other regeneration conversions, named
+  conditional/more modifiers and other recovery systems remain open.
   Exact native Brand/special-charge defaults now enter actor sources once, with a native selected Brand gate.
   Real item/passive/support composition gives actor Brand 6 and selected 8; explicit zero and source removal are covered
   by automated cases in both modes, with new native checks pending.

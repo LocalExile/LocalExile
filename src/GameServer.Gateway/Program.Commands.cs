@@ -371,6 +371,7 @@ partial class Program
             if (args.Length != 1 || !ushort.TryParse(args[0], out ushort amount)) throw new ArgumentException("/sulphite <amount 0-65535>");
             CharacterSaves.SetSulphite(CharacterName(conn), amount);
             await Send(remote, stream, ciphers, PlayerDelveData(conn), $"0x0228 Delve data: {amount} sulphite (/sulphite)");
+            await RefreshDelveGauge(remote, stream, ciphers, conn);
             await conn.Commands!.Reply($"Sulphite: {amount}");
         })
         .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: up to count, at most {ItemTabMax}, more of every item type that has its own slot on that tab, as far as each slot holds, e.g. /item_tab Currency 1000)", async args =>
