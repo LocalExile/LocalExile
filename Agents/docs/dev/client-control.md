@@ -33,8 +33,9 @@ of this checkout's stack, each opened by `game:open` with that session as `live.
 ([live testing](live-testing.md#several-stacks-and-clients)). The bridge attaches to the PID `live.ps1` recorded for the
 session in `data/clients/NAME.json` (checked with the process's start time and this checkout's client path), never to
 another checkout's or session's client; without a session it takes this checkout's one unrecorded or default-recorded
-client, as before. Logins go to this stack's Auth: `Game_LOGIN_PORT`, else `Game_PORT_BASE`, else the ports
-`live.ps1 -PortBase` remembered in `data/stack.json`, else 20493. Startup asset loading still takes the
+client, as before. A client counts as this checkout's by the path it was started by (its command line: the image name
+Windows reports resolves the `Client` junction to the shared folder, the same for every checkout). Logins go to this
+stack's Auth: the ports `live.ps1 -PortBase` wrote to `data/stack.json`, else `Game_LOGIN_PORT`, else 20493. Startup asset loading still takes the
 client's normal time. After merging upstream's gateway reset, a fresh client opened against the already-running
 Patch/Auth/Gateway services in 9.5 seconds, then logged in, listed characters and entered an area successfully
 (2026-10-25, isolated validation database). Mocked startup checks also cover existing clients and failed preflights.
@@ -50,7 +51,8 @@ answered with, read from `logs/live-gateway.log` (its `=> 0x0017 chat line` entr
 one or `wait` seconds (default 1.5) in total. `replies` is null when the servers were not started by this checkout's
 `live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Only the lines sent
 to this client's own connection count (the log names each connection by the client's local port, which the bridge
-reads from the TCP table for the client's PID), so other sessions on the same Gateway do not mix in; replies of
+reads from the TCP table for the client's PID; none while it has no connection to the Gateway), so other sessions on
+the same Gateway do not mix in; replies of
 commands typed in this client's chat box meanwhile still do. The bridge does not capture the HUD.
 
 Explicit password login replaces both the outgoing account/digest and the native message's saved-credential flag.

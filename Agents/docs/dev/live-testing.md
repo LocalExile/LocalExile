@@ -75,38 +75,52 @@ touching each other's.
 - **Ports.** `-PortBase N` (or `Game_PORT_BASE`) puts the stack on N (Patch), N+1 (Patch web), N+2 (Auth login), N+3
   (Auth control) and N+4 (Gateway). `live.ps1` remembers the base in `data\stack.json`, so later runs, `-ClientOnly` and
   the bridge in the same checkout use it without being told again; `-PortBase 0` goes back to the default ports
-  (12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses. A server's own variable
-  (`Game_LOGIN_PORT`, ...) still wins. Auth sends the client to its own Gateway (`Game_GATEWAY_PORT` in login 0x14, as
+  (12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses. On the default ports a
+  server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins; with a base the shell's are not used.
+  `data\stack.json` holds every port the servers got, and the bridge reads it. Auth sends the client to its own Gateway (`Game_GATEWAY_PORT` in login 0x14, as
   the Gateway does in 0x27). The levelgen server (`lg.ps1`) needs no port: its named pipe is per checkout.
 - **What is stopped.** `live.ps1` stops only this checkout's processes: servers whose command line, executable or cmd
-  wrapper names a path inside the checkout (it starts them with absolute paths), with everything they started (a watched
-  Gateway's `dotnet watch` tree); clients started from this checkout's `Client\` path (each checkout reaches the shared
-  client through its own junction, so the path tells checkouts apart) and, among those, the session's by the PID and
-  start time recorded in `data\clients\<session>.json`; and its own walk-map recorder. Another program or checkout on its
+  wrapper names a path inside the checkout (it starts them with absolute paths; a worktree nested in it under
+  `.claude\worktrees\` is another checkout), with everything they started (a watched Gateway's `dotnet watch` tree, but
+  not the MSBuild nodes and compiler server its builds start, which every build shares); clients started from this
+  checkout's `Client\` path (each checkout reaches the shared client through its own junction, so the path it was
+  started by tells checkouts apart; Windows' image name resolves the junction) and, among those, the session's by the
+  PID and start time recorded in `data\clients\<session>.json` (written with pid 0 just before the start, so no one
+  takes a client being started for another session's); and its own walk-map recorder. Another program or checkout on its
   ports is reported, not stopped: give one of them other ports.
 - **Client sessions.** `-Session NAME` (also `Game_CLIENT_SESSION`; `client_control.py --session`, `control.ps1
-  -Session`) starts a client in its own folder, `data\clients\NAME\`, with a hard link to the shared `Content.ggpk` (the
-  same file: nothing is copied or written) and a `config.json` naming the session's own settings file and saved login,
-  `localexile-<checkout>-NAME_Config.ini` and `..._login.credentials` in `Documents\My Games\Path of Exile`. A new
-  settings file starts as a copy of the default client's `poeoffline_Config.ini` without its `[LOGIN]` section, so the
-  session sends no saved login anywhere. The client reads `GGG_CONFIG_FILE_NAME`, `GGG_CREDENTIAL_FILE_NAME` and the
-  other `GGG_*` keys from `config.json` in its working folder (the key table at `0x140e2cd0d` looks them up in the parsed
-  file; nothing reads them from the environment), and opens `Content.ggpk` (`0x1400fc163`) and its logs there too. This
-  comes from the executable alone: no named session has run against a live client yet (2026-10-30: the PC had no memory
-  to spare for another client). The bridge attaches to the session's recorded PID and reads only the chat replies sent
+  -Session`) starts a client in its own folder, `data\clients\NAME\`. The client opens `Content.ggpk`, `config.json`,
+  its asset folders (`FMOD` sound banks, `Streamline`, `D3D12`) and `CachedHLSLShaders`, and writes `logs\Client.txt`,
+  in its working folder; only the executable and its DLLs come from the executable's folder. So the session folder holds
+  a hard link to the shared `Content.ggpk` (the same file: nothing is copied or written), junctions to the shared asset
+  folders, its own shader cache and `logs\Client.txt`, and a `config.json` naming the session's own settings file and
+  saved login, `localexile-<checkout>-NAME_Config.ini` and `..._login.credentials` in `Documents\My Games\Path of Exile`.
+  A new settings file starts as a copy of the default client's `poeoffline_Config.ini` without its `[LOGIN]` section, so
+  the session sends no saved login anywhere. The client reads `GGG_CONFIG_FILE_NAME`, `GGG_CREDENTIAL_FILE_NAME` and the
+  other `GGG_*` keys from that `config.json` (the key table at `0x140e2cd0d` looks them up in the parsed file; nothing
+  reads them from the environment). Live (2026-10-30, a session on ports 21000-21004 beside another checkout's client):
+  its `Client.txt` in the session folder logged `Current directory: …\data\clients\a1`, the stack's web root and "No
+  patching required" (the linked GGPK); without the junctions it logged `CRIT SoundBank Global Index File does not exist`
+  and `[STREAMLINE] Failed to load: DLL not found`, with them neither. The memory guard stopped both runs while the client
+  was still loading, so the settings file it uses and a login through the bridge are not confirmed live yet. Remove a
+  session folder with `cmd /c rmdir /s /q`, not Windows PowerShell's `Remove-Item -Recurse`, which can follow the
+  junctions into the shared `Client\`. The bridge attaches to the session's recorded PID and reads only the chat replies sent
   to that client's connection (the Gateway log names each connection by the client's port). Without a session the
   client starts in `Client\` with the shared settings, as before.
 - **Logging in.** The bridge (`login:offline`, `login:saved`) connects to this stack's Auth by port. The client's own
   Log In button and a saved login use the login server in the GGPK's cached gateway list, which only the default stack
-  writes (and only when it does not already name its Auth): the GGPK is shared and cannot be written while any client
-  runs. A client of a stack on its own ports therefore logs in through the bridge.
+  writes (and only when it does not already name its Auth; reading the list works while clients run): the GGPK is
+  shared and cannot be written while any client runs, and then `live.ps1` warns and goes on. A client of a stack on its
+  own ports therefore logs in through the bridge.
 - **Shared by everyone:** `Client\` (the executable and `Content.ggpk`, which every client opens read-only), the shader,
   pipeline and minimap caches in `%LOCALAPPDATA%\Path of Exile`, crash dumps in `Documents\My Games\Path of
   Exile\release`, and, in worktrees made by linking, whatever they link (`data\tables`, `data\walkability`). **Per
   checkout:** the ports, `logs\`, the save database (`Game_SAVES_DB`), `data\stack.json`. **Per session:** the working
   folder, `Client.txt`, settings, saved login and PID record.
-- **Walk maps** (`-Walkmaps`) only on the default ports and client session, with no other checkout's client running:
-  the recorder attaches to the client by name and meets the Gateway in the shared `data\walkability\current.json`.
+- **Walk maps** (`-Walkmaps`) only on the default ports and client session (elsewhere `live.ps1` warns and starts
+  without the recorder): the recorder meets the Gateway in the shared `data\walkability\current.json`. It attaches to
+  the default client by the PID `live.ps1` records (`walkmaps.py --record data\clients\default.json`), so other
+  checkouts' clients may run.
 - **Memory.** Each in-game client commits about 7 GB (6.75 to 7.43 GB measured for three campaign clients on
   2026-10-30); a Gateway about 0.75 GB right after start, Auth and Patch under 0.05 GB. Check the free commit
   (`(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory`) before opening another client.

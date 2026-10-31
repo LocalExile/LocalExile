@@ -65,9 +65,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   never writes the shared GGPK gateway list. The bridge (`--session`) attaches to its session's client and filters the
   Gateway's chat replies by that client's connection.
   Verified: a stack on 21000-21004 started, restarted and stopped next to another checkout's live stack and client on the
-  default ports, which kept running; mocked checks (`scripts/dev/test_live_client_only.ps1`) and unit tests
-  (`test_client_control.py`) cover ports, sessions, PID records and process ownership. Not yet run: a named session's
-  client (no memory to spare on 2026-10-30), so the per-session `config.json` and working folder rest on static analysis.
+  default ports, which kept running; a session client started in its own folder on that stack (its own `Client.txt`,
+  the linked GGPK, the shared sound banks and Streamline through junctions). Tests: `scripts/dev/test_live_client_only.ps1`
+  (ports, sessions, PID records, process ownership, the real gateway-list read while the GGPK is held),
+  `test_client_control.py` (a real process started through a real junction), `GgpkMaintenanceTests`. Not yet seen live:
+  the session's settings file in use and a bridge login on a session (the memory guard stopped the client while loading).
   Code: `scripts/dev/live.ps1`, `scripts/dev/client_control.py`, `GatewayEndpoint.cs`.
   Docs: [live testing](../docs/dev/live-testing.md#several-stacks-and-clients).
 
