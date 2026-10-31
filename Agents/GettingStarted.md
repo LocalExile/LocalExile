@@ -2,6 +2,8 @@
 
 This guide takes a fresh clone to "in game in Lioneye's Watch, able to walk and take The Coast exit". Each step says
 what success looks like and what to do when it fails. It is written to be followed by a person or by an AI agent.
+To play without developing, a [release](https://github.com/LocalExile/LocalExile/releases) needs none of this: run its
+`LocalExile.exe` ([releases](docs/dev/releases.md)).
 
 ## Rules (read first, especially if you are an AI agent)
 

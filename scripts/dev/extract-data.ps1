@@ -20,15 +20,16 @@ $manifest = @(
     @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\UniqueStashLayout.json', 'data\tables\UniqueStashTypes.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 2; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
+    @{ Name = 'area-transitions'; Outputs = @('data\area-transitions.json'); Runner = 'dotnet'
+       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'data/area-transitions.json'); Version = 3; Needs = @('tables')
+       UsedBy = 'area transitions of fixed layouts (08-area-transitions.md)' }
+    # After area-transitions: --all also takes the object types that file names.
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
-       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 4; Needs = @('tables')
+       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 5; Needs = @('tables', 'area-transitions')
        UsedBy = 'monsters (emergence and inherited Life corpse flags), NPCs, area transitions, hideout decorations and stationary collision footprints' }
     @{ Name = 'item-types'; Outputs = @('data\item-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--items', '--json', 'data/item-types.json'); Version = 1; Needs = @('tables')
        UsedBy = 'items: starting items, /item, drops, affix rolls (tags)' }
-    @{ Name = 'area-transitions'; Outputs = @('data\area-transitions.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'data/area-transitions.json'); Version = 3; Needs = @('tables')
-       UsedBy = 'area transitions of fixed layouts (08-area-transitions.md)' }
     @{ Name = 'delve-paths'; Outputs = @('data\delve-paths.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'delve-paths'); Version = 1; Needs = @('tables')
        UsedBy = 'authored Delve rail nodes, endpoints and room links' }

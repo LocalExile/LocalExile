@@ -52,7 +52,7 @@ sealed class Servers : IDisposable
         var start = new ProcessStartInfo(Path.GetFullPath(Path.Combine(Tools.App, $"GameServer.{name}.exe")))
         {
             WorkingDirectory = Directory.GetCurrentDirectory(), UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
         };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         Tools.Prepare(start);

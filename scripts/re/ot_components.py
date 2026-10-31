@@ -43,7 +43,8 @@ GROUND_TRUTH_READ = {"Metadata/Characters/Int/Int": 10, "Metadata/MiscellaneousO
 
 
 def cache_name(path):
-    return os.path.join(CACHE, path.replace("/", "_"))
+    # \\?\: these names are long, and a release's install folder can take them past Windows' 260 characters.
+    return "\\\\?\\" + os.path.join(CACHE, path.replace("/", "_"))
 
 
 def fetch(paths):

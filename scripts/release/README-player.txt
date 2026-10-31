@@ -13,7 +13,7 @@ Started any other way (the game's own executable, Steam, the official launcher),
 servers and can update itself. A newer client does not work with LocalExile, and you cannot get 3.29.3b back that way.
 
 TO UPDATE LOCALEXILE
-Close the game, then extract the new zip over this folder. Your characters, keys and extracted data in data\ and your
+Close the game, then extract the new zip to the same place, so its LocalExile folder goes over this one. Your characters, keys and extracted data in data\ and your
 client in Client\ are kept. Only LocalExile is updated, never the game. LocalExile.exe tells you when a newer release
 exists; add --no-update-check to turn that off. It never downloads anything by itself.
 

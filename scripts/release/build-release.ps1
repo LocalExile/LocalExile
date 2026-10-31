@@ -19,7 +19,8 @@ $nodeSha = '57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'
 
 $out = Join-Path $repo 'artifacts\release'
 $name = "LocalExile-v$Version-win-x64"
-$package = Join-Path $out $name
+# The zip's one folder has no version in its name: extracting a new zip beside the old folder updates it.
+$package = Join-Path $out 'LocalExile'
 $downloads = Join-Path $out 'downloads'
 if (Test-Path $package) { Remove-Item $package -Recurse -Force }
 New-Item -ItemType Directory -Force $package, $downloads | Out-Null
@@ -84,12 +85,17 @@ Copy-Into 'Agents\docs\re\components.json' 'Agents\docs\re\components.json'
 # The bundled runtimes of the extraction, and the manifest with each entry's program.
 Step 'bundling Python and Node ...'
 Expand-Archive (Get-Pinned $pythonUrl $pythonSha "python-$pythonVersion.zip") (Join-Path $package 'Tools\python')
-$nodeTemp = Join-Path $out 'node-temp'
-if (Test-Path $nodeTemp) { Remove-Item $nodeTemp -Recurse -Force }
-Expand-Archive (Get-Pinned $nodeUrl $nodeSha "node-$nodeVersion.zip") $nodeTemp
-Copy-Into (Join-Path $nodeTemp "node-v$nodeVersion-win-x64\node.exe") 'Tools\node\node.exe'
-Copy-Into (Join-Path $nodeTemp "node-v$nodeVersion-win-x64\LICENSE") 'licenses\node-LICENSE.txt'
-Remove-Item $nodeTemp -Recurse -Force
+# Only these two: the rest is npm, with paths too long for Expand-Archive in Windows PowerShell.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$nodeZip = [IO.Compression.ZipFile]::OpenRead((Get-Pinned $nodeUrl $nodeSha "node-$nodeVersion.zip"))
+try {
+    foreach ($item in @(@('node.exe', 'Tools\node\node.exe'), @('LICENSE', 'licenses\node-LICENSE.txt'))) {
+        $target = Join-Path $package $item[1]
+        New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($nodeZip.GetEntry("node-v$nodeVersion-win-x64/$($item[0])"), $target, $true)
+    }
+}
+finally { $nodeZip.Dispose() }
 Push-Location Tools\ooz
 npm ci --omit=dev --no-audit --no-fund
 Check-Exit 'npm ci'
@@ -101,8 +107,9 @@ Copy-Into 'Tools\ooz\node_modules' 'Tools\ooz\node_modules'
 $exported = Join-Path $out 'extract-manifest.exported.json'
 & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev\extract-data.ps1 -ExportManifest $exported
 Check-Exit 'extract-data.ps1 -ExportManifest'
-$entries = @(Get-Content $exported -Raw | ConvertFrom-Json | ForEach-Object {
-    $entry = $_
+# Parsed first: Windows PowerShell's ConvertFrom-Json passes a whole array down a pipeline as one object.
+$parsed = Get-Content $exported -Raw | ConvertFrom-Json
+$entries = @(foreach ($entry in $parsed) {
     $exe = $null
     $arguments = @($entry.Args)
     if ($entry.Runner -eq 'dotnet') {
@@ -145,7 +152,7 @@ if ($command -cne 'Client\Game.patched.exe --patching-server 127.0.0.1:12995') {
 $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
     $relative = $_.FullName.Substring($package.Length + 1)
     $_.Extension -in '.ggpk', '.bin', '.dat', '.dat64', '.datc64', '.pfx', '.key', '.pem', '.db' -or
-    $_.Name -like 'PathOfExile*.exe' -or $_.Name -in 'Game.exe', 'Game.patched.exe', 'Game_x64.exe' -or $_.Name -like '*secret*' -or $_.Name -like 'login-keys*' -or
+    $_.Name -like 'PathOfExile*.exe' -or $_.Name -in 'Game.exe', 'Game.patched.exe', 'Game_x64.exe' -or ($_.Name -like '*secret*' -and $_.Extension -ne '.dll') -or $_.Name -like 'login-keys*' -or
     ($relative -like 'data\*' -and $relative -notlike 'data\schema\*') -or $relative -like 'Client\*'
 })
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
@@ -156,7 +163,7 @@ foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', '
 
 Step 'compressing ...'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = "$package.zip"
+$zip = Join-Path $out "$name.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 [IO.Compression.ZipFile]::CreateFromDirectory($package, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
