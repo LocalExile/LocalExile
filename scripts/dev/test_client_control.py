@@ -3,15 +3,20 @@ import contextlib
 import io
 from itertools import chain, repeat
 import json
+import os
 from pathlib import Path
+import shutil
 import struct
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, call, patch
 
 from client_control import (
-    ClientControl, chat_packet, collect_replies, connection_ports, find_client, flask_packet, log_mark, normalize,
-    read_records, read_replies, run_request, session_name, stack_port, tp_text,
+    ClientControl, chat_packet, collect_replies, connection_ports, find_client, flask_packet, launched_path, log_mark,
+    normalize, process_info, read_records, read_replies, run_request, same_path, session_name, stack_port, tp_text,
 )
 
 
@@ -95,8 +100,10 @@ class ClientControlTests(unittest.TestCase):
                 '21:04:59.473 [gateway] 127.0.0.1:50003 => 0x0017 chat line "mine after an area change": 0017' + nl,
                 encoding="utf-8")
             self.assertEqual(read_replies(log, 0, {50001, 50003})[0], ["mine", "mine after an area change"])
-            # No known connection (the table could not be read): every reply, as with one client.
+            # The table could not be read: every reply, as with one client. The client has no connection to the
+            # Gateway (between areas): none of them, never another client's.
             self.assertEqual(len(read_replies(log, 0, None)[0]), 3)
+            self.assertEqual(read_replies(log, 0, set())[0], [])
             self.assertEqual(collect_replies(0, wait=0.2, quiet=0.05, path=log, ports={50002}), ["theirs"])
 
 
@@ -124,11 +131,11 @@ class SeveralClientsTests(unittest.TestCase):
                              encoding="utf-8")
             self.assertEqual(stack_port("login", {}, stack), 21002)
             self.assertEqual(stack_port("gateway", {}, stack), 21004)
-            self.assertEqual(stack_port("patch", {}, stack), 12995)  # not recorded: the default
-            # Game_PORT_BASE wins over the file, a server's own variable over both; 0 is the default ports.
-            self.assertEqual(stack_port("login", {"Game_PORT_BASE": "23000"}, stack), 23002)
-            self.assertEqual(stack_port("login", {"Game_PORT_BASE": "0"}, stack), 20493)
-            self.assertEqual(stack_port("login", {"Game_PORT_BASE": "23000", "Game_LOGIN_PORT": "30000"}, stack), 30000)
+            # live.ps1 wrote the ports its servers got: they win over a shell's leftover variables.
+            self.assertEqual(stack_port("login", {"Game_LOGIN_PORT": "30000", "Game_PORT_BASE": "23000"}, stack), 21002)
+            # On the default ports (no file) the server's own variable applies, as for live.ps1.
+            stack.unlink()
+            self.assertEqual(stack_port("login", {"Game_LOGIN_PORT": "30000"}, stack), 30000)
             stack.write_text("{broken", encoding="utf-8")
             self.assertEqual(stack_port("gateway", {}, stack), 6112)
 
@@ -163,6 +170,48 @@ class SeveralClientsTests(unittest.TestCase):
             find("default", {})
         # Only another checkout's client runs: none of ours.
         self.assertIsNone(find("default", {}, {1: None}))
+        # A launch under way (pid 0 until live.ps1 knows it): a client started after it is not the default session's.
+        launching = {"a3": {"pid": 0, "started": 25 * second}}
+        self.assertEqual(find_client("default", [2, 4], info, launching, mine, now=26 * second), 2)
+        self.assertIsNone(find_client("default", [4], info, launching, mine, now=26 * second))
+        # A pending record left behind for over a minute no longer hides anything.
+        self.assertEqual(find_client("default", [4], info, launching, mine, now=99 * second), 4)
+
+    def test_launched_path(self):
+        self.assertEqual(launched_path(r'"D:\x y\Client\Game.patched.exe" --patching-server 127.0.0.1:21000'),
+                         r"D:\x y\Client\Game.patched.exe")
+        self.assertEqual(launched_path(r"D:\x\Client\Game.patched.exe --nologo"), r"D:\x\Client\Game.patched.exe")
+        self.assertEqual(launched_path(""), "")
+
+    @unittest.skipUnless(os.name == "nt", "Windows junctions")
+    def test_a_client_started_through_a_junction_is_known_by_that_path(self):
+        """Each checkout's Client is a junction to one shared folder: only the path a process was started by tells
+        checkouts apart (Windows' image name resolves the junction). A real process started through a real junction."""
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "shared"
+            target.mkdir()
+            exe = target / "Game.patched.exe"
+            shutil.copyfile(os.path.join(os.environ["SystemRoot"], "System32", "PING.EXE"), exe)
+            junction = Path(folder) / "checkout-a"
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(target)], check=True, capture_output=True)
+            launched = junction / "Game.patched.exe"
+            child = subprocess.Popen([str(launched), "-n", "30", "127.0.0.1"], stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+            try:
+                time.sleep(0.3)
+                details = process_info(child.pid)
+                self.assertIsNotNone(details)
+                self.assertTrue(same_path(details[0], launched), details[0])
+                self.assertEqual(find_client("default", [child.pid], records={}, client=launched), child.pid)
+                # The same file through another checkout's path (here: the junction's target) is not this one's.
+                self.assertIsNone(find_client("default", [child.pid], records={}, client=exe))
+                record = {"a1": {"pid": child.pid, "started": details[1]}}
+                self.assertEqual(find_client("a1", [child.pid], records=record, client=launched), child.pid)
+                self.assertIsNone(find_client("a1", [child.pid], records=record, client=exe))
+            finally:
+                child.kill()
+                child.wait()
+                subprocess.run(["cmd", "/c", "rmdir", str(junction)], check=True, capture_output=True)
 
     def test_connection_ports_of_the_client(self):
         def row(state, local, remote, pid):
