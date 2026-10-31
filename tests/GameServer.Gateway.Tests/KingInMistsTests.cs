@@ -65,6 +65,10 @@ public class KingInMistsTests
         Assert.True(Monsters.Value.Find("Metadata/Monsters/LeagueAzmeri/Werewolves/WerewolfMaze")?.Supported);
         Assert.True(Monsters.Value.Find("Metadata/Monsters/LeagueAzmeri/Spiders/MeleeSpiderMaze")?.Supported);
 
+        // The central HugeRitualShrine01_01.ao actor keeps RitualPillar2.ot's read order; active_pillars is component 3.
+        Assert.Equal(["Positioned", "BaseEvents", "Animated", "StateMachine", "Stats"], RitualPillarObject.Components);
+        Assert.Equal(3, RitualPillarObject.StateMachineComponentIndex);
+
         // The guaranteed unique pool, the paired That Which Was Taken and its four Domain 35 charm modifiers.
         var items = new ItemCatalog(DataFolder.Value);
         var uniques = new UniqueCatalog(items, DataFolder.Value);
