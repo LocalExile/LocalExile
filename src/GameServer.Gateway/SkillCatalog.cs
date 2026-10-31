@@ -42,7 +42,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
         var result = new Dictionary<int, int[]>();
         string path = Path.Combine(folder, "tables", "GrantedEffects.json");
         if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = GameTables.Open(path);
         int row = 0;
         foreach (var r in d.RootElement.EnumerateArray())
         {
@@ -283,7 +283,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     {
         string PathOf(string name) => Path.Combine(folder, "tables", name + ".json");
         if (!File.Exists(PathOf("GrantedEffects")) || !File.Exists(PathOf("ActiveSkills")) || !File.Exists(PathOf("ActionTypes"))) return [];
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(PathOf("GrantedEffects")));
+        using var effects = GameTables.Open(PathOf("GrantedEffects"));
         using var active = JsonDocument.Parse(File.ReadAllBytes(PathOf("ActiveSkills")));
         using var actions = JsonDocument.Parse(File.ReadAllBytes(PathOf("ActionTypes")));
         var result = new Dictionary<int, ushort>();
@@ -415,7 +415,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
             r.TryGetProperty("WeaponRestriction_ItemClassesKeys", out var k) && k.ValueKind == JsonValueKind.Array
                 ? k.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32()).ToFrozenSet()
                 : FrozenSet<int>.Empty).ToList();
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+        using var effects = GameTables.Open(TablePath("GrantedEffects"));
         var result = new Dictionary<int, IReadOnlySet<int>>();
         foreach (var (r, i) in effects.RootElement.EnumerateArray().Select((r, i) => (r, i)))
             if (r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number
@@ -503,7 +503,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
             int[][] activeTypes;
             using (var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills"))))
                 activeTypes = [.. active.RootElement.EnumerateArray().Select(r => Ints(r, "ActiveSkillTypes"))];
-            using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+            using var effects = GameTables.Open(TablePath("GrantedEffects"));
             return new(typeIds, activeTypes,
                 [.. effects.RootElement.EnumerateArray().Select(r =>
                     r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetInt32() : (int?)null)],
@@ -744,7 +744,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
             .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
             .Select(a => a.i).ToHashSet();
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+        using var effects = GameTables.Open(TablePath("GrantedEffects"));
         int row = -1;
         foreach (var e in effects.RootElement.EnumerateArray())
         {
@@ -1040,7 +1040,7 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
             string ge = Table("GrantedEffects"), gepl = Table("GrantedEffectsPerLevel"), gesspl = Table("GrantedEffectStatSetsPerLevel"),
                 gess = Table("GrantedEffectStatSets");
             if (!File.Exists(ge) || !File.Exists(gepl) || !File.Exists(gesspl)) return null;
-            using var g = JsonDocument.Parse(File.ReadAllBytes(ge));
+            using var g = GameTables.Open(ge);
             using var p = JsonDocument.Parse(File.ReadAllBytes(gepl));
             using var s = JsonDocument.Parse(File.ReadAllBytes(gesspl));
             static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;

@@ -159,6 +159,12 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             Record("catalogue", $"{name} retained MB", (GC.GetTotalMemory(forceFullCollection: true) - live) / 1048576.0, "MB");
         }
         Record("catalogue", "total ms", total, "ms");
+        if (typeof(Program).Assembly.GetType("GameTables") is { } tables
+            && tables.GetProperty("Counts")?.GetValue(null) is ValueTuple<long, long> counts)
+        {
+            Record("catalogue", "shared table parses", counts.Item1, "");
+            Record("catalogue", "shared table reuses", counts.Item2, "");
+        }
         // A per-gem question the skill panel and every hit ask (three type sets per call).
         {
             const int Calls = 1_000_000;
@@ -232,6 +238,12 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
                     Record("area", $"game files {field} MB", (long)f.GetValue(fs)! / 1048576.0, "MB");
             if (fs.GetType().GetField("_bundleReads", BindingFlags.NonPublic | BindingFlags.Instance) is { } reads)
                 Record("area", "game files bundle reads", (long)reads.GetValue(fs)!, "");
+        }
+        if (typeof(Program).Assembly.GetType("GameTables") is { } tables
+            && tables.GetProperty("Counts")?.GetValue(null) is ValueTuple<long, long> counts)
+        {
+            Record("area", "shared table parses", counts.Item1, "");
+            Record("area", "shared table reuses", counts.Item2, "");
         }
         await Hold("area");
     }

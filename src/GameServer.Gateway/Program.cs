@@ -99,6 +99,7 @@ if (!started.Ok) Console.WriteLine($"[gateway] Auth did not take gateway_started
 StartMods();
 // Loading the tables above (Mods.json alone is 60 MB of JSON) leaves ~0.5 GB of free GC memory committed; give it back
 // before serving, since several stacks often run side by side (Agents/docs/dev/performance.md).
+GameTables.Release();
 GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 listener.Start();
 Console.WriteLine($"[gateway] listening on {bind}:{port}");
