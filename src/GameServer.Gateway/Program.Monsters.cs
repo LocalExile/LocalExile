@@ -117,9 +117,12 @@ partial class Program
             ? SkillsFor(conn).FindByRow(StageSkillId, stage.SkillEffect, level, (attack with { SkillId = StageSkillId, Seconds = stage.CastSeconds }).SkillStats())
             : null;
         // The King in the Mists needs its whole granted-effect list on the actor, not only the default attack: each 0x1ab
-        // names one of these ids (KingInMists.cs).
-        var kingSkills = KingInMists.SkillsFor(conn, variety, level, attack);
-        var skills = kingSkills ?? (skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill]);
+        // names one of these ids (KingInMists.cs). The three Mystic Fetishes likewise need their hazard list, because the
+        // official server sends those actions to the fetish actor.
+        var kingSkills = KingInMists.SkillsFor(conn, variety, level, attack)
+            ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(conn, variety, level, attack) : null);
+        var skills = kingSkills is { Count: > 0 } ? kingSkills
+            : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
@@ -163,7 +166,7 @@ partial class Program
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
                 CannotBeStunned = !friendly && KingInMists.IsBoss(variety),
                 KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
-                KingGrace = !friendly && KingInMists.IsBoss3(variety),
+                KingGrace = !friendly && (KingInMists.IsBoss3(variety) || KingInMists.IsFetish(variety)),
             }, emerge, waits);
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
@@ -284,7 +287,8 @@ partial class Program
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
                 // controller activates; the ordinary chase would slowly drag them toward the player.
-                if (KingInMists.IsBoss(m.Variety) || KingInMists.IsFetish(m.Variety)) continue;
+                if (KingInMists.IsBoss(m.Variety) || KingInMists.IsFetish(m.Variety)
+                    || KingInMists.IsGuidingLight(m.Variety)) continue;
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
@@ -417,7 +421,8 @@ partial class Program
     internal static bool MonsterActionCurrent(ClientState conn, uint id, SpawnedMonster m, int action)
     {
         lock (conn.Monsters)
-            return MonsterPresent(conn, id, m) && conn.PlayerLife > 0 && m.Hostile && !m.StageRunning
+            return MonsterPresent(conn, id, m) && conn.PlayerLife > 0
+                && (m.Hostile || KingInMists.IsFetish(m.Variety)) && !m.StageRunning
                 && m.ActionGeneration == action && conn.Clock.Elapsed.TotalSeconds >= m.FlinchUntil;
     }
 

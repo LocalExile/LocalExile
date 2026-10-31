@@ -56,6 +56,14 @@ public class KingInMistsTests
     }
 
     [Fact]
+    public void The_official_maze_actors_are_supported()
+    {
+        Assert.True(Monsters.Value.Find("Metadata/Monsters/LeagueAzmeri/GuidingLight/GuidingLightDaemonMaze_")?.Supported);
+        Assert.True(Monsters.Value.Find("Metadata/Monsters/LeagueAzmeri/Werewolves/WerewolfMaze")?.Supported);
+        Assert.True(Monsters.Value.Find("Metadata/Monsters/LeagueAzmeri/Spiders/MeleeSpiderMaze")?.Supported);
+    }
+
+    [Fact]
     public void The_humanoid_cannot_be_pushed_below_30_percent_before_the_maze()
     {
         var monster = new SpawnedMonster("The King in the Mists", new WalkEstimator(10, 10, 30, null, 300, 300), 135, 4, 1000)

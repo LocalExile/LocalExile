@@ -3,6 +3,7 @@ using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
+using GameServer.Data.Terrain.Generation;
 
 /// <summary>
 /// The King in the Mists, Crux of Nothingness (WorldAreas AzmeriLeagueBoss, level 83). The arena's WorldAreas row names
@@ -18,7 +19,11 @@ static class KingInMists
     public const string Boss2 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2";
     public const string Boss3 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss3";
     const string PoisonRat = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/Critters/PoisonRat";
+    const string ExplosiveToad = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/Critters/ExplosiveToad";
     const string DeathEffigy = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingDeathEffigy";
+    const string GuidingLight = "Metadata/Monsters/LeagueAzmeri/GuidingLight/GuidingLightDaemonMaze_";
+    const string WerewolfMaze = "Metadata/Monsters/LeagueAzmeri/Werewolves/WerewolfMaze";
+    const string MeleeSpiderMaze = "Metadata/Monsters/LeagueAzmeri/Spiders/MeleeSpiderMaze";
     internal const string MysticFetish = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2RitualPillar";
 
     // The arena.arm object points, relative to its "mapboss" point (162, 174): the three Mystic Fetishes
@@ -33,17 +38,27 @@ static class KingInMists
     // GrantedEffects rows (poedb / MonsterVarieties GrantedEffectsKeys). The default attack is row 420.
     const int MeleeEffect = 420, VineSlamEffect = 7597, VineCascadeEffect = 7596, SpellProjectile2Effect = 3893,
         SpellProjectile3Effect = 3894, TeleportEffect = 12419, SummonEffigyEffect = 8336, SummonDeathAuraEffigyEffect = 8342,
-        BugBombEffect = 1898, BugRendEffect = 10510, MazeEffect = 8341, BecomeTreantEffect = 8340;
+        BugBombEffect = 1898, BugRendEffect = 10510, BugRendSingleEffect = 10511, MazeEffect = 8341,
+        BecomeTreantEffect = 8340, RitualEffect = 7568, ReturnFromEdgeEffect = 8343, HexNoMovementEffect = 8337,
+        HexNoStandingEffect = 8338, PunishmentEffect = 12437, BugBombImpactEffect = 7608, SwarmPulseEffect = 10354;
 
     // Server skill ids (Actor skill list entries). They must not collide with basic actions; 0x0103 is the ordinary
-    // boss stage id. The default attack is SkillCatalog.FirstSkillId.
+    // boss stage id and 0x0114 is a basic action in 3.29.3b. The default attack is SkillCatalog.FirstSkillId.
     internal const ushort SlamSkill = 0x0104, CascadeSkill = 0x0105, TeleportSkill = 0x0107, EffigySkill = 0x0108,
         BugBombSkill = 0x0109, BugRendSkill = 0x010b, MazeSkill = 0x010c, TreantSkill = 0x010d,
-        Projectile2Skill = 0x010e, Projectile3Skill = 0x010f;
+        Projectile2Skill = 0x010e, Projectile3Skill = 0x010f, RitualSkill = 0x0110, ReturnFromEdgeSkill = 0x0111,
+        BugRendSingleSkill = 0x0112, PunishmentSkill = 0x0113, HexNoMovementSkill = 0x0115, HexNoStandingSkill = 0x0116,
+        BugBombImpactSkill = 0x0117, SwarmPulseSkill = 0x0118;
 
-    // BuffDefinitions rows: Portent Vapors and Branching Affliction. Mystic Miasma (row 2401) is documented but not
-    // applied yet because the effigy aura is not modelled.
-    internal const ushort PortentVaporsRow = 2409, BranchingAfflictionRow = 2371;
+    // The fetish hazards are actions on the fetish actor, not on the King. Their effects are the five rows of
+    // MonsterVarieties 10152's granted list (RatSwarm, CorruptedBloodDegen, SummonFrogSwamps and the two CGE variants).
+    internal const ushort FetishRatSkill = 0x0120, FetishBloodSkill = 0x0121, FetishSwampSkill = 0x0122,
+        FetishBloodAuraSkill = 0x0123, FetishSwampAuraSkill = 0x0124;
+    static readonly int[] FetishEffects = [10351, 10352, 10353, 5766, 5767];
+
+    // BuffDefinitions rows: Portent Vapors, Branching Affliction, the two ritual hexes and Mystic Miasma.
+    internal const ushort PortentVaporsRow = 2409, BranchingAfflictionRow = 2371, RitualMeditationRow = 2358,
+        RitualDanceRow = 2359, MysticMiasmaRow = 2401;
 
     public static bool IsBoss2(MonsterCatalog.Variety? variety) =>
         variety is not null && variety.Id.Equals(Boss2, StringComparison.Ordinal);
@@ -56,6 +71,10 @@ static class KingInMists
     /// <summary>A Mystic Fetish: a stationary shrine the fight spawns and activates, not an ordinary AI monster.</summary>
     public static bool IsFetish(MonsterCatalog.Variety? variety) =>
         variety is not null && variety.Id.Equals(MysticFetish, StringComparison.Ordinal);
+
+    /// <summary>The maze's Guiding Light daemon: a moving visual guide with no ordinary AI.</summary>
+    public static bool IsGuidingLight(MonsterCatalog.Variety? variety) =>
+        variety is not null && variety.Id.Equals(GuidingLight, StringComparison.Ordinal);
 
     /// <summary>The actor skill list for either form, built from the GrantedEffects rows the client must know to play the
     /// action's own animation. The ids are also the 0x1ab ids this controller sends.</summary>
@@ -81,17 +100,43 @@ static class KingInMists
             Add(EffigySkill, SummonEffigyEffect, Effigy(attack));
             Add(MazeSkill, MazeEffect, NoDamage(attack, MazeSkill, 2.5));
             Add(TreantSkill, BecomeTreantEffect, NoDamage(attack, TreantSkill, 2.5));
+            Add(RitualSkill, RitualEffect, NoDamage(attack, RitualSkill, 2.5));
+            Add(ReturnFromEdgeSkill, ReturnFromEdgeEffect, NoDamage(attack, ReturnFromEdgeSkill, 1.5));
+            Add(HexNoMovementSkill, HexNoMovementEffect, NoDamage(attack, HexNoMovementSkill, 1.5));
+            Add(HexNoStandingSkill, HexNoStandingEffect, NoDamage(attack, HexNoStandingSkill, 1.5));
+            Add(PunishmentSkill, PunishmentEffect, Punishment(attack));
         }
         else
         {
             Add(SlamSkill, VineSlamEffect, Slam(attack));
             Add(Projectile3Skill, SpellProjectile3Effect, Projectile3(attack));
             Add(BugBombSkill, BugBombEffect, BugBomb(attack));
-            // The client's monster_soulrend action is SpellProjectileChaos, which VoodooKingBoss3.act does not carry
-            // (PlayAnimation failed live). Use the boss's working SpellProjectile action for the projectile skill; the
-            // server still applies Bugrend's damage and projectile profile.
-            Add(BugRendSkill, SpellProjectile3Effect, BugRend(attack));
+            // The official 3.29.3b capture uses VoodooKingBugRend/BugRendSingle and BugSoulrend projectiles; the old
+            // live PlayAnimation failure came from a stale Debug build, not from this skill.
+            Add(BugRendSkill, BugRendEffect, BugRend(attack));
+            Add(BugRendSingleSkill, BugRendSingleEffect, BugRendSingle(attack));
             Add(EffigySkill, SummonDeathAuraEffigyEffect, Effigy(attack));
+            Add(HexNoMovementSkill, HexNoMovementEffect, NoDamage(attack, HexNoMovementSkill, 1.5));
+            Add(HexNoStandingSkill, HexNoStandingEffect, NoDamage(attack, HexNoStandingSkill, 1.5));
+            Add(PunishmentSkill, PunishmentEffect, Punishment(attack));
+            Add(BugBombImpactSkill, BugBombImpactEffect, NoDamage(attack, BugBombImpactSkill, 1.0));
+            Add(SwarmPulseSkill, SwarmPulseEffect, NoDamage(attack, SwarmPulseSkill, 1.0));
+        }
+        return list;
+    }
+
+    /// <summary>The Mystic Fetish actor's full granted-effect list. The King controller sends the hazard actions to the
+    /// fetish actor itself, as the official server does (RatSwarm, CorruptedBloodDegen, SummonFrogSwamps).</summary>
+    internal static IReadOnlyList<GrantedSkill> FetishSkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
+        MonsterAttack attack)
+    {
+        if (!IsFetish(variety)) return [];
+        var list = new List<GrantedSkill>();
+        for (int i = 0; i < FetishEffects.Length; i++)
+        {
+            ushort id = (ushort)(FetishRatSkill + i);
+            var stats = attack.SkillStats();
+            if (Program.SkillsFor(conn).FindByRow(id, FetishEffects[i], level, stats) is { } skill) list.Add(skill);
         }
         return list;
     }
@@ -131,7 +176,14 @@ static class KingInMists
 
     static MonsterAttack BugRend(MonsterAttack attack) => With(attack, BugRendSkill, 1.0, 48,
         attack.Damage.Scale(0.8))
-        with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/AzmeriVoodooKing3SpellProj", 800, Lobbed: false, 1) };
+        with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 6) };
+
+    static MonsterAttack BugRendSingle(MonsterAttack attack) => With(attack, BugRendSingleSkill, 1.0, 48,
+        attack.Damage.Scale(0.8))
+        with { Projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 1) };
+
+    static MonsterAttack Punishment(MonsterAttack attack) => With(attack, PunishmentSkill, 1.0, 40,
+        attack.Damage.Scale(0.9));
 
     static MonsterAttack NoDamage(MonsterAttack attack, ushort skill, double seconds) =>
         With(attack, skill, seconds, 0, DamagePacket.Empty);
@@ -155,9 +207,8 @@ static class KingInMists
         ushort? _portentBuff;
         readonly uint?[] _fetishes = new uint?[3];
         double _nextSlam, _nextCascade, _nextProjectile, _nextTeleport, _nextEffigy, _nextBomb, _nextRend, _nextChase;
-        double _graceUntil;
-        bool _barShown, _mazeStarted;
-        (int X, int Y)? _lastClientAt;
+        double _nextHex, _nextPunishment, _graceUntil;
+        bool _barShown, _mazeStarted, _hexDance;
 
         public async Task Run()
         {
@@ -170,7 +221,9 @@ static class KingInMists
             _nextEffigy = now + 12;
             _nextBomb = now + 6;
             _nextRend = now + 10;
-            _graceUntil = _phase == 3 ? now + 3 : 0;
+            _nextHex = now + 15;
+            _nextPunishment = now + 15;
+            _graceUntil = _phase == 3 ? now + 7 : 0;
             try
             {
                 await FindOrSpawnFetishes();
@@ -259,6 +312,12 @@ static class KingInMists
                 await Summon(DeathEffigy, 1);
                 return;
             }
+            if (now >= _nextHex)
+            {
+                _nextHex = now + 25;
+                await CastHex(HexNoMovementSkill, RitualMeditationRow, "casts Ritual of Meditation");
+                return;
+            }
             if (distance <= 15)
             {
                 await Use(boss.Attack!, area: false, radius: 0, "default attack");
@@ -299,6 +358,22 @@ static class KingInMists
                 await Summon(DeathEffigy, 1);
                 return;
             }
+            if (now >= _nextHex)
+            {
+                _nextHex = now + 25;
+                _hexDance = !_hexDance;
+                if (_hexDance)
+                    await CastHex(HexNoStandingSkill, RitualDanceRow, "casts Ritual of Dance");
+                else
+                    await CastHex(HexNoMovementSkill, RitualMeditationRow, "casts Ritual of Meditation");
+                return;
+            }
+            if (now >= _nextPunishment)
+            {
+                _nextPunishment = now + 20;
+                await Use(Punishment(boss.Attack!), area: false, radius: 0, "VoodooKingPunishment");
+                return;
+            }
             if (distance <= 16)
             {
                 await Use(boss.Attack!, area: false, radius: 0, "default attack");
@@ -319,7 +394,6 @@ static class KingInMists
         async Task Cast(ushort skill, string label)
         {
             double startedAt = conn.Clock.Elapsed.TotalSeconds;
-            await Align(startedAt);
             int action;
             lock (conn.Monsters)
             {
@@ -339,6 +413,35 @@ static class KingInMists
                 $"0x01ab King in the Mists {label}");
         }
 
+        // Ritual of Meditation/Dance: the official actor plays the hex and applies the matching 8 s debuff. The
+        // imprisonment/maim movement rule is not modelled, so this is the animation/icon half of the ritual. The row's
+        // client duration is not taken from the AddBuff payload, so remove the icon explicitly after the eight seconds.
+        async Task CastHex(ushort skill, ushort row, string label)
+        {
+            await Cast(skill, label);
+            ushort buff;
+            lock (conn.Monsters) buff = conn.NextBuff++;
+            await Program.Send(remote, stream, ciphers,
+                InstanceEntities.AddBuff(Program.PlayerId, buff, row, Program.PlayerId,
+                    u68: BitConverter.SingleToUInt32Bits(8f)),
+                $"0x01c1 player {label}");
+            _ = RemoveBuffAfter(buff, 8);
+        }
+
+        async Task RemoveBuffAfter(ushort buff, double seconds)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(seconds));
+                if (conn.Closed) return;
+                await Program.Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(Program.PlayerId, buff),
+                    "0x01c2 ritual hex expires");
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+            {
+            }
+        }
+
         // The treant walks to a stop point a short distance from the player, so its slams and default attacks can follow.
         // The order is refreshed when the player has moved away from the previous target or the walk ended.
         async Task Chase(double now, int px, int py, double distance)
@@ -355,7 +458,7 @@ static class KingInMists
             boss.SwingGeneration = null;
             int action;
             lock (conn.Monsters) action = ++boss.ActionGeneration;
-            bool sent = await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
+            await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
                 () =>
                 {
                     // Order only when the action actually reaches the gate: a flinch between the decision and the send
@@ -367,14 +470,12 @@ static class KingInMists
                         Program.MonsterActionSequence, 0x0408);
                 },
                 $"0x01ab King in the Mists moves toward the player at ({tx}, {ty})");
-            if (sent) _lastClientAt = (tx, ty);
         }
 
         async Task Use(MonsterAttack attack, bool area, double radius, string label)
         {
             int action;
             double startedAt = conn.Clock.Elapsed.TotalSeconds;
-            await Align(startedAt);
             lock (conn.Monsters)
             {
                 var at = boss.Walk.Position(startedAt);
@@ -404,14 +505,17 @@ static class KingInMists
                 $"0x01ab King in the Mists teleports next to Mystic Fetish {which + 1} at ({x}, {y})");
             await Program.Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, x, y),
                 $"0x01b7 King in the Mists teleports to ({x}, {y})");
-            _lastClientAt = (x, y);
-            // The teleport skill has no contact of its own: end the action after its departure so the client leaves its
-            // teleport stance instead of keeping the model frozen at the destination.
-            await Task.Delay(250);
-            if (!Present()) return;
-            await Program.Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id),
-                "0x01ac King in the Mists teleport ends");
             await ActivateFetish(which);
+            if (_fetishes[which] is { } fetishId)
+            {
+                // The official 3.29.3b capture activates a fetish with GSVoodooKingRitual targeted at the fetish. The
+                // fetish itself casts the matching hazard. Do not end the teleport action or send a second position
+                // packet: the extra 0x1ac/0x1b7 pair made the client model freeze/snap.
+                await CastAt(RitualSkill, fetishId, "performs the Mystic Fetish ritual");
+                await Task.Delay(600);
+                if (!Present()) return;
+                await CastFetish(which);
+            }
             _nextTeleport = now + 10;
             conn.KingPortentStacks = Math.Min(3, conn.KingPortentStacks + 1);
             conn.KingPortentUntil = now + 30;
@@ -453,7 +557,7 @@ static class KingInMists
                 if (_fetishes[i] is not null) continue;
                 var (x, y) = FetishPoint(i);
                 _fetishes[i] = await Program.SpawnMonster(remote, stream, ciphers, conn, variety, boss.Level,
-                    MonsterRarity.Normal, x, y, friendly: true, log: true, alone: true, unrisen: false);
+                    MonsterRarity.Normal, x, y, friendly: false, log: true, alone: true, unrisen: false);
             }
         }
 
@@ -486,16 +590,40 @@ static class KingInMists
                 $"0x02ba Mystic Fetish {which + 1} activates");
         }
 
-        // The client's own position and the server's walk estimate can drift while the treant chases. Align the model to
-        // the server's cell before a cast, so the projectile's launch point is where the player sees the King.
-        async Task Align(double now)
+        // A non-damaging skill aimed at another object (the official GSVoodooKingRitual targets the fetish, not the
+        // player). The client plays the skill's own animation and the target receives the ritual.
+        async Task CastAt(ushort skill, uint target, string label)
         {
+            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            int action;
             (int X, int Y) at;
-            lock (conn.Monsters) at = boss.Walk.Position(now);
-            if (_lastClientAt is { } last && Distance(at.X, at.Y, last.X, last.Y) < 4) return;
-            _lastClientAt = at;
-            await Program.Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, at.X, at.Y),
-                $"0x01b7 King in the Mists position alignment at ({at.X}, {at.Y})");
+            lock (conn.Monsters)
+            {
+                at = boss.Walk.Position(startedAt);
+                boss.Walk.Order(at.X, at.Y, startedAt);
+                action = ++boss.ActionGeneration;
+                boss.BusyUntil = Math.Max(boss.BusyUntil, startedAt + 2.0);
+            }
+            Console.WriteLine($"[gateway] {remote} King in the Mists 0x{id:x} phase {_phase}: {label}");
+            await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
+                () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skill,
+                    Program.MonsterActionSequence, 0x0408, targetObjectId: target),
+                $"0x01ab King in the Mists {label}");
+        }
+
+        // The official fetishes cast their own hazard (RatSwarm, CorruptedBloodDegen, SummonFrogSwamps) when the King's
+        // ritual reaches them. The client's RitualPillar.act does not carry the SpellAreaOfEffect animation in its default
+        // stance, so do not send a raw 0x1ab for it; the state-machine activation is the visible ritual. Spawn the hazard
+        // actors themselves instead.
+        async Task CastFetish(int which)
+        {
+            if (_fetishes[which] is not { } fetishId) return;
+            SpawnedMonster? fetish;
+            lock (conn.Monsters) conn.Monsters.TryGetValue(fetishId, out fetish);
+            if (fetish is null) return;
+            var (x, y) = fetish.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            if (which == 0) await SummonAt(PoisonRat, 3, x, y);
+            else if (which >= 2) await SummonAt(ExplosiveToad, 2, x, y);
         }
 
         async Task AddBranchingAffliction(double seconds)
@@ -532,6 +660,64 @@ static class KingInMists
             return effectId;
         }
 
+        sealed record MazePlan((int X, int Y) Entrance, (int X, int Y) Exit, List<(int X, int Y)> Path);
+
+        // A real route through the hedge-maze rooms: BFS over the placed maze rooms, connecting only rooms whose centers
+        // are reachable from one another through the actual walk map. This gives the Guiding Lights a walkable line
+        // instead of a straight fallback through the hedge walls.
+        static MazePlan? MazePlanFor(ClientState client)
+        {
+            var level = ServerLevels.For(client.Layout.Id, client.Seed);
+            if (level is null) return null;
+            var rooms = level.Rooms
+                .Where(r => r.Path.Contains("/TreantArena/Rooms/maze_", StringComparison.OrdinalIgnoreCase)).ToList();
+            var starts = rooms.Where(r => r.Path.EndsWith("/maze_entrance.arm", StringComparison.OrdinalIgnoreCase)).ToList();
+            var exitRoom = rooms.FirstOrDefault(r => r.Path.EndsWith("/maze_exit.arm", StringComparison.OrdinalIgnoreCase));
+            if (starts.Count == 0 || exitRoom is null) return null;
+            var arena = client.KingOrigin ?? (client.Layout.SpawnX, client.Layout.SpawnY);
+            (int X, int Y) Center(PlacedArmRoom room) =>
+                RoomCell(client, room, AreaPopulation.LocalToWorld(room.X, room.Y, room.Code,
+                    room.Width / 2f, room.Height / 2f));
+            var centers = rooms.ToDictionary(r => r, Center);
+            var startRoom = starts.MinBy(r => Distance(arena.X, arena.Y, centers[r].X, centers[r].Y))!;
+            bool Walkable(int x, int y) => client.Layout.WalkableFor(x, y, 0) && !client.Barrier.Contains((x, y));
+            List<(int X, int Y)> Route((int X, int Y) a, (int X, int Y) b) =>
+                ClientPathfinder.FindPath(a, b, Walkable, client.Layout.GridW, client.Layout.GridH,
+                    limit: ClientPathfinder.SearchLimit.Expansions1000);
+            var previous = new Dictionary<PlacedArmRoom, PlacedArmRoom?> { [startRoom] = null };
+            var queue = new Queue<PlacedArmRoom>();
+            queue.Enqueue(startRoom);
+            while (queue.Count > 0 && !previous.ContainsKey(exitRoom))
+            {
+                var room = queue.Dequeue();
+                var a = centers[room];
+                foreach (var other in rooms)
+                {
+                    if (previous.ContainsKey(other)) continue;
+                    var b = centers[other];
+                    if (Math.Abs(a.X - b.X) > 90 || Math.Abs(a.Y - b.Y) > 90) continue;
+                    if (Distance(a.X, a.Y, b.X, b.Y) > 90) continue;
+                    var path = Route(a, b);
+                    if (path.Count < 2 || Distance(path[^1].X, path[^1].Y, b.X, b.Y) > 6) continue;
+                    previous[other] = room;
+                    queue.Enqueue(other);
+                }
+            }
+            if (!previous.ContainsKey(exitRoom)) return null;
+            var roomPath = new List<PlacedArmRoom>();
+            for (PlacedArmRoom? room = exitRoom; room is not null; room = previous[room])
+                roomPath.Add(room);
+            roomPath.Reverse();
+            var route = new List<(int X, int Y)> { centers[roomPath[0]] };
+            for (int i = 1; i < roomPath.Count; i++)
+            {
+                var path = Route(centers[roomPath[i - 1]], centers[roomPath[i]]);
+                if (path.Count > 1) route.AddRange(path.Skip(1));
+                else route.Add(centers[roomPath[i]]);
+            }
+            return new MazePlan(centers[startRoom], centers[exitRoom], route);
+        }
+
         static (int X, int Y)? MazePoint(ClientState client, bool exit)
         {
             var level = ServerLevels.For(client.Layout.Id, client.Seed);
@@ -546,22 +732,62 @@ static class KingInMists
             // The entrance's telepad and the exit's portal object are at these room-local cells (maze_entrance.arm and
             // maze_exit.arm).
             var world = AreaPopulation.LocalToWorld(room.X, room.Y, room.Code, exit ? 80 : 34, exit ? 80 : 34);
-            return client.Layout.Near(world);
+            return RoomCell(client, room, world);
         }
 
-        async Task<(List<(uint Id, int At)> Wisps, List<(int X, int Y)> Path)> SpawnWisps(int ex, int ey, int px, int py)
+        // The exact .arm telepad/portal cell can be a wall or a non-walkable decoration. Scan the room's world box for
+        // the walkable cell closest to it instead of letting Near() snap outside the room.
+        static (int X, int Y) RoomCell(ClientState client, PlacedArmRoom room, (int X, int Y) world)
         {
-            var path = ClientPathfinder.FindPath((ex, ey), (px, py),
+            var near = client.Layout.Near(world);
+            if (Distance(near.X, near.Y, world.X, world.Y) <= 12) return near;
+            var best = near;
+            double bestDistance = Distance(near.X, near.Y, world.X, world.Y);
+            int x0 = Math.Max(0, room.X - room.Width), x1 = Math.Min(client.Layout.GridW - 1, room.X + room.Width);
+            int y0 = Math.Max(0, room.Y - room.Height), y1 = Math.Min(client.Layout.GridH - 1, room.Y + room.Height);
+            for (int x = x0; x <= x1; x++)
+                for (int y = y0; y <= y1; y++)
+                {
+                    if (!client.Layout.WalkableFor(x, y, 0) || client.Barrier.Contains((x, y))) continue;
+                    double d = Distance(x, y, world.X, world.Y);
+                    if (d >= bestDistance) continue;
+                    bestDistance = d;
+                    best = (x, y);
+                }
+            return best;
+        }
+
+        // The official maze uses GuidingLightDaemonMaze_ actors, not generic effect objects. Spawn the real monster when
+        // the catalog supports it, with the effect wisp as a fallback.
+        async Task<uint> SpawnGuidingLight(int x, int y)
+        {
+            if (Program.Monsters.Find(GuidingLight) is { Supported: true } variety)
+                return await Program.SpawnMonster(remote, stream, ciphers, conn, variety, boss.Level, MonsterRarity.Normal,
+                    x, y, friendly: true, log: false, alone: true, unrisen: false);
+            return await SpawnEffect(x, y, "Metadata/Effects/Spells/wand_wisp_support/ao/wisp.ao", 1f);
+        }
+
+        async Task<(List<(uint Id, int At)> Wisps, List<(int X, int Y)> Path)> SpawnWisps(int ex, int ey, int px, int py,
+            List<(int X, int Y)>? route = null)
+        {
+            var path = route is { Count: > 2 } ? route : ClientPathfinder.FindPath((ex, ey), (px, py),
                 (x, y) => conn.Layout.WalkableFor(x, y, 0) && !conn.Barrier.Contains((x, y)),
-                conn.Layout.GridW, conn.Layout.GridH, limit: ClientPathfinder.SearchLimit.Player);
-            if (path.Count == 0) path = [(ex, ey), (px, py)];
+                conn.Layout.GridW, conn.Layout.GridH, limit: ClientPathfinder.SearchLimit.Expansions1000);
+            if (path.Count <= 2)
+            {
+                // The player's local path window is too small for the full hedge maze; keep the Guiding Lights on a
+                // straight visual trail towards the exit as a fallback while the player navigates the walls.
+                const int steps = 80;
+                path = [.. Enumerable.Range(0, steps + 1).Select(i => (
+                    (int)Math.Round(ex + (px - ex) * (double)i / steps),
+                    (int)Math.Round(ey + (py - ey) * (double)i / steps)))];
+            }
             var wisps = new List<(uint Id, int At)>();
             const int count = 8;
             for (int i = 0; i < count; i++)
             {
                 int at = Math.Min(path.Count - 1, i * path.Count / count);
-                uint wisp = await SpawnEffect(path[at].X, path[at].Y,
-                    "Metadata/Effects/Spells/wand_wisp_support/ao/wisp.ao", 1f);
+                uint wisp = await SpawnGuidingLight(path[at].X, path[at].Y);
                 wisps.Add((wisp, at));
             }
             return (wisps, path);
@@ -569,12 +795,39 @@ static class KingInMists
 
         async Task MoveWisps(List<(uint Id, int At)> wisps, List<(int X, int Y)> path, int step)
         {
+            double now = conn.Clock.Elapsed.TotalSeconds;
             for (int i = 0; i < wisps.Count; i++)
             {
                 var (wisp, at) = wisps[i];
                 at = Math.Min(path.Count - 1, at + step);
                 wisps[i] = (wisp, at);
+                lock (conn.Monsters)
+                    if (conn.Monsters.TryGetValue(wisp, out var light))
+                    {
+                        light.Walk.Teleport(path[at].X, path[at].Y, now);
+                        light.CollisionPosition = (path[at].X, path[at].Y);
+                    }
                 await Program.Send(remote, stream, ciphers, InstanceProtocol.Teleport(wisp, path[at].X, path[at].Y), null);
+            }
+        }
+
+        // The official maze is populated with Wildwood Werewolves and Bloodtainter Arachnids as well as the Guiding
+        // Lights. Keep two hostile examples near the middle of the route; they use the ordinary monster AI.
+        async Task SpawnMazeMobs(List<(int X, int Y)> path)
+        {
+            if (path.Count < 4) return;
+            var middle = path[path.Count / 2];
+            if (Program.Monsters.Find(WerewolfMaze) is { Supported: true } wolf)
+            {
+                var (x, y) = conn.Layout.Near((middle.X + 4, middle.Y + 4));
+                await Program.SpawnMonster(remote, stream, ciphers, conn, wolf, boss.Level, MonsterRarity.Normal,
+                    x, y, log: false, alone: false);
+            }
+            if (Program.Monsters.Find(MeleeSpiderMaze) is { Supported: true } spider)
+            {
+                var (x, y) = conn.Layout.Near((middle.X - 4, middle.Y - 4));
+                await Program.SpawnMonster(remote, stream, ciphers, conn, spider, boss.Level, MonsterRarity.Normal,
+                    x, y, log: false, alone: false);
             }
         }
 
@@ -589,13 +842,15 @@ static class KingInMists
             await Cast(MazeSkill, "opens the maze");
             await Task.Delay(1000);
             if (!Present()) return;
-            var entrance = MazePoint(conn, exit: false) ?? conn.Layout.Near((_origin.X, _origin.Y + 80));
+            var plan = MazePlanFor(conn);
+            var entrance = plan?.Entrance ?? MazePoint(conn, exit: false) ?? conn.Layout.Near((_origin.X, _origin.Y + 80));
             await TeleportPlayer(entrance.X, entrance.Y);
             await AddBranchingAffliction(120);
-            var exit = MazePoint(conn, exit: true) ?? conn.Layout.Near((_origin.X + 80, _origin.Y));
+            var exit = plan?.Exit ?? MazePoint(conn, exit: true) ?? conn.Layout.Near((_origin.X + 80, _origin.Y));
             uint portal = await SpawnEffect(exit.X, exit.Y,
                 "Metadata/Effects/Microtransactions/Town_Portals/AzmeriVoodooPortal/AzmeriVoodooPortal.ao", 1f);
-            var (wisps, path) = await SpawnWisps(entrance.X, entrance.Y, exit.X, exit.Y);
+            var (wisps, path) = await SpawnWisps(entrance.X, entrance.Y, exit.X, exit.Y, plan?.Path);
+            await SpawnMazeMobs(path);
             Console.WriteLine($"[gateway] {remote} King in the Mists: maze from ({entrance.X}, {entrance.Y}) to ({exit.X}, {exit.Y}), {path.Count} path cells");
             double deadline = conn.Clock.Elapsed.TotalSeconds + 120, nextMove = 0;
             while (Present() && conn.PlayerLife > 0 && !conn.Closed && conn.Clock.Elapsed.TotalSeconds < deadline)
@@ -620,9 +875,11 @@ static class KingInMists
             boss.Walk.Teleport(bx, by, conn.Clock.Elapsed.TotalSeconds);
             await Program.Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, bx, by),
                 $"0x01b7 King in the Mists returns to the arena centre at ({bx}, {by})");
-            _lastClientAt = (bx, by);
             foreach (var (wisp, _) in wisps)
+            {
+                lock (conn.Monsters) conn.Monsters.Remove(wisp);
                 await Program.Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(wisp), null);
+            }
             await Program.Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(portal), null);
             await BecomeTreant(conn.Clock.Elapsed.TotalSeconds);
         }
@@ -645,12 +902,13 @@ static class KingInMists
 
         async Task BecomeTreant(double now)
         {
-            boss.BusyUntil = now + 6;
+            boss.BusyUntil = now + 10;
             var at = boss.Walk.Position(now);
             int action;
             lock (conn.Monsters) action = ++boss.ActionGeneration;
             // The staff hits the floor, then the humanoid body disintegrates and the treant emerges. The player is already
-            // back in the arena (RunMaze), and the treant's 3 s grace keeps it from acting or taking damage meanwhile.
+            // back in the arena (RunMaze). Keep the humanoid for the full morph clip; the earlier 2.5 s swap cut the
+            // animation and made the model change look instantaneous.
             await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
                 () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, SlamSkill, Program.MonsterActionSequence, 0x0408),
                 "0x01ab King in the Mists slams his staff");
@@ -660,7 +918,8 @@ static class KingInMists
             await Program.SendMonsterAction(remote, stream, ciphers, conn, id, boss, action,
                 () => InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, TreantSkill, Program.MonsterActionSequence, 0x0408),
                 "0x01ab King in the Mists becomes a treant");
-            await Task.Delay(2500);
+            await Task.Delay(5500);
+            if (!Present()) return;
             if (!Present()) return;
             at = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             lock (conn.Monsters)
@@ -688,8 +947,13 @@ static class KingInMists
 
         async Task Summon(string varietyId, int count)
         {
-            if (Program.Monsters.Find(varietyId) is not { Supported: true } variety) return;
             var (x, y) = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            await SummonAt(varietyId, count, x, y);
+        }
+
+        async Task SummonAt(string varietyId, int count, int x, int y)
+        {
+            if (Program.Monsters.Find(varietyId) is not { Supported: true } variety) return;
             for (int i = 0; i < count; i++)
             {
                 var at = conn.Layout.Near((x + 6 + i * 4, y + 6 - i * 3));
