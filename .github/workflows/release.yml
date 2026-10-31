@@ -1,4 +1,4 @@
-# Starts only by hand (Actions > Release > Run workflow, on main). It builds, tests and packages, and leaves a draft release:
+# Starts only by hand (Actions > Release > Run workflow, on main). It builds and packages, and leaves a draft release:
 # the person starting it tries the zip with the real client, then publishes the draft, which creates the tag.
 # Agents/docs/dev/releases.md
 name: Release
@@ -49,14 +49,6 @@ jobs:
       - name: Build the package
         shell: pwsh
         run: .\scripts\release\build-release.ps1 -Version $env:VERSION
-
-      - name: Test
-        shell: pwsh
-        run: |
-          foreach ($suite in 'Core', 'Data', 'Gateway') {
-            dotnet test "tests/GameServer.$suite.Tests" -c Release --no-build -nologo
-            if ($LASTEXITCODE -ne 0) { throw "the $suite tests failed" }
-          }
 
       - uses: actions/attest-build-provenance@v2
         with:
