@@ -7,14 +7,14 @@ using GameServer.Modding;
 namespace GameServer.Modules.Delve;
 
 /// <summary>Delve: the Crawler and the Voltaxic Generator in the Azurite Mine Encampment, the chart, Niko's options, the equipment
-/// upgrades and their stats. The mine's own mechanics (darkness, the cart, depth) are not built.</summary>
-public sealed class DelveModule : IModule
+/// upgrades and their stats. The first route's trip is in DelveTrips.cs; the mine's other mechanics (darkness, the chart's other nodes) are not built.</summary>
+public sealed partial class DelveModule : IModule
 {
     /// <summary>The Azurite Mine Encampment (<c>WorldAreas</c> Delve_Hub).</summary>
     public const ushort Hub = 0x8b9b;
     const string HubId = "Delve_Hub";
     /// <summary>Where a module saves: the account's equipment and the character's sulphite.</summary>
-    public const string EquipmentKey = "delve", SulphiteKey = "delve.sulphite";
+    public const string EquipmentKey = "delve", SulphiteKey = "delve.sulphite", DepthKey = "delve.depth";
 
     /// <summary>Where the Crawler stands in the encampment, on the rails by the mine entrance, and its facing
     /// (placed live with /delve_crawler 408 310 90, 2026-10-30).</summary>
@@ -34,6 +34,7 @@ public sealed class DelveModule : IModule
         public readonly List<uint> Attachments = [];
         public uint Generator;
         public bool GeneratorOpen;
+        public DelveJourney? Journey;
         /// <summary>What the next Delve chart (S→C 0x240) carries; /delve_chart sets it (one cell at 0, 0 by default).</summary>
         public (uint A, ushort B, List<InstanceDelve.Cell> Cells) ChartProbe = (0, 0, [new(0, 0, 0, 0, 0)]);
     }
@@ -69,7 +70,8 @@ public sealed class DelveModule : IModule
     {
         // The gauge and the Subterranean Chart read the character's sulphite from it, in the encampment and the mine.
         module.OnEnterMessages(player => player.AreaId.StartsWith("Delve", StringComparison.Ordinal)
-            ? [("0x0228 Delve resources and equipment", DelveData(module.World(player)))] : []);
+            ? [("0x0228 Delve resources and equipment", DelveData(module.World(player))),
+               .. Enumerable.Repeat(("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(Sulphite(module.World(player).CharacterData), Sulphite(module.World(player).CharacterData))), 2)] : []);
         module.OnAreaHeader(player => player.AreaId switch
         {
             "Delve_Main" => new AreaHeader(InstanceDelve.FirstMineTerrain(), [2]),
@@ -86,6 +88,7 @@ public sealed class DelveModule : IModule
         {
             await SpawnCrawler(module, player);
             await SpawnGenerator(module, player);
+            await StartPendingTrip(module, player);
         });
         module.OnObjectUsed(async use =>
         {
@@ -134,11 +137,7 @@ public sealed class DelveModule : IModule
         });
         module.OnPacket(InstanceDelve.RouteId, async packet =>
         {
-            var route = InstanceDelve.ReadRoute(packet.Bytes.ToArray());
-            module.Log($"{packet.Player.Character} route requested: {string.Join(" -> ", route)}; route execution is not implemented");
-            var world = module.World(packet.Player);
-            if (world.PlayerReady && world.AreaHash is Hub or InstanceDelve.MineArea)
-                await packet.Player.Tell("This mine route is not available yet.");
+            await RequestTrip(module, packet.Player, InstanceDelve.ReadRoute(packet.Bytes.ToArray()));
             return true;
         });
         foreach (ushort id in new[] { InstanceDelve.UpgradesRequestId, InstanceDelve.UpgradeId, InstanceDelve.PurchaseId })
@@ -153,6 +152,9 @@ public sealed class DelveModule : IModule
             if (packet.Bytes.Length != 2) return false;
             var (a, b, cells) = _states.GetOrCreateValue(packet.Player).ChartProbe;
             await packet.Player.Send(InstanceDelve.Chart(a, b, cells), $"0x0240 Delve chart: {a}, {b}, {cells.Count} cell(s) {string.Join(" ", cells)}");
+            var world = module.World(packet.Player);
+            await packet.Player.Send(DelveData(world), "Delve chart resource snapshot");
+            await RefreshGauge(packet.Player, world);
             return true;
         });
         module.OnChatCommand("delve_crawler", "/delve_crawler [x y degrees] (dev: create the Delve Crawler in the Azurite Mine Encampment, or move and turn the one there; a click on it opens the Subterranean Chart)", c => CrawlerCommand(module, c));
@@ -162,6 +164,7 @@ public sealed class DelveModule : IModule
             var world = module.World(c.Player);
             world.CharacterData.Change(SulphiteKey, _ => amount.ToString());
             await c.Player.Send(DelveData(world), $"0x0228 Delve data: {amount} sulphite (/sulphite)");
+            await RefreshGauge(c.Player, world);
             await c.Player.Tell($"Sulphite: {amount}");
         });
         module.OnChatCommand("delve_chart", "/delve_chart <u32> <u16> [<u16> <u16> <u64> <u8> <u32> ...] (dev: what the next Delve chart (S→C 0x240) carries, to work out its fields)", async c =>
@@ -270,6 +273,15 @@ public sealed class DelveModule : IModule
             await player.Send(InstanceProtocol.EnterWakeZone(part));
         }
         await BlockCrawler(module, player, state, x, y, CrawlerRotation);
+        if (world.AreaHash == InstanceDelve.MineArea && DelveRailRoute.Load(player.AreaId, ConnOf(player).Seed) is { } rail)
+        {
+            var end = rail.Points[^1];
+            uint arrival = world.NewObjectId();
+            // Original Delve node art defaults to idle_on. It is scenery, not a second chart interaction.
+            await player.Send(InstanceEntities.CreateObject(arrival, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(end.X, end.Y, "Metadata/Terrain/Doodads/Leagues/Delve/DelveWaypointObject.ao").Blob()), $"Delve destination pad at {end}");
+            await player.Send(InstanceProtocol.EnterWakeZone(arrival));
+        }
     }
 
     // The Crawler's type does not block (DelveRobot.ot: no blocking), so the player walked through it: three invisible
@@ -285,7 +297,7 @@ public sealed class DelveModule : IModule
         state.Blockers.Clear();
         foreach (int along in new[] { -CrawlerHalfLength, 0, CrawlerHalfLength })
         {
-            int bx = x + (int)MathF.Round(along * MathF.Cos(rotation)), by = y + (int)MathF.Round(along * MathF.Sin(rotation));
+            int bx = x + (int)MathF.Round(along * MathF.Sin(rotation)), by = y - (int)MathF.Round(along * MathF.Cos(rotation));
             uint id = world.NewObjectId();
             state.Blockers.Add(id);
             world.SetBlocker(id, bx, by, ObjectReach);

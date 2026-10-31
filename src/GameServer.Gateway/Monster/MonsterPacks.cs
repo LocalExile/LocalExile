@@ -59,6 +59,8 @@ sealed class PackCatalog(string folder = "data")
         return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses);
     }
 
+    public Pack? Find(string id) => _data.Value?.Packs.FirstOrDefault(p => p.Id == id);
+
     private static (List<Pack>, List<(string, int, int[])>, Dictionary<int, List<int>>)? Load(string folder)
     {
         string packs = Path.Combine(folder, "tables", "MonsterPacks.json"), entries = Path.Combine(folder, "tables", "MonsterPackEntries.json"),

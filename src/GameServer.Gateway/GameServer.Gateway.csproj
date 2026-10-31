@@ -33,6 +33,8 @@
     <InternalsVisibleTo Include="tattoos" />
     <InternalsVisibleTo Include="uniquebelts" />
     <InternalsVisibleTo Include="vendors" />
+    <!-- scripts/re/exits: the offline area transition audit. -->
+    <InternalsVisibleTo Include="exits" />
   </ItemGroup>
 
   <PropertyGroup>
