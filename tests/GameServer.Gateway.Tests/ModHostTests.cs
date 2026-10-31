@@ -194,7 +194,7 @@ public sealed class ModHostTests : IDisposable
         await _host.RunCommand(_player, "count_b", []);
         Assert.Equal(["b count 1", "b count 2", "b count 1"], _player.Told);
         Assert.Contains("[mods] unloaded b", Logged());
-        Assert.Equal(ModKind.League, _host.Mods().Single(m => m.Id == "b").Kind);
+        Assert.Equal(ModKind.Feature, _host.Mods().Single(m => m.Id == "b").Kind);
     }
 
     [Fact]
