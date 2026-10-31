@@ -111,6 +111,11 @@ whenLoaded('user32.dll', user32 => {
 // - RegisterRawInputDevices (0x14103b998): RIDEV_INPUTSINK / RIDEV_EXINPUTSINK (input while in the background),
 //   RIDEV_CAPTUREMOUSE / RIDEV_NOHOTKEYS (0x200), RIDEV_APPKEYS and RIDEV_NOLEGACY are removed from every device, so
 //   the client never receives, captures or swallows the user's input. Removals (RIDEV_REMOVE) pass unchanged.
+// - SystemParametersInfoW/A SPI_SETFILTERKEYS (0x33), SPI_SETTOGGLEKEYS (0x35), SPI_SETSTICKYKEYS (0x3b): the client
+//   changes these accessibility keys session-wide (0x140e68fb0, 0x140e68939; fWinIni 0) and restores them only when it
+//   exits normally, which a client its job ends never does. They return success and change nothing; the GET calls pass;
+// - ChangeDisplaySettingsExW/A, ChangeDisplaySettingsW/A: a seeded fullscreen=true must not change the user's display
+//   mode: they return DISP_CHANGE_SUCCESSFUL and change nothing.
 // No DirectInput: 3.29.3b imports none (no dinput8, no DirectInput8Create).
 const inputFlags = flags => {
   if (flags & 0x1) return flags;  // RIDEV_REMOVE
@@ -153,6 +158,20 @@ whenLoaded('user32.dll', user32 => {
       }
       return original(id, proc, module, thread);
     });
+  }
+  for (const api of ['SystemParametersInfoW', 'SystemParametersInfoA']) {
+    replace(api, 'int', ['uint32', 'uint32', 'pointer', 'uint32'], (original, action, value, param, winIni) => {
+      if (action === 0x33 || action === 0x35 || action === 0x3b) {
+        once(`input: ${api}(0x${action.toString(16)}) ignored`);
+        return 1;
+      }
+      return original(action, value, param, winIni);
+    });
+  }
+  for (const [api, args] of [['ChangeDisplaySettingsExW', ['pointer', 'pointer', 'pointer', 'uint32', 'pointer']],
+    ['ChangeDisplaySettingsExA', ['pointer', 'pointer', 'pointer', 'uint32', 'pointer']],
+    ['ChangeDisplaySettingsW', ['pointer', 'uint32']], ['ChangeDisplaySettingsA', ['pointer', 'uint32']]]) {
+    replace(api, 'int', args, () => { once(`input: ${api} ignored`); return 0; });
   }
   const raw = user32.findExportByName('RegisterRawInputDevices');
   if (raw !== null) {

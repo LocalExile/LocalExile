@@ -112,6 +112,20 @@ for (const [id, thread] of [[13, 0], [14, 0], [2, 0], [7, 0]]) {
 assert.strictEqual(originals.length, 0);
 assert.strictEqual(replaced['user32.dll!SetWindowsHookExW'](2, pointer(1), pointer(2), 1234).value, 0x77);
 assert.strictEqual(replaced['user32.dll!SetWindowsHookExW'](4, pointer(1), pointer(2), 0).value, 0x77);
+// Accessibility keys are not changed session-wide (SET of filter, toggle and sticky keys); other actions pass.
+originals.length = 0;
+for (const action of [0x33, 0x35, 0x3b]) {
+  assert.strictEqual(replaced['user32.dll!SystemParametersInfoW'](action, 0, pointer(0x10), 0), 1);
+  assert.strictEqual(replaced['user32.dll!SystemParametersInfoA'](action, 0, pointer(0x10), 0), 1);
+}
+assert.strictEqual(originals.length, 0);
+replaced['user32.dll!SystemParametersInfoW'](0x3a, 0, pointer(0x10), 0);  // SPI_GETSTICKYKEYS
+assert.strictEqual(originals.length, 1);
+// The display mode is never changed.
+originals.length = 0;
+assert.strictEqual(replaced['user32.dll!ChangeDisplaySettingsExW'](pointer(0), pointer(0x20), pointer(0), 4, pointer(0)), 0);
+assert.strictEqual(replaced['user32.dll!ChangeDisplaySettingsW'](pointer(0x20), 4), 0);
+assert.strictEqual(originals.length, 0);
 // Raw input: background, capture, no-hotkeys, app-keys and no-legacy flags are removed; RIDEV_REMOVE passes.
 const devices = [[1, 2, 0x100 | 0x200 | 0x30], [1, 6, 0x2000 | 0x1000 | 0x400 | 0x200], [1, 4, 0x2100], [1, 2, 0x1]];
 const memory = devices.map(d => d.slice());

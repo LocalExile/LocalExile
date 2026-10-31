@@ -218,6 +218,12 @@ session client, renderer or not, `nullifier.js` replaces these `user32` calls at
 - `RegisterRawInputDevices` (`0x14103b998`; the client registers usage 1/4 and 1/5 with `RIDEV_INPUTSINK |
   RIDEV_DEVNOTIFY`): `RIDEV_INPUTSINK`, `RIDEV_EXINPUTSINK`, `RIDEV_CAPTUREMOUSE`/`RIDEV_NOHOTKEYS`, `RIDEV_APPKEYS` and
   `RIDEV_NOLEGACY` are removed, so the client never receives, captures or swallows the user's input in the background.
+- `SystemParametersInfoW/A` with `SPI_SETFILTERKEYS` (0x33), `SPI_SETTOGGLEKEYS` (0x35) or `SPI_SETSTICKYKEYS` (0x3b):
+  the client changes these accessibility keys for the whole Windows session (`0x140e68fb0`, `0x140e68939`, not saved)
+  and puts them back only when it exits normally, which a client its job ends never does. They return success and
+  change nothing; the GET calls pass.
+- `ChangeDisplaySettingsExW` and the other `ChangeDisplaySettings` variants: return `DISP_CHANGE_SUCCESSFUL` and change
+  nothing, so a session whose settings say `fullscreen=true` cannot change the user's display mode.
 - No DirectInput: the client imports no `dinput8`.
 
 Exports that share code are replaced once, and a failure is logged per API (an early version replaced two aliases,
