@@ -57,7 +57,7 @@ test run: CPU samples and allocation ticks with stacks (read them with TraceEven
 | Skill-type sets of a skill catalogue | 0.30 s, 105 MB allocated | 0.11 s, 13 MB |
 | `IsRangedAttack` (three type sets) | 200 ns, 133 B per call | 33 ns, 0 B |
 | GGPK bundle cache ceiling (per Gateway) | 1 GiB | 128 MB (+ 64 MB decompressed chunks) |
-| Generated levels kept (46-area session) | 24, 265 MB of grids | 8 (most recently used), 103 MB |
+| Generated levels kept (46-area session) | 24, 265 MB of grids | 8 most recently used (103-116 MB), plus any level a connection still plays |
 | Levelgen gate, 122 checks, 2 workers | 30 s | 9 s (same results) |
 | `PlanMonsterAi`, 200 monsters, 60 chasing (Release) | 1.34-1.37 ms per step | 1.04 ms (`MonsterSurround.Assign` 0.96 -> 0.48 ms) |
 | Busy instance CPU (Release; Debug ~1.6×) | 78-160 ms per game second | within that noise |
@@ -65,7 +65,8 @@ test run: CPU samples and allocation ticks with stacks (read them with TraceEven
 What changed: `BundleFile.DecompressSlice` copied every chunk of a bundle for each file read (88 % of a level
 generation's CPU); `GameFileSystem` keeps the last 64 MB of decompressed chunks and serves a file whose chunks are all
 cached without its bundle, so neighbouring terrain files do not go through the Node Oodle worker again; the Gateway asks
-for a 128 MB bundle cache and keeps 8 generated levels; one aggressive full collection after the startup loads returns
+for a 128 MB bundle cache and keeps 8 generated levels for re-entries (a layout in use holds its level, so the
+projectile and height lookups never regenerate it, and they take no lock); one aggressive full collection after the startup loads returns
 the memory their parsing left committed; `AreaLayouts.DeepestCell` no longer allocates an array per cell;
 `SkillCatalog` parses the skill-type tables once and resolves each set once; `GameTables` shares the parse of
 Stats.json, Mods.json, MonsterVarieties.json and GrantedEffects.json among the catalogues that load them in one burst;
