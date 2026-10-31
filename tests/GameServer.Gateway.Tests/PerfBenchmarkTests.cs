@@ -167,18 +167,33 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         if (!Enabled) return;
         _ = ConsoleLog.Value;
         string[] areas = ["1_1_2", "1_1_3", "1_1_4_1", "1_1_5", "1_1_7_1", "1_2_1"];
+        // Game_PERF_MORE_AREAS=N: then the layouts of N more supported areas (no monsters), as a long session visits
+        // them, for what the caches grow to.
+        int more = int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_MORE_AREAS"), out int n) ? n : 0;
+        if (more > 0)
+            areas = [.. areas, .. ServerLevels.LoadSupported(ServerLevels.BaselineFile).Except(areas).Order(StringComparer.Ordinal)
+                .Where(a => AreaTransitionCatalog.HashOf(a) is not null).Take(more)];
         bool first = true;
         foreach (string id in areas)
         {
             if (AreaTransitionCatalog.HashOf(id) is not ushort hash || !ServerLevels.IsSupported(id)) continue;
+            if (Array.IndexOf(areas, id) >= 6)
+            {
+                var timer = Stopwatch.StartNew();
+                AreaLayouts.For(hash, (uint)(1000 + Array.IndexOf(areas, id)));
+                Record("area", "more: layout ms", timer.Elapsed.TotalMilliseconds, "ms");
+                continue;
+            }
             // A seed per area and run that no earlier generation cached.
             uint seed = (uint)(1000 + Array.IndexOf(areas, id));
+            long live = GC.GetTotalMemory(forceFullCollection: true);
             long before = Allocated();
             var clock = Stopwatch.StartNew();
             var layout = AreaLayouts.For(hash, seed);
             double layoutMs = clock.Elapsed.TotalMilliseconds;
             Record("area", $"{id} layout{(first ? " (first: opens the game files)" : "")} ms", layoutMs, "ms");
             Record("area", $"{id} layout allocated MB", (Allocated() - before) / 1048576.0, "MB");
+            Record("area", $"{id} layout retained MB", (GC.GetTotalMemory(forceFullCollection: true) - live) / 1048576.0, "MB");
             first = false;
             using var wire = new Wire();
             var conn = Player(layout, seed);

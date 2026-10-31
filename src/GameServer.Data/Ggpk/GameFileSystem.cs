@@ -10,7 +10,10 @@ namespace GameServer.Data.Ggpk;
 /// </summary>
 public sealed class GameFileSystem : IDisposable
 {
-    private const long BundleCacheBudgetBytes = 1L << 30; // 1 GiB
+    /// <summary>The default budget of the compressed-bundle cache.</summary>
+    public const long DefaultBundleCacheBytes = 1L << 30; // 1 GiB
+
+    private readonly long _bundleCacheBudgetBytes;
 
     private readonly GGPK _ggpk;
     private readonly IOodleDecoder _oodle;
@@ -28,14 +31,16 @@ public sealed class GameFileSystem : IDisposable
 
     public GameIndex Index { get; }
 
-    private GameFileSystem(GGPK ggpk, GameIndex index, IOodleDecoder oodle)
+    private GameFileSystem(GGPK ggpk, GameIndex index, IOodleDecoder oodle, long bundleCacheBytes)
     {
+        _bundleCacheBudgetBytes = bundleCacheBytes;
         _ggpk = ggpk;
         Index = index;
         _oodle = oodle;
     }
 
-    public static GameFileSystem Open(string ggpkPath, IOodleDecoder? oodle = null)
+    /// <param name="bundleCacheBytes">How many bytes of compressed bundles to keep (most recently used first).</param>
+    public static GameFileSystem Open(string ggpkPath, IOodleDecoder? oodle = null, long bundleCacheBytes = DefaultBundleCacheBytes)
     {
         oodle ??= new ManagedOodleDecoder();
         // Read-only and shared, so the data can be read while the game client has the GGPK open.
@@ -44,7 +49,7 @@ public sealed class GameFileSystem : IDisposable
         {
             byte[] indexRaw = ReadGgpkFile(ggpk, "Bundles2/_.index.bin");
             byte[] indexContent = BundleFile.DecompressWhole(indexRaw, oodle);
-            return new GameFileSystem(ggpk, GameIndex.Parse(indexContent), oodle);
+            return new GameFileSystem(ggpk, GameIndex.Parse(indexContent), oodle, bundleCacheBytes);
         }
         catch
         {
@@ -122,7 +127,7 @@ public sealed class GameFileSystem : IDisposable
         _lruNodes[index] = _lru.AddFirst(index);
         _cacheBytes += raw.Length;
 
-        while (_cacheBytes > BundleCacheBudgetBytes && _lru.Last is { } last)
+        while (_cacheBytes > _bundleCacheBudgetBytes && _lru.Last is { } last)
         {
             int evict = last.Value;
             _lru.RemoveLast();
