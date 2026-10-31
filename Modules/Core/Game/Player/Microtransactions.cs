@@ -89,6 +89,13 @@ sealed class CosmeticEffects(string folder = "data")
         /// <summary>A portrait's variation (MicrotransactionCharacterPortraitVariations <c>__col1</c>), 0 otherwise: the
         /// Player component's u16 at +0x1aa and the character list's U46.</summary>
         public ushort Portrait { get; init; }
+
+        /// <summary>A portrait frame's variation (MicrotransactionSocialFrameVariations <c>Index</c>), 0 otherwise: the
+        /// client draws <c>Art/2DArt/UIImages/Common/MTX/SupporterIconFrame{Frame}</c> around the portrait.</summary>
+        public ushort Frame { get; init; }
+
+        /// <summary>A portrait frame's shop name (MtxTypes <c>Name</c>), null otherwise.</summary>
+        public string? FrameName { get; init; }
     }
 
     public sealed record SkillRestriction(int SlotType, IReadOnlyList<int> Gems, IReadOnlyList<int> Classes);
@@ -169,6 +176,13 @@ sealed class CosmeticEffects(string folder = "data")
             if (Int(row, "MtxTypeGameSpecific") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
                 && Int(row, "__col1") is int variation and > 0 and <= ushort.MaxValue)
                 effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { Portrait = (ushort)variation };
+        var names = Rows(Path.Combine(dir, "MtxTypes.json"))
+            .Where(r => r.TryGetProperty("HASH32", out var h) && h.TryGetUInt32(out _) && r.TryGetProperty("Name", out var n) && n.ValueKind == JsonValueKind.String)
+            .GroupBy(r => r.GetProperty("HASH32").GetUInt32()).ToDictionary(g => g.Key, g => g.First().GetProperty("Name").GetString());
+        foreach (var row in Rows(Path.Combine(dir, "MicrotransactionSocialFrameVariations.json")))
+            if (Int(row, "MtxTypeGameSpecific") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
+                && Int(row, "Index") is int frame and > 0 and <= ushort.MaxValue)
+                effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { Frame = (ushort)frame, FrameName = names.GetValueOrDefault(hash) };
         foreach (var row in Rows(Path.Combine(dir, "MicrotransactionSlot.json")))
             if (Int(row, "Id") is int id and > 0 and < InstanceMicrotransactions.SlotCount)
                 slots[(byte)id] = new Slot(row.TryGetProperty("Name", out var n) ? n.GetString() ?? "" : "",

@@ -93,7 +93,8 @@ C#: `LoginWire.cs` (`LoginWriter`, `LoginReader`), `LoginMessages.cs` (records +
 
 **Entry15** (0x50 bytes, wire order): wstr name `+0x00`, wstr text `+0x20` (the character's league), u8
 `+0x49` (red marker), u8 `+0x4d`, u8 `+0x48` **level**, u32 `+0x40`, u8 `+0x4a` **class** (3 = Witch in this enum, Scion = 0
-in ours), u16 `+0x44` and u16 `+0x46` (portrait), u8 `+0x4b`, u8 `+0x4c`. Mapped live by setting one probe field to 3.
+in ours), u16 `+0x44` (portrait frame), u16 `+0x46` (portrait), u8 `+0x4b`, u8 `+0x4c`. Mapped live by setting one probe
+field to 3.
 
 **0x14 in detail** (handler: dispatch `0x14213f190` case 0x14):
 

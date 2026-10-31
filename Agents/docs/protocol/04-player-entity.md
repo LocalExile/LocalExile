@@ -301,8 +301,8 @@ u32. With 0 nothing else is read.
 | u8 | → `+0x158` of the player data | **class**: Characters.dat **IntegerId** (Marauder 1, Witch 3; the row put the panel on Marauder, [13](13-items.md) §6), bit5 and bits 6–7 ascendancy. Changing it fires `0x141e473f0` |
 | u32 | +0x18c | **experience** (`0x141e7f6b0`). The level `+0x1ac` is derived from it (`0x142426710`) |
 | u32 | +0x188 | |
-| u16 | +0x1a8 | |
-| u16 | +0x1aa | |
+| u16 | +0x1a8 | the portrait frame ([23](23-microtransactions.md) §3) |
+| u16 | +0x1aa | the portrait ([23](23-microtransactions.md) §3) |
 | vec16⟨u8 + 8 bytes⟩ | +0x1b8 | `0x141e83340` |
 | vec16⟨u8 + 8 bytes⟩ | +0x1d0 | **league quest flags**: bit id − 1 of the client's built-in list ([21](21-hideouts.md) §1) |
 | 9 raw bytes | +0x1e8 | |
@@ -315,7 +315,7 @@ u32. With 0 nothing else is read.
 **Updates (S→C 0x2ba, component index 6):** the vtable +0xa0 reader `0x141e7ee30` (both Player vtables) reads a u16
 flag word, then one part per set bit; every part is conditional. Bit 0 = u32 **experience**, through the same setter
 `0x141e7f6b0`: it derives the level again and, when it changed, sets "levelled up" (+0x2e8 = new > old) and calls the
-component's vtable +0x108. Other bits: 2 and 8 the two vec16 lists, 0x200 the 9 raw bytes, 4 → +0x1a8, 0x40 → +0x1aa,
+component's vtable +0x108. Other bits: 2 and 8 the two vec16 lists, 0x200 the 9 raw bytes, 4 → +0x1a8 (frame), 0x40 → +0x1aa (portrait),
 0x10 the Hideouts keys, 0x20 the class byte, 0x1000 → +0x1b0, 0x80 → +0x1ae/+0x1ad, 0x100 → +0x1af, 0x800 a u32-counted
 list. `InstanceEntities.PlayerExperienceUpdate` sends `0001` + the u32 (`/set_level`).
 

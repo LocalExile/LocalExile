@@ -77,6 +77,7 @@ public sealed class LoginServerSession(AccountService accounts)
         CharacterLeague = Leagues.ResolveSavedLeague(chosen.League);
         CharacterClass = chosen.Class;
         CharacterLevel = chosen.Level;
+        CharacterPortraitFrame = chosen.PortraitFrame;
         CharacterLastTown = chosen.LastTown;
         if (Assign is not null)
         {
@@ -98,6 +99,9 @@ public sealed class LoginServerSession(AccountService accounts)
 
     /// <summary>The chosen character's level (the Auth server changes it for /set_level, so later tickets carry it).</summary>
     public int CharacterLevel { get; set; } = 1;
+
+    /// <summary>The chosen character's portrait frame at login: a pick in game waits for the next Play.</summary>
+    public ushort CharacterPortraitFrame { get; private set; }
 
     /// <summary>The chosen character's last town (WorldAreas Id, null = none yet): where Play puts it.</summary>
     public string? CharacterLastTown { get; private set; }
@@ -244,12 +248,13 @@ public sealed class LoginServerSession(AccountService accounts)
     /// <summary>
     /// The account's characters as 0x15 entries. Mapped live (2026-10-16) with one probe character per field set to 3:
     /// +0x48 is the level ("Level 3"), +0x4a the class (3 showed "Witch"; our enum has the same order with Scion = 0),
-    /// +0x44 / +0x46 change the portrait, +0x49 adds a red marker. The others showed no visible change.
+    /// +0x44 is the portrait frame, +0x46 the portrait, +0x49 adds a red marker. The others showed no visible change.
     /// </summary>
     private ListEntry15[] CharacterEntries() =>
         Session is null ? [] :
         [.. accounts.Characters(Session.AccountId).Select(c =>
-            // U46 (+0x46) is the portrait variation the character screen draws (0x14082e210 → 0x142426b00).
+            // The character screen draws U46 (+0x46), the portrait variation, in U44 (+0x44), the frame (0x14082e210 →
+            // 0x142426b00, 0x14082d660).
             new ListEntry15(c.Name, c.League, (byte)(c.HardcoreDeath?.PermanentlyDead == true || !HardcoreDeathRules.CanEnter(c) || !Leagues.CanEnter(c.League) ? 1 : 0), 0,
-                (byte)Math.Clamp(c.Level, 0, 255), 0, (byte)c.Class, 0, c.Portrait, 0, 0))];
+                (byte)Math.Clamp(c.Level, 0, 255), 0, (byte)c.Class, c.PortraitFrame, c.Portrait, 0, 0))];
 }

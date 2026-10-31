@@ -124,6 +124,15 @@ static class CosmeticsFeature
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait", Ticket = conn.Ticket, Portrait = portrait });
             if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait {portrait}: {told.Error}");
         }
+        if (pick.Slot == SocialFrameSlot)
+        {
+            // Unlike the portrait this is not sent to the client now: the frame applies at the next login.
+            var frame = WornFrame(conn);
+            var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait_frame", Ticket = conn.Ticket, PortraitFrame = frame?.Frame ?? 0 });
+            if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait_frame {frame?.Frame ?? 0}: {told.Error}");
+            string text = PortraitFrameChangedText(frame?.FrameName);
+            await Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
+        }
     }
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the

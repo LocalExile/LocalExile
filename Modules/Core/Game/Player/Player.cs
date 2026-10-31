@@ -811,7 +811,7 @@ static partial class Game
             Skills: [.. SkillsFor(conn).PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn))),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
-            Portrait: WornPortrait(conn));
+            Portrait: WornPortrait(conn), PortraitFrame: conn.PortraitFrame);
         lock (conn.Monsters)
         {
             RefreshVaalSouls(conn);

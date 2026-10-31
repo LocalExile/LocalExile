@@ -74,4 +74,14 @@ static partial class Game
     // The worn portrait's variation (the Player component's +0x1aa), 0 for the class's own.
     internal static ushort WornPortrait(ClientState conn) =>
         WornCosmetics(conn).FirstOrDefault(w => w.Slot == PortraitSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Portrait ?? 0 : (ushort)0;
+
+    // The portrait frame in the Social Frame slot, null for none. What the client draws is the one it logged in with
+    // (ClientState.PortraitFrame).
+    internal static CosmeticEffects.Effect? WornFrame(ClientState conn) =>
+        WornCosmetics(conn).FirstOrDefault(w => w.Slot == SocialFrameSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash) : null;
+
+    // BackendErrors PortraitFrameChanged filled in, for a chat line: 0x12d shows a row with its {0} unfilled
+    // (10-chat-and-commands.md). An emptied slot names ClientStrings DefaultPortraitFrame.
+    internal static string PortraitFrameChangedText(string? frame) =>
+        $"Your character will now use the {frame ?? "Default Portrait Frame"}. You must log out and in again for the change to take effect.";
 }
