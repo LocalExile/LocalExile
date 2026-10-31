@@ -253,6 +253,9 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             timer.Restart();
             for (int i = 0; i < Calls; i++) ProjectileGrid.Blocks(held.Id, 1000u, i & 0xff, 100);
             Record("area", "ProjectileGrid.Blocks ns per call (generated level)", timer.Elapsed.TotalMilliseconds * 1e6 / Calls, "ns");
+            timer.Restart();
+            for (int i = 0; i < Calls; i++) TerrainHeights.At(held.Id, 1000u, i & 0xff, 100);
+            Record("area", "TerrainHeights.At ns per call (generated level)", timer.Elapsed.TotalMilliseconds * 1e6 / Calls, "ns");
         }
         // The generated levels ServerLevels keeps for the next entry (their grids; the doodad lists are small beside them).
         if (typeof(ServerLevels).GetField("Generated", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null)
