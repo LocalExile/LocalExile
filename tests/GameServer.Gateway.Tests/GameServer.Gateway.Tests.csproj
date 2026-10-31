@@ -15,8 +15,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
-    <!-- No cap on xUnit's threads: with one per core, tests holding a thread synchronously (a fixture's TCP accept, a
-         first catalog load) left the others' async continuations queued, and the whole run stalled (~13 s, 2026-10-29). -->
+    <!-- Run collections sequentially: real socket deadlines, process-wide catalogs and collectible mod contexts
+         must not compete with unrelated collections' loads/GC. Individual tests still exercise concurrent tasks.
+         Keep threads uncapped so synchronous fixture setup cannot starve async continuations. -->
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>

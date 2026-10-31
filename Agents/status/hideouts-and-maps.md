@@ -32,7 +32,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The Atlas graph and point awards from map completion are not
   implemented, so connectivity is left to the client and the budget has no in-game source yet.
-  Atlas progress, Voidstones, map stash placement, official drop pools and map-tier area levels remain open.
+  The selected layout is saved per character, and generic maps now use their tier as the area level (tier + 67).
+  Atlas progress, Voidstones, map stash placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,

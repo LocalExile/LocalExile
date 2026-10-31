@@ -518,6 +518,13 @@ partial class Program
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
+            // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
+            // (0x141b35b7a) and without it died on their first tick, so none was drawn.
+            if (Stats.Key("base_skill_effect_duration") is uint baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
+                && Stats.Key("skill_effect_duration") is uint durationKey)
+                stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
+                    name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
+                    name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0));
             if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
                 stats[critKey] = SupportedCriticalChance(conn, id);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.

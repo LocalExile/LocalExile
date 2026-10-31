@@ -88,7 +88,7 @@ static class AreaLayouts
     static readonly (uint Id, AreaTransitionObject Transition)[] TownFallback =
         [(AreaTransitionCatalog.FirstId, new AreaTransitionObject(GridX: 388, GridY: 231, DestinationHash16: TheCoast,
             Model: "Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_area_transition2.ao",
-            Rotation: 3 * MathF.PI / 2, Height: -351.04f))];
+            Rotation: 3 * MathF.PI / 2, Height: -351.04f) { InTown = true })];
 
     static readonly Dictionary<ushort, string> Ids = new() { [LioneyesWatch] = "1_1_town", [TheCoast] = "1_1_2" };
 

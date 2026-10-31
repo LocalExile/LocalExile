@@ -12,6 +12,9 @@ sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadConte
     : AssemblyLoadContext($"mod {id}", isCollectible: true)
 {
     static readonly string Contracts = typeof(IMod).Assembly.GetName().Name!;
+    static readonly string CopyRoot = Path.Combine(Path.GetTempPath(), "localexile-mod-copy");
+    readonly Lock copyGate = new();
+    internal string CopyDirectory { get; } = Path.Combine(CopyRoot, Guid.NewGuid().ToString("N"));
 
     protected override Assembly? Load(AssemblyName name)
     {
@@ -26,21 +29,46 @@ sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadConte
         return null;
     }
 
-    /// <summary>Loads the assembly (and its .pdb, for line numbers in errors) from a copy in memory, so the files stay free
-    /// for the next build of the mod to overwrite.</summary>
+    /// <summary>Loads a private disk copy (and its .pdb), leaving the build output free. Path-backed collectible
+    /// assemblies avoid the LoadFromStream loader/finalizer failure observed on the supported Windows runtime.</summary>
     public Assembly LoadCopy(string path)
     {
-        using var dll = new MemoryStream(File.ReadAllBytes(path));
-        string pdb = Path.ChangeExtension(path, ".pdb");
-        using var symbols = File.Exists(pdb) ? new MemoryStream(File.ReadAllBytes(pdb)) : null;
-        return LoadFromStream(dll, symbols);
+        lock (copyGate)
+        {
+            Directory.CreateDirectory(CopyDirectory);
+            string copy = Path.Combine(CopyDirectory, Path.GetFileName(path));
+            if (!File.Exists(copy))
+            {
+                File.Copy(path, copy);
+                string pdb = Path.ChangeExtension(path, ".pdb");
+                if (File.Exists(pdb)) File.Copy(pdb, Path.ChangeExtension(copy, ".pdb"));
+            }
+            return LoadFromAssemblyPath(copy);
+        }
     }
 
-    /// <summary>Loads an assembly already read into memory (a mod's files, its compiled scripts).</summary>
+    // Called only after the context is collected and its copied modules have released their file handles.
+    internal static bool TryDeleteCopy(string directory)
+    {
+        string full = Path.GetFullPath(directory);
+        if (!string.Equals(Path.GetDirectoryName(full), Path.GetFullPath(CopyRoot), StringComparison.OrdinalIgnoreCase)
+            || !Guid.TryParseExact(Path.GetFileName(full), "N", out _)) return false;
+        try { if (Directory.Exists(full)) Directory.Delete(full, recursive: true); return true; }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>Loads what a mod's files or its compiled scripts were read into, by the same private disk copy as
+    /// <see cref="LoadCopy"/>: never from a stream.</summary>
     public Assembly LoadImage(byte[] image, byte[]? symbols)
     {
-        using var dll = new MemoryStream(image);
-        using var pdb = symbols is null ? null : new MemoryStream(symbols);
-        return LoadFromStream(dll, pdb);
+        lock (copyGate)
+        {
+            Directory.CreateDirectory(CopyDirectory);
+            string copy = Path.Combine(CopyDirectory, Guid.NewGuid().ToString("N") + ".dll");
+            File.WriteAllBytes(copy, image);
+            if (symbols is not null) File.WriteAllBytes(Path.ChangeExtension(copy, ".pdb"), symbols);
+            return LoadFromAssemblyPath(copy);
+        }
     }
 }

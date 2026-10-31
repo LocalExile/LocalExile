@@ -329,6 +329,9 @@ public static class InstanceProtocol
         new LoginWriter().U16(AnimationUpdateId).U32(objectId).U32(0).U16(0).U8(kind).U32(index)
             .U32(BitConverter.SingleToUInt32Bits(speed)).ToArray();
 
+    /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
+    public const uint FollowTerrain = 0x7fffffff;
+
     public const ushort TeleportId = 0x1b7, MoveToId = 0x1ba, EnterWakeZoneId = 0x1a9, LeaveWakeZoneId = 0x1aa;
 
     /// <summary>
@@ -391,8 +394,11 @@ public static class InstanceProtocol
     public static bool ReadResurrectInTown(ReadOnlySpan<byte> m) => (m[2] & 1) != 0;
 
     /// <summary>Relocate and stop a glide. Unlike MoveTo, height is Positioned's signed fixed-height marker and
-    /// worldZ is its float z, copied directly by the client. Marker 0x7fffffff selects terrain and ignores worldZ.</summary>
-    public static byte[] Teleport(uint objectId, int x, int y, uint height = 0, float worldZ = 0) =>
+    /// worldZ is its float z, copied directly by the client. Marker 0x7fffffff (<see cref="FollowTerrain"/>, the default)
+    /// selects terrain and ignores worldZ; any other marker pins the object at that world z. The default was once 0,
+    /// which pinned every teleported player at z = 0: under the ground wherever the ground is raised (/tp, arena gates,
+    /// Resurrect at Checkpoint).</summary>
+    public static byte[] Teleport(uint objectId, int x, int y, uint height = FollowTerrain, float worldZ = 0) =>
         new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
             .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
 

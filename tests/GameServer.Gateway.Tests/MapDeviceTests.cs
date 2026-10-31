@@ -15,4 +15,12 @@ public class MapDeviceTests
         Assert.Equal("", why);
     }
 
+    [Fact]
+    public void Generic_map_levels_follow_the_tier()
+    {
+        Assert.Equal(68, MapDevice.MapLevel(1));
+        Assert.Equal(83, MapDevice.MapLevel(16));
+        Assert.Equal(100, MapDevice.MapLevel(40));
+    }
+
 }

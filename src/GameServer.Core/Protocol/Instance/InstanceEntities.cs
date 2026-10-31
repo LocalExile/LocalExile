@@ -474,6 +474,12 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// Server side only; the blob names the area itself as the destination.</summary>
     public (int X, int Y)? TeleportTo { get; init; }
 
+    /// <summary>Whether the exit stands in a town. Only then does the client read the compact int (<see cref="Index"/>)
+    /// after the destination: 0x141e5b870 reads it when the state is 0 and the byte at +0x14 of the current area's
+    /// WorldAreas row (entity +8 → world +0x78 → +0xb0) is set, which is IsTown; the server-side writer 0x141e5b7a0
+    /// has the same condition. Elsewhere the byte was left over at the blob's end.</summary>
+    public bool InTown { get; init; }
+
     /// <summary>Components that read data, in the order the client deserializes them for this type (traced live
     /// 2026-10-16: Positioned, BaseEvents (no data), Animated, AreaTransition (live vtable 0x14346de00), Stats,
     /// ObjectMagicProperties, MinimapIcon, InteractionAction, then two components the loop does not reach).</summary>
@@ -507,9 +513,12 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
                 // end with .ao"): the area transition's model, the white surface highlighted on hover. For a tile object it is the
                 // client's virtual "<.tdt folder>/<.tmd record name>.ao" around the record's fixed mesh.
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
-                // state 0, variant 2 = HASH16, then a compact int (+0xa4) that is read when the type's flag
-                // (type+0x78 → +0xb0 → +0x14) is set and the state is 0: true for AreaTransition (traced live).
-                case "AreaTransition": w.U8(0).U8(2).U16(DestinationHash16).CompactI(Index); break;
+                // state 0, variant 2 = HASH16, then in a town (InTown) the compact int +0xa4, which nothing but the
+                // component's debug dump reads (Agents/docs/protocol/08-area-transitions.md §2).
+                case "AreaTransition":
+                    w.U8(0).U8(2).U16(DestinationHash16);
+                    if (InTown) w.CompactI(Index);
+                    break;
                 case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
                 // base magic properties first (0x142201d70: u16 flags, rarity = low 3 bits; u8 +0x7a; sections behind
                 // flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's u8 flags.
@@ -525,7 +534,8 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
 
 /// <summary>
 /// A monster: a 0x2b9 object whose type is a MonsterVarieties row. The client's object-type register files every
-/// MonsterVarieties row (0x31a bytes) under its Id with the row's BaseMonsterTypeIndex (+0x48) as the .ot, but a monster
+/// MonsterVarieties row (0x31a bytes) under its Id with the row's BaseMonsterTypeIndex (+0x48) as the .ot (an .ot file
+/// under the Id itself wins: KitavaFinal is built from kitavafinal.ot, not its base Kitava1; Gateway MonsterCatalog), but a monster
 /// also needs a level: the server registers "&lt;Id&gt;@&lt;level&gt;" with S→C 0x20 (<see cref="InstanceEntities.MonsterTypes"/>)
 /// and the 0x2b9 type is <c>ObjectTypeHash(TypePath(Id, level))</c>. The components come from the .ot chain
 /// (`Metadata/Monsters/Monster`: Positioned, Stats, ObjectMagicProperties, BaseEvents, Pathfinding, Buffs, Life,
@@ -548,9 +558,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
          "Inventories", "Actor", "Monster"];
 
     /// <summary>Components a type may add after the base list that this blob can write. StateMachine (per-type state
-    /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x14359f478 has a
-    /// bare `ret` slot 17, so it reads nothing.</summary>
-    static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime"];
+    /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x14359f478 and Timer's
+    /// only vtable 0x1435a10a0 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
+    /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e1e240), as on an NPC.</summary>
+    static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
+        "NPC", "InteractionAction", "Timer"];
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec2540; the Monster type parses the number after the last '@').</summary>
@@ -605,11 +617,18 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // event interpreter (0x141ded7b9).
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
                 case "MinimapIcon": w.U8(0); break;      // slot 20 0x141e6f5d0: u8 flags
+                // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
+                // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
+                // no component that must be alive (+0x21 0xff), 17-npcs.md.
+                case "NPC": w.U8(0).U8(0xff); break;
+                // 0x141e1e240: u8 flags (bit 2 adds a u8 and a u16); 0, as NpcObject and AreaTransitionObject write it.
+                case "InteractionAction": w.U8(0); break;
+                // Timer (0x1435a10a0): slot 17 is `ret`, nothing to write.
                 // 0x141e3ee40: u8 shared-state count, u8 shared-timer count (the client throws unless they match the
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
-                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass: no data.
+                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }
         }
         w.U8(0);            // tasks

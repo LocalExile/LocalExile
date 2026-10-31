@@ -24,6 +24,9 @@ static class AreaTransitionCatalog
     /// <summary>The WorldAreas id of an area hash (from the atlas), or null without the atlas.</summary>
     public static string? IdOf(ushort hash) => Atlas.Value?.GetValueOrDefault(hash)?.Id;
 
+    /// <summary>Every area /goto finds (<see cref="HashOf"/>): its id and name.</summary>
+    public static IEnumerable<(string Id, string? Name)> Areas => Atlas.Value?.Values.Select(a => (a.Id, a.Name)) ?? [];
+
     /// <summary>The area transitions to create for this (area, seed), with one line per decision for the log.</summary>
     public static (uint Id, AreaTransitionObject Transition)[] For(ushort hash, string id, uint seed, List<string> notes)
     {
@@ -105,7 +108,7 @@ static class AreaTransitionCatalog
             if (fixedTopology is null)
                 notes.Add($"no capture {Folder}/{id}_seed{seed}.transitions.json yet (run live.ps1 -Walkmaps)");
         }
-        return [.. placed.Select((t, i) => (FirstId + (uint)i, t))];
+        return [.. placed.Select((t, i) => (FirstId + (uint)i, t with { InTown = area.IsTown }))];
     }
 
     internal static bool TryDelveEntrance(string area, string? model, out ushort destination)
@@ -228,7 +231,7 @@ static class AreaTransitionCatalog
 
     // Only the fields the Gateway uses; the serializer skips the rest of the atlas.
     sealed record AtlasFileData(List<AtlasArea>? Areas);
-    sealed record AtlasArea(string Id, string? Name, ushort Hash16, List<AtlasTopology>? Topologies);
+    sealed record AtlasArea(string Id, string? Name, ushort Hash16, List<AtlasTopology>? Topologies, bool IsTown = false);
     sealed record AtlasTopology(string Id, string? Kind, List<AtlasTransition>? Transitions);
     sealed record AtlasTransition(string? Model, string? ObjectType, bool? Enabled, string? Status, string? Destination,
         ushort? DestinationHash16, AtlasGrid? Grid);

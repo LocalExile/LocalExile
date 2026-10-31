@@ -15,6 +15,7 @@ partial class Program
         foreach (var (id, bytes) in messages)
         {
             if (conn.Closed) return;
+            using var timing = conn.Performance.Message(id);
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.

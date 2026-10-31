@@ -57,6 +57,10 @@ partial class Program
                 conn.AtlasPassives[i] = i < atlasPresets.Count ? [.. atlasPresets[i].Where(n => AtlasPassiveNodes.Find(n) is not null).Distinct()] : [];
             conn.AtlasPassivePoints = save?.AtlasPassivePoints ?? 0;
 
+            // The Atlas layout picked on the map device is a character choice; fall back to the first starting node.
+            if (save?.SelectedAtlasLayout is { } atlasId && MapDevices.Value.Atlas is { } atlas
+                && atlas.Find(atlasId) is { } selected && CharacterName(conn) is { } atlasCharacter)
+                atlas.Select(atlasCharacter, selected);
             conn.Waypoints.UnionWith(save?.Waypoints ?? []);
             conn.Visited.UnionWith(save?.Visited ?? []);
             conn.QuestFlags = [.. save?.QuestFlags ?? [], .. Quests.EveryCharacter];

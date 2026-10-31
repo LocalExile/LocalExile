@@ -481,8 +481,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
             mod.Unloaded = true;
             Remove(mod);
             foreach (var disposable in mod.Entries.OfType<IDisposable>()) Guard(mod, "Dispose", disposable.Dispose);
-            mod.Entries.Clear();
-            context.Unload();
+            _unloads[id] = Collect(Unload(mod));
             if (ex is TypeInitializationException or System.Reflection.TargetInvocationException && ex.InnerException is { } inner) ex = inner;
             Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}"
                 : ex is ModScripts.CompileException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
@@ -522,16 +521,17 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
 
     // Kept out of Unload(string) so no local of that frame holds the context while it is collected.
     [MethodImpl(MethodImplOptions.NoInlining)]
-    static WeakReference Unload(LoadedMod mod)
+    static (WeakReference Context, string CopyDirectory) Unload(LoadedMod mod)
     {
         mod.Entries.Clear();
         var weak = new WeakReference(mod.Context);
         mod.Context?.Unload();
-        return weak;
+        return (weak, mod.Context?.CopyDirectory ?? "");
     }
 
-    async Task<bool> Collect(WeakReference context)
+    async Task<bool> Collect((WeakReference Context, string CopyDirectory) unloaded)
     {
+        var (context, copyDirectory) = unloaded;
         for (int i = 0; i < 20 && context.IsAlive; i++)
         {
             await Task.Delay(i == 0 ? 0 : 100);
@@ -539,6 +539,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
             GC.WaitForPendingFinalizers();
         }
         if (context.IsAlive) log($"{Tag} an unloaded {Noun} is still in memory after 2 s: a thread, timer or task of it still runs, or something outside it holds one of its objects");
+        else if (copyDirectory.Length > 0 && !ModLoadContext.TryDeleteCopy(copyDirectory)) log($"{Tag} could not remove an unloaded {Noun}'s private copy");
         return !context.IsAlive;
     }
 

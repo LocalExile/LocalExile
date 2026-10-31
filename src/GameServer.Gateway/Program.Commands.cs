@@ -21,6 +21,10 @@ partial class Program
         return typed.Count == 1 ? typed[0] : null;
     }
 
+    /// <summary>The chat commands' names and usages without a connection: building them only captures it in their
+    /// handlers, none of which runs.</summary>
+    internal static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands("", null!, null!, null!).Usages;
+
     // /stash_place and the like: <x> <y> <degrees>.
     static (int X, int Y, float Degrees) PlaceArgs(string[] args, string usage) =>
         args.Length == 3 && int.TryParse(args[0], out int x) && int.TryParse(args[1], out int y) && float.TryParse(args[2],
@@ -180,7 +184,7 @@ partial class Program
                 await SendPlayerMana(remote, stream, ciphers, conn, "0x01b1 mana after raw source rebuild");
             if (rebuildEnergyShield)
                 await SendPlayerEnergyShield(remote, stream, ciphers, conn);
-        })
+        }, "stat")
         .Add("stat", "/stat <stat name or client key> (dev: current character stat value)", async args =>
         {
             if (args.Length != 1 || Stats.Key(args[0]) is not uint stat)
@@ -190,7 +194,7 @@ partial class Program
             }
             int value = CharacterPlayerStats(conn).GetValueOrDefault(stat);
             await conn.Commands!.Reply($"{args[0]} (key {stat}) = {value}");
-        })
+        }, "stat")
         .Add("spawn_mob", "/spawn_mob <MonsterVarieties row, Id or name>[@level] [friendly] [normal|magic|rare|unique] [name]", async args =>
         {
             // "friendly": on the player's team (Positioned team 0); monsters are hostile (team 1) otherwise.
@@ -227,7 +231,7 @@ partial class Program
             }
             var (x, y) = conn.SpawnNear(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, rarity, x, y, name, friendly);
-        })
+        }, "monster")
         .Add("item", "/item <BaseItemTypes row, Id, name or unique> [count] [magic|rare] (into the inventory, e.g. /item Small Life Flask 2, /item Iron Ring rare, /item Mageblood)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("which item?");
@@ -289,7 +293,7 @@ partial class Program
             if (added.Count == 0) { await conn.Commands!.Reply("No room in the inventory"); return; }
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                 items.NextRevision(PlayerInventories.MainInventory), [], added), $"0x00bf inventory 1: /item {type} × {added.Count}");
-        })
+        }, "item")
         .Add("stash_place", "/stash_place <x> <y> <degrees> (dev: move and turn the stash of this area until you leave it; it opens from its new cell)", async args =>
         {
             if (conn.StashObject == 0) { await conn.Commands!.Reply("No stash in this area"); return; }
@@ -709,7 +713,7 @@ partial class Program
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                 items.NextRevision(PlayerInventories.MainInventory), [], [added]),
                 $"0x00bf inventory 1: /gem {variant.Name} (variant {variant.Index}) level {level}, {quality}% quality, experience {created.GemExperience}");
-        })
+        }, "gem")
         .Add("gem_xp", "/gem_xp <amount|near> (dev: set the experience of every gem in the inventory and the sockets; near = one below the next level's threshold)", async args =>
         {
             if (args.Length != 1) throw new ArgumentException("an amount, or near");
@@ -1326,7 +1330,7 @@ partial class Program
             bool off = args.Length > 1 && args[1].Equals("off", StringComparison.OrdinalIgnoreCase);
             await SetQuestFlags(remote, stream, ciphers, conn, [args[0]], on: !off);
             await conn.Commands!.Reply($"{args[0]} {(off ? "cleared" : "set")}");
-        })
+        }, "quest_flag")
         .Add("atlas", "/atlas [layout] (dev: show or choose the fallback layout generic maps open)", async args =>
         {
             var atlas = MapDevices.Value.Atlas;
@@ -1339,7 +1343,11 @@ partial class Program
             }
             string query = string.Join(' ', args);
             if (atlas.Find(query) is not { } layout) { await conn.Commands!.Reply($"No Atlas layout \"{query}\"."); return; }
-            atlas.Select(CharacterName(conn), layout);
+            if (CharacterName(conn) is { } character)
+            {
+                atlas.Select(character, layout);
+                CharacterSaves.SetAtlasLayout(character, layout.Id);
+            }
             await conn.Commands!.Reply($"Atlas layout set to {layout.Name} ({layout.Id}, tier {layout.Tier}).");
         })
         .Add("atlas_tree", "/atlas_tree (dev: open the Atlas passive tree; S→C 0x7b kind 0x11)", async _ =>
@@ -1371,7 +1379,7 @@ partial class Program
             if (AreaTransitionCatalog.HashOf(target) is not { } hash) { await conn.Commands!.Reply($"Unknown area \"{target}\" (needs data/area-transitions.json)."); return; }
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, seed != 0) { Seed = seed },
                 seed != 0 ? $"/goto {target} seed {seed}" : $"/goto {target}");
-        })
+        }, "area")
         .Add("tour", "/tour <list file> | stop | status (dev, live.ps1 -Walkmaps: visit every \"<area id> <seed>\" of the file in a new instance and record it; levelgen tourlist writes one)", async args =>
         {
             string character = CharacterName(conn);
@@ -1443,7 +1451,7 @@ partial class Program
             if (!npc.Supported) { await conn.Commands!.Reply($"{npc} has components the server cannot write: {string.Join(", ", npc.Components ?? [])}."); return; }
             var (x, y) = NextToPlayer(conn);
             await SpawnNpc(remote, stream, ciphers, conn, npc, x, y, (deg ?? 0) * MathF.PI / 180);
-        })
+        }, "npc")
         // Turns an NPC: it is created again with the new facing (0x2bb, then 0x2b9).
         .Add("npc_place", "/npc_place <name> <x> <y> <degrees> (dev: move and turn an NPC here)", async args =>
         {

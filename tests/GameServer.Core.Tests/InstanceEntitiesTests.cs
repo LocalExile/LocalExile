@@ -5,11 +5,13 @@ namespace GameServer.Core.Tests;
 public class InstanceEntitiesTests
 {
     [Fact]
-    public void Projectile_impact_teleport_carries_height_and_preserves_the_legacy_default()
+    public void A_teleport_follows_the_terrain_unless_given_a_fixed_height()
     {
+        // Marker 0 is a fixed height (world z 0), not "none": a player teleported with it stood under raised ground.
         const string header = "01B700003001000000000000000000280000001E";
-        Assert.Equal(header + "7FFFFFFF00000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, 0x7fffffff)));
-        Assert.Equal(header + "0000000000000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30)));
+        Assert.Equal(header + "7FFFFFFF00000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30)));
+        Assert.Equal(header + "7FFFFFFF00000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, InstanceProtocol.FollowTerrain)));
+        Assert.Equal(header + "0000000000000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, 0)));
     }
 
     [Theory]
@@ -313,6 +315,42 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void A_speaking_boss_writes_its_npc_component_without_dialogue()
+    {
+        // Captain Fairgraves (SkeletonBossEmerge) and Merveil, the Siren read ... StateMachine, Transitionable, NPC: they were
+        // unsupported, so neither could be created.
+        string[] list = [.. MonsterObject.BaseComponents, "StateMachine", "Transitionable", "NPC"];
+        Assert.True(MonsterObject.CanSerialize(list, haveStateMachine: true));
+        byte[] b = new MonsterObject(1, 2, 100, list, StateMachine: new([0, 0, 0], 0), TransitionState: 4).Blob();
+        // ... Transitionable 4, NPC 00 ff, tasks 00.
+        Assert.Equal("04" + "00FF" + "00", Convert.ToHexString(b.AsSpan(b.Length - 4)));
+    }
+
+    [Fact]
+    public void A_bandit_lord_writes_its_interaction_action_and_npc_components()
+    {
+        // Oak, Skullbreaker (BanditLeaderOak): ... Monster, InteractionAction, NPC, Transitionable, MinimapIcon; Kraityn and
+        // Alira order them differently. They were unsupported, so the Act 2 bandit lords could never be created.
+        string[] list = [.. MonsterObject.BaseComponents, "InteractionAction", "NPC", "Transitionable", "MinimapIcon"];
+        Assert.True(MonsterObject.CanSerialize(list));
+        byte[] b = new MonsterObject(1, 2, 100, list, TransitionState: 2).Blob();
+        // ... InteractionAction 00, NPC 00 ff, Transitionable 2, MinimapIcon 00, tasks 00.
+        Assert.Equal("00" + "00FF" + "02" + "00" + "00", Convert.ToHexString(b.AsSpan(b.Length - 6)));
+    }
+
+    [Fact]
+    public void Solaris_and_lunaris_timer_writes_nothing()
+    {
+        // Solaris, Eternal Sun / Lunaris, Eternal Moon: ... Monster, StateMachine, Transitionable, Timer.
+        string[] list = [.. MonsterObject.BaseComponents, "StateMachine", "Transitionable", "Timer"];
+        Assert.True(MonsterObject.CanSerialize(list, haveStateMachine: true));
+        byte[] with = new MonsterObject(1, 2, 100, list, StateMachine: new([0], 0), TransitionState: 3).Blob();
+        byte[] without = new MonsterObject(1, 2, 100, list[..^1], StateMachine: new([0], 0), TransitionState: 3).Blob();
+        Assert.Equal(Convert.ToHexString(without), Convert.ToHexString(with));
+        Assert.Equal("03" + "00", Convert.ToHexString(with.AsSpan(with.Length - 2)));
+    }
+
+    [Fact]
     public void Monster_blob_refuses_components_it_cannot_write()
     {
         Assert.False(MonsterObject.CanSerialize([.. MonsterObject.BaseComponents, "StateMachine"]));
@@ -533,13 +571,13 @@ public class InstanceEntitiesTests
     {
         // Traced live 2026-10-16: the client consumed all 41 bytes (Positioned 16, Animated 1, AreaTransition 5, Stats 10,
         // ObjectMagicProperties 4, MinimapIcon 1, InteractionAction 1, + flags, base data, tasks).
-        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2).Blob();
+        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2) { InTown = true }.Blob();
         Assert.Equal(41, b.Length);
         Assert.Equal(
             "00" + "00" +                                                    // flags, base data
             "80010000" + "D9000000" + "00000000" + "0000" + "0000" +         // Positioned (384, 217)
             "00" +                                                           // Animated
-            "00" + "02" + "D27A" + "00" +                                    // AreaTransition: state 0, variant 2 = HASH16 0x7ad2, compact int
+            "00" + "02" + "D27A" + "00" +                                    // AreaTransition: state 0, variant 2 = HASH16 0x7ad2, compact int (town)
             "00" + "00000000" + "00000000" + "00" +                          // Stats
             "0000" + "00" + "00" +                                           // ObjectMagicProperties
             "00" + "00" +                                                    // MinimapIcon, InteractionAction
@@ -556,7 +594,7 @@ public class InstanceEntitiesTests
         // Positioned rotation float, flags0 bit2 = fixed height (u32 steps of 7.8125, float z), Animated bit0 + .ao path.
         const string model = "Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_area_transition2.ao";
         byte[] b = new AreaTransitionObject(GridX: 388, GridY: 230, DestinationHash16: 0x7ad2, Model: model,
-            Rotation: MathF.PI / 2, Height: -351.04f).Blob();
+            Rotation: MathF.PI / 2, Height: -351.04f) { InTown = true }.Blob();
         string hex = Convert.ToHexString(b);
         Assert.StartsWith(
             "00" + "00" +
@@ -565,6 +603,17 @@ public class InstanceEntitiesTests
             "01" + "49000000" + Convert.ToHexString(System.Text.Encoding.Unicode.GetBytes(model)) +
             "00" + "02" + "D27A" + "00", hex);                               // AreaTransition as before
         Assert.Equal(41 + 8 + 4 + model.Length * 2, b.Length);
+    }
+
+    [Fact]
+    public void Outside_a_town_the_area_transition_has_no_compact_int()
+    {
+        // 0x141e5b870 reads the int only when the current area is a town (WorldAreas +0x14): The Coast's exit to The Mud
+        // Flats is the town exit's 41 bytes less that one.
+        var town = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2) { InTown = true }.Blob();
+        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2).Blob();
+        Assert.Equal(40, b.Length);
+        Assert.Equal(Convert.ToHexString(town).Remove(2 * 23, 2), Convert.ToHexString(b));
     }
 
     [Fact]

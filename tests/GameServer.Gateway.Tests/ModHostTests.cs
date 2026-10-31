@@ -105,7 +105,7 @@ public sealed class ModHostTests : IDisposable
     {
         string dir = AddMod("a");
         _host.Start(watch: false);
-        // Loaded from a copy in memory: the files can go (or be rebuilt) while it runs.
+        // Loaded from a private copy: the files can go (or be rebuilt) while it runs.
         Directory.Delete(dir, recursive: true);
         _host.Reload("a");
         Assert.Empty(_host.Mods());

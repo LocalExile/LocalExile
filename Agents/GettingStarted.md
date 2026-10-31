@@ -368,7 +368,13 @@ connection's last packets in `logs\packets\`. `Game_TRACE` adds dev traces, and 
 all for an issue ([debugging](docs/dev/debugging.md)).
 
 `live.ps1` options:
+- `-Stop` stops the client, the walk-map recorder and the servers, a watched Gateway included, then waits until their
+  ports are free (with `-Only Gateway` only that server, with `-NoClient` everything but the client).
 - `-NoClient` restarts the servers but keeps the running client.
+- `-ClientOnly` starts only the client, against servers that already run: nothing is built, extracted or restarted, and
+  a running client stays. With `-Walkmaps` it also starts the walk-map recorder unless one runs (the recorder ends with
+  its client, so each new client needs one); the Gateway announces area loads to it only if it was started with
+  `-Walkmaps` too.
 - `-Only Gateway` (or `Auth`, `Patch`, comma-separated) rebuilds and restarts only those servers; the client and the
   other servers keep running. After a Gateway change hot reload cannot apply this is all you need: the client drops to
   the login screen, log in and Play again.
