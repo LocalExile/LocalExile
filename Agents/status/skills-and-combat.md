@@ -542,7 +542,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ten native checks verify flat sources, independent increases, prohibition, clearing and relog.
   Controls matched 1080 Life/minute to 18/second and 3339 Mana/minute to recovery near 55.65/second.
   Fortification's exact expiry integration uses the same factors, with automated modifier/prohibition coverage.
-  Regeneration conversions and named conditional/more modifiers remain separate work.
+  Zealot's Oath (`keystone_zealots_oath`, and Geofri's Sanctuary's `regenerate_energy_shield_instead_of_life`) moves
+  life regeneration, including Fortification, Turtle Shell and the existing Enduring Cry recovery path, to Energy
+  Shield; the panel and resource writer share the split, and ES recovery prohibitions drop the converted part. Live on
+  Qblolz, toggling Geofri's stat with `/set_stat`: off gave 9974 Life/minute and 6697 ES/minute; on gave 0 Life and
+  16672 ES/minute.
+  Conditional flask/item sources and other regeneration conversions remain separate work.
   See [20](../docs/protocol/20-damage.md), "Continuous resource updates".
 - Determination and Grace truncate their scaled flat/more aura inputs before character-wide defence calculation.
   Normal and Ruthless native data and quality isolation have regression coverage.
@@ -560,11 +565,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AuraCatalog.cs`, Gateway (`PoolsFor`, `BaseStats`).
   Docs: [11](../docs/protocol/11-skills.md) §13, [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Buffs (S→C 0x1c1 add, 0x1c2 remove) and Righteous Fire: cast on oneself, its buffs and the big burning circle (an
-  effect object, `Metadata/Effects/PermanentServerEffect` with `rifire.ao`, following the player), 90% of life per
+  effect object, `Metadata/Effects/PermanentServerEffect` with `rifire.ao`, attached to the player), 90% of life per
   second nonlethal burn on the player, 70% of life per second to monsters within its radius (18 cells, grown by the
   player's area of effect stats, `SkillArea`; they burn to death), the circle scaled to that radius (MiscAnimated's
-  reference radius, the uniform Positioned scale; matches the real game at level 1) and kept on the player every 100
-  ms; server-side mana (cost, regeneration); `/god` (also 200% increased area of effect), `/set_aoe`.
+  reference radius, the uniform Positioned scale; matches the real game at level 1), carried by the client at any
+  latency and not turning with the player; server-side mana (cost, regeneration); `/god` (also 200% increased area of
+  effect), `/set_aoe`.
   Code: Gateway (`ActivateRighteousFire`, `RunPlayerTick`), `SkillArea.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Warcry admission restriction (#297): any signed nonzero `your_warcry_skills_are_disabled` blocks new typed warcries.
@@ -899,11 +905,12 @@ and can require explicit recipes.
 - **Attack speed passives.** Generic, melee, one-/two-handed, weapon-family, shield and dual-wield passive attack
   speed is summed into the client's `main_hand_attack_speed_+%`;
   dual wielding adds PoB's 10% more and the server's unarmed attack uses the same final value.
-  Attack gems now apply their extracted inherent speed multiplier to total base duration separately from player speed.
-  Pacing, contact/release timing, channel intervals and selected APS share the same rounded native base duration.
-  Actual native bow input verified ordinary duration 0.714 s and Burning Arrow 1.02 s, with stored APS 1.40 and 0.98.
-  Original weapon base 714 ms and player speed 0% stayed unchanged; release/contact timing was not separately measured.
-  Catalog, modifier-order, native-field and spell-exclusion tests pass.
+  Attack gems apply their extracted inherent speed multiplier on the server only; the client applies its own, so the
+  total base duration it is sent stays the weapon's. Pacing, contact/release timing, channel intervals and selected APS
+  share the server's duration. Frida verified the clips with a 714 ms bow: ordinary 0.714 s, Burning Arrow 1.02 s.
+  An attack's server-created projectile is released 60 ms before its contact (`AttackReleaseDelay`), for the time before
+  the server reads the action, its tick and the output queue. Burning Arrow's arrow arrives about 25 ms after the client's
+  muzzle flash (was about 75 ms); the default arrow 0-52 ms after its contact, in two clusters (about 265 and 319 ms).
   Supports, conditional/per-charge speed, special time overrides and attack-gem damage/DPS remain separate work.
   Selected attack-gem main-hand ranges now share the converted combat packet, including skill effectiveness.
   All twelve ranges clear absent types; pre-crit averages retain fractions and DPS uses the emitted APS value.
@@ -1168,7 +1175,8 @@ and can require explicit recipes.
   Encrypted-wire held-gate tests cover a queued clamp, cleared prediction, death and unchanged-state suppression;
   native checks of this queued-send case remain pending.
   Live checks covered absorption, regeneration, interrupted recharge and chaos bypass.
-  Special ES keystones, recoup and conditional substitutions remain unimplemented; ordinary ES leech uses the shared recovery writer (§5b).
+  Zealot's Oath is implemented; other special ES keystones, recoup and conditional substitutions remain
+  unimplemented; ordinary ES leech uses the shared recovery writer (§5b).
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
   Maximum-mana added lightning has original-head native checks and resolved automated checks.
   Not yet: exposure, aura-dependent penetration, other added damage,

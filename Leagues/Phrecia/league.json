@@ -1,0 +1,8 @@
+{
+  "name": "Phrecia",
+  "parent": "Standard",
+  "base": "Standard",
+  "hardcore": false,
+  "ssf": false,
+  "description": "Legacy of Phrecia ascendancies. Idols are not implemented."
+}

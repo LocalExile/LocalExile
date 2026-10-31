@@ -1,4 +1,4 @@
-"""Generate src/GameServer.Gateway/UniqueItemSeed.cs from Path of Building's unique item export.
+"""Generate src/GameServer.Gateway/Item/UniqueItemSeed.cs from Path of Building's unique item export.
 
 Path of Building is a read-only third-party reference. Its src/Export/Uniques/*.lua files list the unique name, base
 type and Mods.dat ids; src/Data/Uniques/*.lua has the human-readable text. The generated C# file is committed so the
@@ -39,7 +39,7 @@ from collections import Counter, defaultdict
 
 ROOT = pathlib.Path(".")
 POB = ROOT / "Tools/PathOfBuilding"
-OUT = ROOT / "src/GameServer.Gateway/UniqueItemSeed.cs"
+OUT = ROOT / "src/GameServer.Gateway/Item/UniqueItemSeed.cs"
 
 # Each key with its colon: a bare prefix would also take mod ids (CorruptedMagicJewelModEffectUnique__1).
 META = re.compile(

@@ -104,6 +104,8 @@ dotnet test tests/GameServer.Gateway.Tests
 Success: `Build succeeded` with 0 warnings, and every test run ends with `Passed!`. The tests that need the real client
 quietly pass when there is no `Client/` yet.
 
+New tests go in `tests/GameServer.Gateway.Tests` only: modules have no tests, a PR adds at most 2, and a test never sleeps or waits on real time.
+
 ## 2. Allow the scripts to run
 
 ```powershell
@@ -335,13 +337,11 @@ client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
 Selected modes change server rules; Hardcore Ruthless death is permanent.
-Ruthless balance can be edited in `config/ruthless.json` without rebuilding or restarting the server.
-That active file is local and git-ignored; `config/ruthless.example.json` holds the tracked defaults.
+Ruthless balance can be edited in `Modules/Ruthless/ruthless.json` without rebuilding or restarting the server.
 To create a missing local copy and edit it, run from the repository root:
 
 ```powershell
-if (!(Test-Path .\config\ruthless.json)) { Copy-Item .\config\ruthless.example.json .\config\ruthless.json }
-notepad .\config\ruthless.json
+notepad .\Modules\Ruthless\ruthless.json
 ```
 
 See [league modes](docs/game/league-modes.md) for exact behavior, limitations and editing instructions.
@@ -434,12 +434,12 @@ Environment variables, read when each server starts:
 | `Game_GATEWAY_HOST` | 127.0.0.1 | address sent to the client for area changes |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port (localhost only) |
 | `Game_CLIENT_EXE` | `Client/Game.exe` | client executable the Gateway reads protocol constants from |
-| `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere |
+| `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere; an area the client cannot build at seed 1 gets a seed it built instead |
 | `Game_WALKMAPS` | unset | set by `live.ps1 -Walkmaps`: the Gateway announces each area load to the walk-map recorder and runs capture tours (`/tour`); unset, it records nothing |
 | `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |
 | `Game_LEAGUE` | `standard` | `hardcore` shows the hardcore death screen (a single Exit button) |
-| `Game_LEAGUES` | `Standard,Allflame` | base leagues; each offers its Hardcore/SSF/Ruthless combinations |
-| `Game_RUTHLESS_RULES` | `config/ruthless.json` | Ruthless tuning file; valid edits apply during play |
+| `Game_LEAGUES_FOLDER` | `Leagues` | where the leagues are: one folder per league |
+| `Game_RUTHLESS_RULES` | `Modules/Ruthless/ruthless.json` | Ruthless tuning file; valid edits apply during play |
 | `Game_START_WEAPON` | unset | `ground` = a new character's class weapon waits on the ground near the spawn instead of being worn |
 | `Game_FLASK_BUFFS` | unset | `0` = flasks recover without putting their flask_effect buff on the player |
 | `Game_FLASK_CHARGES` | unset | unset = the game's flask charge rules (kills by rarity, charge mods, a flask put on the bar in a hostile area starts empty); `full` = every kill fills all flasks and equipped flasks keep their charges |

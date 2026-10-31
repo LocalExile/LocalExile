@@ -121,12 +121,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   The hub waypoints stay unlit (client area-type rule); The Sovereign (Deepwater) has no layout yet.
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
-  Mine encounters and progression remain unimplemented.
+  General mine progression remains unimplemented; the first quest trip is described below.
   See [16](../docs/protocol/16-waypoints.md) §4.
   See [21](../docs/protocol/21-hideouts.md).
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
+    Full resource snapshots are followed by 0x226 gauge updates on entry and chart opening.
+    Two unchanged-value updates settle the paused chart and invalidate its label position; the number follows the fill edge.
+    A third update suppresses the native invalidation. Both the fill and label were verified without client changes.
   - The HUD gauge shows only in WorldAreas type 27, the mine areas; the encampment is type 15 in the client data, so
     there the gauge is the chart's.
   - `/delve_crawler [x y degrees]` creates the stationary Crawler in the encampment or initial mine section,
@@ -147,7 +150,23 @@ Part of [Status](../Status.md); what to build next in this area is in
     The real client generated the section, accepted walking within it and returned through that gate.
     Geometry uses client walk-map capture.
     The chart's native route request is parsed; unsupported routes report unavailable without spending sulphite.
-    Route validation/execution, moving Crawler, darkness, encounters and rewards still need server mechanics.
+    The first quest trip now resolves authored rails, waits for an escort, keeps a constant travel speed, moves its attached
+    light and stops at the quest room. Sulphite is debited by cumulative distance with an exact endpoint total of 24.
+    The motion loop is separated from pack creation, with buffered 50 ms updates, locked forward heading and
+    stop/resume hysteresis. Powered lamps remain every 30 path cells and native cables join them; illumination behind
+    the Crawler was verified live. Trails currently belong to the visit and are not restored on re-entry.
+    Room spawn points reveal supported Weta/Spider quest packs; general biome pools and encounter scripts remain partial.
+    Native checks confirmed rail travel, escort waiting, moving illumination and exact 300 -> 276 debit.
+    A normal Leap Slam killed 18 route monsters with drops. Debug server teleports assisted the escort; a full walking
+    run remains unverified. Start the route from the hub chart; the mine chart currently shows only its terrain preview.
+    The Crawler now faces the current rail tangent using native Positioned angles (atan2(dx,-dy)), retaining its
+    facing while stopped. Original Delve waypoint art marks the endpoint. Once the Crawler arrives and its spawned
+    encounters are dead, a single reward scatters ordinary pickable world items around it. Base count is 15–20;
+    the first physical depth (2) adds 10% quantity and 5% increased rarity. Each deeper depth adds the same increments,
+    with a configurable 250-item cap. Highest completed depth persists without reducing other character progress;
+    repeating the same depth does not increase its bonuses. Full graph persistence and darkness remain unfinished.
+    Native acceptance confirmed the endpoint pad, stopped forward-facing Crawler, exact 24 sulphite debit, a single
+    22-item victory reward and normal pickup into the saved inventory (assisted escort).
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
     The user placed all of these live (2026-10-30).

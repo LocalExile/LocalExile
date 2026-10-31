@@ -477,25 +477,30 @@ rate separately from the player's increased/more speed: Burning Arrow -30%, Heav
 The level-aware catalog accessor follows the same selected-level rule as other GEPL values.
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/1afbc4cdcc4fe83273ce8e06a51c5cf986999250/src/Modules/CalcOffence.lua#L2299)
 multiplies `source.AttackRate` by `1 + attackSpeedMultiplier / 100` before ordinary speed modifiers.
-For the supported ordinary weapon-based path, `SkillAttackTiming` sends total base weapon ms as
-`round(weapon base ms / (1 + inherent percent / 100))`, midpoint away from zero, with a minimum of one ms.
-It retains the original weapon base ms (0x142/0x143) and final player speed percent (0x126/0x127).
-The native total base fields (0x221a/0x221b) are integer ms, so the server uses that same rounded base, then player
-speed, then its existing 30 Hz attack-duration floor; rounding the base changes the uncapped time by at most
-0.5 ms divided by the player-speed factor.
-Native action code `0x141c06c2a..0x141c06c8e` reads 0x221a and divides by 1000 and `1 + stat(0x126) / 100`.
-The explicit 0x221a getter (`0x142706568..0x14270658f`) returns the stored value without another GEPL multiplier.
-Gem pacing, attack contact/projectile release and channel intervals share that duration; selected APS is `100 / seconds`.
+For the supported ordinary weapon-based path, the server's own attack time (`SkillAttackTiming.Seconds`) uses
+`round(weapon base ms / (1 + inherent percent / 100))`, midpoint away from zero, with a minimum of one ms, then player
+speed, then its existing 30 Hz attack-duration floor.
+The client applies the inherent speed itself, so the total base fields (0x221a/0x221b) stay the weapon's base ms and only
+selected APS (`100 / seconds`) carries the multiplier. Frida 2026-10-31 at the clip's speed setup (`0x141b0a9b0`), Witch
+with a 714 ms bow: Burning Arrow with 0x221a 1020 played for 1.457 s; with 714 it plays for 1.02 s, and Tornado Shot for
+0.892 s. The ordinary attack stays 0.714 s. Dual wield and melee attack gems were not traced.
+Gem pacing, attack contact/projectile release and channel intervals share the server's duration.
 Ordinary attacks and non-attack skills retain their previous paths.
-Native baseline before this fix: a 714 ms bow had stored speed 0%, base/total base 714 ms and APS 140 for both
-ordinary attacks and Burning Arrow, with actual native clip duration 0.714 seconds in each case.
-After the fix, actual native input verified Burning Arrow total base 1020 ms, clip duration 1.019999959 seconds
-and stored APS 98; its original base stayed 714 ms and player speed stayed 0%.
-The ordinary bow attack retained total base 714 ms, clip duration 0.7140000038 seconds and stored APS 140.
-These checks verify native duration and stored APS, not a separate measurement of release/contact timing.
-Local before/after captures are `logs/skill-timing-{before,after}-default-bow-real.json` and
-`logs/skill-timing-{before,after}-burning-arrow-real.json` in the integration checkout.
-Catalog, native-field, modifier-order, pacing/contact and spell-exclusion tests pass.
+
+A clip longer than its attack plays linearly. When the attack outlasts the clip, `0x141b0a9b0` (events found by
+`0x141b0a620`) plays the outside of the clip's `slow_begin`..`slow_end` span at normal speed and stretches the span
+instead, so the contact keyframe is no longer a plain fraction of the attack; the server's `AttackContactDelay` assumes it
+is. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured). A slower weapon
+or a negative player speed would still reach it, for ordinary attacks too.
+
+Burning Arrow's muzzle flash is `Projectiles.MiscAnimatedFlash` (row 3657), which `DefaultArrow` does not have. The client
+creates an effect object at the clip's contact, without a server message: in the same trace at about 375 ms after the
+action starts (contact 399 ms at speed 1.045 is 382 ms), and the server's arrow arrived at about 450 ms. That the object
+is this flash is inferred from its time and what the user saw, not read from its path.
+Attack projectiles the server creates are therefore released 60 ms before the contact (`AttackReleaseDelay`,
+`Game_RELEASE_LEAD_MS`). Measured on localhost after it: flash 373-375 ms, arrow 400-401 ms in the typical shots; the
+default arrow 264-267 ms or 319-320 ms against a 267 ms contact. Arrival barely varied despite the 30 Hz release tick,
+which suggests the client takes packets on its own cadence (not established); a larger lead may not close the rest.
 This excludes support/conditional/per-charge speed, skill-specific attack-time overrides and off-hand alternation rules.
 Selected supported attacks publish their completed typed packet, clearing removed damage types and sharing the
 weapon-local packet with contact/release calculations. Pre-critical average/DPS remains the existing local convention;
@@ -2012,12 +2017,10 @@ A foreign-source packet non-removal control establishes no party aura executor o
   (`Metadata/Effects/Spells/ri_fire/rifire.ao`), an effect object of its own. The client's effect script
   (`0x142087910`) makes MiscAnimated effects as `Metadata/Effects/Effect`, `ServerEffect`, `PermanentServerEffect` …
   objects; `PermanentServerEffect` is Positioned, BaseEvents, Animated (Render client-only), so the Gateway creates one
-  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) under the player and glides it with 0x1ba
-  every 100 ms to where the player will be 100 ms later along its path (`FollowRighteousFire`, `RunRingFollow`;
-  before 2026-10-23 it glided once per ground click to that walk's end, so a walk to a stash or an item, which comes as
-  C→S 0x24, left it behind, and the straight glide cut the path's corners). It is created with Positioned flags0 0x80
-  (`EffectObject.FixedRotation`): without it each glide turned the ring to face the move, so it spun as the player
-  turned (live 2026-10-21). It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
+  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) attached to the player: Animated bit2's
+  record (`0x141e5adb0` → `0x141e5a440`, [04](04-player-entity.md) §4.5) with the player as parent, bone `<root>` and kind 4 (no rotation).
+  The client carries it with its own predicted player position, so no packet moves it and latency cannot leave it
+  behind; the 0x1ba glides it had before lagged a round trip behind the client's walk. It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
   x / y stretches left at 1, [04](04-player-entity.md) §4.0). The art is drawn for the radius in its MiscAnimated row's
   `__col4`, in world units (RighteousFireRing 400, RighteousFireRingWhite 200, the league avatars' blue ring 380, the
   Vaal rings 500; 0 for art not scaled to an area); the meshes agree (`rifire.sm` ±463 with its flames at 380,

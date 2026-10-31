@@ -617,6 +617,19 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void A_gate_within_the_area_is_a_teleport_with_its_label()
+    {
+        // The Upper Prison's stairs, "teleport1-BrutusAreaName": type 1 (Teleport), variant 1 = ClientStrings HASH32
+        // 0x169BA21A ("The Warden's Quarters"), no compact int (read for type 0 only), even in a town.
+        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x40ce) { Kind = 1, Label = 0x169BA21A, InTown = true }.Blob();
+        Assert.Equal("01" + "01" + "1AA29B16" + "00", Convert.ToHexString(b, 19, 7));
+        Assert.Equal(42, b.Length);
+        // "%areaname%": the area's own name, variant 2.
+        b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x40ce) { Kind = 1 }.Blob();
+        Assert.Equal("01" + "02" + "CE40" + "00", Convert.ToHexString(b, 19, 5));
+    }
+
+    [Fact]
     public void Area_transition_blob_fits_only_types_with_its_exact_components()
     {
         // AreaTransition / AreaTransitionMapMarker (ot_components.py); WaterCaveAreaTransition adds Transitionable, which
