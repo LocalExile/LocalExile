@@ -192,11 +192,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
             case "Determination": Assert.True(pools.Armour > before.Armour); break;
             case "Grace": Assert.True(pools.Evasion > before.Evasion); break;
             default:
-                // Discipline's 356 flat energy shield, with 38874's 5% aura effect, before the increases; 30% faster recharge.
+                // Discipline's 356 flat energy shield, with 38874's 5% aura effect (373.8, truncated as PoB's ScaleAddList
+                // does), before the increases; 30% faster recharge (31.5, truncated too).
                 Assert.Equal(0u, before.EnergyShield);
-                Assert.Equal(EnergyShield.Max(374, pools.EnergyShieldPct), pools.EnergyShield);
-                Assert.Equal(32, PaladinStat(game.State, "energy_shield_recharge_rate_+%"));
-                Assert.Equal((int)Math.Round(pools.EnergyShield * 20 * 1.32),
+                Assert.Equal(EnergyShield.Max(373, pools.EnergyShieldPct), pools.EnergyShield);
+                Assert.Equal(31, PaladinStat(game.State, "energy_shield_recharge_rate_+%"));
+                Assert.Equal((int)Math.Round(pools.EnergyShield * 20 * 1.31),
                     PaladinStat(game.State, "energy_shield_recharge_rate_per_minute"));
                 break;
         }

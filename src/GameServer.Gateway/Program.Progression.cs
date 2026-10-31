@@ -605,6 +605,9 @@ partial class Program
         if (Stats.Key(PlayerHitMitigation.ArmourAppliesToChaos) is uint chaosArmour
             && devStats.TryGetValue(chaosArmour, out int chaosArmourOverride))
             bonus = bonus with { ArmourAppliesToChaosDamage = chaosArmourOverride != 0 };
+        if (Stats.Key("damage_reduction_rating_from_body_armour_doubled") is uint doubled
+            && devStats.TryGetValue(doubled, out int doubledOverride))
+            bonus = bonus with { DoubleBodyArmour = doubledOverride != 0 };
         if (Stats.Key(PowerOfPurpose.RawFlag) is uint mentalConditioning
             && devStats.TryGetValue(mentalConditioning, out int flag))
             bonus = bonus with { MentalConditioning = flag != 0 };

@@ -70,9 +70,11 @@ public sealed partial class AscendancyGatewayIntegrationTests
         if (!DataAvailable()) return;
         using var game = AncestralCommander();
         using var plain = AncestralCommander();
+        // One vest for both: its saved armour roll picks the base defences.
+        var vest = SlowPlateVest();
         foreach (var character in new[] { game, plain })
         {
-            character.Items.Add(PlayerInventories.BodyArmour, 0, 0, SlowPlateVest());
+            character.Items.Add(PlayerInventories.BodyArmour, 0, 0, vest);
             character.State.Pools = Program.PoolsFor(character.State, 1);
             lock (character.State.Monsters)
                 Program.ApplyPlayerAilmentsLocked(character.State, DamagePacket.Of(DamageType.Cold, 1, 1),
@@ -91,7 +93,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(30.0, state.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Chill, now));
         Assert.Equal(1.0, state.ElementalAilments.ActionFactor(now));
         Assert.Equal((uint)(before.Life * 120m / 100), state.Pools.Life); // five times 4% increased maximum Life
-        Assert.Equal((int)(before.Armour * 2 * 140m / 100), state.Pools.Armour); // doubled, then five times 8%
+        // Doubled, then five times 8%; ratings round half away from zero (CharacterStats.Rating).
+        Assert.Equal((int)Math.Round(before.Armour * 2 * 140m / 100, MidpointRounding.AwayFromZero), state.Pools.Armour);
         Assert.Equal(0, state.Pools.MovementVelocityPct);
         Assert.Equal(0, GamblerStat(state, "movement_velocity_+%"));
         Assert.Equal(Program.WalkSpeed, state.Walk.Speed, 6);
@@ -114,17 +117,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(Program.WalkSpeed, plain.State.Walk.Speed, 6);
         Assert.Equal(5, GamblerStat(plain.State, "virtual_maximum_endurance_charges"));
 
-        // Iron Reflexes: the body armour's converted evasion doubles too; without it, its evasion does not.
-        var scaleVest = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Armours/BodyArmours/BodyStrDex1")!);
-        Assert.NotNull(plain.Items.Remove(PlayerInventories.BodyArmour, plain.Items.Items(PlayerInventories.BodyArmour).Single().Id));
-        plain.Items.Add(PlayerInventories.BodyArmour, 0, 0, scaleVest);
-        (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) Defences(bool doubled, bool ironReflexes) =>
-            ProgramValue<(decimal, decimal, int, decimal)>("EquippedBaseDefences", plain.State,
-                (Func<string, int>)(n => doubled && n == "damage_reduction_rating_from_body_armour_doubled" ? 1 : 0), ironReflexes);
-        var single = Defences(false, true);
-        Assert.True(single.Evasion > 0);
-        Assert.Equal((single.Armour * 2, single.Evasion * 2), (Defences(true, true).Armour, Defences(true, true).Evasion));
-        Assert.Equal((single.Armour * 2, single.Evasion), (Defences(true, false).Armour, Defences(true, false).Evasion));
+        // Iron Reflexes' converted body evasion doubling is CharacterStats' (BodySlotDefenceTests).
 
         // Ancestral Defiance: 10% of missing Life before a landed monster hit and a dev hit; /set_stat 0 removes it.
         uint max = state.PlayerMaxLife, half = max / 2, gain = (max - half) * 10 / 100;
@@ -536,8 +529,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
     public async Task Ancestral_Commander_totems_keep_their_limit_and_aura_out_of_the_monsters()
     {
         if (!DataAvailable()) return;
-        using var forest = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest);
-        using var plain = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", level: 4); // the gem's level
+        // Level 4: the totem gem's level, which its club needs too (socketed gem requirements gate the item).
+        using var forest = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest, level: 4);
+        using var plain = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", level: 4);
         foreach (var character in new[] { forest, plain }) character.Items.Add(PlayerInventories.Weapon1, 0, 0, TotemClub());
         var state = forest.State;
         var at = state.Walk.Position(state.Clock.Elapsed.TotalSeconds);
@@ -581,9 +575,10 @@ public sealed partial class AscendancyGatewayIntegrationTests
     public async Task Ancestral_Commander_forest_and_kaom_take_hits_from_the_nearest_totem()
     {
         if (!DataAvailable()) return;
-        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest);
-        using var rare = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest);
-        using var plain = AncestralCommander();
+        // Level 4: the totem gem's level, which its club needs too (socketed gem requirements gate the item).
+        using var game = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest, level: 4);
+        using var rare = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", nodes: KaomAndForest, level: 4);
+        using var plain = new GatewayCharacter(classRow: 0, baseClass: 1, choice: "Ancestral Commander", level: 4);
         lock (plain.State.Monsters) plain.State.PlayerStats[GamblerKey(Program.TotemRedirectStat)] = 20;
         foreach (var character in new[] { game, rare, plain })
         {
@@ -804,7 +799,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             };
             lock (State.Monsters) State.Monsters[43] = monster;
             await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["aura-integration", stream, cipher,
-                State, 43u, monster, (position.X + distance, position.Y), position, State.IncomingHitEpoch])!;
+                State, 43u, monster, monster.ActionGeneration])!;
             return null;
         });
 
@@ -825,7 +820,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             };
             lock (State.Monsters) State.Monsters[44] = monster;
             await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["spirit-integration", stream, cipher,
-                State, 44u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
+                State, 44u, monster, monster.ActionGeneration])!;
             return null;
         });
 

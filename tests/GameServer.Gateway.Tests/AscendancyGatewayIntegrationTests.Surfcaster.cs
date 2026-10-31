@@ -375,7 +375,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
 
         var (_, bytes) = await game.SurfcasterAiUntil(() => plain.BusyUntil > now && chilled.BusyUntil > now);
         Assert.True(plain.BusyUntil > now);
-        Assert.Equal(10 / .7 - 10, chilled.BusyUntil - plain.BusyUntil, 6);
+        // Each swing starts at its own send, so the two starts can lie a moment apart.
+        Assert.Equal(10 / .7 - 10, chilled.BusyUntil - plain.BusyUntil, 2);
         Assert.Equal(0, frozen.BusyUntil);
         Assert.True(frozen.Walk.ArrivesAt <= game.State.Clock.Elapsed.TotalSeconds);
         Assert.Equal(21, chilled.Walk.Speed, 6);
@@ -474,7 +475,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             State.EvasionEntropy = 99; State.LastEvasionAt = now;
             var m = State.Monsters[id];
             var swing = (Task)GatewayMethod("MonsterSwing").Invoke(null, ["surfcaster-swing", stream, cipher, State, id, m,
-                m.Walk.Position(now), State.Walk.Position(now), State.IncomingHitEpoch])!;
+                m.ActionGeneration])!;
             during?.Invoke();
             await swing;
             return null;
@@ -802,6 +803,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         using var game = Surfcaster();
         Assert.Null((await game.Change([48926, 64012, 33031, 37082, 41643, 60505, 34767, 61246], true)).Error);
         game.Items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("FishingRod1")!));
+        game.MeetAttributeRequirements();
         EquipFamilyGem(game, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemIceNova")!));
         var state = game.State;
         SetDev(state, ("spell_minimum_added_cold_damage", 100), ("spell_maximum_added_cold_damage", 100));
@@ -864,6 +866,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         if (!DataAvailable()) return;
         using var game = Surfcaster();
         var state = game.State;
+        game.MeetAttributeRequirements();
         EquipFamilyGem(game, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemIceNova")!));
         // Fixed lightning only, never a critical strike or a miss, so both monsters take the same roll.
         SetDev(state, ("global_cannot_crit", 1), ("global_always_hit", 1), ("physical_damage_+%", -100), ("cold_damage_+%", -100),

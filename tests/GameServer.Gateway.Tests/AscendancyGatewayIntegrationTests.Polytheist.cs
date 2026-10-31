@@ -183,7 +183,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
                 monster.Walk.Teleport(position.X + 2, position.Y, now);
                 State.Monsters[43] = monster;
                 await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["polytheist-integration", stream, cipher,
-                    State, 43u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
+                    State, 43u, monster, monster.ActionGeneration])!;
                 State.Monsters.Remove(43);
                 State.ElementalAilments.Clear();
                 State.Walk.Teleport(position.X, position.Y, State.Clock.Elapsed.TotalSeconds);
@@ -302,8 +302,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // 100% increased Evasion Rating while moving joins the other increases; standing keeps the ordinary rating.
         int pct = state.Pools.EvasionPct;
         Assert.Equal(state.Pools.Evasion, still.Evasion);
-        Assert.Equal((int)(15m * (100 + pct) / 100), still.Evasion);
-        Assert.Equal((int)(15m * (200 + pct) / 100), walking.Evasion);
+        // Ratings round half away from zero (CharacterStats.Rating).
+        Assert.Equal((int)Math.Round(15m * (100 + pct) / 100, MidpointRounding.AwayFromZero), still.Evasion);
+        Assert.Equal((int)Math.Round(15m * (200 + pct) / 100, MidpointRounding.AwayFromZero), walking.Evasion);
         Assert.Equal((still.Evasion, walking.Evasion), (still.EvasionStat, walking.EvasionStat));
         // Regenerate 4% of Life per second and 100% increased Mana Regeneration Rate while moving, and nothing standing.
         Assert.Equal(0, PolytheistStat(state, "mana_regeneration_rate_+%"));
@@ -406,11 +407,14 @@ public sealed partial class AscendancyGatewayIntegrationTests
     static (ushort Id, int Effect) PolytheistSkill(ClientState state, string name) => ProgramValue<IEnumerable<(ushort Id, int Effect,
         string Name, int Level, int Quality, uint Gem)>>("GemSkillEffects", state).Where(g => g.Name == name).Select(g => (g.Id, g.Effect)).Single();
 
-    static void EquipPolytheistGems(GatewayCharacter game, params string[] names) =>
+    static void EquipPolytheistGems(GatewayCharacter game, params string[] names)
+    {
+        game.MeetAttributeRequirements();
         game.Items.Add(PlayerInventories.Helmet, 0, 0, ItemCatalog.Create(Program.Items.Find("Iron Hat")!) with
         {
             Sockets = [.. names.Select(n => new ItemSocket(SocketColour.White, FamilyGem(n)))], Links = [.. names.Select(_ => (byte)1)],
         });
+    }
 
     [Fact]
     public async Task Polytheist_Gruthkul_disables_spells_and_slows_enemies_that_hit_you()
@@ -579,7 +583,8 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.True(DamageModel.AccuracyHitChance(evasion, FlaskGrounds.Blinded(accuracy)) < ordinaryChance);
         Assert.Equal(0u, await Hit(false, entropy: 100 - ordinaryChance));
         // 10% reduced Damage taken from Blinded Enemies, additive with the shock's 50% increase (x1.4, not x1.35).
-        Assert.Equal((Math.Round(plain * .9), Math.Round(plain * 1.4)), (await Hit(false), await Hit(true)));
+        // Checked against the same character's unblinded hit below: the allocated nodes' defences change its armour.
+        var (blinded, blindedShocked) = (await Hit(false), await Hit(true));
         // The ignite a Blinded enemy inflicts burns 10% less as well, through the player tick's ailment step (Abberath's
         // Unaffected by Ignite set aside here); one from an enemy outside the aura burns in full.
         uint unaffected = Program.Stats.Key("unaffected_by_ignite")!.Value;
@@ -629,11 +634,13 @@ public sealed partial class AscendancyGatewayIntegrationTests
         await game.PolytheistAuraTick();
         Assert.False(Program.Blinded(state, 43) || Program.Blinded(state, 50));
         state.PlayerLife = state.PlayerMaxLife;
-        Assert.Equal(plain, await Hit(false));
+        uint allocated = await Hit(false);
+        Assert.Equal((Math.Round(allocated * .9), Math.Round(allocated * 1.4)), (blinded, blindedShocked));
 
         // A released projectile keeps the chance against a blinded target for its contact (the fixture closes the state).
         await using var runtime = new ProjectileRuntimeFixture(state);
-        var use = ProgramValue<ProjectileUse>("CaptureGemProjectile", state, runtime.Session, fireball.Id, fireball, (at.X + 50, at.Y));
+        var use = ProgramValue<ProjectileUse>("CaptureGemProjectile", state, runtime.Session, fireball.Id, fireball, (at.X + 50, at.Y),
+            ProgramValue<object>("CaptureSkillCriticalRoll", state, fireball.Id));
         Assert.Equal(2 * spell, Assert.IsType<ProjectileOffense>(use.Payload).VsBlindedCriticalChance);
     }
 
@@ -866,7 +873,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
             state.Closed = true;
             await ai;
         })).Error);
-        Assert.Equal(.002 / .9, attacker.BusyUntil - attacker.Walk.ArrivesAt, 9);
+        // The swing starts at its send, a moment after the tick stopped the walk; its attack time is the slowed one.
+        Assert.InRange(attacker.BusyUntil - attacker.Walk.ArrivesAt, .002 / .9, .002 / .9 + .1);
+        Assert.Equal(.002 / .9, ProgramValue<double>("MonsterSwingSeconds", state, attacker, state.Clock.Elapsed.TotalSeconds), 9);
     }
 
     [Fact]

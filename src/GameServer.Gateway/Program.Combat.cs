@@ -936,8 +936,7 @@ partial class Program
         Penetration.PerType pen = default;
         HitResistances.Mods mods = default;
         DamagePacket sweepHit = default!;
-        int criticalChance = 0, sweepMultiplier = 0;
-        int? blindedCriticalChance = null;
+        int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
@@ -965,8 +964,6 @@ partial class Program
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
                     sweepHit = SupportedHit(conn, skillId);
-                    criticalChance = SupportedCriticalChance(conn, skillId);
-                    blindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: false);
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);
                     leech = HitLeechSources(player, !spell, skillStats, local);
@@ -982,7 +979,10 @@ partial class Program
                 }
                 var gambler = GamblerFor(player);
                 var rolled = WithDamageVsRarity(player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(sweepHit, Random.Shared));
-                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, criticalChance, blindedCriticalChance), skillStats,
+                // The shared roll meets each target's current chance: a source can change between targets.
+                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
+                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false));
+                critical = RollCriticalStrike(conn, criticalChance, skillStats,
                         attack: !spell, skillRoll: criticalRoll)
                     && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
                 int multiplier = CriticalMultiplierOn(m, sweepMultiplier);

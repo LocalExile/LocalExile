@@ -133,6 +133,14 @@ public sealed partial class AscendancyGatewayIntegrationTests
         public PlayerInventories Items => PlayerInventories.For(Character, Program.Items);
         public AccountStash Stash => AccountStash.For(AccountStash.Key(State.Account ?? Character, State.League), Program.Items);
 
+        // Item activation reads the requirement attributes (socketed gems count, 19-gems.md): these meet any gem's.
+        public void MeetAttributeRequirements()
+        {
+            lock (State.Monsters)
+                foreach (string attribute in new[] { "strength", "dexterity", "intelligence" })
+                    State.PlayerStats[Program.Stats.Key($"virtual_{attribute}_for_requirements")!.Value] = 1000;
+        }
+
         static MethodInfo GatewayMethod(string name) => typeof(Program).GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Single(m => m.Name == name || m.Name.Contains($"g__{name}|", StringComparison.Ordinal));
 
