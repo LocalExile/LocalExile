@@ -4,12 +4,14 @@ import io
 from itertools import chain, repeat
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest.mock import Mock, call, patch
 
 from client_control import (
-    ClientControl, chat_packet, collect_replies, flask_packet, log_mark, normalize, read_replies, run_request, tp_text,
+    ClientControl, chat_packet, collect_replies, connection_ports, find_client, flask_packet, log_mark, normalize,
+    read_records, read_replies, run_request, session_name, stack_port, tp_text,
 )
 
 
@@ -82,6 +84,95 @@ class ClientControlTests(unittest.TestCase):
             self.assertEqual(collect_replies(start, wait=0.3, quiet=0.05, path=log), lines)
             self.assertIsNone(collect_replies(None))
             self.assertIsNone(log_mark(Path(folder) / "missing.log"))
+
+    def test_replies_of_one_client_when_several_share_the_gateway(self):
+        nl = chr(10)
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "live-gateway.log"
+            log.write_text(
+                '21:04:59.471 [gateway] 127.0.0.1:50001 => 0x0017 chat line "mine": 0017' + nl +
+                '21:04:59.472 [gateway] 127.0.0.1:50002 => 0x0017 chat line "theirs": 0017' + nl +
+                '21:04:59.473 [gateway] 127.0.0.1:50003 => 0x0017 chat line "mine after an area change": 0017' + nl,
+                encoding="utf-8")
+            self.assertEqual(read_replies(log, 0, {50001, 50003})[0], ["mine", "mine after an area change"])
+            # No known connection (the table could not be read): every reply, as with one client.
+            self.assertEqual(len(read_replies(log, 0, None)[0]), 3)
+            self.assertEqual(collect_replies(0, wait=0.2, quiet=0.05, path=log, ports={50002}), ["theirs"])
+
+
+class SeveralClientsTests(unittest.TestCase):
+    """Several stacks and clients on one PC: ports, sessions and which client is this checkout's."""
+
+    def test_session_names(self):
+        self.assertEqual(session_name(None), "default")
+        self.assertEqual(session_name(""), "default")
+        self.assertEqual(session_name("default"), "default")
+        self.assertEqual(session_name("a1"), "a1")
+        self.assertEqual(session_name("Agent_2-b"), "Agent_2-b")
+        for bad in ["-a", "a b", "../x", "a" * 25, "a\\b", "a.json"]:
+            with self.assertRaises(ValueError):
+                session_name(bad)
+
+    def test_ports_come_from_the_stack(self):
+        with tempfile.TemporaryDirectory() as folder:
+            stack = Path(folder) / "stack.json"
+            # No setting: today's ports.
+            self.assertEqual(stack_port("login", {}, stack), 20493)
+            self.assertEqual(stack_port("gateway", {}, stack), 6112)
+            # live.ps1 -PortBase 21000 remembered the stack's ports (written by PowerShell: a BOM is tolerated).
+            stack.write_text("\ufeff" + json.dumps({"portBase": 21000, "ports": {"login": 21002, "gateway": 21004}}),
+                             encoding="utf-8")
+            self.assertEqual(stack_port("login", {}, stack), 21002)
+            self.assertEqual(stack_port("gateway", {}, stack), 21004)
+            self.assertEqual(stack_port("patch", {}, stack), 12995)  # not recorded: the default
+            # Game_PORT_BASE wins over the file, a server's own variable over both; 0 is the default ports.
+            self.assertEqual(stack_port("login", {"Game_PORT_BASE": "23000"}, stack), 23002)
+            self.assertEqual(stack_port("login", {"Game_PORT_BASE": "0"}, stack), 20493)
+            self.assertEqual(stack_port("login", {"Game_PORT_BASE": "23000", "Game_LOGIN_PORT": "30000"}, stack), 30000)
+            stack.write_text("{broken", encoding="utf-8")
+            self.assertEqual(stack_port("gateway", {}, stack), 6112)
+
+    def test_client_records(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            (folder / "a1.json").write_text("\ufeff" + json.dumps({"pid": 7, "started": 123, "session": "a1"}), encoding="utf-8")
+            (folder / "broken.json").write_text("{", encoding="utf-8")
+            (folder / "nopid.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(read_records(folder), {"a1": {"pid": 7, "started": 123}})
+            self.assertEqual(read_records(folder / "missing"), {})
+
+    def test_only_this_checkouts_client_of_the_session(self):
+        mine, other = r"D:\x\pr-a\Client\Game.patched.exe", r"D:\x\pr-b\Client\Game.patched.exe"
+        second = 10_000_000
+        processes = {1: (other, 5 * second), 2: (mine, 10 * second), 3: (mine, 20 * second), 4: (mine, 30 * second)}
+        info = processes.get
+        find = lambda session, records, pids=processes: find_client(session, list(pids), info, records, mine)
+        records = {"a1": {"pid": 3, "started": 20 * second + 5}, "a2": {"pid": 4, "started": 30 * second}}
+        self.assertEqual(find("a1", records), 3)
+        self.assertEqual(find("a2", records), 4)
+        # The default session: the client no named session recorded, never another checkout's (pid 1).
+        self.assertEqual(find("default", records), 2)
+        self.assertEqual(find("default", {**records, "default": {"pid": 2, "started": 10 * second}}), 2)
+        # A named session without a record has no client; a record whose PID now belongs to a later process neither.
+        self.assertIsNone(find("b1", records))
+        self.assertIsNone(find("a1", {"a1": {"pid": 3, "started": 99 * second}}, {1: None, 3: None}))
+        # A recorded client that has exited (process_info gives None).
+        self.assertIsNone(find("a2", records, {1: None, 2: None, 3: None}))
+        # Two unrecorded clients of this checkout: ambiguous for the default session.
+        with self.assertRaisesRegex(RuntimeError, "--session"):
+            find("default", {})
+        # Only another checkout's client runs: none of ours.
+        self.assertIsNone(find("default", {}, {1: None}))
+
+    def test_connection_ports_of_the_client(self):
+        def row(state, local, remote, pid):
+            swap = lambda port: ((port & 0xff) << 8) | (port >> 8)
+            return struct.pack("<6I", state, 0x0100007f, swap(local), 0x0100007f, swap(remote), pid)
+        table = struct.pack("<I", 4) + row(5, 50001, 21004, 42) + row(5, 50002, 21004, 43) + \
+            row(5, 50003, 20493, 42) + row(11, 50004, 21004, 42)
+        self.assertEqual(connection_ports(42, 21004, table), {50001})  # established, to the Gateway, of pid 42
+        self.assertEqual(connection_ports(43, 21004, table), {50002})
+        self.assertEqual(connection_ports(44, 21004, table), set())
 
 
 class ClientControlLoginTests(unittest.TestCase):
