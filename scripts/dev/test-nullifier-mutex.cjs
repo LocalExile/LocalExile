@@ -3,7 +3,9 @@
 //   variants; every other mutex name (single-instance hand-off, crash upload, LMDB) is left alone, and each rename is
 //   reported ("run mutex -> ", which nullifier.py waits for);
 // - top-level windows are created with WS_EX_NOACTIVATE;
-// - the engine is never told its window was minimized.
+// - the engine is never told its window was minimized;
+// - the user's mouse and keyboard: no cursor confinement, positioning, capture or hiding, no global input hooks, and
+//   raw-input devices without background/capture flags.
 //   node scripts/dev/test-nullifier-mutex.cjs
 'use strict';
 const fs = require('fs');
@@ -13,6 +15,8 @@ const assert = require('assert');
 const text = (s, encoding = 'wide') => ({isNull: () => s === null, readUtf16String: () => s, readAnsiString: () => s,
   value: s, encoding});
 const hooks = {};
+const replaced = {};
+const originals = [];
 const sent = [];
 // The code nullifier.js checks before it hooks (the always-on hooks only), as 3.29.3b has it.
 const code = {0x140e67380: '4883ec38488bc1488b0d926376034885'};
@@ -28,7 +32,9 @@ const sandbox = {
   Memory: {allocUtf16String: s => text(s, 'wide'), allocAnsiString: s => text(s, 'ansi')},
   Interceptor: {attach: (target, callbacks) => {
     hooks[typeof target === 'string' ? target : `0x${target.value.toString(16)}`] = callbacks;
-  }},
+  }, replace: (target, callback) => { replaced[target] = callback.body; }},
+  NativeFunction: function (target) { const f = (...a) => { originals.push([target, ...a]); return pointer(0x77); }; return f; },
+  NativeCallback: function (body) { this.body = body; },
   Process: {
     getModuleByName: () => ({base: pointer(0x140000000)}),
     findModuleByName: name => ({name, findExportByName: api => `${name}!${api}`, getExportByName: api => `${name}!${api}`}),
@@ -79,4 +85,40 @@ assert.strictEqual(minimized[1].value, 0);
 const restored = [pointer(0x10), pointer(5), pointer(0), pointer(0x02580320)];
 hooks['0x140e67380'].onEnter(restored);
 assert.strictEqual(restored[1].value, 5);
+
+// The user's mouse and keyboard stay the user's: these do nothing and never reach user32.
+for (const api of ['ClipCursor', 'SetCursorPos', 'SetPhysicalCursorPos', 'SetCapture']) {
+  assert.ok(replaced[`user32.dll!${api}`], `${api} replaced`);
+}
+assert.strictEqual(replaced['user32.dll!ClipCursor'](pointer(0x5000)), 1);
+assert.strictEqual(replaced['user32.dll!ClipCursor'](pointer(0)), 1);  // not even ClipCursor(NULL): the user's own clip stays
+assert.strictEqual(replaced['user32.dll!SetCursorPos'](10, 20), 1);
+assert.strictEqual(replaced['user32.dll!SetCapture'](pointer(0x1234)).value, 0);
+assert.strictEqual(originals.length, 0, 'none of them called the real function');
+// ShowCursor keeps a display count (a loop until < 0 ends), SetCursor(NULL) hides nothing, a real cursor passes.
+const showCursor = replaced['user32.dll!ShowCursor'];
+assert.strictEqual(showCursor(0), -1);
+assert.strictEqual(showCursor(1), 0);
+assert.strictEqual(replaced['user32.dll!SetCursor'](pointer(0)).value, 0);
+assert.strictEqual(originals.length, 0);
+replaced['user32.dll!SetCursor'](pointer(0x99));
+assert.strictEqual(originals.length, 1);
+// Global input hooks are refused (the client's WH_KEYBOARD_LL among them); a thread-local hook passes.
+originals.length = 0;
+for (const [id, thread] of [[13, 0], [14, 0], [2, 0], [7, 0]]) {
+  assert.strictEqual(replaced['user32.dll!SetWindowsHookExW'](id, pointer(1), pointer(2), thread).value, 0);
+  assert.strictEqual(replaced['user32.dll!SetWindowsHookExA'](id, pointer(1), pointer(2), thread).value, 0);
+}
+assert.strictEqual(originals.length, 0);
+assert.strictEqual(replaced['user32.dll!SetWindowsHookExW'](2, pointer(1), pointer(2), 1234).value, 0x77);
+assert.strictEqual(replaced['user32.dll!SetWindowsHookExW'](4, pointer(1), pointer(2), 0).value, 0x77);
+// Raw input: background, capture, no-hotkeys, app-keys and no-legacy flags are removed; RIDEV_REMOVE passes.
+const devices = [[1, 2, 0x100 | 0x200 | 0x30], [1, 6, 0x2000 | 0x1000 | 0x400 | 0x200], [1, 4, 0x2100], [1, 2, 0x1]];
+const memory = devices.map(d => d.slice());
+const at = i => ({add: o => (o === 4 ? {readU32: () => memory[i][2], writeU32: v => { memory[i][2] = v; }}
+  : {readU16: () => memory[i][1]}), readU16: () => memory[i][0]});
+const array = {isNull: () => false, add: o => at(o / 16)};
+hooks['user32.dll!RegisterRawInputDevices'].onEnter([array, pointer(devices.length), pointer(16)]);
+assert.deepStrictEqual(memory.map(d => d[2]), [0, 0x2000, 0x2000, 0x1]);
+assert.ok(sent.some(m => m.startsWith('input: raw input usage 1/2 flags 0x330 -> 0x0')));
 console.log('ok');

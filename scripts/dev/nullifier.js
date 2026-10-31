@@ -93,6 +93,78 @@ whenLoaded('user32.dll', user32 => {
   Interceptor.attach(user32.getExportByName('SetForegroundWindow'), {onEnter(args) { args[0] = ptr(0); }});
 });
 
+// The user's mouse and keyboard stay the user's (live 2026-10-31: a new session client locked the user's mouse inside
+// its window). The bridge drives the client through its own calls and packets, never through input, so a session
+// client needs none of these; they become no-ops whatever the settings say:
+// - ClipCursor (window procedure 0x140e67df0 / 0x140e68220, the confine_mouse_to_window option): never confines, and
+//   never frees either (ClipCursor(NULL) would free the user's own client's confinement): returns success, does nothing;
+// - SetCursorPos / SetPhysicalCursorPos (not imported by 3.29.3b, but cheap to close): do nothing;
+// - SetCapture (41 call sites): does nothing, returns no previous window;
+// - ShowCursor: does nothing, but keeps the display count the client expects (it may loop until the count is < 0);
+//   SetCursor(NULL) (hiding the cursor): does nothing;
+// - SetWindowsHookExW/A: global input hooks are refused (NULL, which the client tolerates). 3.29.3b installs a
+//   low-level keyboard hook (WH_KEYBOARD_LL, proc 0x140e68f40, 0x140e6905c) that sees every key the user presses;
+//   WH_MOUSE_LL and thread-less WH_KEYBOARD / WH_MOUSE are refused too. Thread-local hooks of other kinds pass;
+// - RegisterRawInputDevices (0x14103b998): RIDEV_INPUTSINK / RIDEV_EXINPUTSINK (input while in the background),
+//   RIDEV_CAPTUREMOUSE / RIDEV_NOHOTKEYS (0x200), RIDEV_APPKEYS and RIDEV_NOLEGACY are removed from every device, so
+//   the client never receives, captures or swallows the user's input. Removals (RIDEV_REMOVE) pass unchanged.
+// No DirectInput: 3.29.3b imports none (no dinput8, no DirectInput8Create).
+const inputFlags = flags => {
+  if (flags & 0x1) return flags;  // RIDEV_REMOVE
+  let out = flags & ~(0x100 | 0x200 | 0x400 | 0x1000);
+  if ((out & 0x30) === 0x30) out &= ~0x30;  // RIDEV_NOLEGACY
+  return out;
+};
+whenLoaded('user32.dll', user32 => {
+  const reported = new Set();
+  const once = message => { if (!reported.has(message)) { reported.add(message); log(message); } };
+  // Some exports share their code (live: replacing all of them threw "already replaced this function", which ended
+  // the whole agent before the renderer switch): each address is replaced once, and a failure is logged per API.
+  const done = new Set();
+  const replace = (api, ret, args, body) => {
+    try {
+      const target = user32.findExportByName(api);
+      if (target === null || done.has(target.toString())) return;
+      done.add(target.toString());
+      const original = new NativeFunction(target, ret, args);
+      const callback = new NativeCallback((...values) => body(original, ...values), ret, args);
+      Interceptor.replace(target, callback);
+      keep.push(callback);
+    } catch (e) {
+      log(`input: ${api} not replaced: ${e.message}`);
+    }
+  };
+  replace('ClipCursor', 'int', ['pointer'], () => { once('input: ClipCursor ignored'); return 1; });
+  replace('SetCursorPos', 'int', ['int', 'int'], () => { once('input: SetCursorPos ignored'); return 1; });
+  replace('SetPhysicalCursorPos', 'int', ['int', 'int'], () => { once('input: SetPhysicalCursorPos ignored'); return 1; });
+  replace('SetCapture', 'pointer', ['pointer'], () => { once('input: SetCapture ignored'); return ptr(0); });
+  let shown = 0;
+  replace('ShowCursor', 'int', ['int'], (original, show) => (shown += show ? 1 : -1));
+  replace('SetCursor', 'pointer', ['pointer'], (original, cursor) => (cursor.isNull() ? ptr(0) : original(cursor)));
+  for (const api of ['SetWindowsHookExW', 'SetWindowsHookExA']) {
+    replace(api, 'pointer', ['int', 'pointer', 'pointer', 'uint32'], (original, id, proc, module, thread) => {
+      // WH_KEYBOARD_LL 13, WH_MOUSE_LL 14: always global; WH_KEYBOARD 2, WH_MOUSE 7: global without a thread.
+      if (id === 13 || id === 14 || ((id === 2 || id === 7) && thread === 0)) {
+        once(`input: ${api}(${id}) refused`);
+        return ptr(0);
+      }
+      return original(id, proc, module, thread);
+    });
+  }
+  const raw = user32.findExportByName('RegisterRawInputDevices');
+  if (raw !== null) {
+    Interceptor.attach(raw, {onEnter(args) {
+      const count = args[1].toUInt32(), size = args[2].toUInt32();
+      if (args[0].isNull() || size < 16) return;
+      for (let i = 0; i < count; i++) {
+        const device = args[0].add(i * size), flags = device.add(4).readU32(), out = inputFlags(flags);
+        if (out !== flags) device.add(4).writeU32(out);
+        once(`input: raw input usage ${device.readU16()}/${device.add(2).readU16()} flags 0x${flags.toString(16)} -> 0x${out.toString(16)}`);
+      }
+    }});
+  }
+});
+
 // A minimized client runs no frames: its window procedure (0x140e67380 → 0x140e68220) logs "[WINDOW] Minimized" on
 // WM_SIZE / SIZE_MINIMIZED and the main loop then waits (live 2026-10-31: a Null client someone minimized stopped
 // answering the bridge, and a DirectX 11 client started minimized never reached the login screen). An agent client
