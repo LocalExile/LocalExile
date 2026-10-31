@@ -210,7 +210,7 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
 
 ## Gateway implementation
 
-`KingInMists.cs`:
+`Modules/Core/Game/Monster/KingInMists.cs`:
 
 - Recognises both forms and gives the humanoid/treant their whole GrantedEffect skill list in the actor record, so each
   `0x1ab` plays the client's own skill animation. Bugrend uses the official `VoodooKingBugRend`/`BugRendSingle` rows and

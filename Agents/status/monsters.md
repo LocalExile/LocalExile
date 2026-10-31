@@ -126,7 +126,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Not yet: blood/caustic ground objects, the Ritual imprisonment/maim movement rule, the phase-trigger confirmation,
   ground hazards, monster energy shield, Shadow Surge/Mystic Miasma damage over time, corpse items, the Unlight
   Altar/Bloodline and the remaining native animation captures.
-  Code: `KingInMists.cs`, `ItemDrops.KingInMists`, `MapDevice`.
+  Code: `Modules/Core/Game/Monster/KingInMists.cs`, `ItemDrops.KingInMists`, `MapDevice`.
   Docs: [king-in-the-mists](../docs/game/king-in-the-mists.md).
 - Inherited Life corpse eligibility and sinking flags flow from object-types manifest v4 through `MonsterCatalog`
   into ordinary monster creation.
