@@ -248,15 +248,20 @@ static class ServerLevels
         // Only the timer still armed stops the worker: a chunk decoded meanwhile disarmed it.
         void Stop(Timer? timer)
         {
+            NodeOodleDecoder? stopping;
             lock (gate)
             {
                 if (timer is null || !ReferenceEquals(idle, timer)) return;
                 idle.Dispose();
                 idle = null;
-                worker?.Dispose();
-                worker = null;
+                (stopping, worker) = (worker, null);
             }
-            // Outside the gate: a read holds the game files' lock while it decodes through this decoder.
+            // Outside the gate: nobody uses the old worker any more (a decode takes the gate), and its exit can take a
+            // moment. The caches go only if no generation has started a new worker meanwhile (a read holds the game
+            // files' lock while it decodes through this decoder, so that lock is taken outside the gate too).
+            stopping?.Dispose();
+            lock (gate)
+                if (worker is not null) return;
             stopped();
         }
     }
