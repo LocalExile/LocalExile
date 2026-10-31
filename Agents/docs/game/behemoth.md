@@ -1,11 +1,13 @@
 # Behemoth
 
-Behemoth is the Phrecia Juggernaut capability in
+Behemoth is the Phrecia Berserker capability in
 `Modules/PhreciaAscendancies/Classes/Behemoth`.
 It requires that optional module in the connection's league, `Game_VERIFIED_BEHEMOTH=1`, and the reviewed
 3.29.3b combined graph already installed separately.
 The common module verifies archive bytes read-only; ordinary characters need no alternate graph.
 Idols remains independent and unimplemented by this PR.
+The extracted `Ascendancy` row identifies it as `Berserker`, ClassNo 2, Characters table row 0.
+That character row is the Marauder, whose `IntegerId` and catalog `BaseClass` are 1.
 
 This candidate reconstructs PR #328 over main `2a9904758c3a9fad0df7cb963c7450b8468a55e2`.
 The original feature head `4c90a1f9`, atomic Vaal correction `74e3a1f8`, modular port `4d5f9bca` and
@@ -139,7 +141,9 @@ No transient combat resource is persisted in character saves.
 
 ## Validation scope
 
-The two new deterministic Gateway guards cover provider/Game generation retirement, duplicate activation,
+The two new deterministic Gateway guards use the actual catalog and optional module policy to check the Behemoth
+identity, opt-in, league admission and Rampager source before exercising provider/Game generation retirement,
+duplicate activation,
 old-generation isolation, primitive actor/buff cleanup, transfer/expiry/death, and actual early Vaal object/ground
 input followed by valid paid admission, duplicate rejection, movement cancellation and cooldown controls.
 The Vaal regression fails when the atomic readiness check is removed.

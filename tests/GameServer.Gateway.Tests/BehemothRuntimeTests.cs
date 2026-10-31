@@ -23,15 +23,12 @@ public sealed class BehemothRuntimeTests
         public void Invalidate() => Active = false;
     }
 
-    sealed class Policy(AscendancyIdentity supported) : IAscendancyFamilyPolicy
+    sealed class OptIn : IDisposable
     {
-        public bool Enabled = true;
-        public AscendancyFamily Family => AscendancyFamily.Phrecia;
-        public bool Supports(AscendancyIdentity identity) => Enabled && identity == supported;
-        public void RequirePlayable(AscendancyIdentity identity) => throw new Exception("Source queries must not verify a graph");
-        public IReadOnlyDictionary<uint, int>? AreaStats => null;
-        public IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node,
-            IReadOnlyList<(uint Key, int Value)> modeStats) => modeStats;
+        const string Name = "Game_VERIFIED_BEHEMOTH";
+        readonly string? previous = Environment.GetEnvironmentVariable(Name);
+        public void Set(bool enabled) => Environment.SetEnvironmentVariable(Name, enabled ? "1" : "0");
+        public void Dispose() => Environment.SetEnvironmentVariable(Name, previous);
     }
 
     static ClientState Connection(params string[] modules) => new(new(1, "behemoth", 300, 300, 100, 100, null, []), 1, 1)
@@ -43,18 +40,35 @@ public sealed class BehemothRuntimeTests
     [Fact]
     public void Provider_retirement_releases_owned_state_and_old_generations_cannot_reclaim_a_worker()
     {
-        var identity = new AscendancyIdentity(AscendancyFamily.Phrecia, "Juggernaut", "3.29.3b");
+        var definition = Assert.Single(new AscendancyCatalog().Definitions,
+            candidate => candidate.Identity.Family == AscendancyFamily.Phrecia && candidate.Name == "Behemoth");
+        Assert.Equal("Berserker", definition.Identity.Id);
+        Assert.Equal((byte)1, definition.BaseClass); // Characters row0 is the Marauder (IntegerId1).
+        Assert.Equal((byte)2, definition.ClassNo);
+        var identity = definition.Identity;
+        using var optIn = new OptIn(); optIn.Set(true);
+        var moduleAssembly = typeof(GameServer.Modules.PhreciaAscendancies.PhreciaAscendanciesModule).Assembly;
+        var policy = (IAscendancyFamilyPolicy)Activator.CreateInstance(
+            moduleAssembly.GetType("GameServer.Modules.PhreciaAscendancies.PhreciaFamilyPolicy", throwOnError: true)!,
+            nonPublic: true)!;
+        Assert.True(policy.Supports(identity));
+        Assert.False(policy.Supports(identity with { Id = "Juggernaut" }));
         var conn = Connection("PhreciaAscendancies");
         var game = new ModuleLifetime("Game");
         var owner = new ModuleLifetime("PhreciaAscendancies");
-        var policy = new Policy(identity);
         using var registration = AscendancyPolicies.Register(owner, policy);
         Assert.Null(AscendancyPolicies.SourceOwner(conn)); // Ordinary/unascended needs no optional provider.
-        conn.MainAscendancy = new(identity, [19], ["normal"]);
+        conn.MainAscendancy = new(identity, [7128, 49937], ["normal"]);
         var excluded = Connection(); excluded.MainAscendancy = conn.MainAscendancy;
         Assert.Null(AscendancyPolicies.SourceOwner(excluded));
         Assert.Same(owner, AscendancyPolicies.SourceOwner(conn));
-        policy.Enabled = false; Assert.Null(AscendancyPolicies.SourceOwner(conn)); policy.Enabled = true;
+        Assert.True(AscendancyPolicies.Available(conn, identity));
+        var rampager = definition.Nodes[49937];
+        Assert.Contains(AscendancyPolicies.NodeStats(conn, definition, rampager.Id, rampager.Stats),
+            stat => stat.Key == Program.Stats.Key("melee_hits_grant_rampage_stacks") && stat.Value != 0);
+        optIn.Set(false);
+        Assert.Null(AscendancyPolicies.SourceOwner(conn)); Assert.False(AscendancyPolicies.Available(conn, identity));
+        optIn.Set(true);
         AscendancyPolicies.SelectionChanged(conn);
         var work = new OwnedWork(); conn.OwnedCombatState = work;
         conn.RampageBuff = 7;
