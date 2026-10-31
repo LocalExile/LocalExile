@@ -10,6 +10,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
   Code: `scripts/dev/extract-data.ps1`, `GameDataFiles.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 7.
+- The servers run without `Client/`: level generation and the Phrecia graph check read `data/game-files.zip` (every file
+  of the types they read), the HNC mask and GGPK root hash come from `data/client-constants.json`, and Node is not needed
+  at run time. `live.ps1` refreshes the root hash before each client start, because the gateway list in the GGPK changes it.
+  Code: `scripts/re/game-pack`, `GamePack.cs`, `ClientConstants.cs`.
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.

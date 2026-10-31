@@ -200,6 +200,12 @@ A second run prints `game data up to date`.
 | `data\animation-contacts.json` | each class's spell timing and where its arrows and wand bolts leave |
 | `data\monster-contacts.json` | when and from where monster projectiles leave (the Sand Spitter's mortar) |
 | `data\projectile-clips.json` | the flight and impact clips of projectile objects (monster mortars are invisible without them) |
+| `data\game-files.zip` (about 126 MB) | the levels the Gateway generates itself, the Phrecia classes' passive graph check |
+| `data\client-constants.json` | the Gateway does not start; the Patch server closes each client's connection |
+
+After extraction the servers never open `Client\` or need Node: `data\` is enough to run them (`live.ps1 -NoClient`).
+Only the client, its setup steps and this extraction use `Client\`. To run servers on another machine, copy `data\`
+(`data\saves.db` holds the accounts and characters). The capture tour's debug tooling also reads the client's log.
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
@@ -438,7 +444,6 @@ Environment variables, read when each server starts:
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port (localhost only) |
 | `Game_PORT_BASE` | unset | `live.ps1`: this checkout's servers on ports base..base+4 (Patch, Patch web, Auth login, Auth control, Gateway); remembered in `data/stack.json` like `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)) |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly` and `client_control.py`: the named client session, like `-Session` / `--session` |
-| `Game_CLIENT_EXE` | `Client/Game.exe` | client executable the Gateway reads protocol constants from |
 | `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere; an area the client cannot build at seed 1 gets a seed it built instead |
 | `Game_WALKMAPS` | unset | set by `live.ps1 -Walkmaps`: the Gateway announces each area load to the walk-map recorder and runs capture tours (`/tour`); unset, it records nothing |
 | `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |

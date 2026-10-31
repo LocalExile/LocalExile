@@ -9,7 +9,7 @@ Behemoth is delivered separately in PR #328; its Rampage/Vaal engines are not im
 
 Set `Game_VERIFIED_ANTIQUARIAN=1` for the Gateway and choose `/ascendancy phrecia Antiquarian` on a Marauder.
 The explicit opt-in requires the already installed compatible 3.29.3b graph.
-Admission reads both PSG files directly from `Client/Content.ggpk` using the normal Node extraction decoder.
+Admission reads both PSG files from `data/game-files.zip`, the unchanged copies `extract-data.ps1` takes from `Client/Content.ggpk`.
 It checks ordinary SHA-256 `82D82CD3CD2DAD81606AF0DA9D18FCD53B2E92CF006550947D65A4F7E102DC32`
 and combined alternate SHA-256 `F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A425196CC93D638`.
 Missing/different bytes or an unavailable decoder refuse before changing the save.
