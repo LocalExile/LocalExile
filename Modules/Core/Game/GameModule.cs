@@ -6,13 +6,10 @@ using Rules = global::Game;
 namespace GameServer.Modules.Game;
 
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
-public sealed class GameModule : IModule, IDisposable
+public sealed class GameModule : IModule
 {
     /// <inheritdoc/>
     public void Load(IModuleContext module) => Program.SetGameLogic(new GameLogic());
-
-    /// <inheritdoc/>
-    public void Dispose() => Program.SetGameLogic(null);
 }
 
 sealed class GameLogic : IGameLogic

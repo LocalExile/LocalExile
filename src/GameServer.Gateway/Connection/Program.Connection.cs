@@ -166,7 +166,9 @@ partial class Program
                     {
                         conn.Closed = true;
                         conn.InvalidateIncomingHits();
-                        Logic.Closing(conn);
+                        // The handlers below wait for the inbox: it must complete whatever the rules do.
+                        try { Logic.Closing(conn); }
+                        catch (Exception e) { Console.WriteLine($"[gateway] {remote} closing failed: {ServerLog.Describe(e)}"); }
                     }
                     inbox.Complete();
                     await handlers;
@@ -202,7 +204,9 @@ partial class Program
             {
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
             }
-            Logic.Left(left);
+            // What follows must run whatever the rules do, or the player stays in the instance.
+            try { Logic.Left(left); }
+            catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
             left.Instance.RemovePlayer(left.PeerId);
             Instances.Leave(left.Instance);
         }
