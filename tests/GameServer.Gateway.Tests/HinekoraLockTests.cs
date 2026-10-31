@@ -34,8 +34,10 @@ public class HinekoraLockTests
     }
 
     [Fact]
-    public void ApplyLock_refuses_gems_corrupted_mirrored_unmodifiable_and_already_foreseeing()
+    public void ApplyLock_refuses_normal_magic_gems_corrupted_mirrored_unmodifiable_and_already_foreseeing()
     {
+        Assert.Null(Rolls.ApplyLock(ItemCatalog.Create(Wand), new Random(1)));
+        Assert.Null(Rolls.ApplyLock(ItemCatalog.Create(Wand) with { Rarity = ItemRarity.Magic }, new Random(1)));
         var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
         Assert.Null(Rolls.ApplyLock(gem, new Random(1)));
         Assert.Null(Rolls.ApplyLock(FourModWand() with { Corrupted = true }, new Random(1)));

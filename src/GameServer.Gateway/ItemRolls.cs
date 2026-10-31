@@ -42,12 +42,13 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
         return true;
     }
 
-    /// <summary>Hinekora's Lock: a modifiable item that is not already foreseeing enters the state with a non-zero
-    /// seed. Gems, corrupted, mirrored and unmodifiable items are refused (they have no Mods component or fail
-    /// <see cref="TryModifiable"/>). The original is unchanged on refusal.</summary>
+    /// <summary>Hinekora's Lock: a modifiable rare item that is not already foreseeing enters the state with a
+    /// non-zero seed. Normal, magic, gem, corrupted, mirrored and unmodifiable items are refused (the item text says
+    /// "left click a rare item"; gems have no Mods component and the rest fail <see cref="TryModifiable"/>). The
+    /// original is unchanged on refusal.</summary>
     public Item? ApplyLock(Item item, Random random)
     {
-        if (item.Foreseeing || !TryModifiable(item, out _)) return null;
+        if (item.Foreseeing || item.Rarity != ItemRarity.Rare || !TryModifiable(item, out _)) return null;
         uint seed = (uint)random.NextInt64(1, (long)uint.MaxValue + 1);
         return item with { Foreseeing = true, ForeseeSeed = seed };
     }

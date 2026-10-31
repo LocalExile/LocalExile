@@ -11,8 +11,9 @@ is modified."
   item `+0x2c0`; the client then shows the purple glow and the Lock tooltip text.
 - A non-zero `ForeseeSeed` is kept server-side and in the character save. The client does not need it: the preview and
   the committed result are computed by the server from `seed ^ currencyTypeHash` (`ItemRolls.ForeseeRandom`).
-- Applying a second Lock is refused (`ItemErrorAlreadyHasHinekorasLock`, ClientStrings 6984). Gems, corrupted,
-  mirrored, unmodifiable and already-foreseeing items are refused before the Lock is spent.
+- The Lock is **rare-only** (the item text says "left click a rare item to apply it"). Normal, magic, gem, corrupted,
+  mirrored, unmodifiable and already-foreseeing items are refused before the Lock is spent; a second Lock is refused
+  (`ItemErrorAlreadyHasHinekorasLock`, ClientStrings 6984).
 - Any successful modification clears the flag and the seed; a refused modification keeps them. Bench, Harvest and
   essence crafts clear the state through `ItemRolls.ClearForesee`.
 

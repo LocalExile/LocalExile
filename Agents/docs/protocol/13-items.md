@@ -823,12 +823,12 @@ it): the client's crafting check refuses an item with it (`0x141d68f9b`); the to
 
 ### Hinekora's Lock (2026-10-31, server rules verified live)
 
-`CurrencyHinekorasLock`. Applying the Lock through the normal 0x71 currency path sets the item's foreseeing state:
-the Mods component's u16 flags **bit 8 (`0x0100`)** and a non-zero `Item.ForeseeSeed`. The client reads the flag at
-item `+0x2c0` and shows the purple glow and the Lock tooltip text (`ItemPopupHinekorasLockFunctionText`,
-ClientStrings 6976). A second Lock is refused (`ItemErrorAlreadyHasHinekorasLock`, 6984); gems, corrupted, mirrored,
-unmodifiable and already-foreseeing items are refused before spending. `Item.Foreseeing`/`ForeseeSeed` are saved with
-the item.
+`CurrencyHinekorasLock`. Applying the Lock through the normal 0x71 currency path to a **rare** item sets its
+foreseeing state: the Mods component's u16 flags **bit 8 (`0x0100`)** and a non-zero `Item.ForeseeSeed`. The client
+reads the flag at item `+0x2c0` and shows the purple glow and the Lock tooltip text
+(`ItemPopupHinekorasLockFunctionText`, ClientStrings 6976). A second Lock is refused
+(`ItemErrorAlreadyHasHinekorasLock`, 6984); normal, magic, gem, corrupted, mirrored, unmodifiable and
+already-foreseeing items are refused before spending. `Item.Foreseeing`/`ForeseeSeed` are saved with the item.
 
 When a currency is used on a foreseeing item the client sends an **unframed C→S 0x029c** (20 bytes):
 
