@@ -40,7 +40,8 @@
 #   -Agent      one agent's whole setup in one command: this checkout's servers and one -Nullifier client of session
 #               'agent' (or -Session). The port base is -PortBase, else Game_PORT_BASE, else the one data\stack.json
 #               recorded, else the first block of 100 from 21000 to 29900 whose five ports nothing listens on and no
-#               sibling checkout's data\stack.json names; it is recorded in data\stack.json like -PortBase.
+#               other checkout's data\stack.json names (siblings, and worktrees nested in .claude\worktrees); found and
+#               recorded in data\stack.json under one machine-wide mutex. -ClientOnly and -Stop never record a block.
 #   -SeedConfig F  (also Game_CLIENT_SEED_CONFIG) start the -Session client's settings file over from F (without [LOGIN]).
 #   -Stop       stop this checkout's clients (and their launchers), walk-map recorder and servers, then exit; with -Only
 #               only those servers, with -NoClient everything but the clients, with -ClientOnly only the -Session client.
@@ -392,11 +393,23 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     }
 }
 
-# -Agent: a free port block when none is given or recorded (Get-Stack then records it).
+# -Agent: a free port block when none is given or recorded. The port base a checkout's data\stack.json records (0 when
+# it has none); an unreadable file throws, so a block it might hold is never handed out.
+function Read-PortBase([string]$file) {
+    if (-not (Test-Path $file)) { return 0 }
+    $text = Get-Content $file -Raw
+    if ("$text" -match '"portBase"\s*:\s*(\d+)') { return [int]$Matches[1] }
+    throw "cannot read the port base in ${file}: give -PortBase"
+}
+# The first block of 100 from 21000 to 29900 that no other checkout (a sibling of this one, or a worktree nested in
+# .claude\worktrees of either) records and on whose five ports nothing listens.
 function Find-FreePortBase {
-    $claimed = @(Get-ChildItem (Split-Path $repo) -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $file = Join-Path $_.FullName 'data\stack.json'
-        if ($_.FullName -ne $repo -and (Test-Path $file)) { try { [int](Get-Content $file -Raw | ConvertFrom-Json).portBase } catch { } } })
+    $parent = Split-Path $repo
+    $checkouts = @(Get-ChildItem $parent -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $_.FullName
+        Get-ChildItem (Join-Path $_.FullName '.claude\worktrees') -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName } })
+    $claimed = @($checkouts | Where-Object { $_ -ne $repo } | ForEach-Object { Read-PortBase (Join-Path $_ 'data\stack.json') } |
+        Where-Object { $_ })
     $listening = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.LocalPort })
     for ($base = 21000; $base -le 29900; $base += 100) {
         if (@($claimed | Where-Object { [math]::Abs($_ - $base) -lt 5 }).Count) { continue }
@@ -404,13 +417,29 @@ function Find-FreePortBase {
     }
     throw 'no free port block between 21000 and 29900: give -PortBase'
 }
+# This checkout's stack for -Agent: as Get-Stack when a base is given or recorded; otherwise a free block is found and
+# recorded under one machine-wide mutex, so two checkouts starting at once never pick the same block. -ClientOnly and
+# -Stop never record a new block (there are no servers on it).
+function Get-AgentStack([int]$base) {
+    if ($base -ge 0 -or "$env:Game_PORT_BASE" -ne '' -or (Read-PortBase (Join-Path $repo 'data\stack.json'))) { return Get-Stack $base }
+    if ($ClientOnly -or $Stop) { throw '-Agent: this checkout records no port base: start its servers first (live.ps1 -Agent)' }
+    $mutex = [Threading.Mutex]::new($false, 'Global\LocalExile-port-base')
+    $held = $false
+    try {
+        try { $held = $mutex.WaitOne(60000) } catch [Threading.AbandonedMutexException] { $held = $true }
+        if (-not $held) { throw '-Agent: another checkout is choosing its ports for 60 s: try again' }
+        Get-Stack (Find-FreePortBase)
+    }
+    finally {
+        if ($held) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
 if ($Agent) {
     if (-not $Session) { $Session = 'agent' }
     $Nullifier = [switch]$true
-    $recorded = if (Test-Path (Join-Path $repo 'data\stack.json')) { [int](Get-Content (Join-Path $repo 'data\stack.json') -Raw | ConvertFrom-Json).portBase } else { 0 }
-    if ($PortBase -lt 0 -and "$env:Game_PORT_BASE" -eq '' -and -not $recorded -and -not $Stop) { $PortBase = Find-FreePortBase }
 }
-$stack = Get-Stack $PortBase
+$stack = if ($Agent) { Get-AgentStack $PortBase } else { Get-Stack $PortBase }
 $session = Get-SessionName $Session
 $nullifierMode = $Nullifier -or "$env:Game_CLIENT_NULLIFIER" -in '1', 'true'
 if ($nullifierMode -and $session -eq 'default' -and -not $Stop) { throw '-Nullifier needs -Session: the default client starts as before' }

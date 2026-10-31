@@ -6,7 +6,8 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'live.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 foreach ($name in @('Need', 'Get-Stack', 'Get-SessionName', 'Test-Here', 'Get-OwnClients', 'Get-OwnServers', 'Select-LocalGateway',
-        'Get-OwnLaunchers', 'Get-RenamedClientIds', 'Get-GlobalSlotHolders', 'Assert-GlobalSlot', 'Start-SessionLauncher')) {
+        'Get-OwnLaunchers', 'Get-RenamedClientIds', 'Get-GlobalSlotHolders', 'Assert-GlobalSlot', 'Start-SessionLauncher',
+        'Read-PortBase', 'Find-FreePortBase', 'Get-AgentStack')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $false)
@@ -391,6 +392,41 @@ try {
 finally {
     $env:Game_PORT_BASE = $null
     Remove-Item $repo -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# -Agent's port block: blocks other checkouts record (siblings, and worktrees nested in their .claude\worktrees) or
+# whose ports something listens on are skipped; an unreadable record stops the choice; -ClientOnly never records a new
+# block; the chosen block is recorded and then reused.
+$saved = @{ repo = $repo; clientOnly = $ClientOnly }
+$root = Join-Path ([IO.Path]::GetTempPath()) "localexile-portbase-test-$PID"
+try {
+    $repo = Join-Path $root 'me'
+    foreach ($d in 'me\data', 'a\data', 'b\.claude\worktrees\w\data', 'c\data') { New-Item -ItemType Directory -Force (Join-Path $root $d) | Out-Null }
+    '{"portBase": 21000, "ports": {}}' | Set-Content (Join-Path $root 'a\data\stack.json')
+    '{"portBase":21100}' | Set-Content (Join-Path $root 'b\.claude\worktrees\w\data\stack.json')
+    $script:listening = @(21200, 21304)
+    function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) $script:listening | ForEach-Object { [pscustomobject]@{ LocalPort = $_ } } }
+    $env:Game_PORT_BASE = $null
+    Assert ((Find-FreePortBase) -eq 21400) 'the first block nobody records or listens on'
+    'not json' | Set-Content (Join-Path $root 'c\data\stack.json')
+    $message = $null
+    try { Find-FreePortBase | Out-Null } catch { $message = $_.Exception.Message }
+    Assert ("$message" -like 'cannot read the port base*') "an unreadable record must stop the choice: $message"
+    Remove-Item (Join-Path $root 'c\data\stack.json')
+    $ClientOnly = $true; $Stop = $false
+    $message = $null
+    try { Get-AgentStack -1 | Out-Null } catch { $message = $_.Exception.Message }
+    Assert ("$message" -like '-Agent: this checkout records no port base*') "-Agent -ClientOnly must not record a block: $message"
+    Assert (-not (Test-Path (Join-Path $repo 'data\stack.json'))) '-Agent -ClientOnly wrote a record'
+    $ClientOnly = $false
+    Assert ((Get-AgentStack -1).Base -eq 21400) 'the chosen block'
+    Assert ((Read-PortBase (Join-Path $repo 'data\stack.json')) -eq 21400) 'the chosen block is recorded'
+    $script:listening = @(21400)
+    Assert ((Get-AgentStack -1).Base -eq 21400) 'a recorded block is reused'
+}
+finally {
+    $repo = $saved.repo; $ClientOnly = $saved.clientOnly
+    Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # Not mocked, and only on request (Game_TEST_SHARED_GGPK=1): the real gateway-list read (GameServer.Patch gateway,
