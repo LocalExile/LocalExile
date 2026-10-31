@@ -29,7 +29,7 @@ The local servers must already run (Auth, Patch, Gateway, on any ports) with the
 ```
 
 Defaults: `--renderer null`, `--frame-sleep-ms 50`, `--priority below-normal`, EcoQoS on, `--window minimized`,
-`--nosound --nologo`, a fresh settings file from the preset under `logs\nullifier\`. `--renderer configured` keeps the
+`--nosound --nologo`; without `--cwd`, a fresh settings file from the preset under `logs\nullifier\`. `--renderer configured` keeps the
 settings' DirectX/Vulkan device (tier 1/2 only); `--no-eco-qos`, `--priority normal`, `--window normal`,
 `--frame-sleep-ms 0`, `--sound` turn the other tiers off; `--affinity 0x3`, `--trim-seconds 10`,
 `--no-render-jobs`, `--no-texture-upload` add more; `--trace-files <regex>` logs matching `CreateFileW` paths.
@@ -43,10 +43,24 @@ The client lives exactly as long as `nullifier.py`: the hooks exist only while i
 would save its settings over the user's `poeoffline_Config.ini`, so the launcher terminates its client when its stdin
 closes or it is interrupted. It never looks a process up by name and kills nothing but its own child.
 
-Several clients of one checkout need the multi-instance work (`contrib/multi-instance`): there Auth sends the client
-to `Game_GATEWAY_HOST:Game_GATEWAY_PORT`; on `main` Auth's instance info always names port 6112, so a client logging in
-through a private Auth on other ports would still be sent to whatever Gateway listens on 6112. `live.ps1` can start
-`nullifier.py` instead of the bare executable as its hook point; the launcher takes only the two ports.
+### With several clients (live.ps1 sessions)
+
+The multi-instance work (`contrib/multi-instance`) gives each checkout its own server ports and each named client
+session its own working folder, `data\clients\<session>\`, with a hard link to the shared `Content.ggpk` and a
+`config.json` naming the session's settings file and saved login (§2). The nullifier is a mode such a session opts
+into rather than a second launcher:
+
+- seed the session's settings file from `config/nullifier_Config.ini` instead of `poeoffline_Config.ini` (it has no
+  `[LOGIN]` section, as the sessions require);
+- start `nullifier.py --cwd <session folder> --patch-port <stack patch port> --login-port <stack login port>
+  --record data\clients\<session>.json` detached instead of `Game.patched.exe`: with `--cwd` it redirects no settings
+  file (the session's `config.json` decides), and `--record` writes `{pid, started (FILETIME UTC), launcher, ...}` so
+  the session's client is tracked, found by the bridge and stopped by its pid as before. Stopping the client ends the
+  launcher; ending the launcher closes the client.
+
+On `main` Auth's instance info always names port 6112, so a client logging in through a private Auth on other ports
+would still be sent to whatever Gateway listens on 6112; the multi-instance branch sends it to
+`Game_GATEWAY_HOST:Game_GATEWAY_PORT`. Use the nullifier on private ports only on top of that change.
 
 ## 2. What the client offers (3.29.3b, image base `0x140000000`)
 
@@ -58,9 +72,11 @@ through a private Auth on other ports would still be sent to whatever Gateway li
   `GGG_LOGIN_SERVER_PORT`, `GGG_BASE_WEB_CDN_URL`, `CONFIGURATION_NAME`, ... override the built-in values
   (`0x140e2d200` reads a JSON string member; the `"Loading config file: "` log line names `config.json`). These are
   **not environment variables**: the strings exist only as JSON keys, and the scripts' `pop` of an environment variable
-  `GGG_CONFIG_FILE_NAME` has no effect. `config.json` would sit in the shared `Client\` folder, so per-client settings
-  come from `nullifier.js` instead: it rewrites the path of every `CreateFileW`, `GetFileAttributes(Ex)W`,
-  `DeleteFileW` and `MoveFileExW` (destination) that ends in `\poeoffline_Config.ini` to the client's own file.
+  `GGG_CONFIG_FILE_NAME` has no effect. The client also opens `Content.ggpk` and writes `logs\Client.txt` in its
+  working folder, which is what live.ps1's session folders use (§1). A client started in the shared `Client\` folder,
+  where no `config.json` may be added, gets its own settings from `nullifier.js` instead: it rewrites the path of every
+  `CreateFileW`, `GetFileAttributes(Ex)W`, `DeleteFileW` and `MoveFileExW` (destination) that ends in
+  `\poeoffline_Config.ini` to the client's own file.
 - Command-line flags parsed in `0x1400f8450`: `--nosound`, `--softwareaudio`, `--nologo`, `--no-device-recovery`,
   `--no-nv` (no NVIDIA Streamline/DLSS), `--no-agility-sdk`, `--disable-dx12-pso-cache` / `--enable-dx12-pso-cache`,
   `--use-defaults`, `--allow-priority-boost`, `--disable-assert-box`, and the login/patching ones. None turns rendering

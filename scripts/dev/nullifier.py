@@ -13,8 +13,14 @@ in place while it is attached, so it closes the client when it ends (stdin close
 running unhooked. Agents/docs/dev/headless-client.md has the measurements behind the defaults.
 
 It never touches another client or server: no process is found by name, nothing is killed but its own child, and it
-writes no file except the settings file it is given (--config, default a copy of config/nullifier_Config.ini under
-logs/). The servers (Auth, Patch, Gateway) must already run on the given ports.
+writes no file except the settings file and the --record file. The servers (Auth, Patch, Gateway) must already run on
+the given ports.
+
+Settings: with --cwd (a client session folder whose config.json names the session's settings file, as live.ps1's
+-Session clients have) the client's own config.json decides and nothing is redirected; otherwise the settings file is
+redirected to --config (default a fresh copy of config/nullifier_Config.ini under logs/nullifier/), so the user's
+poeoffline_Config.ini is never used. --record writes the client's pid and creation time for a launcher such as
+live.ps1 that starts this script detached and tracks its clients by pid.
 """
 import argparse
 import ctypes
@@ -47,6 +53,7 @@ kernel.SetProcessAffinityMask.argtypes = [wintypes.HANDLE, ctypes.c_size_t]
 kernel.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
 kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
 kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
 psapi.EmptyWorkingSet.argtypes = [wintypes.HANDLE]
 PRIORITIES = {"idle": 0x40, "below-normal": 0x4000, "normal": 0x20}
 
@@ -85,6 +92,20 @@ def trim_working_set(pid):
     handle = process_handle(pid)
     try:
         psapi.EmptyWorkingSet(handle)
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def creation_time(pid):
+    """The process creation time as a UTC FILETIME (what PowerShell's StartTime.ToFileTimeUtc() gives)."""
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return None
+    try:
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        return times[0].dwHighDateTime << 32 | times[0].dwLowDateTime
     finally:
         kernel.CloseHandle(handle)
 
@@ -133,7 +154,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--patch-port", type=int, required=True, help="local patching server (TCP) port")
     parser.add_argument("--login-port", type=int, required=True, help="local Auth login port (bridge login)")
-    parser.add_argument("--config", type=Path, help="this client's settings file (created from the preset if missing)")
+    parser.add_argument("--cwd", type=Path, default=CLIENT.parent,
+                        help="the client's working folder (Content.ggpk, config.json and logs/ are opened there)")
+    parser.add_argument("--config", help="redirect the settings file here (created from the preset if missing); "
+                                         "'none': no redirect (default with --cwd)")
     parser.add_argument("--preset", type=Path, default=PRESET, help="settings copied into --config when it is missing")
     parser.add_argument("--renderer", choices=["null", "configured"], default="null",
                         help="null: the engine's Null device (no GPU); configured: the device_type of the settings")
@@ -149,17 +173,24 @@ def main():
     parser.add_argument("--sound", action="store_true", help="keep sound (default: --nosound)")
     parser.add_argument("--trace-files", help="log CreateFileW paths matching this regex (diagnostics)")
     parser.add_argument("--stdio", action="store_true", help="serve client_control JSON-lines commands on stdin")
+    parser.add_argument("--record", type=Path, help="write {pid, started (FILETIME UTC), launcher} here once running")
     options = parser.parse_args()
 
-    config = options.config or (ROOT / "logs" / "nullifier" / f"client-{os.getpid()}_Config.ini")
-    config = config.resolve()
-    if not config.exists():
-        config.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(options.preset, config)
+    cwd = options.cwd.resolve()
+    config = options.config
+    if config is None and cwd == CLIENT.parent.resolve():
+        config = str(ROOT / "logs" / "nullifier" / f"client-{os.getpid()}_Config.ini")
+    if config in (None, "none"):
+        config = None
+    else:
+        config = Path(config).resolve()
+        if not config.exists():
+            config.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(options.preset, config)
     agent_options = {
         "nullRenderer": options.renderer == "null", "noRenderJobs": options.no_render_jobs,
         "noTextureUpload": options.no_texture_upload, "frameSleepMs": max(0, options.frame_sleep_ms),
-        "configPath": str(config), "window": options.window, "traceFiles": options.trace_files}
+        "configPath": str(config) if config else None, "window": options.window, "traceFiles": options.trace_files}
     argv = [str(CLIENT), "--patching-server", f"127.0.0.1:{options.patch_port}", "--nologo"]
     if not options.sound:
         argv.append("--nosound")
@@ -169,7 +200,7 @@ def main():
     os.environ["Game_LOGIN_PORT"] = str(options.login_port)  # client_control's login connects here
 
     device = frida.get_local_device()
-    pid = device.spawn(argv, cwd=str(CLIENT.parent), env=env)
+    pid = device.spawn(argv, cwd=str(cwd), env=env)
     session = None
     try:
         session = device.attach(pid)
@@ -181,8 +212,12 @@ def main():
         script.load()
         apply_process_limits(pid, options.priority, not options.no_eco_qos, options.affinity)
         device.resume(pid)
-        print(json.dumps({"ok": True, "result": {"pid": pid, "config": str(config), "options": agent_options}}),
-              flush=True)
+        launched = {"pid": pid, "started": creation_time(pid), "launcher": os.getpid(), "cwd": str(cwd),
+                    "config": str(config) if config else None, "options": agent_options}
+        if options.record:
+            options.record.parent.mkdir(parents=True, exist_ok=True)
+            options.record.write_text(json.dumps(launched), encoding="ascii")
+        print(json.dumps({"ok": True, "result": launched}), flush=True)
         if options.trim_seconds > 0:
             def trimmer():
                 while client_control.live_process(pid):

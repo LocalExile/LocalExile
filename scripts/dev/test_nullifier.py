@@ -1,6 +1,7 @@
 """Offline checks of the nullifier launcher; no client is spawned or attached.
     .venv/Scripts/python.exe -m unittest discover -s scripts/dev -p test_nullifier.py
 """
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,11 +36,18 @@ class NullifierTests(unittest.TestCase):
             self.assertEqual(control.execute({"command": "game:status"}), {"x": 1})
         base.assert_called_once()
 
+    def test_creation_time_matches_a_live_process(self):
+        started = nullifier.creation_time(os.getpid())
+        self.assertIsInstance(started, int)
+        self.assertGreater(started, 116444736000000000)  # after 1970 in FILETIME ticks
+        self.assertIsNone(nullifier.creation_time(0x7ffffffc))
+
     def test_preset_and_agent_exist(self):
         self.assertTrue(nullifier.PRESET.is_file())
         text = nullifier.PRESET.read_text(encoding="utf-8")
         self.assertIn("[DISPLAY]", text)
         self.assertNotIn("password", text.lower())
+        self.assertNotIn("[LOGIN]", text)  # no saved login for whichever login server the gateway list names
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_agent_parses_with_options(self):
