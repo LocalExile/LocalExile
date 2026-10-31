@@ -84,7 +84,9 @@ These are suggestions that have worked well, for people and agents alike; use yo
   is back at the login screen (the Gateway tries to say so in chat first). It can be kind to tell the person playing
   before saving such an edit. `dotnet watch` does not build the modules, so the restarted Gateway builds those older
   than itself before it loads them (`StaleModules`); an older module would otherwise fail only when it runs, with a
-  `MissingFieldException` or `MissingMethodException`. A module that does not build is named in the log.
+  `MissingFieldException` or `MissingMethodException`. A module that does not build is named in the log. `live.ps1`
+  builds all modules and mods first, in one parallel build, and records it in the Gateway's `bin\` (`modules-checked`),
+  so that start does not build them again.
 - **A module's edit needs only its own build.** `dotnet build <Module>.csproj -p:BuildProjectReferences=false` reloads
   that module and leaves the Gateway running. It compiles against the Gateway's DLL on disk, so a member added only by a
   hot reload is not visible to it until a restart.

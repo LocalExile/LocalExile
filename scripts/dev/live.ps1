@@ -224,12 +224,21 @@ if (-not $NoBuild) {
     # not build is left out; the Gateway runs without it.
     if ($servers -contains 'Gateway') {
         $mods = @(Get-ChildItem (Join-Path $repo 'Modules'), (Join-Path $repo 'Mods\Source') -Filter *.csproj -Recurse -ErrorAction SilentlyContinue)
-        $built = 0
-        foreach ($mod in $mods) {
-            $built++
-            Step "building modules and mods [$built/$($mods.Count)]: $($mod.BaseName) ..."
-            dotnet build $mod.FullName -v q -nologo | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warning "mod $($mod.BaseName) did not build (run: dotnet build $($mod.FullName)); the Gateway starts without it" }
+        Step "building $($mods.Count) modules and mods ..."
+        # One build of a generated solution, not one per project: MSBuild shares the projects they reference, and builds in
+        # parallel. It goes on past a project that fails; those that depend on it fail too.
+        $solution = Join-Path $out 'live-modules.slnx'
+        $projects = $mods | ForEach-Object { "  <Project Path=`"$($_.FullName.Substring($repo.Length + 1).Insert(0, '..\').Replace('\', '/'))`" />" }
+        Set-Content $solution (@('<Solution>') + $projects + '</Solution>') -Encoding utf8
+        $output = @(dotnet build $solution -v q -nologo)
+        if ($LASTEXITCODE -eq 0) {
+            # StaleModules: the modules were just checked against this Gateway, and one that did not change keeps its old date.
+            $gatewayBin = Join-Path $repo "src\GameServer.Gateway\bin\Debug\net10.0"
+            Set-Content (Join-Path $gatewayBin 'modules-checked') (Get-Date -Format o)
+        }
+        else {
+            $failed = @($output | ForEach-Object { if ($_ -match ':\s+error\s.*\[([^\]]+\.csproj)') { [IO.Path]::GetFileNameWithoutExtension($Matches[1]) } } | Select-Object -Unique)
+            Write-Warning "did not build (run: dotnet build $solution): $(if ($failed) { $failed -join ', ' } else { 'see the command' }); the Gateway starts without them"
         }
     }
 }
