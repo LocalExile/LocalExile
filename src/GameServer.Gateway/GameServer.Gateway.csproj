@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\GameServer.Core\GameServer.Core.csproj" />
@@ -8,11 +8,31 @@
     <!-- The game files and the level generator port (ServerLevels.cs). -->
     <ProjectReference Include="..\GameServer.Data\GameServer.Data.csproj" />
     <Compile Include="..\..\scripts\re\ggdump\NodeOodleDecoder.cs" Link="NodeOodleDecoder.cs" />
+    <!-- Compiles a mod's loose .cs files (ModScripts.cs). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
-  <!-- The Gateway's types are internal (top-level program); its tests reach them. -->
+  <!-- The Gateway's types are internal (top-level program); its tests and the modules reach them. -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+    <InternalsVisibleTo Include="game" />
+    <InternalsVisibleTo Include="atlas" />
+    <InternalsVisibleTo Include="bench" />
+    <InternalsVisibleTo Include="commands" />
+    <InternalsVisibleTo Include="cosmetics" />
+    <InternalsVisibleTo Include="delve" />
+    <InternalsVisibleTo Include="harvest" />
+    <InternalsVisibleTo Include="heist" />
+    <InternalsVisibleTo Include="hideoutediting" />
+    <InternalsVisibleTo Include="mercy" />
+    <InternalsVisibleTo Include="npcdialogue" />
+    <InternalsVisibleTo Include="portals" />
+    <InternalsVisibleTo Include="questobjects" />
+    <InternalsVisibleTo Include="ruthless" />
+    <InternalsVisibleTo Include="social" />
+    <InternalsVisibleTo Include="tattoos" />
+    <InternalsVisibleTo Include="uniquebelts" />
+    <InternalsVisibleTo Include="vendors" />
     <!-- scripts/re/exits: the offline area transition audit. -->
     <InternalsVisibleTo Include="exits" />
   </ItemGroup>
@@ -22,6 +42,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- The connection's state is assigned by the game module, which the compiler does not see here. -->
+    <NoWarn>$(NoWarn);CS0649;CS0414</NoWarn>
   </PropertyGroup>
 
 </Project>

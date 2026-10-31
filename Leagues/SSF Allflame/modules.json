@@ -1,0 +1,21 @@
+{
+  "modules": [
+    "Core/Content/Delve",
+    "Core/Content/Harvest",
+    "Core/Content/Heist",
+    "Core/Content/Mercy",
+    "Core/Game",
+    "Core/Item/Bench",
+    "Core/Item/Cosmetics",
+    "Core/Item/Tattoos",
+    "Core/Item/UniqueBelts",
+    "Core/NPC/NpcDialogue",
+    "Core/NPC/Vendors",
+    "Core/Player/Commands",
+    "Core/Player/Social",
+    "Core/World/Atlas",
+    "Core/World/HideoutEditing",
+    "Core/World/Portals",
+    "Core/World/QuestObjects"
+  ]
+}

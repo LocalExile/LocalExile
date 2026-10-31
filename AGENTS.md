@@ -14,7 +14,7 @@ All agent and contributor documentation is in [Agents/](Agents/). Read these fir
 Tip: `live.ps1` runs the Gateway with hot reload, so a saved Gateway edit usually applies while the player stays in
 game; it may be worth trying before a restart.
 Suggestions for working with it are in [live testing](Agents/docs/dev/live-testing.md) ("hot reload").
-A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod in `Mods/Source/`, which reloads on build.
+A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod in `Mods/Source/`, which reloads on build. The Gateway is the framework; the game is [modules](Agents/docs/dev/modules.md).
 
 ## Rules
 
@@ -46,8 +46,9 @@ A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod 
   area's file in `Agents/roadmap/` to the one in `Agents/status/` in the same change. Put entries where they belong,
   never at the top or bottom of a file, and edit an existing entry instead of adding a dated note; the rules are in
   [Agents/Status.md](Agents/Status.md) ("Editing the status").
-- **Verify with the real client and the logs** (`logs\`), and keep `dotnet test tests/GameServer.Core.Tests`,
-  `tests/GameServer.Data.Tests` and `tests/GameServer.Gateway.Tests` passing.
+- **Verify with the real client and the logs** (`logs\`).
+- **Tests:** only Gateway tests, in `tests/GameServer.Gateway.Tests`; modules have no tests. A PR adds at most 2 tests. A test never waits on
+  real time: no sleeps, no realtime delays. `dotnet test tests/GameServer.Gateway.Tests` and the Core and Data suites stay passing.
 - **Level generator changes pass `scripts/re/levelgen/gate.ps1`** before they are committed (nothing lost against
   `gate-baseline.json`; `-Save` and commit the new baseline). Run levelgen through `scripts/re/levelgen/lg.ps1`, not
   `dotnet run` ([re/011](Agents/docs/re/011-level-generation.md) §8).

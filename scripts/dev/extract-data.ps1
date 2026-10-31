@@ -148,9 +148,11 @@ try {
         $code = Invoke-Logged 'dotnet' @('build', $proj) $log
         if ($code -ne 0) { throw "extract-data: building $proj failed (exit $code; logs\$(Split-Path $log -Leaf)):`n$(Tail $log)" }
     }
+    $done = 0
     foreach ($e in $todo) {
+        $done++
         $log = Join-Path $logs "extract-$($e.Name).log"
-        Write-Output "extracting $($e.Name) ($($reason[$e.Name])) ..."
+        Write-Output "extracting [$done/$($todo.Count)] $($e.Name) ($($reason[$e.Name])) ..."
         $started = Get-Date
         $exe = 'dotnet'; $exeArgs = @('run', '--no-build') + $e.Args[1..($e.Args.Count - 1)]
         if ($e.Runner -eq 'python') { $exe = $python; $exeArgs = @('-I') + $e.Args }

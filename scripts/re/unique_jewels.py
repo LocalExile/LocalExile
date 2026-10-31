@@ -1,4 +1,4 @@
-"""Generate src/GameServer.Gateway/UniqueJewelCatalogue.cs from Path of Building's unique jewel data.
+"""Generate src/GameServer.Gateway/Item/UniqueJewelCatalogue.cs from Path of Building's unique jewel data.
 
 Path of Building is a read-only third-party reference under Tools/PathOfBuilding (gitignored). Its
 src/Export/Uniques/jewel.lua has the mod HASH16 names, while src/Data/Uniques/jewel.lua has the human-readable
@@ -13,8 +13,8 @@ import re
 
 EXPORT = "Tools/PathOfBuilding/src/Export/Uniques/jewel.lua"
 TEXT = "Tools/PathOfBuilding/src/Data/Uniques/jewel.lua"
-OUT = "src/GameServer.Gateway/UniqueJewelCatalogue.cs"
-VISUALS_OUT = "src/GameServer.Gateway/UniqueJewelVisuals.cs"
+OUT = "src/GameServer.Gateway/Item/UniqueJewelCatalogue.cs"
+VISUALS_OUT = "src/GameServer.Gateway/Item/UniqueJewelVisuals.cs"
 
 META = re.compile(r"^(Source|League|Radius|Limited to|Variant|Requires Level|Upgrade|DropLevel|Level|"
                   r"Crafted|Implicits|Has Alt Variant|Corrupted)")

@@ -29,6 +29,18 @@ $out = Join-Path $repo 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
+# What the run is doing, as it starts doing it: the builds and the waits below are silent otherwise, and take minutes.
+function Step([string]$message) { Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $message" }
+# Every 10 s of a wait: what it waits for, how long so far, and the newest line of the server's log.
+function Report-Wait([string]$what, [datetime]$since, [string]$log) {
+    $seconds = [int]((Get-Date) - $since).TotalSeconds
+    if ($seconds -lt $script:nextReport) { return }
+    $script:nextReport = $seconds + 10
+    $last = $null
+    if (Test-Path $log) { try { $last = Get-Content $log -Tail 1 -ErrorAction Stop } catch { } }
+    if ($last -and $last.Length -gt 100) { $last = $last.Substring(0, 100) + '...' }
+    Step "  still waiting for $what ($seconds s)$(if ($last) { ": $last" })"
+}
 function Get-Recorders {
     Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like '*walkmaps.py*' }
@@ -160,7 +172,10 @@ if ($ClientOnly) {
 }
 
 # Game data from the GGPK (data/tables, object-types.json, ...): before the servers start, since they read it once.
-if (-not $NoExtract) { & (Join-Path $PSScriptRoot 'extract-data.ps1') }
+if (-not $NoExtract) {
+    Step 'checking game data (a first run extracts all of it from the client, which can take a long time) ...'
+    & (Join-Path $PSScriptRoot 'extract-data.ps1')
+}
 
 # Without this the Gateway stops after creating the player and the client never enters the area.
 if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
@@ -170,6 +185,7 @@ if ($Only) { $NoClient = $true }
 # Hot reload (the Gateway under `dotnet watch`) unless -NoHotReload.
 $Watch = -not $NoHotReload -and $servers -contains 'Gateway'
 
+Step "stopping the previous run: $($servers -join ', ')$(if (-not $NoClient) { ', client' }) ..."
 if (-not $NoClient) { Get-Process -Name 'Game.patched' -ErrorAction SilentlyContinue | Stop-Process -Force }
 if (-not $Only) { Get-Recorders | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
 Stop-Servers $servers | Out-Null
@@ -199,13 +215,19 @@ $runs = @(Get-ChildItem (Join-Path $out 'archive') -Directory -ErrorAction Silen
 if (-not $NoBuild) {
     # A watched Gateway builds itself.
     foreach ($s in ($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })) {
+        Step "building GameServer.$s ..."
         dotnet build (Join-Path $repo "src\GameServer.$s") -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
     }
-    # The first-party mods (Mods\Source\) into Mods\Binaries\, which the Gateway loads (Agents/docs/dev/modding.md). One that does
+    # The modules in Modules\ and the mods (Mods\Source\ into Mods\Binaries\), which the Gateway loads; it compiles Leagues\ itself
+    # (Agents/docs/dev/modules.md, modding.md). One that does
     # not build is left out; the Gateway runs without it.
     if ($servers -contains 'Gateway') {
-        foreach ($mod in Get-ChildItem (Join-Path $repo 'Mods\Source') -Filter *.csproj -Recurse -ErrorAction SilentlyContinue) {
+        $mods = @(Get-ChildItem (Join-Path $repo 'Modules'), (Join-Path $repo 'Mods\Source') -Filter *.csproj -Recurse -ErrorAction SilentlyContinue)
+        $built = 0
+        foreach ($mod in $mods) {
+            $built++
+            Step "building modules and mods [$built/$($mods.Count)]: $($mod.BaseName) ..."
             dotnet build $mod.FullName -v q -nologo | Out-Null
             if ($LASTEXITCODE -ne 0) { Write-Warning "mod $($mod.BaseName) did not build (run: dotnet build $($mod.FullName)); the Gateway starts without it" }
         }
@@ -219,6 +241,7 @@ $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
 # Select the local Auth explicitly before the patch server or client opens the GGPK.
 if (-not $NoClient) {
+    Step 'selecting the local login server in the client data ...'
     Select-LocalGateway
 }
 
@@ -229,6 +252,7 @@ if (-not $env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS = 'logs\packets' }
 # A watched Gateway reads `dotnet watch`'s own output (its stderr, below) to tell players about compile errors (HotReload.cs).
 $hotReloadLogBefore = $env:Game_HOT_RELOAD_LOG
 $env:Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } else { $null }
+Step "starting servers: $($servers -join ', ') ..."
 try {
     foreach ($s in 'Patch', 'Gateway', 'Auth') {
         if ($servers -notcontains $s) { continue }
@@ -245,6 +269,9 @@ finally { $env:Game_PACKET_DUMPS = $dumpsBefore; $env:Game_HOT_RELOAD_LOG = $hot
 
 # A watched Gateway first builds: wait until it listens, so the client does not reach a closed port.
 if ($Watch) {
+    Step 'waiting for the Gateway to build and load the game data (this is the long part, up to 3 minutes) ...'
+    $waitStart = Get-Date
+    $script:nextReport = 10
     $deadline = (Get-Date).AddMinutes(3)
     $gatewayLog = Join-Path $out 'live-gateway.log'
     $gatewayLogs = @($gatewayLog, (Join-Path $out 'live-gateway.err'))
@@ -254,12 +281,17 @@ if ($Watch) {
         if ($built -and (Select-String -Path $built -Pattern 'Build failed|error CS' -Quiet)) {
             throw 'the watched Gateway did not build (logs\live-gateway.log, logs\live-gateway.err)'
         }
+        Report-Wait 'the Gateway' $waitStart $gatewayLog
         Start-Sleep -Milliseconds 500
     }
+    Step "Gateway listening after $([int]((Get-Date) - $waitStart).TotalSeconds) s"
 }
 
 # The patch server must read the GGPK root hash before the client locks the file.
 if ($servers -contains 'Patch') {
+    Step 'waiting for the patch server to read the client data ...'
+    $waitStart = Get-Date
+    $script:nextReport = 10
     $deadline = (Get-Date).AddSeconds(30)
     # The log appears a moment after the server starts: until then there is nothing to read (with $ErrorActionPreference
     # Stop, Select-String on a missing file would end the script even with -ErrorAction SilentlyContinue).
@@ -269,6 +301,7 @@ if ($servers -contains 'Patch') {
             $err = Get-Content (Join-Path $out 'live-patch.err') -Raw -ErrorAction SilentlyContinue
             throw "patch server did not start (logs\live-patch.err):`n$err"
         }
+        Report-Wait 'the patch server' $waitStart $patchLog
         Start-Sleep -Milliseconds 300
     }
 }
@@ -289,6 +322,7 @@ if ($Walkmaps) {
 }
 
 if (-not $NoClient) {
+    Step 'starting the client ...'
     $client = Join-Path $repo 'Client'
     $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory $client -PassThru
     Write-Output "client pid $($p.Id)"
