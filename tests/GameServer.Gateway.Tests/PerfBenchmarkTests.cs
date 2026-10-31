@@ -347,6 +347,8 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         const int Steps = 2000;
         double now = conn.Clock.Elapsed.TotalSeconds;
         for (int i = 0; i < 50; i++) Program.PlanMonsterAi(conn, cadence, now += 0.05);   // warm-up
+        var surroundBefore = conn.Performance.Read(LatencyPhase.Surround);
+        var blockersBefore = conn.Performance.Read(LatencyPhase.BlockerBuild);
         long planAllocated = GC.GetAllocatedBytesForCurrentThread();
         using var self = Process.GetCurrentProcess();
         var cpuBefore = self.TotalProcessorTime;
@@ -366,6 +368,11 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         Record("planner", "PlanMonsterAi process CPU µs per step", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds * 1000 / Steps, "µs");
         Record("planner", "PlanMonsterAi allocated KB per step", (GC.GetAllocatedBytesForCurrentThread() - planAllocated) / 1024.0 / Steps, "KB");
         Record("planner", "PlanMonsterAi moves per step", moves / (double)Steps, "");
+        // The planner's phases (ConnectionPerformance): the surround's slot search and the blocker snapshot.
+        Record("planner", "MonsterSurround.Assign µs per step",
+            (conn.Performance.Read(LatencyPhase.Surround).TotalMilliseconds - surroundBefore.TotalMilliseconds) * 1000 / Steps, "µs");
+        Record("planner", "blocker frame µs per step",
+            (conn.Performance.Read(LatencyPhase.BlockerBuild).TotalMilliseconds - blockersBefore.TotalMilliseconds) * 1000 / Steps, "µs");
         conn.Closed = true;
     }
 }
