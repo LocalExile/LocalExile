@@ -14,14 +14,19 @@ import nullifier
 
 class NullifierTests(unittest.TestCase):
     def test_bridge_is_bound_to_its_own_pid(self):
-        control = nullifier.PidClientControl(4321)
-        with patch.object(nullifier.client_control, "live_process", side_effect=lambda pid: pid == 4321):
+        control = nullifier.PidClientControl(4321, started=1000)
+        with patch.object(nullifier.client_control, "live_process", side_effect=lambda pid: pid == 4321),                 patch.object(nullifier, "creation_time", return_value=1000):
             self.assertEqual(control._find_client(), 4321)
         with patch.object(nullifier.client_control, "live_process", return_value=False):
             self.assertIsNone(control._find_client())
 
+    def test_a_reused_pid_is_not_the_client(self):
+        control = nullifier.PidClientControl(4321, started=1000)
+        with patch.object(nullifier.client_control, "live_process", return_value=True),                 patch.object(nullifier, "creation_time", return_value=2000):
+            self.assertIsNone(control._find_client())
+
     def test_waypoint_travel_sends_the_pin_message(self):
-        control = nullifier.PidClientControl(1)
+        control = nullifier.PidClientControl(1, started=1)
         with patch.object(control, "rpc", return_value={"submitted": True}) as rpc:
             result = control.execute({"command": "waypoint:travel", "area": "0x7ad2"})
         rpc.assert_called_once_with("chat", bytes=[0x00, 0x4d, 0x7a, 0xd2, 0, 0, 0x2f, 0x00, 0])
@@ -31,7 +36,7 @@ class NullifierTests(unittest.TestCase):
                 control.execute({"command": "waypoint:travel", "area": bad})
 
     def test_other_commands_reach_client_control(self):
-        control = nullifier.PidClientControl(1)
+        control = nullifier.PidClientControl(1, started=1)
         with patch.object(nullifier.client_control.ClientControl, "execute", return_value={"x": 1}) as base:
             self.assertEqual(control.execute({"command": "game:status"}), {"x": 1})
         base.assert_called_once()

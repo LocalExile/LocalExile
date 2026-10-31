@@ -3,7 +3,7 @@ log in, play a character, stand in town, measure it with nullifier-measure.ps1, 
 chat, /tp, waypoint travel, /goto back) and measure again. The client and the launcher are closed at the end.
 
     .venv/Scripts/python.exe scripts/dev/nullifier-bench.py --label null --patch-port 22095 --login-port 22093 \
-        --travel -- --renderer null --frame-sleep-ms 50
+        --travel -- --renderer configured
 
 Everything after `--` goes to nullifier.py. The servers must run on the given ports with their logs in this checkout's
 logs/ (client_control reads slash-command replies from logs/live-gateway.log). It refuses to launch when free commit is
@@ -116,7 +116,16 @@ def main():
         log("login ->", json.dumps(result)[:300])
         rpc({"command": "character:list"})
         if not rpc({"command": "character:play", "name": options.character})["ok"]:
-            raise SystemExit("play failed")
+            # The bridge gives up when no frame comes for 5 s (a long area load); keep watching for 90 s.
+            for _ in range(90):
+                time.sleep(1)
+                frames = rpc({"command": "nullifier:stats"}, show=False).get("result")
+                status = rpc({"command": "game:status"}, show=False)
+                log("waiting:", json.dumps(frames), json.dumps(status)[:200])
+                if status["ok"] and status["result"].get("screen") == "game" and status["result"].get("instanceState") == 3:
+                    break
+            else:
+                raise SystemExit("play failed")
         log(f"in game after {time.monotonic() - clock:.1f} s")
         rpc({"command": "command", "text": "/pos"})
         time.sleep(10)

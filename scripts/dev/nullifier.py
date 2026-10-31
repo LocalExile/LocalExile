@@ -5,12 +5,13 @@
     {"command":"character:play","name":"OfflineWitch"}
     {"command":"command","text":"/goto 1_1_2"}
 
-It spawns Client/Game.patched.exe suspended through Frida with scripts/dev/nullifier.js (the engine's own Null renderer,
-a per-client settings file, a frame-rate cap), applies the process-level limits (priority, EcoQoS, affinity, working
-set trimming, a window that never takes focus), resumes it, and then serves client_control.py's JSON-lines commands
-for THIS process only (--stdio), or just waits. The client lives exactly as long as this script: the hooks are only
-in place while it is attached, so it closes the client when it ends (stdin closed, Ctrl+C) rather than leave it
-running unhooked. Agents/docs/dev/headless-client.md has the measurements behind the defaults.
+It spawns Client/Game.patched.exe suspended through Frida with scripts/dev/nullifier.js (a per-client settings file from
+the low-cost preset, optionally the engine's own Null renderer and a frame-sleep cap), applies the process-level
+limits (priority, EcoQoS, affinity, working set trimming, a window that never takes focus), resumes it, and then
+serves client_control.py's JSON-lines commands for THIS process only (--stdio), or just waits. The client lives
+exactly as long as this script: the hooks are only in place while it is attached, so it closes the client when it
+ends (stdin closed, Ctrl+C) rather than leave it running unhooked. The pid is checked together with its creation
+time everywhere, so a pid Windows reuses after the client exits is never attached to, trimmed or terminated. Agents/docs/dev/headless-client.md has the measurements behind the defaults.
 
 It never touches another client or server: no process is found by name, nothing is killed but its own child, and it
 writes no file except the settings file and the --record file. The servers (Auth, Patch, Gateway) must already run on
@@ -110,6 +111,11 @@ def creation_time(pid):
         kernel.CloseHandle(handle)
 
 
+def ours(pid, started):
+    """The spawned client is still running: same pid AND creation time (a pid is reused once its process exits)."""
+    return started is not None and client_control.live_process(pid) and creation_time(pid) == started
+
+
 def terminate(pid):
     handle = kernel.OpenProcess(0x0001, False, pid)
     if handle:
@@ -120,13 +126,17 @@ def terminate(pid):
 class PidClientControl(client_control.ClientControl):
     """client_control's commands, bound to one pid instead of the only Game.patched.exe running."""
 
-    def __init__(self, pid, nullifier=None):
+    def __init__(self, pid, nullifier=None, started=None):
         super().__init__()
         self.client_pid = pid
+        # Its creation time: once the client has exited, Windows can give its pid to an unrelated process, which
+        # must never be attached to.
+        self.client_started = creation_time(pid) if started is None else started
         self.nullifier = nullifier  # the nullifier.js script, for nullifier:stats
 
     def _find_client(self):
-        return self.client_pid if client_control.live_process(self.client_pid) else None
+        alive = client_control.live_process(self.client_pid) and self.client_started is not None
+        return self.client_pid if alive and creation_time(self.client_pid) == self.client_started else None
 
     def open(self):
         return {"alreadyRunning": True, **self.ready()}
@@ -159,38 +169,46 @@ def main():
     parser.add_argument("--config", help="redirect the settings file here (created from the preset if missing); "
                                          "'none': no redirect (default with --cwd)")
     parser.add_argument("--preset", type=Path, default=PRESET, help="settings copied into --config when it is missing")
-    parser.add_argument("--renderer", choices=["null", "configured"], default="null",
-                        help="null: the engine's Null device (no GPU); configured: the device_type of the settings")
-    parser.add_argument("--frame-sleep-ms", type=int, default=50, help="sleep per main-loop frame (0: none)")
+    parser.add_argument("--renderer", choices=["null", "configured"], default="configured",
+                        help="configured: the settings' device_type (the preset: DirectX 11); null: the engine's Null "
+                             "device, experimental: reaches character selection but crashes on entering an area")
+    parser.add_argument("--frame-sleep-ms", type=int, default=0,
+                        help="sleep per main-loop frame (0: none; the preset's framerate_limit caps a real renderer)")
     parser.add_argument("--no-render-jobs", action="store_true", help="also disable the frame render jobs")
     parser.add_argument("--no-texture-upload", action="store_true", help="texture manager Upload off")
     parser.add_argument("--priority", choices=sorted(PRIORITIES), default="below-normal")
     parser.add_argument("--no-eco-qos", action="store_true", help="do not mark the process EcoQoS")
     parser.add_argument("--affinity", type=lambda v: int(v, 0), default=0, help="CPU affinity mask (0: all)")
     parser.add_argument("--trim-seconds", type=float, default=0, help="trim the working set this often (0: never)")
-    parser.add_argument("--window", choices=["minimized", "hidden", "normal"], default="minimized",
-                        help="how the client window is shown; it is never activated or brought to the foreground")
+    parser.add_argument("--window", choices=["minimized", "hidden", "normal"], default="normal",
+                        help="how the client window is shown; it is never activated or brought to the foreground. "
+                             "A minimized client with a real renderer stops its main loop (no login); only the Null "
+                             "renderer runs minimized")
     parser.add_argument("--sound", action="store_true", help="keep sound (default: --nosound)")
     parser.add_argument("--trace-files", help="log CreateFileW paths matching this regex (diagnostics)")
+    parser.add_argument("--crash-log", type=Path, default=ROOT / "logs" / "nullifier" / "crashes.log",
+                        help="append a client crash's registers and backtrace here")
     parser.add_argument("--stdio", action="store_true", help="serve client_control JSON-lines commands on stdin")
     parser.add_argument("--record", type=Path, help="write {pid, started (FILETIME UTC), launcher} here once running")
     options = parser.parse_args()
 
-    cwd = options.cwd.resolve()
+    # abspath, not resolve(): a worktree's Client\ is a junction, and the client should see this checkout's path.
+    cwd = Path(os.path.abspath(options.cwd))
     config = options.config
-    if config is None and cwd == CLIENT.parent.resolve():
+    if config is None and os.path.normcase(cwd) == os.path.normcase(os.path.abspath(CLIENT.parent)):
         config = str(ROOT / "logs" / "nullifier" / f"client-{os.getpid()}_Config.ini")
     if config in (None, "none"):
         config = None
     else:
-        config = Path(config).resolve()
+        config = Path(os.path.abspath(config))
         if not config.exists():
             config.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(options.preset, config)
     agent_options = {
         "nullRenderer": options.renderer == "null", "noRenderJobs": options.no_render_jobs,
         "noTextureUpload": options.no_texture_upload, "frameSleepMs": max(0, options.frame_sleep_ms),
-        "configPath": str(config) if config else None, "window": options.window, "traceFiles": options.trace_files}
+        "configPath": str(config) if config else None, "window": options.window, "traceFiles": options.trace_files,
+        "crashLog": str(Path(os.path.abspath(options.crash_log)))}
     argv = [str(CLIENT), "--patching-server", f"127.0.0.1:{options.patch_port}", "--nologo"]
     if not options.sound:
         argv.append("--nosound")
@@ -201,7 +219,7 @@ def main():
 
     device = frida.get_local_device()
     pid = device.spawn(argv, cwd=str(cwd), env=env)
-    session = None
+    session = launched = None
     try:
         session = device.attach(pid)
         script = session.create_script(f"const OPTIONS = {json.dumps(agent_options)};\n"
@@ -220,15 +238,17 @@ def main():
         print(json.dumps({"ok": True, "result": launched}), flush=True)
         if options.trim_seconds > 0:
             def trimmer():
-                while client_control.live_process(pid):
+                while True:
                     time.sleep(options.trim_seconds)
+                    if not ours(pid, launched["started"]):
+                        return
                     try:
                         trim_working_set(pid)
                     except OSError:
                         return
             threading.Thread(target=trimmer, daemon=True).start()
         if options.stdio:
-            with PidClientControl(pid, script) as control:
+            with PidClientControl(pid, script, launched["started"]) as control:
                 for line in sys.stdin:
                     try:
                         result = client_control.run_request(control, json.loads(line))
@@ -236,13 +256,14 @@ def main():
                         result = {"ok": False, "error": str(error)}
                     print(json.dumps(result, ensure_ascii=True), flush=True)
         else:
-            while client_control.live_process(pid):
+            while ours(pid, launched["started"]):
                 time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:
         # Unhooked, the client would save its settings over the user's poeoffline_Config.ini: close it with us.
-        terminate(pid)
+        if ours(pid, creation_time(pid) if launched is None else launched["started"]):
+            terminate(pid)
         if session is not None:
             try:
                 session.detach()

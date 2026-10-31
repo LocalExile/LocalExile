@@ -11,6 +11,7 @@
 //   frameSleepMs  sleep this long once per main-loop frame (in the state-stack update), a frame-rate cap that also
 //                 works with the Null device, which has no vsync or present to wait on.
 //   window        minimized | hidden | normal: how the window shows; it is never activated (no focus stealing).
+//   crashLog      append a crash's registers and backtrace to this file (diagnostics).
 //   traceFiles    log every CreateFileW of a path matching this regular expression (diagnostics).
 'use strict';
 const module = Process.getModuleByName('Game.patched.exe');
@@ -92,10 +93,10 @@ whenLoaded('user32.dll', user32 => {
   Interceptor.attach(user32.getExportByName('SetForegroundWindow'), {onEnter(args) { args[0] = ptr(0); }});
 });
 
-// The state-stack update after its +0x38 transition guard (the same per-frame point client-control.js serves its RPCs
-// at), on the main thread once per frame: counts frames for `stats` and, with frameSleepMs, caps the frame rate, which
-// also works with the Null device (no vsync or present to wait on).
-const frame = checked('frame', '0x141526cbf', '488b5d284883eb10483b5d200f848800');
+// The state-stack update (0x141526c40), on the main thread once per frame: counts frames for `stats` and, with
+// frameSleepMs, caps the frame rate, which also works with the Null device (no vsync or present to wait on). Its entry,
+// not client-control.js's point 0x7f bytes in (0x141526cbf), so the bridge's code check there still sees the original.
+const frame = checked('stateStackUpdate', '0x141526c40', '48895c241048896c2418488974242057');
 let frames = 0, sleep = null;
 const started = Date.now();
 Interceptor.attach(frame, function () {
@@ -111,5 +112,27 @@ rpc.exports.stats = () => {
   last = {time: now, frames};
   return {pid: Process.id, frames, fpsSinceLastStats: Math.round(fps * 10) / 10, uptimeS: Math.round((now - started) / 1000)};
 };
+
+// A crash (with the Null renderer, a code path that expects a real device) is written to OPTIONS.crashLog
+// synchronously, with registers and image-relative return addresses, before the process dies as it would anyway.
+if (OPTIONS.crashLog) {
+  Process.setExceptionHandler(details => {
+    // 'system' covers the C++ exceptions (0xe06d7363) the client throws and catches itself.
+    if (details.type === 'system') return false;
+    try {
+      const rva = p => { const m = Process.findModuleByAddress(p); return m ? `${m.name}+0x${p.sub(m.base).toString(16)}` : `${p}`; };
+      const c = details.context;
+      const regs = ['rax', 'rbx', 'rcx', 'rdx', 'rsi', 'rdi', 'rbp', 'rsp', 'r8', 'r9', 'r12', 'r13', 'r14', 'r15']
+        .map(r => `${r}=${c[r]}`).join(' ');
+      const stack = Thread.backtrace(c, Backtracer.FUZZY).slice(0, 24).map(rva).join('\n  ');
+      const file = new File(OPTIONS.crashLog, 'a');
+      file.write(`${new Date().toISOString()} pid ${Process.id} thread ${Process.getCurrentThreadId()} ${details.type}` +
+        ` at ${rva(details.address)} (${details.memory ? details.memory.operation + ' ' + details.memory.address : ''})` +
+        `\n  ${regs}\n  ${stack}\n`);
+      file.close();
+    } catch (_) {}
+    return false;
+  });
+}
 
 rpc.exports.ready = () => ({pid: Process.id, options: OPTIONS});
