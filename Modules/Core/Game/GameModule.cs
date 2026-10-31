@@ -73,4 +73,5 @@ sealed class GameLogic : IGameLogic
     public IConnectionPlayer PlayerFor(ClientState conn) => new Rules.ModPlayer(conn);
     public IPlayerWorld WorldFor(ClientState conn) => new Rules.ModuleWorld(conn);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
+    public double PlayerActionFactor(ClientState conn) => Rules.PlayerActionFactor(conn);
 }

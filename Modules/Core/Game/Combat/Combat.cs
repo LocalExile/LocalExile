@@ -59,7 +59,8 @@ static partial class Game
     // the use is no more than a quarter of an attack early (the client's jitter). Does not reserve the timer: an attack used
     // on a monster waits for the walk into reach, and CastGemSkill reserves it when the swing starts.
     internal static double SkillAttackSeconds(ClientState conn, int effect, int level) =>
-        SkillAttackTiming.ForSkill(SkillsFor(conn), effect, level, WeaponFor(conn), CharacterPlayerStats(conn)) / PlayerActionFactor(conn);
+        Math.Max(TickSeconds, SkillAttackTiming.ForSkill(SkillsFor(conn), effect, level, WeaponFor(conn),
+            CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
 
     internal static bool AttackReady(ClientState conn, int effect, int level, out double seconds)
     {
@@ -134,7 +135,8 @@ static partial class Game
         string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true));
         bool ranged = ordinaryProjectile is not null;
         double now = conn.Clock.Elapsed.TotalSeconds, duration;
-        lock (conn.Monsters) duration = weapon.AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn);
+        lock (conn.Monsters) duration = Math.Max(TickSeconds,
+            weapon.AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
         // The client sends one 0x24 per swing while the button is held; jitter makes the next one arrive a little before a
         // full attack time, so accept it up to a quarter of an attack early.
         lock (conn.Monsters)
@@ -517,7 +519,7 @@ static partial class Game
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
-                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + SupportedAttackSeconds(conn, skillId);
+                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + SupportedChannelSeconds(conn, skillId);
                 _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action);
             }
         }
@@ -743,7 +745,7 @@ static partial class Game
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; return; }
                     gem = activeGem;
                     conn.Performance.RecordMilliseconds(LatencyPhase.ChannelLate, (now - conn.NextChannelHitAt) * 1000);
-                    conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + SupportedAttackSeconds(conn, skillId);
+                    conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + SupportedChannelSeconds(conn, skillId);
                     // Payment and admission share the channel's generation check.
                     if (!PayMana(conn, skillId, out cost)) { conn.ChannelSkill = 0; conn.ChannelGeneration++; }
                 }
@@ -1071,7 +1073,7 @@ static partial class Game
         { Trace("unsupported skill immunity"); return null; }
         if (PlayerHasEnergyShieldForRecovery(conn, Get)) { Trace("energy shield present"); return null; }
         double chance = PlayerHitRecovery.Chance(damage, conn.PlayerMaxLife, Get);
-        float seconds = PlayerHitRecovery.Duration(Get);
+        float seconds = PlayerHitRecovery.Duration(Get, PlayerActionFactor(conn));
         if (seconds <= 0 || Random.Shared.NextDouble() * 100 >= chance
             || conn.Closed || conn.PlayerLife == 0 || !conn.HitRecovery.Begin(now, seconds))
         { Trace($"not accepted (chance {chance:0.###}%, duration {seconds:0.###} s)"); return null; }
