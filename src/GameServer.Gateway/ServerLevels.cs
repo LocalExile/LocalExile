@@ -90,7 +90,7 @@ static class ServerLevels
             var level = Generate(areaId, seed);
             Generated[(areaId, seed)] = new(level);
             if (level is not null) Live[(areaId, seed)] = new(level);
-            Trim();
+            Trim((areaId, seed));
             return level;
         }
     }
@@ -107,13 +107,15 @@ static class ServerLevels
         return level is not null;
     }
 
-    // Under Gate: the kept levels beyond Kept go, failed generations first, then the least recently used; a level in use
-    // stays reachable through Live. Live forgets the levels nobody holds any more.
-    static void Trim()
+    // Under Gate: the kept levels beyond Kept go, older failed generations first, then the least recently used; never the
+    // one just generated (its callers ask again at once). A level in use stays reachable through Live. Live forgets the
+    // levels nobody holds any more.
+    static void Trim((string Area, uint Seed) newest)
     {
         while (Generated.Count > Kept)
         {
-            var oldest = Generated.OrderBy(e => e.Value.Level is null ? 0 : 1).ThenBy(e => e.Value.UsedAt).First().Key;
+            var oldest = Generated.Where(e => e.Key != newest)
+                .OrderBy(e => e.Value.Level is null ? 0 : 1).ThenBy(e => e.Value.UsedAt).First().Key;
             Generated.TryRemove(oldest, out _);
             Errors.TryRemove(oldest, out _);
         }
