@@ -43,7 +43,7 @@ public sealed partial class DelveModule : IModule
     static readonly Lazy<string?[]> StatIds = new(() =>
     {
         if (!File.Exists("data/tables/Stats.json")) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes("data/tables/Stats.json"));
+        using var doc = GameTables.Open("data/tables/Stats.json");
         return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString())];
     });
 
