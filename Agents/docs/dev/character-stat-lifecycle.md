@@ -62,8 +62,15 @@ keeps its last tail and reuses it while the inputs are equal, so there is no inv
 head changes (equipment, gems, passives, level, buffs, auras, flasks, charges, leech, Fortification, mods and modules)
 changes the head's stats or an input. A new area is a new connection with no tail.
 
-`Game_STAT_SNAPSHOT_VERIFY=1` computes every reused tail again and throws if the two differ in any value or in order.
-`StatSnapshotTailTests` changes each source in turn and compares with a connection that has no tail.
+The head runs `CharacterStatSources` twice (the sources and the own-aura restriction), each expanding the charges.
+`WithCharges` reuses its last `ChargeEffects.Expand` while what that pure function reads is the same (the stats in
+order, the `/set_stat` values, the effective counts and the conversions); `ChargeSession.Observe` still runs every time.
+
+`Game_STAT_SNAPSHOT_VERIFY=1` computes every reused tail and charge expansion again and throws if they differ in any
+value or in order. `StatSnapshotTailTests` changes each source in turn and compares with a connection that has no tail.
+Measured (Release, one character in Lioneye's Watch): one snapshot 64 µs and 150 KB before, 20-22 µs and 61 KB after;
+an idle player (the connection's loops over loopback) allocates 13-14 MB/s before and 5.4-6.1 MB/s after, on The Coast
+16-18 MB/s and 7-9 MB/s; its process CPU, on a shared machine, 42-56 ms/s before and 29-37 ms/s after in town.
 
 ## Automated evidence
 
