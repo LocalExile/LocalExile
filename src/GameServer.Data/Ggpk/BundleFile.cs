@@ -45,10 +45,11 @@ public static class BundleFile
         int decompOffset = 0;
         int destOffset = 0;
 
-        for (int idx = 0; idx < chunkCount; idx++)
+        // Only the chunks the slice overlaps are copied and decompressed: a terrain file is a few KB of a bundle of
+        // hundreds of chunks, and copying every chunk for each read was most of a level generation's time.
+        for (int idx = 0; idx < chunkCount && decompOffset < sliceOffset + sliceSize; idx++)
         {
             int chunkSize = BinaryPrimitives.ReadInt32LittleEndian(bundle.Slice(ChunkSizesOffset + (idx * 4), 4));
-            var chunk = bundle.Slice(chunkBegin, chunkSize).ToArray();
 
             int decompChunkSize = (idx == chunkCount - 1)
                 ? decompressedSize - decompOffset
@@ -60,7 +61,7 @@ public static class BundleFile
                 int begin = Math.Max(sliceOffset - decompOffset, 0);
                 int end = Math.Min(sliceOffset + sliceSize - decompOffset, decompChunkSize);
 
-                byte[] raw = decoder.Decompress(chunk, decompChunkSize);
+                byte[] raw = decoder.Decompress(bundle.Slice(chunkBegin, chunkSize).ToArray(), decompChunkSize);
                 if (raw.Length < end)
                     throw new GgpkFormatException($"chunk produced {raw.Length} bytes, need {end}");
 
