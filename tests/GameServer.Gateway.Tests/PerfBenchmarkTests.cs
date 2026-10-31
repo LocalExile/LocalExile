@@ -242,8 +242,11 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         var layout = AreaLayouts.For(hash, 1);
         var conn = Player(layout, 1);
         var kinds = Program.Packs.For(id)!.Scattered.SelectMany(p => p.Pack.Entries).Select(e => Program.Monsters.Find(e.Variety.ToString()))
-            .OfType<MonsterCatalog.Variety>().Where(v => v.Supported).DistinctBy(v => v.Row).ToList();
-        if (Program.Monsters.Find("Metadata/Monsters/SandSpitters/SandSpitterUntainted") is { Supported: true } spitter) kinds.Add(spitter);
+            .OfType<MonsterCatalog.Variety>().Where(v => v.Supported).DistinctBy(v => v.Row)
+            // Monsters that wait buried rise on a wall-clock watch (MonsterEmerge): left out, so every run is the same.
+            .Where(v => Program.Emerges.Kind(v, MonsterRarity.Normal) == EmergeKind.None).ToList();
+        if (Program.Monsters.Find("Metadata/Monsters/SandSpitters/SandSpitterUntainted") is { Supported: true } spitter
+            && Program.Emerges.Kind(spitter, MonsterRarity.Normal) == EmergeKind.None) kinds.Add(spitter);
         Assert.NotEmpty(kinds);
         var random = new Random(7);
         var (px, py) = (layout.SpawnX, layout.SpawnY);
@@ -328,6 +331,8 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         double now = conn.Clock.Elapsed.TotalSeconds;
         for (int i = 0; i < 50; i++) Program.PlanMonsterAi(conn, cadence, now += 0.05);   // warm-up
         long planAllocated = GC.GetAllocatedBytesForCurrentThread();
+        using var self = Process.GetCurrentProcess();
+        var cpuBefore = self.TotalProcessorTime;
         clock.Restart();
         int moves = 0;
         for (int i = 0; i < Steps; i++)
@@ -339,6 +344,9 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             lock (conn.Monsters) foreach (var (_, m, action) in plan.Swings) cadence.CompleteSwing(m, action);
         }
         Record("planner", "PlanMonsterAi µs per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "µs");
+        self.Refresh();
+        // Less disturbed by other processes on a shared machine than the wall clock.
+        Record("planner", "PlanMonsterAi process CPU µs per step", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds * 1000 / Steps, "µs");
         Record("planner", "PlanMonsterAi allocated KB per step", (GC.GetAllocatedBytesForCurrentThread() - planAllocated) / 1024.0 / Steps, "KB");
         Record("planner", "PlanMonsterAi moves per step", moves / (double)Steps, "");
         conn.Closed = true;
