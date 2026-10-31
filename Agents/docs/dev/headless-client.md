@@ -12,7 +12,8 @@ every `-Session` client ([live testing](live-testing.md), "Several stacks and cl
 | `scripts/dev/nullifier.js` | its Frida agent, loaded before the client's first instruction: session-local two-copies mutexes and a window that never takes focus (always); with `-Nullifier` the engine's Null renderer (with the Null index-buffer fix); diagnostics on request |
 | `config/nullifier_Config.ini` | the settings preset (DirectX 11, 800×600 window, low textures, 10 fps, effects off, sound muted, no `[LOGIN]`) that seeds a new session's settings file |
 | `scripts/dev/nullifier-measure.ps1` | read-only sampler of one pid: private commit, working set, CPU, GPU engine utilisation, dedicated/shared GPU memory |
-| `scripts/dev/nullifier-bench.py` | the measurement scenario on a session client: start, log in, play, stand in town, measure, then waypoint travel, `/goto` back, chat, `/tp`, measure again; lock, memory gate, watchdog, call timeouts |
+| `scripts/dev/nullifier-bench.py` | the measurement scenario on a session client: start, log in, play, stand in town, measure, then waypoint travel, `/goto` back, chat, `/tp`, measure again; lock, memory gate, watchdog, call timeouts; `--survey` keeps a memory survey per measurement |
+| `scripts/dev/nullifier-tour.py` | the coverage tour on a running session client: every act's town and a combat area, the Act 1 boss area, a map and the hideout, a fight with the default attack in each combat area, chat and `/tp`; client alive, frames and `/pos` checked per step (§7) |
 
 ## 1. Using it
 
@@ -26,11 +27,14 @@ every `-Session` client ([live testing](live-testing.md), "Several stacks and cl
 {"command":"waypoint:travel","area":"0x7ad2"}
 {"command":"game:frames"}
 .\scripts\dev\live.ps1 -Stop -ClientOnly -Session bot1           # the launcher, and with its job the client
+.\scripts\dev\live.ps1 -Agent                                  # servers + one -Nullifier client 'agent', ports picked if none recorded
 ```
 
 A session client always gets its own folder and settings, the job object, below-normal priority and EcoQoS, a window
-that is shown but never activated, and session-local two-copies mutexes. `-Nullifier` (`Game_CLIENT_NULLIFIER=1`) adds
-the Null renderer and trimming (`--renderer null --trim-seconds 10`); without it the session's settings decide the
+that is shown but never activated, no hold on the user's mouse and keyboard (§2, "The user's mouse and keyboard"), and
+session-local two-copies mutexes. `-Nullifier` (`Game_CLIENT_NULLIFIER=1`) adds the Null renderer, trimming and the lean
+memory options (`--renderer null --trim-seconds 10 --mimalloc purge_delay=0 --mimalloc arena_purge_mult=1
+--lazy-null-buffers 8`, §6); without it the session's settings decide the
 renderer, which for a new session is the preset's DirectX 11 (§4 explains the choice). The bridge commands are
 client_control's; `waypoint:travel` (`area`: a WorldAreas HASH16; the World panel pin's C→S 0x4d,
 [16](../protocol/16-waypoints.md) §3; the Gateway accepts it only for an activated waypoint, so `/waypoints all`
@@ -39,9 +43,11 @@ counted at client-control.js's own frame point) were added for these clients.
 
 `nullifier.py` can also be run by hand on a prepared session folder, e.g. for diagnostics:
 `nullifier.py --cwd data\clients\S --record data\clients\S.json [--renderer null] [--trim-seconds 10]
-[--frame-sleep-ms N] [--crash-log <file>] [--trace-files <regex>] [--probe <js>] [--no-render-jobs]
-[--no-texture-upload] [--window minimized|hidden|normal] [--priority …] [--no-eco-qos] [--affinity 0x3] [--sound]`
-(ports default to the stack's, `data\stack.json`). `--no-render-jobs`/`--no-texture-upload` stalled the main loop
+[--frame-sleep-ms N] [--crash-log <file>] [--trace-files <regex>] [--trace-movies] [--probe <js>] [--no-render-jobs]
+[--no-texture-upload] [--window minimized|hidden|normal] [--priority …] [--no-eco-qos] [--affinity 0x3] [--sound]
+[--mimalloc NAME=VALUE]… [--lazy-null-buffers KIB]` (ports default to the stack's, `data\stack.json`); through
+`live.ps1`, `Game_NULLIFIER_ARGS` appends options to a session client's launcher (`nullifier-bench.py
+--launcher-args`). `--no-render-jobs`/`--no-texture-upload` stalled the main loop
 (§3).
 
 **Settings and folder.** The client opens `config.json`, `Content.ggpk`, its asset folders and `logs\Client.txt` in
@@ -194,6 +200,47 @@ turns that one message into `WM_NULL` before the engine sees it; the window stil
 last size and runs at its background frame rate (live: both renderers minimized at 9 fps, `/pos`, waypoint travel,
 `/goto`, chat and `/tp` answered). A hidden window also hides an error dialog.
 
+### The user's mouse and keyboard
+
+A session client never holds the user's input (live 2026-10-31: a new session client locked the user's mouse inside
+its window). The bridge drives the client through its own calls and packets, so none of this is needed by it. For every
+session client, renderer or not, `nullifier.js` replaces these `user32` calls at spawn:
+
+- `ClipCursor` (the window procedure `0x140e67df0` / `0x140e68220`, the `confine_mouse_to_window` setting): returns
+  success and does nothing, not even `ClipCursor(NULL)` (which would free the user's own client's confinement). The
+  preset also sets `confine_mouse_to_window=false`.
+- `SetCursorPos` / `SetPhysicalCursorPos` (3.29.3b imports neither): do nothing. `SetCapture` (41 call sites): does
+  nothing. `ShowCursor` keeps the display count the client expects without hiding anything; `SetCursor(NULL)` does
+  nothing.
+- `SetWindowsHookExW/A`: global input hooks are refused (`NULL`, which the client tolerates). 3.29.3b installs a
+  low-level keyboard hook (`WH_KEYBOARD_LL`, procedure `0x140e68f40`, at `0x140e6905c`), which would see every key the
+  user presses; `WH_MOUSE_LL` and thread-less `WH_KEYBOARD`/`WH_MOUSE` are refused too.
+- `RegisterRawInputDevices` (`0x14103b998`; the client registers usage 1/4 and 1/5 with `RIDEV_INPUTSINK |
+  RIDEV_DEVNOTIFY`): `RIDEV_INPUTSINK`, `RIDEV_EXINPUTSINK`, `RIDEV_CAPTUREMOUSE`/`RIDEV_NOHOTKEYS`, `RIDEV_APPKEYS` and
+  `RIDEV_NOLEGACY` are removed, so the client never receives, captures or swallows the user's input in the background.
+- No DirectInput: the client imports no `dinput8`.
+
+Exports that share code are replaced once, and a failure is logged per API (an early version replaced two aliases,
+threw, and the rest of the agent, the Null renderer included, never ran). Live (one client, a separate process
+polling `GetClipCursor` every 100 ms while the client started, logged in, played, travelled and came back): Null 1494
+samples and DirectX 11 1394 samples, none clipped (always the whole virtual screen), the foreground window never the
+client's; `ClipCursor` was called and ignored; the client's own `GetRegisteredRawInputDevices` showed 1/4 and 1/5 with
+flags 0. Offline: `test-nullifier-mutex.cjs`.
+
+### Movies
+
+The client plays Bink 2 movies through the delay-loaded `bink2w64.dll` (23 imports, `BinkOpen` … `BinkClose`). They
+are UI video textures, decoded on the CPU and drawn like any texture; no game logic waits on them. The paths in the
+executable: the startup logo `Art/Videos/GGG.bk2` (set up in `0x14152a5a0`), the loading screen `Loading.bk2`
+(`0x141528d60`), and effect videos for UI panels (passive-tree clicks, Blight, Ultimatum/Ancestral trials, Sentinel,
+Ritual, mystery boxes, tutorials). There are no act-ending or quest movies among them (those cinematics are in-engine).
+`--trace-movies` logs each movie the client opens and closes. Live with the Null renderer through the whole coverage
+tour (§7): `GGG.bk2` is never opened (`--nologo`, which the launcher always passes, skips it; the login screen is
+reached 1–3 s after the start); the login screen's `POELogoCurseoftheAllflame.bk2` closes when the screen is left
+(0.5–0.7 s, 9–11 frames); `Loading.bk2` opens for each area load and the engine closes it when the load ends (3.1–4.3
+s, 59–81 frames), at the same 9 frames per second as the game; `VaalDarkness.bk2` is opened once and stays open as a
+preloaded effect texture. None waits for a key press or for focus, so nothing needs skipping.
+
 ## 3. Measurements
 
 Scenario (`nullifier-bench.py`): fresh client in its own session folder, bridge login, `OfflineWitch` played into
@@ -251,16 +298,19 @@ renaming.
 ## 4. What is safe to default for agent sessions
 
 - **Every session client: the launcher's safety and process tier** (own folder and settings, kill-on-close job,
-  session-local two-copies mutexes, a never-activated window, below-normal priority, EcoQoS). None of it changes what
-  the game does.
+  session-local two-copies mutexes, a never-activated window, no hold on the user's mouse and keyboard, below-normal
+  priority, EcoQoS). None of it changes what the game does.
 - **Default renderer for a new session: the preset's DirectX 11** (no `-Nullifier`). Live: login, play, slash
   commands, chat, `/tp`, waypoint travel and `/goto`; 4.3 GB commit, 1.7 GB VRAM, ~11 % of a core at 9 fps once its
   shaders are compiled. It is a real renderer with no reverse-engineered patch in the way, so it is the safe choice for
   an agent whose session may reach any area or screen.
-- **`-Nullifier` for many clients or no spare GPU:** the Null renderer with trimming. Live the same way, ~1.9 GB
-  commit, no GPU device or memory, ~15 % of a core, 50–230 MB resident. Only Lioneye's Watch and The Coast were
-  entered; another area or combat may still reach a Null-device gap (the first one, the index format, is fixed). If a
-  session breaks under it, drop `-Nullifier` for that session and report the crash (`nullifier.py --crash-log`).
+- **`-Nullifier` for many clients or no spare GPU:** the Null renderer with trimming and the lean memory options
+  (§6). Live the same way, ~1.6 GB commit, no GPU device or memory, ~20 % of a core in town and 5–9 % standing after
+  travel, 50–230 MB resident. The coverage tour (§7: every act, a boss area, a map, the hideout, fights) passed with
+  it. If a session still breaks under it, drop `-Nullifier` for that session and report the crash (`nullifier.py
+  --crash-log`). `live.ps1 -Agent` starts the servers and one such client.
+- **Not a default:** `--trim-seconds 60` (about 4 points of a core less in town, but 0.9 GB resident on average and
+  1.5 GB at peak instead of ~0.1 GB, §6), `--mimalloc eager_commit=0` (no effect, §6).
 - **Not a default:** `--no-render-jobs`/`--no-texture-upload` (more CPU, and the main loop stalled),
   `--frame-sleep-ms` (the preset's cap already gives 9.2 fps).
 - **Untried:** WARP (`adapter_name=Microsoft Basic Render Driver` in the preset, no hook), which trades the GPU for
@@ -289,4 +339,137 @@ watchdog on memory and on foreign clients or default-port servers (it never fire
 | — | user's `poeoffline_Config.ini`, `production_Config.ini` | ✓ mtime and SHA-256 unchanged |
 
 Not covered live: another checkout's default client beside the sessions (the Global-slot count is tested with mocks),
-`--window hidden`, areas other than Lioneye's Watch and The Coast under the Null renderer.
+`--window hidden`. (Areas beyond Lioneye's Watch and The Coast under the Null renderer: the tour, §7.)
+
+## 6. Lean clients: where a Null client's commit goes, and what can go
+
+A Null client in Lioneye's Watch commits ~1.9 GB of private memory. Most of it lives in two 1 GiB mimalloc arenas
+(~790 and ~480–650 MB committed) and a 72 MB block, plus ~200 MB of image sections and ~300 MB of small heaps and stacks.
+Mapped files (the `data.mdb` shader cache, 6.7 GB, and `Content.ggpk`) are read-only views and cost no commit. Survey:
+a read-only per-allocation scan (committed, reserved, zero-page share, sample strings) of the client;
+`nullifier-bench.py --survey <script>` stores one per measurement. The client's allocator is **mimalloc 2.2** (built
+Aug 15 2025, linked into the executable): the engine's aligned allocation `0x142c839f0` is `mi_heap_malloc_aligned`
+behind a 16-byte header (size, alignment), and the global counter `0x1445c8528` adds up what goes through it.
+
+### 6.1 The game database cannot be shared between clients
+
+The plan was to serve the loaded `Data/*.datc64` tables from one shared read-only section. The client's tables cannot
+be shared that way:
+
+- **How a table loads.** Each table type has a getter (BaseItemTypes: `0x14012c580`, the name `Data/BaseItemTypes.dat`)
+  that asks the resource manager (`0x1421cfbd0`, 16 hash buckets by name) for it (`0x14014f380`); a new one is made by a
+  per-type factory (`0x140156020`) on the generic resource (`0x1421d0f20`: name, load and free callbacks, an object of
+  0xb8 bytes) and loaded by `0x1421d14c0`, which allocates the object and calls the type's loader (BaseItemTypes:
+  `0x14239c9b0`). The loader reads the file into a temporary buffer, checks the 0xbb×8 marker after the rows, copies
+  the rows into a vector (file row size: 0x176 bytes for BaseItemTypes) at object `+0x0` and the variable data (from the
+  marker on) into its own buffer at `+0x18`, then builds the type's indexes (hash maps by Id and by other keys, a
+  sorted vector).
+- **The copy is rewritten in place** (`0x14239d3c0` for BaseItemTypes): each string offset becomes an absolute
+  pointer into the variable data; each foreign key becomes (pointer to the target row, pointer to the target table's
+  resource object), and that object's reference count is raised; lists of keys inside the variable data are rewritten
+  the same way. The tables a table refers to are loaded first. So a loaded table is full of this process's addresses:
+  heap pointers to its own data, to other tables' rows and to their (mutable: reference counts, last-use times)
+  resource objects.
+- **Measured** (`--probe` on `0x1421d14c0`, 2026-10-31): 469 tables are loaded by the time the client is in town,
+  rows 97 MB and variable data 62 MB: 159 MB, not the 788 MB first estimated (that figure was the whole first arena).
+- **Read-only after load:** with every page of all 469 tables made read-only after its load and access violations
+  logged, the only writes came 34–47 s after load from the table destructor (`0x1401349b0` → `0x1421d1140`), when the
+  login screen's tables were released. Nothing writes a table while it is loaded.
+- **But different in every process:** two clients at the login screen, every table both had loaded compared byte for
+  byte: 5 of 287 tables identical; of 162 MB, 5.99 M qwords differ (2.58 M of them pointer-like at 8-byte alignment;
+  the rest are pointers at the odd offsets of rows like 0x176 bytes).
+- **Why not map it at the same address everywhere:** the tables point at each other's resource objects, which are
+  ordinary heap objects that change at run time, and tables load on several threads in whatever order they finish, so
+  no two clients lay them out alike. Only the strings in the variable data are the same everywhere (at most ~60 MB per
+  client), and serving those would mean taking buffers away from the allocator that frees them. Not done.
+
+### 6.2 The allocator returns freed memory at once (`--mimalloc purge_delay=0 --mimalloc arena_purge_mult=1`)
+
+mimalloc reads each option from `MIMALLOC_<NAME>` in its environment the first time it needs it; its option table
+(`0x143a5ab90`, 37 entries of 0x20 bytes) holds the stock defaults (`eager_commit=1`, `eager_commit_delay=1`,
+`arena_eager_commit=2`, `purge_decommits=1`, `purge_delay=10` ms, `arena_purge_mult=10`, `arena_reserve=1 GiB`).
+`nullifier.py --mimalloc NAME=VALUE` sets one for the client only, and the agent logs the value the allocator then
+uses (read back from the table 20 s after the start).
+
+- `eager_commit=0` (commit segments on demand): no effect (town 1836 MB against 1840, after travel 1938 against 1927).
+  The all-zero pages are not uncommitted segment space.
+- `purge_delay=0` with `arena_purge_mult=1`: memory the game frees goes back to the system at once instead of after
+  10 ms (100 ms in the arenas), which matters because area changes free and allocate in bursts: −174 MB in town and
+  −220 MB after travel (two runs each, §6.5), CPU within the runs' spread. A default of `-Nullifier`.
+
+### 6.3 The Null buffers' CPU copies are committed when first touched (`--lazy-null-buffers 8`)
+
+Who owns the all-zero committed pages (a read-only scan of every pointer into each zero run, the holder rebased to the
+image): mostly **Null device buffers**. Each Null buffer (the index buffer `0x14320e140`, the buffers `0x143212bc0`,
+`0x143212be0`, `0x143212c00` and `0x14369c088`, made in `0x140e939b0`, `0x142bb4730`, `0x142bb4a00`, `0x142bb4cd0`,
+`0x142bb5110`) keeps a byte vector of its full size, zero-filled by `vector<u8>::resize` (`0x140898aa0`) right after the
+object is made, which `Map` returns. Nothing uploads to the Null device, so they stay zero: the GPU particle ring
+buffers alone ("Particle bone buffer", "Particle instance buffer", "Particle Index Buffer") are tens of MB each (the
+"72 MB pool, 98 % zero" is one of them), and with the mesh buffers they came to ~440 MB of all-zero committed pages.
+They cannot simply be left out: `Map` callers read and write them (the mesh ray test reads the index buffers, §2).
+
+With `--lazy-null-buffers KIB` the agent watches that resize at its five call sites (return addresses `0x140e93cc1`,
+`0x142bb496a`, `0x142bb4c34`, `0x142bb4f58`, `0x142bb547b`, each checked to be the call): when a vector of at least KIB
+KiB has been zero-filled, its whole pages are decommitted, and a vectored exception handler (native code compiled by
+Frida's CModule; it only handles addresses in the recorded ranges) commits a page back, zero-filled, the first time
+anything reads or writes it. Every access then sees what it saw before (zeros, then its own data); commit is charged
+only for pages that are touched. The memory still belongs to the allocator, which frees and reuses it as before (its
+own first touch of such a page is handled the same way). Up to 65,536 ranges are recorded; past that, buffers are
+simply left as they are. Live: in town 1,232 vectors and 182 MB decommitted, of which 4 MB were touched again; through
+the whole coverage tour (24 areas) 8,196 vectors, 619 MB decommitted, 90 MB touched again; no crash, every step of the
+tour passed. A default of `-Nullifier` (8 KiB).
+
+What stays all-zero afterwards (~300 MB in town): 24 MB held by the shader source builder (`ShaderSourceBuilder`,
+`0x140fdfa20`), smaller Null buffers below 8 KiB or grown later, ~13 MB of allocator page slack, and ~170 MB whose
+holders the scan could not tie to a class.
+
+### 6.4 Smaller items
+
+- **Threads:** 46–48 in a Null client (107 with DirectX 11); none was removed.
+- **Shader cache:** `data.mdb` (6.7 GB) is a mapped view of the LMDB file shared by every client: no commit, and with
+  trimming it is not resident. Unchanged.
+- **Trim interval:** `--trim-seconds 10` (the default) against 60, two clients at once with the lean options: town CPU
+  20.0 against 15.8 % of a core, but resident memory 98 MB against 863 MB on average (1.5 GB at peak). Kept at 10 s.
+- **Frame cap:** the preset's 10 fps (9.2 measured) is kept: a lower rate changes how often the client runs its game
+  logic and sends, which these clients must not change.
+
+### 6.5 Results
+
+Same scenario every time (`nullifier-bench.py`, or the same steps with two clients: start, bridge login, play
+OfflineWitch (the second client CampAccept, sent to Lioneye's Watch), 10 s, 60 s measured in town, `/waypoints all`,
+waypoint travel to The Coast, `/goto 1_1_town`, `/pos`, chat, `/tp`, 20 s measured), after merging origin/main,
+2026-10-31; private commit and working set averaged over the samples; CPU in percent of one core.
+
+| One client | Private commit, town | after travel | Working set, town / after | CPU, town / after |
+|---|---|---|---|---|
+| Null, before (2 runs) | 1,931 / 1,926 MB | 1,982 / 2,046 MB | 82–146 / 47 MB | 15.4–17.0 / 6.9–7.3 |
+| + `purge_delay=0`, `arena_purge_mult=1` (2 runs) | 1,748 / 1,760 MB | 1,814 / 1,774 MB | 89–93 / 46 MB | 17.9–18.6 / 5.4–5.8 |
+| + lazy Null buffers ≥ 64 KiB | 1,615 MB | 1,628 MB | 87 / 47 MB | 19.3 / 6.7 |
+| **`-Nullifier` now** (+ lazy ≥ 8 KiB) | **1,579 MB** | **1,580 MB** | 104 / 47 MB | 21.0 / 9.4 |
+
+| Two clients at once, per client | Private commit, town | after travel | CPU, town / after |
+|---|---|---|---|
+| Null, before | 1,847 / 1,891 MB | 1,944 / 1,978 MB | 18.4, 18.6 / 4.4, 5.7 |
+| **`-Nullifier` now** | **1,592 / 1,551 MB** | **1,584 / 1,603 MB** | 20.1, 20.0 / 4.2, 6.8 |
+
+Per client that is about −0.30 GB in town and −0.37 GB after travel (−16 to −19 %); CPU is 1–3 points of a core higher
+in town (the page faults and the immediate purges) and about the same after travel. **Projection for 8 clients** (one
+per worktree): ~15.5 GB of commit before (1.93–2.01 GB each), ~12.7 GB now (1.57–1.60 GB each): ~2.8 GB less. Login,
+character list, play, `/pos`, chat, `/tp`, waypoint travel and `/goto` passed in every run above.
+
+## 7. Coverage: the tour
+
+`nullifier-tour.py --session S` (the client started by `live.ps1 -ClientOnly -Session S [-Nullifier]`) logs in, plays
+OfflineWitch, turns `/god` on (off again at the end), `/waypoints all`, and goes with `/goto` through Lioneye's Watch,
+The Coast, the Act 1 boss area 1_1_7_2 (Brutus), every act's town and a combat area (acts 2–10), a map
+(`MapWorldsBeach`) and the default hideout (`HideoutForest`); combat areas get a seed of their own. In each combat area
+it spawns a Hungry Corpse (`/spawn_mob ZombieBite@13`), teleports next to it and attacks it with the default attack
+(`object:interact` with skill `0x0102`) until the Gateway's log shows its life at 0, then moves (the Move skill). After
+every step it checks that the client is alive, runs frames, and that `/pos` names the area; a client-side level
+generation failure is reported as such. Results append to `logs\nullifier\tour.jsonl`.
+
+Live with the Null renderer (2026-10-31, crash log on): 27/27 steps without the lean options and 27/27 with them (twice,
+once through the plain `-Nullifier` defaults); all 12 fights killed their monster (the wand's hits at 8 a time, the
+monster hitting back); 9.0–9.7 frames per second in every area; no crash. Before merging origin/main the client could
+not build 2_6_1 at seed 1 ("Could not tilise edge BeachCliff", a known server-side issue fixed upstream by #413, with any
+renderer) and stayed loading; after the merge it plays.

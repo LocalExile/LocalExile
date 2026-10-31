@@ -33,9 +33,10 @@
 #               that ends it with its launcher, at below-normal priority with EcoQoS, its window never activated, and
 #               with session-local names for the client's two-copies mutexes, so it never takes one of the two machine-wide
 #               slots the user's client needs (Agents/docs/dev/headless-client.md). Without it: the one client as before.
-#   -Nullifier  (also Game_CLIENT_NULLIFIER=1) the -Session client without a GPU: the engine's Null renderer and a
-#               trimmed working set (about 1.9 GB commit, no GPU memory, ~15 % of a core). Without it the session's
-#               settings decide the renderer (the preset: DirectX 11).
+#   -Nullifier  (also Game_CLIENT_NULLIFIER=1) the -Session client without a GPU: the engine's Null renderer, a
+#               trimmed working set, freed memory returned at once and the Null buffers' unused copies uncommitted
+#               (about 1.6 GB commit, no GPU memory, ~20 % of a core in town). Without it the session's settings decide
+#               the renderer (the preset: DirectX 11).
 #   -Agent      one agent's whole setup in one command: this checkout's servers and one -Nullifier client of session
 #               'agent' (or -Session). The port base is -PortBase, else Game_PORT_BASE, else the one data\stack.json
 #               recorded, else the first block of 100 from 21000 to 29900 whose five ports nothing listens on and no
@@ -184,7 +185,10 @@ function Start-SessionLauncher([string]$session, [string]$folder, [string]$recor
     $python = Get-Python 'session clients (scripts/dev/nullifier.py)'
     $arguments = @((Join-Path $repo 'scripts\dev\nullifier.py'), '--cwd', $folder, '--record', $record,
         '--patch-port', "$($stack.Ports.patch)", '--login-port', "$($stack.Ports.login)")
-    $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10') } else { @('--renderer', 'configured') }
+    # -Nullifier: the Null renderer, trimming, the allocator returning freed memory at once and the Null buffers' unused
+    # CPU copies left uncommitted (Agents/docs/dev/headless-client.md §6).
+    $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10', '--mimalloc', 'purge_delay=0',
+        '--mimalloc', 'arena_purge_mult=1', '--lazy-null-buffers', '8') } else { @('--renderer', 'configured') }
     # Game_NULLIFIER_ARGS: extra launcher options (space-separated, no spaces inside one), e.g. a diagnostic --probe.
     if ("$env:Game_NULLIFIER_ARGS".Trim()) { $arguments += @("$env:Game_NULLIFIER_ARGS".Trim() -split '\s+') }
     $log = Join-Path $out "nullifier-$session.log"; $err = Join-Path $out "nullifier-$session.err"

@@ -97,16 +97,21 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cheap session clients: `live.ps1 -Session S` starts every session client through `scripts/dev/nullifier.py`, which
   spawns it in its session folder inside a kill-on-close job, with a Frida agent that gives its two-copies mutexes
   session-local names (so it never takes one of the two Global\PoERunMutexA/B slots the user's client needs), keeps
-  its window from taking focus, and sets below-normal priority and EcoQoS; `-Nullifier` adds the engine's own Null
-  renderer (no GPU device; the agent fixes the Null index buffer's missing format, which crashed area entry) and
-  working-set trimming. New sessions default to the cheap DirectX 11 preset. Live 2026-10-31 (with the earlier
-  stand-alone launcher): login, play, 60 s in town, slash commands, chat, `/tp`, waypoint travel and `/goto` worked
-  with both renderers; DirectX 11 preset 4.3 GB commit, 1.7 GB VRAM, ~11 % of a core; Null 1.9 GB, no GPU memory,
-  ~15 % (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %). The live.ps1 integration was verified live on 2026-10-31
-  (start, record, bridge, waypoint travel, `/goto`, stop, a killed launcher, two sessions at once with the Global
-  slots free, minimized clients, no focus taken); only Lioneye's Watch and The Coast were entered with the Null renderer.
+  its window from taking focus, never lets it confine, move, capture or hide the user's mouse, install global input
+  hooks or register background raw input, and sets below-normal priority and EcoQoS; `-Nullifier` adds the engine's
+  own Null renderer (no GPU device; the agent fixes the Null index buffer's missing format, which crashed area entry),
+  working-set trimming, the allocator returning freed memory at once (mimalloc `purge_delay=0`) and the Null buffers'
+  unused CPU copies left uncommitted until touched. `live.ps1 -Agent` starts the servers and one such client (port
+  block picked automatically when none is recorded). New sessions default to the cheap DirectX 11 preset. Live
+  2026-10-31: login, play, slash commands, chat, `/tp`, waypoint travel and `/goto` with both renderers; DirectX 11
+  preset 4.3 GB commit, 1.7 GB VRAM; Null (lean defaults) 1.58 GB commit (1.93 GB before), no GPU memory, ~20 % of a
+  core in town, 5–9 % standing after travel (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %). The coverage tour
+  (`nullifier-tour.py`: every act's town and a combat area, the Act 1 boss area, a map, the hideout, a fight with the
+  default attack in each combat area) passed 27/27 under Null with the lean defaults; startup movies are skipped
+  (`--nologo`) and the loading-screen movies close by themselves. The game database cannot be shared between clients:
+  loaded tables hold process-specific pointers (headless client §6).
   Offline tests: `test_nullifier.py`, `test-nullifier-mutex.cjs`, `test_client_control.py`, `test_live_client_only.ps1`.
-  Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`.
+  Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`, `nullifier-tour.py`.
   Docs: [headless client](../docs/dev/headless-client.md).
 
 ## Not working yet

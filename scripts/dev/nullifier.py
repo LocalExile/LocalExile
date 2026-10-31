@@ -201,7 +201,7 @@ def agent_options(options, folder):
         "noTextureUpload": options.no_texture_upload, "frameSleepMs": max(0, options.frame_sleep_ms),
         "window": options.window, "traceFiles": options.trace_files, "traceMovies": options.trace_movies,
         "runMutexPrefix": run_mutex_prefix(folder),
-        "mimalloc": dict(mimalloc_options(options.mimalloc)),
+        "mimalloc": dict(mimalloc_options(options.mimalloc)), "lazyNullBuffersKb": max(0, options.lazy_null_buffers),
         "crashLog": str(Path(os.path.abspath(options.crash_log))) if options.crash_log else None}
 
 
@@ -251,6 +251,9 @@ def parse(argv=None):
                         help="a mimalloc option for the client (MIMALLOC_<NAME>), e.g. eager_commit=0; repeatable. The "
                              "agent logs the values the allocator then uses")
     parser.add_argument("--trace-files", help="log CreateFileW paths matching this regex (diagnostics)")
+    parser.add_argument("--lazy-null-buffers", type=int, default=0, metavar="KIB",
+                        help="with --renderer null: Null buffers' zero-filled CPU copies of at least KIB KiB are committed "
+                             "only when first touched (0: off)")
     parser.add_argument("--trace-movies", action="store_true", help="log the Bink movies the client opens (diagnostics)")
     parser.add_argument("--crash-log", type=Path, help="append a client crash's registers and backtrace here")
     parser.add_argument("--probe", type=Path, action="append", default=[],

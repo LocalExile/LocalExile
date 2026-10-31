@@ -1,13 +1,14 @@
 """The coverage tour for session clients (Agents/docs/dev/headless-client.md §6): a client of this checkout's stack,
 already started by live.ps1 -ClientOnly -Session S [-Nullifier], logs in, plays a character and goes through a sample of
-every act (each town and a combat area), a boss area, the hideout and a map, fighting a spawned monster in each combat
-area with the default attack, then chat and /tp. After every step it checks that the client is alive and still runs
-frames, and that /pos names the expected area.
+every act (each town and a combat area), a boss area, a map and the default hideout (HideoutForest), fighting a
+spawned monster in each combat area with the default attack, then chat and /tp. After every step it checks that the
+client is alive and still runs frames, and that /pos names the expected area.
 
     .venv/Scripts/python.exe scripts/dev/nullifier-tour.py --session bench [--character OfflineWitch] [--quick]
 
 It sends only the bridge's own messages (no keyboard or mouse input). /god is turned on for the fight and off again at
-the end (it is a per-character toggle that lasts until the Gateway restarts). Results append to logs\\nullifier\\tour.jsonl.
+the end (it is a per-character toggle that lasts until the Gateway restarts).
+Results append to logs\\nullifier\\tour.jsonl.
 """
 import argparse
 import datetime
@@ -28,9 +29,9 @@ TOUR = [("1_1_town", False), ("1_1_2", True), ("1_1_7_2", True), ("1_2_town", Fa
         ("1_3_town", False), ("1_3_1", True), ("1_4_town", False), ("1_4_1", True), ("1_5_town", False),
         ("1_5_1", True), ("2_6_town", False), ("2_6_1", True), ("2_7_town", False), ("2_7_1", True),
         ("2_8_town", False), ("2_8_1", True), ("2_9_town", False), ("2_9_1", True), ("2_10_town", False),
-        ("2_10_1", True), ("MapWorldsBeach", True), ("hideout", False), ("1_1_town", False)]
+        ("2_10_1", True), ("MapWorldsBeach", True), ("HideoutForest", False), ("1_1_town", False)]
 QUICK = [("1_1_town", False), ("1_1_2", True), ("1_2_town", False), ("2_6_1", True), ("MapWorldsBeach", True),
-         ("hideout", False), ("1_1_town", False)]
+         ("HideoutForest", False), ("1_1_town", False)]
 DEFAULT_ATTACK = 0x0102
 MONSTER = "ZombieBite@13"
 
@@ -92,13 +93,13 @@ def main():
         for index, (area, fight) in enumerate(QUICK if options.quick else TOUR):
             # Combat areas get a seed of their own: with seed 1 the client's own level generation fails in some
             # (2_6_1: "Could not tilise edge BeachCliff"), whatever the renderer, and the client then stays loading.
-            text = "/hideout" if area == "hideout" else f"/goto {area} {101 + index}" if fight else f"/goto {area}"
+            text = f"/goto {area} {101 + index}" if fight else f"/goto {area}"
             mark = client_log.stat().st_size if client_log.exists() else 0
             replies(text, wait=2)
             time.sleep(3)
             arrived = in_game()
             where = " ".join(replies("/pos"))
-            ok = arrived and (area == "hideout" or f" in {area}" in where)
+            ok = arrived and f" in {area}" in where
             detail = {"area": area, "pos": where}
             if not arrived and client_log.exists():
                 with client_log.open("rb") as handle:
@@ -120,12 +121,24 @@ def main():
                     here = re.search(r"\((\d+), (\d+)\)", where)
                     if here:  # next to it: the attack has a reach
                         replies(f"/tp {mx + 3 - int(here.group(1)):+d} {my - int(here.group(2)):+d}")
-                    for _ in range(12):
+                    # A kill shows in the Gateway's log as the target's life update to 0 (a dead monster stays in
+                    # /mobs for 10 s).
+                    gateway_log = client_control.ROOT / "logs" / "live-gateway.log"
+                    mark_log = gateway_log.stat().st_size if gateway_log.exists() else 0
+
+                    def killed():
+                        if not gateway_log.exists():
+                            return False
+                        with gateway_log.open("rb") as handle:
+                            handle.seek(mark_log)
+                            pattern = rf"target=0x{target:x} damage=\d+ life=0/".encode()
+                            return re.search(pattern, handle.read()) is not None
+                    for _ in range(20):
                         rpc({"command": "object:interact", "id": target, "skill": DEFAULT_ATTACK}, quiet=True)
-                        time.sleep(0.75)
-                        if f"0x{target:x} " not in " ".join(replies("/mobs", wait=0.5)):
+                        time.sleep(1)
+                        if killed():
                             break
-                    detail["killed"] = f"0x{target:x} " not in " ".join(replies("/mobs"))
+                    detail["killed"] = killed()
                     replies("/despawn all")
                 position = re.search(r"\((\d+), (\d+)\)", " ".join(replies("/pos")))
                 if position:
@@ -144,7 +157,8 @@ def main():
         control.close()
         options.out.parent.mkdir(parents=True, exist_ok=True)
         with options.out.open("a", encoding="utf-8") as out:
-            out.write(json.dumps({"label": options.label, "session": session, "time": datetime.datetime.now().isoformat(),
+            now = datetime.datetime.now().isoformat()
+            out.write(json.dumps({"label": options.label, "session": session, "time": now,
                                   "steps": steps, "passed": sum(s["ok"] for s in steps), "total": len(steps)}) + "\n")
     failed = [s["step"] for s in steps if not s["ok"]]
     log(f"tour: {len(steps) - len(failed)}/{len(steps)} steps ok" + (f"; failed: {failed}" if failed else ""))

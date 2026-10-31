@@ -290,7 +290,7 @@ try {
     $script:writeRecord = $record
     $said = Start-SessionLauncher 's3' (Join-Path $clients 's3') $record $stack $true
     $line = $script:launch -join ' '
-    Assert ($line -like "*scripts\dev\nullifier.py --cwd $clients\s3 --record $record --patch-port 21000 --login-port 21002 --renderer null --trim-seconds 10") "launcher arguments: $line"
+    Assert ($line -like "*scripts\dev\nullifier.py --cwd $clients\s3 --record $record --patch-port 21000 --login-port 21002 --renderer null --trim-seconds 10 --mimalloc purge_delay=0 --mimalloc arena_purge_mult=1 --lazy-null-buffers 8") "launcher arguments: $line"
     Assert ("$said" -like 'client pid 90 (session s3*launcher 91; Null renderer)') "launch report: $said"
     Assert ($script:stopped.Count -eq 0) 'a started launcher must keep running'
     $null = Start-SessionLauncher 's3' (Join-Path $clients 's3') $record $stack $false

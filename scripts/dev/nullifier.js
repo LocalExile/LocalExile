@@ -249,6 +249,81 @@ if (OPTIONS.nullRenderer) {
   log('Null index buffers describe their format');
 }
 
+// Null buffers' CPU copies, committed on first touch (lazyNullBuffersKb). Each Null device buffer (the index buffer
+// 0x14320e140 and the buffers 0x143212bc0 / 0x143212be0 / 0x143212c00 / 0x14369c088, built in 0x140e939b0,
+// 0x142bb4730, 0x142bb4a00, 0x142bb4cd0 and 0x142bb5110) keeps a byte vector of its full size, zero-filled by
+// vector<u8>::resize (0x140898aa0) right after the object is made; Map returns it. Most are never written: the GPU
+// particle ring buffers alone ("Particle bone buffer", "Particle instance buffer", "Particle Index Buffer") are tens
+// of MB each, all zero, and with the mesh buffers they were ~440 MB of all-zero committed pages in town. With the
+// option, when that resize returns to one of these five call sites, the whole pages of a vector of at least this
+// many KiB are decommitted, and a vectored exception handler (native code, below) commits a page back, zero-filled,
+// the first time anything touches it, so every read and write sees what it saw before (the zeros, then its own
+// data); only addresses in the recorded ranges are handled. Commit is then charged only for pages the game touches.
+// The memory is the allocator's (mimalloc), which frees and reuses it as before: its own first touch of such a page
+// is handled the same way.
+if (OPTIONS.lazyNullBuffersKb > 0) {
+  const resize = checked('vectorResize', '0x140898aa0', '48895c24084889742410574883ec2048');
+  const sites = new Set(['0x140e93cc1', '0x142bb496a', '0x142bb4c34', '0x142bb4f58', '0x142bb547b'].map(va => {
+    checked(`resize call before ${va}`, ptr(va).sub(5), 'e8');
+    return at(va).toString();
+  }));
+  const MAX = 1 << 16;
+  const ranges = Memory.alloc(MAX * 16), state = Memory.alloc(16);  // state: u32 count, pad, u64 pages recommitted
+  keep.push(ranges, state);
+  const kernel32 = Process.getModuleByName('kernel32.dll');
+  const virtualAlloc = kernel32.getExportByName('VirtualAlloc');
+  const virtualFree = new NativeFunction(kernel32.getExportByName('VirtualFree'), 'int',
+    ['pointer', 'size_t', 'uint32']);
+  const handler = new CModule(`
+    typedef unsigned long long u64;
+    typedef struct Record { unsigned int code; unsigned int flags; struct Record *next; void *address;
+                            unsigned int count; u64 info[15]; } Record;
+    typedef struct { Record *record; void *context; } Pointers;
+    extern u64 ranges[];
+    extern volatile unsigned int state[];
+    extern void *VirtualAlloc (void *, u64, unsigned int, unsigned int);
+    long handle (Pointers *e) {
+      Record *r = e->record;
+      if (r->code != 0xC0000005u || r->count < 2) return 0;
+      u64 a = r->info[1];
+      unsigned int n = state[0];
+      for (unsigned int i = 0; i < n; i++) {
+        if (a >= ranges[2 * i] && a < ranges[2 * i + 1]) {
+          if (VirtualAlloc ((void *) (a & ~0xfffULL), 0x1000, 0x1000, 0x04) == 0) return 0;
+          ((volatile u64 *) &state[2])[0]++;  /* statistics only */
+          return -1;  /* EXCEPTION_CONTINUE_EXECUTION */
+        }
+      }
+      return 0;  /* EXCEPTION_CONTINUE_SEARCH */
+    }`, {ranges, state, VirtualAlloc: virtualAlloc});
+  keep.push(handler);
+  const addHandler = new NativeFunction(kernel32.getExportByName('AddVectoredExceptionHandler'), 'pointer',
+    ['uint32', 'pointer']);
+  if (addHandler(1, handler.handle).isNull()) throw new Error('AddVectoredExceptionHandler failed');
+  const minimum = OPTIONS.lazyNullBuffersKb * 1024;
+  let decommitted = 0, vectors = 0;
+  Interceptor.attach(resize, {
+    onEnter(args) { this.vector = sites.has(this.returnAddress.toString()) ? args[0] : null; },
+    onLeave() {
+      if (this.vector === null) return;
+      // Addresses as numbers (user-mode addresses are below 2^47, exact in a double).
+      const number = p => parseInt(p.toString(), 16);
+      const begin = number(this.vector.readPointer()), end = number(this.vector.add(8).readPointer());
+      const lo = Math.ceil(begin / 4096) * 4096, hi = Math.floor(end / 4096) * 4096;
+      const count = state.readU32();
+      if (end - begin < minimum || hi <= lo || count >= MAX) return;
+      ranges.add(count * 16).writePointer(ptr(lo));
+      ranges.add(count * 16 + 8).writePointer(ptr(hi));
+      state.writeU32(count + 1);  // the range is visible to the handler before its pages go
+      if (virtualFree(ptr(lo), hi - lo, 0x4000 /* MEM_DECOMMIT */)) { decommitted += hi - lo; vectors++; }
+    }
+  });
+  setInterval(() => log(`lazy Null buffers: ${vectors} vectors, ${(decommitted / 1048576).toFixed(1)} MB ` +
+    'decommitted, ' +
+    `${(state.add(8).readU64().toNumber() * 4 / 1024).toFixed(1)} MB touched again`), 60000);
+  log(`lazy Null buffers: vectors of ${OPTIONS.lazyNullBuffersKb} KiB or more`);
+}
+
 // The state-stack update (0x141526c40), on the main thread once per frame: with frameSleepMs, a per-frame sleep. Its
 // entry, not client-control.js's point 0x7f bytes in (0x141526cbf), so the bridge's code check there still sees the
 // original. (The frame rate itself: client_control.py game:frames.)
@@ -275,7 +350,9 @@ if (OPTIONS.traceFiles) {
 if (OPTIONS.traceMovies) {
   whenLoaded('bink2w64.dll', bink => {
     const open = new Map();
-    const name = p => { try { const a = p.readAnsiString(); return a && a.length > 1 ? a : p.readUtf16String(); } catch (_) { return `${p}`; } };
+    const name = p => {
+      try { const a = p.readAnsiString(); return a && a.length > 1 ? a : p.readUtf16String(); } catch (_) { return `${p}`; }
+    };
     Interceptor.attach(bink.getExportByName('BinkOpen'), {
       // The engine appends its file-callback handle (decimal) to the name.
       onEnter(args) { this.name = name(args[0]).replace(/(\.bk2)\d+$/i, '$1'); this.flags = args[1].toUInt32(); },
