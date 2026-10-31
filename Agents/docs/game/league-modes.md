@@ -15,7 +15,7 @@ All eight combinations remain separate personal-stash and gold namespaces.
 | SSF Hardcore | SSF Standard |
 | Hardcore Allflame | Allflame |
 | HC SSF Allflame | SSF Allflame |
-| Any Hardcore Ruthless combination | Permanently dead in Void; cannot enter the game |
+| Any Hardcore Ruthless combination | The same variant without Hardcore (`parent` in its `league.json`) |
 
 Ordinary challenge Hardcore deaths keep their challenge base and SSF choice.
 This follows the changed challenge-parent behavior documented in the

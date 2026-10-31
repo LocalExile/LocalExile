@@ -19,7 +19,7 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
     public string? DeathLeague { get; init; }
     /// <summary>Offered on the create screen.</summary>
     public bool Creatable { get; init; } = true;
-    /// <summary>It has ended: no new characters, and its characters and stashes can migrate to the parent.</summary>
+    /// <summary>It has ended: no new characters, and its characters cannot be entered until they migrate to the parent.</summary>
     public bool Ended { get; init; }
     /// <summary>"HardMode": which of the game files' data its characters use.</summary>
     public string? DataSet { get; init; }
@@ -90,7 +90,7 @@ public sealed class LeagueCatalog
         All = [.. good.Where(l => l.Creatable && !l.Ended)];
     }
 
-    /// <summary>The leagues in a folder, each a subfolder with a league.json.</summary>
+    /// <summary>The leagues in a folder: each a subfolder with a league.json, and Source/ or Binaries/.</summary>
     public static LeagueCatalog FromFolder(string folder)
     {
         var leagues = new List<League>();
@@ -98,7 +98,8 @@ public sealed class LeagueCatalog
         foreach (string dir in Directory.Exists(folder) ? Directory.GetDirectories(folder) : [])
         {
             string path = Path.Combine(dir, "league.json");
-            if (!File.Exists(path)) continue;
+            // A league exists as Source or as Binaries.
+            if (!File.Exists(path) || (!Directory.Exists(Path.Combine(dir, "Source")) && !Directory.Exists(Path.Combine(dir, "Binaries")))) continue;
             try { leagues.Add(Read(Path.GetFileName(dir), path)); }
             catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or IOException) { errors.Add($"{Path.GetFileName(dir)}: {e.Message}"); }
         }
@@ -131,16 +132,13 @@ public sealed class LeagueCatalog
     public static LeagueCatalog Startup => _startup.Value;
     static readonly Lazy<LeagueCatalog> _startup = new(FromEnvironment);
 
-    /// <summary>The key of the mark a migration leaves in the saves: the Gateway merges that stash into the parent league's.</summary>
-    public static string MigrationMark(string account, string from, string to) => $"{MigrationPrefix(StashKey(account, to))}{StashKey(account, from)}";
-
-    /// <summary>What every mark for a stash starts with.</summary>
-    public static string MigrationPrefix(string stashKey) => $"migrate|{stashKey}|";
-
     /// <summary>The stash key of an account in a league: every league has its own stash and gold. Standard (and a
     /// character without a league) keeps the account's own key, so the stash it had before leagues counted stays there.</summary>
     public static string StashKey(string account, string? league) =>
         string.IsNullOrEmpty(league) || league.Equals(Standard, StringComparison.OrdinalIgnoreCase) ? account : $"{account} ({league})";
+
+    /// <summary>Whether a saved character of this league can be played: not one with no folder, an ended one or Void.</summary>
+    public bool CanEnter(string? name) => ResolveSavedLeague(name) is { Loaded: true, Ended: false };
 
     /// <summary>A league that can be created in.</summary>
     public League? Find(string? name) =>
@@ -154,9 +152,6 @@ public sealed class LeagueCatalog
     /// <see cref="League.Loaded"/>: the character can be listed and not entered, until the folder is back.</summary>
     public League? ResolveSavedLeague(string? name) => name is null ? null : FindLoaded(name)
         ?? new League(name, name, false, false) { Loaded = false };
-
-    /// <summary>Ended leagues, for the client's migration list.</summary>
-    public IEnumerable<League> Ended => Loaded.Where(l => l.Ended && l.Parent is not null);
 
     public IReadOnlyList<LeagueEntry> Entries() => [.. All.Select(l => l.Entry())];
 }

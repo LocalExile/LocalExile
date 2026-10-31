@@ -119,27 +119,6 @@ public sealed class SaveDatabase : IDisposable
     }
 
     /// <summary>Stores <paramref name="save"/> under <paramref name="key"/>, replacing what was there.</summary>
-    /// <summary>The keys of a table that start with a prefix.</summary>
-    public IReadOnlyList<string> Keys(Table table, string prefix)
-    {
-        lock (_gate)
-        {
-            using var c = Command($"SELECT {KeyColumn(table)} FROM {Name(table)} WHERE {KeyColumn(table)} >= $from AND {KeyColumn(table)} < $to",
-                ("$from", prefix), ("$to", prefix + "\uffff"));
-            using var reader = c.ExecuteReader();
-            var keys = new List<string>();
-            while (reader.Read()) keys.Add(reader.GetString(0));
-            return keys;
-        }
-    }
-
-    /// <summary>Removes the save under <paramref name="key"/>.</summary>
-    public void Delete(Table table, string key) => Atomically(() =>
-    {
-        using var c = Command($"DELETE FROM {Name(table)} WHERE {KeyColumn(table)} = $key", ("$key", key));
-        c.ExecuteNonQuery();
-    });
-
     public void Put(Table table, string key, string save) => Atomically(() =>
     {
         using var c = Command($"INSERT INTO {Name(table)} ({KeyColumn(table)}, save) VALUES ($key, $save) " +

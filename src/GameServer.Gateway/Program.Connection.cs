@@ -126,12 +126,11 @@ partial class Program
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Wire = (remote, stream, ciphers);
-                // The stash of an ended league that migrated here comes in before anything reads this one.
-                if (conn.Account is not null) PersonalStashOf(conn).AbsorbMigrated(ItemsFor(conn));
                 conn.Commands = Commands(remote, stream, ciphers, conn);
                 HotReload.Register(conn);
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
+                RefuseInterruptedHardcoreDeath(conn);
                 int level = PrepareCharacterForArea(remote, conn, resolved.Level);
                 // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
                 InitializeCharacterVitals(conn);
@@ -227,6 +226,7 @@ partial class Program
                     ItemsOf(left).SaveUnsaved();
                     PersistVitals(left);
                 }
+                CommitHardcoreDeath(left);
             }
             catch (Exception e)
             {

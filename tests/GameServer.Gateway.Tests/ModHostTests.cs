@@ -430,13 +430,21 @@ public sealed class ModHostTests : IDisposable
     }
 
     [Fact]
-    public void A_league_with_no_code_loads_with_nothing_to_run()
+    public async Task A_league_compiles_its_source_into_its_binaries_and_runs_from_either()
     {
-        Directory.CreateDirectory(Path.Combine(_root, "Plain"));
-        File.WriteAllText(Path.Combine(_root, "Plain", ModHost.LeagueManifestFile), """{ "parent": "Standard" }""");
-        using var host = new ModHost(_root, _ => { }, modules: true, leagues: true);
-        host.Start(watch: false);
-        Assert.True(host.IsLoaded("Plain"));
+        string source = Path.Combine(_root, "Grim", "Source");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(_root, "Grim", ModHost.LeagueManifestFile), """{ "parent": "Standard" }""");
+        File.WriteAllText(Path.Combine(source, "Grim.cs"), "public sealed class Grim : League { public override void Load(IModuleContext league) => league.OnChatCommand(\"grim\", \"/grim\", c => c.Player.Tell(\"ran\")); }");
+        using (var compiled = new ModHost(_root, _ => { }, modules: true, leagues: true))
+        {
+            compiled.Start(watch: false);
+            Assert.True(await compiled.RunCommand(_player, "grim", []));
+        }
+        Directory.Delete(source, recursive: true);
+        using var built = new ModHost(_root, _ => { }, modules: true, leagues: true);
+        built.Start(watch: false);
+        Assert.True(await built.RunCommand(_player, "grim", []));
     }
 
     [Fact]

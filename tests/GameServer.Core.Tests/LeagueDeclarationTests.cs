@@ -11,7 +11,7 @@ public sealed class LeagueFolderTests : IDisposable
 
     void League(string name, string json)
     {
-        Directory.CreateDirectory(Path.Combine(_folder, name));
+        Directory.CreateDirectory(Path.Combine(_folder, name, "Source"));
         File.WriteAllText(Path.Combine(_folder, name, "league.json"), json);
     }
 
@@ -26,7 +26,7 @@ public sealed class LeagueFolderTests : IDisposable
         Assert.NotNull(leagues.FindLoaded("Void"));
         Assert.Equal("Allflame", leagues.Find("Hardcore Allflame")!.Parent);
         Assert.Equal("Ruthless", leagues.Find("Hardcore Ruthless")!.Parent);
-        Assert.True(leagues.Find("Hardcore Ruthless")!.PermanentDeath);
+        Assert.False(leagues.Find("Hardcore Ruthless")!.PermanentDeath);
     }
 
     [Fact]
@@ -43,13 +43,14 @@ public sealed class LeagueFolderTests : IDisposable
     }
 
     [Fact]
-    public void An_ended_league_is_not_offered_and_lists_for_migration()
+    public void An_ended_league_is_not_offered_and_cannot_be_entered()
     {
         League("Standard", "{ }");
         League("Over", """{ "parent": "Standard", "ended": true }""");
         var leagues = LeagueCatalog.FromFolder(_folder);
         Assert.Null(leagues.Find("Over"));
-        Assert.Equal("Over", Assert.Single(leagues.Ended).Name);
+        Assert.False(leagues.CanEnter("Over"));
+        Assert.True(leagues.CanEnter("Standard"));
     }
 
     [Fact]

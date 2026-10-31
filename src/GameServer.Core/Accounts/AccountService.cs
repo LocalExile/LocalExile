@@ -150,19 +150,6 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         }
     }
 
-    /// <summary>Moves the account's characters of an ended league to its parent; how many moved.</summary>
-    public int MigrateLeague(Guid accountId, League from)
-    {
-        if (from.Parent is not { } parent) return 0;
-        int moved = 0;
-        foreach (var character in Characters(accountId).Where(c => string.Equals(c.League, from.Name, StringComparison.OrdinalIgnoreCase)).ToList())
-        {
-            store.UpdateCharacter(character with { League = parent });
-            moved++;
-        }
-        return moved;
-    }
-
     public Result<bool> DeleteCharacter(Guid accountId, Guid characterId)
     {
         var c = store.GetCharacter(characterId);

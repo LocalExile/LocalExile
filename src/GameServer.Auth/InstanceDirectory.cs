@@ -14,8 +14,7 @@ using GameServer.Core.World;
 /// (<see cref="InstanceControl"/>). Docs: Agents/docs/protocol/09-area-change.md.
 /// </summary>
 sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accounts = null,
-    IReadOnlyList<(string Id, ushort Hash16)>? towns = null, Func<string, ushort?>? loginHideout = null,
-    Action<string, string, string>? migrated = null)
+    IReadOnlyList<(string Id, ushort Hash16)>? towns = null, Func<string, ushort?>? loginHideout = null)
 {
     private readonly IReadOnlyList<(string Id, ushort Hash16)> _towns = towns ?? WorldAreaTowns.Default;
 
@@ -181,19 +180,6 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 {
                     Ok = true, Area = inst.AreaHash, Instance = inst.Id, Seed = inst.Seed, IsTown = inst.IsTown, Ticket = ticket,
                 };
-            }
-            // An ended league: its characters go to the parent now, and the Gateway merges its stash and gold into the parent's when
-            // it next loads that (the mark in the saves).
-            case "migrate_league":
-            {
-                if (LeagueCatalog.Startup.FindLoaded(info.League?.Name) is not { Ended: true, Parent: { } parent } ended
-                    || accounts?.FindCharacter(info.Character) is not { } owner)
-                    return new ControlResponse { Ok = false, Error = "this league has not ended" };
-                string? account = accounts.GetAccount(owner.AccountId)?.Name;
-                int moved = accounts.MigrateLeague(owner.AccountId, ended);
-                if (account is not null) migrated?.Invoke(account, ended.Name, parent);
-                Console.WriteLine($"[auth] {account}: {moved} character(s) of {ended.Name} migrate to {parent}");
-                return new ControlResponse { Ok = true, Migrated = moved };
             }
             case "set_level":
             {

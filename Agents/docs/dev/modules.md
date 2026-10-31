@@ -7,11 +7,11 @@ of modules, and [mods](modding.md) are small modifications, global and the user'
 |---|---|---|---|
 | Is | a tweak | a game system: NPC dialogue, Delve, Pantheons | what a character lives in, shown in game |
 | Folder | `Mods/` (gitignored as a whole; installed by the user) | `Modules/<id>/`, `Modules/Core/<id>/` | `Leagues/<Name>/` |
-| Entry point | `IMod` | `IModule` | `league.json`; optionally a class deriving `League` |
+| Entry point | `IMod` | `IModule` | a class deriving `League` in `Source/`, and `league.json` |
 | Loads | any time | when the Gateway starts, if a league lists it | when the Gateway starts, if its folder exists |
 | Hot reload | yes | yes | its code, yes |
 
-Built output (`bin/`, `obj/`) is gitignored everywhere. `live.ps1` builds every project in `Leagues\`, `Modules\` and `Mods\Source\`.
+Built output is gitignored everywhere. `live.ps1` builds every project in `Modules\` and `Mods\Source\`. The Gateway compiles each league's `Source/*.cs` into its `Binaries/` when it starts; a league with only `Binaries/` runs from those.
 
 ## Leagues
 
@@ -36,7 +36,6 @@ removed while it runs. A connection is in one league, and only that league's mod
 | `parent` | where its characters, stash and gold go if it ends. Not inheritance: nothing else passes on. Must lead to `Standard` or `Void`, else it does not load |
 | `entryOf`, `entryKind` | a check box (`hardcore`, `ssf`, `form`: the client's Ruthless box) on that league's card. With none, it has its own card, as `Hardcore Allflame` does |
 | `hardcore`, `ssf`, `form` | its modes. A Hardcore league's parent is the non-hardcore one |
-| `deathLeague` | where a Hardcore death goes, if not the parent. `Void` means permanently dead |
 | `addModules`, `removeModules` | changes to its list. Every league gets all of `Modules/Core/` unless `"core": false`. A module listed twice stops the league loading |
 | `ended` | no new characters, and the migration list offers it |
 | `creatable: false` | not on the create screen (Void) |
@@ -45,11 +44,10 @@ removed while it runs. A connection is in one league, and only that league's mod
 - **Standard** is required: the Gateway refuses to start without it. Its modules change like any league's.
 - **Void** has no modules and cannot be created in. Its characters are listed and cannot be entered. A custom event league can have it as parent,
   so that nothing it drops reaches Standard.
-- **A deleted league's** characters are listed, marked, and cannot be entered. Nothing is converted, and they return with the folder.
-- **Migration** (`ended: true`): the client's list shows the league. `/migrate`, in that league, moves the account's characters to the parent now, and the
-  Gateway merges the stash (as tabs named after the league), gold and modules' saved data into the parent's when it next loads a connection.
-  The client's own Migrate buttons are not connected yet: their message is not identified ([protocol](../protocol/01-login.md)).
-- **A league's code** is optional: a public class deriving `League` in its folder, with the hooks of a module for its own players, and `Rules`.
+- **A deleted league's** characters (no `Source/` or `Binaries/`) are listed, marked, and cannot be entered. Nothing is converted, and they return with the folder.
+- **An ended league's** characters cannot be entered until they migrate (not built: see the roadmap).
+- **A Hardcore death:** the death screen appears, and the character stays where it is until the player leaves by its Exit (or any other way). The connection closes first; then the character alone, with what it carries, moves to the parent league. Stashes and gold stay. A saved mark covers a crash in between.
+- **A league's code** is a public class deriving `League` in its `Source/`, with the hooks of a module for its own players, and `Rules`. Saving it hot-reloads.
 
 ## Modules
 

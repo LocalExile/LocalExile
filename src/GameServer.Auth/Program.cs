@@ -107,8 +107,7 @@ static async Task Serve(LoginServerKeys keys)
     };
     Console.WriteLine($"[auth] towns: {towns.Count} ({string.Join(", ", towns.Select(t => t.Id))})");
     var directory = new InstanceDirectory(registry, accounts, towns, character =>
-        CharacterHome.SelectedHideout(progress, character) is { } area && hideoutAreas.TryGetValue(area, out ushort hash) ? hash : null,
-        (account, from, to) => progress.Put(SaveDatabase.Table.Stashes, LeagueCatalog.MigrationMark(account, from, to), "{}"));
+        CharacterHome.SelectedHideout(progress, character) is { } area && hideoutAreas.TryGetValue(area, out ushort hash) ? hash : null);
     _ = directory.ServeControlAsync(InstanceControl.Port);
     Console.WriteLine($"[auth] login server on tcp/{port}");
     // Game_LEAGUES: comma-separated base leagues (default Standard and those the league modules declare), each with its variants.

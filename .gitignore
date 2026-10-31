@@ -29,9 +29,8 @@ PathOfExile*.exe
 # Built modules: leagues and other overhauls (Agents/docs/dev/modules.md).
 /Modules/**/bin/
 /Modules/**/obj/
-# A league's own built code.
-/Leagues/**/bin/
-/Leagues/**/obj/
+# Built leagues (compiled from each league's Source/ when the Gateway starts).
+/Leagues/*/Binaries/
 
 # Active gameplay tuning is local; commit reusable defaults, not a server's current settings.
 /config/ruthless.json

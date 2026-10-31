@@ -50,8 +50,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
   Leagues ([modules](../docs/dev/modules.md)) are folders in `Leagues/`, read once at start: cards and check boxes as in the real create screen, a parent to migrate to, Void, and
-  modules listed per league, with `Modules/Core/` by default. A deleted league's characters cannot be entered. `/migrate` moves characters, stash and gold; the client's Migrate buttons are not connected.
-  Not tried in the client: the create screen from these folders, a blocked character, a migration.
+  modules listed per league, with `Modules/Core/` by default. Characters of a deleted or ended league cannot be entered.
+  Not tried in the client: a blocked character.
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.

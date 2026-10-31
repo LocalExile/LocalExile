@@ -7,10 +7,9 @@
   "form": "ruthless",
   "entryOf": "Hardcore",
   "entryKind": "form",
-  "description": "Ruthless: extreme item scarcity. A character killed is lost.",
+  "description": "Ruthless: extreme item scarcity. A character killed moves to Ruthless.",
   "addModules": [
     "ruthless"
   ],
-  "deathLeague": "Void",
   "dataSet": "HardMode"
 }

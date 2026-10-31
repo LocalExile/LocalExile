@@ -333,6 +333,8 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         string id = parts[0];
         if (id is "" or "." or ".." or StateFile || relative.StartsWith("..", StringComparison.Ordinal)) return;
         // A module's source and its build's scratch are not the module: its build's output is.
+        // A league's own compile writes its Binaries/.
+        if (leagues && parts is [_, "Binaries", ..]) return;
         if (modules && parts is [_, var part, ..]
             && (part == "obj" || (part != "bin" && part != Manifest && HasProject(DirOf(id) ?? "")))) return;
         Later(id, busy: 0);
@@ -464,9 +466,9 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
 
     Images ReadImages(ModManifest manifest, string dir)
     {
+        if (leagues) return ReadLeagueImages(manifest, dir);
         string path = Path.Combine(dir, manifest.Assembly);
         string[] scripts = modules && HasProject(dir) ? [] : ModScripts.Sources(dir);
-        if (leagues && !File.Exists(path) && scripts.Length == 0) return new([], null);   // a league with no code of its own
         if (!File.Exists(path) && scripts.Length == 0) throw new FileNotFoundException($"no {manifest.Assembly} in the {Noun}'s folder (built yet?)");
         List<(byte[], byte[]?)> assemblies = [];
         if (File.Exists(path))
@@ -478,6 +480,23 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         var compiled = ModScripts.Compile(manifest.Id, scripts, ScriptReferences(manifest, dir), modules);
         assemblies.Add(compiled);
         return new(assemblies, compiled.Dll);
+    }
+
+    // A league's Source/ compiles into its Binaries/; with no Source, its Binaries/ are what it is.
+    Images ReadLeagueImages(ModManifest manifest, string dir)
+    {
+        string source = Path.Combine(dir, "Source"), binaries = Path.Combine(dir, "Binaries"), dll = Path.Combine(binaries, "league.dll"), pdb = Path.ChangeExtension(dll, ".pdb");
+        string[] scripts = Directory.Exists(source) ? ModScripts.Sources(source) : [];
+        if (scripts.Length > 0)
+        {
+            var compiled = ModScripts.Compile(manifest.Id.Replace(' ', '_'), scripts, [], module: true);
+            Directory.CreateDirectory(binaries);
+            File.WriteAllBytes(dll, compiled.Dll);
+            File.WriteAllBytes(pdb, compiled.Pdb);
+            return new([compiled], compiled.Dll);
+        }
+        if (!File.Exists(dll)) throw new FileNotFoundException($"no Source or Binaries in the league's folder");
+        return new([(File.ReadAllBytes(dll), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null)], null);
     }
 
     bool Load(ModManifest manifest, string dir, Images? images = null)
@@ -492,7 +511,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             List<Assembly> assemblies = [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
             var entries = assemblies.SelectMany(a => a.GetExportedTypes())
                 .Where(t => (leagues ? typeof(League) : modules ? typeof(IModule) : typeof(IMod)).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }).ToList();
-            if (entries.Count == 0 && !leagues) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
+            if (entries.Count == 0) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
             var api = new Context(this, mod);
             foreach (var type in entries)
             {

@@ -15,7 +15,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   `SplitClientMessages` drops the rest of a read at an unknown id, so every message after it in that read is lost.
 - Mods: the rest after the [mod host](../status/setup-and-tooling.md) ([modding](../docs/dev/modding.md)).
   Catalog overrides (a mod replacing rows of the Gateway's catalogs) are the hook the host does not have yet.
-  The client's Migrate and Migrate All buttons: their C→S message is not identified; a live click logs it.
+  League migration: the client's Migrate and Migrate All buttons, and the differences they show, for ended leagues. Send 0x1a with the account's ended
+  leagues, log a live click for the C→S message (not found statically: `0x140cc7aa0` dispatches through vtable `0x1431e8660`), then move characters, stash tabs, gold and
+  modules' saved data to the parent in one transaction.
   Existing systems keep moving into `Modules/Core/` (shops, quests, crafting bench, map device, atlas, ascendancy trials, tattoos, cosmetics, stash rules ...), as NPC dialogue, Harvest, Heist and Delve have. Survivors does not exist in the Gateway yet and should
   start as a module.
 - Rebuild the reverse-engineering setup from a fresh clone (Ghidra import, REA, Frida) and fix whatever the guide
