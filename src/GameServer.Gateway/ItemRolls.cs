@@ -37,7 +37,12 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
                 .Select(m => (m, m.WeightFor(tags))).Where(p => p.Item2 > 0)];
         });
 
-    IReadOnlySet<string> TagsWith(ItemCatalog.BaseType t, ItemInfluence influences)
+    /// <summary>The affixes that can roll on this item.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, Item item) =>
+        Pool(t, item.ItemLevel, item.Influences);
+
+    /// <summary>A base's spawn tags with those its influences open.</summary>
+    public IReadOnlySet<string> TagsWith(ItemCatalog.BaseType t, ItemInfluence influences)
     {
         if (influences == ItemInfluence.None) return t.Tags;
         var tags = new HashSet<string>(t.Tags);
@@ -64,7 +69,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     public Item? Transmute(Item item, Random random)
     {
         if (item.Rarity != ItemRarity.Normal || !TryModifiable(item, out var type) ||
-            Pool(type, item.ItemLevel, item.Influences).Count == 0) return null;
+            Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
     }
 
@@ -90,7 +95,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     public Item? Alter(Item item, Random random)
     {
         if (item.Rarity != ItemRarity.Magic || !TryModifiable(item, out var type) ||
-            Pool(type, item.ItemLevel, item.Influences).Count == 0) return null;
+            Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
     }
 
@@ -99,7 +104,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     public Item? Alchemy(Item item, Random random)
     {
         if (item.Rarity != ItemRarity.Normal || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
-            Pool(type, item.ItemLevel, item.Influences).Count == 0) return null;
+            Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Rare, random) with { Identified = true };
     }
 
@@ -118,7 +123,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     public Item? Chaos(Item item, Random random)
     {
         if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
-            Pool(type, item.ItemLevel, item.Influences).Count == 0) return null;
+            Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
     }
 
@@ -204,7 +209,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     {
         if (item.Rarity != ItemRarity.Normal ||
             !(item.Components.Contains("Weapon") || item.Components.Contains("Armour")) ||
-            !TryModifiable(item, out var type) || Pool(type, item.ItemLevel, item.Influences).Count == 0) return null;
+            !TryModifiable(item, out var type) || Pool(type, item).Count == 0) return null;
         return (random.Next(100) < 30 ? Roll(item, ItemRarity.Rare, random)
             : Roll(item, ItemRarity.Magic, random, (random.Next(2, 5), 2))) with { Identified = true };
     }
@@ -241,7 +246,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
         bool target = item.Components.Contains("Weapon") || item.Components.Contains("Armour") ||
             type.Class is "Ring" or "Amulet" or "Belt";
         if (!target || item.Rarity == ItemRarity.Unique || !TryModifiable(item, out _) ||
-            Pool(type, item.ItemLevel, item.Influences).Count == 0) return null;
+            Pool(type, item).Count == 0) return null;
         int roll = random.Next(100);
         Item result = item.Rarity != ItemRarity.Rare || roll >= 90 ? Roll(item, ItemRarity.Rare, random)
             : ReplaceAffixes(item, roll switch { < 20 => 1, < 40 => 2, < 60 => 3, < 80 => 4, _ => 5 }, random);
@@ -326,12 +331,18 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
 
     /// <summary>Divine Orb: every explicit mod keeps its place and tier and rerolls only its values (a new tier would
     /// change the mod, and the client reorders the tooltip by mod). Null when the item has no explicit mods.</summary>
-    public Item? Reforge(Item item, Random rng)
+    public Item? Reforge(Item item, Random rng, UniqueCatalog.StatRoll? own = null)
     {
         var rules = new MetacraftRules(item, catalog.Mods);
         bool Mutable(int i) => item.Mods[i].Section == ModSection.Explicit && !rules.Protected(i) && catalog.Mods.ByHash(item.Mods[i].Hash) is not null;
         if (!Enumerable.Range(0, item.Mods.Count).Any(Mutable)) return null;
-        return item with { Mods = [.. item.Mods.Select((m, i) => Mutable(i) ? catalog.Mods.ByHash(m.Hash)!.Roll(ModSection.Explicit, rng) : m)] };
+        return item with { Mods = [.. item.Mods.Select((m, i) => Mutable(i) ? Reroll(m, rng, own) : m)] };
+    }
+
+    ItemMod Reroll(ItemMod m, Random rng, UniqueCatalog.StatRoll? own)
+    {
+        var mod = catalog.Mods.ByHash(m.Hash)!;
+        return mod.Roll(m.Section, rng, own is null ? null : stat => own(mod, m.Section, stat));
     }
 
     public Item? Scour(Item item)
@@ -362,9 +373,10 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     /// <summary>Blessed Orb: every implicit mod keeps its place and tier and rerolls only its values within the tier, as
     /// <see cref="Reforge"/> does for explicits; explicit, enchant and other mods stay. Null when the item has no implicit
     /// mod (nothing is spent).</summary>
-    public Item? Bless(Item item, Random rng) => !item.Mods.Any(m => m.Section == ModSection.Implicit) ? null
-        : item with { Mods = [.. item.Mods.Select(m => m.Section == ModSection.Implicit && catalog.Mods.ByHash(m.Hash) is { } mod
-            ? mod.Roll(ModSection.Implicit, rng) : m)] };
+    public Item? Bless(Item item, Random rng, UniqueCatalog.StatRoll? own = null) =>
+        !item.Mods.Any(m => m.Section == ModSection.Implicit) ? null
+        : item with { Mods = [.. item.Mods.Select(m => m.Section == ModSection.Implicit && catalog.Mods.ByHash(m.Hash) is not null
+            ? Reroll(m, rng, own) : m)] };
 
     /// <summary>One more explicit affix, drawn by weight from the base's pool at its item level: no family already on the
     /// item and at most <paramref name="maxEach"/> prefixes / suffixes. The old mods stay; null when nothing fits.</summary>
@@ -396,7 +408,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
         if (catalog.ByHash(item.TypeHash) is not { } t) return [];
         var have = item.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         var rules = new MetacraftRules(item, catalog.Mods);
-        return [.. Pool(t, item.ItemLevel, item.Influences).Where(p => (!respectMetamods || rules.Allows(p.Mod)) &&
+        return [.. Pool(t, item).Where(p => (!respectMetamods || rules.Allows(p.Mod)) &&
             have.Count(h => h.GenerationType == p.Mod.GenerationType) < (p.Mod.GenerationType == Prefix ? max.Prefix : max.Suffix) &&
             !have.Any(h => h.Families.Intersect(p.Mod.Families).Any()) && (requiredTag is null || p.Mod.Tags.Contains(requiredTag)))];
     }

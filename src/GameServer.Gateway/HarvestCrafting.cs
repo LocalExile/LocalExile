@@ -73,9 +73,10 @@ sealed class HarvestCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
         // The target is another ModType (ColdResistance -> FireResistance): the nearest-level row of that group that
         // can roll on this base, with the same affix kind.
         var targetType = map[source.ModType];
+        var tags = rolls.TagsWith(type, item.Influences);
         var target = catalog.Mods.All.Where(m => m.ModType.Equals(targetType, StringComparison.OrdinalIgnoreCase) &&
                 m.GenerationType == source.GenerationType && m.Domain == source.Domain && m.Level <= item.ItemLevel &&
-                !m.EssenceOnly && m.WeightFor(type.Tags) > 0)
+                !m.EssenceOnly && m.WeightFor(tags) > 0)
             .OrderBy(m => Math.Abs(m.Level - source.Level)).ThenBy(m => m.Level).FirstOrDefault();
         if (target is null) return null;
         for (int i = 0; i < item.Mods.Count; i++)

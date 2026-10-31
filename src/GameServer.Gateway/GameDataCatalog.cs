@@ -15,7 +15,7 @@ static class GameDataCatalog
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
     /// <summary>Raise when UniqueItemSeed corrects existing rows, so that databases already seeded take the correction.</summary>
-    const string UniqueSeedRevision = "3";
+    const string UniqueSeedRevision = "4";
 
     static readonly UniqueCatalog.Definition[] UniqueSeed = UniqueCatalog.Seed;
     static readonly RadiusJewelCatalogue.Entry[] RadiusSeed = RadiusJewelCatalogue.Seed;
@@ -87,9 +87,12 @@ static class GameDataCatalog
 
     static T[] Load<T>(GameDataStore store, string kind, T[] seed, Func<T, string> key)
     {
-        if (kind == "unique_item") MigrateUniqueKeys(store);
+        if (kind == "unique_item")
+        {
+            MigrateUniqueKeys(store);
+            RefreshSeed(store, kind, seed, key, UniqueSeedRevision);
+        }
         Seed(store, kind, seed, key);
-        if (kind == "unique_item") RefreshSeed(store, kind, seed, key, UniqueSeedRevision);
         return [.. store.LoadCatalog(kind).Where(row => row.Enabled)
             .Select(row => JsonSerializer.Deserialize<T>(row.Payload, Json)
                 ?? throw new InvalidOperationException($"catalog {kind} row {row.Key} is empty"))];
@@ -134,25 +137,30 @@ static class GameDataCatalog
     /// their new defaults, and those whose key left the seed go (a base type correction changes the key). Any other row
     /// stays as it is, however many revisions pass: an edit, a disabled row and a row no seed gave. A row an admin
     /// deleted stays deleted, unless the correction gave it a new key. A database from before the defaults were recorded
-    /// has only <c>updated_utc</c> to tell an edit by, once.
+    /// has only <c>updated_utc</c> to tell an edit by, once. It runs before <see cref="Seed"/>, which replaces the key set
+    /// that tells a seed's row from an admin's there.
     /// </summary>
     internal static void RefreshSeed<T>(GameDataStore store, string kind, T[] seed, Func<T, string> key, string revision)
     {
         string revisionKey = "catalog_seed_revision:" + kind;
-        var defaults = seed.ToDictionary(key, entry => JsonSerializer.Serialize(entry, Json), StringComparer.Ordinal);
         var applied = store.LoadSeedDefaults(kind);
         if (store.Meta(revisionKey) == revision)
         {
-            // A key the seed gained without a revision took this default when Seed wrote it.
-            var gained = defaults.Where(entry => !applied.ContainsKey(entry.Key)).ToList();
+            // A key the seed gained without a revision takes this default from Seed.
+            var gained = seed.Where(entry => !applied.ContainsKey(key(entry)))
+                .Select(entry => KeyValuePair.Create(key(entry), JsonSerializer.Serialize(entry, Json))).ToList();
             if (gained.Count > 0) store.ReplaceSeedDefaults(kind, [.. applied, .. gained]);
             return;
         }
 
-        var untouched = applied.Count == 0 && store.Meta("catalog_seeded:" + kind) is { } seeded
-            ? store.CatalogKeysWrittenBy(kind, seeded) : null;
-        bool Unedited(GameDataStore.CatalogRow row) => row.Enabled && (untouched?.Contains(row.Key)
-            ?? (applied.TryGetValue(row.Key, out string? old) && old == row.Payload));
+        var defaults = seed.ToDictionary(key, entry => JsonSerializer.Serialize(entry, Json), StringComparer.Ordinal);
+        var seeded = store.LoadSeededKeys(kind);
+        // catalog_seed_written: the last pass of a build from before the defaults were recorded.
+        var untouched = applied.Count == 0 && (store.Meta("catalog_seed_written:" + kind) ?? store.Meta("catalog_seeded:" + kind)) is { } written
+            ? store.CatalogKeysWrittenBy(kind, written) : null;
+        bool Unedited(GameDataStore.CatalogRow row) => row.Enabled && (untouched is null
+            ? applied.TryGetValue(row.Key, out string? old) && old == row.Payload
+            : untouched.Contains(row.Key) && (defaults.ContainsKey(row.Key) || seeded.Contains(row.Key)));
         store.InTransaction(() =>
         {
             foreach (var row in store.LoadCatalog(kind).Where(Unedited))

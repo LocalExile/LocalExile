@@ -23,7 +23,13 @@ A block in the export:
     {variant:1,2}ModId                the lines after them explicits
     {variant:3}ModId[10,15]           [min,max] per stat when PoB overrides Mods.dat's roll
 
-The last variant is the current one, so it is the one generated.
+The variants generated are the ones PoB shows by default (Classes/Item.lua): "Selected Variant", and with "Has Alt
+Variant" each alternate slot's "Selected Alt Variant", else the last variant, which is the current one when the variants
+are eras. A base line for no chosen variant means the newest line, the last.
+
+The export ties an implicit to any row with that text, often an old base's, so its implicits are read against the client:
+same-name bases (Two-Stone Ring, quivers) are told apart by them, and a unique keeps its base's implicits unless a line
+names a unique's own row, the base has none, or the implicit is Eldritch.
 """
 import argparse
 import json
@@ -35,10 +41,11 @@ ROOT = pathlib.Path(".")
 POB = ROOT / "Tools/PathOfBuilding"
 OUT = ROOT / "src/GameServer.Gateway/UniqueItemSeed.cs"
 
+# Each key with its colon: a bare prefix would also take mod ids (CorruptedMagicJewelModEffectUnique__1).
 META = re.compile(
-    r"^(Source|League|Radius|Limited to|Variant|Selected Variant|Selected Alt Variant|Requires|Upgrade|DropLevel|Level|"
-    r"Item Level|Crafted|Implicits|Has Alt Variant|Corrupted|Sockets:|Energy Shield:|Armour:|Evasion:|Quality:|"
-    r"This item can be anointed|[A-Z][a-z]+( [A-Za-z]+)* Item$)"
+    r"^(?:(?:Source|League|Radius|Limited to|Variant|Selected Variant|Selected Alt Variant(?: \w+)?|Upgrade|DropLevel|"
+    r"Level|LevelReq|Requires Level|Item Level|Crafted|Implicits|Has Alt Variant(?: \w+)?|Sockets|Energy Shield|Armour|"
+    r"Evasion|Quality):|Corrupted$|Requires |This item can be anointed|[A-Z][a-z]+( [A-Za-z]+)* Item$)"
 )
 VARIANT = re.compile(r"^\{variant:([^}]*)\}(.+)$")
 MOD = re.compile(r"^([A-Za-z0-9_]+)((?:\[-?\d+,-?\d+\])*)$")
@@ -48,7 +55,39 @@ CRAFTED = "{crafted}"
 FRACTURED = "{fractured}"
 # The Eldritch ones have no state of their own: the client reads them from the implicit mods.
 INFLUENCES = {f"{name} Item": name for name in ("Shaper", "Elder", "Crusader", "Redeemer", "Hunter", "Warlord")}
+ELDRITCH = ("Searing Exarch Item", "Eater of Worlds Item")
+UNIQUE_MOD, EXARCH_IMPLICIT, EATER_IMPLICIT = 3, 28, 29
 ROLL = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)|(?<![A-Za-z])(\d+(?:\.\d+)?)")
+
+
+# Rolls the export gets wrong: Mods.dat's row and poedb agree against PoB's [min,max] (checked 2026-10-31).
+STALE_ROLLS = {
+    ("Bino's Kitchen Knife", "ChaosResistUniqueDagger8"),
+    ("Cragfall", "StunDurationUniqueQuiver8"),
+    ("Death Rush", "AdrenalineOnKillUnique__1"),
+    ("Death's Opus", "LocalAddedPhysicalDamageUnique__17_"),
+    ("Ezomyte Hold", "LocalIncreasedPhysicalDamageReductionRatingUniqueHelmetStr1"),
+    ("Geofri's Legacy", "FireResistUniqueHelmetStrInt2"),
+    ("Geofri's Legacy", "ColdResistUniqueHelmetStrInt2"),
+    ("Geofri's Legacy", "LightningResistUniqueHelmetStrInt2"),
+    ("Hrimburn", "AttackerTakesColdDamageGlovesDex1"),
+    ("Martyr's Crown", "TakesDamageWhenAttackedUniqueIntHelmet1"),
+    ("Ngamahu Tiki", "EvasionOnLowLifeUniqueAmulet4"),
+    ("Replica Atziri's Acuity", "CriticalStrikeChanceUniqueGlovesStr3"),
+    ("Replica Soul Taker", "LocalAddedPhysicalDamageOneHandAxe1"),
+    ("Sadima's Touch", "ItemFoundRarityIncreaseUnique__7"),
+    ("Sidhebreath", "MinionAddedColdDamageUnique__1"),
+    ("Thirst for Horrors", "ChanceForEnemyToFleeOnBlockUniqueShieldDex4"),
+    ("Thirst for Horrors", "IncreaseSocketedCurseGemLevelUniqueShieldDex4"),
+    ("Voidheart", "AddedChaosDamageUnique__1"),
+    ("Wall of Brambles", "IncreasedLifeUniqueBodyStr2"),
+    ("Wall of Brambles", "PhysicalAttackDamageReducedUniqueBodyStr2"),
+    ("Wall of Brambles", "PhysicalDamageTakenPercentToReflectUniqueBodyStr2"),
+    ("Wildwrap", "FlaskManaRecoveryUniqueBodyDex7"),
+    ("Xirgil's Crank", "StaffBlockPercentUnique__1"),
+}
+# Uniques that always drop corrupted, which the export does not mark on their current variant.
+CORRUPTED = {"Reckless Defence", "The Adorned", "Voices"}
 
 
 def blocks(path):
@@ -72,7 +111,19 @@ def tagged(line):
 
 def in_variant(line, chosen):
     text, allowed = tagged(line)
-    return text if allowed is None or chosen in allowed else None
+    return text if allowed is None or allowed.intersection(chosen) else None
+
+
+def chosen_variants(meta):
+    """The variants PoB shows by default, the main one first: as Item.lua, an unselected slot takes the last."""
+    last = sum(1 for line in meta if line.startswith("Variant:"))
+
+    def selected(key):
+        line = next((line for line in meta if line.startswith(f"{key}:")), None)
+        return int(line.split(":", 1)[1]) if line else last
+
+    return [selected("Selected Variant")] + [selected(f"Selected Alt Variant{slot}") for slot in ("", " Two", " Three")
+                                             if any(line.startswith(f"Has Alt Variant{slot}:") for line in meta)]
 
 
 def split_block(lines, known_base):
@@ -94,18 +145,18 @@ def split_block(lines, known_base):
     return bases, rest[:marker] + [line for line in after if META.match(line)], mods[:implicits], mods[implicits:]
 
 
-def by_text(text, text_map, known_mods):
+def by_text(text, text_map, known_mods, generations):
     """A mod the export left as text: its ModTextMap candidates that are unique mods, the one whose roll matches when
-    several qualify. None when the text cannot be tied to one row."""
+    several qualify. None when the text cannot be tied to one row. ModTextMap writes a range (#) and a fixed number #."""
     rolls = [(float(m.group(1)), float(m.group(2))) if m.group(1) else (float(m.group(3)), float(m.group(3)))
              for m in ROLL.finditer(text)]
-    key = ROLL.sub("#", text).lower().lstrip("+")
-    rows = [known_mods[i] for i in text_map.get(key, []) if i in known_mods and known_mods[i]["GenerationType"] == 3]
+    key = ROLL.sub(lambda m: "(#)" if m.group(1) else "#", text).lower().lstrip("+")
+    rows = [known_mods[i] for i in text_map.get(key, []) if i in known_mods and known_mods[i]["GenerationType"] in generations]
     def fits(row):
-        return all(sorted(roll) == sorted((row.get(f"Stat{i + 1}Min"), row.get(f"Stat{i + 1}Max")))
-                   for i, roll in enumerate(rolls))
-    matching = [row for row in rows if fits(row)]
-    if len(matching) == 1:
+        bounds = [(row.get(f"Stat{i + 1}Min"), row.get(f"Stat{i + 1}Max")) for i in range(len(rolls))]
+        return all(None not in pair and sorted(roll) == sorted(pair) for roll, pair in zip(rolls, bounds))
+    matching = sorted((row for row in rows if fits(row)), key=lambda row: row["Id"])
+    if matching and all(row["StatsKey1"] == matching[0]["StatsKey1"] for row in matching):
         return matching[0]["Id"], []
     if len(rows) == 1 and len(rolls) == 1:
         low, high = sorted(rolls[0])
@@ -113,7 +164,7 @@ def by_text(text, text_map, known_mods):
     return None
 
 
-def resolve(lines, chosen, known_mods, text_map, unknown, flags):
+def resolve(lines, chosen, known_mods, text_map, unknown, flags, generations=(UNIQUE_MOD,), fractured=None):
     """The chosen variant's mods: (id, the [min, max] PoB gives per stat, empty for Mods.dat's own)."""
     result = []
     for line in lines:
@@ -125,26 +176,64 @@ def resolve(lines, chosen, known_mods, text_map, unknown, flags):
             continue
         if META.match(text):
             continue
+        if fractured is not None and text.startswith(FRACTURED):
+            fractured.add(len(result))
         text = text.removeprefix(FRACTURED)
         match = MOD.match(text)
         if match and match.group(1) in known_mods:
             result.append((match.group(1), [[int(low), int(high)] for low, high in RANGE.findall(match.group(2))]))
-        elif (found := by_text(text, text_map, known_mods)) is not None:
+        elif (found := by_text(text, text_map, known_mods, generations)) is not None:
             result.append(found)
         else:
             unknown.append(text)
     return result
 
 
-def overrides(mod_rows, mods):
-    """The ranges that differ from Mods.dat, as "id:stat:min:max". A mod shared by several variants of a unique keeps
-    one Mods.dat row, and PoB gives this variant's own roll."""
+def effect(mod_rows, mods):
+    """What mods do: each stat with its roll. Rows with the same effect are the same line on the item."""
     result = []
     for mod_id, ranges in mods:
         row = mod_rows[mod_id]
+        for stat in range(8):
+            if row.get(f"StatsKey{stat + 1}") is None:
+                break
+            low, high = ranges[stat] if stat < len(ranges) else (row.get(f"Stat{stat + 1}Min"), row.get(f"Stat{stat + 1}Max"))
+            result.append((row[f"StatsKey{stat + 1}"], min(low, high), max(low, high)))
+    return sorted(result)
+
+
+def choose_base(found, implicits, mod_rows, base_mods):
+    """The row of a base name: same-name rows differ by their implicits (Two-Stone Ring), then by age (the old quiver
+    rows keep a low DropLevel). A Royale/event duplicate is never preferred."""
+    rows = [row for row in found if "Royale" not in row["Id"]] or found
+    wanted = effect(mod_rows, implicits)
+    same = [row for row in rows if effect(mod_rows, base_mods(row)) == wanted]
+    stats = {entry[0] for entry in wanted}
+    alike = [row for row in rows if {entry[0] for entry in effect(mod_rows, base_mods(row))} == stats]
+    return max(same or alike or rows, key=lambda row: row.get("DropLevel") or 0)
+
+
+def own_implicits(mod_rows, implicits, base_implicits, eldritch):
+    """The implicits that replace the base's, or None to keep them."""
+    if not base_implicits:
+        return implicits or None
+    if not implicits or effect(mod_rows, implicits) == effect(mod_rows, base_implicits):
+        return None
+    return implicits if eldritch or any("Unique" in mod_id for mod_id, _ in implicits) else None
+
+
+def overrides(name, mod_rows, mods, implicit=False):
+    """The ranges that differ from Mods.dat, as a RollRange each. The export can tie a line to a row of the same stats
+    with another roll; PoB's roll is the unique's then, unless STALE_ROLLS says otherwise."""
+    result = []
+    for mod_id, ranges in mods:
+        if (name, mod_id) in STALE_ROLLS:
+            continue
+        row = mod_rows[mod_id]
         for index, (low, high) in enumerate(ranges):
-            if [row.get(f"Stat{index + 1}Min"), row.get(f"Stat{index + 1}Max")] != [low, high]:
-                result.append(f"{mod_id}:{index}:{low}:{high}")
+            if sorted((row.get(f"Stat{index + 1}Min"), row.get(f"Stat{index + 1}Max"))) != sorted((low, high)):
+                section = ", Implicit: true" if implicit else ""
+                result.append(f'new("{mod_id}", {index}, {min(low, high)}, {max(low, high)}{section})')
     return result
 
 
@@ -195,33 +284,42 @@ def main():
                 skipped.append(f"{path.name}: {name} (no unique name in Words)")
                 continue
             bases, meta, implicit_lines, mod_lines = split_block(lines, candidates)
-            chosen = sum(1 for line in meta if line.startswith("Variant:"))
+            chosen = chosen_variants(meta)
 
-            base_name = next((text for text in (in_variant(line, chosen) for line in bases) if text), None)
-            base_name = base_name or tagged(bases[0])[0]
+            base_name = next((text for text in (in_variant(line, chosen[:1]) for line in bases) if text), None)
+            base_name = base_name or tagged(bases[-1])[0]
             found = candidates(base_name)
             if not found:
                 skipped.append(f"{path.name}: {name} ({base_name})")
                 continue
-            # Prefer the ordinary base over a Royale/event duplicate with the same name.
-            chosen_base = next((row for row in found if "Royale" not in row["Id"]), found[0])
 
             flags = set()
             lost = []
-            implicits = resolve(implicit_lines or [], chosen, mod_rows, texts, lost, flags)
-            explicits = resolve(mod_lines, chosen, mod_rows, texts, lost, flags)
+            implicits = resolve(implicit_lines or [], chosen, mod_rows, texts, lost, flags,
+                                (UNIQUE_MOD, EXARCH_IMPLICIT, EATER_IMPLICIT))
+            fractured = set()
+            explicits = resolve(mod_lines, chosen, mod_rows, texts, lost, flags, fractured=fractured)
+            # The client counts the fractured explicits from the first (13-items.md, Fracturing Orb).
+            explicits = [mod for i, mod in enumerate(explicits) if i in fractured] + \
+                        [mod for i, mod in enumerate(explicits) if i not in fractured]
             unknown += [f"{name}: {text}" for text in lost]
-            own = [mod_id for mod_id, _ in implicits]
-            base_implicits = [mods[key]["Id"] for key in chosen_base.get("Implicit_ModsKeys") or []]
+
+            def base_mods(row):
+                return [(mods[key]["Id"], []) for key in row.get("Implicit_ModsKeys") or []]
+
+            chosen_base = choose_base(found, implicits, mod_rows, base_mods)
+            eldritch = any(line in ELDRITCH for line in meta)
+            own = own_implicits(mod_rows, implicits, base_mods(chosen_base), eldritch)
             rows.append({
                 "name": name,
                 "base": chosen_base["Id"],
                 "mods": [mod_id for mod_id, _ in explicits],
                 # Only what differs from the base type, whose implicits ItemCatalog.Create rolls by itself.
-                "implicits": None if implicit_lines is None or own == base_implicits else own,
-                "ranges": overrides(mod_rows, implicits + explicits),
-                "corrupted": "Corrupted" in meta or "Corrupted" in flags,
+                "implicits": None if own is None else [mod_id for mod_id, _ in own],
+                "ranges": overrides(name, mod_rows, own or [], implicit=True) + overrides(name, mod_rows, explicits),
+                "corrupted": "Corrupted" in meta or "Corrupted" in flags or name in CORRUPTED,
                 "mirrored": "Mirrored" in flags,
+                "fractured": len(fractured),
                 "influences": sorted(INFLUENCES[text] for text in {in_variant(line, chosen) for line in meta} | flags
                                      if text in INFLUENCES),
             })
@@ -229,6 +327,9 @@ def main():
     # Stable output; duplicate names (Stormblood, Grand Spectrum, Combat Focus) keep every base variant.
     rows.sort(key=lambda row: (row["name"].lower(), row["base"].lower()))
     names = Counter(row["name"] for row in rows)
+    repeated = [key for key, count in Counter((row["name"], row["base"]) for row in rows).items() if count > 1]
+    if repeated:
+        raise SystemExit(f"two rows for one catalogue key: {repeated}")
     lines = [
         "// Generated from Path of Building src/Export/Uniques/*.lua for the target 3.29.3b data.",
         "// Do not edit by hand; regenerate with scripts/re/unique_items.py (a read-only third-party reference).",
@@ -246,11 +347,13 @@ def main():
         if row["implicits"] is not None:
             options.append(f"Implicits: {csharp(row['implicits'])}")
         if row["ranges"]:
-            options.append(f"Ranges: {csharp(row['ranges'])}")
+            options.append(f"Ranges: [{', '.join(row['ranges'])}]")
         if row["corrupted"]:
             options.append("Corrupted: true")
         if row["mirrored"]:
             options.append("Mirrored: true")
+        if row["fractured"]:
+            options.append(f"Fractured: {row['fractured']}")
         if row["influences"]:
             options.append("Influences: " + " | ".join(f"ItemInfluence.{name}" for name in row["influences"]))
         lines.append(f'        new({json.dumps(row["name"], ensure_ascii=False)}, {json.dumps(row["base"])}, '

@@ -17,7 +17,8 @@ Everything is in one SQLite file, `data/saves.db` (`Game_SAVES_DB` to put it els
 | Deleted characters' saves, for recovery by hand | `deleted_characters` | `SqliteAccountStore.DeleteCharacter` |
 
 Each row holds its record as JSON, readable with any SQLite browser. A save field this build doesn't know (a newer
-build wrote it) is kept as it is by the next write. Nothing is cached across processes: Auth and the host read and write
+build wrote it) is kept as it is by the next write, at the top level of a record: an older build drops an item field it
+doesn't know, such as `Influences`, when it saves that item. Nothing is cached across processes: Auth and the host read and write
 the database directly, and a write waits for another process's transaction to end.
 
 The same file also holds the server's game-data overlay (`game_data_meta`, `mod_stat_overrides`, `limit_overrides`,

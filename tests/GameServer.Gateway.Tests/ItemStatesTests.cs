@@ -33,6 +33,27 @@ public class ItemStatesTests
         Assert.Equal("No item states", ItemStates.Describe(ItemStates.Toggle(item, "clear")!));
     }
 
+    [Fact]
+    public void Only_the_states_of_the_Mods_component_need_it()
+    {
+        Assert.All(new[] { "mirrored", "split", "Synthesised", "synthesized" }, state => Assert.True(ItemStates.NeedsMods(state)));
+        Assert.All(new[] { "corrupted", "shaper", "clear" }, state => Assert.False(ItemStates.NeedsMods(state)));
+    }
+
+    [Fact]
+    public void An_items_pool_is_its_bases_at_its_level_and_influences()
+    {
+        var item = ItemCatalog.Create(Boots) with { ItemLevel = 86, Influences = ItemInfluence.Elder };
+        Assert.Equal(Program.Rolls.Pool(Boots, 86, ItemInfluence.Elder), Program.Rolls.Pool(Boots, item));
+    }
+
+    [Fact]
+    public void An_influence_adds_its_tag_for_every_consumer_of_the_tags()
+    {
+        Assert.Contains("boots_shaper", Program.Rolls.TagsWith(Boots, ItemInfluence.Shaper));
+        Assert.Same(Boots.Tags, Program.Rolls.TagsWith(Boots, ItemInfluence.None));
+    }
+
     [Theory]
     [InlineData("nothing")]
     [InlineData("none")]

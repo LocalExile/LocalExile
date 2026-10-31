@@ -107,10 +107,178 @@ public class UniqueCatalogTests
         var mod = items.Mods.ById("IncreasedLifeUniqueBodyStr2")!;
         var definition = uniques.All.First(d => d.Name == "Wall of Brambles") with
         {
-            Mods = ["IncreasedLifeUniqueBodyStr2"], Implicits = null, Ranges = ["IncreasedLifeUniqueBodyStr2:0:12:20"],
+            Mods = ["IncreasedLifeUniqueBodyStr2"], Implicits = null, Ranges = [new("IncreasedLifeUniqueBodyStr2", 0, 12, 20)],
         };
         var rolled = uniques.Create(definition, new Random(1))!.Mods.Single(m => m.Hash == mod.Hash);
         Assert.InRange(rolled.Values[0], 12, 20);
+    }
+
+    [Fact]
+    public void A_mod_in_both_lists_takes_each_lists_own_roll()
+    {
+        var (items, uniques) = Setup.Value;
+        var mod = items.Mods.ById("IncreasedLifeUniqueBodyStr2")!;
+        var definition = uniques.All.First(d => d.Name == "Wall of Brambles") with
+        {
+            Mods = [mod.Id], Implicits = [mod.Id], Ranges = [new(mod.Id, 0, 12, 12, Implicit: true), new(mod.Id, 0, 77, 77)],
+        };
+        var item = uniques.Create(definition, new Random(1))!;
+        Assert.Equal(12, item.Mods.Single(m => m.Section == ModSection.Implicit).Values[0]);
+        Assert.Equal(77, item.Mods.Single(m => m.Section == ModSection.Explicit).Values[0]);
+    }
+
+    [Fact]
+    public void An_admins_range_wins_over_a_uniques_own_roll()
+    {
+        var (items, uniques) = Setup.Value;
+        var mod = items.Mods.ById("IncreasedLifeUniqueBodyStr2")!;
+        var definition = uniques.All.First(d => d.Name == "Wall of Brambles") with
+        {
+            Mods = [mod.Id], Implicits = null, Ranges = [new(mod.Id, 0, 12, 12)],
+        };
+        Assert.Equal(12, uniques.Create(definition, new Random(1))!.Mods.Single(m => m.Hash == mod.Hash).Values[0]);
+
+        var before = ModRangeProvider.Default.All;
+        try
+        {
+            ModRangeProvider.Default.Replace(new Dictionary<(string, int), (int, int)>(before) { [(mod.Id, 0)] = (5, 5) });
+            Assert.Equal(5, uniques.Create(definition, new Random(1))!.Mods.Single(m => m.Hash == mod.Hash).Values[0]);
+        }
+        finally { ModRangeProvider.Default.Replace(before); }
+    }
+
+    static string[] Ids(ItemCatalog items, Item item, ModSection section) =>
+        [.. item.Mods.Where(m => m.Section == section).Select(m => items.Mods.ByHash(m.Hash)!.Id)];
+
+    [Fact]
+    public void A_mod_id_starting_like_a_metadata_key_stays_on_the_unique()
+    {
+        var (items, uniques) = Setup.Value;
+        Assert.Contains("CorruptedMagicJewelModEffectUnique__1", Ids(items, uniques.Create("The Adorned", new Random(1))!, ModSection.Explicit));
+        Assert.Contains("CorruptedBloodImmunityUnique_1", Ids(items, uniques.Create("Ralakesh's Impatience", new Random(1))!, ModSection.Explicit));
+    }
+
+    [Fact]
+    public void Alternate_variants_join_the_selected_one()
+    {
+        var (items, uniques) = Setup.Value;
+        // Tombfist: Current, and PoB's choice in each alternate slot, not the last variant alone.
+        var tombfist = Ids(items, uniques.Create("Tombfist", new Random(1))!, ModSection.Explicit);
+        Assert.Contains("IncreasedAttackSpeedUniqueGlovesStrDex1", tombfist);
+        Assert.Contains("AbyssJewelSocketUnique__11_", tombfist);
+        Assert.Contains("IntimidateOnHitWithMeleeAbyssJewelUnique__1", tombfist);
+        Assert.Contains("MaimOnHitWithRangedAbyssJewelUnique__1", tombfist);
+        Assert.Equal(2, Ids(items, uniques.Create("Eyes of the Greatwolf", new Random(1))!, ModSection.Implicit).Length);
+    }
+
+    [Theory]
+    [InlineData("Wings of Entropy", "Ezomyte Axe")]          // no base line for the current variant: the newest
+    [InlineData("Essentia Sanguis", "Vaal Claw")]
+    [InlineData("Dying Breath", "Iron Staff")]
+    public void The_newest_base_line_stands_when_none_names_the_current_variant(string name, string baseName)
+    {
+        var (items, uniques) = Setup.Value;
+        Assert.Equal(baseName, items.Find(uniques.Find(name)!.BaseTypeId)!.Name);
+    }
+
+    [Theory]
+    [InlineData("Anathema", "IncreasedCastSpeedImplicitRing1")]       // the export names Moonstone Ring's old implicit
+    [InlineData("Ungil's Gauche", "CriticalStrikeChanceImplicitDaggerNew1")]
+    [InlineData("Arborix", "CriticalMultiplierImplicitBow1")]         // the export says it has none
+    [InlineData("String of Servitude", "StrengthImplicitBelt1")]
+    public void A_unique_keeps_its_bases_implicit_unless_it_has_its_own(string name, string implicitId)
+    {
+        var (items, uniques) = Setup.Value;
+        Assert.Null(uniques.Find(name)!.Implicits);
+        Assert.Contains(implicitId, Ids(items, uniques.Create(name, new Random(1))!, ModSection.Implicit));
+    }
+
+    [Theory]
+    [InlineData("Berek's Grip", "ColdAndLightningResistImplicitRing1")]    // three Two-Stone Rings
+    [InlineData("Berek's Pass", "FireAndColdResistImplicitRing1")]
+    public void Same_name_bases_are_told_apart_by_their_implicits(string name, string implicitId)
+    {
+        var (items, uniques) = Setup.Value;
+        Assert.Equal([implicitId], Ids(items, uniques.Create(name, new Random(1))!, ModSection.Implicit));
+    }
+
+    [Fact]
+    public void Only_a_definition_with_a_real_difference_replaces_the_base_implicits()
+    {
+        var (items, uniques) = Setup.Value;
+        Assert.DoesNotContain(uniques.All, d => d.Implicits is { Length: 0 });
+        Assert.All(uniques.All.Where(d => d.Implicits is not null), d => Assert.True(
+            d.Name == "The Eternal Struggle" || items.Find(d.BaseTypeId)!.Implicits is not { Count: > 0 }
+            || d.Implicits!.Any(id => id.Contains("Unique")), d.Name));
+    }
+
+    [Theory]
+    [InlineData("Hrimburn", "AttackerTakesColdDamageGlovesDex1", 100, 100)]   // PoB says 10
+    [InlineData("Wildwrap", "FlaskManaRecoveryUniqueBodyDex7", 60, 100)]      // PoB says 20-25
+    public void A_stale_export_roll_leaves_the_mods_dat_range(string name, string id, int min, int max)
+    {
+        var (items, uniques) = Setup.Value;
+        var value = uniques.Create(name, new Random(1))!.Mods.Single(m => m.Hash == items.Mods.ById(id)!.Hash).Values[0];
+        Assert.InRange(value, min, max);
+    }
+
+    [Theory]
+    [InlineData("The Adorned")]
+    [InlineData("Voices")]
+    public void A_unique_that_always_drops_corrupted_is_corrupted(string name) =>
+        Assert.True(Setup.Value.Uniques.Create(name, new Random(1))!.Corrupted);
+
+    [Fact]
+    public void A_uniques_fractured_mods_come_first_and_are_counted()
+    {
+        var (items, uniques) = Setup.Value;
+        var fractured = uniques.All.Where(d => d.Fractured > 0).ToList();
+        Assert.Equal(6, fractured.Count);
+        foreach (var definition in fractured)
+        {
+            var item = uniques.Create(definition, new Random(1))!;
+            Assert.Equal(definition.Fractured, item.FracturedCount);
+            Assert.Equal(definition.Mods[0], items.Mods.ByHash(item.Mods[item.FracturedIndexes().Min()].Hash)!.Id);
+        }
+    }
+
+    [Fact]
+    public void Divine_and_Blessed_Orbs_keep_a_uniques_own_rolls()
+    {
+        var (items, uniques) = Setup.Value;
+        var phys = items.Mods.ById("LocalIncreasedPhysicalDamagePercentUniqueTwoHandSword1")!;
+        var varunastra = uniques.Create("Varunastra", new Random(1))!;
+        for (int seed = 0; seed < 40; seed++)
+            Assert.InRange(Program.Rolls.Reforge(varunastra, new Random(seed), uniques.RollsOf(varunastra))!
+                .Mods.Single(m => m.Hash == phys.Hash).Values[0], 80, 100);
+
+        var definition = uniques.All.First(d => d.Name == "Wall of Brambles") with
+        {
+            Mods = [], Implicits = [phys.Id], Ranges = [new(phys.Id, 0, 9, 9, Implicit: true)],
+        };
+        var implicitOnly = uniques.Create(definition, new Random(1))!;
+        var blessed = Program.Rolls.Bless(implicitOnly, new Random(1), (mod, section, stat) => section == ModSection.Implicit ? (9, 9) : null)!;
+        Assert.Equal(9, blessed.Mods.Single(m => m.Hash == phys.Hash).Values[0]);
+    }
+
+    [Fact]
+    public void Only_a_unique_has_rolls_of_its_own()
+    {
+        var (items, uniques) = Setup.Value;
+        Assert.Null(uniques.RollsOf(ItemCatalog.Create(items.Find("Driftwood Wand")!)));
+        Assert.NotNull(uniques.RollsOf(uniques.Create("Varunastra", new Random(1))!));
+    }
+
+    [Theory]
+    [InlineData("Emperor's Vigilance")]   // a curly apostrophe in Words
+    [InlineData("The Broken Elegy")]      // Broken Elegy in Words
+    public void A_unique_spelled_otherwise_in_Words_finds_its_drop_weight(string name)
+    {
+        var (_, uniques) = Setup.Value;
+        var provider = new UniqueWeightProvider();
+        provider.Replace(new Dictionary<string, (double, double)> { ["Emperor’s Vigilance"] = (.5, .5), ["Broken Elegy"] = (.5, .5) }, true);
+        Assert.Equal(.5, new ItemDrops(Program.Items, uniqueWeights: provider).UniqueWeight(name));
+        Assert.True(new ItemDrops(Program.Items, uniqueWeights: new UniqueWeightProvider()).UniqueWeight(name) > 0);
     }
 
     [Fact]

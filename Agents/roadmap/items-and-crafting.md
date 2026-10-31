@@ -35,6 +35,16 @@ features.
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), chancing, and
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant,
   Enkindling).
+  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): sockets are not generated
+  (`Sockets:` lines are dropped, and Tabula Rasa has neither its sockets nor mods); the five synthesis uniques lack their
+  random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
+  generator lists stay out, `{crafted}` lines too (Cinderswallow Urn's enchant-like rolls).
+  Doryani's Delusion's generated variants are its corrupted ones.
+  poedb differs from PoB's current variant on the base of Twyzel, Replica Twyzel, Kitava's Feast and Dissolution of the
+  Flesh, and on Timetwist's roll and Night's Hold's corruption; PoB is kept, and none was seen in the client.
+  Divine and Blessed Orbs find a unique by its name and base, so an item with no matching definition rerolls in Mods.dat.
+  evryBuild's Send Item (`tools/LocalExile.Export/ItemSend.cs`) reads a unique's name, base and mods only: it needs
+  `Implicits`, `Ranges`, `Fractured`, `Mirrored` and `Influences`, and PoB's "Split" and "Shaper Item" lines.
   Transmutation's CoE comparison and admission checks are implemented; recheck Shift/stash and manual UI use natively.
   See [the evidence limits](../docs/re/transmutation-coe.md).
   Augmentation uses the same validated entry point and CoE-checked weighted pools; recheck its admission and

@@ -420,18 +420,20 @@ public class GameDataTests
 
     static void Revise(GameDataStore store, string revision, params SeedRow[] seed)
     {
-        GameDataCatalog.Seed(store, "test", seed, row => row.Key);
         GameDataCatalog.RefreshSeed(store, "test", seed, row => row.Key, revision);
+        GameDataCatalog.Seed(store, "test", seed, row => row.Key);
     }
 
-    static void EditByHand(GameDataStore store, string sql)
+    static int RunByHand(GameDataStore store, string sql)
     {
         using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + store.Path);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = sql;
-        Assert.Equal(1, command.ExecuteNonQuery());
+        return command.ExecuteNonQuery();
     }
+
+    static void EditByHand(GameDataStore store, string sql) => Assert.Equal(1, RunByHand(store, sql));
 
     [Fact]
     public void Admin_edit_survives_two_successive_seed_revisions()
@@ -638,6 +640,48 @@ public class GameDataTests
     }
 
     [Fact]
+    public void A_database_from_a_build_with_only_a_timestamp_goes_by_that_time_once()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("same", "first"), new SeedRow("edited", "first"));
+            store.ReplaceSeedDefaults("test", []);
+            Thread.Sleep(20);
+            store.PutCatalogRow("test", "same", "{\"Key\":\"same\",\"Value\":\"second\"}");
+            Thread.Sleep(20);
+            store.SetMeta("catalog_seed_written:test", DateTime.UtcNow.ToString("O"));
+            Thread.Sleep(20);
+            store.PutCatalogRow("test", "edited", "{\"Key\":\"edited\",\"Value\":\"admin\"}");
+
+            Revise(store, "2", new SeedRow("same", "third"), new SeedRow("edited", "third"));
+
+            Assert.Contains("third", Payload(store, "same"));
+            Assert.Contains("admin", Payload(store, "edited"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void A_row_no_seed_gave_stays_on_the_first_pass_whatever_its_time()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            GameDataCatalog.Seed(store, "test", [new SeedRow("item", "first")], row => row.Key);
+            EditByHand(store, "INSERT INTO catalog_entries (kind, key, payload, enabled, updated_utc) " +
+                "VALUES ('test', 'custom', '{\"Key\":\"custom\",\"Value\":\"admin\"}', 1, '2000-01-01 00:00:00')");
+
+            Revise(store, "1", new SeedRow("item", "second"));
+
+            Assert.Contains("admin", Payload(store, "custom"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
     public void A_seed_revision_that_fails_changes_nothing()
     {
         string path = CatalogDatabase();
@@ -646,14 +690,9 @@ public class GameDataTests
             using var store = new GameDataStore(path);
             Revise(store, "1", new SeedRow("item", "first"));
             string before = Payload(store, "item");
+            RunByHand(store, "CREATE TRIGGER stop BEFORE INSERT ON catalog_seed_defaults BEGIN SELECT RAISE(ABORT, 'stopped'); END");
 
-            Assert.Throws<InvalidOperationException>(() => store.InTransaction(() =>
-            {
-                store.PutCatalogRow("test", "item", "{\"Key\":\"item\",\"Value\":\"second\"}");
-                store.ReplaceSeedDefaults("test", []);
-                store.SetMeta("catalog_seed_revision:test", "2");
-                throw new InvalidOperationException("stopped");
-            }));
+            Assert.ThrowsAny<Microsoft.Data.Sqlite.SqliteException>(() => Revise(store, "2", new SeedRow("item", "second")));
 
             Assert.Equal(before, Payload(store, "item"));
             Assert.Equal("1", store.Meta("catalog_seed_revision:test"));

@@ -255,7 +255,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     internal double UniqueWeight(string name) =>
         _uniqueWeightProvider.HasTable
             ? _uniqueWeightProvider.Weight(name, ruthless)
-            : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(name) : 1;
+            : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(UniqueCatalog.NameKey(name)) : 1;
 
     private readonly Lazy<Dictionary<string, double>> _uniqueWeightsFile = new(() => LoadUniqueWeights(folder, ruthless));
 
@@ -270,7 +270,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         {
             double value = row.GetProperty(ruthless ? "RuthlessValue" : "Value").GetDouble();
             if (value > 0 && wordsDoc.RootElement[row.GetProperty("UniqueName").GetInt32()].GetProperty("Text").GetString() is { Length: > 0 } text)
-                weights[text] = Math.Min(1, 1 / value);
+                weights[UniqueCatalog.NameKey(text)] = Math.Min(1, 1 / value);
         }
         return weights;
     }

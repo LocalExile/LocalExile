@@ -19,6 +19,10 @@ static class ItemStates
             && influence != ItemInfluence.None ? item with { Influences = item.Influences ^ influence } : null,
     };
 
+    /// <summary>The state lives in the Mods component; the others are in Base, which every item has.</summary>
+    public static bool NeedsMods(string state) =>
+        state.ToLowerInvariant() is "mirrored" or "split" or "synthesised" or "synthesized";
+
     public static string Describe(Item item)
     {
         var states = new List<string>();

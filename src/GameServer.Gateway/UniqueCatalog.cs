@@ -9,12 +9,18 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 {
+    /// <summary>A unique's roll of one stat where it differs from the Mods.dat row: PoB can tie a line to another row with
+    /// the same stats. <paramref name="Implicit"/> tells apart a mod in both of the unique's lists.</summary>
+    public sealed record RollRange(string Mod, int Stat, int Min, int Max, bool Implicit = false);
+
+    /// <summary>How a stat of a mod rolls on one unique, or null for the mod's own range.</summary>
+    public delegate (int Min, int Max)? StatRoll(ModCatalog.Mod mod, ModSection section, int stat);
+
     /// <summary>One unique. <paramref name="Implicits"/> replaces the base type's own when the unique differs from it
-    /// (null keeps the base's). <paramref name="Ranges"/> are "mod id:stat index:min:max" for a current roll that
-    /// differs from the Mods.dat row, which legacy variants of a unique can share.</summary>
+    /// (null keeps the base's). The first <paramref name="Fractured"/> of <paramref name="Mods"/> are fractured.</summary>
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
-        bool Corrupted = false, string[]? Implicits = null, string[]? Ranges = null, bool Mirrored = false,
-        ItemInfluence Influences = ItemInfluence.None);
+        bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
+        ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
 
     /// <summary>The two entries whose curated 3.29 data differs from the PoB export used for the full catalogue.</summary>
     static readonly Definition[] Curated =
@@ -64,6 +70,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         {
             ItemLevel = definition.ItemLevel, Rarity = ItemRarity.Unique, Identified = true,
             Corrupted = definition.Corrupted, Mirrored = definition.Mirrored, Influences = definition.Influences,
+            FracturedCount = definition.Fractured,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
         var mods = item.Mods.ToList();
@@ -79,24 +86,20 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     IEnumerable<ItemMod> Rolled(Definition definition, string[] ids, ModSection section, Random random)
     {
         foreach (string id in ids)
-        {
-            if (items.Mods.ById(id) is not { } mod) continue;
-            var values = mod.Stats.Select((_, i) =>
-            {
-                var (min, max) = Override(definition, id, i) ?? mod.RangeAt(i);
-                return min == max ? min : random.Next(Math.Min(min, max), Math.Max(min, max) + 1);
-            }).ToArray();
-            yield return new ItemMod(section, mod.Hash, values);
-        }
+            if (items.Mods.ById(id) is { } mod)
+                yield return mod.Roll(section, random, stat => RollOf(definition, mod, section, stat));
     }
 
-    static (int Min, int Max)? Override(Definition definition, string id, int stat)
-    {
-        foreach (string entry in definition.Ranges ?? [])
-            if (entry.Split(':') is [var mod, var index, var min, var max] && mod == id && int.Parse(index) == stat)
-                return (int.Parse(min), int.Parse(max));
-        return null;
-    }
+    /// <summary>The definition's roll of one stat. An admin's range for the mod (/game_data mod) comes first.</summary>
+    static (int Min, int Max)? RollOf(Definition definition, ModCatalog.Mod mod, ModSection section, int stat) =>
+        !mod.RangeOverridden(stat) && definition.Ranges?.FirstOrDefault(range => range.Mod == mod.Id && range.Stat == stat
+            && range.Implicit == (section == ModSection.Implicit)) is { } own ? (own.Min, own.Max) : null;
+
+    /// <summary>The rolls of the unique an item is, for currency that rerolls its values; null for any other item.</summary>
+    public StatRoll? RollsOf(Item item) =>
+        item.Rarity == ItemRarity.Unique && All.FirstOrDefault(d => items.Find(d.BaseTypeId)?.Hash == item.TypeHash
+            && _names.Value.TryGetValue(NameKey(d.Name), out var name) && item.NameWords.Contains(name.Word)) is { } definition
+            ? (mod, section, stat) => RollOf(definition, mod, section, stat) : null;
 
     /// <summary>Ancient Orb ("Reforges a unique equipment as another of the same item class"): another unique of the class,
     /// by <paramref name="weight"/> (ItemDrops.UniqueWeight: a Mageblood stays rare), keeping the item's level, quality,
@@ -135,7 +138,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     /// <summary>What ties a definition's name to its Words row: Words writes some apostrophes curly ("Emperor’s Vigilance")
     /// and has Broken Elegy without its article (scripts/re/unique_items.py keeps the same key).</summary>
-    static string NameKey(string name)
+    internal static string NameKey(string name)
     {
         string key = name.Replace('’', '\'').Trim();
         return key.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? key[4..] : key;
