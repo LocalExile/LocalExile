@@ -42,7 +42,16 @@ interface IConnectionPlayer : IPlayer
 /// <summary>A connection's projectile runtime, which belongs to the game module.</summary>
 interface IProjectileRuntime
 {
+    bool Active { get; }
     void Invalidate();
     /// <summary>The runtime's clock, in its ticks; a second is 120000.</summary>
     double NowTicks { get; }
+}
+
+/// <summary>Transient rule-owned work. Retirement retains only primitive cleanup receipts in the connection.</summary>
+interface ITransientCombatState
+{
+    void Clear();
+    IReadOnlyCollection<uint> RetiredObjects => [];
+    IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => [];
 }

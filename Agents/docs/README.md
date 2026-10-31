@@ -78,6 +78,7 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 | [game/ascendancies.md](game/ascendancies.md) | selection, points, saves and the Phrecia play gate |
 | [game/phrecia-modules.md](game/phrecia-modules.md) | optional Phrecia class sources, league composition and reload ownership |
 | [game/antiquarian.md](game/antiquarian.md) | all nine node consumers, verified-graph admission, legal builds and native acceptance |
+| [game/behemoth.md](game/behemoth.md) | optional Behemoth sources, shared Rampage/Vaal engines and current validation limits |
 | [game/unique-jewels.md](game/unique-jewels.md) | the 185 unique jewels, their effects and what the passive-socket server supports |
 | [game/radius-jewels.md](game/radius-jewels.md) | all 76 radius unique jewels: radius/ring model, mechanics, reusable timeless pieces and implementation plan; 42 jewels with server-side effects, 33 threshold items with client/server threshold checks, Lioneye's Fall's item source/client conversion, and the generated Impossible Escape keystone bypass |
 | [game/radius-jewel-list.md](game/radius-jewel-list.md) | generated radius unique jewel table with radius, limit, mechanism, effect and support status |

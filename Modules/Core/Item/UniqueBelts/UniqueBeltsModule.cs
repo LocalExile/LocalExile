@@ -23,7 +23,7 @@ public sealed class UniqueBeltsModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        On(GameEvents.Kill, kill => StealMonsterMods(kill.Conn, kill.Monster));
+        On(GameEvents.Kill, kill => { if (kill.PlayerKill) StealMonsterMods(kill.Conn, kill.Monster); });
         On(GameEvents.PlayerStatSources, WithStolenMods);
         On(GameEvents.OutgoingDamage, (_, player, monster, rolled) => WithDamageVsRarity(player, monster, rolled));
         module.OnAreaGenerated(player =>

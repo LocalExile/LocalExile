@@ -141,6 +141,8 @@ static partial class Game
             FortificationOf(conn).Clear();
             LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
             ClearRageOnDeath(conn);
+            conn.Rampage.Clear();
+            conn.RetireOwnedCombat();
             ChargesOnDeath(conn);
             ClearBloodChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
@@ -620,7 +622,7 @@ static partial class Game
                 var (damage, carry) = MonsterBurn(m, damageOverTime, seconds);   // its mods' fire resistance
                 m.Burn = carry;
                 if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);
+                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
@@ -785,6 +787,7 @@ static partial class Game
         var cls = SkillsFor(conn).ClassFor(classRow);
         // Keep the ticket's remaining Rage timers frozen while the destination loads (before 0x7d).
         RestoreRage(conn);
+        RestoreRampage(conn);
         RestoreVaalSouls(conn);
         RestoreAntiquarian(conn);
         conn.Ward.SetMaximum(conn.Pools.Ward);

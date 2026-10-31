@@ -91,6 +91,9 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
 {
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
+    public uint? OwnerId { get; init; }
+    public double RampageBlindUntil;
+    public int StunSerial;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
@@ -240,7 +243,10 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             projectiles = [];
             if (Closed || PendingTransfer is not null || LeavingArea) return false;
             PendingTransfer = transfer;
+            RampageTransferAt = ProjectileRuntimeState is { Active: true } runtime
+                ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
             LeavingArea = true;
+            RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
             ProjectileEpoch++;
             projectiles = [.. ProjectileObjects];
@@ -322,9 +328,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 
     /// <summary>Applies the passive movement speed to the server's walk estimate; /set_speed is a dev override.</summary>
     public void ApplyMovementSpeed() =>
-        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100 + Pools.MovementVelocityPct) / 100
-            * (Program.GameLogicOrNull?.PlayerActionFactor(this)
-                ?? ElementalAilments.ActionFactor(Clock.Elapsed.TotalSeconds))), Clock.Elapsed.TotalSeconds);
+        ApplyMovementSpeedAt(Clock.Elapsed.TotalSeconds);
 
     /// <summary>Replaces an area transition of this connection's layout (dev changes; the walk estimate keeps going).</summary>
     public void ReplaceAreaTransition(uint id, AreaTransitionObject transition) =>
@@ -504,7 +508,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             lock (Monsters)
             {
                 // Resource loss belongs to the actual death transition, never a delayed death notification.
-                if (playerLife > 0 && value == 0) VaalSouls.ClearBalance();
+                if (playerLife > 0 && value == 0)
+                {
+                    VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                    Rage.Clear(); Rampage.Clear(); RetireOwnedCombat();
+                }
                 playerLife = value;
             }
         }

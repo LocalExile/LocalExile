@@ -9,7 +9,11 @@ namespace GameServer.Modules.Game;
 public sealed class GameModule : IModule
 {
     /// <inheritdoc/>
-    public void Load(IModuleContext module) => Program.SetGameLogic(new GameLogic());
+    public void Load(IModuleContext module)
+    {
+        Rules.CombatLifetime = module.Lifetime;
+        Program.SetGameLogic(new GameLogic());
+    }
 }
 
 sealed class GameLogic : IGameLogic
@@ -47,6 +51,9 @@ sealed class GameLogic : IGameLogic
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
         conn.Rage.Clear();
+        conn.Rampage.Clear();
+        conn.RetireOwnedCombat();
+        conn.VaalPreventionUntil = 0;
     }
 
     public void Save(ClientState conn, bool prepared)

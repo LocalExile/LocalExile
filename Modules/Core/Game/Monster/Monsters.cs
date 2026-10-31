@@ -214,6 +214,7 @@ static partial class Game
     {
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To, string Why)> Moves = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action)> Swings = [];
+        public readonly List<(uint Id, SpawnedMonster Monster, int Action, uint Target, SpawnedMonster Weapon)> WeaponSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster)> BossBars = [];
     }
 
@@ -252,7 +253,8 @@ static partial class Game
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Dead || m.Life == 0 || m.StageRunning || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning
+                    || !MonsterAiCadence.Due(now, m.FlinchUntil)) continue;
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
@@ -270,6 +272,7 @@ static partial class Game
                     continue;
                 }
                 if (!m.Aggro || !MonsterAiCadence.Due(now, m.BusyUntil) || cadence.SwingPending(m)) continue;
+                if (PlanRampageWeaponTarget(conn, cadence, plan, id, m, now, (mx, my), d)) continue;
                 // Attack cadence remains the attack's own duration; faster AI only reduces the delay after expiry.
                 // A pending echo/contact keeps its original generation instead of reserving repeated swings at the gate.
                 if (m.Hostile && m.Attack is { } a && d <= a.Range)
@@ -348,6 +351,8 @@ static partial class Game
         }
         foreach (var (id, m, action) in plan.Swings)
             _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action);
+        foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
+            _ = RunPlannedRampageWeaponSwing(remote, stream, ciphers, conn, cadence, id, m, action, target, weapon);
         conn.Performance.MaybeLog(remote);
     }
 
@@ -578,7 +583,8 @@ static partial class Game
         // The monster's accuracy comes from DefaultMonsterStats at its level. Evasion uses PoE's shared entropy
         // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
         // indefinitely). A new counter starts after 3.33 s without an attack.
-        int monsterAccuracy = conn.FlaskGrounds.Accuracy(id, m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0));   // blinded in smoke
+        int baseAccuracy = m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
+        int monsterAccuracy = RampageBlindedValue(m, now, baseAccuracy, conn.FlaskGrounds.Accuracy(id, baseAccuracy));
         int hitChance = DamageModel.AccuracyHitChance(conn.Pools.Evasion, monsterAccuracy);
         if (EvadesLocked(conn, hitChance, now))
         {
