@@ -46,6 +46,25 @@ The admission path does not guarantee closing an older half-open socket when the
 Ruthless's separate resource-admission owner protects its vitals, not this shared qualification dictionary.
 A still-open, non-retired old connection and out-of-order calculations on one current connection remain follow-up work.
 
+## Snapshot cache
+
+`CharacterPlayerStatsSnapshot` (the whole character panel) runs about 90 times a second for one idle player: the Energy
+Shield publication on every 16 ms recovery step, the recovery loop's rates, Rage, charges and the player tick. It is two
+parts (`StatSnapshotCache.cs`). The head gathers the stat sources and runs every side effect that goes with them (pool
+rebuilds, the charge, Fortification and Antiquarian observations, the leech and Fortification configuration, the
+time-dependent counts, the qualification snapshot); it runs on every call, as before. The tail (the panel's derived
+rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows) is a pure function of
+`StatSnapshotTailInputs`: the head's stats in their order, the raw `/set_stat` values, the pools, the active set's
+hands (rows 2 and 3, immutable item records, and which are inactive), the hands' local stats, life and maximum life,
+Energy Shield recharge, Blood Charges held and shown, the elemental ailments, the suppression chance and the default
+attack's effect. They are read once where the tail starts; the tail reads nothing else of the connection. A connection
+keeps its last tail and reuses it while the inputs are equal, so there is no invalidation to forget: any source the
+head changes (equipment, gems, passives, level, buffs, auras, flasks, charges, leech, Fortification, mods and modules)
+changes the head's stats or an input. A new area is a new connection with no tail.
+
+`Game_STAT_SNAPSHOT_VERIFY=1` computes every reused tail again and throws if the two differ in any value or in order.
+`StatSnapshotTailTests` changes each source in turn and compares with a connection that has no tail.
+
 ## Automated evidence
 
 The reviewed code revision is `576625933f964c3528848ab73d774868b1985866`.
