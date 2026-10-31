@@ -202,6 +202,9 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
                 Record("single", $"{phase}: GC committed MB", info.TotalCommittedBytes / 1048576.0, "MB");
                 Record("single", $"{phase}: process private MB", PrivateMegabytes(), "MB");
             }
+            if (int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_DECODER_IDLE_MS"), out int idleMs)
+                && typeof(ServerLevels).GetProperty("DecoderIdle", BindingFlags.NonPublic | BindingFlags.Static) is { } idle)
+                idle.SetValue(null, TimeSpan.FromMilliseconds(idleMs));
             // Started before the loads, as the Gateway starts it.
             string? settle = Environment.GetEnvironmentVariable("Game_PERF_SETTLE");
             using var stop = new CancellationTokenSource();
@@ -262,6 +265,10 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
     public async Task Area_instance_creation()
     {
         _ = ConsoleLog.Value;
+        // Game_PERF_DECODER_IDLE_MS: how long the Oodle worker stays after a generation (0: it restarts for each one).
+        if (int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_DECODER_IDLE_MS"), out int idleMs)
+            && typeof(ServerLevels).GetProperty("DecoderIdle", BindingFlags.NonPublic | BindingFlags.Static) is { } idle)
+            idle.SetValue(null, TimeSpan.FromMilliseconds(idleMs));
         string[] areas = ["1_1_2", "1_1_3", "1_1_4_1", "1_1_5", "1_1_7_1", "1_2_1"];
         // Game_PERF_MORE_AREAS=N: then the layouts of N more supported areas (no monsters), as a long session visits
         // them, for what the caches grow to.

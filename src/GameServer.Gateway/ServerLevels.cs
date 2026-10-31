@@ -187,14 +187,18 @@ static class ServerLevels
         // The compressed bundles a generation read (~80 MB for a first area) are not kept between generations: the
         // decompressed chunks in front of them serve the next one's repeated reads, a chunk missing from them is read
         // from the GGPK again (performance.md).
-        finally { _fs?.ReleaseBundles(); }
+        finally
+        {
+            _fs?.ReleaseBundles();
+            _oodle?.StopAfter(DecoderIdle);
+        }
     }
 
     // Opened on the first generation and kept.
     static TerrainCache Files()
     {
         if (_files is not null) return _files;
-        var oodle = new NodeOodleDecoder("node", Path.GetFullPath(Path.Combine("Tools", "ooz", "ooz_worker.mjs")));
+        var oodle = _oodle = new IdleWorkerDecoder(() => new NodeOodleDecoder("node", Path.GetFullPath(Path.Combine("Tools", "ooz", "ooz_worker.mjs"))));
         // A small bundle cache: a read whose chunks are all in the decompressed-chunk cache needs no bundle, and the
         // default 1 GiB ceiling would be every Gateway's on a multi-stack machine (the perf benchmark's 46 areas filled
         // 173 MB of it; Agents/docs/dev/performance.md).
@@ -203,6 +207,55 @@ static class ServerLevels
     }
 
     static byte[]? Read(string path) => _fs!.TryReadFile(path, out var d) ? d : null;
+
+    /// <summary>How long the Oodle worker (a Node process, ~90 MB) stays after a generation before it stops; the next
+    /// generation that needs a chunk decoded starts it again.</summary>
+    internal static TimeSpan DecoderIdle { get; set; } = TimeSpan.FromSeconds(60);
+    static IdleWorkerDecoder? _oodle;
+
+    /// <summary>A decoder whose worker starts on the first chunk and stops when <see cref="StopAfter"/>'s time has passed
+    /// without a chunk. Each chunk is decoded the same way by whichever worker runs.</summary>
+    sealed class IdleWorkerDecoder(Func<NodeOodleDecoder> start) : GameServer.Data.Ggpk.IOodleDecoder
+    {
+        readonly Lock gate = new();
+        NodeOodleDecoder? worker;
+        Timer? idle;
+
+        public byte[] Decompress(ReadOnlyMemory<byte> compressed, int uncompressedSize)
+        {
+            lock (gate)
+            {
+                idle?.Dispose();
+                idle = null;
+                return (worker ??= start()).Decompress(compressed, uncompressedSize);
+            }
+        }
+
+        public void StopAfter(TimeSpan delay)
+        {
+            lock (gate)
+            {
+                if (worker is null) return;
+                idle?.Dispose();
+                Timer? timer = null;
+                timer = idle = new Timer(_ => Stop(timer), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                timer.Change(delay, Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        // Only the timer still armed stops the worker: a chunk decoded meanwhile disarmed it.
+        void Stop(Timer? timer)
+        {
+            lock (gate)
+            {
+                if (timer is null || !ReferenceEquals(idle, timer)) return;
+                idle.Dispose();
+                idle = null;
+                worker?.Dispose();
+                worker = null;
+            }
+        }
+    }
 
     static readonly Lazy<Dictionary<string, int>> Levels = new(() =>
     {
