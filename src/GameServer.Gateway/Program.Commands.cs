@@ -52,6 +52,6 @@ partial class Program
         })
         .Add("mod_enable", "/mod_enable <id> (load a mod, now and at every start)", args => SetModEnabled(conn, args, true))
         .Add("mod_disable", "/mod_disable <id> (unload a mod and the mods that depend on it, now and at every start)", args => SetModEnabled(conn, args, false));
-        return conn is null ? commands : GameEvents.RunCommandsBuilding(conn, commands, remote, stream, ciphers);
+        return GameEvents.RunCommandsBuilding(conn, commands, remote, stream, ciphers);
     }
 }

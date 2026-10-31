@@ -1,0 +1,9 @@
+{
+  "id": "harvest",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [
+    "game"
+  ],
+  "assembly": "bin/harvest.dll"
+}

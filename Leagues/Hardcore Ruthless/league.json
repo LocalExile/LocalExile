@@ -8,8 +8,5 @@
   "entryOf": "Hardcore",
   "entryKind": "form",
   "description": "Ruthless: extreme item scarcity. A character killed moves to Ruthless.",
-  "addModules": [
-    "ruthless"
-  ],
   "dataSet": "HardMode"
 }

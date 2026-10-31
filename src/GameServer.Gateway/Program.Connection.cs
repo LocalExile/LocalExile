@@ -32,28 +32,6 @@ partial class Program
         return null;
     }
 
-    // The real connection's admission path, shared with regression tests before any area packets are published.
-    internal static int PrepareCharacterForArea(string remote, ClientState conn, int level)
-    {
-        CheckAscendancyClientCompatibility(conn);
-        ValidateSavedProgress(conn, CharacterSaves.Load(CharacterName(conn)));
-        PlayerInventories.SetClass(CharacterName(conn), conn.ClassRow);   // before its items are first used (start kit)
-        // Existing items must load successfully before LoadProgress can migrate gold or normalize passives.
-        // A new character's start kit is built and saved only after the read-only progress preflight above succeeds.
-        var startItems = ItemsOf(conn);
-        level = LoadProgress(conn, level);
-        NormalizePassiveJewels(conn);
-        // Towns and hideouts refill the flasks, before the inventories go to the client.
-        if (LeagueFor(conn).Rules.TownRefillsFlasks && (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
-            && FillFlasks(startItems, int.MaxValue, catalog: ItemsFor(conn)).Count > 0)
-            Console.WriteLine($"[gateway] {remote} flasks refilled in town");
-        // A sale still open when the last connection ended (a disconnect, a crash) ended as a cancel: every offered
-        // item is in its cell (it never left it).
-        if (startItems.CancelOffers().Count is > 0 and var cancelled)
-            Console.WriteLine($"[gateway] {remote} {cancelled} item(s) offered in an unfinished sale are back in their cells");
-        return level;
-    }
-
     internal static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
     {
         string remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
@@ -84,6 +62,11 @@ partial class Program
                     opening = InstanceProtocol.TryReadOpening([.. pending]);
                 }
                 ticket = opening.Ticket;
+                if (GameLogicOrNull is null)
+                {
+                    Console.WriteLine($"[gateway] {remote} the game module is not loaded; connection refused");
+                    return;
+                }
                 Console.WriteLine($"[gateway] {remote} opening: ticket=0x{opening.Ticket:x8} digest={Convert.ToHexString(opening.Digest)} " +
                                   $"address=0x{opening.Address:x8} u32={opening.U32_128} realm=0x{opening.Realm:x2} flag={opening.Flag}");
 
@@ -122,7 +105,7 @@ partial class Program
                 ConnectionMetrics.Add(ciphers, conn.Performance);
                 PacketHistories.Add(ciphers, conn.Packets);
                 left = conn;
-                RegisterVitalsAdmission(conn);
+                Logic.Admitting(conn);
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Wire = (remote, stream, ciphers);
@@ -130,27 +113,17 @@ partial class Program
                 HotReload.Register(conn);
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
-                RefuseInterruptedHardcoreDeath(conn);
-                int level = PrepareCharacterForArea(remote, conn, resolved.Level);
-                // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
-                InitializeCharacterVitals(conn);
+                int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
                 byte areaLevel = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == areaHash
                     && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
                 var moduleHeader = ServerHooks.Header(PlayerOf(conn));
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
-                    Text: resolved.League ?? "", LeagueStats: LeagueStatsFor(conn.MainAscendancy),
+                    Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
                     TerrainData: moduleHeader?.Terrain,
                     AchievementSets: moduleHeader?.AchievementSets);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}");
-                if (level != resolved.Level)
-                {
-                    // The saved experience is the character's level: Auth's (the ticket's) was not updated at the last level-up.
-                    var fixedLevel = await SynchronizeAccountLevel(conn);
-                    Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {level} from the saved experience (the account had {resolved.Level})" +
-                        (fixedLevel.Ok ? "" : $"; not saved to the account: {fixedLevel.Error}"));
-                }
-                Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: {SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
+                await Logic.Entered(remote, conn, level, resolved.Level);
                 // The read loop answers ticks; everything else runs in order on the handler task (ClientInbox, issue #46).
                 var inbox = new ClientInbox(conn.Performance);
                 using var reading = new CancellationTokenSource();
@@ -188,8 +161,7 @@ partial class Program
                     {
                         conn.Closed = true;
                         conn.InvalidateIncomingHits();
-                        FortificationOf(conn).Clear();
-                        conn.Rage.Clear();
+                        Logic.Closing(conn);
                     }
                     inbox.Complete();
                     await handlers;
@@ -219,23 +191,13 @@ partial class Program
             // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
-                // A refused admission must not load/start inventories or flush a previous connection's cached copy.
-                if (prepared)
-                {
-                    CharacterSaves.SaveExperience(CharacterName(left));
-                    ItemsOf(left).SaveUnsaved();
-                    PersistVitals(left);
-                }
-                CommitHardcoreDeath(left);
+                Logic.Save(left, prepared);
             }
             catch (Exception e)
             {
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
             }
-            ForgetVitalsAdmission(left);
-            // The instance keeps its monsters as they are now, for the next connection (#12).
-            if (left.MonstersPlaced)
-                lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Values, left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
+            Logic.Left(left);
             left.Instance.RemovePlayer(left.PeerId);
             Instances.Leave(left.Instance);
         }
@@ -294,7 +256,7 @@ partial class Program
                 if (conn.Closed) break;
                 handling = batch;
                 long start = Stopwatch.GetTimestamp();
-                await OnClientMessages(remote, stream, ciphers, batch.Messages, batch.Unknown, conn, batch.ReadAt);
+                await Logic.OnClientMessages(remote, stream, ciphers, batch.Messages, batch.Unknown, conn, batch.ReadAt);
                 handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
@@ -320,9 +282,7 @@ partial class Program
         {
             conn.Closed = true;
             conn.InvalidateIncomingHits();
-            FortificationOf(conn).Clear();
-            LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
-            conn.Rage.Clear();
+            Logic.Closing(conn);
         }
         reading.Cancel();
     }
@@ -349,21 +309,6 @@ partial class Program
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
         }
-    }
-
-    // The Escape menu (C→S 0x1d4, 22-pause.md) pauses the area outside towns and hideouts, where the client does not ask
-    // anyway: the Clock stops, the monster AI and the player tick skip their steps, and S→C 0x1d3 pauses the client's world.
-    internal static async Task SetPaused(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool pause)
-    {
-        ushort here = conn.Layout.Hash;
-        if (pause && (WaypointCatalog.Areas.Find(here) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == here)))
-        {
-            Console.WriteLine($"[gateway] {remote} <= 0x01d4 pause: in a town or hideout, not paused");
-            return;
-        }
-        // Pause is a barrier: commit the preceding combat interval before freezing the world clock.
-        using (ProjectileMutation(conn)) { if (pause) conn.Clock.Stop(); else conn.Clock.Start(); }
-        await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
     }
 
     internal static async Task WhilePaused(ClientState conn)

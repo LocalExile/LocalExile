@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\GameServer.Core\GameServer.Core.csproj" />
@@ -12,21 +12,27 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
-  <!-- The Gateway's types are internal (top-level program); its tests reach them. -->
+  <!-- The Gateway's types are internal (top-level program); its tests and the modules reach them. -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
-    <InternalsVisibleTo Include="hideoutediting" />
+    <InternalsVisibleTo Include="game" />
+    <InternalsVisibleTo Include="atlas" />
+    <InternalsVisibleTo Include="bench" />
     <InternalsVisibleTo Include="commands" />
-    <InternalsVisibleTo Include="vendors" />
+    <InternalsVisibleTo Include="cosmetics" />
+    <InternalsVisibleTo Include="delve" />
+    <InternalsVisibleTo Include="harvest" />
+    <InternalsVisibleTo Include="heist" />
+    <InternalsVisibleTo Include="hideoutediting" />
+    <InternalsVisibleTo Include="mercy" />
+    <InternalsVisibleTo Include="npcdialogue" />
     <InternalsVisibleTo Include="portals" />
     <InternalsVisibleTo Include="questobjects" />
-    <InternalsVisibleTo Include="uniquebelts" />
-    <InternalsVisibleTo Include="mercy" />
-    <InternalsVisibleTo Include="tattoos" />
-    <InternalsVisibleTo Include="cosmetics" />
-    <InternalsVisibleTo Include="bench" />
-    <InternalsVisibleTo Include="atlas" />
+    <InternalsVisibleTo Include="ruthless" />
     <InternalsVisibleTo Include="social" />
+    <InternalsVisibleTo Include="tattoos" />
+    <InternalsVisibleTo Include="uniquebelts" />
+    <InternalsVisibleTo Include="vendors" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -34,6 +40,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- The connection's state is assigned by the game module, which the compiler does not see here. -->
+    <NoWarn>$(NoWarn);CS0649;CS0414</NoWarn>
   </PropertyGroup>
 
 </Project>

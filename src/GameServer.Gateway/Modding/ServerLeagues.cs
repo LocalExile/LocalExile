@@ -39,34 +39,29 @@ static class ServerLeagues
     public static LeagueRules RulesOf(League league, IReadOnlySet<string> modules)
     {
         if (_code.GetValueOrDefault(league.Name)?.Rules is { } own) return own;
-        foreach (string module in league.AddModules)
+        foreach (string module in league.Modules)
             if (modules.Contains(module) && _rules.GetValueOrDefault(module) is { } rules) return rules();
         foreach (var (module, rules) in _rules)
             if (modules.Contains(module)) return rules();
         return LeagueRules.Standard;
     }
 
-    /// <summary>Every module in Modules/Core: what a league gets by default.</summary>
-    public static IReadOnlyList<string> CoreModules(string modulesFolder)
-    {
-        string core = Path.Combine(modulesFolder, "Core");
-        return Directory.Exists(core) ? [.. Directory.GetDirectories(core).Where(d => File.Exists(Path.Combine(d, ModHost.ModuleManifestFile))).Select(d => Path.GetFileName(d)!)] : [];
-    }
+    /// <summary>A league's modules: what its modules.json enables.</summary>
+    public static IReadOnlySet<string> ModulesOf(League league) => league.Modules.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>A league's modules: Core unless it says otherwise, less what it removes, plus what it adds. Each once.</summary>
-    public static IReadOnlySet<string> ModulesOf(League league, IReadOnlyList<string> core) =>
-        (league.CoreModules ? core : []).Except(league.RemoveModules, StringComparer.OrdinalIgnoreCase).Concat(league.AddModules).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Every module any loaded league enables, and the game itself: the others do not load.</summary>
+    public static IReadOnlySet<string> Wanted(LeagueCatalog leagues) =>
+        leagues.Loaded.SelectMany(ModulesOf).Append(GameModule).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Every module any loaded league lists: the others do not load.</summary>
-    public static IReadOnlySet<string> Wanted(LeagueCatalog leagues, IReadOnlyList<string> core) =>
-        leagues.Loaded.SelectMany(l => ModulesOf(l, core)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The module that gives the framework its <see cref="IGameLogic"/>.</summary>
+    public const string GameModule = "game";
 
     /// <summary>A character's league, by name; a form's first league for a connection made without one. A league that is not
     /// loaded cannot be entered, so this is only for what still reaches the Gateway.</summary>
-    public static LeagueRuntime Resolve(string? form, string? name, LeagueCatalog leagues, IReadOnlyList<string> core)
+    public static LeagueRuntime Resolve(string? form, string? name, LeagueCatalog leagues)
     {
         var league = leagues.FindLoaded(name ?? (form is null ? LeagueCatalog.Standard : null))
             ?? (form is null ? null : leagues.Loaded.FirstOrDefault(l => l.Form == form && !l.Hardcore && !l.Ssf));
-        return league is null ? LeagueRuntime.Standard : new(league, ModulesOf(league, core));
+        return league is null ? LeagueRuntime.Standard : new(league, ModulesOf(league));
     }
 }

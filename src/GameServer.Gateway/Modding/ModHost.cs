@@ -334,8 +334,9 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     {
         string relative = Path.GetRelativePath(Path.GetFullPath(Folder), path);
         var parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        // Modules/Core/<id>/ is as Modules/<id>/.
-        if (modules && !leagues && parts is ["Core", _, ..]) parts = parts[1..];
+        // A module's folder may be at any depth: what follows it is what changed.
+        if (modules && !leagues && Dirs().FirstOrDefault(d => (path + Path.DirectorySeparatorChar).StartsWith(Path.GetFullPath(d) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) is { } moduleDir)
+            parts = [Path.GetFileName(moduleDir), .. Path.GetRelativePath(moduleDir, path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)];
         string id = parts[0];
         if (id is "" or "." or ".." or StateFile || relative.StartsWith("..", StringComparison.Ordinal)) return;
         // A module's source and its build's scratch are not the module: its build's output is.
@@ -544,15 +545,22 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         return true;
     }
 
-    // The folders that may hold one: in a host of modules, Modules/Core/'s too.
+    // The folders that may hold one: in a host of modules, at any depth (Modules/Core/NPC/vendors/). A folder that holds a module's
+    // manifest is that module, and is not looked into; a module's id is its folder's name.
     IEnumerable<string> Dirs()
     {
         if (!Directory.Exists(Folder)) yield break;
-        foreach (string dir in Directory.GetDirectories(Folder))
+        if (!modules || leagues)
         {
-            if (modules && !leagues && Path.GetFileName(dir) == "Core")
-                foreach (string core in Directory.GetDirectories(dir)) yield return core;
-            else yield return dir;
+            foreach (string dir in Directory.GetDirectories(Folder)) yield return dir;
+            yield break;
+        }
+        var folders = new Stack<string>(Directory.GetDirectories(Folder));
+        while (folders.TryPop(out string? dir))
+        {
+            if (File.Exists(Path.Combine(dir, Manifest)) || ModScripts.Sources(dir).Length > 0) { yield return dir; continue; }
+            foreach (string inside in Directory.GetDirectories(dir))
+                if (Path.GetFileName(inside) is not ("bin" or "obj")) folders.Push(inside);
         }
     }
 

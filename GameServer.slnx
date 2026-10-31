@@ -11,22 +11,23 @@
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
   </Folder>
   <Folder Name="/Modules/">
-    <Project Path="Modules/Core/delve/Delve.csproj" />
-    <Project Path="Modules/Core/harvest/Harvest.csproj" />
-    <Project Path="Modules/Core/heist/Heist.csproj" />
-    <Project Path="Modules/Core/hideoutediting/HideoutEditing.csproj" />
-    <Project Path="Modules/Core/commands/Commands.csproj" />
-    <Project Path="Modules/Core/vendors/Vendors.csproj" />
-    <Project Path="Modules/Core/portals/Portals.csproj" />
-    <Project Path="Modules/Core/questobjects/QuestObjects.csproj" />
-    <Project Path="Modules/Core/uniquebelts/UniqueBelts.csproj" />
-    <Project Path="Modules/Core/mercy/Mercy.csproj" />
-    <Project Path="Modules/Core/tattoos/Tattoos.csproj" />
-    <Project Path="Modules/Core/cosmetics/Cosmetics.csproj" />
-    <Project Path="Modules/Core/bench/Bench.csproj" />
-    <Project Path="Modules/Core/atlas/Atlas.csproj" />
-    <Project Path="Modules/Core/social/Social.csproj" />
-    <Project Path="Modules/Core/npcdialogue/NpcDialogue.csproj" />
+    <Project Path="Modules/Core/game/Game.csproj" />
+    <Project Path="Modules/Core/Content/delve/Delve.csproj" />
+    <Project Path="Modules/Core/Content/harvest/Harvest.csproj" />
+    <Project Path="Modules/Core/Content/heist/Heist.csproj" />
+    <Project Path="Modules/Core/World/hideoutediting/HideoutEditing.csproj" />
+    <Project Path="Modules/Core/Player/commands/Commands.csproj" />
+    <Project Path="Modules/Core/NPC/vendors/Vendors.csproj" />
+    <Project Path="Modules/Core/World/portals/Portals.csproj" />
+    <Project Path="Modules/Core/World/questobjects/QuestObjects.csproj" />
+    <Project Path="Modules/Core/Item/uniquebelts/UniqueBelts.csproj" />
+    <Project Path="Modules/Core/Content/mercy/Mercy.csproj" />
+    <Project Path="Modules/Core/Item/tattoos/Tattoos.csproj" />
+    <Project Path="Modules/Core/Item/cosmetics/Cosmetics.csproj" />
+    <Project Path="Modules/Core/Item/bench/Bench.csproj" />
+    <Project Path="Modules/Core/World/atlas/Atlas.csproj" />
+    <Project Path="Modules/Core/Player/social/Social.csproj" />
+    <Project Path="Modules/Core/NPC/npcdialogue/NpcDialogue.csproj" />
     <Project Path="Modules/ruthless/Ruthless.csproj" />
   </Folder>
   <Folder Name="/Mods/Source/">
@@ -41,7 +42,6 @@
     <Project Path="tests/GameServer.Data.Tests/GameServer.Data.Tests.csproj" />
     <Project Path="tests/GameServer.Core.Tests/GameServer.Core.Tests.csproj" />
     <Project Path="tests/GameServer.Gateway.Tests/GameServer.Gateway.Tests.csproj" />
-    <Project Path="tests/GameServer.Modding.TestMod/GameServer.Modding.TestMod.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="Tools/PoEDataExtractor/PoEDataExtractor.csproj" />

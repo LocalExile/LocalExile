@@ -1,0 +1,24 @@
+{
+  "enabled": [
+    "game"
+  ],
+  "disabled": [
+    "atlas",
+    "bench",
+    "commands",
+    "cosmetics",
+    "delve",
+    "harvest",
+    "heist",
+    "hideoutediting",
+    "mercy",
+    "npcdialogue",
+    "portals",
+    "questobjects",
+    "ruthless",
+    "social",
+    "tattoos",
+    "uniquebelts",
+    "vendors"
+  ]
+}

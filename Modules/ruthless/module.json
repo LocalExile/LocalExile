@@ -2,6 +2,8 @@
   "id": "ruthless",
   "version": "1.0.0",
   "kind": "feature",
-  "depends": [],
+  "depends": [
+    "game"
+  ],
   "assembly": "bin/ruthless.dll"
 }

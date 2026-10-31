@@ -5,6 +5,5 @@
   "hardcore": false,
   "ssf": false,
   "description": "Voided characters.",
-  "creatable": false,
-  "core": false
+  "creatable": false
 }

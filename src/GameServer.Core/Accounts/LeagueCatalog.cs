@@ -23,10 +23,9 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
     public bool Ended { get; init; }
     /// <summary>"HardMode": which of the game files' data its characters use.</summary>
     public string? DataSet { get; init; }
-    /// <summary>Whether it gets every module in Modules/Core by default.</summary>
-    public bool CoreModules { get; init; } = true;
-    public IReadOnlyList<string> AddModules { get; init; } = [];
-    public IReadOnlyList<string> RemoveModules { get; init; } = [];
+    /// <summary>The modules its <c>modules.json</c> enables, and those it lists as disabled.</summary>
+    public IReadOnlyList<string> Modules { get; init; } = [];
+    public IReadOnlyList<string> DisabledModules { get; init; } = [];
     /// <summary>False for a character's league with no folder: it can be listed but not entered.</summary>
     public bool Loaded { get; init; } = true;
 
@@ -82,7 +81,8 @@ public sealed class LeagueCatalog
         foreach (var l in list)
         {
             if (!Rooted(l)) { errs.Add($"{l.Name}: its parents do not lead to Standard or Void"); continue; }
-            if (l.AddModules.Distinct(StringComparer.OrdinalIgnoreCase).Count() != l.AddModules.Count) { errs.Add($"{l.Name}: a module is listed twice"); continue; }
+            var listed = l.Modules.Concat(l.DisabledModules).ToList();
+            if (listed.Distinct(StringComparer.OrdinalIgnoreCase).Count() != listed.Count) { errs.Add($"{l.Name}: a module is listed twice"); continue; }
             good.Add(l);
         }
         Loaded = good;
@@ -90,7 +90,7 @@ public sealed class LeagueCatalog
         All = [.. good.Where(l => l.Creatable && !l.Ended)];
     }
 
-    /// <summary>The leagues in a folder: each a subfolder with a league.json, and Source/ or Binaries/.</summary>
+    /// <summary>The leagues in a folder: each a subfolder with a league.json and a modules.json, and Source/ or Binaries/.</summary>
     public static LeagueCatalog FromFolder(string folder)
     {
         var leagues = new List<League>();
@@ -112,16 +112,17 @@ public sealed class LeagueCatalog
         var r = doc.RootElement;
         string? Text(string n) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         bool Flag(string n, bool or = false) => r.TryGetProperty(n, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : or;
-        string[] List(string n) => r.TryGetProperty(n, out var v) ? [.. v.EnumerateArray().Select(e => e.GetString()!)] : [];
         string name = Text("name") ?? folderName;
         string? entryOf = Text("entryOf"), kind = Text("entryKind");
+        // Beside league.json: every module the league knows of, enabled or disabled.
+        using var modules = JsonDocument.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(path)!, "modules.json")), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        string[] Listed(string n) => modules.RootElement.TryGetProperty(n, out var v) ? [.. v.EnumerateArray().Select(e => e.GetString()!)] : [];
         return new League(name, Text("base") ?? name, Flag("hardcore"), Flag("ssf"), Text("form"),
             SsfParent: kind == "ssf" ? entryOf ?? "" : "", HardcoreParent: kind == "hardcore" ? entryOf ?? "" : "", FormParent: kind == "form" ? entryOf ?? "" : "",
             PermanentDeath: string.Equals(Text("deathLeague"), HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase))
         {
             Parent = Text("parent"), EntryOf = entryOf, CardText = Text("description"), DeathLeague = Text("deathLeague"),
-            Creatable = Flag("creatable", true), Ended = Flag("ended"), DataSet = Text("dataSet"), CoreModules = Flag("core", true),
-            AddModules = List("addModules"), RemoveModules = List("removeModules"),
+            Creatable = Flag("creatable", true), Ended = Flag("ended"), DataSet = Text("dataSet"), Modules = Listed("enabled"), DisabledModules = Listed("disabled"),
         };
     }
 

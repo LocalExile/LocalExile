@@ -6,11 +6,6 @@ using ClientPathfinder = GameServer.Core.World.ClientPathfinder;
 using DamageType = GameServer.Core.World.DamageType;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 
-/// <param name="AtSpawn">Arrive at the destination's spawn (Resurrect in Town) instead of next to the exit back.</param>
-/// <param name="AtWaypoint">Waypoint travel: arrive next to the destination's waypoint.</param>
-/// <summary>A character's open town portal: where it stands and where it leads (OpenTownPortal).</summary>
-sealed record OpenPortal(ushort Area, ulong Instance, int X, int Y, ushort LeadsTo);
-
 /// <param name="ArriveAt">Arrive at this cell (back through a town portal).</param>
 sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool AtSpawn = false, bool AtWaypoint = false, (int X, int Y)? ArriveAt = null)
 {
@@ -91,8 +86,6 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
     public uint NextRevision(uint tab) => _revisions[tab] = _revisions.GetValueOrDefault(tab) + 1;
     readonly Dictionary<uint, uint> _revisions = [];
 }
-
-readonly record struct MonsterHit(uint Life, bool StageStarts);
 
 sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, int stopRange, uint maxLife)
 {
@@ -234,7 +227,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         }
     }
     public int ProjectileEpoch;
-    public Program.ProjectileSession? ProjectileRuntime;
+    public IProjectileRuntime? ProjectileRuntimeState;
     public readonly HashSet<uint> ProjectileObjects = [];
 
     public bool ProjectileActive(int epoch)
@@ -244,7 +237,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 
     public bool TryBeginAreaChange(PendingTransfer transfer, out uint[] projectiles)
     {
-        using (Program.ProjectileMutation(this, advance: false))
+        using (Program.GameLogicOrNull?.ProjectileMutation(this))
         {
             projectiles = [];
             if (Closed || PendingTransfer is not null || LeavingArea) return false;
@@ -253,7 +246,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
             InvalidateIncomingHits(clear: false);
             ProjectileEpoch++;
             projectiles = [.. ProjectileObjects];
-            ProjectileRuntime?.Invalidate();
+            ProjectileRuntimeState?.Invalidate();
             ProjectileObjects.Clear();
             return true;
         }
@@ -270,7 +263,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         double now = Clock.Elapsed.TotalSeconds;
         double at = timestamp == 0 || Paused ? now : Math.Max(0, now - System.Diagnostics.Stopwatch.GetElapsedTime(timestamp).TotalSeconds);
         // A buffered input cannot rewrite motion in history already consumed by projectile collision.
-        return Math.Max(at, ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+        return Math.Max(at, ProjectileRuntimeState?.NowTicks / 120000d ?? 0);
     }
     // The server's copy of the client-predicted walk (reported in each 0x1ab): the client's own pathfinder and stepping.
     public PlayerWalk Walk => _walk ??= NewPlayerWalk();
@@ -605,7 +598,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public ushort ChannelSkill;
     public int ChannelGeneration;
     /// <summary>The last passive and equipment stat sum and its inputs (CharacterStatSources).</summary>
-    public volatile Program.StatSourcesResult? StatSourcesCache;
+    public volatile object? StatSourcesCacheState;
     /// <summary>The channelled skill's action sequence, so its 0x1af hit result names the action it belongs to.</summary>
     public ushort ChannelSkillSequence;
     public double NextChannelHitAt;

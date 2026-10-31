@@ -9,10 +9,11 @@ public sealed class LeagueFolderTests : IDisposable
 
     public void Dispose() { if (Directory.Exists(_folder)) Directory.Delete(_folder, recursive: true); }
 
-    void League(string name, string json)
+    void League(string name, string json, string modules = "{}")
     {
         Directory.CreateDirectory(Path.Combine(_folder, name, "Source"));
         File.WriteAllText(Path.Combine(_folder, name, "league.json"), json);
+        File.WriteAllText(Path.Combine(_folder, name, "modules.json"), modules);
     }
 
     [Fact]
@@ -36,7 +37,7 @@ public sealed class LeagueFolderTests : IDisposable
         League("Void", "{ }");
         League("Good", """{ "parent": "Void" }""");
         League("Lost", """{ "parent": "Gone" }""");
-        League("Twice", """{ "parent": "Standard", "addModules": ["a", "a"] }""");
+        League("Twice", """{ "parent": "Standard" }""", """{ "enabled": ["a"], "disabled": ["a"] }""");
         var leagues = LeagueCatalog.FromFolder(_folder);
         Assert.Equal(["Good", "Standard", "Void"], leagues.Loaded.Select(l => l.Name).Order());
         Assert.Equal(2, leagues.Errors.Count);

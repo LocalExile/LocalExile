@@ -12,20 +12,19 @@ partial class Program
     // while it runs; the code of a loaded league, module or mod hot-reloads.
     internal static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";
     internal static string LeaguesFolder => Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues";
-    internal static readonly IReadOnlyList<string> CoreModules = ServerLeagues.CoreModules(ModulesFolder);
 
     internal static readonly ModHost ServerLeagueCode = new(LeaguesFolder, Console.WriteLine, modules: true, leagues: true)
     {
         Active = (player, id) => player.LeagueId.Equals(id, StringComparison.OrdinalIgnoreCase),
-        WorldOf = player => new ModuleWorld(ConnOf(player)),
+        WorldOf = player => Logic.WorldFor(ConnOf(player)),
     };
 
     internal static readonly ModHost ServerModules = new(ModulesFolder, Console.WriteLine, modules: true)
     {
-        Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup, CoreModules),
+        Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup),
         // A module runs only for the players whose league lists it, so a league without one has nothing of it to break on.
         Active = (player, id) => ModulesFor(ConnOf(player)).Contains(id),
-        WorldOf = player => new ModuleWorld(ConnOf(player)),
+        WorldOf = player => Logic.WorldFor(ConnOf(player)),
     };
     internal static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine);
     internal static readonly ServerHooks ServerHooks = new(ServerLeagueCode, ServerModules, ServerMods);
@@ -55,53 +54,24 @@ partial class Program
             ? $"Mod {args[0]} {(enabled ? "enabled" : "disabled")} (/mod for the list)." : $"No mod \"{args[0]}\" in {ServerMods.Folder}/ (/mod for the list).");
     }
 
-    internal static readonly ConditionalWeakTable<ClientState, ModPlayer> ModPlayers = new();
+    internal static readonly ConditionalWeakTable<ClientState, IConnectionPlayer> ModPlayers = new();
+
+    static IGameLogic? _logic;
+
+    /// <summary>The game's rules, once the game module is loaded; gone for a moment while it reloads.</summary>
+    internal static IGameLogic? GameLogicOrNull => Volatile.Read(ref _logic);
+    internal static IGameLogic Logic => GameLogicOrNull ?? throw new InvalidOperationException("the game module is not loaded");
+
+    /// <summary>The game module (un)loaded. What held its old types is let go, so that its load context can be collected.</summary>
+    internal static void SetGameLogic(IGameLogic? logic)
+    {
+        Volatile.Write(ref _logic, logic);
+        ModPlayers.Clear();
+    }
 
     /// <summary>The player as mods see it (one per connection).</summary>
-    internal static Mod.IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, c => new ModPlayer(c));
+    internal static Mod.IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, Logic.PlayerFor);
 
     /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
-    internal static ClientState ConnOf(Mod.IPlayer player) => ((ModPlayer)player).Conn;
-
-    internal static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
-        new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
-            Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y);
-
-    // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
-    internal static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
-    {
-        if (UniquesFor(conn).Find(query) is { } unique
-            && UniquesFor(conn).Create(unique.Name, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
-            return new(created, uniqueType);
-        if (ItemsFor(conn).Find(query) is not { Supported: true } type) return null;
-        if (type.Stackable) return new(ItemCatalog.Create(type), type);
-        var (sockets, links) = ItemsFor(conn).DefaultSockets(type, itemLevel);
-        return new(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, type);
-    }
-
-    internal sealed class ModPlayer(ClientState conn) : Mod.IPlayer
-    {
-        public ClientState Conn => conn;
-        public string Character => CharacterName(conn);
-        public string? Account => conn.Account;
-        public string League => conn.League ?? "Standard";
-        public bool Hardcore => conn.Hardcore;
-        public bool SoloSelfFound => conn.Ssf;
-        public string LeagueId => LeagueFor(conn).Id;
-        public bool Uses(string module) => LeagueFor(conn).Modules.Contains(module);
-        public int Level => conn.Pools.Level;
-        public string AreaId => conn.Layout.Id;
-        public uint Seed => conn.Seed;
-        public bool Closed => conn.Closed;
-
-        public (int X, int Y) Position
-        {
-            get { lock (conn.Monsters) return conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds); }
-        }
-
-        public Task Tell(string text) => conn.Commands is { } commands && !conn.Closed ? commands.Reply(text) : Task.CompletedTask;
-
-        public Task Send(byte[] message, string? log = null) =>
-            conn.Outbox is { } outbox && !conn.Closed ? outbox(message, log) : Task.CompletedTask;
-    }
+    internal static ClientState ConnOf(Mod.IPlayer player) => ((IConnectionPlayer)player).Conn;
 }

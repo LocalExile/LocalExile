@@ -104,6 +104,8 @@ dotnet test tests/GameServer.Gateway.Tests
 Success: `Build succeeded` with 0 warnings, and every test run ends with `Passed!`. The tests that need the real client
 quietly pass when there is no `Client/` yet.
 
+New tests go in `tests/GameServer.Gateway.Tests` only: modules have no tests, a PR adds at most 2, and a test never sleeps or waits on real time.
+
 ## 2. Allow the scripts to run
 
 ```powershell

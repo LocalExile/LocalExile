@@ -8,8 +8,5 @@
   "entryOf": "SSF Standard",
   "entryKind": "form",
   "description": "Ruthless: extreme item scarcity. Solo Self-Found.",
-  "addModules": [
-    "ruthless"
-  ],
   "dataSet": "HardMode"
 }

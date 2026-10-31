@@ -16,6 +16,8 @@ sealed class GameEvent<T> where T : Delegate
         return new Subscription(() => ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run))));
     }
 
+    public IEnumerable<T> All => _subscribers.Select(s => s.Run);
+
     /// <summary>The subscribers for this connection's league.</summary>
     public IEnumerable<T> For(ClientState conn)
     {
@@ -71,7 +73,8 @@ static class GameEvents
 
     public static ChatCommands RunCommandsBuilding(ClientState conn, ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers)
     {
-        foreach (var run in CommandsBuilding.For(conn)) commands = run(commands, remote, stream, ciphers, conn);
+        // With no connection, for the list tools read: every module's commands.
+        foreach (var run in conn is null ? CommandsBuilding.All : CommandsBuilding.For(conn)) commands = run(commands, remote, stream, ciphers, conn!);
         return commands;
     }
 

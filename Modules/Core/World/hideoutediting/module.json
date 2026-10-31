@@ -1,0 +1,9 @@
+{
+  "id": "hideoutediting",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [
+    "game"
+  ],
+  "assembly": "bin/hideoutediting.dll"
+}
