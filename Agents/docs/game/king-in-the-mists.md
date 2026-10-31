@@ -55,24 +55,35 @@ these pools are documented but not applied.
 
 ## Phase flow
 
-The encounter has three states, and the phase change is **life-based**, not altar-based:
+The encounter has three states. **This branch** uses a 30% life gate; the official capture shows the third fetish
+Ritual immediately before the maze, and the exact official trigger is still unresolved:
 
-1. **Phase 1 — humanoid, 100% → 30% life.** The King fights in the circular arena, uses his phase-1 skills, and
-   periodically teleports to one of the three Mystic Fetishes on the raised platforms. Each activation adds a Portent
-   Vapors stack and starts that fetish's arena hazard. The three fetishes can all be activated, but they do not end the
-   phase by themselves.
-2. **At 30% life — the maze.** The humanoid stops taking damage at 30% (`TakeDamageLocked` floors it there). He raises
-   and slams his staff, opens the maze, and teleports the player to the hedge maze (phase 2). This is the only phase
-   trigger: the old "after the third fetish" transition was wrong and showed phase 3 at ~80% life.
+1. **Phase 1 — humanoid.** The King fights in the circular arena, uses his phase-1 skills, and periodically teleports to
+   one of the three Mystic Fetishes on the raised platforms. Each activation adds a Portent Vapors stack and starts that
+   fetish's arena hazard. In this branch the three fetishes can all be activated without ending the phase; the official
+   trace shows the third `Ritual` and `The darkness, exultant!` immediately before the maze.
+2. **The maze.** In this branch it starts at 30% life (`TakeDamageLocked` floors the humanoid there): he raises and slams
+   his staff, opens the maze and teleports the player to the hedge maze (phase 2). The old "after the third fetish"
+   transition went straight to the treant at ~80% life, which was wrong; the official third Ritual leads to the maze,
+   not directly to the treant. Whether the official maze trigger is the third Ritual, 30% life, or both needs a
+   `0x1b1` LifeUpdate capture (see the caveat below and "Official 3.29.3b capture").
 3. **Phase 2 — the maze.** The player follows the Sacred Wisps through the hedge maze to the purple portal back to the
    arena. Dying or logging out during the maze is the wiki's bypass; the next entry is phase 3.
 4. **Phase 3 — the treant.** Back in the arena, the humanoid body disintegrates at the central shrine and the treant
-   emerges. The treant has a short emergence grace (3 s: no action, no damage) and then fights with its own skill list.
+   emerges. In this branch the treant has a 3 s emergence grace (no action, no damage); the official capture's first
+   treant action is about 7 s after the spawn (the first chat line, `You are seen!`, is at ~11 s), so the official grace
+   is closer to 6–8 s.
 
 The `arena_01.dgr` graph places the arena and the `_maze.dgr` hedge maze in the **same area** (`AzmeriLeagueBoss`,
 seed 1). The maze entrances are `maze_entrance.arm` rooms (a `telepad` point at room-local `(34, 34)`), the exit is
 `maze_exit.arm` (room-local portal at `(80, 80)`), and the exit room is at world `(828, 460)` with orientation code 4 in
 seed 1. The Gateway uses `ServerLevels` and `AreaPopulation.LocalToWorld` to find them.
+
+> **Official-capture caveat.** The 2026-10-31 official-client trace (see "Official 3.29.3b capture" below) shows the
+> third fetish Ritual and the "The darkness, exultant!" / "Embrace nothingness!" lines immediately before the maze, not
+> a logged HP event. The exact boss life at that moment was not captured, so whether the official trigger is the third
+> Ritual, 30% life, or both is unresolved. The implementation currently follows Qblolz's requested **30% life** gate
+> and floors the humanoid there; do not change it to all-altars without a `0x1b1` LifeUpdate capture.
 
 ## Phase 1 — the humanoid
 
@@ -144,9 +155,10 @@ Gateway implementation:
 ## Phase 3 — the treant
 
 When the player returns through the maze portal, the King is back at the central shrine (mapboss point). The humanoid
-plays the staff slam, its body disintegrates, and the treant form emerges. The treant has a **3 s emergence grace**:
-`KingGrace` refuses all damage and the controller performs no action for those three seconds. After that it fights
-normally, and the three platforms are covered in purple fire. Its GrantedEffects list (`VoodooKingBoss3`) is:
+plays the staff slam, its body disintegrates, and the treant form emerges. In this branch the treant has a **3 s
+emergence grace**: `KingGrace` refuses all damage and the controller performs no action for those three seconds. The
+official capture's first treant action is ~7 s after the spawn, so the official grace is closer to 6–8 s (see the
+official-capture section). After the grace it fights normally, and the three platforms are covered in purple fire. Its GrantedEffects list (`VoodooKingBoss3`) is:
 
 | Skill | GrantedEffects | Data |
 |---|---|---|
@@ -202,10 +214,11 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
 `KingInMists.cs`:
 
 - Recognises both forms and gives the humanoid/treant their whole GrantedEffect skill list in the actor record, so each
-  `0x1ab` plays the client's own skill animation. Bugrend uses the treant's `MPSVoodooKing3SpellProjectile` (3894)
-  rather than `VoodooKingBugRend` (10510): the client's `monster_soulrend` action selects the `SpellProjectileChaos`
-  animation, which `VoodooKingBoss3.act` does not carry (live `PlayAnimation failed`); the server keeps Bugrend's damage
-  and projectile profile.
+  `0x1ab` plays the client's own skill animation. Bugrend currently uses the treant's `MPSVoodooKing3SpellProjectile`
+  (3894) rather than `VoodooKingBugRend` (10510) as a workaround: the live failure `PlayAnimation failed
+  [SpellProjectileChaos]` came from a stale Debug build, which the 2026-10-31 official capture disproved —
+  `VoodooKingBugRend`/`BugRendSingle` works on the official client and fires `BugSoulrend`. Restoring the official
+  binding is an open discrepancy (see below).
 - Skips both forms in the ordinary `PlanMonsterAi` loop; the controller serializes one action at a time.
 - Phase 1: creates the three `VoodooKingBoss2RitualPillar` Mystic Fetishes at the `arena.arm` object points
   (mapboss-relative `(94, 122)`, `(230, 123)` and `(160, 238)`; world `(232, 490)`, `(368, 491)` and `(298, 606)` at
@@ -219,18 +232,201 @@ the two gems/card directly (`ItemDrops.KingInMists`). Corpse items and the altar
   teleports the player to the nearest `maze_entrance.arm` telepad, applies Branching Affliction, spawns the exit portal
   effect and the wisp trail, and auto-returns the player when they reach the exit (see Phase 2 above).
 - On the maze return: teleports the humanoid back to the mapboss, plays the staff slam and the treant transformation,
-  removes the humanoid, spawns `VoodooKingBoss3` with `KingGrace` (3 s, no damage/actions) and starts phase 3.
+  removes the humanoid, spawns `VoodooKingBoss3` with `KingGrace` (3 s in this branch; the official capture suggests
+  6–8 s) and starts phase 3.
 - Phase 3: Treant Slam, Bug Bomb (lobbed projectile with a 9-cell landing area), Bugrend (projectile from the central
   altar, at any distance), Summon Effigy (with its cast animation) and the default attack. The treant walks after a
   player that kites it (`Move` 0x2909) instead of standing at the altar between casts. Before a cast, the controller
   aligns the client model to the server's walk cell (`0x1b7`), so the projectile origin is where the model is shown.
 - `ItemDrops.KingInMists` rolls the guaranteed unique, Hextoad, Hexpass and The Endless Darkness.
 
-Open: monster energy shield, ground hazards (toads, blood, caustic, swamp), the Ritual of Dance/Meditation
-imprisonment, the portal's click interaction, the exact maze route and wisp curve, Branching Affliction/Shadow
-Surge/Mystic Miasma damage over time, a half-finished maze after death/logout, corpse items, the Unlight Altar and
-Bloodline, exact AI/cooldown timings, and the native client capture for each action's animation. The arena's own
-`EndQuestFlags`/`StartQuestFlags` and the War for the Wildwood quest are not wired to the fragment yet.
+Open: the official-capture discrepancies above (fetish `Ritual`/`ReturnFromEdge`, fetish hazards, the real
+`GuidingLightDaemonMaze_`/maze monsters, treant Meditation/Dance/Punishment, the official `BugRend`/`BugSoulrend`
+binding, the longer emergence grace and the phase-trigger confirmation), monster energy shield, ground hazards (toads,
+blood, caustic, swamp), the Ritual of Dance/Meditation imprisonment, the portal's click interaction, the exact maze
+route and wisp curve, Branching Affliction/Shadow Surge/Mystic Miasma damage over time, a half-finished maze after
+death/logout, corpse items, the Unlight Altar and Bloodline, exact AI/cooldown timings, and native animation capture for
+the remaining actions. The arena's own `EndQuestFlags`/`StartQuestFlags` and the War for the Wildwood quest are not
+wired to the fragment yet.
+
+## Official 3.29.3b capture (2026-10-31)
+
+This section records a read-only Frida trace of a complete official-server kill. It is the reference for the differences
+between the real fight and this branch; it is deliberately separate from the wiki/data sections above because the
+official trigger is not fully settled.
+
+### Evidence and method
+
+- Official Steam client `PathOfExileSteam.exe`, **3.29.3b / build 321328** (the same build as `Client/Game.exe`).
+- Frida hooks loaded through `scripts/re/frida/run.py`: `trace-actions.js` (every `0x1ab` action: actor, skill id,
+  sequence, target), `trace-skills.js` (ActiveSkillManager additions and skill names), `trace-enter-area.js` (area
+  milestones/CreateObject types) and `trace-projectile-create.js` (client/server CreateObject types and projectile
+  creation). The scripts were combined into one Frida script because `run.py` loads each file as a separate script, so
+  `common.js` globals such as `at` are not shared; `common.js` was pointed at `PathOfExileSteam.exe`.
+- Raw trace: `logs/frida-official-king.jsonl` (local, gitignored; 11,744 messages, first fight 15:45:19–15:49:01).
+  The runner detached with `process-terminated` when the client closed, so the first fight is complete.
+- Official dialogue timestamps: `F:\SteamLibrary\steamapps\common\Path of Exile\logs\Client.txt`, lines 1164–1192.
+- First-fight object ids: humanoid King **15 (`0xf`)**, treant **373 (`0x175`)**, Mystic Fetishes **16/17/18**
+  (`0x10/0x11/0x12`), central `RitualPillar2` **4**. Manager pointers are session-specific and not stable across runs.
+
+### Official timeline
+
+| Time | Event |
+|---|---|
+| 15:45:24 | `Protect the ritual!` — phase 1 starts |
+| 15:45:28–15:46:29 | Vine Cascade / Vine Slam / teleports / effigies / Meditation / hazards; three fetishes activated |
+| 15:46:29 | `The darkness, exultant!` (third fetish) |
+| 15:46:32–33 | `Nothingness approaches!` / `Embrace nothingness!` |
+| 15:46:39 | `A sliver of what my home feels like.` — maze; `EASVoodooKingMazePhase` action |
+| 15:46:39–15:46:54 | phase 2, hedge maze (~15 s) |
+| 15:46:54 | `The Wildwood's power... is mine!` — treant; `EASVoodooKingBecomeATree` |
+| 15:47:05–15:47:40 | Meditation (`You are seen!`), Treant Slam (`An dire ed!`), Bug Bomb (`The end of meaning is nigh!`), Dance (`Rith!`), death (`So long as you know me, I will always exist...`) |
+
+### Official skill ids
+
+From the trace's `skillAdded` records. These are **client-side skill ids**; the GrantedEffects rows remain the ones in the
+tables above.
+
+**Humanoid `VoodooKingBoss2` (manager of the first fight):**
+
+| id | Grantedeffect / action |
+|---|---|
+| `0x4000` | `CTS1BossFightStart` |
+| `0x4001` | `MeleeAtAnimationSpeedUnique` |
+| `0x4002` | `MPSVoodooKing2SpellProjectile` |
+| `0x4003` | `GTVoodooKingVineCascade` |
+| `0x4004` | `GAVoodooKingVineSlam` |
+| `0x4005` | `EASVoodooKingSummonEffigy` |
+| `0x4006` | `EASVoodooKingHexNoMovementAllowed` (Ritual of Meditation) |
+| `0x4007` | `EASVoodooKingHexNoStandingAllowed` (Ritual of Dance) |
+| `0x4008` | `VoodooKingTeleport` |
+| `0x4009` | `VoodooKingTeleportFlee` |
+| `0x400a`–`0x400d` | `VoodooKingDashForward/Backward/Left/Right` |
+| `0x400e` | `GSVoodooKingRitual` |
+| `0x400f` | `EASVoodooKingMazePhase` |
+| `0x4010`/`0x4011` | `GAVoodooKingVineCascadeSmall/Big` |
+| `0x4012` | `VoodooKingPunishment` |
+| `0x4013` | `EASVoodooKingBecomeATree` |
+| `0x4014` | `EASVoodooKingReturnFromEdge` |
+
+**Treant `VoodooKingBoss3`:**
+
+| id | GrantedEffect / action |
+|---|---|
+| `0x4000` | `MeleeAtAnimationSpeedUnique` |
+| `0x4001` | `MPSVoodooKing3SpellProjectile` |
+| `0x4002` | `GAVoodooKingVineSlam` (Treant Slam) |
+| `0x4003` | `EASVoodooKingHexNoMovementAllowed` |
+| `0x4004` | `EASVoodooKingHexNoStandingAllowed` |
+| `0x4005` | `GPSVoodooKingBugBomb` |
+| `0x4006` | `VoodooKingPunishment` |
+| `0x4007` | `EASVoodooKingSummonDeathAuraEffigy` |
+| `0x4008` | `GSVoodooKingBugBombImpact` |
+| `0x4009` | `VoodooKingBugRend` |
+| `0x400a` | `VoodooKingBugRendSingle` |
+| `0x400b` | `GTVoodooKingSwarmPulse` |
+
+**Mystic Fetishes** have their own managers (the three fetish actors) with:
+
+| id | GrantedEffect |
+|---|---|
+| `0x4000` | `GTVoodooKing2RatSwarm` |
+| `0x4001` | `GTVoodooKing2CorruptedBloodDegen` |
+| `0x4002` | `GTVoodooKing2SummonFrogSwamps` |
+| `0x4003` | `CGEVoodooKing2CorrptedBloodDegen` |
+| `0x4004` | `CGEVoodooKing2SummonFrogSwamp` |
+
+The official server sends the fetish actions to the **fetish actor**, not to the King. The trace shows
+`VoodooKingSwampGround`, `ExplosiveToad` and `PoisonRat` objects during phase 1.
+
+### Official phase 1 sequence (first fight, actor `0xf`)
+
+```
+CTS1BossFightStart -> DashBackward -> TeleportFlee -> VineCascade -> VineSlam
+-> SpellProjectile ×5 -> VineCascade -> SpellProjectile ×3
+-> Ritual (player) -> Ritual (fetish 0x12) -> ReturnFromEdge (self)
+-> VineCascade -> SummonEffigy -> DashLeft -> SpellProjectile ×2 -> VineSlam
+-> Meditation (player) -> SpellProjectile
+-> Ritual (fetish 0x10) -> ReturnFromEdge -> ... VineCascade ×...
+-> DashBackward -> SpellProjectile -> DashBackward -> SpellProjectile
+-> TeleportFlee -> DashLeft -> SummonEffigy
+-> Ritual (player) -> Ritual (fetish 0x11) -> ReturnFromEdge
+-> Move -> MazePhase -> BecomeATree ×2
+```
+
+Key points:
+
+- **Fetish activation is `GSVoodooKingRitual` targeted at the fetish**, followed by `EASVoodooKingReturnFromEdge`
+  targeted at the King. The King also uses `VoodooKingTeleportFlee` and the dash skills to move; the plain teleport is
+  not the only movement.
+- The third Ritual (`0x11`) is immediately before `MazePhase`; the official chat line for it is
+  `The darkness, exultant!`.
+- The official phase 1 also uses **Ritual of Meditation** (`0x4006`, target player) and effigies. It does not show a
+  Dance cast in this first fight, but the skill is in the actor list.
+- The official fetish hazards are cast by the fetish actors. The King's own rats (`Summon Plagued Rats`) appear too.
+
+### Official phase 2 (maze)
+
+- It is the **same `AzmeriLeagueBoss` area**, not a separate map. The trace's `CreateObject` records contain the maze
+  monsters at area load:
+  - `Metadata/Monsters/LeagueAzmeri/GuidingLight/GuidingLightDaemonMaze_@83` (Guiding Light; object size 1, no granted
+    effects; ids 112–126, recreated/moved along the route),
+  - `Metadata/Monsters/LeagueAzmeri/Werewolves/WerewolfMaze@83` (Wildwood Werewolf),
+  - `Metadata/Monsters/LeagueAzmeri/Spiders/MeleeSpiderMaze@83` (Bloodtainter Arachnid).
+- The player was in the maze from **15:46:39 to 15:46:54** (about 15 s) — the route can be short when following the
+  Guiding Lights.
+- The official Guiding Light is a **monster/daemon**, not a generic effect object; the maze is populated with hostile
+  werewolves/spiders as well.
+- The official maze is bypassed by death/logout per the wiki; the next entry is phase 3.
+
+### Official phase 3 sequence (first fight, actor `0x175`)
+
+The first treant actions in the trace are:
+
+```
+VineSlam -> Meditation -> Melee -> VineSlam -> Melee -> SummonDeathAuraEffigy
+-> BugBomb -> Melee... -> SpellProjectile -> Melee... -> VineSlam -> ...
+-> SummonDeathAuraEffigy -> Dance -> VineSlam -> ... -> BugBomb -> ...
+```
+
+- The **first treant action is ~7 s after the treant spawn** (spawn 15:46:54.333, first action between 15:47:00.9 and
+  15:47:02.1). The first dialogue line, `You are seen!`, is at 15:47:05 (~11 s). The official emergence grace is
+  therefore roughly **6–8 s**, not the 3 s in this branch.
+- The treant uses **Ritual of Meditation** (`0x4003`) and **Ritual of Dance** (`0x4004`); both are in its actor list and
+  both appear in the chat lines (`You are seen!`, `Rith!`).
+- The treant also has **Punishment** (`0x4006`), **BugBombImpact** (`0x4008`) and **SwarmPulse** (`0x400b`) in its actor
+  list.
+- **BugRend works on the official client.** The trace shows `VoodooKingBugRend` (`0x4009`) / `VoodooKingBugRendSingle`
+  (`0x400a`) and six `Metadata/Projectiles/BugSoulrend` projectiles in one cast. The official `Client.txt` contains no
+  `PlayAnimation failed` line. This branch's binding of Bugrend to `MPSVoodooKing3SpellProjectile` (3894) and
+  `AzmeriVoodooKing3SpellProj` is a **workaround and is wrong**; the earlier live `PlayAnimation failed
+  [SpellProjectileChaos]` was from the stale Debug Gateway, not from the official skill.
+- The official treant's `BugBomb` uses the real `GPSVoodooKingBugBomb` and `GSVoodooKingBugBombImpact` pair; this branch
+  approximates it with one lobbed projectile and does not apply **Shadow Surge**.
+- `Mystic Miasma` is the death-aura effigy (`voodoo_king_death_aura_effigy`, BuffDefinitions row 2401); this branch
+  spawns the effigy but does not apply the aura/DoT.
+
+### Discrepancies against this branch
+
+| Area | Official 3.29.3b | This branch (`KingInMists.cs`) | Needed |
+|---|---|---|---|
+| Fetish activation | `GSVoodooKingRitual` **targeted at the fetish**, then `EASVoodooKingReturnFromEdge` self | Teleport next to the fetish, set its StateMachine `active=1`, stay there | Add `RitualSkill`/`ReturnFromEdgeSkill` to the Boss2 actor list; send the ritual with `targetObjectId = fetishId`; return to the arena center |
+| Fetish hazards | Fetish actors cast `RatSwarm`, `CorruptedBloodDegen`, `SummonFrogSwamps`; toads/swamp/blood objects | Three friendly fetishes stand idle; only the King summons rats | Send the fetish skill actions to the fetish ids; spawn `VoodooKingSwampGround`/`ExplosiveToad`/blood ground |
+| Phase 1 hexes | Meditation `0x4006` on the player | Not used in phase 1 | Add the ritual cast and BuffDefinitions 2358 (`voodoo_king_punishment_moving`) |
+| Phase 2 | Same area; `GuidingLightDaemonMaze_`, `WerewolfMaze`, `MeleeSpiderMaze`; Guiding Lights move along the route | Effect-object wisp trail + portal; no maze monsters | Spawn the real `GuidingLightDaemonMaze_` and optional maze werewolves/spiders; move the lights |
+| Phase 3 skills | Slam, Meditation, Dance, Effigy, BugBomb, Punishment, BugRend/BugRendSingle, BugBombImpact, SwarmPulse | Slam, BugBomb, BugRend (wrong effect), Effigy, projectile, default attack | Add the missing skills and the ritual/punishment cadence |
+| BugRend | `VoodooKingBugRend`/`BugRendSingle` + `BugSoulrend` projectiles (six) | `BugRendSkill` bound to `MPSVoodooKing3SpellProjectile` (3894) + `AzmeriVoodooKing3SpellProj` | Restore the official effect/projectile; the old animation failure was the stale build |
+| Emergence grace | First action ~7 s after spawn; first chat line ~11 s | 3 s | Raise to about 6–8 s |
+| Phase trigger | Third fetish `Ritual`/`Embrace nothingness!` immediately before the maze; HP not captured | 30% life floor and trigger (Qblolz's requested behavior) | Hook `0x1b1` LifeUpdate on the next official run; decide whether 30% is the actual trigger or only a coincidence |
+| Teleport model | TeleportFlee/dash + Ritual target + ReturnFromEdge | Teleport to the stand point, `0x1b7`, `0x1ac`, state update | Add the ritual/return sequence; keep the `Align` 0x1b7 before casts |
+
+### Next capture (to settle the trigger)
+
+The trace did not log the King's life. For the next official run, add a hook on the client's **LifeUpdate** (`0x1b1`)
+handler (or the actor Life component) and record the King's current/max life whenever it receives a `Ritual`,
+`MazePhase` or `BecomeATree` action. That will show whether the official maze starts at 30% life, after the third
+fetish, or both. Until then, this branch keeps the 30% behavior requested by Qblolz and must not claim it is the official
+trigger.
 
 ## Sources
 
@@ -245,3 +441,7 @@ Bloodline, exact AI/cooldown timings, and the native client capture for each act
   `BuffDefinitions.json`.
 - The client's `VoodooKingBoss2.act` / `VoodooKingBoss3.act` and `.ot` files (animation keys: `vine_nova_01`,
   `vine_cascade_01`, `teleport_01`, `spellcast_01/02`, `call_start/loop/end`, `morph_01`, `locust_ball_01`).
+- Official 3.29.3b client capture (2026-10-31): `logs/frida-official-king.jsonl` (local, gitignored) with Frida
+  `trace-actions`/`trace-skills`/`trace-enter-area`/`trace-projectile-create`; the official Steam client's
+  `logs/Client.txt` lines 1164–1192. The trace is summarized in "Official 3.29.3b capture" above; the raw log is not
+  committed.
