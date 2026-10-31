@@ -28,11 +28,13 @@ The local servers must already run (Auth, Patch, Gateway, on any ports) with the
 {"command":"nullifier:stats"}
 ```
 
-Defaults: `--renderer null`, `--frame-sleep-ms 50`, `--priority below-normal`, EcoQoS on, `--window minimized`,
-`--nosound --nologo`; without `--cwd`, a fresh settings file from the preset under `logs\nullifier\`. `--renderer configured` keeps the
-settings' DirectX/Vulkan device (tier 1/2 only); `--no-eco-qos`, `--priority normal`, `--window normal`,
-`--frame-sleep-ms 0`, `--sound` turn the other tiers off; `--affinity 0x3`, `--trim-seconds 10`,
-`--no-render-jobs`, `--no-texture-upload` add more; `--trace-files <regex>` logs matching `CreateFileW` paths.
+Defaults (the measured agent default, §3, §4): `--renderer configured` (the preset's DirectX 11 at 10 fps),
+`--frame-sleep-ms 0`, `--priority below-normal`, EcoQoS on, `--window normal` (shown, never activated),
+`--nosound --nologo`; without `--cwd`, a fresh settings file from the preset under `logs\nullifier\`.
+`--no-eco-qos`, `--priority normal`, `--sound` turn the process tier off; `--affinity 0x3`, `--trim-seconds 10` add
+more. Experimental (§2: the client crashes on entering an area): `--renderer null`, with `--frame-sleep-ms 50`,
+`--no-render-jobs`, `--no-texture-upload`. A client that crashes appends its registers and a backtrace to
+`logs\nullifier\crashes.log` (`--crash-log`); `--trace-files <regex>` logs matching `CreateFileW` paths.
 
 Commands added to client_control's set: `waypoint:travel` (`area`: a WorldAreas HASH16; sends the World panel pin's
 C→S 0x4d, [16](../protocol/16-waypoints.md) §3; the Gateway accepts it only for an activated waypoint, so use
@@ -41,7 +43,9 @@ Everything else is client_control's `execute`, bound to the spawned pid instead 
 
 The client lives exactly as long as `nullifier.py`: the hooks exist only while it is attached, and an unhooked client
 would save its settings over the user's `poeoffline_Config.ini`, so the launcher terminates its client when its stdin
-closes or it is interrupted. It never looks a process up by name and kills nothing but its own child.
+closes or it is interrupted. It never looks a process up by name and kills nothing but its own child; the pid is
+always checked together with its creation time, because Windows hands an exited client's pid to the next new process
+(seen live: before this check the bridge attached to such a process once and failed at its module check).
 
 ### With several clients (live.ps1 sessions)
 
@@ -108,6 +112,16 @@ The renderer has a sixth device type besides DirectX 11/12, Vulkan and the conso
   `0x1410048f0` at spawn and writes options `+0x2d5 = 0` before the engine reads it (`--renderer null`).
   Startup still enumerates the adapters (`0x140f0eca0` creates a throw-away D3D12 and D3D11 device on each adapter to
   log its feature level, `Enumerated device for adapter …`), which touches the GPU driver once.
+- **Live (2026-10-30, three runs, one with `--no-render-jobs --no-texture-upload`): not usable yet.** The client
+  starts the Null device, reaches the login screen in 1.2–3.5 s, logs in through the bridge and lists the characters.
+  Play generates the town (`Generating level 13 area "1_1_town"`; the client connects to the Gateway and receives
+  the area) with hundreds of `[ENTITY2] … Shader generation failed` CRIT lines (the Null shader "builds" produce
+  nothing), then the main thread dies with an access violation at `0x142be6be4` (`movss xmm0, [rsi]` right after the
+  4×4 transform `0x140e43630`; `rsi` points 3.4 GB past the array in `r14`, an index computed from data the Null
+  device does not provide) 3–6 s after entering the area, every time. It is the area/scene code on the main thread,
+  not the frame render jobs (disabling them changes nothing). Private commit was 1.8 GB at that moment, against
+  3.3 GB for the DirectX 11 preset client. Making it usable means patching that path and whatever fails next; the
+  crash log (`--crash-log`) has the registers and the backtrace.
 
 ### Graphics API paths (for the other options)
 
@@ -120,10 +134,11 @@ The renderer has a sixth device type besides DirectX 11/12, Vulkan and the conso
   It moves all rendering to the CPU and textures to system memory: GPU-less, but expensive.
 - `D3D_DRIVER_TYPE_NULL` needs the debug-layer `d3d11ref.dll`, which is not installed here; the engine's own Null
   device makes it unnecessary.
-- Frame pacing: the main loop's per-frame state-stack update (`0x141526cbf`, the point client-control serves RPCs at)
-  is where `nullifier.js` counts frames and sleeps `--frame-sleep-ms`; with the Null device there is no present or
-  vsync to wait on, so this sleep is the frame-rate cap. Game logic and the network keep running at that rate (the
-  server is authoritative; the client only predicts and reports).
+- Frame pacing: the main loop's per-frame state-stack update (`0x141526c40`; client-control serves its RPCs 0x7f bytes
+  into it, at `0x141526cbf`, and checks those bytes, so the nullifier hooks the entry) is where `nullifier.js` counts
+  frames and sleeps `--frame-sleep-ms`; with the Null device there is no present or vsync to wait on. With a real
+  renderer the preset's `framerate_limit=10` does it: 9.2 frames per second measured, and game logic, the network and
+  the bridge keep working at that rate (the server is authoritative; the client only predicts and reports).
 
 ### Process level
 
@@ -131,9 +146,11 @@ The renderer has a sixth device type besides DirectX 11/12, Vulkan and the conso
 ProcessPowerThrottling, EXECUTION_SPEED | IGNORE_TIMER_RESOLUTION)`: low clocks / efficient cores, and the client's
 `timeBeginPeriod` no longer raises the system timer rate), optionally the CPU affinity and a periodic
 `EmptyWorkingSet` (moves pages to the standby list; private commit is unchanged, so it helps physical RAM, not the
-commit limit). The window is shown minimized (`SW_SHOWMINNOACTIVE`) or hidden, never activated, and
-`SetForegroundWindow` is neutralised, so a launched client cannot take the keyboard focus from the user's window.
-A hidden window also hides an error dialog; use `--window minimized` or `normal` while debugging.
+commit limit). The window is shown without activation (`SW_SHOWNOACTIVATE`, default), minimized
+(`SW_SHOWMINNOACTIVE`) or hidden, and `SetForegroundWindow` is neutralised, so a launched client cannot take the
+keyboard focus from the user's window. **A minimized client with a real renderer stops its main loop**
+(`[WINDOW] Minimized`, no frames: it never reached the login screen in 60 s), so `--window minimized` (and, untested,
+`hidden`) only suits the Null renderer, which ran minimized. A hidden window also hides an error dialog.
 
 ## 3. Measurements
 
@@ -142,33 +159,46 @@ then 60 s sampled every 5 s by `nullifier-measure.ps1`; then `/waypoints all`, `
 `/goto 1_1_town`, `/pos`, chat, `/tp`, and 20 s more. CPU is percent of one core (16 logical cores). Machine: RTX 5070
 Ti + Radeon iGPU, 31 GB RAM.
 
+Measured 2026-10-30/31 under a reduced gate (free physical RAM ≥ 8 GB and free commit ≥ 3 GB at launch, the shared
+extra-client lock held, and a watchdog that killed only this run's client when free commit fell below 1.5 GB or free
+RAM below 4 GB). Other agents' test hosts (up to 13 GB each) and client restarts made the machine's free commit swing
+between 0.3 and 9 GB: the watchdog fired 8 times on its own client, and another session's `live.ps1` killed the
+measurement servers twice and one measured client (it stops every `Game.patched` and `GameServer.*` process by
+name). The full-quality baseline and WARP were skipped on purpose (the reference row stands in for the baseline).
+
 | Tier | Settings | Private commit | Working set | CPU (% of a core) | GPU util | GPU dedicated | Bridge |
 |---|---|---|---|---|---|---|---|
 | reference: a normal client of another session (read-only counters, Vulkan, high textures, unfocused, state unknown) | user's | 7.49 GB | 4.27 GB | 37.5 | 9 % | 3.38 GB | — |
-| 0 baseline | user's `poeoffline_Config.ini` copy, `--renderer configured --frame-sleep-ms 0 --priority normal --no-eco-qos --window normal --sound` | pending | pending | pending | pending | pending | pending |
-| 1 config | preset, `--renderer configured --frame-sleep-ms 0 --priority normal --no-eco-qos --window normal` | pending | pending | pending | pending | pending | pending |
-| 2 process | tier 1 + below-normal, EcoQoS, minimized, `--trim-seconds 10` | pending | pending | pending | pending | pending | pending |
-| 3a WARP | preset + `adapter_name=Microsoft Basic Render Driver`, tier 2 | pending | pending | pending | pending | pending | pending |
-| 3b Null device | defaults (`--renderer null --frame-sleep-ms 50`, tier 2) | pending | pending | pending | pending | pending | pending |
-| 3c Null + less | 3b + `--no-render-jobs --no-texture-upload` | pending | pending | pending | pending | pending | pending |
+| 1+2 preset + process, in town (60 s) | `config/nullifier_Config.ini` (DX11, 800×600, low textures, 10 fps), below-normal, EcoQoS, `--window normal`, `--nosound` | 4.33 GB (max 4.37) | 2.46 GB | 50.7 avg (311 in the first 5 s, shader compiles; ~11 after) | 7 % | 1.66 GB | login, list, play ✓ |
+| 1+2 after waypoint travel and `/goto` back (20 s) | same | 4.59 GB | 2.74 GB | 10.7 | 4.2 % | 1.78 GB | `/waypoints all`, `waypoint:travel` to The Coast (`(1431, 626) in 1_1_2`), `/goto 1_1_town`, `/pos`, chat, `/tp +5 +0` ✓ |
+| 3b Null device (`--renderer null --frame-sleep-ms 50`) | preset, tier 2 | 1.8 GB at the crash | 1.65 GB | — | 0 | 0 | login, list ✓; play: crash 3–6 s after entering the town (§2) |
+| 3c Null + `--no-render-jobs --no-texture-upload` | same | — | — | — | — | — | same crash |
+| 2 with `--window minimized`, DX11 | preset | — | — | — | — | — | no frames while minimized: never reached login |
 
-Run each row with, for example:
+The preset client ran at 9.2 frames per second (`nullifier:stats`), entered the town 5.8 s after launch (menu 2.5 s,
+login 0.8 s, play 2.5 s) and kept 107 threads. Against the reference client: private commit −42 %, working set −42 %,
+dedicated GPU memory −51 %, GPU load roughly halved, and CPU at the 10-fps cap about 11 % of a core, under a third
+of the reference's 37 %, once the first shader compiles are done (the DirectX 11 shader cache is shared, so later
+clients compile less).
+
+Run a row with, for example:
 
 ```powershell
-.venv\Scripts\python.exe scripts\dev\nullifier-bench.py --label null --patch-port <p> --login-port <a> --travel -- --renderer null
+.venv\Scripts\python.exe scripts\dev\nullifier-bench.py --label preset --patch-port <p> --login-port <a> --travel -- --renderer configured
 ```
 
 Results append to `logs\nullifier\bench.jsonl` (the measure JSON plus `nullifier:stats` frames and the options).
 
-**Not measured yet (2026-10-30):** the machine's free commit stayed between 2 and 7 GB all session (other agents'
-clients, test hosts and builds), below the 12 GB required before an extra client may start, so no client was launched
-and every row above is pending. Static analysis and offline tests are all that back the tiers so far; in particular
-it is unverified that the client reaches the login screen, enters an area and changes area with the Null device.
-
 ## 4. What is safe to default for agent sessions
 
-Until the table is filled: tier 1 (the preset) and tier 2 (below-normal priority, EcoQoS, minimized never-activated
-window, `--nosound`) only change settings and scheduling that a normal player can also choose, so they are safe to
-default once one live run confirms the bridge login. The Null device is the target default for headless agents but
-must first pass the bench with `--travel` (login, play, waypoint travel, `/goto`, chat, `/tp`); WARP is a fallback
-when the Null device fails, at a CPU cost.
+- **Default now (measured): the preset + process tier**, i.e. `nullifier.py` with no renderer options: DirectX 11 at
+  800×600, low textures, 10 fps, effects and sound off, below-normal priority, EcoQoS, a window shown but never
+  activated. Every bridge command used by agents worked (login, character list, play, slash commands with replies,
+  chat, `/tp`, waypoint travel, `/goto`). It still needs a GPU (1.7 GB of VRAM per client) and about 4.5 GB of
+  commit, so a 31 GB machine fits a handful of them next to the servers, not dozens.
+- **Not a default:** `--window minimized`/`hidden` with a real renderer (the client stops), `--renderer null`
+  (crashes on entering an area), `--trim-seconds` (unmeasured; it cannot lower commit).
+- **Next steps for a GPU-less client:** fix the Null device's crash at `0x142be6be4` (find which scene object the
+  index comes from and give it a valid size, or skip that update when the device is Null), then rerun the bench with
+  `--renderer null --travel`; if that path keeps failing, try WARP (`adapter_name=Microsoft Basic Render Driver` in
+  the preset, no hook), which trades the GPU for CPU.

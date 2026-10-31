@@ -68,12 +68,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
   Docs: [debugging](../docs/dev/debugging.md).
 
-- Headless clients for agent sessions (opt-in): `scripts/dev/nullifier.py` spawns the client with a Frida agent that
-  switches on the engine's own Null renderer (no GPU device, swap chain or textures), gives it its own settings file
-  (preset `config/nullifier_Config.ini`), caps its frame rate and keeps its window from taking focus, sets a low
-  priority and EcoQoS, and serves client_control's commands (plus `waypoint:travel`, `nullifier:stats`) for that pid
-  only. Offline-tested (`scripts/dev/test_nullifier.py`); not yet run against the real client: the machine had too
-  little free memory for an extra client, so the measurement table is still empty.
+- Cheap clients for agent sessions (opt-in): `scripts/dev/nullifier.py` spawns the client with a Frida agent that
+  gives it its own settings file from `config/nullifier_Config.ini` (DirectX 11, 800×600, low textures, 10 fps),
+  keeps its window from taking focus, sets below-normal priority and EcoQoS, and serves client_control's commands
+  (plus `waypoint:travel`, `nullifier:stats`) for that pid only. Live 2026-10-31: login, play, slash commands, chat,
+  `/tp`, waypoint travel and `/goto` all worked; 4.3 GB private commit, 2.5 GB working set, 1.7 GB VRAM, ~11 % of a
+  core at 9 fps, against 7.5 / 4.3 / 3.4 GB and 37 % for a normal client. The engine's own Null renderer (no GPU at
+  all, `--renderer null`) reaches character selection but crashes 3–6 s after entering an area, and a minimized
+  client with a real renderer stops its main loop. Offline tests: `scripts/dev/test_nullifier.py`.
   Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`.
   Docs: [headless client](../docs/dev/headless-client.md).
 
