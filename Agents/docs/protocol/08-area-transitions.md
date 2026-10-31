@@ -46,7 +46,7 @@ Stats `0x1435dd4e8`, ObjectMagicProperties `0x1435a6ae0` (slot 17 → slot 20 `0
 | object flags, base data | `00 00` | as the player |
 | Positioned | 16 | i32 x, i32 y (grid), f32 rotation, u16, 2 flag bytes; + 8 with the fixed height (§5) |
 | Animated | `00` | flags; bit0 + u32-counted UTF-16 `.ao` path for a model (§5) |
-| **AreaTransition** | 5 | u8 flags (low nibble = state `+0xb2`, bit4/5/6 → `+0xb5/+0xb6/+0xb7`, bit7 → extra record `0x141e62df0`); **destination variant** (`0x141e62490`): u8 index + value, index 0 → u16, 1 → u32, **2 → u16 WorldAreas.HASH16** (resolved by `0x141e5be60` through `0x1422d9920`, the same lookup as 0x14/0x1d); then a compact int `+0xa4`, read when the type's flag (`type+0x78 → +0xb0 → +0x14`) is set and the state is 0 (true for this type) |
+| **AreaTransition** | 5 | u8 flags (low nibble = state `+0xb2`, bit4/5/6 → `+0xb5/+0xb6/+0xb7`, bit7 → extra record `0x141e62df0`); **destination variant** (`0x141e62490`): u8 index + value, index 0 → u16, 1 → u32, **2 → u16 WorldAreas.HASH16** (resolved by `0x141e5be60` through `0x1422d9920`, the same lookup as 0x14/0x1d); then a compact int `+0xa4`, read only when the state is 0 and **the current area is a town** (`0x141e5b98e`: entity +8 → world +0x78 → +0xb0, the current WorldAreas row, byte +0x14 = IsTown; the server-side writer `0x141e5b7a0` has the same test). Nothing but the debug dump `0x141e5bf20` reads it (for type 1 it prints it as the telepad index). The Gateway writes it only in towns (`AreaTransitionObject.InTown`): before, every exit outside a town had one byte left over at the blob's end, harmless because every byte after it was 0 |
 | Stats | 10 | as the player's comp1: compact-int n pairs, u32, u32, u8 |
 | ObjectMagicProperties | 4 | **base magic properties first** (`0x142201d70`, called with the reader still in `rdx`: u16 flags, rarity = low 3 bits, u8 `+0x7a`, sections behind flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's own u8 flags (bit1 → u16 flavour text key, bit2 → string) |
 | MinimapIcon | `00` | u8 flags (bit1 hidden/shown, bit0 → u16 icon override, bit3 → variant) |
@@ -146,8 +146,8 @@ must end with .ao", `0x141da7d80`); its bit1 form is a `Data/MiscAnimated.dat` r
 
 The server's blob: Positioned `84010000 E6000000 DB0FC93F 0000 04 00 D3FFFFFF 1F85AFC3`, Animated `01 49000000` + the
 path. Dev command in the Gateway: `/transition [pos [here | x y | +dx +dy] | rot <degrees> | z <z | none> | model
-<path | none> | index <n>]` re-creates the first area transition with that change (`index` is the AreaTransition compact
-int; the client reads it as a teleport/door destination, not a mesh link). Every position the client has seen stays
+<path | none> | index <n>]` re-creates the first area transition with that change (`index` is the AreaTransition compact int,
+sent in towns only, §2). Every position the client has seen stays
 on its map: the minimap cache (`%LOCALAPPDATA%\Path of Exile\Minimap\`) remembers icons per area across restarts,
 so after moving an area transition around, clear that cache before judging the map
 ([../dev/live-testing.md](../dev/live-testing.md), Troubleshooting).

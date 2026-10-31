@@ -13,9 +13,18 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
-- Dev account service: register, log in, create characters (JSON-lines over TCP).
+- Dev account service: register, log in, create characters, list every account (JSON-lines over TCP).
   Code: `GameServer.Host`, `GameServer.DevClient`.
   Docs: [dev-server.md](../docs/dev-server.md).
+- Hooks for outside tools such as the desktop launcher: `live.ps1 -Stop` (also with `-Only` or `-NoClient`),
+  `live.ps1 -ClientOnly -Walkmaps` (the client and its walk-map recorder against running servers), the
+  Gateway's `commands` and `values <kind>` modes (its chat commands, their argument kinds and values, as JSON lines),
+  and the dev host's `accounts`.
+  Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
+  the account list from the real save database.
+  Code: `scripts/dev/live.ps1`, `Program.Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
+  Docs: [GettingStarted](../GettingStarted.md) step 10, [10](../docs/protocol/10-chat-and-commands.md) §4,
+  [dev-server.md](../docs/dev-server.md).
 - Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
   which applies saved code edits to the running server; `HotReload.cs` logs each applied edit and tells players in
   chat when a save starts a reload, when it is applied, when it fails to compile (first three errors, from
@@ -46,6 +55,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
   dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
   context being freed.
+  Assemblies load from a private temporary disk copy rather than collectible memory streams; original build outputs
+  remain free, and collected contexts release their copied files. Loader and cleanup regressions cover this path.
   Missing: catalog overrides, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `Program.Mods.cs`, `Mods/Source/`.
   Docs: [modding](../docs/dev/modding.md).
@@ -87,6 +98,12 @@ Tests that need the real client pass quietly without `Client/`.
 Teleport-name controls use an unmapped synthetic destination, so real WorldAreas data cannot change their labels.
 Bow hit-recovery controls explicitly start their connection clock before checking input admission.
 These fixture corrections leave production catalogs and the shared module initializer unchanged.
+The Arcane Might area fixture measures range from the weapon-contact origin to its target.
+Monster AI cadence tests run in a nonparallel collection: their real 300 ms socket-latency limit is unchanged,
+but unrelated catalogue loads and GC pauses no longer run beside that measurement.
+The per-target area accuracy regression awaits one completed sweep instead of racing a sustained Cyclone channel.
+Gateway test collections now run sequentially by default to keep real socket deadlines and collectible mod contexts
+away from unrelated catalogue-load/GC contention. Individual concurrency tests still run their own concurrent tasks.
 
 ## Tooling
 

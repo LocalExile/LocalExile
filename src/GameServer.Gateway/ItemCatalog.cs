@@ -110,6 +110,13 @@ sealed class ItemCatalog
 
     /// <summary>A BaseItemTypes row by number, or by Id: exact, then the last path segment, then the display name, then
     /// any part of the Id. Several matches: the first one the serializer supports.</summary>
+    /// <summary>Every BaseItemTypes row (the launcher's suggestions).</summary>
+    public IReadOnlyList<BaseType> All => _rows.Value.Rows;
+
+    /// <summary>The names <see cref="FindGem"/> takes: every creatable variant of every gem.</summary>
+    public IEnumerable<string> GemNames() =>
+        All.Select(Gem).OfType<GemType>().SelectMany(g => g.Variants.Where(v => v.Creatable).Select(v => v.Name)).Distinct();
+
     public BaseType? Find(string query)
     {
         var rows = _rows.Value.Rows;

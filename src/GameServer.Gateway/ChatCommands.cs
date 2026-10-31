@@ -22,15 +22,18 @@ sealed class ChatCommands
     /// <summary>Commands per /help page.</summary>
     public const int PageSize = 8;
 
-    private readonly Dictionary<string, (string Usage, Func<string[], Task> Run)> _commands = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string Usage, Func<string[], Task> Run, string[] Arguments)> _commands = new(StringComparer.OrdinalIgnoreCase);
 
     // Ours, then the mods' that ours do not shadow.
     IEnumerable<(string Name, string Usage)> All() => _commands.Select(c => (c.Key, c.Value.Usage))
         .Concat((ModUsages?.Invoke() ?? []).Where(m => !_commands.ContainsKey(m.Name)));
 
-    public ChatCommands Add(string name, string usage, Func<string[], Task> run)
+    /// <param name="arguments">What each leading argument names, for an external tool's suggestions
+    /// (<see cref="Program.CompletionValues"/>: area, monster, item, gem, stat, npc, quest_flag); the other arguments
+    /// can be suggested from the usage's own choices ("[normal|magic|rare]").</param>
+    public ChatCommands Add(string name, string usage, Func<string[], Task> run, params string[] arguments)
     {
-        _commands[name] = (usage, run);
+        _commands[name] = (usage, run, arguments);
         return this;
     }
 
@@ -72,6 +75,14 @@ sealed class ChatCommands
         return string.Join('\n', usages.Skip((page - 1) * PageSize).Take(PageSize)
             .Prepend($"--- Commands page {page}/{pages} ---:").Prepend("\n\n\n").Append("").Append(footer));
     }
+
+    /// <summary>Every command's name, full usage and argument kinds by name, /commands and the mods' included
+    /// (`GameServer.Gateway commands`, for tools such as the desktop launcher).</summary>
+    public IEnumerable<(string Name, string Usage, string[] Arguments)> Usages =>
+        _commands.Select(c => (c.Key, c.Value.Usage, c.Value.Arguments))
+            .Concat((ModUsages?.Invoke() ?? []).Where(m => !_commands.ContainsKey(m.Name)).Select(m => (m.Name, m.Usage, Array.Empty<string>())))
+            .Append(("commands", "/commands [page | name] (/com; the command list, or the commands whose name contains it)", []))
+            .OrderBy(c => c.Item1, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The usage without its " (explanation)".</summary>
     static string ShortUsage(string usage) => usage.IndexOf(" (") is int i and >= 0 ? usage[..i] : usage.TrimEnd();

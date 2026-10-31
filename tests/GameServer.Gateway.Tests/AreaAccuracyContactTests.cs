@@ -154,9 +154,8 @@ public partial class ConditionalCriticalGatewayTests
         var accuracy = new AccuracyDraws(0, 99, 99);
         f.Conn.AttackAccuracyRandom = accuracy;
         var packet = f.Hit;
-        await f.Use();
-        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
-            while (second.Life == second.MaxLife) await Task.Delay(10, timeout.Token);
+        // Await one complete sweep; a sustained Cyclone may start another contact before assertions resume.
+        await f.Sweep();
         Assert.Equal(f.Target.MaxLife, f.Target.Life);
         Assert.Equal((uint)Math.Round(packet.MinTotal), second.MaxLife - second.Life);
         Assert.Equal(5, f.Target.AttackEvasion.Value);

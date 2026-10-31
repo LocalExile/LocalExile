@@ -127,6 +127,10 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
 
     public IReadOnlyList<Character> Characters(Guid accountId) => store.CharactersOf(accountId);
 
+    /// <summary>Every account with its characters (the dev protocol's "accounts").</summary>
+    public IReadOnlyList<(Account Account, IReadOnlyList<Character> Characters)> AccountsWithCharacters() =>
+        [.. store.Accounts().Select(a => (a, store.CharactersOf(a.Id)))];
+
     public Character? FindCharacter(string name) => store.FindCharacter(name);
 
     /// <summary>Creates a level 1 character in <paramref name="inLeague"/> (default: the service's league).</summary>

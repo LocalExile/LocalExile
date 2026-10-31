@@ -180,13 +180,22 @@ partial class Program
         if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
         bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v);
+        // A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) comes with its fight.
+        area = AreaPopulation.LaterForms(area, row => Monsters.Find(row.ToString()) is { } v ? (v.Id, v.Name) : null);
+        // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
+        area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(conn)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
-        var points = AreaPopulation.LoadPoints(layout.Id, conn.Seed, notes);
+        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data");
+        // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
+        points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes);
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
-        byte level = (byte)Math.Clamp(area.AreaLevel, 1, 100);
+        int areaLevel = area.AreaLevel;
+        if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == layout.Hash && openMap.Area.Level > 0)
+            areaLevel = openMap.Area.Level;
+        byte level = (byte)Math.Clamp(areaLevel, 1, 100);
         foreach (var s in spawns)
         {
             var variety = Monsters.Find(s.Variety.ToString())!;

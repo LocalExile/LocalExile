@@ -1476,6 +1476,19 @@ and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw
 default attack is not predicted the way a gem's volley is. Trace: `scripts/re/frida/trace-projectile-create.js`
 (load `common.js` and the trace in one script: `run.py` gives each file its own scope).
 
+**Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
+ActionTypes `HASH16` (Fireball 0xaa4e, factory `0x1412817b0`, vtable `0x1434462c8`; Spark 0x7859, constructor
+`0x141b35390`, vtable `0x14350ca90`). Both derive from the projectile action (base vtable `0x14323ac38`) whose slot
+0x618, `0x141bb13a0`, fires the volley: it reads `number_of_additional_projectiles` and creates each projectile as a
+client object (`0x141ebdf30`, type from Projectiles.dat). Spark's slot 0x618 (`0x141b363a0`) only adjusts the count and
+calls it, so Spark's sparks are predicted like Fireball's: the server must not send them. Spark's own overrides make
+the flight a wander: slot 0x548 returns false (no fixed range), slot 0x558 (`0x141b35a10`) picks each leg, and slot
+0x118 (`0x141b36170`) counts the spark's life down and removes it at zero or 150 cells from where it started.
+The life is set once, at `0x141b35b7a`: `skill_effect_duration` (0x168) / 1000 seconds, ± up to 100% of
+`spark_random_duration_%` (0x4397). That stat is virtual, so the client does not derive it from
+`base_skill_effect_duration`: before the Gateway sent it (`GemSkills`, `SkillDurationModifiers.Seconds`) every client
+spark died on its first tick and none was drawn. Not checked live yet.
+
 The server creates and moves the projectile. The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does
 nothing by itself: its slot 17 reads nothing and almost every other slot is a bare `ret`.
 

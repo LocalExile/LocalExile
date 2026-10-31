@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Data.Terrain;
 
 /// <summary>
 /// The monster packs of an area, from the extracted tables: MonsterPacks (which areas and their weights, how many
@@ -26,7 +27,13 @@ sealed class PackCatalog(string folder = "data")
     /// <summary>An area's packs: the scattered ones with their weights, the ones room points name (by the name after
     /// "&lt;area&gt;-"), and the unique bosses.</summary>
     public sealed record AreaPacks(string AreaId, int AreaLevel, IReadOnlyList<(Pack Pack, int Weight)> Scattered,
-        IReadOnlyDictionary<string, Pack> Named, IReadOnlyList<int> Bosses);
+        IReadOnlyDictionary<string, Pack> Named, IReadOnlyList<int> Bosses)
+    {
+        /// <summary>Places in <see cref="Bosses"/> (0-based) this instance does not place with the area: the later forms a
+        /// fight brings (<see cref="AreaPopulation.LaterForms"/>) and the bosses a map boss override leaves out
+        /// (<see cref="MapBossOverride"/>).</summary>
+        public IReadOnlySet<int> Absent { get; init; } = new HashSet<int>();
+    }
 
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
     public const int MapPackWeight = 100;
@@ -117,7 +124,64 @@ static class AreaPopulation
     /// angle (radians) and scale, through the room's placement.</summary>
     public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale);
 
-    static bool IsMonsterPoint(string name) => name == "mapboss" || name.StartsWith("%area%-", StringComparison.Ordinal);
+    static bool IsMonsterPoint(string name) => BossPoint(name) is not null || name.StartsWith("%area%-", StringComparison.Ordinal);
+
+    /// <summary>The bosses a fight brings rather than the area: a later Bosses row with the name of an earlier one whose
+    /// Id is that row's Id + "2" (Prisoner's Gate's Abberath2, The Oasis's Shakari2, The Harvest's MalachaiBoss2: the
+    /// second form appears when the first flees or falls), and <see cref="FormedLater"/>. Bosses that only share a name
+    /// are separate bosses (The Mud Flats' three Forgotten Warriors KaomArcherMinion1-3, The Grain Gate's Gemling
+    /// Legionnaires). They are marked
+    /// <see cref="PackCatalog.AreaPacks.Absent"/>: a quest or the fight creates them.</summary>
+    public static PackCatalog.AreaPacks LaterForms(PackCatalog.AreaPacks area, Func<int, (string Id, string Name)?> variety)
+    {
+        var absent = new HashSet<int>(area.Absent);
+        for (int i = 0; i < area.Bosses.Count; i++)
+        {
+            if (variety(area.Bosses[i]) is not { } v) continue;
+            bool secondForm = Enumerable.Range(0, i).Any(j => variety(area.Bosses[j]) is { } first && first.Name == v.Name && v.Id == first.Id + "2");
+            if (secondForm || FormedLater.Contains(v.Id)) absent.Add(i);
+        }
+        return absent.Count == area.Absent.Count ? area : area with { Absent = absent };
+    }
+
+    /// <summary>Later forms under a name of their own: The Rotting Core's Depraved Trinity forms in the Black Heart once
+    /// Doedre, Darksoul, Maligaro, The Broken and Shavronne, Unbound (its mapboss2-4 rooms) are dead.</summary>
+    static readonly HashSet<string> FormedLater = new(StringComparer.Ordinal) { "Metadata/Monsters/UnholyTrio/UnholyTrio" };
+
+    /// <summary>A unique boss point and the WorldAreas Bosses_MonsterVarietiesKeys places (1-based) it takes; empty for a
+    /// point that takes the area's bosses no other point took; null for any other name. The room files write
+    /// "mapboss&lt;n&gt;" (The Upper Prison: mapboss1 the Necromancer, mapboss2 Brutus; The Grain Gate: mapboss1 … mapboss7,
+    /// the seven Gemling Legionnaires), "mapboss&lt;n&gt;&amp;&lt;m&gt;" (two bosses at one point, maps), a "WG" suffix
+    /// (Prisoner's Gate's bossphase1/2 rooms: mapboss1WG Abberath, mapboss2WG his second form; The Oasis: mapboss1WG
+    /// Shakari), and for "any": "mapboss", "force:mapboss" (Kitava's arenas, The Cathedral Rooftop and The Feeding
+    /// Trough), "mapbosspack" (The Toxic Conduits: the five Lingering Aberrations) and "mapbossWG". Not taken:
+    /// "mapboss-&lt;variety&gt;" (Shaper guardian maps) and the league points "mapbosswarband…", "mapbossexilepack".</summary>
+    public static IReadOnlyList<int>? BossPoint(string name)
+    {
+        var m = BossPointName.Match(name);
+        if (!m.Success) return null;
+        return m.Groups[1].Success ? [.. m.Groups[1].Value.Split('&').Select(int.Parse)] : [];
+    }
+
+    /// <summary>Server-side spawner objects of a room that stand for one of the area's unique bosses (their .ot names no
+    /// monster: the official server turns them into it), and that boss's MonsterVarieties Id. The Quay's boss.arm:
+    /// TolmanBossSpawner, Tolman in the stocks beside Clarissa, who breaks out (its "spawning" states 1 … 7).</summary>
+    public static readonly IReadOnlyDictionary<string, string> BossSpawners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Metadata/Monsters/Zombies/Tolman/TolmanBossSpawner"] = "Metadata/Monsters/Zombies/ZombieBossTolman_",
+    };
+
+    /// <summary>The boss points of the area's <see cref="BossSpawners"/> among a placed room's server objects:
+    /// "mapboss&lt;n&gt;" for the n-th of WorldAreas Bosses, at the spawner's cell.</summary>
+    public static IEnumerable<RoomPoint> SpawnerPoints(PackCatalog.AreaPacks area, IEnumerable<RoomObject> objects, Func<int, string?> varietyId)
+    {
+        foreach (var o in objects)
+            if (BossSpawners.TryGetValue(o.Type, out var boss)
+                && Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => varietyId(area.Bosses[i]) == boss, -1) is int row and >= 0)
+                yield return new RoomPoint($"mapboss{row + 1}", o.X, o.Y, o.Angle);
+    }
+
+    static readonly System.Text.RegularExpressions.Regex BossPointName =new("^(?:force:)?mapboss(?:([1-9][0-9]*(?:&[1-9][0-9]*)*)|pack)?(?:WG)?$");
 
     // One scattered pack per this many walkable cells (The Coast seed 1: 404 620 cells → 45 packs).
     public const int CellsPerPack = 9000;
@@ -138,22 +202,72 @@ static class AreaPopulation
         var taken = new HashSet<(int, int)>();
         var centres = new List<(int X, int Y)>();
 
-        // The room points first: the unique boss with its pack at "mapboss", the named packs at theirs.
-        foreach (var p in points.Where(p => IsMonsterPoint(p.Name)))
+        // The room points first. Each boss of WorldAreas Bosses stands once: at its own numbered point ("mapboss2"), in a
+        // named pack whose boss it is (The Mines Level 1's "%area%-minerhammerbosspack": Pikerivet), or else, with every
+        // other boss left, at one "mapboss" point (The Den: The Great White Bones with The Bone Sculptor; The Solaris
+        // Temple Level 1: both seals). Bosses the instance leaves out (area.Absent: later forms, The Ashen Fields' map boss override) stand nowhere. The area's
+        // boss pack stands once: at its own "%area%-bosspack" points when the layout has them, else at the first boss point
+        // (before, every boss point added one: The Cavern of Anger, The Dried Lake and The Lunaris Temple Level 2 had it
+        // up to three times).
+        var placedRows = new HashSet<int>(area.Absent);
+        bool guarded = points.Any(p => p.Name == "%area%-bosspack");
+        void Bosses((int X, int Y) at, string point, IReadOnlyList<int> rows)
         {
-            string name = p.Name.Replace("%area%-", "", StringComparison.Ordinal);
-            if (name == "mapboss")
+            for (int i = 0; i < rows.Count; i++)
             {
-                var bosses = area.Bosses.Where(spawnable).ToList();
-                if (bosses.Count == 0) { notes.Add($"room point mapboss at ({p.X}, {p.Y}): no unique boss for {area.AreaId}"); continue; }
-                AddMember(spawns, taken, walkable, (p.X, p.Y), bosses[rng.Next(bosses.Count)], MonsterRarity.Unique, "mapboss", rng, 0);
-                if (area.Named.TryGetValue("bosspack", out var guards)) AddPack(spawns, taken, walkable, (p.X, p.Y), guards, MonsterRarity.Normal, false, rng, spawnable);
+                int variety = area.Bosses[rows[i]];
+                if (!spawnable(variety)) { notes.Add($"room point {point} at {at}: boss {variety} cannot be created"); continue; }
+                if (AddMember(spawns, taken, walkable, at, variety, MonsterRarity.Unique, point, rng, i == 0 ? 0 : 3)) continue;
+                // Some bosses' points are off the walk map (Kitava in his pit, Arakaali in her web, Doedre the Vile at her
+                // cauldron): the nearest free walkable cell, so the server's walk and AI have a cell to start from.
+                if (Nearest(at, walkable, taken, BossSearchRadius) is { } cell)
+                {
+                    taken.Add(cell);
+                    spawns.Add(new Spawn(variety, cell.X, cell.Y, MonsterRarity.Unique, point));
+                    notes.Add($"room point {point} at {at} is not walkable: boss {variety} at {cell}");
+                }
+                else notes.Add($"room point {point} at {at}: no free walkable cell within {BossSearchRadius} for boss {variety}");
             }
-            else if (area.Named.TryGetValue(name, out var pack))
-                AddPack(spawns, taken, walkable, (p.X, p.Y), pack, MonsterRarity.Normal, false, rng, spawnable);
-            else { notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): no pack {area.AreaId}-{name}"); continue; }
+            if (!guarded && area.Named.TryGetValue("bosspack", out var guards))
+            {
+                AddPack(spawns, taken, walkable, at, guards, MonsterRarity.Normal, false, rng, spawnable);
+                guarded = true;
+            }
+            centres.Add(at);
+        }
+        var bossPoints = points.Select(p => (Point: p, Rows: BossPoint(p.Name))).Where(b => b.Rows is not null).ToList();
+        foreach (var (p, rows) in bossPoints.Where(b => b.Rows!.Count > 0))
+        {
+            var mine = rows!.Select(n => n - 1).Where(i => i < area.Bosses.Count && placedRows.Add(i)).ToList();
+            if (mine.Count == 0)
+            {
+                notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {(rows!.Any(n => n > area.Bosses.Count) ? $"no such unique boss for {area.AreaId}" : "its boss stands elsewhere")}");
+                continue;
+            }
+            Bosses((p.X, p.Y), p.Name, mine);
+        }
+        foreach (var p in points.Where(p => p.Name.StartsWith("%area%-", StringComparison.Ordinal)))
+        {
+            string name = p.Name["%area%-".Length..];
+            if (!area.Named.TryGetValue(name, out var pack)) { notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): no pack {area.AreaId}-{name}"); continue; }
+            // A named pack's own boss (BossMonster_MonsterVarietiesKeys) comes with it; one of the area's unique bosses is
+            // unique, and stands only once.
+            int Row(int variety) => Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => area.Bosses[i] == variety && !placedRows.Contains(i), -1);
+            bool IsBoss(int variety) => area.Bosses.Contains(variety);
+            foreach (int b in AddPack(spawns, taken, walkable, (p.X, p.Y), pack, MonsterRarity.Normal, true, rng, spawnable,
+                b => !IsBoss(b) ? false : Row(b) >= 0 ? true : (bool?)null))
+                placedRows.Add(Row(b));
             centres.Add((p.X, p.Y));
         }
+        var rest = Enumerable.Range(0, area.Bosses.Count).Where(i => !placedRows.Contains(i)).ToList();
+        var any = bossPoints.Where(b => b.Rows!.Count == 0).Select(b => b.Point).ToList();
+        if (any.Count > 0 && rest.Count > 0)
+        {
+            var p = any[rng.Next(any.Count)];
+            Bosses((p.X, p.Y), p.Name, rest);
+        }
+        else if (rest.Count > 0 && bossPoints.Count > 0)
+            notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}");
 
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
@@ -187,30 +301,38 @@ static class AreaPopulation
         return spawns;
     }
 
-    static void AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
-        MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable)
+    /// <summary>A pack around <paramref name="at"/>; returns the members that are unique bosses. With
+    /// <paramref name="uniqueBoss"/>, the pack's boss monster is unique when it says true, as the pack's rarity gives
+    /// when false, and left out when null (that unique boss stands elsewhere already).</summary>
+    static List<int> AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
+        MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null)
     {
         int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
         int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier));
-        var members = new List<int>();
+        var members = new List<(int Variety, bool Unique)>();
         for (int i = 0; i < count; i++)
         {
             int v = pack.PickVariety(rng);
-            if (spawnable(v)) members.Add(v);
+            if (spawnable(v)) members.Add((v, false));
         }
-        // The pack's boss monster (Act1-CoastCrabs: 80% for one large Savage Crab).
+        // The pack's boss monster (Act1-CoastCrabs: 80% for one large Savage Crab; The Mines Level 1's
+        // minerhammerbosspack: always Pikerivet).
         if (withBoss && pack.BossVarieties.Count > 0 && rng.Next(100) < pack.BossChance)
             for (int i = 0; i < pack.BossCount; i++)
-                if (pack.BossVarieties[rng.Next(pack.BossVarieties.Count)] is int b && spawnable(b)) members.Insert(0, b);
+                if (pack.BossVarieties[rng.Next(pack.BossVarieties.Count)] is int b && spawnable(b)
+                    && (uniqueBoss is null ? false : uniqueBoss(b)) is bool unique && !members.Contains((b, true)))
+                    members.Insert(0, (b, unique));
+        var uniques = new List<int>();
         for (int i = 0; i < members.Count; i++)
         {
             // Magic packs are magic throughout; a rare pack has one rare (the first member) among normal ones.
-            var r = rarity == MonsterRarity.Rare ? (i == 0 ? MonsterRarity.Rare : MonsterRarity.Normal) : rarity;
-            AddMember(spawns, taken, walkable, at, members[i], r, pack.Id, rng, i == 0 ? 0 : 2);
+            var r = members[i].Unique ? MonsterRarity.Unique : rarity == MonsterRarity.Rare ? (i == 0 ? MonsterRarity.Rare : MonsterRarity.Normal) : rarity;
+            if (AddMember(spawns, taken, walkable, at, members[i].Variety, r, pack.Id, rng, i == 0 ? 0 : 2) && members[i].Unique) uniques.Add(members[i].Variety);
         }
+        return uniques;
     }
 
-    static void AddMember(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, int variety,
+    static bool AddMember(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, int variety,
         MonsterRarity rarity, string pack, Random rng, int minRadius)
     {
         for (int attempt = 0; attempt < 60; attempt++)
@@ -220,8 +342,33 @@ static class AreaPopulation
             if (!walkable(x, y) || taken.Any(t => Math.Abs(t.Item1 - x) < MemberSpacing && Math.Abs(t.Item2 - y) < MemberSpacing)) continue;
             taken.Add((x, y));
             spawns.Add(new Spawn(variety, x, y, rarity, pack));
-            return;
+            return true;
         }
+        return false;
+    }
+
+    // How far (cells) a unique boss whose point is off the walk map may stand from it.
+    const int BossSearchRadius = 60;
+
+    /// <summary>The free walkable cell nearest to <paramref name="at"/> within <paramref name="radius"/> (square rings
+    /// outwards, the closest of each ring by distance), or null.</summary>
+    static (int X, int Y)? Nearest((int X, int Y) at, Func<int, int, bool> walkable, HashSet<(int, int)> taken, int radius)
+    {
+        bool Free(int x, int y) => walkable(x, y) && !taken.Any(t => Math.Abs(t.Item1 - x) < MemberSpacing && Math.Abs(t.Item2 - y) < MemberSpacing);
+        for (int r = 0; r <= radius; r++)
+        {
+            (int X, int Y)? best = null;
+            long bestD = long.MaxValue;
+            for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r || !Free(at.X + dx, at.Y + dy)) continue;
+                    long d = (long)dx * dx + (long)dy * dy;
+                    if (d < bestD) { bestD = d; best = (at.X + dx, at.Y + dy); }
+                }
+            if (best is not null) return best;
+        }
+        return null;
     }
 
     static MonsterRarity RollRarity(int roll) =>
@@ -277,7 +424,8 @@ static class AreaPopulation
     public static List<RoomObject> LoadObjects(string areaId, uint seed, List<string> notes) => FitRooms(areaId, seed, notes, "data").Objects;
 
     /// <summary>The fit of <see cref="LoadPoints"/> over a data folder (its room-points.json and walkability/), and the
-    /// rooms that took their captured placement instead (only <see cref="MercyMission.BoatRooms"/>). With
+    /// rooms that took their actual placement (captured or generated) instead: boss rooms (and
+    /// <see cref="MercyMission.BoatRooms"/>) for their points, quest rooms for their objects. With
     /// <paramref name="generated"/>, the Gateway's own generation of the seed is used even where a capture exists (the
     /// capture tour's records compare the two fits).</summary>
     internal static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
@@ -291,6 +439,8 @@ static class AreaPopulation
         var level = folder == "data" && (generated || !File.Exists(capture)) ? ServerLevels.For(areaId, seed) : null;
         if (generated && level is null) { notes.Add($"{areaId} seed {seed} is not generated by the Gateway"); return ([], [], []); }
         if (!File.Exists(capture) && level is null) { notes.Add($"no {capture} (live.ps1 -Walkmaps, then enter the area): no room points"); return ([], [], []); }
+        // Which rooms the client placed, and where: the generated layout's, or the recorder's <area>_seed<seed>.rooms.json.
+        bool placementsKnown = level is not null || File.Exists(Path.Combine(walkability, $"{areaId}_seed{seed}.rooms.json"));
         var placed = new HashSet<(string, int, int)>();
         var byModel = new Dictionary<string, List<(int X, int Y)>>(StringComparer.OrdinalIgnoreCase);
         void Add(string model, int x, int y)
@@ -338,6 +488,7 @@ static class AreaPopulation
                         points.Add(placement.Place(point));
                 continue;
             }
+            int fitted = points.Count, fittedObjects = objects.Count;
             // Only the client's own doodads are in the capture: a room's server objects (an NPC, a quest blocker) are not.
             var plain = room.Doodads.Where(d => d.Type is null).ToList();
             var seen = plain.Where(d => byModel.ContainsKey(d.Model)).ToList();
@@ -362,12 +513,22 @@ static class AreaPopulation
                     notes.Add($"room {path.Split('/')[^1]} at ({ox}, {oy}) turn [{a} {b}; {cc} {dd}]: {hits}/{plain.Count} doodads match; " +
                         string.Join(", ", room.Points.Select(p => $"{p.Name} at {At(p.X, p.Y)}")));
                 }
-            // The Tidal Island's medicine_boat rooms have only two snowfall emitters around Hailrake's "mapboss", too few for
-            // the fit: they take their actual placement, when the recorder captured it (<area>_seed<seed>.rooms.json). Only
-            // these rooms: in other areas this would add points the fit never placed (e.g. The Mud Flats' miniboss and
-            // nest packs around a1q4's Rhoa Nests) and change start points; that needs its own review.
-            if (origins.Count == 0 && MercyMission.BoatRooms.Contains(path)
-                && TutorialObjects.RoomPlacements(areaId, seed, path, walkability, level is not null) is { Count: > 0 } placements)
+            // A room with a unique boss point takes its actual placement, when the recorder captured it
+            // (<area>_seed<seed>.rooms.json) or the Gateway generated the area, instead of the doodad fit: the fit misses
+            // sparse rooms (The Tidal Island's medicine_boat rooms have only two snowfall emitters around Hailrake's
+            // "mapboss"; The Upper Prison's boss_cells rooms with Brutus's "mapboss2") and matches repeated ones more than
+            // once (four Necromancers in The Upper Prison), and each extra match would be one more unique boss. Other
+            // rooms keep the fit: their points would add what the fit never placed (e.g. The Mud Flats' nest packs around
+            // a1q4's Rhoa Nests) and change start points; that needs its own review.
+            // When the placements are known (a generated area, or a capture with its rooms.json), a boss or quest room
+            // the layout did not place has none, even if its doodads fit: sibling rooms share them (The Broken Bridge's
+            // broken_bridge and broken_bridge_left, The Wetlands' four bandit_boss rooms), and the unplaced sibling's fit
+            // on the placed one was a second Kraityn, a third Oak.
+            bool bossRoom = MercyMission.BoatRooms.Contains(path) || room.Points.Any(p => BossPoint(p.Name) is not null);
+            if (bossRoom && TutorialObjects.RoomPlacements(areaId, seed, path, walkability, level is not null) is var placements
+                && (placements.Count > 0 || placementsKnown))
+            {
+                points.RemoveRange(fitted, points.Count - fitted);
                 foreach (var placement in placements)
                 {
                     points.AddRange(room.Points.Select(placement.Place));
@@ -375,6 +536,28 @@ static class AreaPopulation
                     notes.Add($"room {path.Split('/')[^1]} at its captured placement ({placement.X}, {placement.Y}) code {placement.Code}: " +
                         string.Join(", ", room.Points.Select(p => $"{p.Name} at ({placement.Place(p).X}, {placement.Place(p).Y})")));
                 }
+            }
+            // A room with a quest server object (Fairgraves on his ship, Piety, a quest chest, MerveilExitBlocker) takes its
+            // actual placement for its objects (its points keep the fit), when the recorder captured it or the Gateway
+            // generated the area: the fit misses sparse rooms and matches a repeated one more than once, which would put a
+            // quest's NPC or blocker where the client has none, or twice.
+            if (room.Doodads.Any(d => d.Type is { } t && RoomFile.IsQuestObject(t))
+                && TutorialObjects.RoomPlacements(areaId, seed, path, walkability, level is not null) is var questPlacements
+                && (questPlacements.Count > 0 || placementsKnown))
+            {
+                objects.RemoveRange(fittedObjects, objects.Count - fittedObjects);
+                foreach (var placement in questPlacements)
+                {
+                    foreach (var d in room.Doodads.Where(d => d.Type is not null))
+                    {
+                        var g = placement.Place(new RoomPoint(d.Type!, (int)MathF.Round(d.X), (int)MathF.Round(d.Y), d.Angle));
+                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, g.Angle, d.Scale));
+                    }
+                    if (!capturedRooms.Contains(path)) capturedRooms.Add(path);
+                    notes.Add($"room {path.Split('/')[^1]} at its captured placement ({placement.X}, {placement.Y}) code {placement.Code}: quest objects " +
+                        string.Join(", ", objects.Skip(fittedObjects).Where(o => RoomFile.IsQuestObject(o.Type)).Select(o => $"{o.Type} at ({o.X}, {o.Y})")));
+                }
+            }
         }
         return (points, objects, capturedRooms);
     }
