@@ -51,8 +51,6 @@ static class AscendancyPolicies
             if (entry.Policy is null || !admitted && !entry.Live(conn) || !entry.Policy.Supports(selection))
                 throw Unavailable(selection);
             if (verifyGraph) entry.Policy.RequirePlayable(selection);
-            Attachments.AddOrUpdate(conn, entry);
-            entry.Connections.GetValue(conn, _ => new object());
             return new Exit(entry.Gate);
         }
         catch { Monitor.Exit(entry.Gate); throw; }
@@ -70,9 +68,17 @@ static class AscendancyPolicies
 
     public static void SelectionChanged(ClientState conn)
     {
-        // Detach only after a successful durable/runtime change. A failed switch must retain the old owner's lease.
+        // Bind only after a successful durable/runtime change, never while validating a prospective choice.
+        // Failed optional choices leave ordinary characters outside optional-module retirement.
         if (conn.MainAscendancy.Selection is null || conn.MainAscendancy.Selection.Family == AscendancyFamily.Normal)
+        {
             Attachments.Remove(conn);
+            return;
+        }
+        using var admission = Enter(conn, conn.MainAscendancy.Selection);
+        var entry = _providers[conn.MainAscendancy.Selection.Family];
+        Attachments.AddOrUpdate(conn, entry);
+        entry.Connections.GetValue(conn, _ => new object());
     }
 
     public static IReadOnlyDictionary<uint, int>? AreaStats(ClientState conn, AscendancyIdentity? selection)

@@ -30,6 +30,7 @@ public sealed class AscendancyModuleAdmissionTests
         Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
         policy.RejectGraph = false;
         AscendancyPolicies.RequirePlayable(admitted, identity);
+        AscendancyPolicies.SelectionChanged(admitted);
         Assert.Equal(1, AscendancyPolicies.AreaStats(admitted, identity)![21146]);
         var node = new AscendancyCatalog.Node(19, "source", "source", [], false, 0, false, false, [(123u, 7)]);
         var definition = new AscendancyCatalog.Definition(identity, "test", 1, 0, 1, 0,
@@ -38,15 +39,23 @@ public sealed class AscendancyModuleAdmissionTests
 
         // Merely validating a normal candidate must not detach a failed/abandoned selection change.
         AscendancyPolicies.RequirePlayable(admitted, normal);
+        var failedChoice = Connection("failed-optional-choice", "PhreciaAscendancies");
+        failedChoice.MainAscendancy = new(normal, [41], ["normal"]);
+        // A verified candidate can still fail later selection rules or the save. No runtime choice was committed.
+        AscendancyPolicies.RequirePlayable(failedChoice, identity);
+        using (AscendancyPolicies.Enter(failedChoice, identity)) { }
         var changedToNormal = Connection("normal-control", "PhreciaAscendancies");
         changedToNormal.MainAscendancy = progress;
         AscendancyPolicies.RequirePlayable(changedToNormal, identity);
+        AscendancyPolicies.SelectionChanged(changedToNormal);
         changedToNormal.MainAscendancy = new(normal);
         AscendancyPolicies.SelectionChanged(changedToNormal);
         owner.Stop(ex => throw ex);
         Assert.True(admitted.Closed);
         Assert.False(excluded.Closed);
         Assert.False(changedToNormal.Closed);
+        Assert.False(failedChoice.Closed);
+        Assert.Equal(normal, failedChoice.MainAscendancy.Selection);
         Assert.False(AscendancyPolicies.Available(admitted, identity));
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.AreaStats(admitted, identity));
         Assert.Equal(progress, admitted.MainAscendancy);
@@ -57,6 +66,7 @@ public sealed class AscendancyModuleAdmissionTests
         var reentered = Connection("reentered", "PhreciaAscendancies");
         reentered.MainAscendancy = progress;
         AscendancyPolicies.RequirePlayable(reentered, identity);
+        AscendancyPolicies.SelectionChanged(reentered);
         registration.Dispose(); // An old handle cannot unregister or close the replacement generation.
         Assert.True(AscendancyPolicies.Available(reentered, identity));
         Assert.False(reentered.Closed);
