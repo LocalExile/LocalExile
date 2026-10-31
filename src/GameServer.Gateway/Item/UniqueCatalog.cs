@@ -12,7 +12,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false);
 
-    /// <summary>The two entries whose curated 3.29 data differs from the PoB export used for the full catalogue.</summary>
+    /// <summary>The entries whose curated 3.29 data differs from the PoB export used for the full catalogue.</summary>
     static readonly Definition[] Curated =
     [
         // Mageblood (Heavy Belt): the +25-35 Strength is the Heavy Belt implicit; the rest are the unique's mods.
@@ -25,6 +25,9 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             ["IncreasedAccuracyUniqueHelmetInt7", "LocalIncreasedEnergyShieldUniqueHelmetInt7",
              "FireResistUniqueHelmetInt7", "LifeLeechPermyriadUniqueHelmetInt7",
              "ManaLeechPermyriadUniqueHelmetInt7", "SpellDamageModifiersApplyToAttackDamageUniqueHelmetInt7"]),
+        // That Which Was Taken: a Crimson Jewel that rolls four random charm modifiers. Its modifiers are chosen in
+        // Create rather than listed here; the definition carries the base type, name and item level.
+        new("That Which Was Taken", "Metadata/Items/Jewels/JewelStr", [], 83),
     ];
 
     /// <summary>The generated full PoB catalogue (see scripts/re/unique_items.py), with the curated entries first so
@@ -57,6 +60,30 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
         var mods = item.Mods.ToList();
+        if (definition.Name.Equals("That Which Was Taken", StringComparison.Ordinal))
+        {
+            // Four random charm modifiers, ignoring attribute alignment (poewiki, "That Which Was Taken"). Charm mods
+            // are Mods.dat Domain 35; one modifier per family, as on a charm. The item stays modifiable/divinable.
+            var candidates = items.Mods.All
+                .Where(m => m.Domain == 35 && m.Level <= definition.ItemLevel && m.Stats.Count > 0)
+                .ToList();
+            var families = new HashSet<int>();
+            for (int i = 0; i < 4 && candidates.Count > 0; i++)
+            {
+                int pick = random.Next(candidates.Count);
+                var mod = candidates[pick];
+                candidates.RemoveAt(pick);
+                int family = mod.Families.Count > 0 ? mod.Families[0] : mod.Row;
+                if (!families.Add(family)) { i--; continue; }
+                var values = mod.Stats.Select((_, stat) =>
+                {
+                    var (min, max) = mod.RangeAt(stat);
+                    return min == max ? min : random.Next(min, max + 1);
+                }).ToArray();
+                mods.Add(new ItemMod(ModSection.Explicit, mod.Hash, values));
+            }
+            return item with { Mods = mods };
+        }
         foreach (string id in definition.Mods)
         {
             if (items.Mods.ById(id) is not { } mod) continue;

@@ -584,6 +584,14 @@ static class AreaPopulation
     static readonly (int, int, int, int)[] Turns =
         [(1, 0, 0, 1), (0, -1, 1, 0), (-1, 0, 0, -1), (0, 1, -1, 0), (-1, 0, 0, 1), (0, 1, 1, 0), (1, 0, 0, -1), (0, -1, -1, 0)];
 
+    /// <summary>A room-local cell (a .arm point or doodad) in world cells, through the room placement's orientation code
+    /// (the same <see cref="Turns"/> matrix the doodad fit uses).</summary>
+    public static (int X, int Y) LocalToWorld(int roomX, int roomY, int code, float localX, float localY)
+    {
+        var (a, b, c, d) = Turns[code & 7];
+        return (roomX + (int)Math.Round(a * localX + b * localY), roomY + (int)Math.Round(c * localX + d * localY));
+    }
+
     sealed record RoomData(IReadOnlyList<RoomPoint> Points, IReadOnlyList<(string Model, float X, float Y, string? Type, float Angle, float Scale)> Doodads);
     sealed record RoomIndex(Dictionary<string, List<string>> Areas, Dictionary<string, RoomData> Rooms);
 
