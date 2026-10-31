@@ -215,17 +215,26 @@ static class ChargeEffects
     {
         foreach (var type in Charges.Types)
         {
-            string name = Charges.Name(type), special = Charges.SpecialName(type);
+            var names = DisplayNames[(int)type];
             bool isConverted = converted?.Invoke(type) == true;
             int count = isConverted ? 0 : held(type), minimum = limits(type).Minimum;
-            yield return ($"current_{name}_charges", count);
-            yield return ($"actual_current_{name}_charges", count);
-            yield return ($"minimum_{name}_charges", minimum);
-            yield return ($"current_removable_{name}_charges", Math.Max(0, count - minimum));
-            yield return ($"current_{special}_charges", isConverted ? held(type) : 0);
-            yield return ($"minimum_{special}_charges", isConverted && minimumConverted?.Invoke(type) == true ? minimum : 0);
+            yield return (names.Current, count);
+            yield return (names.ActualCurrent, count);
+            yield return (names.Minimum, minimum);
+            yield return (names.CurrentRemovable, Math.Max(0, count - minimum));
+            yield return (names.CurrentSpecial, isConverted ? held(type) : 0);
+            yield return (names.MinimumSpecial, isConverted && minimumConverted?.Invoke(type) == true ? minimum : 0);
         }
     }
+
+    // Display's stat names per type (Charges.Types order), built once: every stat snapshot lists them.
+    static readonly (string Current, string ActualCurrent, string Minimum, string CurrentRemovable, string CurrentSpecial,
+        string MinimumSpecial)[] DisplayNames = [.. Charges.Types.Select(type =>
+        {
+            string name = Charges.Name(type), special = Charges.SpecialName(type);
+            return ($"current_{name}_charges", $"actual_current_{name}_charges", $"minimum_{name}_charges",
+                $"current_removable_{name}_charges", $"current_{special}_charges", $"minimum_{special}_charges");
+        })];
 
     /// <summary>
     /// The more multiplier of the charges on a hit or on damage over time: Character.ot's 4% more damage per Frenzy
