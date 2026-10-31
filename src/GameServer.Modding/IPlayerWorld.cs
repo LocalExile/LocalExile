@@ -71,12 +71,6 @@ public interface IPlayerWorld
     /// <summary>Closes the NPC dialogue.</summary>
     Task NpcClose(string log);
 
-    /// <summary>Opens the buy window of the NPC talked to.</summary>
-    Task NpcOpenShop();
-
-    /// <summary>Opens the sell window of the NPC talked to.</summary>
-    Task NpcOpenSale();
-
     /// <summary>Identifies every unidentified item in the main inventory, free.</summary>
     Task NpcIdentifyItems();
 

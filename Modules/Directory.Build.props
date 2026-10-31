@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
     <!-- Compiled against, not copied: every module uses the Gateway's own GameServer.Modding. -->
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\GameServer.Modding\GameServer.Modding.csproj" Private="false" />
     <!-- The server itself: a module can alter the game fully. -->

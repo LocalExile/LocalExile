@@ -9,7 +9,7 @@ partial class Program
     // item or the item is not there.
     internal static async Task PickUpItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.PickUpItem pick)
     {
-        if (conn.Sale is { } sale && pick.InventoryId == sale.Mine) { await TakeFromSale(remote, stream, ciphers, conn, sale, pick.ItemId); return; }
+        if (await GameEvents.AnyInventoryPick(conn, pick)) return;
         if (StashOf(conn).TabOf(pick.InventoryId) is int tab) { await PickUpFromStash(remote, stream, ciphers, conn, tab, pick); return; }
         var items = ItemsOf(conn);
         if (PlayerInventories.Row(pick.InventoryId) is not byte row)
@@ -966,11 +966,7 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: unknown type 0x{item.Item.TypeHash:x8}: {hex}");
             return;
         }
-        if (type.Id == PortalScroll)
-        {
-            await UsePortalScroll(remote, stream, ciphers, conn, r, item, type);
-            return;
-        }
+        if (await GameEvents.AnyItemUse(conn, r, item, type)) return;
         if (type.Name == SkillBook)
         {
             await UseSkillBook(remote, stream, ciphers, conn, items, r, item, type);
@@ -1284,13 +1280,7 @@ partial class Program
     // item it displaced removed, the held item added), the cursor another (the held item removed, the displaced one added).
     internal static async Task PlaceItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.PlaceItem place)
     {
-        if (conn.Sale is { } sale && place.InventoryId == sale.Mine)
-        {
-            uint cursor = PlayerInventories.InventoryId(PlayerInventories.Cursor);
-            var held = ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault();
-            if (held is not null) await OfferForSale(remote, stream, ciphers, conn, sale, cursor, held.Id, (byte)place.X, (byte)place.Y);
-            return;
-        }
+        if (await GameEvents.AnyInventoryPlace(conn, place)) return;
         if (StashOf(conn).TabOf(place.InventoryId) is int tab) { await PlaceInStash(remote, stream, ciphers, conn, tab, place); return; }
         var items = ItemsOf(conn);
         if (place.A != 0) Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: one of the held stack (Shift)");

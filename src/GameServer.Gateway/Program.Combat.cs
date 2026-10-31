@@ -234,7 +234,7 @@ partial class Program
             var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee,
                 ConversionFor(conn, attackEffect, 1, attack: true));
             var gambler = GamblerFor(player);
-            var ownRolled = WithDamageVsRarity(player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
+            var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
             critical = RollCriticalStrike(conn, conn.Pools.AttackCriticalStrikeChance, ownPenetration, skillRoll: criticalRoll)
                 && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
             int sourceCriticalMultiplier = AttackCriticalMultiplier(conn, player);
@@ -526,17 +526,8 @@ partial class Program
         if (locationInstant) return true;
         // The Portal skill: a town portal, as the Portal Scroll's, once its cast (2.5 s) is over.
         if (actionToken is not null && !PlayerActionCurrent(conn, action)) return false;
-        if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "Portal")
-        {
-            if (!PortalAllowed(conn)) { Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} Portal: not here"); return false; }
-            if (CastMs(conn, gem.Effect) is not int castMs) return false;
-            _ = Task.Delay(castMs).ContinueWith(async _ =>
-            {
-                if (!conn.Closed && PlayerActionCurrent(conn, action) && Current())
-                    await OpenTownPortal(remote, stream, ciphers, conn, from.X, from.Y, "Portal skill");
-            });
-            return true;
-        }
+        if (gem.Name is not null && GameEvents.RunSkillCast(conn, SkillsFor(conn).EffectId(gem.Effect), skillId, from,
+                () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
         if (gem.Name is not null && UseChargeSkillInstance(conn, skillId, gem.Effect, gem.Level, gem.Quality, from)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
@@ -891,7 +882,7 @@ partial class Program
                 if (!spell && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
                 if (MonsterBlocks(m, Random.Shared, spell)) continue;
                 var gambler = GamblerFor(player);
-                var rolled = WithDamageVsRarity(player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(sweepHit, Random.Shared));
+                var rolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(sweepHit, Random.Shared));
                 critical = RollCriticalStrike(conn, SupportedCriticalChance(conn, skillId), skillStats, attack: !spell, skillRoll: criticalRoll)
                     && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
                 int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
@@ -1179,15 +1170,8 @@ partial class Program
         var monster = ModMonster(m, at);
         await ServerHooks.MonsterKilled(new(killer, monster));
         ChargesOnKill(conn, m);
-        StealMonsterMods(conn, m);
-        if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
-            && CharacterSaves.Load(CharacterName(conn))?.Tutorial is { ZombieKilled: false })
-        {
-            CharacterSaves.ChangeTutorial(CharacterName(conn), t => t with { ZombieKilled = true });
-            await DropTutorialGem(remote, stream, ciphers, conn, false, at.X, at.Y);
-        }
         await SetQuestFlags(remote, stream, ciphers, conn, Quests.OnMonsterKilled(conn.Layout.Id, variety.Id));
-        await DropQuestItems(remote, stream, ciphers, conn, variety.Id, at);   // a1q5: Hailrake's Medicine Chest
+        await GameEvents.RunKill(new(conn, m, variety.Id, at));
         if (alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
             uint xp = ServerHooks.Experience(killer, monster,

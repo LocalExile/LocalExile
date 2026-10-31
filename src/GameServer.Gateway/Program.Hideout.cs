@@ -63,7 +63,5 @@ partial class Program
             lock (conn.HideoutDoodads) conn.HideoutDoodads[id] = d;
             await RegisterStationaryCollision(remote, stream, ciphers, conn, id, d.Type!, d.X, d.Y, d.Rotation, "map-device", d.Model);
         }
-        // The portals of the character's open map stand at the device again.
-        if (MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open) await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
     }
 }

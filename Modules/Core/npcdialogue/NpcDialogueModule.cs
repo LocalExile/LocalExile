@@ -3,7 +3,7 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.NpcDialogue;
 
-/// <summary>What every NPC's dialogue options do: their text, shops, quest rewards, hideout selection, respec and identifying.</summary>
+/// <summary>What every NPC's dialogue options do: their text, quest rewards, hideout selection, respec and identifying.</summary>
 public sealed class NpcDialogueModule : IModule
 {
     /// <inheritdoc/>
@@ -22,12 +22,6 @@ public sealed class NpcDialogueModule : IModule
             case "Gossip" or "Quests" or "QuestReward" when talk.HasText:
                 // 0x84 with the row's index: the client opens the dialogue window on that NPCTalk row (its text and audio).
                 await world.NpcSay(talk);
-                return true;
-            case "BuyItems":
-                await world.NpcOpenShop();
-                return true;
-            case "SellItems":
-                await world.NpcOpenSale();
                 return true;
             // Bestel's Respecialisation (script: SendOpenScreen( CharacterPassiveTreeScreen, 1 )): the character's passive tree,
             // S→C 0x7b kind 0x5f with 1. Its refunds come back as C→S 0x36 (per node) and 0x37 (Refund All), paid in gold.

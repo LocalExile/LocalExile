@@ -238,7 +238,7 @@ partial class Program
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack,
                 CharacterPlayerStats(Conn)).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(CharacterPlayerStats(Conn));
-            var rolled = WithDamageVsRarity(CharacterPlayerStats(Conn), target, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random));
+            var rolled = GameEvents.WithOutgoingDamage(Conn, CharacterPlayerStats(Conn), target, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random));
             int chance = contact.Projectile.Form > 0 ? shot.SecondFormCriticalChance ?? shot.CriticalChance : shot.CriticalChance;
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll)

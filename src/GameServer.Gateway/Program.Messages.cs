@@ -338,8 +338,6 @@ partial class Program
                 await UseFlask(remote, stream, ciphers, conn, InstanceItems.ReadUseFlask(bytes));
             else if (id == InstanceItems.UseItemOnId)
                 await UseItemOn(remote, stream, ciphers, conn, InstanceItems.ReadUseItemOn(bytes), Convert.ToHexString(bytes));
-            else if (id == InstanceItems.UseItemOnPassiveId)
-                await UseTattooOnPassive(remote, stream, ciphers, conn, InstanceItems.ReadUseItemOnPassive(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseItemTypeOnId)
             {
                 // Shift held: the currency stays on the cursor and is named by type; use a stack of it from the inventories,
@@ -381,34 +379,6 @@ partial class Program
                 _ = Resurrect(remote, stream, ciphers, conn, InstanceProtocol.ReadResurrectInTown(bytes));
             else if (id == InstanceNpcs.DialogueClosedId)
                 await CloseNpcDialogue(remote, stream, ciphers, conn);
-            else if (id == InstanceNpcs.TradeOfferId)
-            {
-                var offer = InstanceNpcs.ReadTradeOffer(bytes);
-                // Ctrl + click on an inventory item sends x = y = 0xff (0x14030e3e0 → 0x142166660): any free offer cell.
-                if (conn.Sale is { } sale && offer.X == 0xff && offer.Y == 0xff) await OfferFromInventory(remote, stream, ciphers, conn, sale, offer.InventoryId, offer.ItemId);
-                else if (conn.Sale is { } open) await OfferForSale(remote, stream, ciphers, conn, open, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
-                else Console.WriteLine($"[gateway] {remote} <= 0x00b2 trade offer {offer}: no sale open");
-            }
-            else if (id is InstanceNpcs.TradeTakeBackId or InstanceNpcs.TradeMoveAllId)
-            {
-                var (item, inventory) = InstanceNpcs.ReadTradeMove(bytes);
-                Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} trade move item {item} (inventory {inventory})");
-                if (conn.Sale is not { } sale) Console.WriteLine($"[gateway] {remote} trade move: no sale open");
-                else if (ItemsOf(conn).Offered().Any(i => i.Id == item)) await TakeFromSale(remote, stream, ciphers, conn, sale, item);
-                else await OfferFromInventory(remote, stream, ciphers, conn, sale, inventory, item);
-            }
-            else if (id == InstanceNpcs.TradeAcceptId)
-            {
-                uint revision = InstanceNpcs.ReadTradeAccept(bytes);
-                Console.WriteLine($"[gateway] {remote} <= 0x00b6 trade accept (their offer revision {revision}, ours {conn.Sale?.TheirsRevision})");
-                await CloseSale(remote, stream, ciphers, conn, accepted: conn.Sale is { } s && s.TheirsRevision == revision);
-            }
-            else if (id == InstanceNpcs.TradeUnacceptId)
-                Console.WriteLine($"[gateway] {remote} <= 0x00b7 trade un-accept: {Convert.ToHexString(bytes)}");
-            else if (id == InstanceNpcs.TradeAnswerId)
-                await AnswerSale(remote, stream, ciphers, conn, InstanceNpcs.ReadTradeAnswer(bytes));
-            else if (id == InstanceNpcs.BuyId)
-                await BuyFromShop(remote, stream, ciphers, conn, InstanceNpcs.ReadBuy(bytes));
             else if (id == InstanceStash.RequestTabId)
             {
                 var (tab, kind) = InstanceStash.ReadRequestTab(bytes);
@@ -487,8 +457,6 @@ partial class Program
                 await MoveToAffinityTab(remote, stream, ciphers, conn, InstanceStash.ReadMoveToAffinityTab(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceStash.SetAffinitiesId)
                 await SetTabAffinities(remote, stream, ciphers, conn, InstanceStash.ReadSetAffinities(bytes));
-            else if (id == InstanceNpcs.CtrlBuyId)
-                await CtrlBuyFromShop(remote, stream, ciphers, conn, InstanceNpcs.ReadCtrlBuy(bytes));
             else if (id == InstanceStash.TakeFromTabId)
             {
                 var move = InstanceStash.ReadTakeFromTab(bytes);
@@ -496,10 +464,6 @@ partial class Program
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
                 await TakeFromStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, all: move.Bulk != 0);
             }
-            else if (id == InstanceMapDevice.ActivateId)
-                await ActivateMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadActivate(bytes));
-            else if (id == InstanceMapDevice.SelectMapId)
-                await SelectAtlasMap(remote, stream, ciphers, conn, InstanceMapDevice.ReadSelectMap(bytes));
             else if (id == InstanceStash.MoveTabId)
                 Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash tab into a folder (not handled): {Convert.ToHexString(bytes)}");
             else if (id == InstanceNpcs.OptionId)
@@ -595,23 +559,15 @@ partial class Program
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);
                     await SpawnTownStash(remote, stream, ciphers, conn);
-                    await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
-                    await SpawnOpeningTutorial(remote, stream, ciphers, conn);
-                    await SpawnGlyphQuest(remote, stream, ciphers, conn);
                     await SpawnHideoutDoodads(remote, stream, ciphers, conn);
                     // All stationary objects must exist before validating the arrival cell.
                     await PushOutOfCollision(remote, stream, ciphers, conn);
-                    await SpawnMapReturnPortal(remote, stream, ciphers, conn);
-                    await SpawnTownPortals(remote, stream, ciphers, conn);
                     await conn.Commands!.Reply($"Area generated at Seed: {conn.Seed}");
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await ServerHooks.AreaGenerated(PlayerOf(conn));
                     _ = RunMonsterRegeneration(remote, stream, ciphers, conn);
-                    _ = RunUniqueBeltEffects(remote, stream, ciphers, conn);
-                    await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);   // a1q5: the Medicine Chest's flag
-                    _ = RunMercyMission(remote, stream, ciphers, conn);
                     _ = RunServerFrames(remote, stream, ciphers, conn);
                     _ = RunMonsterAi(remote, stream, ciphers, conn);
                     _ = ContinueTour(remote, stream, ciphers, conn);
@@ -627,7 +583,7 @@ partial class Program
         }
         // a1q5: after a read that moved items, the Medicine Chest's flag (and its removal once Nessa has one), here on the
         // message path so the inventory revisions stay in order.
-        if (conn.PlayerSent && messages.Any(m => MercyMission.MovesItems(m.Id))) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
+        await GameEvents.RunMessagesHandled(conn, [.. messages.Select(m => m.Id)]);
         if (unknown.Length > 0)
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];

@@ -92,24 +92,11 @@ partial class Program
         var modMonster = ModMonster(monster, position);
         session.Enqueue(() => ServerHooks.MonsterKilled(new(killer, modMonster)));
         ChargesOnKill(conn, monster);
-        StealMonsterMods(conn, monster);
-        if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
-            && CharacterSaves.Load(CharacterName(conn))?.Tutorial is { ZombieKilled: false })
-        {
-            CharacterSaves.ChangeTutorial(CharacterName(conn), t => t with { ZombieKilled = true });
-            if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is { SkillClaimed: false } tutorial)
-            {
-                var item = CharacterSaves.FromSaved(tutorial.SkillGem, Items);
-                var ground = new WorldItemObject(position.X, position.Y, item);
-                if (conn.Instance.PlaceTutorialItem(TutorialObjects.DropKey(CharacterName(conn), tutorial, false), ground) is uint groundId)
-                    PublishProjectileGroundItem(session, groundId, ground);
-            }
-        }
         if (CommitQuestFlags(conn, Quests.OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
-        if (MercyMission.DropsChest(conn.Layout.Id, variety.Id) && MedicineChestType() is { } chest
-            && MercyMission.HailrakeDrops(chest.Hash, MercyDone(conn), ItemsOf(conn), conn.Instance.Ground))
-            AddProjectileGroundItem(session, new(position.X, position.Y, ItemCatalog.Create(chest)));
+        var kill = new KillContext(conn, monster, variety.Id, position);
+        foreach (var run in GameEvents.Kill.For(conn)) run(kill);
+        foreach (var send in kill.Afterwards) session.Enqueue(send);
         uint xp = 0;
         if (conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)

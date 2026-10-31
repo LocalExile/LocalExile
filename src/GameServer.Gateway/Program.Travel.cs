@@ -69,27 +69,12 @@ partial class Program
         }
         if (conn.Instance.Ground.Get(use.TargetId) is { } ground)
         {
-            if (await PickUpQuestItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt)) return;   // a1q5's Medicine Chest
+            if (await GameEvents.AnyGroundItemUse(conn, use.TargetId, ground, use, requestedAt)) return;
             await PickUpGroundItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt);
             return;
         }
-        if (conn.TutorialChestId == use.TargetId && conn.TutorialChest is { } tutorialChest)
-        {
-            await OpenTutorialChest(remote, stream, ciphers, conn, use, tutorialChest, requestedAt);
-            return;
-        }
-        GlyphQuest.Nest? nest;
-        lock (conn.GlyphNests) nest = conn.GlyphNests.GetValueOrDefault(use.TargetId);
-        if (nest is not null)
-        {
-            await OpenRhoaNest(remote, stream, ciphers, conn, use, nest);
-            return;
-        }
-        if (conn.GlyphWallId != 0 && use.TargetId == conn.GlyphWallId)
-        {
-            await UseGlyphWall(remote, stream, ciphers, conn, use);
-            return;
-        }
+        // Objects of the Core modules.
+        if (await GameEvents.AnyObjectUse(conn, use, requestedAt)) return;
         if (use.TargetId == WaypointCatalog.ObjectId && conn.Layout.Waypoint is { } waypoint)
         {
             await UseWaypoint(remote, stream, ciphers, conn, use, waypoint, requestedAt);
@@ -100,35 +85,6 @@ partial class Program
         if (npc is not null)
         {
             await TalkToNpc(remote, stream, ciphers, conn, use, npc, requestedAt);
-            return;
-        }
-        if (conn.BackPortal is { } home && use.TargetId == home.Id && OpenPortals.TryGetValue(CharacterName(conn), out var origin))
-        {
-            if (!TryBeginObjectWalk(conn, requestedAt, home.X, home.Y, AreaTransitionObjectSize, out var homeWalk)) return;
-            var (homeAction, homeNow, _, _, homeArrive) = homeWalk;
-            if (homeArrive > homeNow) await Task.Delay(TimeSpan.FromSeconds(homeArrive - homeNow));
-            if (!PlayerActionCurrent(conn, homeAction)) return;
-            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)),
-                "back through the town portal");
-            return;
-        }
-        if (conn.ReturnPortal is { } back && use.TargetId == back.Id)
-        {
-            await UseMapReturnPortal(remote, stream, ciphers, conn, use, (back.X, back.Y), requestedAt);
-            return;
-        }
-        (int X, int Y, int Index)? portal;
-        lock (conn.MapPortals) portal = conn.MapPortals.TryGetValue(use.TargetId, out var at) ? at : null;
-        if (portal is { } p)
-        {
-            await UseMapPortal(remote, stream, ciphers, conn, use, p, requestedAt);
-            return;
-        }
-        HideoutCatalog.Doodad? doodad;
-        lock (conn.HideoutDoodads) doodad = conn.HideoutDoodads.GetValueOrDefault(use.TargetId);
-        if (doodad is not null)
-        {
-            await UseMapDevice(remote, stream, ciphers, conn, use, doodad, requestedAt);
             return;
         }
         // Objects of a module or mod.

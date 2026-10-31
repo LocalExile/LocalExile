@@ -102,8 +102,6 @@ partial class Program
             return Send(InstanceNpcs.Talk(0), log);
         }
 
-        public Task NpcOpenShop() => TalkingTo() is { } npc ? OpenNpcShop(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, conn.TalkingTo, npc) : Task.CompletedTask;
-        public Task NpcOpenSale() => TalkingTo() is { } npc ? OpenNpcSale(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, npc) : Task.CompletedTask;
         public Task NpcIdentifyItems() => TalkingTo() is { } npc ? IdentifyInventory(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, npc) : Task.CompletedTask;
         public Task<bool> NpcOfferReward(int offer) => OfferNpcReward(conn, offer);
 

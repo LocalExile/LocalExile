@@ -2,13 +2,10 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using GameServer.Core.World;
+using static Program;
 
-// a1q5 "Mercy Mission" (MercyMission, 12-quests.md §7): Hailrake's Medicine Chest, its quest flag, and Nessa taking it.
-// The quest flags are read through conn.QuestFlagsSnapshot / HasQuestFlag (under the lock SetQuestFlags writes under);
-// the a1q5 flags are the character's own (no waypoint's access flags carry them). Flag changes and the sync hold
-// conn.QuestGate. Inventory removals happen only on the message path (area entry, after a read that moved items); the
-// once-a-second tick syncs the flag alone.
-partial class Program
+static class MercyFeature
 {
     internal static bool MercyDone(ClientState conn) => MercyMission.Done(conn.HasQuestFlag);
 

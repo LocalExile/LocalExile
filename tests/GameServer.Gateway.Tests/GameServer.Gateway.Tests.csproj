@@ -27,6 +27,12 @@
     <!-- The league modules: TestEnvironment registers them, as the host does in the server. -->
     <ProjectReference Include="..\..\Modules\ruthless\Ruthless.csproj" />
     <ProjectReference Include="..\..\Modules\Core\harvest\Harvest.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\vendors\Vendors.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\portals\Portals.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\questobjects\QuestObjects.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\uniquebelts\UniqueBelts.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\mercy\Mercy.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\tattoos\Tattoos.csproj" />
     <ProjectReference Include="..\..\Modules\Core\delve\Delve.csproj" />
   </ItemGroup>
 </Project>

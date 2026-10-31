@@ -118,7 +118,7 @@ partial class Program
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
-        return (WithStolenMods(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources)))), attributes);
+        return (GameEvents.WithPlayerStatSources(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, sources)))), attributes);
     }
 
     // Shared equipment/passive resolver. The requirement snapshot uses this without publishing caches or pools.
