@@ -27,6 +27,7 @@
     <InternalsVisibleTo Include="mercy" />
     <InternalsVisibleTo Include="npcdialogue" />
     <InternalsVisibleTo Include="portals" />
+    <InternalsVisibleTo Include="phreciaascendancies" />
     <InternalsVisibleTo Include="questobjects" />
     <InternalsVisibleTo Include="ruthless" />
     <InternalsVisibleTo Include="social" />

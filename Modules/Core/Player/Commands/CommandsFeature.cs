@@ -826,17 +826,17 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Level {conn.Pools.Level}, {conn.Experience} experience: {points} passive skill point(s), {unspent} unspent, {refundPoints} refund point(s).\n" +
                 string.Join("\n", nodes.Select(n => $"{n} {PassivesFor(conn).Find(n)?.Name}").DefaultIfEmpty("No passives allocated.")));
         })
-        .Add("ascendancy", "/ascendancy [normal|phrecia] [name] (list or choose; Phrecia play is gated pending client compatibility)", async args =>
+        .Add("ascendancy", "/ascendancy [normal|phrecia] [name] (list or choose an available ascendancy)", async args =>
         {
             byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
-            var choices = Ascendancies.Choices(baseClass).ToArray();
+            var choices = Ascendancies.Choices(baseClass).Where(c => AscendancyPolicies.Available(conn, c.Identity)).ToArray();
             if (choices.Length == 0) throw new ArgumentException("ascendancy data is missing; run scripts/dev/extract-data.ps1");
             if (args.Length == 0)
             {
                 var current = Game.AscendancyRules.Validate(baseClass, conn.MainAscendancy);
                 int spent = Game.AscendancyRules.SpentPoints(baseClass, conn.MainAscendancy);
                 await conn.Commands!.Reply($"Main ascendancy - {current?.Name ?? "none"}. Ascendancy points {spent}/{conn.MainAscendancy.EarnedPoints}.\n" +
-                    string.Join("\n", choices.Select(c => $"/ascendancy {c.Identity.Family.ToString().ToLowerInvariant()} {c.Name}{(c.Identity.Family == AscendancyFamily.Phrecia ? " (play gated)" : "")}")));
+                    string.Join("\n", choices.Select(c => $"/ascendancy {c.Identity.Family.ToString().ToLowerInvariant()} {c.Name}")));
                 return;
             }
             bool hasFamily = Enum.TryParse<AscendancyFamily>(args[0], true, out var family) && Enum.IsDefined(family);
@@ -845,25 +845,28 @@ static class CommandsFeature
                 (c.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || c.Identity.Id.Equals(name, StringComparison.OrdinalIgnoreCase))).ToArray();
             if (matching.Length != 1) throw new ArgumentException("choose one name from /ascendancy, including its normal/phrecia family when needed");
             var chosen = matching[0];
-            AscendancyClientCompatibility.RequirePlayable(chosen.Identity);
+            AscendancyClientCompatibility.RequirePlayable(conn, chosen.Identity);
             if (conn.MainAscendancy.Selection == chosen.Identity)
             {
                 await conn.Commands!.Reply($"{chosen.Name} is already your main ascendancy.");
                 return;
             }
-            var next = Saves.Atomically(() =>
-            {
-                var saved = CharacterSaves.Load(CharacterName(conn));
-                return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                {
-                    var candidate = Game.AscendancyRules.Select(baseClass, latest, chosen.Identity);
-                    ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
-                    return candidate;
-                });
-            });
+            AscendancyProgress next;
             lock (conn.Monsters)
             {
+                using var availability = AscendancyPolicies.Enter(conn, chosen.Identity);
+                next = Saves.Atomically(() =>
+                {
+                    var saved = CharacterSaves.Load(CharacterName(conn));
+                    return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+                    {
+                        var candidate = Game.AscendancyRules.Select(baseClass, latest, chosen.Identity);
+                        ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
+                        return candidate;
+                    });
+                });
                 conn.MainAscendancy = next;
+                AscendancyPolicies.SelectionChanged(conn);
                 conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
             }
             await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
@@ -874,15 +877,18 @@ static class CommandsFeature
             if (args.Length != 1) throw new ArgumentException("a Labyrinth tier or all");
             string tier = args[0].ToLowerInvariant();
             byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
-            var next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-            {
-                foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
-                    latest = Game.AscendancyRules.Award(baseClass, latest, award);
-                return latest;
-            });
+            AscendancyProgress next;
             lock (conn.Monsters)
             {
+                using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
+                next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+                {
+                    foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
+                        latest = Game.AscendancyRules.Award(baseClass, latest, award);
+                    return latest;
+                });
                 conn.MainAscendancy = next;
+                AscendancyPolicies.SelectionChanged(conn);
                 conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
             }
             await SendPassives(remote, stream, ciphers, conn);

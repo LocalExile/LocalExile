@@ -7,5 +7,5 @@ public sealed class PhreciaAscendanciesModule : IModule
 {
     /// <inheritdoc/>
     public void Load(IModuleContext module) =>
-        module.Lifetime.Own(AscendancyPolicies.Register(module.Lifetime, new PhreciaFamilyPolicy()));
+        AscendancyPolicies.Register(module.Lifetime, new PhreciaFamilyPolicy());
 }
