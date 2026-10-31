@@ -263,9 +263,9 @@ def main():
     where.add_argument("--cwd", type=Path, help="an already prepared client folder (its config.json names the "
                                                "settings file)")
     parser.add_argument("--preset", type=Path, default=PRESET, help="seed for a new session settings file")
-    parser.add_argument("--renderer", choices=["null", "configured"], default="configured",
-                        help="configured: the settings' device_type (the preset: DirectX 11); null: the engine's Null "
-                             "device, no GPU (experimental)")
+    parser.add_argument("--renderer", choices=["null", "configured"], default="null",
+                        help="null: the engine's Null device, no GPU (default); configured: the settings' device_type "
+                             "(the preset: DirectX 11), the fallback if an area breaks under the Null device")
     parser.add_argument("--frame-sleep-ms", type=int, default=0,
                         help="sleep per main-loop frame (0: none; the preset's framerate_limit caps a real renderer)")
     parser.add_argument("--frame-stats", action="store_true", help="count main-loop frames for nullifier:stats")

@@ -3,7 +3,7 @@ log in, play a character, stand in town, measure it with nullifier-measure.ps1, 
 chat, /tp, waypoint travel, /goto back) and measure again. The client and the launcher are closed at the end.
 
     .venv/Scripts/python.exe scripts/dev/nullifier-bench.py --label preset --patch-port 22095 --login-port 22093 \
-        --travel -- --renderer configured
+        --travel -- --renderer null
 
 Everything after `--` goes to nullifier.py (the client runs in data/clients/<--session>/, default "bench"). The
 servers must run on the given ports with their logs in this checkout's logs/ (client_control reads slash-command
