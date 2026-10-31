@@ -958,6 +958,9 @@ static partial class Game
     {
         var allocated = candidate.ToHashSet();
         var result = new Dictionary<ushort, HashSet<ushort>>();
+        // No socket is allocated, so no jewel counts. A character with no save gets here from the read-only admission
+        // preflight, and its first item load would build and save its start kit.
+        if (allocated.Count == 0) return result;
         var mods = ItemsFor(conn).Mods;
         foreach (var item in ItemsOf(conn).Items(PlayerInventories.PassiveJewels))
         {
