@@ -59,8 +59,9 @@ A league with no `modules.json`, or a module listed twice, does not load. Every 
 
 ## What stays in the Gateway
 
-The framework, and what the game's rules read and write: connections and packets, framing and the message loop (`Program.Connection.cs`), the hosts (`Modding/`), game data and its catalogs, saves and inventories, and the
+The framework, and what the game's rules read and write: connections and packets, framing and the message loop (`Connection/Program.Connection.cs`), the hosts (`Modding/`), game data and its catalogs, saves and inventories, and the
 connection's state (`ClientState`), with the types its fields have. State stays so that a reload of the rules leaves a player in game.
+Its files are in folders by subject: `Connection/`, `Modding/`, `Data/`, `Saves/`, `Combat/`, `Flask/`, `Item/`, `Monster/`, `NPC/`, `Passive/`, `Player/`, `Quest/`, `Skill/`, `World/`.
 
 The framework reaches the rules through `IGameLogic` (`Modding/GameLogic.cs`), which the `Game` module gives when it loads, and `GameEvents`, whose subscribers run per league. Without `Game`, connections are refused.
 A catalog type holding some rules stays when `ClientState` has a field of it (`ChargeEffects`, `AuraCatalog`, `UniqueItemSeed`): cutting that field is what lets it move.
