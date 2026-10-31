@@ -9,6 +9,14 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 {
+    // Several native names use a typographic apostrophe while the definition export uses ASCII.
+    static string NameKey(string name) => name.Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
+    {
+        "Rigwald's Charge" => "Rigvald's Charge",
+        "The Broken Elegy" => "Broken Elegy",
+        "The Goddess Unleashed" => "The GoddessUnleashed",
+        var key => key,
+    };
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false);
 
@@ -40,16 +48,26 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     public IReadOnlyList<Definition> All => GameDataCatalog.Uniques;
 
+    /// <summary>Creatable collection entries include the named-map catalogue as well as equipment and jewels.</summary>
+    public IReadOnlyList<(string Name, Item? Item)> CollectionItems(Random random)
+    {
+        var result = All.Select(d => (d.Name, Item: Create(d.Name, random))).ToList();
+        // A pre-existing catalogue can gain this captured field through hot reload without rerunning its constructor.
+        result.AddRange(NessaMapStock.Build(items, folder ?? "data").Where(m => m.Item.Rarity == ItemRarity.Unique)
+            .Select(m => (m.Name, (Item?)m.Item)));
+        return result;
+    }
+
     /// <summary>The definition a name matches (exact first, then the first containing it), or null.</summary>
     public Definition? Find(string name) =>
-        All.FirstOrDefault(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
         ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The unique item for a name, or null when the name is not one or its base type is not writable.</summary>
     public Item? Create(string name, Random random)
     {
         if (Find(name) is not { } definition || items.Find(definition.BaseTypeId) is not { Supported: true } type) return null;
-        if (!_names.Value.TryGetValue(definition.Name, out var unique)) return null;
+        if (!_names.Value.TryGetValue(NameKey(definition.Name), out var unique)) return null;
         var item = ItemCatalog.Create(type) with
         {
             ItemLevel = definition.ItemLevel, Rarity = ItemRarity.Unique, Identified = true,
@@ -85,7 +103,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             if (definition.Corrupted || definition.Name.StartsWith("Replica ", StringComparison.Ordinal)
                 || weight(definition.Name) is not (> 0 and var chance) || items.Find(definition.BaseTypeId) is not { Supported: true } type
                 || type.Class != current.Class || type.Width != current.Width || type.Height != current.Height
-                || !_names.Value.TryGetValue(definition.Name, out var name) || item.NameWords.Contains(name.Word)
+                || !_names.Value.TryGetValue(NameKey(definition.Name), out var name) || item.NameWords.Contains(name.Word)
                 || item.Sockets.Count > CurrencyEffects.SocketCapacity(item, type)) continue;
             candidates.Add((definition, chance));
         }
@@ -127,6 +145,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             int wordsKey = r.GetProperty("WordsKey").GetInt32(), visualKey = r.GetProperty("ItemVisualIdentityKey").GetInt32();
             if (!byWord.TryGetValue(wordsKey, out string? name) || visualKey < 0
                 || visualKey >= visuals.RootElement.GetArrayLength()) continue;
+            name = NameKey(name);
             // A unique can have a second row with its alternate art (Headhunter2.dds); the ordinary art is the item's.
             if (r.TryGetProperty("IsAlternateArt", out var alternate) && alternate.GetBoolean() && result.ContainsKey(name)) continue;
             result[name] = new(words.RootElement[wordsKey].GetProperty("HASH32").GetUInt32(),

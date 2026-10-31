@@ -41,7 +41,7 @@ static partial class Game
                 else damage = m.Ignites.Advance(now, MonsterDotFactor(m, DamageType.Fire));
                 if (!m.Ignites.Burning && m.Ignites.Buff is ushort gone) { ended.Add((id, gone)); m.Ignites.Buff = null; }
                 if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);
+                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {

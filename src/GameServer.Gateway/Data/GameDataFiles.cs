@@ -13,6 +13,7 @@ static class GameDataFiles
         ("data/tables/Stats.json", "stats and the editable stat reference"),
         ("data/tables/Mods.json", "mods, affix rolls and the editable mod reference"),
         ("data/tables/Tags.json", "mod spawn tags (affix rolls)"),
+        ("data/tables/UniqueStashTypes.json", "unique collection categories"),
         ("data/tables/UniqueStashLayout.json", "unique item names and artwork"),
         ("data/tables/VillageUniqueDisenchantValues.json", "unique drop weights"),
         ("data/tables/PassiveJewelSlots.json", "ordinary passive tree jewel sockets"),
@@ -41,6 +42,8 @@ static class GameDataFiles
         ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
         ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
         ("data/phrecia-passive-skillgraph.psg", "merged passive graph analysis artifact (not installed)"),
+        ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
+        ("data/client-constants.json", "the Gateway does not start without its HNC mask"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>

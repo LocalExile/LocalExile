@@ -16,8 +16,8 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 # Name, outputs (the first is checked for presence and freshness), runner (dotnet | python), arguments, version, needs,
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
 $manifest = @(
-    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\UniqueStashLayout.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 1; Needs = @()
+    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\UniqueStashLayout.json', 'data\tables\UniqueStashTypes.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json'); Runner = 'dotnet'
+       Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client/Content.ggpk'); Version = 2; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 4; Needs = @('tables')
@@ -57,6 +57,13 @@ $manifest = @(
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 5; Needs = @('tables')
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
+    # The servers never open Client/ as they run: what they would read from it comes from these two.
+    @{ Name = 'client-constants'; Outputs = @('data\client-constants.json'); Runner = 'dotnet'
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 1; Needs = @()
+       UsedBy = 'the Gateway''s HNC mask and the Patch server''s root hash (live.ps1 refreshes the hash before each client start)' }
+    @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 1; Needs = @()
+       UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
 )
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }

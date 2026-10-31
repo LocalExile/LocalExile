@@ -60,7 +60,7 @@ static partial class Game
             await Send(remote, stream, ciphers,
                 InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
                 $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
-                still: () => acknowledged = OwnAuraAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? true));
             if (!acknowledged) return;
             await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence,
@@ -391,6 +391,7 @@ static partial class Game
         }
         CarryCharges(conn, r.Ticket);
         CarryFortification(conn, r.Ticket);
+        CarryRampage(conn, r.Ticket);
         CarryAntiquarian(conn, r.Ticket);
         CarryRage(conn, r.Ticket);
         CarryVaalSouls(conn, r.Ticket);
@@ -400,8 +401,8 @@ static partial class Game
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn) AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
-        string host = Environment.GetEnvironmentVariable("Game_GATEWAY_HOST") ?? "127.0.0.1";
-        ushort port = ushort.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var gp) ? gp : (ushort)6112;
+        string host = GatewayEndpoint.Host;
+        ushort port = GatewayEndpoint.Port;
         await Send(remote, stream, ciphers, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),
             $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {r.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
     }

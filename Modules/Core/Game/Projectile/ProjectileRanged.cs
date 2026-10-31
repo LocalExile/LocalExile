@@ -31,7 +31,7 @@ static partial class Game
         session.Advance();
         double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
         var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence);
-        session.Schedule(ProjectileRuntime.Time(acceptedAt + delay),
+        session.Schedule(ProjectileRuntime.Time(acceptedAt + AttackReleaseDelay(delay)),
             () => OrdinaryRangedReleaseCurrent(conn, action, epoch)
                 && OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) == projectileId,
             () =>

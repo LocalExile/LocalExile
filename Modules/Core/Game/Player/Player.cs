@@ -141,6 +141,8 @@ static partial class Game
             FortificationOf(conn).Clear();
             LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
             ClearRageOnDeath(conn);
+            conn.Rampage.Clear();
+            conn.RetireOwnedCombat();
             ChargesOnDeath(conn);
             ClearBloodChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
@@ -256,8 +258,11 @@ static partial class Game
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(conn, skillId).Stats;
         int speed = CastSpeedPct(CharacterPlayerStats(conn));
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
-        return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed)?.DurationMilliseconds is int duration
-            ? (int)Math.Min(int.MaxValue, Math.Ceiling(duration / PlayerActionFactor(conn))) : null;
+        if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed)?.DurationMilliseconds is not int duration) return null;
+        // A new action starts at most once per server frame (30/s); channelling repeats are exempt and use their own
+        // interval. Keep the fractional tick and round the final wait up to whole milliseconds.
+        double seconds = Math.Max(TickSeconds, duration / 1000.0 / PlayerActionFactor(conn));
+        return (int)Math.Min(int.MaxValue, Math.Ceiling(seconds * 1000));
     }
 
     // cast_speed_+% is the total (PanelStats: base_cast_speed_+% and attack_and_cast_speed_+% are already in it).
@@ -279,38 +284,6 @@ static partial class Game
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
             .SelectMany(kv => Mtx.Find(kv.Value.Record) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
             .Where(st => st.Stat == key).Select(st => st.Value).FirstOrDefault();
-
-    // Righteous Fire's ring stays on the player. It is an object of its own, which the client moves only when the server
-    // says so, so every RingFollowMs (RunRingFollow) and after each move order it glides (0x1ba) to where the player will be
-    // RingFollowMs later, along the walk's path. Before 2026-10-23 it glided once per ground click to where that walk
-    // ended: a walk started any other way (a click on a stash or an item, C→S 0x24 → Walk.Approach) never moved it, and
-    // the straight glide cut the path's corners.
-    internal static async Task FollowRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        if (conn.RighteousFire is not { Ring: uint ring } rf) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var to = conn.Walk.Position(now + RingFollowMs / 1000.0);
-        if (rf.RingAt == to) return;
-        rf.RingAt = to;
-        await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(ring, to.X, to.Y, RingFollowMs / 1000f, u28: TerrainHeight), null);
-    }
-
-    // The ring's follow loop, while its fire burns.
-    internal static async Task RunRingFollow(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf)
-    {
-        try
-        {
-            while (!conn.Closed && conn.RighteousFire == rf)
-            {
-                await Task.Delay(RingFollowMs);
-                if (!conn.Paused && conn.RighteousFire == rf) await FollowRighteousFire(remote, stream, ciphers, conn);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        {
-            // The connection closed while sending.
-        }
-    }
 
     internal static async Task ActivateRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort skillId,
         int effect, int level, int quality, uint gem)
@@ -349,21 +322,16 @@ static partial class Game
         await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, aura, RighteousFireAuraBuffRow, PlayerId, skillId, visual: auraVisual),
             $"0x01c1 player buff {aura}: righteous_fire_aura (BuffDefinitions row {RighteousFireAuraBuffRow})");
         // The big burning circle is not a buff visual: it is MiscAnimated RighteousFireRing, an effect object of its own
-        // (EffectObject), kept under the player as it walks (FollowRighteousFire).
-        // FixedRotation: the glides that keep it under the player must not turn it (it spun as the player turned).
+        // (EffectObject), attached to the player: the client carries it along itself, so it stays on the player whatever
+        // the latency (server glides arrived a round trip behind the client's own walk).
         if (ringAo is null) return;
         // Scale: the art is drawn for a radius of MiscAnimated __col4 world units (RighteousFireRing 400, about 37 cells of
         // 250/23 units, where the skill's base radius is 18), so it is scaled to the radius the fire burns in.
         float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ringAo) ?? 400));
-        var ringObject = new EffectObject(at.X, at.Y, ringAo) { Flags0 = EffectObject.FixedRotation, Scale = scale };
+        var ringObject = new EffectObject(at.X, at.Y, ringAo) { Parent = PlayerId, Scale = scale };
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(ring, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob()),
             $"0x02b9 create effect 0x{ring:x} {ringAo} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(ring), null);
-        if (conn.RighteousFire is { } burning)
-        {
-            burning.RingAt = at;
-            _ = RunRingFollow(remote, stream, ciphers, conn, burning);
-        }
     }
 
     internal static async Task EndRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
@@ -654,7 +622,7 @@ static partial class Game
                 var (damage, carry) = MonsterBurn(m, damageOverTime, seconds);   // its mods' fire resistance
                 m.Burn = carry;
                 if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeDamageLocked(m, damage);
+                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
@@ -819,6 +787,7 @@ static partial class Game
         var cls = SkillsFor(conn).ClassFor(classRow);
         // Keep the ticket's remaining Rage timers frozen while the destination loads (before 0x7d).
         RestoreRage(conn);
+        RestoreRampage(conn);
         RestoreVaalSouls(conn);
         RestoreAntiquarian(conn);
         conn.Ward.SetMaximum(conn.Pools.Ward);

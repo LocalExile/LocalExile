@@ -477,25 +477,30 @@ rate separately from the player's increased/more speed: Burning Arrow -30%, Heav
 The level-aware catalog accessor follows the same selected-level rule as other GEPL values.
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/1afbc4cdcc4fe83273ce8e06a51c5cf986999250/src/Modules/CalcOffence.lua#L2299)
 multiplies `source.AttackRate` by `1 + attackSpeedMultiplier / 100` before ordinary speed modifiers.
-For the supported ordinary weapon-based path, `SkillAttackTiming` sends total base weapon ms as
-`round(weapon base ms / (1 + inherent percent / 100))`, midpoint away from zero, with a minimum of one ms.
-It retains the original weapon base ms (0x142/0x143) and final player speed percent (0x126/0x127).
-The native total base fields (0x221a/0x221b) are integer ms, so the server uses that same rounded base, then player
-speed, then its existing 30 Hz attack-duration floor; rounding the base changes the uncapped time by at most
-0.5 ms divided by the player-speed factor.
-Native action code `0x141c06c2a..0x141c06c8e` reads 0x221a and divides by 1000 and `1 + stat(0x126) / 100`.
-The explicit 0x221a getter (`0x142706568..0x14270658f`) returns the stored value without another GEPL multiplier.
-Gem pacing, attack contact/projectile release and channel intervals share that duration; selected APS is `100 / seconds`.
+For the supported ordinary weapon-based path, the server's own attack time (`SkillAttackTiming.Seconds`) uses
+`round(weapon base ms / (1 + inherent percent / 100))`, midpoint away from zero, with a minimum of one ms, then player
+speed, then its existing 30 Hz attack-duration floor.
+The client applies the inherent speed itself, so the total base fields (0x221a/0x221b) stay the weapon's base ms and only
+selected APS (`100 / seconds`) carries the multiplier. Frida 2026-10-31 at the clip's speed setup (`0x141b0a9b0`), Witch
+with a 714 ms bow: Burning Arrow with 0x221a 1020 played for 1.457 s; with 714 it plays for 1.02 s, and Tornado Shot for
+0.892 s. The ordinary attack stays 0.714 s. Dual wield and melee attack gems were not traced.
+Gem pacing, attack contact/projectile release and channel intervals share the server's duration.
 Ordinary attacks and non-attack skills retain their previous paths.
-Native baseline before this fix: a 714 ms bow had stored speed 0%, base/total base 714 ms and APS 140 for both
-ordinary attacks and Burning Arrow, with actual native clip duration 0.714 seconds in each case.
-After the fix, actual native input verified Burning Arrow total base 1020 ms, clip duration 1.019999959 seconds
-and stored APS 98; its original base stayed 714 ms and player speed stayed 0%.
-The ordinary bow attack retained total base 714 ms, clip duration 0.7140000038 seconds and stored APS 140.
-These checks verify native duration and stored APS, not a separate measurement of release/contact timing.
-Local before/after captures are `logs/skill-timing-{before,after}-default-bow-real.json` and
-`logs/skill-timing-{before,after}-burning-arrow-real.json` in the integration checkout.
-Catalog, native-field, modifier-order, pacing/contact and spell-exclusion tests pass.
+
+A clip longer than its attack plays linearly. When the attack outlasts the clip, `0x141b0a9b0` (events found by
+`0x141b0a620`) plays the outside of the clip's `slow_begin`..`slow_end` span at normal speed and stretches the span
+instead, so the contact keyframe is no longer a plain fraction of the attack; the server's `AttackContactDelay` assumes it
+is. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured). A slower weapon
+or a negative player speed would still reach it, for ordinary attacks too.
+
+Burning Arrow's muzzle flash is `Projectiles.MiscAnimatedFlash` (row 3657), which `DefaultArrow` does not have. The client
+creates an effect object at the clip's contact, without a server message: in the same trace at about 375 ms after the
+action starts (contact 399 ms at speed 1.045 is 382 ms), and the server's arrow arrived at about 450 ms. That the object
+is this flash is inferred from its time and what the user saw, not read from its path.
+Attack projectiles the server creates are therefore released 60 ms before the contact (`AttackReleaseDelay`,
+`Game_RELEASE_LEAD_MS`). Measured on localhost after it: flash 373-375 ms, arrow 400-401 ms in the typical shots; the
+default arrow 264-267 ms or 319-320 ms against a 267 ms contact. Arrival barely varied despite the 30 Hz release tick,
+which suggests the client takes packets on its own cadence (not established); a larger lead may not close the rest.
 This excludes support/conditional/per-charge speed, skill-specific attack-time overrides and off-hand alternation rules.
 Selected supported attacks publish their completed typed packet, clearing removed damage types and sharing the
 weapon-local packet with contact/release calculations. Pre-critical average/DPS remains the existing local convention;
@@ -1168,7 +1173,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Base chances at or below 20% are discarded before applying unconditional stun avoidance.
   The life threshold includes unconditional `stun_threshold_+%`; known stun immunity is respected.
   Duration uses PoB's 350 ms base, the extracted Monster.ot's 20% more melee stun duration, self duration modifiers,
-  and the player's final stun recovery, rounded upward to a 33 ms frame (normally 429 ms).
+  the player's final stun recovery and the current action-speed factor, rounded upward to a 33 ms frame (normally
+  429 ms at 0% action speed).
   Invalid stats yielding a nonpositive duration or more than 60 s disable recovery rather than locking input.
   `SendPlayerHitRecovery` commits cancellation inside the send gate after rechecking survival and active recovery.
   It increments `ActionCount`, clears channel hits, and stops `PlayerWalk` at its current cell.
@@ -1577,6 +1583,22 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads
   carried durations 1.212375/0.606187/2.424749 seconds. Before the patch, both 0 and +100% used 95.7 cells per second.
   These checks cover travel timing, not moving-target collision or pixel-level matching with the official game.
+- **Maximum range and action speed (2026-10-31).** One movement instance is capped at 150 client units = 15 m
+  (10 units per metre; 1 Gateway cell is 0.1 m). The Gateway baseline is now 150 cells through
+  `system_settings.projectile_maximum_range_cells`; `projectile_distance_override` sets an exact shorter distance and
+  `projectile_maximum_range_override` caps it. Fork, chain and split are new movement instances, so each continuation
+  leg gets a fresh 15 m budget and total travel can exceed 15 m; return keeps its measured 150-cell overshoot.
+  Action speed is not a projectile input: it changes attack/cast/movement pacing, not projectile speed or the cap.
+  Projectile speed only changes the time to the endpoint (and how far a limited-duration projectile gets before it
+  expires, up to the cap). `action_speed_-%` is composed additively with chill/freeze and then multiplies the final
+  attack, cast, movement and stun-recovery paces; it does not change the attack/cast/movement stats themselves. New
+  actions are limited to one per server frame (30/s); channelling repeats use their speed-only interval and are exempt
+  from that cap. Trap/mine throwing, warcries, totem summoning, monster action-speed floors and the buff/debuff sources
+  (Tailwind, Harbinger, Temporal Chains) remain outside this slice; the full contract is
+  [#246](https://github.com/LocalExile/LocalExile/issues/246). Evidence: the client's Stats rows and PoE Wiki
+  [Action speed](https://www.poewiki.net/wiki/Action_speed),
+  [Projectile](https://www.poewiki.net/wiki/Projectile) and [Range](https://www.poewiki.net/wiki/Range); no live
+  native flight or stun-animation capture yet.
 - **Hit (reworked 2026-10-25).** `ProjectileFlight` advances from the
   connection's elapsed game clock, polled about every 16 ms. For each interval it solves the earliest intersection
   of the projectile segment and each living monster's observed movement segment in relative coordinates, with the
@@ -2012,12 +2034,10 @@ A foreign-source packet non-removal control establishes no party aura executor o
   (`Metadata/Effects/Spells/ri_fire/rifire.ao`), an effect object of its own. The client's effect script
   (`0x142087910`) makes MiscAnimated effects as `Metadata/Effects/Effect`, `ServerEffect`, `PermanentServerEffect` …
   objects; `PermanentServerEffect` is Positioned, BaseEvents, Animated (Render client-only), so the Gateway creates one
-  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) under the player and glides it with 0x1ba
-  every 100 ms to where the player will be 100 ms later along its path (`FollowRighteousFire`, `RunRingFollow`;
-  before 2026-10-23 it glided once per ground click to that walk's end, so a walk to a stash or an item, which comes as
-  C→S 0x24, left it behind, and the straight glide cut the path's corners). It is created with Positioned flags0 0x80
-  (`EffectObject.FixedRotation`): without it each glide turned the ring to face the move, so it spun as the player
-  turned (live 2026-10-21). It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
+  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) attached to the player: Animated bit2's
+  record (`0x141e5adb0` → `0x141e5a440`, [04](04-player-entity.md) §4.5) with the player as parent, bone `<root>` and kind 4 (no rotation).
+  The client carries it with its own predicted player position, so no packet moves it and latency cannot leave it
+  behind; the 0x1ba glides it had before lagged a round trip behind the client's walk. It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
   x / y stretches left at 1, [04](04-player-entity.md) §4.0). The art is drawn for the radius in its MiscAnimated row's
   `__col4`, in world units (RighteousFireRing 400, RighteousFireRingWhite 200, the league avatars' blue ring 380, the
   Vaal rings 500; 0 for art not scaled to an area); the meshes agree (`rifire.sm` ±463 with its flames at 380,
