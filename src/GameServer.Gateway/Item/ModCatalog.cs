@@ -48,7 +48,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
 
         /// <summary>The list a mod goes into when nothing else says so: prefixes and suffixes are explicit,
         /// enchantments enchants, everything else (base implicits, corruptions …) implicit.</summary>
-        public ModSection DefaultSection => GenerationType switch { 1 or 2 => ModSection.Explicit, 10 => ModSection.Enchant, _ => ModSection.Implicit };
+        public ModSection DefaultSection => GenerationType switch { 1 or 2 => ModSection.Explicit, 10 or 21 or 22 => ModSection.Enchant, _ => ModSection.Implicit };
 
         /// <summary>The effective range of one stat: the database override when present, else the base Mods.dat range.</summary>
         public (int Min, int Max) RangeAt(int index) =>
@@ -56,19 +56,23 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
                 ? Ranges?.Range(Id, index, Stats[index].Min, Stats[index].Max) ?? Normalise(Stats[index])
                 : (0, 0);
 
+        /// <summary>An admin's range (/game_data mod) applies to this stat.</summary>
+        public bool RangeOverridden(int index) => Ranges?.All.ContainsKey((Id, index)) == true;
+
         /// <summary>The effective maxima, in stat order (max-roll dev items and unique definitions use these).</summary>
         public IReadOnlyList<int> MaxValues() => [.. Stats.Select((_, i) => RangeAt(i).Max)];
 
         static (int Min, int Max) Normalise(ModStat stat) => (Math.Min(stat.Min, stat.Max), Math.Max(stat.Min, stat.Max));
 
-        /// <summary>The mod with a value per stat rolled in its effective range.</summary>
-        public ItemMod Roll(ModSection section, Random random)
+        /// <summary>The mod with a value per stat rolled in its effective range, or in <paramref name="range"/> for a
+        /// stat that gives one (a unique's own roll).</summary>
+        public ItemMod Roll(ModSection section, Random random, Func<int, (int Min, int Max)?>? range = null)
         {
             var values = new int[Stats.Count];
             for (int i = 0; i < values.Length; i++)
             {
-                var (min, max) = RangeAt(i);
-                values[i] = random.Next(min, max + 1);
+                var (min, max) = range?.Invoke(i) ?? RangeAt(i);
+                values[i] = random.Next(Math.Min(min, max), Math.Max(min, max) + 1);
             }
             return new(section, Hash, values);
         }

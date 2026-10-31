@@ -10,6 +10,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
   Code: `scripts/dev/extract-data.ps1`, `GameDataFiles.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 7.
+- The servers run without `Client/`: level generation and the Phrecia graph check read `data/game-files.zip` (every file
+  of the types they read), the HNC mask and GGPK root hash come from `data/client-constants.json`, and Node is not needed
+  at run time. `live.ps1` refreshes the root hash before each client start, because the gateway list in the GGPK changes it.
+  Code: `scripts/re/game-pack`, `GamePack.cs`, `ClientConstants.cs`.
+- Player releases, started by hand: a workflow builds a draft with a self-contained zip, and `LocalExile.exe` takes a player
+  from the client to the game with no SDK, Python or Node installed (`--json` for a GUI).
+  Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
+  Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
+  Docs: [releases](../docs/dev/releases.md).
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
@@ -80,6 +89,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `PassiveSkillGraph.cs`, `AdditionalAscendancyGraph.cs`, `GameFileSystem.cs`, `scripts/re/passive-graphs`.
   Docs: [passive graph data guide](../docs/dev/passive-graph-data.md).
 
+- Several stacks and clients on one PC: `live.ps1 -PortBase N` runs a checkout's servers on their own five ports
+  (remembered in `data\stack.json`; Auth now sends the client to that Gateway), `-Session NAME` starts more clients of a
+  stack, each in its own folder with its own settings file, saved login, `Client.txt` and PID record, and `-Stop` stops
+  the checkout's own servers and clients. Whatever `live.ps1` stops is the checkout's own; a stack off the default ports
+  never writes the shared GGPK gateway list. The bridge (`--session`) attaches to its session's client and filters the
+  Gateway's chat replies by that client's connection.
+  Verified: a stack on 21000-21004 started, restarted and stopped next to another checkout's live stack and client on the
+  default ports, which kept running; a session client started in its own folder on that stack (its own `Client.txt`,
+  the linked GGPK, the shared sound banks and Streamline through junctions). Tests: `scripts/dev/test_live_client_only.ps1`
+  (ports, sessions, PID records, process ownership, the real gateway-list read while the GGPK is held),
+  `test_client_control.py` (a real process started through a real junction), `GgpkMaintenanceTests`. Not yet seen live:
+  the session's settings file in use and a bridge login on a session (the memory guard stopped the client while loading).
+  Code: `scripts/dev/live.ps1`, `scripts/dev/client_control.py`, `GatewayEndpoint.cs`.
+  Docs: [live testing](../docs/dev/live-testing.md#several-stacks-and-clients).
+
 - Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its
   messages), the reason on every `DISCONNECT` line, archived logs of the last 10 full runs, each connection's last 256
   packets (printed after an error or an unexplained disconnect, dumped to `logs\packets`, `/lastpackets`), `Game_TRACE`
@@ -89,6 +113,26 @@ Part of [Status](../Status.md); what to build next in this area is in
   still to do, and so is checking that `trace-crash.js` reads the client's receive pump right.
   Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
   Docs: [debugging](../docs/dev/debugging.md).
+
+- Cheap session clients: `live.ps1 -Session S` starts every session client through `scripts/dev/nullifier.py`, which
+  spawns it in its session folder inside a kill-on-close job, with a Frida agent that gives its two-copies mutexes
+  session-local names (so it never takes one of the two Global\PoERunMutexA/B slots the user's client needs), keeps
+  its window from taking focus, never lets it confine, move, capture or hide the user's mouse, install global input
+  hooks or register background raw input, and sets below-normal priority and EcoQoS; `-Nullifier` adds the engine's
+  own Null renderer (no GPU device; the agent fixes the Null index buffer's missing format, which crashed area entry),
+  working-set trimming, the allocator returning freed memory at once (mimalloc `purge_delay=0`) and the Null buffers'
+  unused CPU copies left uncommitted until touched. `live.ps1 -Agent` starts the servers and one such client (port
+  block picked automatically when none is recorded). New sessions default to the cheap DirectX 11 preset. Live
+  2026-10-31: login, play, slash commands, chat, `/tp`, waypoint travel and `/goto` with both renderers; DirectX 11
+  preset 4.3 GB commit, 1.7 GB VRAM; Null (lean defaults) 1.58 GB commit (1.93 GB before), no GPU memory, ~20 % of a
+  core in town, 5–9 % standing after travel (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %). The coverage tour
+  (`nullifier-tour.py`: every act's town and a combat area, the Act 1 boss area, a map, the hideout, a fight with the
+  default attack in each combat area) passed 27/27 under Null with the lean defaults; startup movies are skipped
+  (`--nologo`) and the loading-screen movies close by themselves. The game database cannot be shared between clients:
+  loaded tables hold process-specific pointers (headless client §6).
+  Offline tests: `test_nullifier.py`, `test-nullifier-mutex.cjs`, `test_client_control.py`, `test_live_client_only.ps1`.
+  Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`, `nullifier-tour.py`.
+  Docs: [headless client](../docs/dev/headless-client.md).
 
 ## Not working yet
 

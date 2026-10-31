@@ -126,8 +126,6 @@ static partial class Game
     internal const string KineticBlastExplosionAo = "Metadata/Effects/Spells/cluster_burst/mini.ao";
     // The player's own tick (RunPlayerTick): regeneration and damage over time.
     internal const int PlayerTickMs = 250;
-    // How often Righteous Fire's ring is moved to the player (RunRingFollow), and how far ahead it aims (our own number).
-    internal const int RingFollowMs = 100;
     internal static readonly (string Stat, int Value)[] GodStats =
     [
         ("attack_speed_+%", 1000), ("base_cast_speed_+%", 1000), ("cast_speed_+%", 1000),

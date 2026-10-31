@@ -350,10 +350,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Movement speed: the passive `base_movement_velocity_+%` is summed into `Pools`, sent as the client's
   `movement_velocity_+%` and used by the server's walk copy (37 × (1 + pct / 100) cells/s);
-  applied on login, level, passive and area changes; `/set_speed` adds its percentage on top;
-  only unconditional passive increases are modelled (no action speed, more multipliers, gear/buff movement or the 128
-  cap yet).
-  Code: `CharacterStats.cs`, Gateway (`ApplyMovementSpeed`).
+  applied on login, level, passive and area changes; `/set_speed` adds its percentage on top.
+  `action_speed_-%` from raw sources and dev overrides is composed additively with chill/freeze and multiplied once
+  into movement, attack, cast and stun-recovery pacing. New actions are limited to one per frame (30/s, `TickSeconds`);
+  channel repeats bypass that cap. Conditional/more multipliers, gear/buff movement, Tailwind/Harbinger/Temporal Chains
+  sources, trap/mine/warcry/totem timings, monster floors and the 128 cap remain open (#246).
+  Code: `Player/CharacterStats.cs`, `Combat/PlayerAilments.cs` (`PlayerActionFactor`), Gateway (`ApplyMovementSpeed`).
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block / Spell Block: passives' `additional_block_%` and `base_spell_block_%` are summed and capped at 75% / 90% (PoB
   `BlockChanceCap`), max-res passives `maximum_block_%` / `base_maximum_spell_block_%` raise the caps;
@@ -565,11 +567,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AuraCatalog.cs`, Gateway (`PoolsFor`, `BaseStats`).
   Docs: [11](../docs/protocol/11-skills.md) §13, [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Buffs (S→C 0x1c1 add, 0x1c2 remove) and Righteous Fire: cast on oneself, its buffs and the big burning circle (an
-  effect object, `Metadata/Effects/PermanentServerEffect` with `rifire.ao`, following the player), 90% of life per
+  effect object, `Metadata/Effects/PermanentServerEffect` with `rifire.ao`, attached to the player), 90% of life per
   second nonlethal burn on the player, 70% of life per second to monsters within its radius (18 cells, grown by the
   player's area of effect stats, `SkillArea`; they burn to death), the circle scaled to that radius (MiscAnimated's
-  reference radius, the uniform Positioned scale; matches the real game at level 1) and kept on the player every 100
-  ms; server-side mana (cost, regeneration); `/god` (also 200% increased area of effect), `/set_aoe`.
+  reference radius, the uniform Positioned scale; matches the real game at level 1), carried by the client at any
+  latency and not turning with the player; server-side mana (cost, regeneration); `/god` (also 200% increased area of
+  effect), `/set_aoe`.
   Code: Gateway (`ActivateRighteousFire`, `RunPlayerTick`), `SkillArea.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Warcry admission restriction (#297): any signed nonzero `your_warcry_skills_are_disabled` blocks new typed warcries.
@@ -762,7 +765,10 @@ and can require explicit recipes.
   Distribution and capacity are documented LocalExile policies, not a claim of official algorithm parity.
   Native duplicate/removal, death/relog/transfer, aura costs and held-notification composition remain unverified.
   Unsupported Vaal casts are refused before action echoes or cooldown reservation, including effective zero cost.
-  No executor, Rage payment or SGP countdown is added.
+  Vaal Ground Slam now has a shared executor, atomic soul/Rage payment and pausable prevention timer.
+  Attack readiness commits before payment/action reservation, including object-targeted flags bit0.
+  Other Vaal executors remain explicit refusals; the bounded modular native session did not repeat a full Vaal matrix.
+  See [Behemoth](../docs/game/behemoth.md) for execution models and source ownership.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
   initialization.
@@ -800,7 +806,11 @@ and can require explicit recipes.
   Return opens another hit-admission phase and reads the shared returning-damage multiplier. Partial return chance,
   return speed, contact budgets, overshoot and terrain behavior are configurable through skill definitions.
   Boolean fork sources grant one generation, and raw bow always-pierce sources bind to the same common profile.
-  Return retains remaining continuation counts and the original lifetime; return pierce-all requires its own stat.
+  One movement instance is capped at 150 cells (15 m) through `projectile_maximum_range_cells`; fork, chain and split
+  start a new instance with a fresh budget, so total travel can exceed 15 m. Return retains remaining continuation
+  counts and the original lifetime; return pierce-all requires its own stat.
+  Action speed does not change projectile range: projectile speed only shortens the flight, and `action_speed_-%` is
+  composed additively with chill/freeze for attack, cast and movement pacing; Tailwind/Harbinger sources remain #246.
   Direct and area snapshots keep area increases/supports scoped to their damage stages.
   Area effects scale to the committed radius when the selected art exports a native radius; unknown art stays unscaled.
   Terrain-blocked area centers are omitted without resampling or reserving time; surviving areas keep consecutive intervals.
@@ -904,11 +914,12 @@ and can require explicit recipes.
 - **Attack speed passives.** Generic, melee, one-/two-handed, weapon-family, shield and dual-wield passive attack
   speed is summed into the client's `main_hand_attack_speed_+%`;
   dual wielding adds PoB's 10% more and the server's unarmed attack uses the same final value.
-  Attack gems now apply their extracted inherent speed multiplier to total base duration separately from player speed.
-  Pacing, contact/release timing, channel intervals and selected APS share the same rounded native base duration.
-  Actual native bow input verified ordinary duration 0.714 s and Burning Arrow 1.02 s, with stored APS 1.40 and 0.98.
-  Original weapon base 714 ms and player speed 0% stayed unchanged; release/contact timing was not separately measured.
-  Catalog, modifier-order, native-field and spell-exclusion tests pass.
+  Attack gems apply their extracted inherent speed multiplier on the server only; the client applies its own, so the
+  total base duration it is sent stays the weapon's. Pacing, contact/release timing, channel intervals and selected APS
+  share the server's duration. Frida verified the clips with a 714 ms bow: ordinary 0.714 s, Burning Arrow 1.02 s.
+  An attack's server-created projectile is released 60 ms before its contact (`AttackReleaseDelay`), for the time before
+  the server reads the action, its tick and the output queue. Burning Arrow's arrow arrives about 25 ms after the client's
+  muzzle flash (was about 75 ms); the default arrow 0-52 ms after its contact, in two clusters (about 265 and 319 ms).
   Supports, conditional/per-charge speed, special time overrides and attack-gem damage/DPS remain separate work.
   Selected attack-gem main-hand ranges now share the converted combat packet, including skill effectiveness.
   All twelve ranges clear absent types; pre-crit averages retain fractions and DPS uses the emitted APS value.

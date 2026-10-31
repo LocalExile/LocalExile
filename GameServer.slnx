@@ -9,6 +9,7 @@
     <Project Path="src/GameServer.DevClient/GameServer.DevClient.csproj" />
     <Project Path="src/GameServer.Patch/GameServer.Patch.csproj" />
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
+    <Project Path="src/LocalExile/LocalExile.csproj" />
   </Folder>
   <Folder Name="/Modules/">
     <Project Path="Modules/Core/Game/Game.csproj" />
@@ -29,6 +30,7 @@
     <Project Path="Modules/Core/Player/Social/Social.csproj" />
     <Project Path="Modules/Core/NPC/NpcDialogue/NpcDialogue.csproj" />
     <Project Path="Modules/Ruthless/Ruthless.csproj" />
+    <Project Path="Modules/PhreciaAscendancies/PhreciaAscendancies.csproj" />
   </Folder>
   <Folder Name="/Mods/Source/">
     <Project Path="Mods/Source/BossLoot/BossLoot.csproj" />

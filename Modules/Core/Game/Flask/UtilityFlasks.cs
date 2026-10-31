@@ -7,9 +7,9 @@ static partial class Game
 {
     // C→S 0x70 on a utility flask (13-items.md §8a): it spends its charges (S→C 0xbf), puts its buff on the player with
     // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
-    // and movement speed sent again at the start and the end. Refused while dead, with too few charges, or while this
-    // flask's own effect still runs. Another flask of the same kind keeps its own timer; only the strongest applies.
-    internal static async Task UseUtilityFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot,
+    // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
+    // Reusing this flask replaces its timer; another flask of the same kind keeps its own, strongest effect applies.
+    internal static async Task<bool> UseUtilityFlaskCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot,
         InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility)
     {
         // Mageblood: its magic utility flasks are always on and cannot be used (the client enforces the mod; this is the
@@ -17,7 +17,7 @@ static partial class Game
         if (MagebloodBlocksFlaskUse(conn, flask.Item))
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): refused, Mageblood's magic utility flasks cannot be used");
-            return;
+            return false;
         }
         // The character's flask stats (passives and gear: increased flask effect, duration and charges used) and the
         // flask's own mods.
@@ -36,10 +36,10 @@ static partial class Game
                 conn.Clock.Elapsed.TotalSeconds) is { } refused)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
-            return;
+            return false;
         }
         var items = ItemsOf(conn);
-        if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is null) return;
+        if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is null) return false;
 
         var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get, playerLevel);
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -51,7 +51,9 @@ static partial class Game
             extra = utility.Extra is null ? null : conn.NextBuff++;
         }
         var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, buff, extra, stats, now, now + seconds);
+        var previous = conn.UtilityFlaskEffects.Of(flask.Id);
         var ticker = UtilityFlasks.Start(conn, effect, () => RecomputePoolsAndSpeed(conn));
+        if (previous is not null) await SendUtilityFlaskEnd(remote, stream, ciphers, previous, "refreshed");
         lock (conn.Monsters)
             if (!conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
                 && UtilityFlasks.RestoreWardAfterPaidUse(conn.Ward, name => local.GetValueOrDefault(name), conn.Clock.Elapsed.TotalSeconds))
@@ -64,6 +66,7 @@ static partial class Game
             await Send(remote, stream, ciphers, packet, $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s");
         await MakeFlaskGrounds(remote, stream, ciphers, conn, type.Name, local, seconds);
         await SendCharacterStats(remote, stream, ciphers, conn, $"{type.Name} on");
+        return true;
     }
 
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
@@ -117,7 +120,10 @@ static partial class Game
                     var ended = UtilityFlasks.EndDue(conn, conn.Clock.Elapsed.TotalSeconds, dead, Gone, () => RecomputePoolsAndSpeed(conn), out stop);
                     if (ended.Count == 0) continue;
                     foreach (var e in ended)
+                    {
                         await SendUtilityFlaskEnd(remote, stream, ciphers, e, dead ? "death" : Gone(e) ? "the flask left its cell" : "its time is up");
+                        if (!dead && !Gone(e)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.End, e.ItemId, e.Slot);
+                    }
                     await SendCharacterStats(remote, stream, ciphers, conn, $"{string.Join(", ", ended.Select(e => e.Name))} off, walk estimate {conn.Walk.Speed:0.##} cells/s");
                 }
                 catch (Exception ex)

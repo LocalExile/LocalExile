@@ -204,6 +204,7 @@ static partial class Game
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet).Concat(conn.FlaskGrounds.PlayerStats()), Stats);
+        WithVaalPrevention(conn, stats);
         WithRage(conn, stats);
         // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
         ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));
@@ -262,6 +263,7 @@ static partial class Game
             stats[attackDamage] = ArmourAttackDamage.Total(Get("attack_damage_+%"),
                 Get("physical_damage_reduction_rating"), Get(ArmourAttackDamage.Per450Armour),
                 Get("evasion_rating"), Get(ArmourAttackDamage.Per450Evasion));
+        WithRampage(conn, stats);
         // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
         // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
         if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))
@@ -293,12 +295,19 @@ static partial class Game
                 SupportedAttackDamage.Raw(offWeapon, Get), attackConversion, Get));
         foreach (var (stat, value) in ailmentRows)
             if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
+        // One additive action-speed bucket: the character's own action_speed_-% (a negative value is faster) plus
+        // chill/freeze, with the base-speed floor applied once. The panel and the server pacing read the same total.
+        conn.ElementalAilments.Reconcile(Get);
         var ailments = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
         foreach (var (name, value) in new[] { ("is_ignited", ailments.Ignite ? 1 : 0),
             ("is_chilled", ailments.Chill > 0 ? 1 : 0), ("is_frozen", ailments.Freeze ? 1 : 0),
-            ("is_shocked", ailments.Shock > 0 ? 1 : 0), ("action_speed_-%", (int)Math.Round(100 * (1 - conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds)))),
-            ("intermediary_combined_action_speed_+%", (int)Math.Round(-100 * (1 - conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds)))) })
+            ("is_shocked", ailments.Shock > 0 ? 1 : 0) })
             if (Stats.Key(name) is uint key && value != 0) stats[key] = stats.GetValueOrDefault(key) + value;
+        var actionFactor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, Get("action_speed_-%"));
+        if (Stats.Key("action_speed_-%") is uint actionSpeedKey && !devSet.Contains(actionSpeedKey))
+            stats[actionSpeedKey] = (int)Math.Round(100 * (1 - actionFactor));
+        if (Stats.Key("intermediary_combined_action_speed_+%") is uint actionCombinedKey && !devSet.Contains(actionCombinedKey))
+            stats[actionCombinedKey] = (int)Math.Round(100 * (actionFactor - 1));
         // The conditions as they are now; the player tick sends the chance again when they change.
         int suppression = Suppression(conn).Chance;
         foreach (uint key in SuppressionChanceKeys) stats[key] = suppression;
@@ -677,6 +686,8 @@ static partial class Game
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(conn, playerStats, own, stats);
             ApplyProjectilePanelStats(effect, stats);
+            if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
+                PublishVaalRageCost(conn, id, stats);
             if (SkillsFor(conn).FindByRow(id, effect, supported.Level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
                 Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
@@ -950,6 +961,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             if (HardcoreProgressBlocked(conn)) return conn.Pools.Level;
             // An allocation/refund may have committed after capture, even when this level did not need a trim.
             // Rebuild against the current runtime snapshot; keep the durable comparison for other connections.
@@ -969,10 +981,12 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             if (HardcoreProgressBlocked(conn)) return conn.Pools.Level;
             var change = Saves.Atomically(() =>
             {
                 var save = CharacterSaves.Load(CharacterName(conn)) ?? new CharacterSaves.Save([]);
+                AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, save.MainAscendancy?.Selection);
                 ValidateSavedProgress(conn, save);
                 var ascendancy = save.MainAscendancy ?? new();
                 var nodes = new List<ushort>(save.Passives ?? []);
@@ -998,6 +1012,7 @@ static partial class Game
         conn.Passives = [.. change.Nodes];
         conn.MasteryEffects = new(change.Masteries);
         conn.MainAscendancy = change.Ascendancy;
+        AscendancyPolicies.SelectionChanged(conn);
         conn.ExtraPassivePoints = change.ExtraPoints;
         conn.RefundPoints = change.RefundPoints;
         conn.SavedPassiveProgress = new(change.Ascendancy, change.Nodes, change.Masteries, change.RefundPoints);
@@ -1051,6 +1066,7 @@ static partial class Game
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
     internal static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        RefreshVaalSouls(conn);
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;

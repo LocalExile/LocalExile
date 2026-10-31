@@ -77,19 +77,16 @@ if (args.Length > 0 && args[0].Equals("seed-game-data", StringComparison.Ordinal
     }
 }
 
-int port = int.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var p) ? p : 6112;
+int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
-// The HNC side channel needs a 64-byte table from the client; read it from the local client instead of shipping it.
-string clientExe = Environment.GetEnvironmentVariable("Game_CLIENT_EXE") ?? FindUp(Path.Combine("Client", "Game.exe")) ?? "Client/Game.exe";
-if (!File.Exists(clientExe))
+// The HNC side channel needs a 64-byte table from the client: extracted to data/, not shipped.
+if (!File.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
 {
-    Console.Error.WriteLine($"[gateway] client executable not found ({clientExe}); set Game_CLIENT_EXE");
+    Console.Error.WriteLine($"[gateway] {GameServer.Data.Ggpk.ClientConstants.DefaultFile} not found; run .\\scripts\\dev\\extract-data.ps1");
     return 1;
 }
-// Not in this method's own frame: a Debug build keeps a temporary alive until the method returns, and Main runs for the
-// Gateway's life, so the 76 MB executable stayed in memory (GameTables.Isolated).
-GameTables.Isolated(() => HncSender.LoadMask(File.ReadAllBytes(clientExe)));
+HncSender.UseMask(GameServer.Data.Ggpk.ClientConstants.Load().HncMaskBytes);
 if (GameDataFiles.Warning() is { } missingData) Console.WriteLine(missingData);
 
 // Characters and stashes: the save database (Saves). Saves from before it (data/saves, data/stashes) go into it once; one
@@ -98,7 +95,7 @@ try
 {
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
-    // On a thread of its own, so the parse buffers it rents do not stay with the main thread (GameTables.Isolated).
+    // The short-lived parsing thread releases its pooled buffers after startup.
     GameTables.Isolated(() => GameData.Open(Saves.Db.Path));
     Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
 }

@@ -8,6 +8,7 @@ static partial class Game
         if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type))) return;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var previousAilments = conn.ElementalAilments.Snapshot(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         bool frozen = previousAction == 0;
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
@@ -15,6 +16,7 @@ static partial class Game
         int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
         conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom);
+        QueueFlaskAilmentChanges(conn, previousAilments, conn.ElementalAilments.Snapshot(now));
         if (!frozen && conn.ElementalAilments.ActionFactor(now) == 0)
         {
             conn.FreezeGeneration++;
@@ -49,6 +51,17 @@ static partial class Game
     internal static bool PlayerActionBlocked(ClientState conn, double requestedAt, double now) =>
         conn.HitRecovery.BlocksInput(requestedAt, now) || conn.ElementalAilments.ActionFactor(now) == 0;
 
+    /// <summary>The signed <c>action_speed_-%</c> from the character's raw sources and dev overrides: positive is slower.
+    /// The client's own action-speed bucket, and the planned ActionSpeed/EffectClock contract (#246), keep it separate
+    /// from attack/cast/movement increases so it is applied once.</summary>
+    internal static int ActionSpeedReduction(ClientState conn)
+    {
+        if (Stats.Key("action_speed_-%") is not uint key) return 0;
+        lock (conn.Monsters) if (conn.PlayerStats.TryGetValue(key, out int dev)) return dev;
+        return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
+    }
+
     internal static double PlayerActionFactor(ClientState conn) =>
-        Math.Max(.01, conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds));
+        Math.Max(.01, conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds,
+            ActionSpeedReduction(conn)));
 }

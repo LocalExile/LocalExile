@@ -35,6 +35,8 @@ sealed class GameEvent<T> where T : Delegate
 /// after the commit, in order, whichever way the kill came (a melee hit, a projectile).</summary>
 sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
 {
+    // Attributed owned kills still dispatch league content; only owner-specific triggers filter this flag.
+    public bool PlayerKill { get; init; } = true;
     public List<Func<Task>> Afterwards { get; } = [];
     public void Later(Func<Task> send) => Afterwards.Add(send);
 }

@@ -132,6 +132,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_base_spell_cast_time_ms", e.CastTime);
             Put("hundred_times_casts_per_second", (int)Math.Round(100_000.0 / e.CastTime));
         }
+        if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         // A skill with a cooldown (GEPL Cooldown, e.g. Haste's 1200 ms): the client keeps the cooldown only when the skill
         // has uses (virtual_total_cooldown_count, GEPL StoredUses) and a duration in its record (GrantedSkill.CooldownMs).
@@ -351,6 +352,12 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             ? new((uint)active, t.VaalSouls[row], t.VaalStoredUses[row]) : null;
     }
 
+    public int SoulGainPreventionMs(int effect, int level) =>
+        _tables.Value is { } t && PickLevel(t.PerLevel, effect, level) is int row and >= 0 ? t.SoulPrevention[row] : 0;
+
+    public int BaseRageCost(int effect, int level) =>
+        _tables.Value is { } t && PickLevel(t.PerLevel, effect, level) is int row and >= 0 ? t.RageCost[row] : 0;
+
     /// <summary>The mana a GrantedEffects Id reserves at a level, or null.</summary>
     public (int Flat, int Percent)? Reservation(string effectId, int level) =>
         EffectRow(effectId) is int row and >= 0 ? Reservation(row, level) : null;
@@ -377,6 +384,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A movement skill (ActiveSkillType Movement: Leap Slam, Whirling Blades, Flame Dash …): the player ends
     /// where it was aimed.</summary>
     public bool IsMovement(int effectRow) => _movementEffects.Value.Contains(effectRow);
+    public bool IsTravel(int effectRow) => _skillTypes.Travel.Value.Contains(effectRow);
+    public bool IsGuard(int effectRow) => _skillTypes.Guard.Value.Contains(effectRow);
 
     /// <summary>Whether a GrantedEffects row's skill is an attack (ActiveSkillType Attack: the default attack, Holy
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
@@ -463,6 +472,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Instant = Of("Instant"); Movement = Of("Movement"); Attack = Of("Attack"); Melee = Of("Melee");
             Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
             Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
+            Travel = Of("Travel"); Guard = Of("Guard");
         }
 
         public Lazy<HashSet<int>> Instant { get; }
@@ -476,6 +486,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> Curse { get; }
         public Lazy<HashSet<int>> AddedAura { get; }
         public Lazy<HashSet<int>> Brand { get; }
+        public Lazy<HashSet<int>> Travel { get; }
+        public Lazy<HashSet<int>> Guard { get; }
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
 
@@ -549,6 +561,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltX"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltY"] = "Metadata/Projectiles/WandProjectile",
+        ["RampageDaemonStunNova"] = "Metadata/Projectiles/RampageProjectile",
+        ["RampageDaemonBlindNova"] = "Metadata/Projectiles/RampageProjectile",
+        ["RampageDaemonSuperRepeatNova"] = "Metadata/Projectiles/RampageProjectile",
         ["TornadoShot"] = "Metadata/Projectiles/TornadoShotArrow",
         ["TornadoShotAltX"] = "Metadata/Projectiles/TornadoShotArrow",
         ["TornadoShotAltY"] = "Metadata/Projectiles/TornadoShotArrow",
@@ -1023,7 +1038,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
-        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills,
+        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers)
     {
         // GemLevelReqs by stat set: every gem's requirement check (twice per linked gem per skill build) scanned the whole
@@ -1083,6 +1098,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var cooldowns = new List<(int, int)>();
             var vaalSouls = new List<int>();
             var vaalStoredUses = new List<int>();
+            var soulPrevention = new List<int>();
+            var rageCost = new List<int>();
             var attackSpeedMultipliers = new List<int>();
             foreach (var r in p.RootElement.EnumerateArray())
             {
@@ -1095,6 +1112,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses"))));
                 vaalSouls.Add(Int(r, "VaalSouls"));
                 vaalStoredUses.Add(Int(r, "VaalStoredUses"));
+                soulPrevention.Add(Math.Max(0, Int(r, "SoulGainPreventionDuration")));
+                int rageIndex = Array.IndexOf(types, 3);
+                rageCost.Add(rageIndex >= 0 && rageIndex < amounts.Length ? Math.Max(0, amounts[rageIndex]) : 0);
                 attackSpeedMultipliers.Add(r.TryGetProperty("AttackSpeedMultiplier", out var speed)
                     && speed.ValueKind == JsonValueKind.Number && speed.TryGetInt32(out int multiplier) ? multiplier : 0);
             }
@@ -1124,7 +1144,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
-                vaalSouls, vaalStoredUses, activeSkills, quality, effectiveness, spellCritChances, attackSpeedMultipliers);
+                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers);
         }
     }
 }

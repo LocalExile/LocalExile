@@ -249,6 +249,7 @@ static class UtilityFlasks
         {
             lock (_lock)
             {
+                _active.RemoveAll(a => a.ItemId == effect.ItemId);
                 _active.Add(effect);
                 if (_ticker != 0) return null;
                 _ticker = ++_lastTicket;
@@ -403,11 +404,10 @@ static class UtilityFlasks
         foreach (var (k, v) in RawStats(running, catalog)) stats[k] = ActorScale.Add(k, stats.GetValueOrDefault(k), v);
     }
 
-    /// <summary>Why a use is refused, or null: dead, this flask's own effect still runs (<paramref name="running"/>),
+    /// <summary>Why a use is refused, or null: dead,
     /// or fewer charges than a use needs.</summary>
     public static string? Refusal(bool dead, Active? running, Item flask, Flasks.Flask charges, double now) =>
         dead ? "dead"
-        : running is not null ? $"its effect still runs ({running.Ends - now:0.##} s left)"
         : Flasks.Spend(flask, charges) is null ? $"{flask.Charges}/{charges.MaxCharges} charges, a use needs {charges.ChargesPerUse}"
         : null;
 

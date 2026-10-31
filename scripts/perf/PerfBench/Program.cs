@@ -21,7 +21,9 @@ static class PerfBenchMain
     static async Task<int> Main(string[] args)
     {
         // The game module, as the Gateway loads it: it gives the framework its game logic (the loops ask for it).
-        new GameServer.Modules.Game.GameModule().Load(null!);
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
             switch (args.FirstOrDefault() ?? "")
@@ -36,7 +38,7 @@ static class PerfBenchMain
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
-        finally { PerfBench.DeleteSaves(); }
+        finally { lifetime.Stop(ex => Console.Error.WriteLine(ex)); PerfBench.DeleteSaves(); }
         return 0;
     }
 }
@@ -174,7 +176,7 @@ static class PerfBench
             ("Items (BaseItemTypes)", () => Program.Items.Find("Iron Ring")),
             ("Items.Mods (Mods.json)", () => _ = Program.Items.Mods.All.Count),
             ("Skills", () => Program.Skills.RowOfClass(1)),
-            // The ActiveSkillType sets (instant, attack, aura …) a player's and the monsters' skills ask for.
+            // The ActiveSkillType sets (instant, attack, aura Ã¢â‚¬Â¦) a player's and the monsters' skills ask for.
             ("Skill type sets", () =>
             {
                 var skills = new SkillCatalog();
@@ -242,9 +244,6 @@ static class PerfBench
                 Record("single", $"{phase}: GC committed MB", info.TotalCommittedBytes / 1048576.0, "MB");
                 Record("single", $"{phase}: process private MB", PrivateMegabytes(), "MB");
             }
-            if (int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_DECODER_IDLE_MS"), out int idleMs)
-                && typeof(ServerLevels).GetProperty("DecoderIdle", BindingFlags.NonPublic | BindingFlags.Static) is { } idle)
-                idle.SetValue(null, TimeSpan.FromMilliseconds(idleMs));
             var open = typeof(Program).Assembly.GetType("GameTables")?.GetMethod("Isolated", [typeof(Action)]);
             Action startup = () => GameData.Open(db);
             if (open is not null) open.Invoke(null, [startup]); else startup();
@@ -267,17 +266,10 @@ static class PerfBench
                 Snapshot(name);
                 conn.Closed = true;
             }
-            if (typeof(ServerLevels).GetField("_fs", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null) is { } fs)
+            if (typeof(ServerLevels).GetField("_fs", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null) is { } fs)
                 foreach (string field in new[] { "_cacheBytes", "_chunkBytes" })
                     if (fs.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance) is { } f)
                         Record("single", $"game files {field} MB", (long)f.GetValue(fs)! / 1048576.0, "MB");
-            // The player stays in the boss area: once the Oodle worker's idle time has passed (Game_PERF_DECODER_IDLE_MS).
-            if (typeof(ServerLevels).GetProperty("DecoderIdle", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null) is TimeSpan wait
-                && wait < TimeSpan.FromSeconds(20))
-            {
-                await Task.Delay(wait + TimeSpan.FromSeconds(2));
-                Snapshot("boss area, generation idle");
-            }
             await Hold("single");
             GC.KeepAlive(held);
         }
@@ -333,10 +325,6 @@ static class PerfBench
     public static async Task Area_instance_creation()
     {
         _ = ConsoleLog.Value;
-        // Game_PERF_DECODER_IDLE_MS: how long the Oodle worker stays after a generation (0: it restarts for each one).
-        if (int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_DECODER_IDLE_MS"), out int idleMs)
-            && typeof(ServerLevels).GetProperty("DecoderIdle", BindingFlags.NonPublic | BindingFlags.Static) is { } idle)
-            idle.SetValue(null, TimeSpan.FromMilliseconds(idleMs));
         string[] areas = ["1_1_2", "1_1_3", "1_1_4_1", "1_1_5", "1_1_7_1", "1_2_1"];
         // Game_PERF_MORE_AREAS=N: then the layouts of N more supported areas (no monsters), as a long session visits
         // them, for what the caches grow to.
@@ -383,7 +371,7 @@ static class PerfBench
         GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
         Record("area", "live heap after full GC MB", GC.GetTotalMemory(false) / 1048576.0, "MB");
         Record("area", "process private MB", PrivateMegabytes(), "MB");
-        if (typeof(ServerLevels).GetField("_fs", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null) is { } fs)
+        if (typeof(ServerLevels).GetField("_fs", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null) is { } fs)
         {
             foreach (string field in new[] { "_cacheBytes", "_chunkBytes" })
                 if (fs.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance) is { } f)
@@ -549,17 +537,17 @@ static class PerfBench
             // Swings complete at once here: the planner keeps reserving them.
             lock (conn.Monsters) foreach (var (_, m, action) in plan.Swings) cadence.CompleteSwing(m, action);
         }
-        Record("planner", "PlanMonsterAi µs per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "µs");
+        Record("planner", "PlanMonsterAi Ã‚Âµs per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "Ã‚Âµs");
         self.Refresh();
         // Less disturbed by other processes on a shared machine than the wall clock.
-        Record("planner", "PlanMonsterAi process CPU µs per step", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds * 1000 / Steps, "µs");
+        Record("planner", "PlanMonsterAi process CPU Ã‚Âµs per step", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds * 1000 / Steps, "Ã‚Âµs");
         Record("planner", "PlanMonsterAi allocated KB per step", (GC.GetAllocatedBytesForCurrentThread() - planAllocated) / 1024.0 / Steps, "KB");
         Record("planner", "PlanMonsterAi moves per step", moves / (double)Steps, "");
         // The planner's phases (ConnectionPerformance): the surround's slot search and the blocker snapshot.
-        Record("planner", "MonsterSurround.Assign µs per step",
-            (conn.Performance.Read(LatencyPhase.Surround).TotalMilliseconds - surroundBefore.TotalMilliseconds) * 1000 / Steps, "µs");
-        Record("planner", "blocker frame µs per step",
-            (conn.Performance.Read(LatencyPhase.BlockerBuild).TotalMilliseconds - blockersBefore.TotalMilliseconds) * 1000 / Steps, "µs");
+        Record("planner", "MonsterSurround.Assign Ã‚Âµs per step",
+            (conn.Performance.Read(LatencyPhase.Surround).TotalMilliseconds - surroundBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
+        Record("planner", "blocker frame Ã‚Âµs per step",
+            (conn.Performance.Read(LatencyPhase.BlockerBuild).TotalMilliseconds - blockersBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
         conn.Closed = true;
     }
 }

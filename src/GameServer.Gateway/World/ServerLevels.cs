@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Text.Json;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
-using GgDump;
 
 /// <summary>Server-side level generation (GameServer.Data/Terrain/Generation, Agents/docs/re/011-level-generation.md):
 /// for an area the port reproduces 1:1, the Gateway generates the layout itself from the seed instead of reading the
@@ -11,7 +10,7 @@ using GgDump;
 /// transitions and waypoint. Supported areas are the ones whose seed-1 trace passes every check of the level
 /// generator's gate (scripts/re/levelgen/gate-baseline.json, committed with each generator change), or whose seed-1
 /// failure the port reproduces (the client cannot build it either), and whose logged loads all match. Needs the game
-/// files (Client/Content.ggpk) and Node for their Oodle blocks (Tools/ooz); Game_SERVER_LEVELS=0 turns it off.</summary>
+/// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
 static class ServerLevels
 {
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
@@ -46,7 +45,6 @@ static class ServerLevels
     static Dictionary<string, uint>? _inPlaceOfOne;
     static readonly Lock SupportedGate = new();
     static TerrainCache? _files;
-    static GameFileSystem? _fs;
     // The levels kept for the next entry, with when each was last asked for (a timestamp written without a lock: the
     // projectile and height lookups ask on every step). With random seeds every new instance is a new (area, seed), so
     // only the Kept most recently used stay (a level's grids are ~11 MB: 24 of them were 265 MB in the perf benchmark);
@@ -218,14 +216,6 @@ static class ServerLevels
             Errors[(areaId, seed)] = ex.ToString();
             return null;
         }
-        // The compressed bundles a generation read (~80 MB for a first area) are not kept between generations: the
-        // decompressed chunks in front of them serve the next one's repeated reads, a chunk missing from them is read
-        // from the GGPK again (performance.md).
-        finally
-        {
-            _fs?.ReleaseBundles();
-            _oodle?.StopAfter(DecoderIdle);
-        }
     }
 
     static bool WithinReach(byte[] cells, int w, int h, int x, int y, int r)
@@ -240,76 +230,9 @@ static class ServerLevels
     }
 
     // Opened on the first generation and kept.
-    static TerrainCache Files()
-    {
-        if (_files is not null) return _files;
-        // When the worker stops, the decompressed chunks go too: until the next generation nothing reads the game files.
-        var oodle = _oodle = new IdleWorkerDecoder(() => new NodeOodleDecoder("node", Path.GetFullPath(Path.Combine("Tools", "ooz", "ooz_worker.mjs"))),
-            () => _fs?.ClearBundleCache());
-        // A small bundle cache: a read whose chunks are all in the decompressed-chunk cache needs no bundle, and the
-        // default 1 GiB ceiling would be every Gateway's on a multi-stack machine (the perf benchmark's 46 areas filled
-        // 173 MB of it; Agents/docs/dev/performance.md).
-        _fs = GameFileSystem.Open(Path.GetFullPath(Path.Combine("Client", "Content.ggpk")), oodle, bundleCacheBytes: 128L << 20);
-        return _files = new TerrainCache(Read);
-    }
+    static TerrainCache Files() => _files ??= new TerrainCache(Read);
 
-    static byte[]? Read(string path) => _fs!.TryReadFile(path, out var d) ? d : null;
-
-    /// <summary>How long the Oodle worker (a Node process, ~80 MB) and the decompressed chunks (up to 64 MB) stay after a
-    /// generation; the next generation that needs a chunk decoded starts the worker again.</summary>
-    internal static TimeSpan DecoderIdle { get; set; } = TimeSpan.FromSeconds(60);
-    static IdleWorkerDecoder? _oodle;
-
-    /// <summary>A decoder whose worker starts on the first chunk and stops when <see cref="StopAfter"/>'s time has passed
-    /// without a chunk. Each chunk is decoded the same way by whichever worker runs.</summary>
-    sealed class IdleWorkerDecoder(Func<NodeOodleDecoder> start, Action stopped) : GameServer.Data.Ggpk.IOodleDecoder
-    {
-        readonly Lock gate = new();
-        NodeOodleDecoder? worker;
-        Timer? idle;
-
-        public byte[] Decompress(ReadOnlyMemory<byte> compressed, int uncompressedSize)
-        {
-            lock (gate)
-            {
-                idle?.Dispose();
-                idle = null;
-                return (worker ??= start()).Decompress(compressed, uncompressedSize);
-            }
-        }
-
-        public void StopAfter(TimeSpan delay)
-        {
-            lock (gate)
-            {
-                if (worker is null) return;
-                idle?.Dispose();
-                Timer? timer = null;
-                timer = idle = new Timer(_ => Stop(timer), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-                timer.Change(delay, Timeout.InfiniteTimeSpan);
-            }
-        }
-
-        // Only the timer still armed stops the worker: a chunk decoded meanwhile disarmed it.
-        void Stop(Timer? timer)
-        {
-            NodeOodleDecoder? stopping;
-            lock (gate)
-            {
-                if (timer is null || !ReferenceEquals(idle, timer)) return;
-                idle.Dispose();
-                idle = null;
-                (stopping, worker) = (worker, null);
-            }
-            // Outside the gate: nobody uses the old worker any more (a decode takes the gate), and its exit can take a
-            // moment. The caches go only if no generation has started a new worker meanwhile (a read holds the game
-            // files' lock while it decodes through this decoder, so that lock is taken outside the gate too).
-            stopping?.Dispose();
-            lock (gate)
-                if (worker is not null) return;
-            stopped();
-        }
-    }
+    static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 
     static readonly Lazy<Dictionary<string, int>> Levels = new(() =>
     {

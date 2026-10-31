@@ -519,6 +519,38 @@ The remaining rows are explicitly unsupported and spend nothing: influence rerol
 
 Tests cover raw-row hashes/costs, a guaranteed-tag reforge, augment removal+addition, affinity shape, ModType conversion, refusal cases, split inventory/stash payment, insufficient funds, save rollback and the 0x276 result packet. Station placement, native window opening, the actual 0x274 request and repeated crafting without reopening were confirmed in the real client.
 
+### Monster Statue (2026-11-01)
+
+A Monster Statue is `Metadata/MiscellaneousObjects/Hideout/HideoutMonsterStatue` with the
+`HideoutMonsterStatue` GameObjectTask (GameObjectTasks HASH16 42230). The task builds the actor of one
+MonsterVarieties row and poses it; no living monster is created. Its 41-byte blob is:
+
+| Component | Bytes |
+|---|---|
+| Positioned | x, y i32 LE, rotation f32 LE, u16, u8, u8 0x02, u8, u8 1 |
+| Animated | u8 0: none, the task supplies the model |
+| HideoutDoodad | u32 2905168814, variation u8, flag u8 0 |
+| Inventories | u8 0, u8 0: none, no equipped items |
+| tasks | u8 1, u16 42230, then the task: u16 MonsterVarieties **HASH16**, u16 scale, u8 0 (no Animated blob), u32 0 (no model override) |
+
+The HideoutDoodad variation is the task's first u8. Its low two bits select the actor variation (0 live,
+1 stone, 2 dead, 3 another stance), and a value above 3 makes the doodad take the task's model path:
+**5 is the stone statue with no life bar or name label** (verified live), 6 the dead pose and 7 another
+stance. The task's monster field is the row's HASH16, not its table row index (Savage Crab 40195).
+
+`/statue <MonsterVarieties row, Id or name> [variation]` (dev, Core Commands) places that monster's statue
+at the player. It defaults to variation 5 and writes the same object into the character's hideout save;
+`SpawnMonsterStatues` recreates the saved statues on every area generation for the character's selected
+hideout, and each gets S→C 0x1a9 and 0x1b2 (kind 0, index 0, speed 1) so the rig plays its idle.
+`CharacterSaves.MonsterStatues` stores them by WorldAreas Id: x, y, rotation, HASH16, scale and variation.
+
+The native **Monster Statue Creator** item path is DNT-gated and not used. Its confirmation panel sends
+**C→S 0x0209**, 10 bytes: u16 BE 0x0209, u32 BE action 911988280, u32 BE target entity id. The native
+panel only offers a dead monster (`0x1400f4930` checks life < 1); the server handler instead accepts a
+known monster in the character's own hideout, creates its stone statue at the monster's position, removes
+the monster (0x2bb) and saves the statue. Live capture: `0209 365BD638 00003040` created statue 0x3041 and
+removed monster 0x3040.
+
 ### Arrival on the saved waypoint
 
 Before serializing the player, PrepareHideoutWaypoint restores the character's saved waypoint position.

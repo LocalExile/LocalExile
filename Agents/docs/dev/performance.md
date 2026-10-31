@@ -12,11 +12,11 @@ of `data\validation-saves.db`, times each to its "listening" line, waits `-Settl
 working set and the GC heap and committed size (through `dotnet-counters`, when `artifacts\tools` has it:
 `dotnet tool install dotnet-counters --tool-path artifacts/tools`), and stops only the processes it started. Run 1 is a
 stack's first start (the Gateway seeds the game-data reference tables into the database); the medians use the
-restarts. `-Env @{ NAME = 'value' }` tries runtime settings (`DOTNET_GCConserveMemory`, …). It never binds the default
+restarts. `-Env @{ NAME = 'value' }` tries runtime settings (`DOTNET_GCConserveMemory`, â€¦). It never binds the default
 ports and never starts a client.
 
 **A whole idle stack**: `scripts/perf/stack.ps1 [-Configuration Release]` starts the built Auth, Patch and Gateway on
-PortBase+1 … +6, and after they are ready records each one's private bytes (its commit), working set and CPU time over
+PortBase+1 â€¦ +6, and after they are ready records each one's private bytes (its commit), working set and CPU time over
 an idle minute (`-IdleSeconds`). `scripts/perf/watch.ps1` does the same for a Gateway under `dotnet watch` (as
 `live.ps1` runs it by default) and lists every process of that tree. Neither binds the default ports or starts a client.
 Each perf script takes `-PortBase`, a block of 10 ports of the worktree's own (defaults: stack.ps1 23000, watch.ps1
@@ -39,14 +39,14 @@ One scenario per process (catalogues load once per process). Results go to stdou
 | `area` | six supported areas at seeds nobody asked for before: the layout (server level generation, `AreaLayouts.For`) and the monster population over a loopback connection; the GGPK caches and the heap afterwards. `Game_PERF_MORE_AREAS=N` adds N more layouts, as a long session visits them |
 | `busy` | The Coast with 60 monsters of its pack kinds (and a Sand Spitter, for projectiles) around a walking player and 140 idle ones farther away; the real `RunMonsterAi` loop with swings, contacts and projectiles, every packet encrypted and sent. Process CPU per game second, measured after a 5 s warm-up (a fresh process first spends seconds in tier-1 JIT) |
 | `planner` | `PlanMonsterAi` alone over the same crowd, 2000 steps: time, process CPU and allocation per step |
-| `single` | one player's Gateway: the startup loads (`GameData.Open`), then the town, a combat area (The Coast, its packs) and a boss area (The Twilight Strand, Hillock), each entered and held as a connection does; after each, the heap, its large-object part and private bytes. With `Game_PERF_DECODER_IDLE_MS=2000` also the boss area once level generation has gone idle |
-| `idle` | one player standing in town with the per-connection loops a connection starts (recovery, player tick, charges, rage, server frames, monster AI …): process CPU, allocation and bytes sent per second |
+| `single` | one player's Gateway: the startup loads (`GameData.Open`), then the town, a combat area (The Coast, its packs) and a boss area (The Twilight Strand, Hillock), each entered and held as a connection does; after each, the heap, its large-object part and private bytes. The runtime files come from the extracted game pack |
+| `idle` | one player standing in town with the per-connection loops a connection starts (recovery, player tick, charges, rage, server frames, monster AI â€¦): process CPU, allocation and bytes sent per second |
 
 The busy instance is the same in every run (fixed placement, no buried monsters, which rise on a wall-clock watch);
 `PopulateArea` is not, because it seeds placement with the process's randomized `HashCode`. Timings on a shared
-machine vary by ±20 %: compare several runs, and prefer allocation, which is exact.
+machine vary by Â±20 %: compare several runs, and prefer allocation, which is exact.
 
-**Profiles**: set `DOTNET_EnableEventPipe=1`, `DOTNET_EventPipeOutputPath=…\trace-{pid}.nettrace` and
+**Profiles**: set `DOTNET_EnableEventPipe=1`, `DOTNET_EventPipeOutputPath=â€¦\trace-{pid}.nettrace` and
 `DOTNET_EventPipeConfig=Microsoft-DotNETCore-SampleProfiler:0:5,Microsoft-Windows-DotNETRuntime:0x4c14fccbd:5` for a
 run: CPU samples and allocation ticks with stacks (read them with TraceEvent or `dotnet-trace report`).
 `Game_PERF_HOLD=1` keeps the area and single-player scenarios' state alive for `dotnet-gcdump collect`; a heap dump's
@@ -62,7 +62,7 @@ largest objects and what holds them show where the memory is (the pass below fou
 | Auth ready / private bytes | 0.3 s / 36 MB | unchanged |
 | First area layout (opens the GGPK) | 3.3 s, 13.2 GB allocated | 1.2 s, 0.49 GB |
 | Area layout 1_1_3 / 1_1_4_1 / 1_1_5 / 1_1_7_1 / 1_2_1 | 0.80 / 1.83 / 1.27 / 1.39 / 1.73 s | 0.41 / 0.57 / 0.54 / 0.35 / 0.22 s |
-| … allocated per layout | 4.4-8.0 GB | 84-166 MB |
+| â€¦ allocated per layout | 4.4-8.0 GB | 84-166 MB |
 | First area population (the monster catalogues load) | 0.95-0.97 s, 414-477 MB | 0.83-0.87 s, 357-431 MB |
 | Catalogue loads, Program statics | 1.37 s, 816 MB allocated | 1.17-1.27 s, 572 MB |
 | Skill-type sets of a skill catalogue | 0.30 s, 105 MB allocated | 0.11 s, 13 MB |
@@ -71,7 +71,7 @@ largest objects and what holds them show where the memory is (the pass below fou
 | Generated levels kept (46-area session) | 24, 265 MB of grids | 8 most recently used (103-116 MB), plus any level a connection still plays |
 | Levelgen gate, 122 checks, 2 workers | 30 s | 9 s (same results) |
 | `PlanMonsterAi`, 200 monsters, 60 chasing (Release) | 1.34-1.37 ms per step | 1.04 ms (`MonsterSurround.Assign` 0.96 -> 0.48 ms) |
-| Busy instance CPU (Release; Debug ~1.6×) | 78-160 ms per game second | within that noise |
+| Busy instance CPU (Release; Debug ~1.6Ã—) | 78-160 ms per game second | within that noise |
 
 What changed: `BundleFile.DecompressSlice` copied every chunk of a bundle for each file read (88 % of a level
 generation's CPU); `GameFileSystem` keeps the last 64 MB of decompressed chunks and serves a file whose chunks are all
@@ -82,6 +82,10 @@ the memory their parsing left committed; `AreaLayouts.DeepestCell` no longer all
 `SkillCatalog` parses the skill-type tables once and resolves each set once; `GameTables` shares the parse of
 Stats.json, Mods.json, MonsterVarieties.json and GrantedEffects.json among the catalogues that load them in one burst;
 `MonsterSurround.Assign` checks a refused cell once per assignment.
+
+The GGPK rows of these numbers predate `data/game-files.zip`: the Gateway now generates levels from that pack, with no
+bundle cache or Node worker (`GamePack`), and its layout timings have not been measured again. The chunk and bundle
+caches still serve the tools that read the GGPK.
 
 Tried and dropped (no measurable effect): `DOTNET_GCConserveMemory` (5, 7), `DOTNET_GCgen0size`,
 `DOTNET_ThreadPool_UnfairSemaphoreSpinLimit=0`, shift-based bucket math and span loops in `BlockerSet.Query`, skipping
@@ -94,7 +98,15 @@ Measuring memory in-process: `ArrayPool<byte>.Shared` keeps the buffers `JsonDoc
 full collection varies by a few hundred MB between identical runs; compare sizes the benchmarks read directly (caches,
 kept levels) or the server's own counters.
 
-## One player per stack (2026-10-31, branch `contrib/lean-server`)
+## Current integration
+
+The parse-buffer isolation, lighter extraction-tool GGPK index and `live.ps1 -Release` remain applicable.
+The Gateway now reads `data/game-files.zip` and `data/client-constants.json`, without opening the client archive or
+starting an Oodle worker. The old runtime decoder timer, bundle release and HNC executable read have been removed.
+The measurements below predate that migration; they are historical comparisons, not measurements of current main.
+The `single` and `area` scenarios use the extracted pack and no longer measure runtime decoder caches.
+
+## One player per stack (2026-10-31, before the extracted-pack migration)
 
 The target is one server stack and one client per worktree, eight of them on one PC, so a stack's idle and
 single-player cost counts eight times. Measured against `contrib/server-perf` (cb9a6de6) on the same machine:
@@ -107,10 +119,10 @@ single-player cost counts eight times. Measured against `contrib/server-perf` (c
 | `dotnet watch` beside the Gateway (watch.ps1, before any edit) | +223 MB private, +444 MB working set, +235 ms CPU per minute | none with `live.ps1 -Release` or `-NoHotReload` |
 | Oodle worker (Node, ooz-wasm) after a generation | 78 MB private, for the Gateway's life | stops a minute after the last generation (+55 ms on the next one) |
 | One player (test host): startup / town / combat area / boss area, GC heap | 527 / 718 / 809 / 830 MB | 187 / 273 / 361 / 379 MB |
-| … the same, private bytes | 568 / 761 / 855 / 877 MB | 223 / 311 / 401 / 412 MB |
-| … in the boss area once generation has gone idle | (as above) | 347 MB heap, 372 MB private |
+| â€¦ the same, private bytes | 568 / 761 / 855 / 877 MB | 223 / 311 / 401 / 412 MB |
+| â€¦ in the boss area once generation has gone idle | (as above) | 347 MB heap, 372 MB private |
 | One player, after merging main (the `single` scenario in its own process): GC heap | | 46 / 148 / 242 / 264 MB; 231 MB once generation is idle |
-| … the same, private bytes | | 75 / 180 / 276 / 291 MB; 255 MB once generation is idle |
+| â€¦ the same, private bytes | | 75 / 180 / 276 / 291 MB; 255 MB once generation is idle |
 | One idle player in town: CPU, allocation (`idle` scenario, Release) | not measured before | 52-59 ms per second, 12-14 MB per second |
 
 The first single-player rows were measured in the Gateway test host, which added ~115 MB of its own; after main moved

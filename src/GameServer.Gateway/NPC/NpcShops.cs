@@ -7,9 +7,10 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 static class NpcShops
 {
-    /// <summary>A shop tab: 12 × 12 cells, the size of the vendor window's grid. Inventories.dat row 83
-    /// (CraftPredictionScratch, kind 0x0f) only gives the client a generic grid type.</summary>
-    public static readonly InstanceInventories.Slot Tab = new(83, 0x0f, 12, 12);
+    /// <summary>A shop tab: 12 × 11 cells, what the vendor window holds below its title and tab bar; a twelfth row pushes the
+    /// tab bar up over the title. Inventories.dat row 83 (CraftPredictionScratch, kind 0x0f) only gives the client a generic
+    /// grid type.</summary>
+    public static readonly InstanceInventories.Slot Tab = new(83, 0x0f, 12, 11);
 
     /// <summary>A sell offer grid (the player's and the NPC's side of the sell window): the main inventory's row and size,
     /// so every item fits (the client checks a drop against the row, 0x141d628f0; row 83 refused everything).</summary>
@@ -52,8 +53,17 @@ static class NpcShops
     public const int PriceInCurrency = 1;
 
 
-    /// <summary>A shop tab: its name in the buy window (S→C 0x8c) and its items.</summary>
-    public sealed record ShopTab(string Name, List<InventoryItem> Items);
+    /// <summary>A shop tab: its name in the buy window (S→C 0x8c), its items and its colour (ARGB; 0 is the client's default).</summary>
+    public sealed record ShopTab(string Name, List<InventoryItem> Items, uint TabColour = 0);
+
+    /// <summary>The tab colour of a gem colour (SkillGems GemColour 1 to 4).</summary>
+    static uint TabColourOf(int gemColour) => gemColour switch
+    {
+        1 => 0xFF8C1414,
+        2 => 0xFF148C14,
+        3 => 0xFF14148C,
+        _ => 0xFFB4B4B4,
+    };
 
     /// <summary>Nessa's gem tabs (2026-10-21): every shop gem (<see cref="ItemCatalog.ShopGems"/>) by colour, actives and
     /// supports apart, one of each.</summary>
@@ -145,7 +155,8 @@ static class NpcShops
                         .Select(t => (t, 1, (Item?)null)).ToList();
                 for (int page = 1; gems.Count > 0 || page == 1; page++)
                     tabs.Add(new(page == 1 ? name : $"{name} {page}", Lay(gems, items,
-                        (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : PricedGem(type, item), nextId, notes)));
+                        (type, item) => hardModePrices?.For(type) is { } price ? item with { Price = [price] } : PricedGem(type, item), nextId, notes),
+                        TabColourOf(colour)));
             }
         }
         return tabs;

@@ -40,6 +40,8 @@ partial class Program
                 if (!File.Exists(Path.Combine(ModulesFolder, path, ModHost.ModuleManifestFile)))
                     Console.WriteLine($"[leagues] {league.Name}'s modules.json lists {path}: no such module in {ModulesFolder}/");
         Console.WriteLine($"[leagues] loaded: {string.Join(", ", leagues.Loaded.Select(l => l.Name + (l.Ended ? " (ended)" : "")))}");
+        StaleModules.Rebuild(ModulesFolder);
+        ModLoadContext.DeleteOldCopies();
         ServerLeagueCode.Changed += line => HotReload.Tell(line.Replace("[leagues] ", "Leagues: "));
         ServerLeagueCode.Start();
         ServerModules.Changed += line => HotReload.Tell(line.Replace("[modules] ", "Modules: "));
@@ -69,12 +71,13 @@ partial class Program
 
     static IGameLogic? _logic;
 
-    /// <summary>The game's rules, once the game module is loaded; gone for a moment while it reloads.</summary>
+    /// <summary>The game's rules, once the game module is loaded. A reload's old rules keep running until the new ones replace
+    /// them, so a connection always has some.</summary>
     internal static IGameLogic? GameLogicOrNull => Volatile.Read(ref _logic);
     internal static IGameLogic Logic => GameLogicOrNull ?? throw new InvalidOperationException("the game module is not loaded");
 
-    /// <summary>The game module (un)loaded. What held its old types is let go, so that its load context can be collected.</summary>
-    internal static void SetGameLogic(IGameLogic? logic)
+    /// <summary>The game module loaded. What held its old types is let go, so that its load context can be collected.</summary>
+    internal static void SetGameLogic(IGameLogic logic)
     {
         Volatile.Write(ref _logic, logic);
         ModPlayers.Clear();

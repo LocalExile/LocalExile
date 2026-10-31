@@ -6,13 +6,14 @@ using Rules = global::Game;
 namespace GameServer.Modules.Game;
 
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
-public sealed class GameModule : IModule, IDisposable
+public sealed class GameModule : IModule
 {
     /// <inheritdoc/>
-    public void Load(IModuleContext module) => Program.SetGameLogic(new GameLogic());
-
-    /// <inheritdoc/>
-    public void Dispose() => Program.SetGameLogic(null);
+    public void Load(IModuleContext module)
+    {
+        Rules.CombatLifetime = module.Lifetime;
+        Program.SetGameLogic(new GameLogic());
+    }
 }
 
 sealed class GameLogic : IGameLogic
@@ -31,7 +32,7 @@ sealed class GameLogic : IGameLogic
         return level;
     }
 
-    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(ClientState conn) => Rules.LeagueStatsFor(conn.MainAscendancy);
+    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(ClientState conn) => Rules.LeagueStatsFor(conn);
 
     public async Task Entered(string remote, ClientState conn, int level, int ticketLevel)
     {
@@ -50,6 +51,9 @@ sealed class GameLogic : IGameLogic
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
         conn.Rage.Clear();
+        conn.Rampage.Clear();
+        conn.RetireOwnedCombat();
+        conn.VaalPreventionUntil = 0;
     }
 
     public void Save(ClientState conn, bool prepared)
@@ -76,4 +80,5 @@ sealed class GameLogic : IGameLogic
     public IConnectionPlayer PlayerFor(ClientState conn) => new Rules.ModPlayer(conn);
     public IPlayerWorld WorldFor(ClientState conn) => new Rules.ModuleWorld(conn);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
+    public double PlayerActionFactor(ClientState conn) => Rules.PlayerActionFactor(conn);
 }

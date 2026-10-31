@@ -10,6 +10,7 @@ using System.Text.Json;
 /// </summary>
 sealed class StashRules
 {
+    public UniqueStashLayout Uniques { get; private set; } = new();
     public const byte Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Delve = 12, Blight = 13,
         Ultimatum = 14, Delirium = 15, Flask = 17, Gem = 18, Breach = 22;
 
@@ -53,9 +54,9 @@ sealed class StashRules
     /// <summary>
     /// Tab types whose page the client lays out its own way, which the Gateway doesn't know yet: items saved there are
     /// not shown, so these tabs take nothing. The map tab: the 3.29 client lists maps by tier, not at grid cells (two Beach
-    /// Maps at (0, 0) and (0, 1) were saved but not shown, live 2026-10-20). The unique tab (UniqueStashLayout keys its
-    /// slots by unique names; the server has no uniques yet), and the breach and ultimatum tabs (no layout table in the
-    /// 3.29.3b data) are there, but take nothing yet.
+    /// Maps at (0, 0) and (0, 1) were saved but not shown, live 2026-10-20). Unique parents hold no direct items:
+    /// AccountStash routes them to hidden category inventories using UniqueStashLayout. Breach and ultimatum
+    /// still have no supported item layout.
     /// </summary>
     public static bool NotShown(byte tabType) => tabType is Map or Unique or Breach or Ultimatum;
 
@@ -81,7 +82,7 @@ sealed class StashRules
 
     public static StashRules Load(string folder, IReadOnlyList<ItemCatalog.BaseType> rows)
     {
-        var rules = new StashRules();
+        var rules = new StashRules { Uniques = UniqueStashLayout.Load(folder) };
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
         string[] needed = ["StashTabAffinities", "StashTabAffinityByBaseItemType", "StashtabAffinityByItemClassCategory", "ItemClasses",
             "CurrencyStashTabLayout", "EssenceStashTabLayout", "FragmentStashTabLayout", "DelveStashTabLayout", "BlightStashTabLayout",
