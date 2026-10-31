@@ -164,7 +164,9 @@ static class AreaPopulation
             for (int x = 0; x < w; x += 3)
                 if (depth[y * w + x] >= CentreDepth) candidates.Add((x, y));
         int walkableCells = depth.Count(d => d > 0);
-        int wanted = Math.Max(1, walkableCells / CellsPerPack);
+        int wanted = (int)Math.Round(walkableCells / (double)CellsPerPack
+            * SystemSettings.Default.MonsterPackDensityMultiplier);
+        if (wanted <= 0) return spawns;
         Shuffle(candidates, rng);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
         foreach (var c in candidates)
@@ -188,7 +190,8 @@ static class AreaPopulation
     static void AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
         MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable)
     {
-        int count = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
+        int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
+        int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier));
         var members = new List<int>();
         for (int i = 0; i < count; i++)
         {

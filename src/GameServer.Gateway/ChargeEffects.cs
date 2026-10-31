@@ -15,7 +15,10 @@
 /// and burning, <see cref="Reduction"/> mitigates hits taken.</item>
 /// </list>
 /// The rows of the Charges tab read the per-charge stats themselves, and <c>current_*_charges</c> /
-/// <c>virtual_maximum_*_charges</c> (<see cref="Display"/>).
+/// <c>virtual_maximum_*_charges</c> (<see cref="Display"/>). Under a "gain … instead of" flag
+/// (<see cref="Charges.ConversionFlag"/>) a type's charges are Brutal, Affliction or Absorption Charges: the
+/// standard effects stop, the special per-charge stats (<see cref="Rule.Special"/>) and <see cref="DamageMore"/>'s
+/// ailment multiplier take the count, and the special rows show it.
 /// </summary>
 static class ChargeEffects
 {
@@ -32,8 +35,10 @@ static class ChargeEffects
     ];
 
     /// <summary>One per-charge stat: × the charges of <paramref name="Type"/> held (null: all three types together), it
-    /// adds to each of <paramref name="Targets"/>. <paramref name="Cap"/> limits the total ("up to 50%").</summary>
-    public sealed record Rule(string Stat, ChargeType? Type, string[] Targets, int? Cap = null);
+    /// adds to each of <paramref name="Targets"/>. <paramref name="Cap"/> limits the total ("up to 50%").
+    /// <paramref name="Special"/>: a stat per the type's special charge (Brutal, Affliction, Absorption), which counts
+    /// the type's charges only while they are converted (<see cref="Charges.ConversionFlag"/>).</summary>
+    public sealed record Rule(string Stat, ChargeType? Type, string[] Targets, int? Cap = null, bool Special = false);
 
     // The physical one goes into the passives' base form, which the virtual total and the hits read; the elemental one has
     // no base form.
@@ -135,7 +140,19 @@ static class ChargeEffects
         P("lightning_damage_%_to_add_as_chaos_per_power_charge", "lightning_damage_%_to_add_as_chaos"),
         // All three
         new("damage_+%_per_frenzy_power_or_endurance_charge", null, ["damage_+%"]),
+        // Brutal (Endurance Charges converted): Character.ot's 3% chance to deal triple damage (the hits' gambler roll)
+        // and 10% increased stun threshold per charge (PanelStatDefaults). Affliction's more ailment damage is
+        // DamageMore(ailment); its more effect of non-damaging ailments and Absorption's recoup of elemental damage
+        // taken as energy shield have no server consumer yet (11-skills.md §15).
+        new("chance_to_deal_triple_damage_%_per_brutal_charge", ChargeType.Endurance, ["base_chance_to_deal_triple_damage_%"], Special: true),
+        new("stun_threshold_+%_per_brutal_charge", ChargeType.Endurance, ["stun_threshold_+%"], Special: true),
     ];
+
+    static readonly HashSet<string> Expanded = [.. PerCharge.Select(r => r.Stat)];
+
+    /// <summary>Whether a per-charge stat is one <see cref="Expand"/> turns into a stat the server calculates with (so a
+    /// consumer gating on unsupported stats must not refuse it: PlayerHitRecovery's stun threshold and recovery).</summary>
+    public static bool Expands(string stat) => Expanded.Contains(stat);
 
     /// <summary>Stats that apply while the character has none of a type, or at least one.</summary>
     public sealed record Condition(string Stat, ChargeType Type, bool WhenNone, string[] Targets);
@@ -156,25 +173,30 @@ static class ChargeEffects
     /// Stats.dat Id: <see cref="PerCharge"/>, <see cref="Conditional"/> and the virtual reductions
     /// <c>additional_physical_damage_reduction_%</c> (the passives' <c>base_additional_physical_damage_reduction_%</c>,
     /// which the charges add to) and <c>additional_elemental_damage_reduction_%</c>.
+    /// <paramref name="converted"/>: the types whose charges are their special type's now (<see cref="Charges.Converted"/>;
+    /// null: none). A converted type's charges count for its special rules only: the standard per-charge and "no
+    /// charges" stats see none of them (pinned PoB CalcPerform zeroes the standard count).
     /// </summary>
-    public static Dictionary<string, int> Expand(Func<string, int> get, Func<ChargeType, int> held)
+    public static Dictionary<string, int> Expand(Func<string, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null)
     {
         var added = new Dictionary<string, int>(StringComparer.Ordinal);
         void Add(string stat, long value)
         {
             if (value != 0) added[stat] = (int)Math.Clamp(added.GetValueOrDefault(stat) + value, int.MinValue, int.MaxValue);
         }
-        int total = Charges.Types.Sum(held);
+        int Standard(ChargeType type) => converted?.Invoke(type) == true ? 0 : held(type);
+        int Special(ChargeType type) => converted?.Invoke(type) == true ? held(type) : 0;
+        int total = Charges.Types.Sum(Standard);
         foreach (var rule in PerCharge)
         {
             int perCharge = get(rule.Stat);
             if (perCharge == 0) continue;
-            long value = (long)perCharge * (rule.Type is { } t ? held(t) : total);
+            long value = (long)perCharge * (rule.Type is { } t ? rule.Special ? Special(t) : Standard(t) : total);
             if (rule.Cap is int cap) value = Math.Min(value, cap);
             foreach (string target in rule.Targets) Add(target, value);
         }
         foreach (var c in Conditional)
-            if (get(c.Stat) is int value and not 0 && (held(c.Type) == 0) == c.WhenNone)
+            if (get(c.Stat) is int value and not 0 && (Standard(c.Type) == 0) == c.WhenNone)
                 foreach (string target in c.Targets) Add(target, value);
         Add(AdditionalPhysicalReduction, (long)get(PhysicalReduction) + added.GetValueOrDefault(PhysicalReduction));
         return added;
@@ -183,17 +205,25 @@ static class ChargeEffects
     /// <summary>The panel stats of the counts (<paramref name="held"/>: effective, <paramref name="limits"/>: per type):
     /// <c>current_*_charges</c> (the Charges tab's "x / y" rows), <c>actual_current_*_charges</c> (BuffDefinitions
     /// <c>Current_StatsKey</c> of the charge buffs), <c>minimum_*_charges</c> and
-    /// <c>current_removable_*_charges</c> (those above the minimum, which charge-consuming skills may spend).</summary>
-    public static IEnumerable<(string Stat, int Value)> Display(Func<ChargeType, int> held, Func<ChargeType, Charges.Limits> limits)
+    /// <c>current_removable_*_charges</c> (those above the minimum, which charge-consuming skills may spend).
+    /// A converted type (<paramref name="converted"/>, <see cref="Charges.Converted"/>) shows its count on the special
+    /// type's rows instead: <c>current_brutal_charges</c> (the Charges tab's row and the buff's <c>Current_StatsKey</c>)
+    /// and <c>minimum_brutal_charges</c> (when <paramref name="minimumConverted"/>, the "modifiers to minimum … instead
+    /// apply" flag), and zero on its own. The special rows are always sent, so a removed flag clears them.</summary>
+    public static IEnumerable<(string Stat, int Value)> Display(Func<ChargeType, int> held, Func<ChargeType, Charges.Limits> limits,
+        Func<ChargeType, bool>? converted = null, Func<ChargeType, bool>? minimumConverted = null)
     {
         foreach (var type in Charges.Types)
         {
-            string name = Charges.Name(type);
-            int count = held(type), minimum = limits(type).Minimum;
+            string name = Charges.Name(type), special = Charges.SpecialName(type);
+            bool isConverted = converted?.Invoke(type) == true;
+            int count = isConverted ? 0 : held(type), minimum = limits(type).Minimum;
             yield return ($"current_{name}_charges", count);
             yield return ($"actual_current_{name}_charges", count);
             yield return ($"minimum_{name}_charges", minimum);
             yield return ($"current_removable_{name}_charges", Math.Max(0, count - minimum));
+            yield return ($"current_{special}_charges", isConverted ? held(type) : 0);
+            yield return ($"minimum_{special}_charges", isConverted && minimumConverted?.Invoke(type) == true ? minimum : 0);
         }
     }
 
@@ -203,10 +233,13 @@ static class ChargeEffects
     /// spells, <c>object_inherent_spell_damage_+%_final_per_power_charge</c> and the Quiet Might keystone's
     /// <c>quiet_might_keystone_spell_damage_+%_final_per_power_charge</c> × <c>current_power_charges</c> (the two Charges
     /// tab rows "Spell damage modifier per Power Charge"; each its own multiplier). A more modifier per charge is one
-    /// multiplier of value × charges (Path of Building's Multiplier tag), not compounded.
+    /// multiplier of value × charges (Path of Building's Multiplier tag), not compounded. Damage with ailments
+    /// (<paramref name="ailment"/>) takes Affliction Charges' <c>ailment_damage_+%_final_per_affliction_charge</c> ×
+    /// <c>current_affliction_charges</c> too (the Charges tab's "Ailment damage per Affliction Charge" row; PoB
+    /// CalcPerform's Damage MORE with KeywordFlag.Ailment).
     /// <paramref name="get"/> reads the character's final stats, which hold both the per-charge values and the counts.
     /// </summary>
-    public static double DamageMore(Func<string, int> get, bool spell = false)
+    public static double DamageMore(Func<string, int> get, bool spell = false, bool ailment = false)
     {
         static double More(long percent) => Math.Max(0, 100 + percent) / 100.0;
         double more = More((long)get("object_inherent_damage_+%_final_per_frenzy_charge") * get("current_frenzy_charges"));
@@ -216,6 +249,8 @@ static class ChargeEffects
             more *= More((long)get("object_inherent_spell_damage_+%_final_per_power_charge") * power)
                 * More((long)get("quiet_might_keystone_spell_damage_+%_final_per_power_charge") * power);
         }
+        if (ailment)
+            more *= More((long)get("ailment_damage_+%_final_per_affliction_charge") * get("current_affliction_charges"));
         return more;
     }
 

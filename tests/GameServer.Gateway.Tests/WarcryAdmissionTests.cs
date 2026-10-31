@@ -36,6 +36,9 @@ public class WarcryAdmissionTests
                 PlayerLife = 500, PlayerMana = 1000, ActionCount = 17, ChannelSkill = 0x104,
                 Pools = new(100, 500, 1000, 100, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
                 SentEnergyShield = 0, SentRechargeActive = false, SentEsRecoveryRate = 0 };
+            // Item activation reads the requirement attributes, not the pools above (socketed gems count).
+            foreach (string attribute in new[] { "strength", "dexterity", "intelligence" })
+                Conn.PlayerStats[Program.Stats.Key($"virtual_{attribute}_for_requirements")!.Value] = 1000;
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGem" + gemId)!);
             var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
                 { Sockets = [new(SocketColour.White, gem)] };

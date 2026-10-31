@@ -42,6 +42,18 @@ one or `wait` seconds (default 1.5) in total. `replies` is null when the servers
 `live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Replies of commands
 sent from the chat box meanwhile are mixed in; the bridge does not capture the HUD.
 
+Explicit password login replaces both the outgoing account/digest and the native message's saved-credential flag.
+The ordinary handshake can submit a remembered form before the explicit login RPC runs.
+`AccountLogin +0x95` must therefore be cleared when replacing that form with a password digest.
+The Remember Password preference at `+0x94` is retained; `login:saved` has no pending replacement and stays unchanged.
+The server still validates saved credentials and password digests through their separate normal paths.
+Native verification used a new synthetic account and the unchanged strict Auth server on `bbb658a9`.
+A remembered form first produced result 6 with `Flag95=true`; the corrected script reached selection with result 0.
+The tested combined source was `9736945d`, whose controller script is identical to this standalone correction.
+Saved-login preservation is covered by the offline hook control, not claimed as new native acceptance.
+Offline checks run with `python scripts/dev/test_client_control.py` and
+`node scripts/dev/test-client-login-writer.cjs`.
+
 ## Persistent integration
 
 Spawn `.venv/Scripts/python.exe scripts/dev/client_control.py --stdio` with stdin/stdout pipes. Write one JSON object
@@ -80,6 +92,10 @@ The bridge refuses a different executable path or code signatures. Addresses bel
 | `0x1421406f0` | Play with the chosen name view and list index. Set in-game state `+0xa48` to its class; push **state 11 (loading)**, which installs the assignment listener. Directly pushing state 4 skips that listener. |
 | `0x140d0f740` | Existing root login state's logout routine; preserves the correct login form lifecycle. |
 | `0x140dfb760` / `0x140dfb8c0` | Existing buffered socket writer/flush, for `0x153` return to selection and `0x15` slash commands. Encryption remains the client's. |
+| `0x14216e940` | Signature-checked reference for socket write coordination: mark writing, acquire the socket lock while threaded, write, release and unmark before flushing. |
+
+The bridge coordinates buffered writes with the network thread's flush through the socket's own lock.
+An unsynchronized write could desynchronize encryption permanently; author-reported native quest runs verified the fix.
 
 Live verified 2026-10-25: fresh `game:open`, login, actual level-100 OfflineWitch list, Play, return to selection, logout,
 wrong-password rejection, successful retry, Play again, and `/hit physical 1` received by the Gateway. In one persistent

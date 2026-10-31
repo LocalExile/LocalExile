@@ -159,6 +159,7 @@ They refuse paused, leaving, closed or dead owners before combat mutation.
 | `/hit <type> <damage>` | damages the player through resistance and enabled hit mitigation; see below |
 | `/accuracy [monster level]` | final accuracy rating and attack hit chance against a normal and an evasive monster of that level (default: your level; spells always hit) |
 | `/defences [monster level]` | armour, physical reduction and evasion with the chance to evade a monster of that level |
+| `/base_defence [0 to 31]` | show or set the held armour item's shared base roll; saved with the item |
 | `/auras` | active auras, their flat/percent reservation, reserved and unreserved mana, reservation efficiency and aura effect ([11](11-skills.md) 13) |
 | `/suppression` | Spell Suppression chance and damage reduction |
 | `/spellhit <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: a spell hit through resistance and Spell Suppression, rolling the suppression chance |
@@ -167,7 +168,7 @@ They refuse paused, leaving, closed or dead owners before combat mutation.
 | `/charges [<endurance\|frenzy\|power> <n>]`, `/charges add <type> [n]`, `/charges clear` | dev: each charge type's count, maximum, minimum, duration and time left; sets a count, gains like a skill (refreshing the duration) or clears them ([11](11-skills.md) §15) |
 | `/block_luck <attack\|spell\|both\|off>` | dev: force lucky block for testing |
 | `/blockhit <attack\|spell> <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: a hit through block and resistance |
-| `/god` | toggles 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, +10 000 life, +1000 to each attribute ([11](11-skills.md) §12) |
+| `/god` | toggles 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, +10 000 life, +1000 to each attribute ([11](11-skills.md) §12); remains enabled for this character across area changes and relogs until toggled off or Gateway restarts |
 | `/death_screen [hex flags]` | S→C 0x55 with these flags (default: the league's; 2 hides it), [11](11-skills.md) §7 |
 | `/quest_flag [<QuestFlags Id> [off]]` | lists the character's quest flags, or sets or clears one (saved); the quest's room objects follow ([12](12-quests.md) §5) |
 | `/goto <area id or name> [seed]` | change area as if through an area transition (e.g. `/goto 1_1_3`; ids from the atlas; a seed makes a new instance at it, towns keep 1), [08](08-area-transitions.md) §7 |
@@ -340,7 +341,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   animation, along the client's own path around walls, on the terrain height**. Alternatives: **0x1ba** (Positioned
   move) only slides it in a straight line through walls, at `duration = cell distance / value` (value ≈ cells per
   second; `0x141e30c90` → `0x141e34120`), keeping the old height; **0x1b7** teleports it.
-- **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 100 ms (`MonsterAiTickMs`) per connection: a monster within
+- **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
   its MonsterVarieties `MaxAgroRange` (taken as grid cells: 60 for Hungry Corpse, 105 for most) of the server's estimate
   of the player starts chasing: a Move action (0x1ab, 0x2909) to its own cell around the player, re-sent when that cell
   moves by 3+ cells; beyond twice the range it gives up (a Move to where it stands). The cells come from

@@ -10,6 +10,9 @@ sealed class GemSupports(string folder = "data")
     public sealed record Applied(Candidate Gem, Effect Effect, uint PerLevel, int CostMultiplier,
         IReadOnlyList<(uint Key, int Value)> Stats);
     readonly Lazy<Effect[]> _effects = new(() => Load(folder));
+    readonly Lazy<(int Effect, int Level)[]> _grantedLevels = new(() =>
+        [.. Read(folder, "GrantedEffectsPerLevel").Select(row =>
+            (row.GetProperty("GrantedEffect").GetInt32(), row.GetProperty("Level").GetInt32()))]);
     readonly Lazy<Dictionary<(int Effect, int Level), (uint Row, int Cost, int Speed)>> _levels = new(() =>
     {
         var result = new Dictionary<(int, int), (uint, int, int)>();
@@ -22,6 +25,32 @@ sealed class GemSupports(string folder = "data")
 
     public IReadOnlyList<Effect> Effects => _effects.Value;
     public Effect? Of(int effect) => effect >= 0 && effect < _effects.Value.Length ? _effects.Value[effect] : null;
+
+    /// <summary>Item supports apply to every compatible gem in this item, independently of links.
+    /// Use the mod's actual granted effects, not a guessed effect based on its translated tooltip.</summary>
+    public IEnumerable<Candidate> ItemCandidates(Item host, ModCatalog mods)
+    {
+        int source = host.Sockets.Count;
+        foreach (var itemMod in host.Mods)
+        {
+            if (mods.ByHash(itemMod.Hash) is not { } mod) continue;
+            var grants = mod.GrantedEffectLevels.Where(row => row >= 0 && row < _grantedLevels.Value.Length)
+                .Select(row => _grantedLevels.Value[row])
+                .Where(row => Of(row.Effect) is { Support: true }).ToArray();
+            // A developer can change a displayed support level with /mod set. Ordinary support mods have one
+            // level stat even when the mod also grants a secondary active effect. Non-level pseudo-supports
+            // (for example socketed attack damage) retain their native fixed granted-effect row.
+            var levelStats = mod.Stats.Select((stat, index) => (stat.Id, Index: index))
+                .Where(s => s.Id.StartsWith("local_display_", StringComparison.Ordinal)
+                    && s.Id.Contains("level", StringComparison.Ordinal) && s.Index < itemMod.Values.Count).ToArray();
+            foreach (var grant in grants)
+            {
+                int level = grant.Level;
+                if (grants.Length == 1 && levelStats.Length == 1) level = itemMod.Values[levelStats[0].Index];
+                if (level > 0) yield return new(grant.Effect, level, 0, source++);
+            }
+        }
+    }
 
     // ActiveSkillType expressions are postfix; remaining terms are implicitly ORed (legacy table format).
     public static bool Matches(IReadOnlyList<int> expression, IReadOnlySet<int> types, bool empty)

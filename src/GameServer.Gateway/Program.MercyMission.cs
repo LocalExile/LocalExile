@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 // a1q5 "Mercy Mission" (MercyMission, 12-quests.md §7): Hailrake's Medicine Chest, its quest flag, and Nessa taking it.
 // The quest flags are read through conn.QuestFlagsSnapshot / HasQuestFlag (under the lock SetQuestFlags writes under);
@@ -107,7 +108,7 @@ partial class Program
             catch (Exception ex)
             {
                 if (conn.Closed) return;
-                Console.WriteLine($"[gateway] {remote} a1q5 sync: {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[gateway] {remote} a1q5 sync: {ServerLog.Describe(ex)}");
             }
         }
     }

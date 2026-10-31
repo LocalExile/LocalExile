@@ -22,11 +22,12 @@ Production paths remain relative to the repository root.
 dotnet run --project scripts/re/passive-graphs -- Client/Content.ggpk data/passive-skill-graphs.json
 ```
 
-The `passive-graphs` manifest entry is version 4 and depends on `tables`.
+The `passive-graphs` manifest entry is version 5 and depends on `tables`.
 It writes two ignored analysis artifacts:
 
-- `data/passive-skill-graphs.json`: revision, `analysisOnly: true`, source descriptions, hashes, roots and sorted
-  undirected adjacency for the ordinary and derived Phrecia graphs.
+- `data/passive-skill-graphs.json`: revision, `analysisOnly: true`, source descriptions, hashes, roots, orbit sizes and
+  sorted undirected adjacency for the ordinary and derived Phrecia graphs. Version 5 also exports each group's `x`/`y`
+  and each node's `orbit`/`orbitIndex`, which the Gateway uses only to compute jewel radii (no graph is installed).
 - `data/phrecia-passive-skillgraph.psg`: the matching merged graph, referenced by `mergedGraphFile` in the JSON.
   This file is not installed or consumed by gameplay.
 
@@ -86,8 +87,8 @@ The parser, merger and their tests are preserved from the completed PR206 source
 `8e03f49e87fd223b87ca9181ffc0e2d89c122b3a`.
 The CLI is reduced to read-only export with checked original sources and output restricted to `data/`.
 Archive-writing classes, CLI maintenance modes and their dependencies are excluded.
-Version 4 was run read-only against the actual maintained archive: ordinary 2,987 nodes/797 groups/3,359 drawing edges,
-and combined alternate 2,957 nodes/778 groups/3,312 drawing edges, with exact round trips.
+Version 5 was run read-only against the actual maintained archive: ordinary 2,987 nodes/797 groups/3,359 drawing edges,
+and combined alternate 2,957 nodes/778 groups/3,312 drawing edges, with exact round trips and group geometry.
 The archive was unchanged; this does not install a graph or relax gameplay admission.
 
 `tests/GameServer.Data.Tests` covers graph round trips and malformed input, incoming-edge adjacency, and merge

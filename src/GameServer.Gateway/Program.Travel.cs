@@ -131,6 +131,16 @@ partial class Program
             await UseMapDevice(remote, stream, ciphers, conn, use, doodad, requestedAt);
             return;
         }
+        if (conn.DelveGeneratorObject != 0 && use.TargetId == conn.DelveGeneratorObject)
+        {
+            await OpenDelveGenerator(remote, stream, ciphers, conn, requestedAt);
+            return;
+        }
+        if (conn.DelveCrawlerObject != 0 && use.TargetId == conn.DelveCrawlerObject)
+        {
+            await OpenDelveChart(remote, stream, ciphers, conn, use, requestedAt);
+            return;
+        }
         if (conn.StashObject != 0 && use.TargetId == conn.StashObject)
         {
             await OpenStash(remote, stream, ciphers, conn, use, requestedAt);
@@ -270,7 +280,9 @@ partial class Program
     {
         var entries = WaypointCatalog.Areas.Entries;
         List<int> bits;
-        lock (conn.Waypoints) bits = [.. Enumerable.Range(0, entries.Count).Where(i => conn.Waypoints.Contains(entries[i].Id))];
+        // The World panel's Labyrinth pin (SpecialMapPins Labyrinth) shows only with its area's waypoint bit: always set.
+        lock (conn.Waypoints) bits = [.. Enumerable.Range(0, entries.Count)
+            .Where(i => conn.Waypoints.Contains(entries[i].Id) || entries[i].Id == WaypointCatalog.LabyrinthPlaza)];
         // The pins need their areas' access quest flags first (the player object carried the ones known at creation).
         if (conn.PlayerSent)
         {
@@ -318,7 +330,7 @@ partial class Program
     {
         var entry = WaypointCatalog.Areas.Find(travel.AreaHash16);
         bool activated;
-        lock (conn.Waypoints) activated = entry is not null && conn.Waypoints.Contains(entry.Id);
+        lock (conn.Waypoints) activated = entry is not null && (conn.Waypoints.Contains(entry.Id) || entry.Id == WaypointCatalog.LabyrinthPlaza);
         Console.WriteLine($"[gateway] {remote} <= 0x004d waypoint travel to 0x{travel.AreaHash16:x4} ({entry?.Name ?? "no waypoint"}), " +
             $"u32 0x{travel.U32:x}{(travel.Ctrl ? ", Ctrl" : "")}{(activated ? "" : ": not activated, ignored")}");
         if (!activated) return;
@@ -449,6 +461,8 @@ partial class Program
         CarryAntiquarian(conn, r.Ticket);
         CarryRage(conn, r.Ticket);
         CarryVaalSouls(conn, r.Ticket);
+        conn.Retire();
+        lock (conn.Monsters) LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
         conn.InvalidateIncomingHits(); // Recent enemy contacts never cross an area connection.
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;

@@ -18,6 +18,8 @@ const specs = {
   assignText: ['0x1401346d0', '48895c241048896c2418565741574883'],
   lifeTick: ['0x141e6a190', '40534883ec3083b9a801000000488bd9'],
   poolUpdate: ['0x141e69fb0', '405341574883ec288b42204c8bfa448b'],
+  // The client's own instance send: guards the socket offsets lockedWrite copies from it (+0x240, +0x242, +0x248).
+  instanceSend: ['0x14216e940', '48895c241048896c2418488974242057'],
 };
 const addresses = {};
 for (const [name, [va, expected]] of Object.entries(specs)) {
@@ -37,6 +39,20 @@ const flush = native('flush', ['pointer', 'uint32', 'uint8']);
 const logout = native('logout', ['pointer']);
 const push = native('push', ['pointer', 'pointer']);
 const assignText = native('assignText', ['pointer', 'pointer', 'uint64'], 'pointer');
+const kernel32 = Process.getModuleByName('kernel32.dll');
+const acquireLock = new NativeFunction(kernel32.getExportByName('AcquireSRWLockExclusive'), 'void', ['pointer']);
+const releaseLock = new NativeFunction(kernel32.getExportByName('ReleaseSRWLockExclusive'), 'void', ['pointer']);
+// Writes to a socket's send buffer as the client's own instance send (0x14216e940) does: it marks the socket as being
+// written (+0x240) and, while another thread services the socket (+0x242), writes under the socket's SRW lock (+0x248),
+// which the flush (0x140dfb8c0) takes too. The writer (0x140dfb760) itself does not lock: written without the lock, a
+// message raced the network thread's flush and the client's cipher fell out of step with the server's for good (live
+// 2026-10-30: right after the client's own 0x020a, every later message reached the Gateway as garbage).
+function lockedWrite(socket, writeIt) {
+  const threaded = socket.add(0x242).readU8() !== 0, lock = socket.add(0x248);
+  socket.add(0x240).writeU8(1);
+  if (threaded) acquireLock(lock);
+  try { writeIt(); } finally { if (threaded) releaseLock(lock); socket.add(0x240).writeU8(0); }
+}
 const app = () => at('0x1445cbe68').readPointer();
 const stack = () => at('0x1445cbe40').readPointer();
 const loginObject = () => app().add(0x358).readPointer();
@@ -116,7 +132,7 @@ function sendPacket(bytes, connection) {
   const p = Memory.alloc(bytes.length); p.writeByteArray(bytes);
   const socket = connection === 'login' ? loginObject().add(0xdd0).readPointer() : instance().add(0xc288).readPointer();
   if (socket.isNull()) throw new Error('Connection has no socket');
-  write(socket, p, bytes.length); flush(socket, 0, 0);
+  lockedWrite(socket, () => write(socket, p, bytes.length)); flush(socket, 0, 0);
 }
 function execute(request) {
   const current = status(), keep = [];
@@ -202,6 +218,8 @@ Interceptor.attach(addresses.loginWriter, {onEnter(args) {
   const data = Memory.allocUtf8String(value.account);
   assignText(args[0].add(0x10), data, unescape(encodeURIComponent(value.account)).length);
   args[0].add(0x34).writeByteArray(value.digest);
+  // AccountLogin +0x95 selects saved-token verification. This request supplied a password digest instead.
+  args[0].add(0x95).writeU8(0);
   value.digest.fill(0); loginSubmitted = true;
 }});
 rpc.exports.command = request => new Promise((resolve, reject) => {

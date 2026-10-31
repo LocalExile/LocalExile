@@ -34,6 +34,7 @@ public partial class VaalSoulCompositionTests
     {
         using var f = new VaalSoulGatewayTests.Fixture(); using var w = new VaalSoulGatewayTests.Wire();
         UseCalculatedRequirements(f.Conn);
+        var ordinaryFireballRow = Program.Skills.FindByRow(0, Program.Skills.EffectRow("Fireball"), 1)!.EffectsPerLevelRow;
         f.Gems("SkillGemVaalFireball", "SkillGemVaalGrace", "SupportGemFasterProjectiles");
         f.Links(3);
         f.Items.Add(6, 0, 0, AttributeRing(("strength_+%", 11), ("dexterity_+%", 500), ("intelligence_+%", 50)));
@@ -55,9 +56,12 @@ public partial class VaalSoulCompositionTests
         Assert.Equal(new VaalSoulBudget(247, 100, 2), f.Conn.VaalSouls.Read().Single(b => b.ActiveSkillsRow == 247));
 
         await Command(f, w, "/set_stat dexterity_+% 0");
-        Assert.Equal(new VaalSoulBudget(87, 30, 2), f.Budget);
-        Assert.Empty(Fireball(f.Conn).Supports);
+        // Vaal Grace and Faster Projectiles no longer meet dexterity, so the club they are socketed in goes inactive:
+        // every skill in it leaves, the Vaal budgets with them (not only the unmet gems').
+        Assert.Empty(f.Conn.VaalSouls.Read());
+        Assert.DoesNotContain(CurrentSkills(f.Conn), s => s.EffectsPerLevelRow == ordinaryFireballRow);
         Assert.DoesNotContain(247u, f.Conn.SentVaalSouls.Keys);
+        Assert.DoesNotContain(87u, f.Conn.SentVaalSouls.Keys);
         // The removal tuple follows the update count and any other changed budgets in the same Actor payload.
         await w.Through(InstanceEntities.PlayerSkillsChange(0x1000, [], [], [], [new(247, 0, 0)])[^12..]);
         await Command(f, w, "/set_stat dexterity_+% off");
@@ -76,7 +80,8 @@ public partial class VaalSoulCompositionTests
             System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, args)!);
         Assert.Equal(cost, (uint)args[2]!);
         Assert.Equal(77u - cost, f.Conn.PlayerMana);
-        Assert.Equal(2u, f.Conn.VaalSouls.Read().Single(b => b.ActiveSkillsRow == 87).Current);
+        // Both Vaal skills left with the inactive club, so both came back without their stored souls.
+        Assert.Equal(0u, f.Conn.VaalSouls.Read().Single(b => b.ActiveSkillsRow == 87).Current);
         Assert.Equal(0u, f.Conn.VaalSouls.Read().Single(b => b.ActiveSkillsRow == 247).Current);
     }
 

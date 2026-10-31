@@ -780,7 +780,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         {
             var gem = HeavyStrikeGem(effect);
             await (Task)GatewayMethod("AreaSkillHit").Invoke(null, ["strike-integration", stream, cipher, State, gem.Id, gem,
-                from, to, true, sequence, null, null, null, target])!;
+                from, to, true, sequence, null, null, null, 1.0, 0u, null, null, target])!;
             return null;
         });
 

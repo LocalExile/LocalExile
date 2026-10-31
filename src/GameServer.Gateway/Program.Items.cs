@@ -12,10 +12,28 @@ partial class Program
         if (conn.Sale is { } sale && pick.InventoryId == sale.Mine) { await TakeFromSale(remote, stream, ciphers, conn, sale, pick.ItemId); return; }
         if (StashOf(conn).TabOf(pick.InventoryId) is int tab) { await PickUpFromStash(remote, stream, ciphers, conn, tab, pick); return; }
         var items = ItemsOf(conn);
-        if (PlayerInventories.Row(pick.InventoryId) is not byte row || items.PickUp(row, pick.ItemId) is not { } held)
+        if (PlayerInventories.Row(pick.InventoryId) is not byte row)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused (unknown inventory)");
+            return;
+        }
+        if (row == PlayerInventories.PassiveJewels
+            && items.Items(row).FirstOrDefault(i => i.Id == pick.ItemId) is { } leaving
+            && (ClusterRemovalRefusal(conn, leaving) ?? AllocationBypassRemovalRefusal(conn, leaving)) is { } why)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused ({why})");
+            return;
+        }
+        if (items.PickUp(row, pick.ItemId) is not { } held)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused");
             return;
+        }
+        if (row == PlayerInventories.PassiveJewels && ClusterSize(held.Item) is not null)
+        {
+            // Only the refund point is spent: the client keeps its cluster nodes until a tree message removes them, and
+            // such a message crashes it, so the nodes stay until the id mapping is known.
+            SpendClusterRemoval(conn);
         }
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(pick.InventoryId, items.NextRevision(row), [held.Id], []),
             $"0x00bf inventory {pick.InventoryId}: remove item {held.Id} (picked up {pick})");
@@ -32,6 +50,7 @@ partial class Program
         }
         if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
         if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
     }
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
@@ -133,6 +152,453 @@ partial class Program
         if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
+    // A normal (non-cluster) jewel. The PassiveJewels1 pane (Inventories.dat row 23) holds one per allocated passive tree
+    // socket; cluster jewels use the expansion cells (see IsLargeClusterJewel).
+    internal static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" } type
+        && !type.Id.StartsWith("Metadata/Items/Jewels/JewelPassiveTreeExpansion", StringComparison.Ordinal);
+
+    /// <summary>The Large Cluster Jewel base type: the only cluster jewel the tree sockets take so far (Voices).</summary>
+    internal const string LargeClusterJewelId = "Metadata/Items/Jewels/JewelPassiveTreeExpansionLarge";
+
+    /// <summary>The cluster jewel size of an item: 2 large, 1 medium, 0 small, null for a normal jewel.</summary>
+    internal static int? ClusterSize(Item item) => Items.ByHash(item.TypeHash)?.Id switch
+    {
+        "Metadata/Items/Jewels/JewelPassiveTreeExpansionLarge" => 2,
+        "Metadata/Items/Jewels/JewelPassiveTreeExpansionMedium" => 1,
+        "Metadata/Items/Jewels/JewelPassiveTreeExpansionSmall" => 0,
+        _ => null,
+    };
+
+    internal static bool IsLargeClusterJewel(Item item) => ClusterSize(item) == 2;
+
+    /// <summary>Whether a jewel fits a pane cell: a normal jewel anywhere, a cluster jewel only in a socket of its own
+    /// size (a large tree socket takes a large jewel, a large jewel's cells medium ones, a medium one's cell small
+    /// ones). The client builds the layout from the cell's size and pads a jewel that cannot fill it with the empty
+    /// <c>affliction_empty_node_</c> ("Nothingness"), so a smaller jewel would offer nodes that grant nothing.</summary>
+    internal static bool JewelFitsCell(int cell, Item item)
+    {
+        if (IsNormalJewel(item)) return true;
+        // A cluster jewel of a smaller size also fits a larger socket: the client pads the cell with empty nodes, so
+        // the jewel's own passives are the only ones that give stats.
+        return ClusterSize(item) is int size && size <= Passives.ClusterCellSize(cell);
+    }
+
+    /// <summary>A non-unique cluster jewel as a drop rolls it: the size's base type with the enchantments that carry
+    /// how many passives it has, what its small passives grant (its theme) and its jewel sockets (two or one for a
+    /// large, one for a medium, none for a small). Null when the base type or a mod is missing from the game data.</summary>
+    internal static Item? CreateClusterJewel(int size, int passives, int sockets, string? theme = null,
+        IEnumerable<string>? notables = null)
+    {
+        string name = size switch { 2 => "Large Cluster Jewel", 1 => "Medium Cluster Jewel", 0 => "Small Cluster Jewel", _ => "" };
+        if (name.Length == 0 || Items.Find(name) is not { } baseType) return null;
+        var asked = notables?.ToList() ?? [];
+        var mods = new List<ItemMod>();
+        // "Adds N Passive Skills": one enchantment mod whose two stats are the node index and the count.
+        if (Items.Mods.ById("JewelExpansionPassiveNodes") is { } count && count.Stats.Count >= 2)
+            mods.Add(new ItemMod(ModSection.Enchant, count.Hash, [0, passives]));
+        string socketMod = size switch
+        {
+            2 => sockets >= 2 ? "JewelExpansionJewelNodesLarge2___" : "JewelExpansionJewelNodesLarge1",
+            1 => "JewelExpansionJewelNodesMedium",
+            _ => "",
+        };
+        if (sockets > 0 && socketMod.Length > 0 && Items.Mods.ById(socketMod) is { } socket && socket.Stats.Count > 0)
+            mods.Add(new ItemMod(ModSection.Enchant, socket.Hash, [.. socket.MaxValues()]));
+        // The theme: what the cluster's small passives grant ("Added Small Passive Skills grant: ..."). It is an
+        // enchantment (like the count and the sockets); a smaller jewel in a larger socket is padded by the client
+        // with empty nodes instead, see JewelFitsCell.
+        if (Items.Mods.ById(theme ?? "AfflictionJewelSmallPassivesGrantLife_") is { } themed && themed.Stats.Count > 0)
+            mods.Add(new ItemMod(ModSection.Enchant, themed.Hash, [.. themed.MaxValues()]));
+        // "1 Added Passive Skill is <notable>": an explicit prefix, one per notable the jewel has.
+        foreach (string notable in asked)
+            if (Items.Mods.ById(notable) is { } found && found.Stats.Count > 0)
+                mods.Add(new ItemMod(ModSection.Explicit, found.Hash, [.. found.MaxValues()]));
+        return ItemCatalog.Create(baseType) with
+        {
+            // The notables are the item's only affixes. A jewel without one is Normal, one or two are Magic (a magic
+            // item may not have zero affixes: the client then renders the whole cluster as empty "Nothingness" nodes)
+            // and three (a large cluster can carry three) Rare.
+            Rarity = asked.Count switch { 0 => ItemRarity.Normal, <= 2 => ItemRarity.Magic, _ => ItemRarity.Rare },
+            ItemLevel = 68,
+            Mods = mods,
+        };
+    }
+
+    /// <summary>Why this cluster jewel cannot leave its socket, or null: jewels socketed inside it (in its own sockets,
+    /// at any depth) must come out first, and removing it costs one refund point.</summary>
+    internal static string? ClusterRemovalRefusal(ClientState conn, InventoryItem leaving)
+    {
+        if (ClusterSize(leaving.Item) is null) return null;
+        var items = ItemsOf(conn);
+        foreach (int cell in ClusterCells(leaving.X))
+            if (items.Items(PlayerInventories.PassiveJewels).Any(i => i.X == cell))
+                return "take the jewels out of the cluster first";
+        // The client checks every cluster node the tree lists, so a jewel may not leave while its own passives are
+        // still allocated: they would be listed for a jewel the client no longer has and it fails
+        // PassiveAllocation. Another cluster jewel's passives do not block it.
+        if (ClusterOwnPassives(conn, leaving) > 0) return "refund the cluster jewel's passives first";
+        return conn.RefundPoints > 0 ? null : "removing a cluster jewel costs 1 refund point (none left)";
+    }
+
+    /// <summary>Every expansion cell a cluster jewel in this pane cell creates, its own sockets' included.</summary>
+    static IEnumerable<int> ClusterCells(int cell)
+    {
+        foreach (int child in Passives.ClusterSlots(cell))
+        {
+            yield return child;
+            foreach (int nested in ClusterCells(child)) yield return nested;
+        }
+    }
+
+    /// <summary>The allocated passives of that one cluster jewel: the ids in a tree socket's block (its sockets
+    /// excluded), or an expansion cell's share of the ids outside every tree socket block, in pane order.</summary>
+    internal static int ClusterOwnPassives(ClientState conn, InventoryItem item)
+    {
+        if (ClusterSize(item.Item) is null) return 0;
+        var allocated = conn.ClusterPassives;
+        // A mapped jewel (a tree socket or a measured expansion cell) owns exactly the ids its layout puts on a small or
+        // notable position: an id outside that block, such as a stale one the client no longer builds, must not block
+        // the jewel's removal.
+        if (ClusterJewelLayout.For(item.X, item.Item) is { } layout)
+            return allocated.Count(id => id >= layout.Base && id < layout.Base + layout.Total
+                && layout.ByOffset.GetValueOrDefault(id - layout.Base) != ClusterJewelLayout.Kind.None);
+        if (Passives.ClusterBlockBase(item.X) is int block)
+            return allocated.Count(id => id >= block && id < block + 12);
+        var items = ItemsOf(conn);
+        int known = 0;
+        foreach (var other in items.Items(PlayerInventories.PassiveJewels).Where(i => ClusterSize(i.Item) is not null))
+            if (Passives.ClusterBlockBase(other.X) is int otherBlock)
+                known += allocated.Count(id => id >= otherBlock && id < otherBlock + 12);
+        int left = allocated.Count - known;
+        foreach (var other in items.Items(PlayerInventories.PassiveJewels)
+                     .Where(i => ClusterSize(i.Item) is not null).OrderBy(i => i.X))
+        {
+            if (Passives.ClusterBlockBase(other.X) is not null) continue;
+            int share = Math.Min(left, ClusterNodeBudget(other.Item));
+            if (other.Id == item.Id) return share;
+            left -= share;
+        }
+        return 0;
+    }
+
+    /// <summary>Spends the refund point a cluster jewel's removal costs.</summary>
+    internal static void SpendClusterRemoval(ClientState conn)
+    {
+        if (conn.RefundPoints == 0) return;
+        conn.RefundPoints--;
+        CharacterSaves.SetRefundPoints(CharacterName(conn), conn.RefundPoints);
+    }
+
+    /// <summary>Voices, the unique Large Cluster Jewel: three jewel sockets plus 1, 3, 5 or 7 empty passives (the four
+    /// variants, the rarer the fewer). Null when the base type, the unique art or a mod is missing from the game data.
+    /// The art is item visual <c>UniqueJewel147</c> (Art/2DItems/Jewels/UniqueJewelBase3.dds, the same row
+    /// UniqueStashLayout gives Voices); without it the client draws the plain Large Cluster Jewel.</summary>
+    internal static Item? CreateVoices(int emptyPassives)
+    {
+        string? variant = emptyPassives switch
+        {
+            1 => "ExpansionJewelEmptyPassiveUnique__1",
+            3 => "ExpansionJewelEmptyPassiveUnique__2",
+            5 => "ExpansionJewelEmptyPassiveUnique_3_",
+            7 => "ExpansionJewelEmptyPassiveUnique__4",
+            _ => null,
+        };
+        if (variant is null || Items.Find("Large Cluster Jewel") is not { } baseType) return null;
+        if (UniqueJewelVisuals.Of("Voices") is not ushort visual) return null;
+        if (Items.Mods.ById("ExpansionJewel3JewelSockets") is not { } sockets) return null;
+        if (Items.Mods.ById(variant) is not { } empty || empty.Stats.Count == 0) return null;
+        return ItemCatalog.Create(baseType) with
+        {
+            Rarity = ItemRarity.Unique,
+            Corrupted = true,
+            ItemLevel = 1,
+            VisualIdentity = visual,
+            Mods =
+            [
+                new ItemMod(ModSection.Explicit, sockets.Hash, [.. sockets.MaxValues()]),
+                new ItemMod(ModSection.Explicit, empty.Hash, [.. empty.MaxValues()]),
+            ],
+        };
+    }
+
+    /// <summary>The Adorned's modifier: increased effect of jewel socket passives containing corrupted magic jewels.</summary>
+    static ushort? AdornedModHash => Items.Mods.ById("CorruptedMagicJewelModEffectUnique__1")?.Hash;
+
+    /// <summary>The total increased effect The Adorned gives to corrupted magic jewels in passive tree sockets.</summary>
+    static int AdornedPercent(IEnumerable<InventoryItem> treeJewels)
+    {
+        ushort? adorned = AdornedModHash;
+        int total = 0;
+        foreach (var jewel in treeJewels)
+        {
+            if (jewel.Item.Rarity != ItemRarity.Unique) continue;
+            foreach (var mod in jewel.Item.Mods)
+                if (adorned is ushort hash && mod.Hash == hash && mod.Values.Count > 0) total += mod.Values[0];
+        }
+        return total;
+    }
+
+    /// <summary>A corrupted magic jewel's mods scaled by The Adorned's increased effect. Non-magic, uncorrupted and
+    /// other jewels are unchanged; the scaling is the game's increased-effect multiplication on each integer value.</summary>
+    static Item AdornedJewel(Item item, int percent)
+    {
+        if (percent == 0 || item.Rarity != ItemRarity.Magic || !item.Corrupted) return item;
+        return item with
+        {
+            Mods = [.. item.Mods.Select(mod => mod with
+            {
+                Values = [.. mod.Values.Select(value => (int)Math.Floor(value * (100 + percent) / 100.0))],
+            })],
+        };
+    }
+
+    /// <summary>A unique jewel from the global (non-radius) catalogue, max-rolled for predictable testing. Null when the
+    /// name is not in the catalogue or a mod cannot be resolved from the current game data.</summary>
+    internal static Item? CreateUniqueJewel(string name)
+    {
+        if (UniqueJewelCatalogue.Find(name) is not { } entry || Items.Find(entry.Base) is not { } baseType) return null;
+        var mods = new List<ItemMod>();
+        for (int i = 0; i < entry.Mods.Length; i++)
+        {
+            if (Items.Mods.ById(entry.Mods[i]) is not { } mod || mod.Stats.Count == 0) continue;
+            int? fixedValue = i < entry.Values.Length ? entry.Values[i] : null;
+            var values = mod.MaxValues().ToArray();
+            if (fixedValue is int value) values[0] = value;
+            mods.Add(new ItemMod(ModSection.Explicit, mod.Hash, values));
+        }
+        if (mods.Count == 0) return null;
+        return ItemCatalog.Create(baseType) with
+        {
+            Rarity = ItemRarity.Unique,
+            Corrupted = entry.Corrupted,
+            ItemLevel = (byte)Math.Clamp(entry.Level, 1, 100),
+            VisualIdentity = UniqueJewelVisuals.Of(entry.Name) ?? baseType.VisualIdentity,
+            NameWords = RadiusJewelCatalogue.WordHash(entry.Name, "data") is uint word ? [word] : [],
+            Mods = mods,
+        };
+    }
+
+    /// <summary>Why a held item cannot go into PassiveJewels1 at (x, y), or null: the slot must be an ordinary large
+    /// jewel socket whose passive node is allocated, or a cluster jewel's expansion socket whose jewel is socketed,
+    /// and the item a normal jewel (a large cluster jewel goes into a tree socket only).</summary>
+    internal static string? PassiveJewelRefusal(ClientState conn, int x, int y, Item? item)
+    {
+        if (y != 0) return "a passive jewel socket is one cell";
+        bool expansion = Passives.ClusterNodeForSlot(x) is not null;
+        if (!expansion && Passives.JewelNodeForSlot(x) is not { } node) return "not a passive jewel socket";
+        if (expansion)
+        {
+            if (!ClusterSlotOpen(conn, x)) return "that cluster jewel socket is not open";
+        }
+        else
+        {
+            lock (conn.Monsters)
+                if (!conn.Passives.Contains(Passives.JewelNodeForSlot(x)!.Value)) return "the passive jewel socket is not allocated";
+        }
+        if (item is null) return "no held item";
+        if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return "unknown item type";
+        if (type.Class != "Jewel") return $"{type.Class} does not go in a passive jewel socket";
+        if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
+        if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
+        {
+            if (expansion) return "timeless jewels go in an ordinary passive tree socket";
+            int limit = ItemsFor(conn).Limits.Get("timeless_jewel", SystemSettings.Default.TimelessJewelLimit);
+            if (limit > 0)
+            {
+                var items = ItemsOf(conn);
+                int held = items.Items(PlayerInventories.PassiveJewels)
+                    .Count(i => i.X != x && TimelessJewelCatalog.IsTimeless(i.Item, ItemsFor(conn)));
+                if (held >= limit) return limit == 1
+                    ? "only one Historic timeless jewel can be socketed"
+                    : $"only {limit} Historic timeless jewels can be socketed";
+            }
+        }
+        if (ImpossibleEscapeCatalogue.Read(item, ItemsFor(conn).Mods) is not null)
+        {
+            int limit = ItemsFor(conn).Limits.Get("impossible_escape", SystemSettings.Default.ImpossibleEscapeLimit);
+            if (limit > 0)
+            {
+                var items = ItemsOf(conn);
+                int held = items.Items(PlayerInventories.PassiveJewels)
+                    .Count(i => i.X != x && ImpossibleEscapeCatalogue.Read(i.Item, ItemsFor(conn).Mods) is not null);
+                if (held >= limit) return limit == 1
+                    ? "only 1 Impossible Escape can be socketed"
+                    : $"only {limit} Impossible Escape can be socketed";
+            }
+        }
+        if (expansion && RadiusJewelCatalogue.IsRadius(item, ItemsFor(conn).Mods))
+            return "radius unique jewels go in an ordinary passive tree socket";
+        if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { } limited)
+        {
+            int baseLimit = limited.Limit > 0 ? limited.Limit : SystemSettings.Default.RadiusJewelDefaultLimit;
+            int limit = ItemsFor(conn).Limits.Get($"radius:{limited.Name}", baseLimit);
+            var items = ItemsOf(conn);
+            if (limit > 0 && items.Items(PlayerInventories.PassiveJewels)
+                .Count(i => i.X != x && RadiusJewelCatalogue.IsSameEntry(i.Item, item, ItemsFor(conn).Mods)) >= limit)
+                return $"only {limit} {limited.Name} can be socketed";
+        }
+        if (!JewelFitsCell(x, item)) return $"{type.Name} does not fit this socket";
+        int needs = ItemModStats.LevelRequirement(item, type.DropLevel, ItemsFor(conn).Mods);
+        return conn.Pools.Level < needs ? $"{type.Name} requires level {needs} (character is {conn.Pools.Level})" : null;
+    }
+
+    /// <summary>The passive nodes a cluster jewel adds, its sockets excluded. "Adds N Passive Skills" counts the sockets
+    /// as passive skills too, so a large jewel with 8 passives and 2 sockets has 6 small/notable passives and 2 sockets
+    /// (Voices is the exception: its empty passives come on top of its sockets).</summary>
+    internal static int ClusterPassiveCount(Item item) =>
+        Math.Max(0, ClusterNodeBudget(item) - ClusterSocketCount(item));
+
+    /// <summary>The allocatable nodes of one cluster jewel: the "Adds N Passive Skills" count (sockets included), or
+    /// Voices' empty passives plus its sockets.</summary>
+    internal static int ClusterNodeBudget(Item item)
+    {
+        if (ClusterSize(item) is null) return 0;
+        var local = ItemModStats.Local(item, Items.Mods);
+        int empty = local.GetValueOrDefault("local_unique_jewel_grants_x_empty_passives");
+        if (empty > 0) return empty + ClusterSocketCount(item);
+        return Math.Max(0, local.GetValueOrDefault("local_jewel_expansion_passive_node_count"));
+    }
+
+    /// <summary>The cluster jewel nodes a character can have allocated: the allocatable nodes of every socketed cluster
+    /// jewel.</summary>
+    internal static int ClusterNodeBudget(ClientState conn) =>
+        ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+            .Where(i => ClusterSize(i.Item) is not null
+                && (Passives.JewelNodeForSlot(i.X) is not null || ClusterSlotOpen(conn, i.X)))
+            .Sum(i => ClusterNodeBudget(i.Item));
+
+    /// <summary>The jewel sockets a cluster jewel creates: its own override (Voices adds three) or the base size's
+    /// two for large, one for medium, none for small (the 3.11 socket enchantment is not read yet).</summary>
+    internal static int ClusterSocketCount(Item item)
+    {
+        int size = ClusterSize(item) ?? -1;
+        if (size < 0) return 0;
+        int over = ItemModStats.Local(item, Items.Mods).GetValueOrDefault("local_jewel_expansion_jewels_count_override");
+        if (over > 0) return over;
+        return size switch { 2 => 2, 1 => 1, _ => 0 };
+    }
+
+    /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
+    /// one of the sockets that jewel has. The tree socket must be allocated for the jewel to be there at all, which the
+    /// socketing path already checks.</summary>
+    internal static bool ClusterSlotOpen(ClientState conn, int cell)
+    {
+        if (Passives.ClusterNodeForSlot(cell) is null) return false;
+        if (Passives.ClusterParent(cell) is not int parent) return false;
+        var items = ItemsOf(conn);
+        var holder = items.Items(PlayerInventories.PassiveJewels).FirstOrDefault(i => i.X == parent);
+        if (holder is null || ClusterSize(holder.Item) is not int size) return false;
+        if (size != Passives.ClusterCellSize(cell) + 1) return false;
+        // Any of the parent's expansion cells is accepted: the client decides which of them its socket layout opens (its
+        // numbering did not follow the socket count ? for a two-socket large it offers cell 53 as well), and only a
+        // cell the client shows can be reached by a player's move.
+        return Passives.ClusterSlots(parent).Contains(cell);
+    }
+
+    /// <summary>Whether a cluster jewel is socketed: in a tree socket (any size the socket takes, so a medium cluster
+    /// jewel in a large socket included) or in another cluster jewel's socket. Such a jewel gives the client expansion
+    /// nodes, which is what the tree message carries in its cluster list.</summary>
+    internal static bool ClusterJewelSocketed(ClientState conn)
+    {
+        var items = ItemsOf(conn);
+        return items.Items(PlayerInventories.PassiveJewels).Any(i => ClusterSize(i.Item) is not null
+            && (Passives.JewelNodeForSlot(i.X) is not null || ClusterSlotOpen(conn, i.X)));
+    }
+
+    /// <summary>Recomputes and sends the stats after a jewel entered or left a passive tree socket. The pane's own 0xbf
+    /// is sent by the item move; this is the 0x1b3/0x2ba half.</summary>
+    static async Task SendPassiveJewelStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            RecomputePoolsAndSpeed(conn);
+            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+            conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+        }
+        await SendCharacterStats(remote, stream, ciphers, conn, "passive jewels");
+        // 0x1b3 carries the new maximum; the current life needs its own 0x1b1, or the client keeps it above a maximum
+        // that a refund lowered (a "5000 of 4997" overfill).
+        var timeless = ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+            .Select(i => TimelessJewelCatalog.Read(i.Item, ItemsFor(conn).Mods)).FirstOrDefault(s => s is not null);
+        Console.WriteLine($"[gateway] {remote} passive jewel stats: life {conn.Pools.Life}, mana {conn.Pools.Mana}, " +
+            $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
+            $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
+            (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+            $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
+        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
+    }
+
+    /// <summary>Why these ordinary nodes cannot be refunded, or null: a jewel socket that still holds a jewel must be
+    /// emptied first (the client has no automatic return of a passive tree jewel).</summary>
+    static string? PassiveJewelRemovalRefusal(ClientState conn, IEnumerable<ushort> removed)
+    {
+        var items = ItemsOf(conn);
+        foreach (var node in removed)
+        {
+            if (Passives.JewelSlotForNode(node) is not int slot) continue;
+            if (items.Items(PlayerInventories.PassiveJewels).Any(i => i.X == slot))
+                return $"{Passives.Find(node)?.Name ?? "the jewel socket"} has a jewel; take it out first";
+        }
+        return null;
+    }
+
+    // Taking an Intuitive Leap/Thread of Hope out while a passive still depends on its bypass would leave an
+    // unconnected node granting stats. Refuse the move until those passives are refunded; the tree validation then
+    // proves the remaining allocation.
+    static string? AllocationBypassRemovalRefusal(ClientState conn, InventoryItem leaving)
+    {
+        if (Passives.ClusterNodeForSlot(leaving.X) is not null) return null;
+        bool bypassJewel = RadiusJewelCatalogue.ReadConversion(leaving.Item, ItemsFor(conn).Mods)
+                is { AllocateDisconnected: true }
+            || ImpossibleEscapeCatalogue.Read(leaving.Item, ItemsFor(conn).Mods) is not null;
+        if (!bypassJewel) return null;
+        lock (conn.Monsters)
+        {
+            var bypass = AllocationBypassNodes(conn, conn.Passives, leaving.Id);
+            try
+            {
+                ValidateOrdinaryPassives(conn, conn.Passives, conn.MainAscendancy, bypass);
+                return null;
+            }
+            catch (AscendancyRuleException)
+            {
+                return "refund the passives allocated through this jewel first";
+            }
+        }
+    }
+
+    /// <summary>Moves jewels of sockets that are no longer allocated (an old save, a level trim or a refund by another
+    /// path) into the main inventory. A jewel in an unknown slot, a cluster jewel in a socket that does not take it and
+    /// an unsupported cluster size are moved the same way; when the inventory is full it stays in the pane but its stats
+    /// are not counted.</summary>
+    static void NormalizePassiveJewels(ClientState conn)
+    {
+        var items = ItemsOf(conn);
+        HashSet<ushort> allocated;
+        lock (conn.Monsters) allocated = [.. conn.Passives];
+        foreach (var item in items.Items(PlayerInventories.PassiveJewels).ToArray())
+        {
+            bool valid = Passives.ClusterNodeForSlot(item.X) is not null
+                ? ClusterSlotOpen(conn, item.X) && JewelFitsCell(item.X, item.Item)
+                : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item);
+            if (valid) continue;
+            var removed = items.Remove(PlayerInventories.PassiveJewels, item.Id);
+            if (removed is null) continue;
+            var shape = ShapeOf(removed.Item);
+            if (shape is { } s && items.FreeCell(PlayerInventories.MainInventory, s.Width, s.Height, ShapeOf) is { } cell)
+            {
+                var placed = items.Add(PlayerInventories.MainInventory, cell.X, cell.Y, removed.Item);
+                Console.WriteLine($"[gateway] passive jewel {removed.Id} at slot {removed.X} is not in an allocated ordinary socket; moved to the inventory as {placed.Id}");
+            }
+            else
+            {
+                items.Put(PlayerInventories.PassiveJewels, removed);
+                Console.WriteLine($"[gateway] passive jewel {removed.Id} at slot {removed.X} is not valid and the inventory is full; its stats are not counted");
+            }
+        }
+    }
+
     // C→S 0x16 /destroy (the town popup's Destroy): the held item is gone.
     static async Task DestroyHeldItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
@@ -169,7 +635,14 @@ partial class Program
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot}: {(flask is null ? "no flask there" : "not a flask (not handled)")}");
             return;
         }
-        var character = CharacterPlayerStats(conn);
+        Dictionary<uint, int> character;
+        int playerLevel;
+        // Keep level and coefficient sources in one use snapshot, including across the asynchronous charge spend.
+        lock (conn.Monsters)
+        {
+            playerLevel = conn.Pools.Level;
+            character = CharacterPlayerStats(conn);
+        }
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(use, local, Get);
@@ -202,7 +675,7 @@ partial class Program
         if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is not { } spent) return;
         await Send(remote, stream, ciphers, InstanceItems.ItemUsed(spent.Item.TypeHash,
             PlayerInventories.InventoryId(PlayerInventories.Flask), spent.Id), $"0x0263 flask {slot} used (native use sound)");
-        var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife);
+        var r = FlaskRecovery.For(use, flask.Item, local, Get, conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
         Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {r.Life:0.#} life, {r.Mana:0.#} mana over {r.Seconds:0.##} s, " +
             $"instantly {r.InstantLife:0.#} life, {r.InstantMana:0.#} mana{(r.ManaAtEnd > 0 ? $", {r.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(r.RemovesLife + r.RemovesMana > 0 ? $", removes {r.RemovesLife:0.#} life, {r.RemovesMana:0.#} mana" : "")}" +
@@ -220,30 +693,34 @@ partial class Program
                 return;
             }
             (conn.PlayerLife, conn.PlayerMana) = (lifeAfter, manaAfter) = (l, m);
+            TrimLeechLocked(conn);
         }
         if (lifeAfter != lifeBefore) await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, lifeAfter), $"0x01b1 player life {lifeAfter} (flask)");
         if (manaAfter != manaBefore) await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {manaAfter} (flask)");
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (r.ExtraLife > 0)
             conn.FlaskEffects.Start(new Flasks.Effect((byte)slot, 0, 0, r.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
-        if (r.Seconds <= 0 || r.Life + r.Mana + r.ManaAtEnd <= 0) return;
-        ushort buff;
-        lock (conn.Monsters) buff = conn.NextBuff++;
-        ushort row = use.LifePerUse > 0 ? FlaskEffectLifeBuffRow : FlaskEffectManaBuffRow;
-        var effect = new Flasks.Effect((byte)slot, buff, row, r.Life / r.Seconds, r.Mana / r.Seconds, now, now + r.Seconds,
-            r.ManaAtEnd, r.LifeStaysAtFull, r.ManaStaysAtFull, r.NoQueue);
-        conn.FlaskEffects.Start(effect);   // recovers at once or waits in its queue (Flasks.Effects)
+        List<Flasks.Effect> effects;
+        lock (conn.Monsters)
+            effects = Flasks.RecoveryEffects(r, (byte)slot, now, () => conn.NextBuff++, FlaskEffectLifeBuffRow, FlaskEffectManaBuffRow);
+        foreach (var effect in effects) conn.FlaskEffects.Start(effect);
         // Both rows are IsRecovery: 0x1c1 carries one u32 per GrantedStats entry, here base_life (or mana)
         // _recovery_per_minute_from_flask. Without it the client misread the message and showed no life change after it
         // (live 2026-10-20).
-        uint perMinute = (uint)Math.Round((use.LifePerUse > 0 ? r.Life : r.Mana) * 60 / r.Seconds);
         // The duration (+0x68, f32 seconds) and the flask-bar cell (source skill): the timer bar under the flask (Flasks.Buff).
         // Game_FLASK_BUFF_DURATION=0 sends no duration (before 2026-10-25 a u32 in milliseconds went there, which the client
         // read as a float of almost 0 s).
         bool withDuration = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") != "0";
-        if (FlaskBuffs)
-            await Send(remote, stream, ciphers, Flasks.Buff(PlayerId, buff, row, (byte)slot, withDuration ? r.Seconds : null, [perMinute]),
-                $"0x01c1 player buff {buff}: {(row == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} (BuffDefinitions row {row}), {perMinute} per minute, {(withDuration ? $"{r.Seconds:0.##} s" : "no duration")}");
+        foreach (var effect in effects)
+        {
+            uint perMinute = (uint)Math.Round((effect.LifePerSecond + effect.ManaPerSecond) * 60);
+            double duration = effect.Ends - effect.Started;
+            if (FlaskBuffs)
+                await Send(remote, stream, ciphers, Flasks.Buff(PlayerId, effect.Buff, effect.BuffRow, (byte)slot,
+                    withDuration ? duration : null, [perMinute]),
+                    $"0x01c1 player buff {effect.Buff}: {(effect.BuffRow == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} " +
+                    $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
+        }
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -590,12 +1067,16 @@ partial class Program
         if (type?.Id == CurrencyEffects.MirrorOfKalandra)
         {
             if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
-            await MirrorItem(remote, stream, ciphers, conn, items, usedRow, used, target);
+            await MirrorItem(remote, stream, ciphers, conn, items, RollsFor(conn), usedRow, used, target);
             return;
         }
         // What the currency makes of the target, or null (nothing happens, nothing is spent).
-        // A corrupted or mirrored item takes no currency but a Scroll of Wisdom (no corrupted currency yet).
-        Item? result = (target.Item.Corrupted || target.Item.Mirrored) && type?.Id != Wisdom ? null : type?.Id switch
+        // A corrupted item takes no currency but a Scroll of Wisdom (no corrupted currency yet). A mirrored item takes
+        // no currency at all: the wiki says a mirrored copy cannot be altered in any way except a Reflective Oil, which
+        // is not modelled.
+        Item? result = target.Item.Mirrored ? null
+            : target.Item.Corrupted && type?.Id != Wisdom ? null
+            : type?.Id switch
         {
             Wisdom => target.Item.Identified || !target.Item.Components.Contains("Mods") ? null : target.Item with { Identified = true },
             CurrencyEffects.ChromaticOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } targetType
@@ -615,12 +1096,27 @@ partial class Program
             CurrencyEffects.RegalOrb => CurrencyEffects.Regal(target.Item, RollsFor(conn), Random.Shared),
             CurrencyEffects.ExaltedOrb => CurrencyEffects.Exalted(target.Item, RollsFor(conn), Random.Shared),
             CurrencyEffects.OrbOfAnnulment => CurrencyEffects.Annulment(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or
+                CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor =>
+                ItemsFor(conn).ByHash(target.Item.TypeHash) is { } eldritchType &&
+                CurrencyEffects.EldritchIchorTier(type!.Id) is int ichorTier
+                    ? CurrencyEffects.EldritchIchor(target.Item, eldritchType, ichorTier, RollsFor(conn), Random.Shared)
+                    : null,
+            CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or
+                CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber =>
+                ItemsFor(conn).ByHash(target.Item.TypeHash) is { } emberType &&
+                CurrencyEffects.EldritchEmberTier(type!.Id) is int emberTier
+                    ? CurrencyEffects.EldritchEmber(target.Item, emberType, emberTier, RollsFor(conn), Random.Shared)
+                    : null,
             CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target.Item),
+            CurrencyEffects.SacredOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } defenceType
+                ? CurrencyEffects.Sacred(target.Item, ItemsFor(conn).Defences(defenceType), Random.Shared) : null,
             CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target.Item),
             CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target.Item, RollsFor(conn), Random.Shared),
+            CurrencyEffects.AncientOrb => UniquesFor(conn).Reforge(target.Item, DropsFor(conn).UniqueWeight, Random.Shared),
             CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target.Item),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target.Item),
-            CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target.Item, Random.Shared),
+            CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target.Item, RollsFor(conn), Random.Shared),
             CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } vaalType
                 ? CurrencyEffects.Vaal(target.Item, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), Random.Shared) : null,
             _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target.Item, Random.Shared),
@@ -633,8 +1129,8 @@ partial class Program
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
             Console.WriteLine($"[gateway] {remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
-                (isEssence || type?.Id is Wisdom or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb
-                    ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links)" : $"not handled: {hex}"));
+                (isEssence || type?.Id is Wisdom or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
+                    ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links / fixed defence bases)" : $"not handled: {hex}"));
             return;
         }
         // The currency and the changed item are saved together.
@@ -681,7 +1177,8 @@ partial class Program
                 if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(remote, stream, ciphers, conn, items);
             }
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (isEssence || type.Id is Wisdom or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb
+        Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
+            : isEssence || type.Id is Wisdom or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))
             : $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"));
     }
@@ -689,11 +1186,11 @@ partial class Program
     // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked
     // up, for the player to place; the target stays as it was. One mirror and the copy are saved together.
     static async Task MirrorItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
-        byte usedRow, InventoryItem used, InventoryItem target)
+        ItemRolls rolls, byte usedRow, InventoryItem used, InventoryItem target)
     {
-        if (CurrencyEffects.Mirror(target.Item) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
+        if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / no mods / cursor not empty)");
+            Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / non-equipment / unmodifiable / no mods / cursor not empty)");
             return;
         }
         var done = Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
@@ -724,11 +1221,22 @@ partial class Program
             await PlaceInStash(remote, stream, ciphers, conn, tab, new InstanceItems.PlaceItem(a.InventoryId, onto.X, onto.Y, (byte)(OneOf(a) ? 1 : 0), a.B, 0, 0));
             return;
         }
+        Item? held = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
         string why = "unknown inventory";
-        var done = PlayerInventories.Row(a.InventoryId) is byte row
-            ? LevelTooLow(conn, row, items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item) is { } low ? null : items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a))
-            : null;
-        if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item) is { } tooLow) why = tooLow;
+        PlayerInventories.Placement? done = null;
+        if (PlayerInventories.Row(a.InventoryId) is not byte row) why = "unknown inventory";
+        else if (LevelTooLow(conn, row, held) is { } low) why = low;
+        else if (row == PlayerInventories.PassiveJewels
+            && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } targetItem
+            && PassiveJewelRefusal(conn, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
+        else if (row == PlayerInventories.PassiveJewels
+            && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } leavingCluster
+            && ClusterRemovalRefusal(conn, leavingCluster) is { } clusterRefusal) why = clusterRefusal;
+        else if (row == PlayerInventories.PassiveJewels
+            && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } leavingBypass
+            && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;
+        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a));
+        if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x004a held item onto {a}: refused ({why}): {hex}");
@@ -738,6 +1246,13 @@ partial class Program
         if (done.Merged || done.Rest is not null) { await SendMerged(remote, stream, ciphers, items, done); return; }
         // Not a stack with room: swapped, as 0x2a on that cell.
         var d = done.Displaced;
+        bool clusterLeft = done.Row == PlayerInventories.PassiveJewels && d is { } displaced
+            && ClusterSize(displaced.Item) is not null;
+        if (clusterLeft)
+        {
+            // The refund point only: a tree message that drops the cluster's nodes crashes the client (see below).
+            SpendClusterRemoval(conn);
+        }
         uint target = PlayerInventories.InventoryId(done.Row);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
             $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
@@ -746,6 +1261,8 @@ partial class Program
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
         if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (done.Row == PlayerInventories.PassiveJewels)
+            await SendPassiveJewelStats(remote, stream, ciphers, conn);
     }
 
     // Shift held on a 0x4a: flag bit 2 (the sender's param 7; live 2026-10-19, Flags = 4 with Shift, 0 without).
@@ -779,10 +1296,16 @@ partial class Program
         if (place.A != 0) Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: one of the held stack (Shift)");
         PlayerInventories.Placement? done = null;
         string why = "unknown inventory";
-        if (PlayerInventories.Row(place.InventoryId) is byte row && LevelTooLow(conn, row, items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item) is { } low)
-            why = low;
-        else if (PlayerInventories.Row(place.InventoryId) is byte r)
-            done = items.Place(r, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
+        Item? placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+        if (PlayerInventories.Row(place.InventoryId) is not byte row) why = "unknown inventory";
+        else if (LevelTooLow(conn, row, placement) is { } low) why = low;
+        else if (row == PlayerInventories.PassiveJewels
+            && items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y) is { } leavingBypass
+            && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;
+        else if (row == PlayerInventories.PassiveJewels
+            && PassiveJewelRefusal(conn, (int)place.X, (int)place.Y, placement) is { } refusal) why = refusal;
+        else
+            done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
         if (done is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: refused ({why})");
@@ -799,5 +1322,6 @@ partial class Program
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
         if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
     }
 }

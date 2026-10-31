@@ -13,6 +13,7 @@ it does not establish those skills' special mechanics. Missing metadata or damag
 |---|---|---|---|---|
 | Fireball | Full direct hit while continuing. One terminal area when no continuation remains; its collision victim receives one area-classified hit through direct admission | Terminal area if return cannot continue | Terminal area at the actual stop; a successful return defers it | Normal primary quantity; radius from exported level/quality stats |
 | Kinetic Blast | Direct hit and four independent offset explosions at every admitted impact, including impacts that pierce/fork/chain/split/return | One cluster group, including turnaround; blocked placement sectors are skipped | One group when stopping, including range turnaround before return; another at final return stop | Normal primary quantity; explosions alone have 40% less area damage |
+| Burning Arrow / of Vigour (`BurningArrow`, `BurningArrowAltX`) | Catalog straight flight; 100% physical-to-fire conversion; 25% base ignite chance, critical hits always ignite ([20](../protocol/20-damage.md) §3) | Common terrain and aimed height | Common | Normal primary quantity; quality is 1% more ignite damage; Vigour adds fire equal to 21–32% of maximum Life |
 | Kinetic Blast of Clustering (`KineticBlastAltX`) | Direct hit and three independent offset explosions, modified by projectile quantity | Same terrain contract | Same stop contract | One primary; extra generic and attack projectiles increase cluster count; cannot Split; no native 40% penalty |
 
 `KineticBlastAltY` is exported as `[DNT] KineticBlastAltY`. It uses the normal KB data profile for compatibility;
@@ -147,5 +148,7 @@ they do not establish official gameplay or visual parity.
   each contact group's victim exclusion, including large targets and delayed slots, while other groups can hit it;
   large-target/neighbor overlap; separate area/placement growth and explosion-only damage penalty.
 - Clustering: three base bursts, quantity-to-explosions with GMP/Fury Valve, no Split, retained Fork and support penalty.
+- Burning Arrow: the ignite rate near 25%, crits always igniting, the flames on the monster for the buff's time, burn
+  damage through fire resistance and burning kills; Vigour's added fire with Life; greyed out without an active bow.
 - Ordinary bow/catalog flight: close/far aim spread, finite pierce handoff, return terrain collision, pause/transfer and
   retirement. Report height/surface issues separately from contact/damage discrepancies.

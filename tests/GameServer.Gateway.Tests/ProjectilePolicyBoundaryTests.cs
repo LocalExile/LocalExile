@@ -5,6 +5,7 @@ namespace GameServer.Gateway.Tests;
 
 public class ProjectilePolicyBoundaryTests
 {
+    sealed class EntropySeed : Random { public override int Next(int maxValue) => 43; }
     [Theory]
     [InlineData(false, 21, 0, 0, 100u)]
     public async Task Close_range_accuracy_uses_target_centre_for_direct_and_secondary_area_hits(
@@ -13,7 +14,8 @@ public class ProjectilePolicyBoundaryTests
         await using var f = new ProjectileRuntimeFixture();
         var target = ProjectileRuntimeFixture.Monster(10 + targetDistanceX, 10 + targetDistanceY);
         f.Conn.Monsters.Add(42, target);
-        // The first projectile's seeded accuracy roll is 57. Against level-one evasion 67,
+        f.Conn.AttackAccuracyRandom = new EntropySeed();
+        // Entropy starts at 43: a 50% chance misses and a 61% chance hits. Against level-one evasion 67,
         // accuracy 7 gives 50% hit chance; the real 50% close mastery raises rating to 10 and chance to 61%.
         // A radius-four direct contact occurs before the centre; an area victim can lie on either side of its centre.
         var profile = new ProjectileProfile("Metadata/Projectiles/DefaultArrow")

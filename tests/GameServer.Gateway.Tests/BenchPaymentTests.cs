@@ -29,7 +29,7 @@ public class BenchPaymentTests : IDisposable
         Items.Add(Main, 0, 0, Currency(currency, 2));
         Deposit(currency, 2);
         Deposit(currency, amount + 5, 1);
-        Assert.NotNull(ItemMoves.CraftAtBench(Items, Stash, Bench, recipe.Row, false, new Random(1)));
+        Assert.NotNull(ItemMoves.CraftAtBench(Items, Stash, Bench, recipe.Row, new Random(1)));
         Assert.Equal(0, Items.Count(Main, currency));
         Assert.Equal(9, Stash.CountOf(currency));
         var saved = CharacterSaves.Load(name)!.Inventories[Slot].Single(i => i.Id == target.Id);

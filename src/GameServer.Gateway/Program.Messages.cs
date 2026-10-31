@@ -17,10 +17,25 @@ partial class Program
             if (conn.Closed) return;
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
+            // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
+            if (ServerMods.WantsPacket(id) && await ServerMods.Packet(PlayerOf(conn), id, bytes)) continue;
+            if (id == InstanceDelve.RouteId)
+            {
+                var route = InstanceDelve.ReadRoute(bytes);
+                Console.WriteLine($"[gateway] {remote} Delve route requested: {string.Join(" -> ", route)}; route execution is not implemented");
+                if (conn.PlayerSent && conn.Layout.Hash is StashCatalog.DelveHub or InstanceDelve.MineArea)
+                    await conn.Commands!.Reply("This mine route is not available yet.");
+                continue;
+            }
+            if (id is InstanceDelve.UpgradesRequestId or InstanceDelve.UpgradeId or InstanceDelve.PurchaseId)
+            {
+                await UseDelveEquipment(remote, stream, ciphers, conn, id, bytes);
+                continue;
+            }
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
             // Movement/combat handlers also advance atomically inside their mutation boundaries.
             bool transferIngress = id is InstanceTransfer.ChooseInstanceId or InstanceTransfer.LeaveAreaAckId
-                or InstanceWaypoints.TravelId or InstanceWaypoints.VisitHideoutId or InstanceHideouts.SelectId
+                or InstanceWaypoints.TravelId or InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitDelveHubId or InstanceWaypoints.VisitMenagerieId or InstanceWaypoints.VisitSanctumId or InstanceWaypoints.VisitKingsmarchId or InstanceWaypoints.VisitHeistHubId or InstanceWaypoints.VisitChayulaHubId or InstanceHideouts.SelectId
                 || id == InstanceProtocol.ResurrectId && InstanceProtocol.ReadResurrectInTown(bytes)
                 || id == InstanceItems.CommandId && InstanceItems.ReadCommand(bytes).Id == InstanceItems.WarpToHideoutCommand;
             if (!transferIngress) AdvanceProjectiles(conn);
@@ -52,20 +67,20 @@ partial class Program
                     await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (disabled skill, cost back)");
                     continue;
                 }
-                // The ordinary attack on a ranged weapon: clicking the ground with the attack skill bound swings at the point
-                // and the client draws an arrow to it, instead of walking there (live 2026-10-25: the arrow stayed in the
-                // hand, because every non-gem ground click was movement).
-                if (use.SkillId == SkillCatalog.FirstSkillId && WeaponProfileFor(conn, activeSet: true).Bow)
+                // The ordinary ranged attack fires at the ground point; it is neither a melee hit nor a Move action.
+                // Both bows and wands create their native Projectiles.dat object at the weapon's attack contact.
+                string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true));
+                if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
                 {
                     double duration = WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn));
-                    if (!TryBeginBowAttack(conn, at, duration, use.SkillId, use.Slot, out var bow)) continue;
+                    if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, out var shot)) continue;
                     int projectileEpoch;
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
-                    _ = ConfirmAndLaunchOrdinaryBow(remote, stream, ciphers, conn,
-                        InstanceProtocol.ActionStarted(PlayerId, bow.X, bow.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
-                        $"0x01ab bow attack at ({use.X}, {use.Y}) from ({bow.X}, {bow.Y}) (t={at:0.000})",
-                        (bow.X, bow.Y), (use.X, use.Y), duration, bow.Action, projectileEpoch);
+                    _ = ConfirmAndLaunchOrdinaryRanged(remote, stream, ciphers, conn,
+                        InstanceProtocol.ActionStarted(PlayerId, shot.X, shot.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                        $"0x01ab ranged attack ({ordinaryProjectile}) at ({use.X}, {use.Y}) from ({shot.X}, {shot.Y}) (t={at:0.000})",
+                        (use.X, use.Y), duration, shot.Action, projectileEpoch, ordinaryProjectile, use.Slot, shot.CriticalRoll);
                     continue;
                 }
                 // An attack gem (Holy Strike, Ground Slam …) used on the ground with "Always Attack Without Moving" off: a
@@ -227,11 +242,13 @@ partial class Program
                 var (u2, node, u6) = InstanceEntities.ReadAllocatePassive(bytes);
                 Console.WriteLine($"[gateway] {remote} <= 0x0034 allocate passive {node} ({PassivesFor(conn).Find(node)?.Name ?? "unknown"}), " +
                     $"node high16 {u2}, expansion {u6}");
-                if (u2 == 0 && u6 == 0)
+                if (u2 == 0 && u6 != 0)
+                    await ChangeClusterPassive(remote, stream, ciphers, conn, node, allocate: true);
+                else if (u2 == 0)
                     await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree");
                 else
                 {
-                    Console.WriteLine($"[gateway] {remote} allocation refused: expanded/32-bit passive ids are not supported");
+                    Console.WriteLine($"[gateway] {remote} allocation refused: 32-bit passive ids are not supported");
                     await SendPassives(remote, stream, ciphers, conn);
                 }
             }
@@ -245,7 +262,9 @@ partial class Program
                 var (node, expansion, gold) = InstanceEntities.ReadRefundPassive(bytes);
                 Console.WriteLine($"[gateway] {remote} <= 0x0036 refund passive {node} ({(node <= ushort.MaxValue ? PassivesFor(conn).Find((ushort)node)?.Name : null) ?? "unknown"})" +
                     $"{(expansion ? ", expansion node" : "")}, {(gold ? "gold respec" : "refund points")}: {Convert.ToHexString(bytes)}");
-                if (!expansion && node <= ushort.MaxValue)
+                if (expansion && node <= ushort.MaxValue)
+                    await ChangeClusterPassive(remote, stream, ciphers, conn, (ushort)node, allocate: false);
+                else if (!expansion && node <= ushort.MaxValue)
                 {
                     if (gold)
                         await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Respecialisation", goldRespec: true);
@@ -254,8 +273,7 @@ partial class Program
                 }
                 else
                 {
-                    // Cluster jewel nodes do not exist here: put the tree back.
-                    Console.WriteLine($"[gateway] {remote} refund refused: expansion nodes are not supported");
+                    Console.WriteLine($"[gateway] {remote} refund refused: 32-bit passive ids are not supported");
                     await SendPassives(remote, stream, ciphers, conn);
                 }
             }
@@ -284,6 +302,44 @@ partial class Program
                 // Only the player's own hideout exists (no parties or other players' hideouts yet).
                 await WarpToHideout(remote, stream, ciphers, conn, "World panel Hideout button");
             }
+            else if (id == InstanceWaypoints.VisitMenagerieId)
+            {
+                // The World panel's Menagerie pin: the same layout as 0x17a (whose Menagerie, waypoint object, u8).
+                var visit = InstanceWaypoints.ReadVisitHideout(bytes);
+                Console.WriteLine($"[gateway] {remote} <= 0x017b visit the Menagerie of {visit.Character} (from object 0x{visit.Waypoint:x}, u8 {visit.Flag})");
+                if (AreaTransitionCatalog.HashOf(WaypointCatalog.MenagerieHub) is { } menagerie)
+                    await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(menagerie, 0, false, AtSpawn: true), "World panel Menagerie pin");
+            }
+            else if (id == InstanceWaypoints.VisitChayulaHubId)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x0182 World panel Monastery of the Keepers pin");
+                if (AreaTransitionCatalog.HashOf(WaypointCatalog.ChayulaHub) is { } monastery)
+                    await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(monastery, 0, false, AtSpawn: true), "World panel Monastery of the Keepers pin");
+            }
+            else if (id == InstanceWaypoints.VisitHeistHubId)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x0184 World panel Rogue Harbour pin");
+                if (AreaTransitionCatalog.HashOf(WaypointCatalog.HeistHub) is { } harbour)
+                    await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(harbour, 0, false, AtSpawn: true), "World panel Rogue Harbour pin");
+            }
+            else if (id == InstanceWaypoints.VisitKingsmarchId)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x0181 World panel Kingsmarch pin");
+                if (AreaTransitionCatalog.HashOf(WaypointCatalog.Kingsmarch) is { } kingsmarch)
+                    await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(kingsmarch, 0, false, AtSpawn: true), "World panel Kingsmarch pin");
+            }
+            else if (id == InstanceWaypoints.VisitSanctumId)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x017e World panel Forbidden Sanctum pin");
+                if (AreaTransitionCatalog.HashOf(WaypointCatalog.SanctumHub) is { } sanctum)
+                    await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(sanctum, 0, false, AtSpawn: true), "World panel Forbidden Sanctum pin");
+            }
+            else if (id == InstanceWaypoints.VisitDelveHubId)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x017d World panel Mine Encampment pin");
+                if (AreaTransitionCatalog.HashOf(WaypointCatalog.DelveHub) is { } delve)
+                    await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(delve, 0, false, AtSpawn: true), "World panel Mine Encampment pin");
+            }
             else if (id == InstanceItems.UnsocketGemId)
                 await UnsocketGem(remote, stream, ciphers, conn, InstanceItems.ReadUnsocketGem(bytes));
             else if (id == InstanceItems.SocketGemId)
@@ -304,6 +360,8 @@ partial class Program
                 await UseFlask(remote, stream, ciphers, conn, InstanceItems.ReadUseFlask(bytes));
             else if (id == InstanceItems.UseItemOnId)
                 await UseItemOn(remote, stream, ciphers, conn, InstanceItems.ReadUseItemOn(bytes), Convert.ToHexString(bytes));
+            else if (id == InstanceItems.UseItemOnPassiveId)
+                await UseTattooOnPassive(remote, stream, ciphers, conn, InstanceItems.ReadUseItemOnPassive(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseItemTypeOnId)
             {
                 // Shift held: the currency stays on the cursor and is named by type; use a stack of it from the inventories,
@@ -333,6 +391,7 @@ partial class Program
                 // Esc → "Exit to Character Selection" or the hardcore death screen's Exit. Closing the instance connection
                 // is the answer: the client keeps its login connection and goes back to the character list (09 §6).
                 Console.WriteLine($"[gateway] {remote} <= 0x0153 exit to character selection: closing the instance connection");
+                conn.CloseReason = "exit to character selection (0x0153)";
                 lock (conn.Monsters)
                 {
                     conn.Closed = true;
@@ -485,6 +544,16 @@ partial class Program
                 await ActivateMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadActivate(bytes));
             else if (id == InstanceMapDevice.SelectMapId)
                 await SelectAtlasMap(remote, stream, ciphers, conn, InstanceMapDevice.ReadSelectMap(bytes));
+            else if (id == InstanceEntities.AtlasAllocateId)
+            {
+                var (preset, node) = InstanceEntities.ReadAtlasAllocate(bytes);
+                await ChangeAtlasPassive(remote, stream, ciphers, conn, preset, node, allocate: true);
+            }
+            else if (id == InstanceEntities.AtlasRefundId)
+            {
+                var (preset, node, _) = InstanceEntities.ReadAtlasRefund(bytes);
+                await ChangeAtlasPassive(remote, stream, ciphers, conn, preset, node, allocate: false);
+            }
             else if (id == InstanceStash.MoveTabId)
                 Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash tab into a folder (not handled): {Convert.ToHexString(bytes)}");
             else if (id == InstanceNpcs.OptionId)
@@ -493,6 +562,8 @@ partial class Program
                 await MoveHideoutObject(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadMove(bytes));
             else if (id == InstanceHideouts.SelectId)
                 await SelectHideout(remote, stream, ciphers, conn, InstanceHideouts.ReadSelect(bytes));
+            else if (id == InstanceBench.MoveId)
+                await MoveToBench(remote, stream, ciphers, conn, InstanceBench.ReadMove(bytes));
             else if (id == InstanceBench.CraftId)
                 await CraftBench(remote, stream, ciphers, conn, InstanceBench.ReadCraft(bytes));
             else if (id == InstanceHarvest.CraftId)
@@ -585,15 +656,15 @@ partial class Program
                     await SendChatChannels(remote, stream, ciphers, conn);
                     // The equipment again (S→C 0x02ba), as after an equip: the player object's own list does not set how a
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
-                    var worn = Looks(conn, ItemsOf(conn));
-                    await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, worn),
-                        $"0x02ba player equipment on entering: {string.Join(", ", worn.Select(e => $"slot {e.Slot} stance {e.Stance}"))}");
+                    await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
                     await SpawnPets(remote, stream, ciphers, conn);
                     await SendGroundItems(remote, stream, ciphers, conn);
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);
                     await SpawnTownStash(remote, stream, ciphers, conn);
+                    await SpawnDelveCrawler(remote, stream, ciphers, conn);
+                    await SpawnDelveGenerator(remote, stream, ciphers, conn);
                     await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
                     await SpawnOpeningTutorial(remote, stream, ciphers, conn);
                     await SpawnGlyphQuest(remote, stream, ciphers, conn);
@@ -606,7 +677,9 @@ partial class Program
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
+                    await ServerMods.AreaGenerated(PlayerOf(conn));
                     _ = RunMonsterRegeneration(remote, stream, ciphers, conn);
+                    _ = RunUniqueBeltEffects(remote, stream, ciphers, conn);
                     await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);   // a1q5: the Medicine Chest's flag
                     _ = RunMercyMission(remote, stream, ciphers, conn);
                     _ = RunServerFrames(remote, stream, ciphers, conn);

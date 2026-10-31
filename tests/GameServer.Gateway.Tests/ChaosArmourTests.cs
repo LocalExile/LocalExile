@@ -77,9 +77,8 @@ public class ChaosArmourTests
             Conn.Monsters[42] = monster;
             Conn.EvasionEntropy = 100; // Force this contact to hit without changing the production RNG.
             Conn.LastEvasionAt = Conn.Clock.Elapsed.TotalSeconds;
-            await ((Task)typeof(Program).GetMethod("MonsterSwing", BindingFlags.Static | BindingFlags.NonPublic)!
-                .Invoke(null, ["chaos-armour-test", writer.GetStream(), ciphers, Conn, 42u, monster,
-                    (34, 32), (32, 32), Conn.IncomingHitEpoch])!).WaitAsync(TimeSpan.FromSeconds(5));
+            await Program.MonsterSwing("chaos-armour-test", writer.GetStream(), ciphers, Conn, 42u, monster,
+                monster.ActionGeneration).WaitAsync(TimeSpan.FromSeconds(5));
         }
 
         public async Task<byte[]> Received(byte[] expected)

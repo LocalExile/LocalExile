@@ -16,4 +16,14 @@ public class AtlasCatalogTests
         Assert.Equal("Cells", atlas.Default.Name);
     }
 
+    [Fact]
+    public void Loads_the_atlas_passive_nodes()
+    {
+        var nodes = new AtlasPassives();
+        Assert.True(nodes.Count > 1000);
+        Assert.NotNull(nodes.FindById("atlas_abyss_1_1"));
+        Assert.Equal("Abyss Chance", nodes.FindById("atlas_abyss_1_1")!.Name);
+        Assert.NotNull(nodes.FindById("atlas_start_node"));
+    }
+
 }

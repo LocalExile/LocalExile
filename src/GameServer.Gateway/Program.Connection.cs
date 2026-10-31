@@ -4,6 +4,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Accounts;
 using GameServer.Storage;
+using GameServer.Core.Diagnostics;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
 partial class Program
@@ -20,7 +21,7 @@ partial class Program
         catch (Exception e)
         {
             // Kept in memory: the next save tries again.
-            Console.WriteLine($"[gateway] unsaved progress not saved{(why is null ? "" : $" ({why})")}: {e.GetType().Name}: {e.Message}");
+            Console.WriteLine($"[gateway] unsaved progress not saved{(why is null ? "" : $" ({why})")}: {ServerLog.Describe(e)}");
         }
     }
 
@@ -41,6 +42,7 @@ partial class Program
         // A new character's start kit is built and saved only after the read-only progress preflight above succeeds.
         var startItems = ItemsOf(conn);
         level = LoadProgress(conn, level);
+        NormalizePassiveJewels(conn);
         // Towns and hideouts refill the flasks, before the inventories go to the client.
         if (!conn.Ruthless && (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == conn.Layout.Hash))
             && FillFlasks(startItems, int.MaxValue, catalog: ItemsFor(conn)).Count > 0)
@@ -62,6 +64,9 @@ partial class Program
         uint ticket = 0;
         ClientState? left = null;
         bool prepared = false;
+        long connectedAt = Stopwatch.GetTimestamp();
+        string? reason = null;   // why the connection ended, for the DISCONNECT line
+        bool vanished = false;   // the client closed it outside an area change or exit
         try
         {
             using (client)
@@ -115,11 +120,13 @@ partial class Program
                 // Anything after the opening was already encrypted by the client.
                 var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, Ruthless = resolved.Ruthless, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 ConnectionMetrics.Add(ciphers, conn.Performance);
+                PacketHistories.Add(ciphers, conn.Packets);
                 left = conn;
                 RegisterRuthlessVitalsAdmission(conn);
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Commands = Commands(remote, stream, ciphers, conn);
+                HotReload.Register(conn);
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = PrepareCharacterForArea(remote, conn, resolved.Level);
@@ -127,7 +134,9 @@ partial class Program
                 InitializeCharacterVitals(conn);
                 prepared = true;
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: 0,
-                    Text: resolved.League ?? "", LeagueStats: LeagueStatsFor(conn.MainAscendancy));
+                    Text: resolved.League ?? "", LeagueStats: LeagueStatsFor(conn.MainAscendancy),
+                    TerrainData: layout.Id == "Delve_Main" ? InstanceDelve.FirstMineTerrain() : null,
+                    AchievementSets: layout.Id is "Delve_Hub" or "Delve_Main" ? [2] : null);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}");
                 if (level != resolved.Level)
                 {
@@ -150,12 +159,24 @@ partial class Program
                     while (!conn.Closed)
                     {
                         int n = await stream.ReadAsync(buffer, reading.Token);
-                        if (n == 0) break;
+                        if (n == 0)
+                        {
+                            // An area change closes it too; otherwise the client went away by itself: a crash (or a closed
+                            // game), whose cause is usually in the last packets (PacketHistory).
+                            vanished = conn.CloseReason is null && !conn.LeavingArea && conn.PendingTransfer is null;
+                            reason = conn.CloseReason ?? (vanished
+                                ? "the client closed the connection (no area change or exit: a client crash or a closed game?)"
+                                : "the client closed the connection (area change)");
+                            break;
+                        }
                         total += n;
                         await OnClientData(remote, stream, ciphers, buffer.AsSpan(0, n).ToArray(), conn, inbox, Stopwatch.GetTimestamp());
+                        // A lost stream (ClientInbox.LostAfterUnframedReads): leaving the loop closes the connection.
+                        if (conn.UnframedRun >= ClientInbox.LostAfterUnframedReads) { reason = conn.CloseReason; break; }
                     }
+                    reason ??= conn.CloseReason ?? "closed by the server";
                 }
-                catch (OperationCanceledException) when (reading.IsCancellationRequested) { }
+                catch (OperationCanceledException) when (reading.IsCancellationRequested) { reason = conn.CloseReason ?? "closed by the server"; }
                 finally
                 {
                     lock (conn.Monsters)
@@ -175,8 +196,19 @@ partial class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[gateway] {remote} error: {ex.GetType().Name}: {ex.Message}");
+            // A client leaving for another area often resets the connection instead of closing it; otherwise a reset
+            // (IOException) is how a crashed client often looks from here, and its packets are the lead.
+            if (ex is IOException && left is { } leaving && (leaving.LeavingArea || leaving.PendingTransfer is not null))
+                reason = "the client reset the connection (area change)";
+            else
+            {
+                reason = $"error: {ex.GetType().Name}: {ex.Message}";
+                Console.WriteLine($"[gateway] {remote} error: {ServerLog.Describe(ex)}");
+                left?.Packets.Print(remote, "before the error");
+            }
         }
+        if (left is not null && vanished)
+            left.Packets.Print(remote, "before the client closed the connection");
         if (left is not null)
         {
             // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
@@ -192,7 +224,7 @@ partial class Program
             }
             catch (Exception e)
             {
-                Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {e.GetType().Name}: {e.Message}");
+                Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
             }
             ForgetRuthlessVitalsAdmission(left);
             if (left.MonstersPlaced) KeepInstanceMonsters(left);
@@ -200,7 +232,11 @@ partial class Program
             Instances.Leave(left.Instance);
         }
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
-        Console.WriteLine($"[gateway] DISCONNECT {remote} total={total}");
+        string? dump = left is not null && PacketHistory.DumpFolder is { } folder
+            ? left.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")
+            : null;
+        Console.WriteLine($"[gateway] DISCONNECT {remote} total={total} after {Stopwatch.GetElapsedTime(connectedAt).TotalSeconds:0.0} s: " +
+                          $"{reason ?? "?"}{(dump is null ? "" : $" (packets: {dump})")}");
     }
 
     // The read loop's part: decrypts one read, frames it (InstanceProtocol.SplitClientMessages), answers its 0x1b ticks with
@@ -212,13 +248,23 @@ partial class Program
         ciphers.Receive.Process(data);
         byte[] all = [.. conn.Carry, .. data];
         var messages = InstanceProtocol.SplitClientMessages(all, out conn.Carry, out byte[] unknown);
+        foreach (var (id, bytes) in messages)
+        {
+            conn.Packets.Received(id, bytes);
+            if (ServerTrace.Packets && PacketHistory.Kept(sent: false, id))
+                Console.WriteLine($"[packets] {remote} <= 0x{id:x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
+        }
+        if (unknown.Length > 0) conn.Packets.Received(0xffff, unknown);   // bytes no known message frames ("unframed")
+        conn.UnframedRun = ClientInbox.UnframedRun(conn.UnframedRun, messages.Count, unknown.Length);
+        if (conn.UnframedRun == ClientInbox.LostAfterUnframedReads)
+            conn.CloseReason = $"the client's stream no longer decodes ({conn.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
         if (MoveTrace)
             foreach (var (id, bytes) in messages)
                 if (id is 0x0024 or 0x0025 or 0x0190 or 0x0191)
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
-            if (conn.Ticks++ % 50 == 0) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
+            if (conn.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
             await SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs, ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32()));
             var waited = Stopwatch.GetElapsedTime(readAt);
             if (waited > ClientInbox.SlowAfter)
@@ -232,13 +278,16 @@ partial class Program
         ClientInbox inbox, CancellationTokenSource reading)
     {
         await Task.Yield();   // the read loop starts at once; the handlers run beside it
+        ClientInbox.Batch? handling = null;
         try
         {
             await foreach (var batch in inbox.ReadAllAsync())
             {
                 if (conn.Closed) break;
+                handling = batch;
                 long start = Stopwatch.GetTimestamp();
                 await OnClientMessages(remote, stream, ciphers, batch.Messages, batch.Unknown, conn, batch.ReadAt);
+                handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
                 var took = Stopwatch.GetElapsedTime(start);
@@ -252,7 +301,10 @@ partial class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[gateway] {remote} error: {ex.GetType().Name}: {ex.Message}");
+            string ids = handling is null ? "" : " handling " + string.Join(", ", handling.Messages.Select(m => $"0x{m.Id:x4}"));
+            conn.CloseReason = $"handler error{ids}: {ex.GetType().Name}: {ex.Message}";
+            Console.WriteLine($"[gateway] {remote} error{ids}: {ServerLog.Describe(ex)}");
+            if (ex is not (IOException or ObjectDisposedException)) conn.Packets.Print(remote, "before the handler error");
         }
         inbox.Complete();
         inbox.DiscardPending();
@@ -261,12 +313,13 @@ partial class Program
             conn.Closed = true;
             conn.InvalidateIncomingHits();
             FortificationOf(conn).Clear();
+            LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
             conn.Rage.Clear();
         }
         reading.Cancel();
     }
 
-    // Monster AI, one tick every MonsterAiTickMs per connection. A monster within its aggro range (MonsterVarieties MaxAgroRange, in
+    // Monster AI, one decision every MonsterAiCadence.StepMilliseconds of game time per connection (RunMonsterAi). A monster within its aggro range (MonsterVarieties MaxAgroRange, in
     // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to its own cell
     // around the player (MonsterSurround), re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
     // Positions are the server's estimates (WalkEstimator at MonsterVarieties MovementSpeed cells/s).
@@ -335,6 +388,9 @@ partial class Program
                 bytes = current;
             }
             if (log is not null) Console.WriteLine($"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}");
+            if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
+                Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
+            HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
             string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
             await Write(stream, ciphers, bytes);
@@ -370,4 +426,6 @@ partial class Program
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();
     internal static ConnectionPerformance MetricsFor(ConnectionCiphers ciphers) => ConnectionMetrics.GetValue(ciphers, _ => new());
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, PacketHistory> PacketHistories = new();
+    internal static PacketHistory HistoryFor(ConnectionCiphers ciphers) => PacketHistories.GetValue(ciphers, _ => new());
 }

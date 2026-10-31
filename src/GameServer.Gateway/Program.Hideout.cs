@@ -37,14 +37,33 @@ partial class Program
             "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(conn, action));
     }
 
-    static async Task CraftBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Recipe, bool Replace) request)
+    static async Task MoveToBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint ItemId, bool IntoBench) request)
+    {
+        if (conn.Ruthless || !conn.BenchOpen) return;
+        var items = ItemsOf(conn);
+        if (ItemMoves.MoveToBench(items, request.ItemId, request.IntoBench, ShapeOf) is not { } move)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x00e9 Ctrl + click item {request.ItemId} {(request.IntoBench ? "onto" : "off")} the crafting bench: refused (not there, slot taken or no room)");
+            return;
+        }
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.From),
+            items.NextRevision(move.From), [request.ItemId], []), $"0x00e9 Ctrl + click: item {request.ItemId} leaves row {move.From}");
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.To),
+            items.NextRevision(move.To), [], [move.Placed]), $"0x00e9 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
+    }
+
+    static async Task CraftBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Recipe, bool Bound) request)
     {
         if (conn.Ruthless || !conn.BenchOpen || HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
         var items = ItemsOf(conn);
         var stash = PersonalStashOf(conn);
-        var result = ItemMoves.CraftAtBench(items, stash, Bench, request.Recipe, request.Replace, Random.Shared);
+        var result = ItemMoves.CraftAtBench(items, stash, Bench, request.Recipe, Random.Shared);
         if (result is null)
         {
+            var target = items.Items(PlayerInventories.CraftingBench).Select(i => i.Item).FirstOrDefault();
+            string mods = target is null ? "" : string.Join(", ", target.Mods.Select(m => Items.Mods.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}"));
+            Console.WriteLine($"[gateway] {remote} <= 0x015d bench recipe {request.Recipe} ({Bench.Find(request.Recipe)?.Mod?.Id ?? Bench.Find(request.Recipe)?.Name}) refused on " +
+                (target is null ? "no item" : $"{Items.ByHash(target.TypeHash)?.Id} {target.Rarity} ilvl {target.ItemLevel} [{mods}]"));
             await RefreshBenchBalance(remote, stream, ciphers, conn);
             await Send(remote, stream, ciphers, InstanceChat.ChatLine("Craft refused: incompatible item or insufficient currency in inventory and stash."), "bench craft refused");
             return;

@@ -52,6 +52,9 @@ The effective count supplies `attack_speed_+%_per_fortification` and
 For example, 20 stacks with values 1 and 12 add 20% increased attack speed and 4% maximum Life per second.
 Thirty stacks add 30% increased attack speed and 6% maximum Life per second.
 Regeneration uses exact elapsed stack-seconds rather than a cached rate continuing past expiry.
+Its recovery now receives the same ordinary Life regeneration/recovery multipliers and prohibitions as the panel.
+Changing a modifier settles the old rate first; the new factor applies only to subsequent stack-seconds.
+Automated checks cover modifier changes, prohibition, signed developer sources and stopping at the existing expiry.
 An explicit final regeneration developer override replaces the derived regeneration source.
 Removing the generation source does not remove stacks already gained; their remaining lifetimes still run.
 

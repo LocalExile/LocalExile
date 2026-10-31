@@ -51,9 +51,12 @@ public partial class SpellNoDamageTests
                 {
                     "CausticArrow" => "PoisonArrow",
                     "ScorchingRay" => "FireBeam",
+                    "KineticBlastAltX" => "KineticBlast",
                     _ => effect,
                 };
                 var gem = ItemCatalog.Create(Program.Items.Find($"Metadata/Items/Gems/SkillGem{gemId}")!);
+                if (effect == "KineticBlastAltX")
+                    gem = gem with { GemVariant = Program.Items.FindGem("Kinetic Blast of Clustering")!.Value.Variant.Index };
                 var body = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Armours/BodyArmours/BodyStr1")!) with
                     { Sockets = [new(SocketColour.White, gem)] };
                 if (support is not null)

@@ -16,7 +16,7 @@ sealed class ConnectionPerformance
     static readonly Histogram<long> Allocations = Meter.CreateHistogram<long>("localexile.gateway.surround.allocations", "By");
     static readonly UpDownCounter<long> Pending = Meter.CreateUpDownCounter<long>("localexile.gateway.pending_batches");
     static readonly string[] Names = Enum.GetNames<LatencyPhase>();
-    static readonly bool Verbose = Environment.GetEnvironmentVariable("Game_LATENCY_METRICS") == "1";
+    static readonly bool Verbose = GameServer.Core.Diagnostics.ServerTrace.Latency;   // Game_TRACE=latency (or Game_LATENCY_METRICS=1)
     readonly Sample[] samples = Enumerable.Range(0, (int)LatencyPhase.Count).Select(_ => new Sample()).ToArray();
     long reportedAt = Stopwatch.GetTimestamp();
     int pendingBatches;

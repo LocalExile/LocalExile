@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -54,17 +55,17 @@ partial class Program
     {
         try
         {
-            while (!conn.Closed)
+            while (!conn.Closed && !conn.RageRetired)
             {
                 await Task.Delay(100);
-                if (conn.Closed) break;
-                if (conn.Paused) continue;
+                if (conn.Closed || conn.RageRetired) break;
+                if (conn.LeavingArea || conn.Paused) continue;
                 if (await FlaskGroundsTick(remote, stream, ciphers, conn, conn.Clock.Elapsed.TotalSeconds)) return;
             }
         }
         catch (Exception ex)
         {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask grounds: {ex.Message}");
+            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask grounds: {ServerLog.Describe(ex)}");
         }
         conn.FlaskGrounds.TickerExited();
     }

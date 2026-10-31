@@ -14,7 +14,7 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
     public Recipe? Find(int row) => All.FirstOrDefault(r => r.Row == row);
     public bool IsCrafted(ItemMod mod) => mod.Section == ModSection.Explicit && catalog.Mods.ByHash(mod.Hash)?.Domain == 9;
 
-    public Result? Apply(int row, Item item, bool replace, Random rng)
+    public Result? Apply(int row, Item item, Random rng)
     {
         if (Find(row) is not { } recipe || catalog.ByHash(item.TypeHash) is not { } type ||
             !recipe.Classes.Contains(type.ClassRow) || item.Mirrored || !item.Components.Contains("Mods")) return null;
@@ -88,18 +88,20 @@ sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder =
                         if (stat == "item_generation_can_have_multiple_crafted_mods" && existing.Values[i] > 0) limit = Math.Max(limit, 3);
                         else if (stat == "local_can_have_additional_crafted_mods") limit += existing.Values[i];
                     }
-            if (mod.Stats.Any(s => s.Id == "item_generation_can_have_multiple_crafted_mods" && s.Min > 0)) limit = Math.Max(limit, 3);
+            if (Enumerable.Range(0, mod.Stats.Count).Any(i =>
+                mod.Stats[i].Id == "item_generation_can_have_multiple_crafted_mods" && mod.RangeAt(i).Min > 0))
+                limit = Math.Max(limit, 3);
             bool conflict(ItemMod m) => catalog.Mods.ByHash(m.Hash) is { } other &&
                 (other.Hash == mod.Hash || other.Families.Intersect(mod.Families).Any());
             var remove = crafted.Where(conflict).ToList();
             if (crafted.Count >= limit && remove.Count == 0)
             { if (crafted.Count != 1) return null; remove = crafted; }
+            // The client relabels Craft to "Replace" (CraftingModReplace) and sends the ordinary request; one crafted
+            // mod is swapped for the recipe's price alone ("You cannot replace multiple crafted modifiers").
             if (remove.Count > 0)
             {
-                if (!replace || remove.Any(m => item.FracturedIndexes().Any(i => ReferenceEquals(item.Mods[i], m)))) return null;
+                if (remove.Count > 1 || remove.Any(m => item.FracturedIndexes().Any(i => ReferenceEquals(item.Mods[i], m)))) return null;
                 mods.RemoveAll(remove.Contains);
-                if (catalog.Find(CurrencyEffects.OrbOfScouring) is not { } scour) return null;
-                costs.Add((scour.Hash, 1));
             }
             var explicits = mods.Where(m => m.Section == ModSection.Explicit).ToList();
             int maxEach = item.Rarity == ItemRarity.Rare ? 3 : 1;

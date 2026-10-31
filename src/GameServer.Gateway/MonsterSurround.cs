@@ -9,9 +9,11 @@ using GameServer.Core.World;
 /// </summary>
 static class MonsterSurround
 {
-    /// <summary>A monster asking for a cell: its id, its cell, its Positioned size (object_size − 1) and its last slot.</summary>
+    /// <summary>A monster asking for a cell: its id, its cell, its Positioned size (object_size − 1), its last slot, its
+    /// attack's reach (MonsterVarieties MaximumAttackDistance) and whether that attack is ranged, in which case it stands
+    /// off at its reach instead of coming to the contact ring.</summary>
     public readonly record struct Asker(uint Id, int X, int Y, int Size, (int X, int Y)? Last,
-        double Reach = double.PositiveInfinity);
+        double Reach = double.PositiveInfinity, bool Ranged = false);
 
     /// <summary>How many rings out a monster may be placed before it simply aims at the player.</summary>
     const int Rings = 6;
@@ -68,6 +70,17 @@ static class MonsterSurround
     static double InnerRadius(Asker a) => Math.Max(a.Size + LivingCollision.PlayerSize + 1,
         Math.Min(ContactRadius(a.Size), a.Reach));
 
+    /// <summary>A ranged chaser whose reach lies beyond the contact ring stands off: its first ring is just inside its
+    /// reach (the farthest cell its attack covers: the Sand Spitter's 30), and a full ring sends it inward rather than
+    /// out of range. Melee chasers (and a ranged one whose reach is the contact ring anyway) ring outward as before.</summary>
+    static bool StandsOff(Asker a) => a.Ranged && !double.IsInfinity(a.Reach) && a.Reach - 1 > InnerRadius(a);
+
+    static double RingRadius(Asker a, int ring)
+    {
+        int spacing = 2 * a.Size + 2;
+        return StandsOff(a) ? Math.Max(InnerRadius(a), a.Reach - 1 - ring * spacing) : InnerRadius(a) + ring * spacing;
+    }
+
     static (int X, int Y)? Find((int X, int Y) player, Asker a, double bearing, BlockerSet taken,
         Func<int, int, int, bool> walkable)
     {
@@ -75,7 +88,9 @@ static class MonsterSurround
         var (bearingSin, bearingCos) = Math.SinCos(bearing);
         for (int ring = 0; ring < Rings; ring++)
         {
-            double radius = InnerRadius(a) + ring * spacing;
+            double radius = RingRadius(a, ring);
+            // A stand-off's inward rings end at the contact ring; the same ring again finds nothing new.
+            if (ring > 0 && radius == RingRadius(a, ring - 1)) break;
             // One cell along the ring per step, both sides of the bearing alternately, nearest first: the first free cell
             // packs the bodies as tightly as they may stand.
             var samples = RingSamples.GetOrAdd(radius, static r =>
@@ -104,11 +119,13 @@ static class MonsterSurround
 
     static bool OnRing((int X, int Y) cell, (int X, int Y) player, Asker a)
     {
-        double d = Math.Sqrt(Distance2(cell.X - player.X, cell.Y - player.Y)), r0 = InnerRadius(a);
+        double d = Math.Sqrt(Distance2(cell.X - player.X, cell.Y - player.Y)), r0 = RingRadius(a, 0);
         if (d > a.Reach) return false;
         int spacing = 2 * a.Size + 2;
-        if (d < r0 - 1) return false;
-        double ring = (d - r0) / spacing;
+        // Rings count outward from the contact ring, inward from a stand-off's first ring.
+        double offset = StandsOff(a) ? r0 - d : d - r0;
+        if (offset < -1) return false;
+        double ring = offset / spacing;
         return Math.Round(ring) <= 0 && Math.Abs(ring - Math.Round(ring)) * spacing <= 1.5;
     }
 

@@ -74,16 +74,24 @@ static class AttackBaseCriticalStrike
         return Math.Max(0, raw(UnarmedBaseStat));
     }
 
-    public static int Chance(bool weaponInMainHand, int weaponBase, long increasedPct, Func<string, int> raw)
+    public static int Chance(bool weaponInMainHand, int weaponBase, long increasedPct, Func<string, int> raw,
+        Func<string, int>? skill = null) =>
+        ChanceOfBase(OfMainHand(weaponInMainHand, weaponBase, raw), increasedPct, raw, skill);
+
+    /// <summary>The selected attack's resolved intrinsic base, with actor and own BASE before global/own INC.</summary>
+    public static int ChanceOfBase(int intrinsic, long increasedPct, Func<string, int> raw,
+        Func<string, int>? skill = null)
     {
+        int Own(string name) => skill?.Invoke(name) ?? 0;
         if (raw("global_cannot_crit") != 0 || raw("virtual_global_cannot_crit") != 0
-            || raw("cannot_critical_strike_with_attacks") != 0) return 0;
-        return DamageModel.CriticalStrikeChancePerMyriad(
-            OfMainHand(weaponInMainHand, weaponBase, raw), increasedPct);
+            || raw("cannot_critical_strike_with_attacks") != 0 || Own("global_cannot_crit") != 0
+            || Own("virtual_global_cannot_crit") != 0 || Own("cannot_critical_strike_with_attacks") != 0) return 0;
+        return AddedBaseCriticalStrike.Chance(intrinsic, increasedPct, spell: false, raw, skill);
     }
 
     public static bool IsInput(string name) => name is WeaponOverrideStat or UnarmedBaseStat
+        or AddedBaseCriticalStrike.Generic or AddedBaseCriticalStrike.Attack or AddedBaseCriticalStrike.Spell
         or "global_cannot_crit" or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks"
         or "spell_critical_strike_chance_+%" // Also refresh the pooled spell reference used by /crit.
-        || Increases.Any(input => input.Stat == name);
+        || CriticalChanceFinal.IsInput(name) || Increases.Any(input => input.Stat == name);
 }

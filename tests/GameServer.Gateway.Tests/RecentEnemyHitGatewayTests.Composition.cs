@@ -7,6 +7,8 @@ public partial class RecentEnemyHitGatewayTests
 
     [Theory]
     [InlineData("/hit chaos 100", 26, 1)]
+    [InlineData("/spellhit chaos 100", 16, 2)]
+    [InlineData("/blockhit spell chaos 100", 26, 1)]
     public async Task Parsed_chaos_contacts_keep_armour_Fortification_suppression_and_ES_bypass_order(
         string command, int damage, int armourAndSuppressionDraws)
     {
@@ -14,8 +16,9 @@ public partial class RecentEnemyHitGatewayTests
         f.Set(RecentEnemyHits.GenericChance, 100);
         Program.FortificationOf(f.Conn).State.GrantExplicitStacks(f.Conn.Clock.Elapsed.TotalSeconds, 20);
         _ = f.Chance;
+        // The refresh above computes an uncapped input; override it with the forced chance too.
         f.Conn.Pools = f.Conn.Pools with { Life = 10000, Armour = 500, ArmourAppliesToChaosDamage = true,
-            SpellSuppressionChance = 100, EnergyShield = 100 };
+            SpellSuppressionChance = 100, SpellSuppressionChanceUncapped = 100, EnergyShield = 100 };
         f.Conn.EnergyShield.SetMaximum(100, refill: true);
         var random = new TraceRandom(armourRoll: 0, blockRoll: .99);
         f.Conn.IncomingHitRandom = random;

@@ -434,7 +434,8 @@ sealed partial class VendorRecipes
         foreach (var (entry, index) in item.Mods.Select((m, i) => (m, i)).Where(p => p.m.Section == ModSection.Explicit))
         {
             if (_catalog.Mods.ByHash(entry.Hash) is not { } mod) continue;
-            bool max = mod.Stats.Any(s => s.Min < s.Max) && mod.Stats.Select((s, n) => n < entry.Values.Count && entry.Values[n] >= s.Max).All(x => x);
+            bool max = Enumerable.Range(0, mod.Stats.Count).Any(i => { var range = mod.RangeAt(i); return range.Min < range.Max; })
+                && Enumerable.Range(0, mod.Stats.Count).All(i => i < entry.Values.Count && entry.Values[i] >= mod.RangeAt(i).Max);
             int multiplier = fractured.Contains(index) ? 4 : 1;
             string family = _sellFamilies.GetValueOrDefault(entry.Hash, "");
             if (family is "Strength" or "Dexterity" or "Intelligence") { alteration += 2 * multiplier; continue; }

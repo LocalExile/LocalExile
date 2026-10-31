@@ -1,3 +1,4 @@
+using GameServer.Core.Diagnostics;
 using Microsoft.Data.Sqlite;
 
 namespace GameServer.Storage;
@@ -104,7 +105,7 @@ public sealed class SaveDatabase : IDisposable
         try { _tx!.Rollback(); } catch (Exception e) when (e is SqliteException or InvalidOperationException) { }
         foreach (var undo in Enumerable.Reverse(_undo!))
             try { undo(); }
-            catch (Exception e) { Console.WriteLine($"[saves] undoing a failed save: {e.GetType().Name}: {e.Message}"); }
+            catch (Exception e) { Console.WriteLine($"[saves] undoing a failed save: {ServerLog.Describe(e)}"); }
     }
 
     /// <summary>The save stored under <paramref name="key"/>, or null when there is none.</summary>

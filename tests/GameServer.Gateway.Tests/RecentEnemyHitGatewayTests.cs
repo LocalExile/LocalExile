@@ -82,7 +82,7 @@ public partial class RecentEnemyHitGatewayTests
         public Task Swing(SpawnedMonster monster)
         {
             lock (Conn.Monsters) return (Task)Method("MonsterSwing").Invoke(null,
-                ["incoming-test", Stream, Ciphers, Conn, 42u, monster, (34, 32), (32, 32), Conn.IncomingHitEpoch])!;
+                ["incoming-test", Stream, Ciphers, Conn, 42u, monster, monster.ActionGeneration])!;
         }
         public Task Present() => Program.SendRecentEnemyHits("incoming-test", Stream, Ciphers, Conn);
         public async Task<byte[]> Read()

@@ -100,8 +100,16 @@ the transfigured item-name display still needs a native retest.
   for is drawn red, "Requires level 70", and the item it is socketed in with it (checked live 2026-10-23: a level 20
   Fireball in an equipped wand, then `/set_level 10`). It still sends uses of the skill, though — it plays the cast
   animation and takes the mana off its bar before the server hears of it — so the server is the one that refuses. The
-  server treats the item as inactive, as it does a worn item the character is too low for (`CharacterStatSources`,
-  `InactiveItems`): its mods and its gems do nothing and its skills leave the Actor skill list, so the client has
+  server treats the item as inactive, as it does a worn item the character is too low for: `EquipmentStatSources`
+  raises each worn item's level and attribute requirements to the highest of its socketed gems' before resolving the
+  inactive items (`SocketedGemRequirements`, from catalog data and the resolver's own attribute totals, never the
+  pools, which may not exist yet at login; a `/set_stat virtual_*_for_requirements` replaces the attribute there as
+  it does for the client), and `InactiveItems` keeps the result. PR #175 had dropped this rule, so the
+  gems stayed on the skill bar and every use was refused (restored 2026-10-29). The official game does the same
+  (checked 2026-10-29 on live Path of Exile 1: boots whose tooltip lists "Requires Level 72 (gem), 142 Str (gem), 114
+  Dex (gem), 62 Int (gem)" read "You cannot use this item. Its stats will be ignored" once Dexterity fell under 114,
+  and became usable again when that gem was taken out). Its mods and its gems do nothing and
+  its skills leave the Actor skill list, so the client has
   nothing to cast (`GemSkillEffects`); a use that arrives anyway is refused before the action is started — no 0x1ab so
   the cast does not run, and the mana pool goes out again so the cost comes back (`GemDisabled`, logged "(disabled,
   action not started)"). Socketing a gem the character is too low for is refused (0x30, `GemRequirementsUnmet`), and a
@@ -125,10 +133,17 @@ the transfigured item-name display still needs a native retest.
   (Haste, Fireball, Arc, Wrath, Grace, Discipline, Determination, Clarity, Anger, Hatred, Enfeeble, Flammability, the
   transforms' 60/40 and 33/33/34 splits, and five supports) with no mismatch: 100% at 70 is 155, 75% 119, 60%/40%
   98/68, a support at 70 is 111 and at 8 is 18, and low-level gems fall under 14 and show none. The server checks the
-  same values at socketing and for worn items (`GemAttributeRequirements`, `GemRequirementsUnmet`), against
+  same values at socketing and skill use (`GemAttributeRequirements`, `GemRequirementsUnmet`), against
   `virtual_strength/dexterity/intelligence_for_requirements` as the client does. Checked live 2026-10-23: a level 20
   Fireball socketed at `/set_stat intelligence 200`, then 130 — at 130 the client reds the gem, the wand's mods stop
-  counting, and a use is refused.
+  counting, and a use is refused. Ordinary percentage attributes feed the final pool and requirement fields used
+  here. The issue #75 port (PR #175) had kept a qualified host active while only its gem was refused, with controls
+  at Fireball 9's 67-Intelligence threshold (ordinary Q input starting at Intelligence 68, refused at 62, starting
+  again after recovery, the Plate Vest keeping its 19 Armour throughout); that rule is superseded by the restored
+  host deactivation above, and those controls describe the port's behaviour, not the current one. Separate aura
+  transitions still need their own lifecycle evidence.
+  These captures precede this port; the ordinary-mode integration checks and fresh-native limitation are recorded
+  in [the port record](../dev/issue75-port.md).
 - **Supports:** GrantedEffects holds what a support applies to (`AllowedActiveSkillTypes`, `ExcludedActiveSkillTypes`,
   `AddedActiveSkillTypes`, `SupportsGemsOnly`) and its skill-bar letter (`SupportGemLetter`); a skill's types come from
   its ActiveSkills row.

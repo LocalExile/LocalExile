@@ -9,12 +9,12 @@ static class SpellCriticalStrike
         long? playerIncrease = null)
     {
         int Own(string name) => skill?.Invoke(name) ?? 0;
-        if (basePerMyriad is not > 0 || player("global_cannot_crit") != 0 || Own("global_cannot_crit") != 0
+        if (basePerMyriad is null or < 0 || player("global_cannot_crit") != 0 || Own("global_cannot_crit") != 0
             || player("virtual_global_cannot_crit") != 0 || Own("virtual_global_cannot_crit") != 0) return 0;
         long increased = (playerIncrease ?? ((long)player("critical_strike_chance_+%")
             + player("spell_critical_strike_chance_+%")))
             + Own("critical_strike_chance_+%") + Own("spell_critical_strike_chance_+%");
-        return GameServer.Core.World.DamageModel.CriticalStrikeChancePerMyriad(basePerMyriad.Value, increased);
+        return AddedBaseCriticalStrike.Chance(basePerMyriad.Value, increased, spell: true, player, skill);
     }
 
     public static int Chance(int? basePerMyriad, StatCatalog stats, IReadOnlyDictionary<uint, int> player,

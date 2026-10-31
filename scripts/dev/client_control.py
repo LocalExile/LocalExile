@@ -10,6 +10,9 @@
     .venv/Scripts/python.exe scripts/dev/client_control.py chat "#hello"
     .venv/Scripts/python.exe scripts/dev/client_control.py tp "RhoaChest 2"
     .venv/Scripts/python.exe scripts/dev/client_control.py flask:use 1
+    .venv/Scripts/python.exe scripts/dev/client_control.py passive:allocate 202
+    .venv/Scripts/python.exe scripts/dev/client_control.py passive:refund 202
+    echo '{"command":"inventory:pickup","inventoryId":1,"id":1027}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
 
 Use --stdio for persistent JSON-lines RPC (one request/result per line). Each request is
 {"command":"character:play","name":"OfflineWitch"}; login takes account/password fields.
@@ -391,6 +394,17 @@ class ClientControl:
         if command == "flask:use":
             packet, slot = flask_packet(request)
             return {**self.rpc("interaction", bytes=packet), "slot": slot}
+        if command in ("passive:allocate", "passive:refund"):
+            node = int(request["node"])
+            expansion = bool(request.get("expansion", True))
+            if not 0 < node <= 0xffff:
+                raise ValueError("Passive node must be a positive uint16")
+            flags = 1 if expansion else 0
+            if command == "passive:allocate":
+                packet = [0x00, 0x34, 0x00, 0x00, node >> 8, node & 0xff, flags]
+            else:
+                packet = [0x00, 0x36, 0x00, 0x00, node >> 8, node & 0xff, flags, 0]
+            return self.rpc("chat", bytes=packet)
         raise ValueError(f"Unknown command: {command}")
 
 
@@ -437,6 +451,8 @@ def main():
                     request.update(x=int(parts[0]), y=int(parts[1]))
         if request["command"] == "login":
             request["password"] = sys.stdin.readline().rstrip("\r\n") if options.password_stdin else getpass.getpass("Local password: ")
+        if request["command"] in ("passive:allocate", "passive:refund") and options.text is not None:
+            request["node"] = int(request.pop("text"))
         result = run_request(control, request)
         print(json.dumps(result, ensure_ascii=True), flush=True)
         return 0 if result["ok"] else 1

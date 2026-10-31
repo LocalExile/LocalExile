@@ -6,11 +6,12 @@
 /// <c>maximum_frenzy_power_endurance_charges</c> ("+1 to Maximum Endurance, Frenzy and Power Charges") to all three. Their Stats.dat
 /// Semantics 2 means OVERRIDE_VALUE; it does not establish that addition rule. The combined power/endurance and
 /// power/frenzy bonuses add to both rows; the former is reachable through the ordinary Warstaff base implicit.
-/// Conditional stats (while affected by ...), conversions (maximum_..._is_equal_to_...) and the mechanics that replace
-/// the maximum with 0 are outside this contribution and are not counted. The charges themselves (current counts, gains,
-/// expiry, per-charge effects) are <see cref="Charges"/>, which takes its maxima from here. Conversion/zero flags currently require unsupported
-/// unique or ascendancy sources; revisit them when those sources become reachable. No Mods.dat row uses the
-/// max_*_charges_override stats today; if supported later, those must replace the sum rather than add to it.
+/// Conditional stats (while affected by ...) and the mechanics that replace the maximum with 0 are outside the standard
+/// contribution. The three explicitly sourced special-charge maximum mirrors are a separate, later projection
+/// (<see cref="MirroredMaximums"/>); the special counts come from the converted standard charges
+/// (<see cref="Charges.ConversionFlag"/>, <see cref="ChargeEffects.Display"/>). The charges themselves (current counts,
+/// gains, expiry, per-charge effects) are <see cref="Charges"/>, which takes its standard maxima from here. No Mods.dat
+/// row uses the max_*_charges_override stats today; if supported later, those must replace the sum rather than add to it.
 /// </summary>
 static class ChargePanelStats
 {
@@ -35,5 +36,21 @@ static class ChargePanelStats
             ("virtual_maximum_power_charges",
                 Maximum((long)BaseMaximumCharges + get("max_power_charges") + powerAndEndurance + powerAndFrenzy + all)),
         ];
+    }
+
+    /// <summary>Only the native maximum-equals flags, after the caller has completed the standard maxima and applied
+    /// their explicit replacements. Pinned PoB CalcPerform mirrors Endurance/Frenzy/Power into Brutal/Affliction/
+    /// Absorption respectively, or zero without the flag. Always emit zero to clear a removed source's native gates.
+    /// No direct special maximum, minimum conversion, gain-instead flag or current charge state is inferred.</summary>
+    public static List<(string Stat, int Value)> MirroredMaximums(Func<string, int> completed)
+    {
+        return
+        [
+            ("virtual_maximum_brutal_charges", Mirror("maximum_brutal_charges_is_equal_to_maximum_endurance_charges", "endurance")),
+            ("virtual_maximum_affliction_charges", Mirror("maximum_affliction_charges_is_equal_to_maximum_frenzy_charges", "frenzy")),
+            ("virtual_maximum_absorption_charges", Mirror("maximum_absorption_charges_is_equal_to_maximum_power_charges", "power")),
+        ];
+        int Mirror(string flag, string standard) => completed(flag) != 0
+            ? Math.Max(0, completed($"virtual_maximum_{standard}_charges")) : 0;
     }
 }

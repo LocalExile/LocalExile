@@ -63,8 +63,8 @@ public sealed class AttributeGatewayTests : IDisposable
         Assert.Equal(683u, pools.Mana);
         Assert.Equal(318, pools.Accuracy);
         Assert.Equal(11, pools.EvasionPct);
-        Assert.Equal(16, pools.Evasion);
-        Assert.Equal(19, pools.EnergyShieldPct);
+        Assert.Equal(17, pools.Evasion); // Native final defence rounding: 15 * 1.11 = 16.65 -> 17.
+        Assert.Equal(9, pools.EnergyShieldPct); // Complete final Intelligence groups of ten.
         Assert.True(pools.EnergyShield > 0);
         Assert.Equal(28, pools.MeleePhysicalDamagePct);
         var shown = Program.CharacterPlayerStats(conn);
@@ -73,6 +73,33 @@ public sealed class AttributeGatewayTests : IDisposable
             ("virtual_intelligence_for_requirements", 99) })
             Assert.Equal(value, shown[Key(stat)]);
         Assert.Equal(pools, Rebuild(conn));
+    }
+
+    // A gem's requirements are its item's (live 2026-10-29, lost in PR #175): a level 20 Fireball (155 intelligence)
+    // the Witch cannot meet switches the robe off, so neither its gems nor its mods count, until the attributes come.
+    [Fact]
+    public void Socketed_gem_requirements_disable_the_worn_item_and_its_skills()
+    {
+        var conn = Character();
+        var fireball = Program.Items.FindGem("Fireball")!.Value;
+        var gem = ItemCatalog.Create(fireball.Type) with
+            { GemExperience = Program.Items.Gem(fireball.Type)!.ExperienceFor(20), GemVariant = fireball.Variant.Index };
+        var robe = Inventory.Add(PlayerInventories.BodyArmour, 0, 0, Gear("Simple Robe", ("additional_dexterity", 10))
+            with { Sockets = [new(SocketColour.Blue, gem)] });
+        IEnumerable<(ushort, int, string, int, int, uint)> Skills() =>
+            (IEnumerable<(ushort, int, string, int, int, uint)>)typeof(Program).GetMethod("GemSkillEffects",
+                BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [conn])!;
+
+        var pools = Rebuild(conn);
+        Assert.True(pools.Intelligence < 155);
+        Assert.Contains(robe.Id, Program.InactiveItems[name]);
+        Assert.Empty(Skills());
+        Assert.Equal(Program.SkillsFor(conn).ClassFor(conn.ClassRow).Dexterity, pools.Dexterity);
+
+        Inventory.Add(6, 0, 0, Gear("Iron Ring", ("additional_intelligence", 155)));
+        Rebuild(conn);
+        Assert.DoesNotContain(robe.Id, Program.InactiveItems[name]);
+        Assert.Single(Skills());
     }
 
     public void Dispose()

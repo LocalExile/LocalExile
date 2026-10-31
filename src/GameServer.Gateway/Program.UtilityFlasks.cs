@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -20,7 +21,14 @@ partial class Program
         }
         // The character's flask stats (passives and gear: increased flask effect, duration and charges used) and the
         // flask's own mods.
-        var character = CharacterPlayerStats(conn);
+        Dictionary<uint, int> character;
+        int playerLevel;
+        // Keep level and coefficient sources in one use snapshot, including across the asynchronous charge spend.
+        lock (conn.Monsters)
+        {
+            playerLevel = conn.Pools.Level;
+            character = CharacterPlayerStats(conn);
+        }
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(utility.Charges, local, Get);
@@ -33,7 +41,7 @@ partial class Program
         var items = ItemsOf(conn);
         if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot) is null) return;
 
-        var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get);
+        var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get, playerLevel);
         double now = conn.Clock.Elapsed.TotalSeconds;
         ushort buff;
         ushort? extra;
@@ -68,6 +76,14 @@ partial class Program
         return Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
     }
 
+    // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls (ItemDrops.Roll).
+    static double ItemQuantityFactor(ClientState conn)
+    {
+        var stats = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        return Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
+    }
+
     // The pools and the walk speed again (under the Monsters lock): after a utility flask effect started or ended, or the
     // equipment changed.
     static void RecomputePoolsAndSpeed(ClientState conn)
@@ -89,10 +105,11 @@ partial class Program
         try
         {
             bool stop = false;
-            while (!conn.Closed && !stop)
+            while (!conn.Closed && !conn.RageRetired && !stop)
             {
                 await Task.Delay(RecoveryStepMs);
-                if (conn.Closed) break;
+                if (conn.Closed || conn.RageRetired) break;
+                if (conn.LeavingArea) continue;
                 try
                 {
                     bool dead = conn.PlayerLife == 0;
@@ -106,7 +123,7 @@ partial class Program
                 }
                 catch (Exception ex)
                 {
-                    if (!conn.Closed) Console.WriteLine($"[gateway] {remote} utility flasks: {ex.Message}");
+                    if (!conn.Closed) Console.WriteLine($"[gateway] {remote} utility flasks: {ServerLog.Describe(ex)}");
                 }
             }
         }

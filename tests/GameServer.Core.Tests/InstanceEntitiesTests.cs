@@ -337,6 +337,22 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Atlas_passive_slots_carry_the_preset_nodes_little_endian()
+    {
+        Assert.Equal("003D" + "0002" + "000A" + "04" + "0002" + "3412" + "7856",
+            Convert.ToHexString(InstanceEntities.PassiveSlots(2, 10, 0x04, [0x1234, 0x5678])));
+    }
+
+    [Fact]
+    public void Atlas_allocate_and_refund_read_the_preset_and_node()
+    {
+        Assert.Equal(7, InstanceProtocol.KnownClientLength(InstanceEntities.AtlasAllocateId));
+        Assert.Equal(((byte)0, (uint)0x1234), InstanceEntities.ReadAtlasAllocate(Convert.FromHexString("003E0000001234")));
+        Assert.Equal(8, InstanceProtocol.KnownClientLength(InstanceEntities.AtlasRefundId));
+        Assert.Equal(((byte)1, (uint)0x5678, (byte)0), InstanceEntities.ReadAtlasRefund(Convert.FromHexString("003F010000567800")));
+    }
+
+    [Fact]
     public void Allocate_passive_reads_the_node()
     {
         // Captured live 2026-10-18 (Witch, level 2): Spell Damage and Mana.
@@ -492,6 +508,27 @@ public class InstanceEntitiesTests
         Assert.Equal("0033" + "0002" + "0001" + "0003" + "05" + "03" + "00" + "00" + "0002" + "3412" + "6776" + "0000" + "0000" + "0000" + "0000",
             Convert.ToHexString(InstanceEntities.CharacterPassives(5, 3, [0x7667, 0x1234],
                 questPoints: 1, refundPoints: 2, ascendancyPoints: 3)));
+    }
+
+    [Fact]
+    public void Character_passives_carry_the_cluster_jewel_nodes_in_their_own_list()
+    {
+        // The second u16 list holds the cluster jewel expansion ids (the client's own small ids, sent with the
+        // expansion flag), apart from the PassiveSkillGraphIds.
+        Assert.Equal("0033" + "0000" + "0000" + "0000" + "05" + "03" + "00" + "00" + "0001" + "3412"
+                + "0000" + "0002" + "CA00" + "CE00" + "0000" + "0000",
+            Convert.ToHexString(InstanceEntities.CharacterPassives(5, 3, [0x1234], clusterNodes: [202, 206])));
+    }
+
+    [Fact]
+    public void Character_passives_carry_tattoos_in_the_fifth_list()
+    {
+        // The fifth u32 list is node | PassiveSkillOverrides.dat HASH16 << 16 (RawU32 is little-endian): node
+        // 0x5335, Firewalker override Ngamahu1 HASH16 0x5C2A.
+        Assert.Equal("0033" + "0000" + "0000" + "0000" + "05" + "03" + "00" + "00" + "0001" + "3412"
+                + "0000" + "0000" + "0000" + "0001" + "35532A5C",
+            Convert.ToHexString(InstanceEntities.CharacterPassives(5, 3, [0x1234],
+                tattoos: new Dictionary<ushort, ushort> { [0x5335] = 0x5C2A })));
     }
 
     [Fact]

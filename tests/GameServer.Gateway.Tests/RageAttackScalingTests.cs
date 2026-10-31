@@ -22,7 +22,7 @@ public class RageAttackScalingTests
         {
             Program.AttackHit(weapon, stats, melee: true),
             AttackSkillHit.Resolve(weapon, stats, [], Program.Stats, 10000, melee: true),
-            OrdinaryBowShot.Capture(weapon, stats, [], Program.Stats, 1000, 0, 150).Hit
+            OrdinaryRangedShot.Capture(weapon, stats, [], Program.Stats, 1000, 0, 150).Hit
         };
         foreach (var hit in packets)
         {

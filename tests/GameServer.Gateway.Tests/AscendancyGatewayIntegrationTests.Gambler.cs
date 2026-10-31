@@ -54,7 +54,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             };
             State.Monsters[42] = monster;
             await (Task)GatewayMethod("MonsterSwing").Invoke(null, ["gambler-integration", stream, cipher,
-                State, 42u, monster, (position.X + 2, position.Y), position, State.IncomingHitEpoch])!;
+                State, 42u, monster, monster.ActionGeneration])!;
             return null;
         });
     }

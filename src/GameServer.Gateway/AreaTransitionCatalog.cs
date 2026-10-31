@@ -43,6 +43,15 @@ static class AreaTransitionCatalog
             var best = topologies.MaxBy(t => captured.Count(o => t.Transitions?.Any(x => x.Model == o.Model) == true));
             foreach (var o in captured)
             {
+                if (TryDelveEntrance(id, o.Model, out ushort delveDestination))
+                {
+                    placed.Add(new AreaTransitionObject(o.X, o.Y, delveDestination, o.Model,
+                        Rotation: o.Rotation, Height: o.Z));
+                    notes.Add($"Delve entrance at ({o.X}, {o.Y}) → {IdOf(delveDestination)}");
+                    continue;
+                }
+                // Delve's entrance and unused elevator are not a boss-arena gate pair.
+                if (id is "Delve_Hub" or "Delve_Main") continue;
                 var candidates = (best?.Transitions ?? []).Where(x => x.Model == o.Model).ToList();
                 var usable = candidates.Where(x => x.Enabled != false && x.DestinationHash16 is not null).ToList();
                 var destinations = usable.Select(x => x.DestinationHash16!.Value).Distinct().ToList();
@@ -97,6 +106,20 @@ static class AreaTransitionCatalog
                 notes.Add($"no capture {Folder}/{id}_seed{seed}.transitions.json yet (run live.ps1 -Walkmaps)");
         }
         return [.. placed.Select((t, i) => (FirstId + (uint)i, t))];
+    }
+
+    internal static bool TryDelveEntrance(string area, string? model, out ushort destination)
+    {
+        destination = 0;
+        destination = area switch
+        {
+            "Delve_Hub" when model?.EndsWith("DelveEntrance01_area_transition.ao", StringComparison.OrdinalIgnoreCase) == true
+                => InstanceDelve.MineArea,
+            "Delve_Main" when model?.EndsWith("delvemine_areatransition_v01_01_area_transition.ao", StringComparison.OrdinalIgnoreCase) == true
+                => StashCatalog.DelveHub,
+            _ => (ushort)0,
+        };
+        return destination != 0;
     }
 
     /// <summary>The object type to create a tile object with. Types that extend

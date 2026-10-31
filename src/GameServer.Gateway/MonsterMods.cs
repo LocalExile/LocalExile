@@ -175,19 +175,19 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "evasion_rating_+%", "accuracy_rating_+%", "always_crit",
         "life_regeneration_rate_per_minute_%", "rare_monster_mod_spell_damage_taken_+%_final", "base_damage_taken_+%",
         "monster_base_block_%", "base_cannot_be_stunned", "hit_damage_+%_per_10%_missing_enemy_life",
-        "self_take_no_extra_damage_from_critical_strikes", "base_self_ignite_duration_-%",
+        "self_take_no_extra_damage_from_critical_strikes", "avoid_impale_%", "cannot_have_life_leeched_from",
+        "cannot_have_energy_shield_leeched_from", "base_self_ignite_duration_-%",
         "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
         "shocked_effect_on_self_+%", "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
         "reflect_non_damaging_ailments_%_chance", "monster_chance_to_not_flee_%",
     };
 
-    /// <summary>Stats that only stop something the server does not do to monsters yet (curses, leech, wither): true as
-    /// they stand. Each needs its effect when that system arrives. The chill, freeze and shock ones (of the Ice, of the
+    /// <summary>Stats that only stop something the server does not do to monsters yet (curses, wither): true as they
+    /// stand. Each needs its effect when that system arrives. The chill, freeze and shock ones (of the Ice, of the
     /// Tempest, Unstoppable, Mirrored) act through MonsterElementalAilments, the ignite one through MonsterIgnites.</summary>
     public static readonly IReadOnlySet<string> Vacuous = new HashSet<string>
     {
-        "self_wither_duration_+%", "cannot_have_life_leeched_from", "hexproof",
-        "reflect_hexes_chance_%",
+        "self_wither_duration_+%", "hexproof", "reflect_hexes_chance_%",
     };
 
     /// <summary>Monster-buff templates whose stats are the mod's own and apply to the monster that has the aura

@@ -66,6 +66,12 @@ Nothing yet.
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
+  Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
+  for gems in their source item, independently of links; automated tests cover their addition and removal.
+  Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
+  The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
+  A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
+  The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
@@ -88,7 +94,8 @@ Nothing yet.
   (percent/100)^0.9 * k + 0.5)`, `k` 0.7 for a skill and 0.5 for a support, none below 14;
   fitted against 570 poedb tooltip cells with no mismatch: Haste 20 is 155 Dex, Clarity 20 119 Int, Fireball 20 155).
   Socketing a gem the character is too low or too weak for is refused (0x30, `GemRequirementsUnmet`), and a gem its
-  requirements above the character's makes its item inactive, as a worn item the character is too low for is: the
+  requirements above the character's makes its item inactive (the item's requirements are the highest of its own and its
+  gems', `EquipmentStatSources`; lost in PR #175, restored 2026-10-29), as a worn item the character is too low for is: the
   client reds it ("Requires level 70"), the item's mods stop counting and its skills leave the Actor list, so there is
   nothing to cast; a use that arrives anyway is refused without the action (no 0x1ab, and the mana pool again so the
   client's predicted cost comes back; `GemDisabled`).

@@ -10,7 +10,8 @@ partial class Program
         return (CriticalOnLowLife(conn, player), focused, CriticalExtraRollsFor(conn, player));
     }
 
-    // Compute the native virtual_on_low_life input from the living owner's current pools, never from cast/release life.
+    // Compute the native virtual_on_low_life input from current pools. Actions capture its luck contribution at use;
+    // the panel continues to show the owner's current state.
     // Focus and Vulnerability use their current raw state inputs; their skill/curse lifecycles are separate mechanics.
     internal static bool CriticalOnLowLife(ClientState conn, IReadOnlyDictionary<uint, int> player)
     {
@@ -55,7 +56,7 @@ partial class Program
     // The original per-type damage draws still precede the original critical Next(10000). Conditional luck adds
     // at most one following draw. This RNG order is a local policy, not evidence of the official server's sequence.
     internal static bool RollCriticalStrike(ClientState conn, int chance, IReadOnlyDictionary<uint, int>? own = null,
-        bool attack = true)
+        bool attack = true, SkillCriticalRoll? skillRoll = null)
     {
         if (chance <= 0 && !HoldingFishingRod(conn)) return false;
         lock (conn.Monsters)
@@ -64,8 +65,21 @@ partial class Program
             if (AlwaysCritical(conn, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0))
                 return !CriticalProhibitedBy(player, attack, own);
             if (chance <= 0) return false;
-            return CriticalStrikePolicy.Roll(CriticalProhibitedBy(player, attack, own) ? 0 : chance,
-                conn.CriticalRandom, CriticalExtraRollsFor(conn, player, own));
+            int allowedChance = CriticalProhibitedBy(player, attack, own) ? 0 : chance;
+            return skillRoll is not null ? skillRoll.Check(allowedChance, conn.CriticalRandom)
+                : CriticalStrikePolicy.Roll(allowedChance, conn.CriticalRandom, CriticalExtraRollsFor(conn, player, own));
+        }
+    }
+
+    static SkillCriticalRoll CaptureSkillCriticalRoll(ClientState conn, ushort skillId)
+    {
+        lock (conn.Monsters)
+        {
+            int effect = SkillEffectId(conn, skillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
+            var own = skillId == SkillCatalog.FirstSkillId
+                ? SkillsFor(conn).EffectStats(effect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2)
+                : SupportedSkill(conn, skillId).Stats;
+            return new(CriticalExtraRollsFor(conn, CharacterPlayerStats(conn), own));
         }
     }
 

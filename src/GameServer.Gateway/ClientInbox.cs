@@ -18,6 +18,15 @@ sealed class ClientInbox(ConnectionPerformance? performance = null)
     public sealed record Batch(IReadOnlyList<(ushort Id, byte[] Bytes)> Messages, byte[] Unknown, long ReadAt = 0,
         long EnqueuedAt = 0);
 
+    /// <summary>Reads in a row in which nothing frames after which the client's stream is taken as lost: its bytes no
+    /// longer decrypt with our cipher (live 2026-10-30, after the Glyph Wall opened: every later message was garbage and
+    /// the connection stayed open, deaf). A healthy connection has at most one such read, its last message (0x2cb) when
+    /// it leaves the area. The client's ticks alone make about five reads a second.</summary>
+    public const int LostAfterUnframedReads = 25;
+
+    /// <summary>The run of reads that framed nothing, after one more read: back to 0 when anything framed.</summary>
+    public static int UnframedRun(int run, int framed, int unknownBytes) => framed > 0 ? 0 : unknownBytes > 0 ? run + 1 : run;
+
     /// <summary>0x1c's index that clears the client's whole send-time queue (≥ its size, 0x142155930).</summary>
     public const ushort ClearQueue = ushort.MaxValue;
 

@@ -12,10 +12,21 @@ sealed class ChatCommands
     /// <summary>Tells the player something (chat lines, one per line of the text).</summary>
     public required Func<string, Task> Reply { get; init; }
 
+    /// <summary>The loaded mods' commands (ModHost), run when none of ours has the name: false when no mod has it either.
+    /// Asked at every use, so a mod's reload changes them on a connection that is already open.</summary>
+    public Func<string, string[], Task<bool>>? ModCommand { get; init; }
+
+    /// <summary>The loaded mods' command names and usages, for /commands.</summary>
+    public Func<IEnumerable<(string Name, string Usage)>>? ModUsages { get; init; }
+
     /// <summary>Commands per /help page.</summary>
     public const int PageSize = 8;
 
     private readonly Dictionary<string, (string Usage, Func<string[], Task> Run)> _commands = new(StringComparer.OrdinalIgnoreCase);
+
+    // Ours, then the mods' that ours do not shadow.
+    IEnumerable<(string Name, string Usage)> All() => _commands.Select(c => (c.Key, c.Value.Usage))
+        .Concat((ModUsages?.Invoke() ?? []).Where(m => !_commands.ContainsKey(m.Name)));
 
     public ChatCommands Add(string name, string usage, Func<string[], Task> run)
     {
@@ -37,6 +48,7 @@ sealed class ChatCommands
         }
         if (!_commands.TryGetValue(parts[0], out var cmd))
         {
+            if (ModCommand is not null && await ModCommand(parts[0], parts[1..])) return true;
             await Reply($"Unknown command /{parts[0]}. Type /commands (or /com) for the list.");
             return false;
         }
@@ -53,7 +65,7 @@ sealed class ChatCommands
     /// first ": " as a speaker name (green), so the header ends with ':' and the usages must not contain ": ".</summary>
     public string List(int page)
     {
-        string[] usages = [.. _commands.Values.Select(c => ShortUsage(c.Usage)).Order()];
+        string[] usages = [.. All().Select(c => ShortUsage(c.Usage)).Order()];
         int pages = Math.Max(1, (usages.Length + PageSize - 1) / PageSize);
         page = Math.Clamp(page, 1, pages);
         string footer = (page < pages ? $"/com {page + 1} for the next page, " : "") + "/com <name> for one command";
@@ -67,8 +79,9 @@ sealed class ChatCommands
     /// <summary>/commands &lt;name&gt;: the command of that name, else every command whose name contains it.</summary>
     public string Lookup(string name)
     {
-        if (_commands.TryGetValue(name, out var cmd)) return cmd.Usage;
-        string[] usages = [.. _commands.Where(c => c.Key.Contains(name, StringComparison.OrdinalIgnoreCase)).Select(c => c.Value.Usage).Order()];
+        var all = All().ToList();
+        if (all.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { Usage: { } usage }) return usage;
+        string[] usages = [.. all.Where(c => c.Name.Contains(name, StringComparison.OrdinalIgnoreCase)).Select(c => c.Usage).Order()];
         return usages.Length == 0 ? $"No command matches \"{name}\". Type /com for the list."
             : string.Join('\n', usages.Prepend($"--- Commands matching \"{name}\" ---"));
     }

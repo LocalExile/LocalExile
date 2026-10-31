@@ -9,8 +9,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 ### A server tick loop
 
 - Continuous player recovery has its own 16 ms elapsed-game-time loop (regeneration, flasks and self RF);
-  implemented, awaiting real-client visual verification.
+  native ES regeneration, source removal and transfer/relog controls pass.
+  Broader recovery and self RF visual verification remains separate.
   See Status and protocol/20-damage.md.
+- Same-character concurrent/relog connections still need an explicit stat-publication owner and ordering contract.
+  The closed/retired connection guard and its limits are in
+  [character stat lifecycle](../docs/dev/character-stat-lifecycle.md).
 - **Known:** `Program.TickRate` (30/s) only bounds attack times; hits use timers, the AI a 100 ms loop.
   Queue/lock/send timings and shared per-pass blocker indexes are implemented; there is no unified instance loop yet.
 - **Done when:** one 30 Hz loop per instance drives movement estimates, AI and combat.
@@ -46,7 +50,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **To be implemented with their leagues (out of scope for now):** the 202 areas whose level the client builds from
   data the server sends (`data/areas-unavailable.txt`). They come with each league's server side, not with the
   generator:
-  - Delve (82): the mine cells and biomes (`Delve_*`); the client fails without the cell data.
+  - Delve (82): the mine cells and biomes (`Delve_*`); the client needs the server's cell data.
+    An initial Delve_Main block, hub entrance and mine return gate now work with native generation and captured movement.
+    The initial Crawler has attached wheels, engine idle and a torch; the hub's native equipment console is placed.
+    Equipment purchases/upgrades have account/league persistence; the chart's route request is parsed.
+    Remaining: validate/price selected routes against a persistent mine graph, route-bound Crawler movement with
+    player-speed catch-up and waiting, darkness stacks/resistance, flare/dynamite use, encounters and rewards.
+    Also finish shared sulphite migration, equipment cable visual tiers and other biome sections.
+    This does not add Delve to the server level generator's supported areas.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
   - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
   - Incursion (10): the temples (`Incursion_Temple*`); the client needs the room hash of the opened and upgraded

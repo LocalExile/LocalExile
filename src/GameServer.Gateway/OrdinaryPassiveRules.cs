@@ -17,9 +17,21 @@ sealed class OrdinaryPassiveRules(string folder = "data")
     public bool Loaded => _data.Value is not null;
     public bool GraphLoaded => Loaded;
 
-    /// <summary>Checks a complete candidate set without modifying either supplied allocation.</summary>
+    /// <summary>The direct neighbours of an ordinary passive in the selected client graph, for tattoo adjacency
+    /// requirements such as the Makanga tattoos' <c>RequiresAdjacent</c>/<c>MaxAdjacent</c>.</summary>
+    public IReadOnlyCollection<ushort> Adjacent(ushort node, AscendancyFamily family) =>
+        _data.Value is { } data && data.Graphs.TryGetValue(family, out var graph) && graph.TryGetValue(node, out var set)
+            ? set : [];
+
+    /// <summary>Checks a complete candidate set without modifying either supplied allocation. <paramref name="bypassNodes"/>
+    /// are allocated nodes that an Intuitive Leap/Thread of Hope jewel lets stand without a path to the class start.
+    /// They are allowed as individual exceptions, but do not bridge to their neighbours unless they are adjacent to
+    /// the normally connected component (the PoB/game no-bridge rule). <paramref name="bypassProviders"/> maps each
+    /// bypass node to the socket(s) of the jewels that grant it; a node whose provider socket is not connected to the
+    /// tree is not honoured (the jewel slot itself must be connected).</summary>
     public void Validate(byte baseClass, AscendancyFamily family, IEnumerable<ushort> nodes,
-        IEnumerable<ushort>? ascendancyNodes = null)
+        IEnumerable<ushort>? ascendancyNodes = null, IReadOnlySet<ushort>? bypassNodes = null,
+        IReadOnlyDictionary<ushort, HashSet<ushort>>? bypassProviders = null)
     {
         ushort[] requested = nodes.ToArray();
         // An empty/reset ordinary tree needs no graph and cannot contain an orphaned branch.
@@ -43,6 +55,16 @@ sealed class OrdinaryPassiveRules(string folder = "data")
         }
 
         var roots = new HashSet<ushort> { start };
+        var allocatedBypass = new HashSet<ushort>();
+        if (bypassNodes is not null)
+            foreach (ushort id in bypassNodes)
+            {
+                if (!allocated.Contains(id)) continue;
+                if (!graph.ContainsKey(id) || !data.Nodes.TryGetValue(id, out var bypass) || bypass.IsAscendancy ||
+                    bypass.IsMastery || bypass.Starts.Count != 0 || bypass.RequiresExpansion)
+                    throw new AscendancyRuleException($"Passive {id} cannot be allocated through a radius jewel");
+                allocatedBypass.Add(id);
+            }
         foreach (ushort id in ascendancyNodes ?? [])
         {
             if (!graph.ContainsKey(id) || !data.Nodes.TryGetValue(id, out var node) || !node.IsAscendancy)
@@ -52,16 +74,31 @@ sealed class OrdinaryPassiveRules(string folder = "data")
                 roots.Add(additional);
         }
 
-        var reached = new HashSet<ushort>(roots);
-        var queue = new Queue<ushort>(roots);
-        while (queue.TryDequeue(out ushort current))
+        // A bypass node that is not otherwise connected to the tree is an allowed exception, but it does not
+        // connect its neighbours: PoB/Intuitive Leap only allows the passives inside the radius, not a bridge to
+        // the next node outside it. Bypass nodes adjacent to the normal component are normal bridges and are
+        // traversed in the second pass.
+        HashSet<ushort> Reach(IEnumerable<ushort> seeds, IReadOnlySet<ushort> skip)
         {
-            // A mastery can be selected from any adjacent allocated notable; it cannot connect those notables.
-            if (data.Nodes[current].IsMastery) continue;
-            foreach (ushort next in graph[current])
-                if (allocated.Contains(next) && reached.Add(next)) queue.Enqueue(next);
+            var reached = new HashSet<ushort>(seeds);
+            var queue = new Queue<ushort>(reached);
+            while (queue.TryDequeue(out ushort current))
+            {
+                // A mastery can be selected from any adjacent allocated notable; it cannot connect those notables.
+                if (data.Nodes[current].IsMastery) continue;
+                foreach (ushort next in graph[current])
+                    if (allocated.Contains(next) && !skip.Contains(next) && reached.Add(next)) queue.Enqueue(next);
+            }
+            return reached;
         }
-        if (allocated.Any(id => !reached.Contains(id)))
+        var normalReached = Reach(roots, allocatedBypass);
+        var connectedBypass = allocatedBypass.Where(id => graph[id].Any(normalReached.Contains)).ToHashSet();
+        var reached = Reach(normalReached.Concat(connectedBypass), new HashSet<ushort>());
+        var honoredBypass = bypassProviders is null
+            ? allocatedBypass
+            : allocatedBypass.Where(id => bypassProviders.TryGetValue(id, out var providers) &&
+                providers.Any(reached.Contains)).ToHashSet();
+        if (allocated.Any(id => !reached.Contains(id) && !honoredBypass.Contains(id)))
             throw new AscendancyRuleException("Ordinary passive nodes must remain connected to an available class start");
     }
 

@@ -14,6 +14,7 @@ using SaveFiles = GameServer.Core.Saves.SaveFiles;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
+using GameServer.Core.Diagnostics;
 
 // GameServer.Gateway — the instance (game) server the client connects to after login 0x14, or after 0x27 on an area
 // change (Agents/docs/protocol/02, 09).
@@ -23,6 +24,35 @@ using DamageOverTime = GameServer.Core.World.DamageOverTime;
 // movement and area transition clicks (0x24: change area, or with Ctrl the instance chooser; Agents/docs/protocol/09-area-change.md).
 // Port: Game_GATEWAY_PORT (default 6112). Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET), shared with
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
+
+ServerLog.Install("gateway");
+
+// dotnet run --project src/GameServer.Gateway -- seed-game-data [database]
+// Fills the SQLite game-data overlay from data/tables without starting the servers. The first Gateway start does the
+// same; this mode is for a fresh database, an editor or a check while the Gateway is stopped.
+if (args.Length > 0 && args[0].Equals("seed-game-data", StringComparison.OrdinalIgnoreCase))
+{
+    string path = args.Length > 1 ? args[1] : Saves.DefaultPath;
+    try
+    {
+        GameData.Open(path);
+        var (stats, mods, modStats) = (GameData.Store
+            ?? throw new InvalidOperationException("the game-data store did not open")).ReferenceCounts();
+        if (stats == 0 || mods == 0 || modStats == 0)
+        {
+            Console.Error.WriteLine("[gateway] game data seed: Stats.json/Mods.json are missing; run scripts/dev/extract-data.ps1 first");
+            return 1;
+        }
+        Console.WriteLine($"[gateway] game data seeded into {path}: {stats} stat(s), {mods} mod(s), " +
+            $"{modStats} default mod stat row(s)");
+        return 0;
+    }
+    catch (Exception e)
+    {
+        Console.Error.WriteLine($"[gateway] game data seed failed: {e.Message}");
+        return 1;
+    }
+}
 
 int port = int.TryParse(Environment.GetEnvironmentVariable("Game_GATEWAY_PORT"), out var p) ? p : 6112;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
@@ -43,6 +73,7 @@ try
 {
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
+    GameData.Open(Saves.Db.Path);
     Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
 }
 catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
@@ -64,6 +95,8 @@ var listener = new TcpListener(bind, port);
 // sending "leave" for them (their instances would never expire).
 var started = await InstanceControl.CallAsync(new ControlRequest { Op = "gateway_started" });
 if (!started.Ok) Console.WriteLine($"[gateway] Auth did not take gateway_started: {started.Error}");
+// The mods (Mods/Binaries/<id>, Program.Mods.cs), before the first player can use one.
+StartMods();
 listener.Start();
 Console.WriteLine($"[gateway] listening on {bind}:{port}");
 
@@ -155,7 +188,6 @@ sealed partial class Program
     internal const double PickupReach = 20 + 2;
     // How close (cells, centre to centre) gold on the ground is picked up by itself (RunPlayerTick): our own number, a
     // little inside a click's PickupReach.
-    internal const double GoldAutoLootRange = 15;
     // A monster's second skill, after its attack (SkillCatalog.FirstSkillId): a boss's stage skill (BossFights). 0x0103
     // is free in 3.29.3b (SkillCatalog.SkillIds).
     internal const ushort StageSkillId = 0x0103;
@@ -214,12 +246,15 @@ sealed partial class Program
     internal static readonly EssenceCrafting Essences = new(Items, Rolls);
     internal static readonly BenchCrafting Bench = new(Items, Rolls);
     internal static readonly HarvestCrafting Harvest = new(Items, Rolls);
-    internal static readonly ItemDrops Drops = new(Items, Rolls, maps: MapDevices.Value.Atlas);
+    internal static readonly ItemDrops Drops = new(Items, Rolls, maps: MapDevices.Value.Atlas, uniques: Uniques);
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.
     internal static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
     // The passive tree's nodes (PassiveSkills.dat by PassiveSkillGraphId).
     internal static readonly PassiveTree Passives = new();
+    // The Atlas passive tree's atlas_* nodes (PassiveSkills.dat), used by the three S→C 0x3d presets.
+    internal static readonly AtlasPassives AtlasPassiveNodes = new();
+    internal static readonly TimelessJewelEngine TimelessJewels = new();
     internal static readonly OrdinaryPassiveRules OrdinaryPassives = new();
     internal static readonly AscendancyCatalog Ascendancies = new();
     internal static readonly AscendancyRules AscendancyRules = new(Ascendancies);
@@ -276,9 +311,10 @@ sealed partial class Program
     internal static readonly double WalkSpeed =
         double.TryParse(Environment.GetEnvironmentVariable("Game_WALK_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 37;
 
-    // Game_MOVE_TRACE=1 logs "[move-trace] qpc=…" for the client's 0x24/0x25/0x191 as read and the server's
-    // 0x1ab/0x1b7/0x1ba as written, on the machine's QPC clock (scripts/re/frida/trace-movement.js uses the same clock).
-    internal static readonly bool MoveTrace = Environment.GetEnvironmentVariable("Game_MOVE_TRACE") == "1";
+    // Game_TRACE=move (or the older Game_MOVE_TRACE=1) logs "[move-trace] qpc=…" for the client's 0x24/0x25/0x191 as read
+    // and the server's 0x1ab/0x1b7/0x1ba as written, on the machine's QPC clock (scripts/re/frida/trace-movement.js uses
+    // the same clock).
+    internal static readonly bool MoveTrace = ServerTrace.Move;
 
     // The server frame length (ms, S→C 0x2b6): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
     internal static readonly byte FrameMs =

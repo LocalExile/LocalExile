@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -11,7 +12,7 @@ partial class Program
     static readonly Lazy<UniqueCatalog> RuthlessUniques = new(() => new(RuthlessItems.Value));
     static readonly Lazy<EssenceCrafting> RuthlessEssences = new(() => new(RuthlessItems.Value, RuthlessRolls.Value));
     static readonly Lazy<HarvestCrafting> RuthlessHarvest = new(() => new(RuthlessItems.Value, RuthlessRolls.Value));
-    static readonly Lazy<ItemDrops> RuthlessDrops = new(() => new(RuthlessItems.Value, RuthlessRolls.Value, ruthless: true));
+    static readonly Lazy<ItemDrops> RuthlessDrops = new(() => new(RuthlessItems.Value, RuthlessRolls.Value, ruthless: true, uniques: RuthlessUniques.Value));
 
     internal static ItemCatalog ItemsFor(ClientState conn) => conn.Ruthless ? RuthlessItems.Value : Items;
     internal static SkillCatalog SkillsFor(ClientState conn) => conn.Ruthless ? RuthlessSkills.Value : Skills;
@@ -102,7 +103,7 @@ partial class Program
         }
         catch (Exception e) when (bestEffort)
         {
-            Console.WriteLine($"[ruthless] {CharacterName(conn)}: resource pools not saved; will retry: {e.Message}");
+            Console.WriteLine($"[ruthless] {CharacterName(conn)}: resource pools not saved; will retry: {ServerLog.Describe(e)}");
         }
     }
 

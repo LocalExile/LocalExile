@@ -23,9 +23,22 @@ sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool AtSpaw
 
 // A monster this connection spawned: label for /mobs, the server's estimate of its walk, and its AI state.
 // A monster's attack: its skill id, attack time, reach (cells, centre to centre) and damage per hit.
+/// <summary>How a monster's projectile skill releases its shot, from the rig and stat set the client itself plays
+/// (Program.MonsterReleaseFor): the clip, its contact keyframe as a fraction of the attack, the keyframe's position when
+/// the skill spawns the shot there (<c>projectile_uses_contact_position</c>), and whether the monster turns its back for
+/// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
+sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
+
 sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     public bool Ranged { get; init; }
+    /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
+    /// the default height (no rig data for the variety).</summary>
+    public MonsterRelease? Release { get; init; }
+    /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
+    /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
+    /// instant contact at half the attack time.</summary>
+    public SkillCatalog.MonsterProjectileInfo? Projectile { get; init; }
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
     public IReadOnlyList<(uint, int)> Stats()
@@ -87,13 +100,15 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public bool Hostile { get; init; } = true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
-    // Its TakeHit clips (index in the rig's animation list, length) for 0x1b2: the flinch and its sound on a hit that
-    // passes HitReaction's gates. One clip for most varieties; a few have a pool the server picks from.
+    // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
+    // clip through its current ACT; rig indexes are retained as extraction/profile diagnostics.
     public IReadOnlyList<HitAnimation> HitAnimations { get; init; } = [];
     public byte Level { get; init; } = 1;
     public MonsterRarity Rarity { get; init; }
     // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
     public MonsterModSet Mods { get; init; } = MonsterModSet.None;
+    // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
+    public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
     public double Burn;
     // Life regeneration not yet applied (fractions of a point between ticks; RegenerateMonsters).
@@ -105,14 +120,20 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public double HitPlayerAt = double.NegativeInfinity;
     // The attack time its Stats component carries on the client (SendAttackerSlows), when it differs from Attack.Seconds.
     public double? SwingSecondsSent;
-    // The impales the player's attacks have left on it (Impale.cs); cleared when it dies.
+    // Impales retained for consumption/expiry, including on a corpse (Impale.cs).
     public readonly ImpaleState Impale = new();
-    // The ignites the player's hits have put on it (MonsterIgnites.cs); they end when it dies.
+    // The player's ignites on it (MonsterIgnites.cs), under the Monsters lock.
     public readonly MonsterIgnites Ignites = new();
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
+    // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
+    public readonly GameServer.Core.World.EvasionEntropy AttackEvasion = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
+    // Every AI order owns a generation. A flinch invalidates queued echoes and contact work from that order.
+    // SwingGeneration identifies ordinary attack recovery so canceling it does not clear an emerge or boss stage.
+    public int ActionGeneration;
+    public int? SwingGeneration;
     // The player's debuffs on it (Program.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
     // seconds) with the taunted buff shown and the end it shows, his passives' enemy auras (BuffDefinitions row → buff
     // instance), and the increased damage taken they give (every type; fire, cold and lightning) that its hits read.
@@ -130,8 +151,8 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public int StopRange => stopRange;
     public uint MaxLife { get; } = maxLife;
     public uint Life = maxLife;
-    // Until when its last flinch plays (Clock seconds; HitReaction): no new flinch before. Guarded by the Monsters
-    // lock.
+    // Until when its last flinch plays (Clock seconds; HitReaction): no new action or flinch before.
+    // Guarded by the Monsters lock.
     public double FlinchUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
     // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
@@ -191,6 +212,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public int ClassRow { get; init; } = SkillCatalog.WitchRow;
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
     public readonly ConnectionPerformance Performance = new();
+    // The connection's last messages, both directions (PacketHistory), and why the server closed it (the DISCONNECT line).
+    public readonly PacketHistory Packets = new();
+    public volatile string? CloseReason;
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
     // A transfer invalidates flights even during the gap after PendingTransfer is consumed by Transfer.
@@ -199,6 +223,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly RecentEnemyHits RecentEnemyHits = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
     public Random IncomingHitRandom = Random.Shared;
+    // The player's ignite rolls on monsters (MonsterIgnites), apart from the hit's own streams.
+    public Random IgniteRandom = Random.Shared;
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration;
@@ -211,6 +237,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         lock (Monsters)
         {
             IncomingHitEpoch++;
+            // The action state machine replaces the old swing epoch argument. Retired work cannot
+            // resume after a failed transfer, even when admission reopens on this same connection.
+            foreach (var monster in Monsters.Values)
+            {
+                monster.ActionGeneration++;
+                monster.SwingGeneration = null;
+            }
             if (clear) { RecentEnemyHits.Clear(); ElementalAilments.Clear(); }
         }
     }
@@ -241,6 +274,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     }
 
     public void ResumeAfterFailedTransfer() { lock (Monsters) LeavingArea = false; }
+
+    // Successful transfers retire all source-area workers independently of any particular carried mechanic.
+    public void Retire() { lock (Monsters) RageRetired = true; }
 
     /// <summary>The <see cref="Clock"/> time of a Stopwatch timestamp in the past (a socket read); now when 0 or paused.</summary>
     public double ClockAt(long timestamp)
@@ -327,6 +363,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // Server frames ended so far (0x2b5).
     public long ServerFrame;
     public byte[] Carry = [];
+    /// <summary>Reads in a row that framed nothing (ClientInbox.UnframedRun).</summary>
+    public int UnframedRun;
     /// <summary>The portal cosmetic: the MicrotransactionPortalVariations row every portal is listed with (0x008f +0x26),
     /// 0 for the base effect. Applied to portals already standing as well as to new ones.</summary>
     public ushort CosmeticPortalVariation;
@@ -387,6 +425,10 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool RageRetired;
     public ushort RageBuff;
     public RageState.Value? SentRage;
+    // Reap's Blood Charges held (BloodCharges), the buff instance sent for them and the count it carried; guarded by Monsters.
+    public int BloodCharges;
+    public ushort BloodChargeBuff;
+    public int SentBloodCharges;
     // Shared Vaal row budgets and native presentation belong to this connection; guarded by Monsters.
     public readonly VaalSoulState VaalSouls = new();
     public bool VaalSoulsRetired;
@@ -425,10 +467,24 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // (PassiveSkillGraphId), both kept in its save (CharacterSaves). Changed under the Monsters lock.
     public uint Experience;
     public List<ushort> Passives = [];
+    /// <summary>The three Atlas passive presets (PassiveSkillGraphId) and the points the character has; kept in its save.</summary>
+    public List<ushort>[] AtlasPassives = [[], [], []];
+    public ushort AtlasPassivePoints;
+    /// <summary>The cluster jewel nodes allocated in the tree's expansion cells: the client's own small ids, sent with
+    /// the expansion flag (C->S 0x34/0x36) and carried in 0x33's second list. Empty until a cluster jewel is socketed.
+    /// </summary>
+    public HashSet<ushort> ClusterPassives = [];
     public AscendancyProgress MainAscendancy = new();
     public CharacterSaves.PassiveProgressSnapshot? SavedPassiveProgress;
     // Selected mastery effects: mastery node (PassiveSkillGraphId) -> effect HASH16. Saved with the character.
     public Dictionary<ushort, ushort> MasteryEffects = [];
+    // Applied tattoos: passive node (PassiveSkillGraphId) -> tattoo name. The tattoo stays on the node when the
+    // passive is unallocated, so this map is independent of Passives. Saved with the character.
+    public Dictionary<ushort, string> Tattoos = [];
+    // Journey Tattoo of Makanui's chosen replacement keystone: passive node -> keystone PassiveSkillGraphId.
+    public Dictionary<ushort, ushort> TattooKeystones = [];
+    // Changes whenever Tattoos/TattooKeystones changes; part of the stat-source cache key.
+    public int TattooRevision;
     // Extra passive points from /add_passive_points (the 0x33 extra_skill_points field), saved with the character.
     public ushort ExtraPassivePoints;
     // Refund points (0x33's first u16; Orbs of Regret), saved with the character; /add_refund_points grants them for now.
@@ -437,10 +493,18 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool God;
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
+    /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
+    public string? ModelHands;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
     public Flasks.Effects FlaskEffects { get; } = new();
     /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>
     public UtilityFlasks.Effects UtilityFlaskEffects { get; } = new();
+    /// <summary>What Headhunter took from slain rares (StolenMods).</summary>
+    public StolenMods StolenMods { get; } = new();
+    /// <summary>The Headhunter buff on the client, 0 for none (Monsters lock).</summary>
+    public ushort StolenModsBuff;
+    /// <summary>The flask buffs Mageblood has on the client, by flask item id (Program.StepMagebloodBuffs; Monsters lock).</summary>
+    public Dictionary<uint, (byte Slot, ushort Buff, ushort? Extra)> MagebloodBuffs { get; } = [];
     /// <summary>The flasks' partial charges and the crit charge cooldown (FlaskCharges).</summary>
     public FlaskCharges.Carry FlaskChargeCarry { get; } = new();
     /// <summary>One change of the flask bar and its S→C 0xbf at a time (Program.ChangeFlaskBar), so the revisions go out in
@@ -489,6 +553,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     }
     // Defaults to the original shared stream; an isolated connection may supply deterministic critical draws.
     internal Random CriticalRandom { get; init; } = Random.Shared;
+    internal Random AttackAccuracyRandom { get; set; } = Random.Shared;
     // The player's mana as the server keeps it: spent by gem skills (mana_cost), regenerated by RunPlayerTick.
     public uint PlayerMana;
     // When the server last sent the pool back after an attack-move, whose use the client pays for but the server only walks.
@@ -504,6 +569,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public OpenShop? Shop;
     // The town's Stash object (0 = none here), and the stash tabs whose inventory this connection has sent (0xc0 + 0xc8).
     public uint StashObject;
+    /// <summary>The Delve Crawler in the Azurite Mine Encampment (Program.Delve), and its cell.</summary>
+    public uint DelveCrawlerObject;
+    public (int X, int Y) DelveCrawlerAt;
+    public readonly List<uint> DelveCrawlerBlockers = [];
+    public readonly List<uint> DelveCrawlerAttachments = [];
+    public uint DelveGeneratorObject;
+    public bool DelveGeneratorOpen;
     public readonly HashSet<int> StashTabsSent = [];
     /// <summary>The guild stash: its object in the hideout, its tabs this connection has the contents of, and whether its
     /// panel is the one open (then the stash messages act on it; StashOf).</summary>

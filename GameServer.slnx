@@ -5,14 +5,24 @@
     <Project Path="src/GameServer.Data/GameServer.Data.csproj" />
     <Project Path="src/GameServer.Gateway/GameServer.Gateway.csproj" />
     <Project Path="src/GameServer.Host/GameServer.Host.csproj" />
+    <Project Path="src/GameServer.Modding/GameServer.Modding.csproj" />
     <Project Path="src/GameServer.DevClient/GameServer.DevClient.csproj" />
     <Project Path="src/GameServer.Patch/GameServer.Patch.csproj" />
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
+  </Folder>
+  <Folder Name="/Mods/Source/">
+    <Project Path="Mods/Source/BossLoot/BossLoot.csproj" />
+    <Project Path="Mods/Source/DoubleExperience/DoubleExperience.csproj" />
+    <Project Path="Mods/Source/Example/Example.csproj" />
+    <Project Path="Mods/Source/Hello/Hello.csproj" />
+    <Project Path="Mods/Source/ItemQuantity/ItemQuantity.csproj" />
+    <Project Path="Mods/Source/ItemRarity/ItemRarity.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GameServer.Data.Tests/GameServer.Data.Tests.csproj" />
     <Project Path="tests/GameServer.Core.Tests/GameServer.Core.Tests.csproj" />
     <Project Path="tests/GameServer.Gateway.Tests/GameServer.Gateway.Tests.csproj" />
+    <Project Path="tests/GameServer.Modding.TestMod/GameServer.Modding.TestMod.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="Tools/PoEDataExtractor/PoEDataExtractor.csproj" />

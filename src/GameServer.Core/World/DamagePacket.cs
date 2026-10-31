@@ -1,5 +1,18 @@
 namespace GameServer.Core.World;
 
+/// <summary>The source and intermediate damage types visited by a forward conversion or gain path.</summary>
+[Flags]
+public enum DamageTypeHistory
+{
+    None = 0,
+    Physical = 1,
+    Lightning = 2,
+    Cold = 4,
+    Fire = 8,
+    Chaos = 16,
+    Elemental = Lightning | Cold | Fire,
+}
+
 /// <summary>
 /// Path of Exile's damage-type order. Damage may only be converted to a type later in this sequence:
 /// physical → lightning → cold → fire → chaos. <see cref="DamageType"/> is numbered in this order; use
@@ -26,6 +39,8 @@ public static class DamageTypes
 
     public static bool CanConvert(DamageType from, DamageType to) =>
         from != to && OrderOf(from) < OrderOf(to);
+
+    public static DamageTypeHistory HistoryOf(DamageType type) => (DamageTypeHistory)(1 << OrderOf(type));
 
     public static string Name(DamageType type) => type.ToString();
 }
@@ -64,6 +79,12 @@ public readonly record struct DamageRange(double Min, double Max)
     public override string ToString() =>
         Min == Max ? $"{Min:0.##}" : $"{Min:0.##}-{Max:0.##}";
 }
+
+/// <summary>
+/// One raw converted range, before damage modifiers. History includes the original, intermediate and final types;
+/// the final type alone determines mitigation. Equal final types with different histories remain separate.
+/// </summary>
+public readonly record struct DamageConversionPath(DamageType Type, DamageTypeHistory History, DamageRange Range);
 
 /// <summary>
 /// A hit's damage, split by type. This is the unit the conversion pipeline, added damage, increased/more modifiers,
@@ -234,6 +255,73 @@ public sealed class DamageConversion
 
     public int GainPercent(DamageType from, DamageType to) => _gain[(int)from, (int)to];
 
+    // Shared coefficient calculation only. Apply retains its original quantity accumulation and floating order.
+    double[] NormalizedConversions(int from, out double kept)
+    {
+        double skillTotal = 0, globalTotal = 0;
+        for (int to = from + 1; to < 5; to++)
+        {
+            skillTotal += _skill[from, to];
+            globalTotal += _global[from, to];
+        }
+
+        double skillScale = skillTotal > 100 ? 100 / skillTotal : 1;
+        double globalScale = skillTotal > 100 ? 0
+            : globalTotal > 0 ? Math.Min(1, Math.Max(0, (100 - skillTotal) / globalTotal)) : 1;
+
+        double convertedTotal = 0;
+        var converted = new double[5];
+        for (int to = from + 1; to < 5; to++)
+        {
+            // Preserve the existing per-destination whole-percent normalization, including its rounded total.
+            double percent = Math.Floor(_skill[from, to] * skillScale + _global[from, to] * globalScale + 0.5);
+            converted[to] = percent;
+            convertedTotal += percent;
+        }
+        kept = Math.Max(0, 1 - Math.Min(100, convertedTotal) / 100.0);
+        return converted;
+    }
+
+    /// <summary>
+    /// Trace raw conversion/gain quantities without applying damage modifiers. A path retains every visited type,
+    /// including intermediate elemental types after conversion to chaos. Merge only matching history/final-type
+    /// pairs: at most 31 nonempty histories exist because conversions only move forward through five types.
+    /// </summary>
+    public IReadOnlyList<DamageConversionPath> Trace(DamagePacket packet)
+    {
+        var incoming = new DamageRange[5, 32];
+        foreach (var (type, range) in packet.Components)
+            incoming[(int)type, (int)DamageTypes.HistoryOf(type)] = range;
+
+        var result = new List<DamageConversionPath>(31);
+        int from = 0;
+        foreach (var type in DamageTypes.ConversionOrder)
+        {
+            var converted = NormalizedConversions(from, out double kept);
+            for (int history = 1; history < 32; history++)
+            {
+                var range = incoming[from, history];
+                if (range.IsZero) continue;
+                var remaining = range.Scale(kept);
+                if (!remaining.IsZero) result.Add(new(type, (DamageTypeHistory)history, remaining));
+
+                for (int to = from + 1; to < 5; to++)
+                {
+                    int nextHistory = history | (int)DamageTypes.HistoryOf((DamageType)to);
+                    if (converted[to] != 0)
+                        incoming[to, nextHistory] = incoming[to, nextHistory].Add(
+                            new(range.Min * converted[to] / 100.0, range.Max * converted[to] / 100.0));
+                    double gained = _gain[from, to] / 100.0;
+                    if (gained != 0)
+                        incoming[to, nextHistory] = incoming[to, nextHistory].Add(
+                            new(range.Min * gained, range.Max * gained));
+                }
+            }
+            from++;
+        }
+        return result.AsReadOnly();
+    }
+
     /// <summary>Apply conversion and gain in the game's order. Converted paths stay fractional until the caller rolls
     /// the final packet. Per source, skill conversion is applied first; global conversion fills the remaining
     /// percentage, and a source's total outgoing conversion is capped at 100%.</summary>
@@ -249,27 +337,7 @@ public sealed class DamageConversion
             double min = source.Min + incomingMin[from];
             double max = source.Max + incomingMax[from];
 
-            double skillTotal = 0, globalTotal = 0;
-            for (int to = from + 1; to < 5; to++)
-            {
-                skillTotal += _skill[from, to];
-                globalTotal += _global[from, to];
-            }
-
-            double skillScale = skillTotal > 100 ? 100 / skillTotal : 1;
-            double globalScale = skillTotal > 100 ? 0
-                : globalTotal > 0 ? Math.Min(1, Math.Max(0, (100 - skillTotal) / globalTotal)) : 1;
-
-            double convertedTotal = 0;
-            var converted = new double[5];
-            for (int to = from + 1; to < 5; to++)
-            {
-                // PoB stores the final conversion as a whole percent.
-                double percent = Math.Floor(_skill[from, to] * skillScale + _global[from, to] * globalScale + 0.5);
-                converted[to] = percent;
-                convertedTotal += percent;
-            }
-            double kept = Math.Max(0, 1 - Math.Min(100, convertedTotal) / 100.0);
+            var converted = NormalizedConversions(from, out double kept);
             result[from] = new DamageRange(min * kept, max * kept);
 
             for (int to = from + 1; to < 5; to++)

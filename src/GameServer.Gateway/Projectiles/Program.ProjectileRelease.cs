@@ -37,7 +37,7 @@ partial class Program
 
     static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket)
+        (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -58,12 +58,12 @@ partial class Program
                 ? PlayerActionCurrent(conn, action)
                 : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
                 && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null,
-            () => CaptureGemProjectile(conn, session, skillId, gem, aim));
+            () => CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll));
         return Task.CompletedTask;
     }
 
     static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
-        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim)
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim, SkillCriticalRoll criticalRoll)
     {
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
@@ -85,11 +85,19 @@ partial class Program
             throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
         var target = ProjectileSession.Vector(aim);
         var direction = (target - origin).Unit;
+        bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
+        // An attack gem leaves from its weapon's contact keyframe, as the default attack's shot does: puncture_bow (Burning
+        // Arrow's clip) has attack1_bow's contact and position. Released at the feet 1.5 cells ahead, the arrow showed up
+        // inside the body at the ground instead of at the bow.
+        var release = spell ? null : Animations.AttackContactPoint(
+            Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject,
+            WeaponProfileFor(conn, activeSet: true));
+        double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
-        origin += direction * Math.Min(1.5, (target - origin).Length / 2);
+        origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
-        bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
+        var local = spell ? null : WeaponFor(conn).LocalSources;
         var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, conn.Pools.Accuracy,
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
@@ -98,12 +106,26 @@ partial class Program
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality,
             SkillStats = new Dictionary<uint, int>(own),
-            Penetration = Penetration.Of(player, Stats, !spell, own), ResistanceMods = HitResistMods(player, own),
+            Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),
+            ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
+            CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
+            AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
+            Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
+            // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
+            Ignite = MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand"),
+                spell ? "spell" : "main_hand", Get),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
-            ReturnMultiplier = ProjectileReturn.DamageMore(Get)
+            ReturnMultiplier = ProjectileReturn.DamageMore(Get),
+            // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
+            // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
+            // An attack gem's does not: Burning Arrow's action 0x415 started and created no projectile until the server's
+            // 0x2b9, as the default attack's arrow (Frida 2026-10-31).
+            ClientPredicted = spell,
+            // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
+            Presentation = release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
         var use = new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), new(PlayerId, conn.ProjectileEpoch), 1, origin, target)
             { Payload = shot, ReturnAnchor = new(PlayerId, conn.ProjectileEpoch) };

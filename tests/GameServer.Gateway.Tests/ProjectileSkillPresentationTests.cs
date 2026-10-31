@@ -10,7 +10,7 @@ public partial class OwnAuraGatewayTests
     {
         var gem = ((IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)>)
             Call("GemSkillEffects", f.Conn)!).Single(g => g.Effect == f.Effect(effect));
-        return (ProjectileUse)Call("CaptureGemProjectile", f.Conn, runtime.Session, gem.Id, gem, (110, 32))!;
+        return (ProjectileUse)Call("CaptureGemProjectile", f.Conn, runtime.Session, gem.Id, gem, (110, 32), new SkillCriticalRoll(0))!;
     }
 
     static void WearVariation(Fixture f, string skill, int variation)

@@ -76,6 +76,7 @@ static async Task Serve(LoginServerKeys keys)
 {
     var accounts = new AccountService(SqliteAccountStore.Open());
     Console.OutputEncoding = System.Text.Encoding.UTF8; // decoded wide strings
+    GameServer.Core.Diagnostics.ServerLog.Install("auth");   // after the encoding: it wraps the console writer as it is
     int port = int.TryParse(Environment.GetEnvironmentVariable("Game_LOGIN_PORT"), out var p) ? p : 20493;
     // Local play only by default; Game_BIND=0.0.0.0 to accept other machines.
     var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
@@ -167,7 +168,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
     }
     catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException or System.Security.Cryptography.CryptographicException)
     {
-        Console.WriteLine($"[auth] {peer} error: {ex.Message}");
+        Console.WriteLine($"[auth] {peer} error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
     }
     Console.WriteLine($"[auth] {peer} disconnected");
 }

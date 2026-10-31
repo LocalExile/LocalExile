@@ -60,7 +60,16 @@ object Extract(string path, byte[] bytes)
         source = path,
         sha256 = Convert.ToHexString(SHA256.HashData(bytes)),
         roots = graph.Roots,
-        nodes = graph.Nodes.Keys.Order().Select(id => new { id, adjacent = adjacent[id] }).ToArray()
+        orbits = graph.Orbits,
+        nodes = graph.Nodes.Keys.Order().Select(id => new { id, adjacent = adjacent[id] }).ToArray(),
+        // Radius jewels need the graph's geometry. Each node's position is the group centre plus its orbit radius at
+        // the orbit angle; the Gateway keeps the same formula (PassiveTree.NodePositions).
+        groups = graph.Groups.Select(g => new
+        {
+            x = g.X,
+            y = g.Y,
+            nodes = g.Nodes.Select(n => new { id = n.Id, orbit = n.Orbit, orbitIndex = n.OrbitIndex }).ToArray()
+        }).ToArray()
     };
 }
 var output = new

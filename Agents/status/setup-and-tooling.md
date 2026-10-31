@@ -16,8 +16,39 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Dev account service: register, log in, create characters (JSON-lines over TCP).
   Code: `GameServer.Host`, `GameServer.DevClient`.
   Docs: [dev-server.md](../docs/dev-server.md).
+- Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
+  which applies saved code edits to the running server; `HotReload.cs` logs each applied edit and tells players in
+  chat when a save starts a reload, when it is applied, when it fails to compile (first three errors, from
+  `dotnet watch`'s output), when it changes nothing, and when the edit needs a restart.
+  Live, with the client in game and no disconnect: Gateway edits applied in 9-18 s (the Burning Arrow fix among
+  them), a Core edit in 0.08 s, two files saved together as one reload, a broken save kept the old code and listed its
+  errors (5 shown as 3 + "2 more"), and the fix applied.
+  A removed member restarted the Gateway as expected; switching to and from `-NoHotReload` stops a Gateway that is
+  still loading. Parsing of the error lines is unit-tested (`HotReloadTests`).
+  Code: `scripts/dev/live.ps1`, `HotReload.cs`.
+  Docs: [GettingStarted](../GettingStarted.md) step 10 (hot reload), [live testing](../docs/dev/live-testing.md).
+- Client control distinguishes explicit password login from a remembered native form submission.
+  Password replacement clears the outgoing saved-credential flag and retains the Remember Password preference.
+  A remembered-form regression reaches character selection through normal Auth; saved-login preservation is mocked.
+  Code: `scripts/dev/client-control.js`, `scripts/dev/test-client-login-writer.cjs`.
+  Docs: [client control](../docs/dev/client-control.md).
 
 ## Partly working
+
+- Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
+  collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
+  `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
+  `Mods/Source/` has six examples; only `example` is on by default.
+  Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
+  generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
+  `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.
+  Live: the running Gateway loaded the example mod by itself when it was first built.
+  Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
+  dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
+  context being freed.
+  Missing: catalog overrides, and the hooks not yet tried with the client (drops, experience, stats, packets).
+  Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `Program.Mods.cs`, `Mods/Source/`.
+  Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
   Parsing and merging have automated round-trip, malformed-input and ordinary-tree preservation coverage.
@@ -26,6 +57,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   This standalone layer has no new native launch proof; client archive mutation requires separate agreement.
   Code: `PassiveSkillGraph.cs`, `AdditionalAscendancyGraph.cs`, `GameFileSystem.cs`, `scripts/re/passive-graphs`.
   Docs: [passive graph data guide](../docs/dev/passive-graph-data.md).
+
+- Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its
+  messages), the reason on every `DISCONNECT` line, archived logs of the last 10 full runs, each connection's last 256
+  packets (printed after an error or an unexplained disconnect, dumped to `logs\packets`, `/lastpackets`), `Game_TRACE`
+  categories, `scripts/dev/bugreport.ps1` and `scripts/re/frida/trace-crash.js`.
+  Unit-tested (`ServerLogTests`, `PacketHistoryTests`), the archive pruning and the bug report (logs held open, names
+  in every form) checked with scripts; a live run that catches a client crash with the dumps and `trace-crash.js` is
+  still to do, and so is checking that `trace-crash.js` reads the client's receive pump right.
+  Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
+  Docs: [debugging](../docs/dev/debugging.md).
 
 ## Not working yet
 

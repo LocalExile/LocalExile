@@ -48,6 +48,9 @@ public class CrowdRegressionTests
             Items = PlayerInventories.For(State.Character, Program.Items);
             if (cyclone)
             {
+                // Item activation reads the requirement attributes, not the pools set below (socketed gems count).
+                foreach (string attribute in new[] { "strength", "dexterity", "intelligence" })
+                    Set($"virtual_{attribute}_for_requirements", 1000);
                 var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemCyclone")!);
                 var host = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Armours/BodyArmours/BodyStr1")!) with
                     { Sockets = [new(SocketColour.White, gem)], Links = [1] };

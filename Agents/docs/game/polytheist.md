@@ -220,14 +220,14 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   Resistant: 80%) shortens it. The "deal Damage faster" modifiers the wiki lists for ignite (`faster_burn_%`,
   `damaging_ailments_deal_damage_+%_faster`: Searing Heat, Wasting Affliction, Blowback) multiply its damage per second
   and divide its duration by the same factor. Several ignites can be on one monster; only the strongest burns
-  (`MonsterIgnites`). The player tick burns them (`BurnIgnites`, every 250 ms) through the monster's fire resistance
+  (`MonsterIgnites`). The player tick burns them (`BurnIgnited`, every 250 ms, the same burn as projectile ignites) through the monster's fire resistance
   and damage taken, as Righteous Fire's burn, and kills with it; they burn on while the player is dead (unverified: no
   source found), with no experience then, and a dead Hardcore character's kills make no progress (`MonsterKilled`'s
   `HardcoreProgressBlocked` gate, as a projectile's). The monster shows the `ignited` buff (BuffDefinitions 0) from
-  the hit until the last one ends or it dies.
+  the hit until the last one ends or it dies, its timer running to that end.
   The ignite's flat fire is rolled apart from the hit's damage (the game takes the hit's own roll; the spread is the
-  same, a `shortcut:` in the code). Only this skill's hits ignite monsters yet: the default attack, gems and
-  projectiles do not ([20](../protocol/20-damage.md) §3).
+  same, a `shortcut:` in the code). Projectile hits add to the same ignites; the default
+  attack and melee or area gems do not ignite yet ([20](../protocol/20-damage.md) §3).
 - **Devout of Abberath, Burning Hoofprints** (`goat_footprints_from_item`) is the client's: the player stats carry it,
   and `FUN_141ebd630` turns it into the goat footprint variation that `FUN_14166a840` draws on each footstep event
   ([11](../protocol/11-skills.md) §12). The server sends nothing else.

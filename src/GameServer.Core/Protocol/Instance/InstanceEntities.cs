@@ -49,8 +49,27 @@ public static class InstanceEntities
     /// allocated but only allowed"). The presets at instance+0xc2f8 (active index +0xc2f0) are read when the area UI is
     /// built (0x140785160), so all three are created, empty.
     /// </summary>
-    public static byte[] PassiveSlots(ushort u28 = 0, ushort u2a = 0) =>
-        new LoginWriter().U16(PassiveSlotsId).U16(u28).U16(u2a).U8(0x1c).U16(0).ToArray();
+    public static byte[] PassiveSlots(ushort u28 = 0, ushort u2a = 0, byte presetMask = 0x1c,
+        IReadOnlyList<ushort>? nodes = null)
+    {
+        var w = new LoginWriter().U16(PassiveSlotsId).U16(u28).U16(u2a).U8(presetMask).U16((ushort)(nodes?.Count ?? 0));
+        foreach (ushort node in nodes ?? []) w.U8((byte)node).U8((byte)(node >> 8));   // raw little-endian u16
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// C→S 0x3e (7 bytes): the Atlas tree's allocate click. u8 preset index (0..2), u32 BE PassiveSkillGraphId. The
+    /// client's active preset is at Atlas tree +0xc2f0 (sender 0x1403cc410).
+    /// </summary>
+    public static (byte Preset, uint Node) ReadAtlasAllocate(ReadOnlySpan<byte> m) =>
+        (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]));
+
+    public const ushort AtlasAllocateId = 0x03e, AtlasRefundId = 0x03f;
+    public const int AtlasAllocateLength = 7, AtlasRefundLength = 8;
+
+    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 flag (0 seen).</summary>
+    public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
+        (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
 
@@ -150,17 +169,29 @@ public static class InstanceEntities
     /// → 0x1409de680 with 0; traced live 2026-10-19 after Apply refunds).
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
-        ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null)
+        ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
             .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
-        w.U16(0).U16(0);
+        // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
+        // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
+        w.U16(0);
+        var cluster = (clusterNodes ?? []).Order().ToList();
+        w.U16(checked((ushort)cluster.Count));
+        foreach (ushort n in cluster) w.U8((byte)n).U8((byte)(n >> 8));
         var effects = masteryEffects is null ? [] : masteryEffects
             .Where(kv => nodes?.Contains(kv.Key) == true).OrderBy(kv => kv.Key).ToList();
         w.U16(checked((ushort)effects.Count));
         foreach (var (node, effect) in effects) w.RawU32(node | ((uint)effect << 16));
-        return w.U16(0).ToArray();
+        // The fifth list is the applied tattoos: node | PassiveSkillOverrides.HASH16 << 16. The client stores it at
+        // tree +0x1f8 and looks the override up in PassiveSkillOverrides.dat for the replacement passive's name,
+        // icon and stats.
+        var applied = (tattoos ?? new Dictionary<ushort, ushort>()).OrderBy(kv => kv.Key).ToList();
+        w.U16(checked((ushort)applied.Count));
+        foreach (var (node, row) in applied) w.RawU32(node | ((uint)row << 16));
+        return w.ToArray();
     }
 
     /// <summary>S→C 0x22 (u32, dispatcher case 0xb): the local player's entity id (world+0x980, setter 0x142186fa0).</summary>

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The example mod: a starting point to copy (Agents/docs/dev/modding.md). Everything else is in Directory.Build.props. -->
+
+</Project>

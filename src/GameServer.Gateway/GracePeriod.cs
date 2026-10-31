@@ -4,7 +4,9 @@ using GameServer.Core.Protocol.Instance;
 sealed class GracePeriod
 {
     public const ushort BuffRow = 6; // BuffDefinitions: grace_period; BuffVisuals 8 (invulnerability.dds).
-    public const int Seconds = 60;
+
+    /// <summary>The current entry-protection duration; the system setting may change it without a restart.</summary>
+    public static int Seconds => SystemSettings.Default.GracePeriodSeconds;
     readonly Lock _lock = new();
     ushort? _buff;
     bool _protecting;
@@ -15,10 +17,11 @@ sealed class GracePeriod
     {
         lock (_lock)
         {
-            _buff = town || hideout ? null : buff;
+            int seconds = Seconds;
+            _buff = town || hideout || seconds <= 0 ? null : buff;
             _protecting = _buff is not null;
             _origin = origin;
-            _until = now + Seconds;
+            _until = now + seconds;
             return _buff is not null;
         }
     }

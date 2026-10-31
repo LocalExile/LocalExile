@@ -49,7 +49,7 @@ public partial class ProjectileSessionTests
         var conn = Connection(); conn.RageRetired = retired; conn.LeavingArea = !retired;
         conn.ChannelSkill = 123;
         bool accepted = route == "bow"
-            ? Program.TryBeginBowAttack(conn, 0, 1, 0x102, 7, out _)
+            ? Program.TryBeginRangedAttack(conn, 0, 1, 0x102, 7, out _)
             : Program.TryBeginCooldownUse(conn, 10619, new(2500, 100), false,
                 () => { conn.ActionCount++; conn.ChannelSkill = 456; }, out _);
         Assert.False(accepted);

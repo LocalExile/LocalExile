@@ -42,7 +42,7 @@ sealed class AccountStash
     public sealed record SavedTab(string Name, byte Type, byte R, byte G, byte B, List<CharacterSaves.SavedPlacement> Items, uint Affinities = 0,
         ushort? Position = null, uint Colour = 0);
 
-    public sealed record Save(List<SavedTab> Tabs, int LastTab = 0, uint NextItemId = FirstItemId, uint Gold = 0)
+    public sealed record Save(List<SavedTab> Tabs, int LastTab = 0, uint NextItemId = FirstItemId, uint Gold = 0, DelveProgress? Delve = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -93,6 +93,7 @@ sealed class AccountStash
     uint _firstItemId = FirstItemId, _firstInventoryId = FirstInventoryId;
     bool OwnId(uint id) => id >= _firstItemId && id < _firstItemId + ItemIdRange;
     uint _gold;
+    DelveProgress _delve = new();
     ModCatalog? _mods;  // to save mods by their Mods.dat Id
     Dictionary<string, JsonElement>? _unknown;  // fields of a newer build's save, written back as they are
     bool _stale;  // dropped after a failed save: the database has the stash as it is
@@ -149,6 +150,7 @@ sealed class AccountStash
             uint used = stash._tabs.SelectMany(t => t.Items).Select(i => i.Id).Where(stash.OwnId).DefaultIfEmpty(firstItemId - 1).Max();
             stash._nextItemId = Math.Max(save?.NextItemId is uint next && stash.OwnId(next) ? next : firstItemId, used + 1);
             stash._gold = save?.Gold ?? 0;
+            stash._delve = save?.Delve ?? new();
             stash._unknown = save?.Unknown;
             if (save is null) stash.Persist([.. Enumerable.Range(0, stash._tabs.Count)]);
             else if (added.Count > 0) stash.Persist([.. Enumerable.Range(stash._tabs.Count - added.Count, added.Count)]);
@@ -177,7 +179,7 @@ sealed class AccountStash
         List<(int Tab, string Items)> tabs;
         lock (_lock)
         {
-            header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold) { Unknown = _unknown };
+            header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, _delve) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
             tabs = [.. write.Select(i => (i, JsonSerializer.Serialize(
                 _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList(), Opts)))];
@@ -191,6 +193,19 @@ sealed class AccountStash
 
     /// <summary>The account's gold (S→C 0x2a9).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }
+
+    public DelveProgress Delve { get { lock (_lock) return _delve with { Upgrades = _delve.Upgrades?.ToArray() }; } }
+
+    public bool ChangeDelve(Func<DelveProgress, DelveProgress?> change) => Saves.Atomically(() =>
+    {
+        lock (_lock)
+        {
+            if (change(_delve with { Upgrades = _delve.Upgrades?.ToArray() }) is not { } next) return false;
+            _delve = next;
+        }
+        Persist();
+        return true;
+    });
 
     /// <summary>Adds gold (or takes it, with a negative amount, down to 0); the account's gold after.</summary>
     public uint AddGold(long delta)

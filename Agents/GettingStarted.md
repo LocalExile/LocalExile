@@ -194,7 +194,9 @@ A second run prints `game data up to date`.
 | `data\area-transitions.json` | the area transitions of fixed layouts |
 | `data\room-points.json` | unique bosses |
 | `data\hideouts.json` | hideouts |
-| `data\animation-contacts.json` | each class's spell timing (the Witch's is used) |
+| `data\animation-contacts.json` | each class's spell timing and where its arrows and wand bolts leave |
+| `data\monster-contacts.json` | when and from where monster projectiles leave (the Sand Spitter's mortar) |
+| `data\projectile-clips.json` | the flight and impact clips of projectile objects (monster mortars are invisible without them) |
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
@@ -209,6 +211,33 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 | `setup incomplete: Python 3.9+ ...` | install Python from python.org (see step 9 for the Store alias) |
 | `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3b |
 | `extract-data: building <project> failed` | read `logs\extract-build-<project>.log`; a build error there is a code problem in that tool, not in the game data |
+
+### Game data in the save database
+
+`extract-data.ps1` writes JSON under `data\`; it does not create the SQLite file. The first Gateway start (step 10, or
+`live.ps1 -Only Gateway`) creates `data\saves.db` (or `Game_SAVES_DB`) and seeds the game-data overlay from those tables:
+
+| Table | Rows on 3.29.3b | From |
+|---|---:|---|
+| `catalog_entries` | 1,302 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
+| `system_settings` | 45 | the code defaults |
+| `stats` / `mods` / `mod_stats` | 23,346 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
+| `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
+
+The same file holds characters, accounts and stashes; deleting it resets them too. The Gateway log shows
+`[gateway] game data reference: 23346 stat(s), 40355 mod(s), 60695 default mod stat row(s)`; if that line says `empty`,
+the extraction is missing `Stats.json`/`Mods.json`: run `extract-data.ps1` and restart, or use `/game_data reference`
+while connected. `/game_data list` prints the row counts.
+
+To fill the database without starting the servers (for an editor, or to check a fresh setup), run:
+
+```powershell
+dotnet run --project src/GameServer.Gateway -- seed-game-data
+```
+
+It creates the overlay tables in `data\saves.db` (or `Game_SAVES_DB`), prints the counts and exits. Run it while the
+Gateway is stopped; a running Gateway needs `/game_data reload` to see a change made by another process. See
+[editable game data](docs/dev/editable-game-data.md) for the overlay, its reload rules and the `/game_data` commands.
 
 ## 8. Create an account and a character
 
@@ -330,15 +359,33 @@ In game:
 - **The Coast:** click "The Coast" on the east side of town. Ctrl+click it to open the Instance Manager instead (pick
   an instance or create a new one).
 - **Commands:** type in chat with Enter, for example `/commands` (or `/com`), `/set_speed 200`.
+- **Mods:** `/mod` lists the mods the Gateway found in `Mods\Binaries\` (`live.ps1` builds the ones in `Mods\Source\` there), `/mod_enable <id>` and `/mod_disable <id>` turn one on or off;
+  a mod rebuilt while you play reloads by itself ([modding](docs/dev/modding.md)).
 
 Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and `walkmaps.log`), plus the client's own
-`Client\logs\Client.txt`.
+`Client\logs\Client.txt`. Every line starts with the time; the previous run's logs are in `logs\archive\`, and each
+connection's last packets in `logs\packets\`. `Game_TRACE` adds dev traces, and `.\scripts\dev\bugreport.ps1` zips it
+all for an issue ([debugging](docs/dev/debugging.md)).
 
 `live.ps1` options:
 - `-NoClient` restarts the servers but keeps the running client.
 - `-Only Gateway` (or `Auth`, `Patch`, comma-separated) rebuilds and restarts only those servers; the client and the
-  other servers keep running. After a Gateway change this is all you need: the client drops to the login screen, log in
-  and Play again.
+  other servers keep running. After a Gateway change hot reload cannot apply this is all you need: the client drops to
+  the login screen, log in and Play again.
+- Hot reload is on by default: the Gateway runs under `dotnet watch`, and a saved edit to its code (or to Core, Data
+  and Storage) applies to the running Gateway with the client still in game (`[gateway] hot reload #n applied` in the
+  log).
+  Players in game read "Starting Hot-Reload" in chat when a file under `src\` is saved, and "Hot-reload is applied in
+  x.yz seconds." when it is (about 15 s for a Gateway file). A save that does not compile changes nothing; they read
+  "Hot-reload failed" with the compile errors instead.
+  A method's new body runs from its next call; per-connection setup (the chat command table) runs again at the next
+  area change; a loop already running keeps the old body until it returns; and static fields (the catalogs) keep the
+  values they were built with.
+  An edit hot reload cannot apply (a changed signature, a removed member) rebuilds and restarts the Gateway on its own,
+  which drops the client to the login screen as `-Only Gateway` does.
+  Auth and Patch are not watched.
+- `-NoHotReload` starts the built Gateway without `dotnet watch`; `-Only Gateway -NoHotReload` switches a running
+  setup over, and a later `-Only Gateway` switches back.
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
 
@@ -355,7 +402,7 @@ Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and 
 | "The password is not correct for this account" | wrong password, or an account created after the login server started | check the password; restart with `live.ps1` (it reloads accounts) |
 | "Account does not exist" | the name in the Email field does not match `register name=` | use the registered name |
 | Login hangs, no "Connected to login server" | gateway list not patched (step 6), or the login server is not running | redo step 6; check `logs\live-auth.log` |
-| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved | extract them (see "Third-party tools"), stop the Gateway, move `data\saves\<character>.json` away, run `live.ps1` again |
+| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\saves.db` | extract them, stop the Gateway, delete that character's row from `data\saves.db` (or move the whole DB aside to start over), run `live.ps1` again |
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
 | In town, but your character is invisible and clicks do nothing | Network Mode is lockstep ("auto" picks it on localhost); the Gateway log says `lockstep movement` | Options → Game → Network Mode → Predictive, then log out to the character screen and Play again |
@@ -364,6 +411,7 @@ Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and 
 | Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
 | Esc → "Exit to character selection" hangs | not implemented yet | run `.\scripts\dev\live.ps1 -NoClient` (the client drops to the login screen) |
+| The client closes or crashes by itself | usually a message the server sent wrong or left out | read the `DISCONNECT` line and the `last … packet(s)` block above it in `live-gateway.log`; attach `scripts/re/frida/trace-crash.js` and reproduce; report it with `scripts\dev\bugreport.ps1` ([debugging](docs/dev/debugging.md)) |
 | Windows Firewall prompt | should not happen (servers bind to 127.0.0.1) | if it does, deny: nothing needs outside access |
 
 ## Configuration
@@ -395,6 +443,11 @@ Environment variables, read when each server starts:
 | `Game_SAVES_DB` | `data/saves.db` | character saves and stashes (Gateway, Auth) |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | instance key secret (created on first start) |
 | `Game_PATCH_URL` | `http://127.0.0.1:8080/` | patch web server address |
+| `Game_TRACE` | unset | dev traces, a comma list: `move`, `latency`, `ticks`, `ai`, `packets`, or `all` ([debugging](docs/dev/debugging.md)) |
+| `Game_PACKET_DUMPS` | `logs\packets` (given by `live.ps1` to the servers it starts) | folder for each connection's last packets, written when it closes; `0` = none |
+| `Game_LOG_TIMESTAMPS` | unset | `0` = no time at the start of each log line |
+| `Game_MODS` | unset | `0` = the Gateway loads no mods ([modding](docs/dev/modding.md)) |
+| `Game_MODS_FOLDER` | `mods` | the folder the Gateway loads mods from and watches |
 
 ## Files you will have afterwards
 
@@ -404,11 +457,12 @@ Environment variables, read when each server starts:
 | `data\login-keys.json` | your login server keys | never |
 | `data\instance-secret.bin` | instance key secret | never |
 | `data\accounts.json.imported` | the account store from before the save database, kept after its import | never |
-| `data\saves.db` (with `-wal`, `-shm` while the servers run) | accounts, characters, their saves and stashes ([saves](docs/saves.md)) | never |
+| `data\saves.db` (with `-wal`, `-shm` while the servers run) | accounts, characters, their saves and stashes, and the game-data overlay (catalogues, settings, `stats`/`mods`/`mod_stats`) ([saves](docs/saves.md)) | never |
 | `data\gateway_list.original.txt` | backup for `gateway --restore` | no need |
 | `data\tables\`, `data\*-types.json`, `data\hideouts.json` … | extracted game data (step 7) and their stamps, `data\extract-stamps.json` | no (game data) |
 | `data\walkability\` | captured walk maps | no (derived from game data) |
 | `logs\` | server logs | only when reporting a bug, and read them first |
+| `Mods\Binaries\` | built mods: `Mods\Source\`'s, and any you add ([modding](docs/dev/modding.md)) | yours, if you like |
 
 ## Start over
 

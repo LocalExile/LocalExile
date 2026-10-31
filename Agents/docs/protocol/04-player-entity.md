@@ -284,7 +284,10 @@ No client, runtime probe or extraction was run for this split; an actual Raise Z
 ### 4.5 Animated (`0x141e56a80`), 1 byte minimal
 
 u8 flags. Bit0: an animated-object reference (bit1 selects a u32 index into a 0x2c-byte table, otherwise a
-u32-length UTF-16 path). Bit2: `0x141e5adb0`. Bit3: u32, f32, u32 (animation + speed). Bit5: two u32. Bit4: several
+u32-length UTF-16 path). Bit2 (`0x141e5adb0`): u32 parent object, two f32 fields, then for a nonzero parent a
+u32-length byte-string bone name, u8 attachment kind, u8 flags and three 32-bit offset fields.
+The stationary Crawler's wheels use zero values for these optional fields and the native axle attachment bones.
+Bit3: u32, f32, u32 (animation + speed). Bit5: two u32. Bit4: several
 u32. With 0 nothing else is read.
 
 ### 4.6 Player (`0x141e7dc10`), 61 bytes for "DevWitch"

@@ -85,6 +85,13 @@ Code: `InstanceRegistry`, `InstanceManager`, `InstanceStore`, `AccountStash`, `P
 
 The server chooses separate item, mod, skill and passive catalogs for each Ruthless connection.
 Ordinary characters continue to use their ordinary catalogs in the same running server.
+The issue #75 integration retains saved defence-base rolls, typed local weapon damage and critical modifiers,
+active-hand qualification, fractional body-to-Ward conversion and the branch's raw character/selected-stat scopes.
+Those calculations read the connection's selected item/skill catalog, including charge and critical source reads.
+The alternative minimum-base equipment calculation or ordinary-only catalog lookup would lose one side's rules.
+Current gem requirement snapshots share the equipment resolver without publishing its inactive-item result;
+the normal character-stat entry point remains responsible for that cache publication.
+See the [integration report](../dev/issue75-review.md#main-merge-league-modes-gambler-and-vaal-souls).
 The copied 3.29.3b tables supply these differences:
 
 - Passive alternate names, stat keys, values and granted points through `HasHardmodeAlternate`.
@@ -223,6 +230,10 @@ mode and owner eligibility, active flasks, terminal progress and both-inventory 
 The solution builds without warnings; Core, Data and Gateway suites pass with 688, 18 and 3850 tests respectively.
 This merge received automated validation only: this checkout has no `Client/Game.exe` or `Client/Game.patched.exe`.
 Automated validation uses isolated extracted data and temporary test saves.
+If a local setup keeps generated data in a separate runtime directory, tests still use the checkout's ordinary
+`data/` contract. The issue #75 merge temporarily copied only extracted inputs, then retained them with its ignored
+validation artifacts. This preserves shared saves/keys and avoids changing production catalog paths or restarting
+the shared runtime to prepare automated tests. Native evidence remains specific to the build actually exercised.
 The existing league selection and default families are unchanged.
 Native checks against the integrated build used one copied 3.29.3b client and disposable saves:
 

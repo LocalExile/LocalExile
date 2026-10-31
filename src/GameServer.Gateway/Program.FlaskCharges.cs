@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -144,10 +145,12 @@ partial class Program
         double next = conn.Clock.Elapsed.TotalSeconds + 3;
         try
         {
-            while (!conn.Closed)
+            while (!conn.Closed && !conn.RageRetired)
             {
                 await Task.Delay(250);
-                if (conn.Closed || conn.Clock.Elapsed.TotalSeconds < next || conn.PlayerLife == 0) continue;
+                if (conn.Closed || conn.RageRetired) break;
+                if (conn.LeavingArea) { next = conn.Clock.Elapsed.TotalSeconds + 3; continue; }
+                if (conn.Clock.Elapsed.TotalSeconds < next || conn.PlayerLife == 0) continue;
                 next += 3;
                 var character = CharacterPlayerStats(conn);
                 int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
@@ -160,7 +163,7 @@ partial class Program
         }
         catch (Exception ex)
         {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask charges every 3 s: {ex.Message}");
+            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask charges every 3 s: {ServerLog.Describe(ex)}");
         }
     }
 

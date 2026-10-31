@@ -47,7 +47,10 @@ Production mutation tests cover allocation, paid full refund costing 40 points, 
 
 ## Ward and Adrenaline
 
-Body conversion uses the existing minimum-base local defence model, including local modifiers and quality.
+Body conversion uses the saved defence base roll through `ItemDefences.Calculate`, including local modifiers and quality.
+The issue #75 integration retains fractional remaining body Armour/Evasion for slot-specific modifiers, Iron Reflexes
+and independent MORE groups. Native Ward item bases retain the upstream minimum-base model; Ward roll interpolation
+has not been established by this merge. The historical native Plate Vest values below used the earlier minimum model.
 Keep half points until the final global rating; conversion does not consume helmet, gloves, boots or shield defences.
 Remaining Armour/Evasion use their ordinary increases; converted Ward uses Ward/global-defence increases once.
 Ward item bases/local modifiers and the existing Iron Flask Ward bonuses feed the same authoritative pool.
@@ -83,6 +86,9 @@ Unrepresentable intervals are bounded to one day; negative duration factors prod
 The native recovery buff, exact resource integral, death cleanup and transfer use the same paid skill snapshot.
 
 Turtle Shell runs only after the existing supported physical melee stun is accepted.
+The panel's default per-Brutal-Charge threshold coefficient must not disable ordinary recovery at zero charges.
+With actual Brutal Charges the existing unsupported-threshold guard remains; implementing that special mechanic is
+separate. This scoped guard is safer than either rejecting all characters or ignoring an active threshold source.
 The common stat projection already maps base stun recovery to the final recovery stat; never add it twice.
 Recovery uses the existing rounded native TakeHit interval and invalidates pending player actions.
 LocalExile v1 uses one one-second recovery interval; another accepted stun refreshes it without stacking rates.

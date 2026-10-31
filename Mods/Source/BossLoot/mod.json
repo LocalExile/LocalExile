@@ -1,0 +1,7 @@
+{
+  "id": "bossloot",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [],
+  "enabled": false
+}

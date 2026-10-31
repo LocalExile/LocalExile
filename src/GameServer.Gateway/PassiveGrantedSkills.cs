@@ -258,7 +258,7 @@ partial class Program
         var conversion = DamageStats.Conversion(stats, Stats, attack: false);
         double effectiveness = AddedEffectiveness(conn, effect, level);
         var hit = SpellDamage.Packet(plan.SpellBase, Get, effectiveness).Convert(conversion);
-        var flat = DamageStats.Added(plan.SpellBase, Get, spell: true, melee: false, effectiveness: effectiveness).Convert(conversion);
+        var flat = DamageStats.RawAdded(plan.SpellBase, Get, spell: true, effectiveness: effectiveness).Convert(conversion);
         return (context.Hit(hit), flat, stats, context);
     }
 
@@ -320,7 +320,7 @@ partial class Program
             MonsterHit? applied;
             int damage;
             bool critical;
-            ushort? ignitedBuff = null;
+            List<byte[]>? ignited = null;
             using (ProjectileMutation(conn))
             {
                 // Stop the sweep, but not the kills it already queued.
@@ -346,10 +346,10 @@ partial class Program
                 // carries its roll position.
                 if (applied is not null && IgniteFromHit(fire.Min + Random.Shared.NextDouble() * (fire.Max - fire.Min), critical,
                         Merged, igniteMore, m, Random.Shared) is { } ignite)
-                    ignitedBuff = IgniteLocked(conn, m, context.OverTime(ignite), ProjectileWorldTime(conn));
+                    ignited = IgniteLocked(conn, id, m, context.OverTime(ignite), ProjectileWorldTime(conn));
             }
-            if (ignitedBuff is ushort buff)
-                await Send(remote, stream, ciphers, IgnitedBuff(id, buff), $"0x01c1 monster 0x{id:x} ignited by {skill.EffectId}");
+            foreach (var packet in ignited ?? [])
+                await Send(remote, stream, ciphers, packet, $"0x01c1/0x01c2 monster 0x{id:x} ignited by {skill.EffectId}");
             if (applied is not { } landed) continue;
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, landed, damage,

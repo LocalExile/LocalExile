@@ -128,6 +128,7 @@ Workflow per run:
 | `trace-queued-check.js` | why the runner 0x141e8e060 drops a queued action |
 | `dump-stats-object.js` | the stored (key, value) pairs of every stats object asked for one key (set `KEY`) |
 | `find-string-refs.js` | standalone: finds a UTF-16 string (`NEEDLE`) in the client's writable memory, then the pointers to each hit. Asynchronous and slow (minutes over ~6 GB); found the tile objects' virtual `.ao` names. Wait for `done` before closing the session: closing waits for running scans, and a synchronous `scanSync` over all memory hung the session and lost the client |
+| `trace-cluster-ids.js` | every cluster-jewel node id (`FUN_141f0e770`): the slot row, size tag, orbit position and id, plus the node constructor's (`FUN_141f114f0`) template index, start and total. Printed the measured id formula for tree-socket and nested cluster jewels |
 | `trace-items.js` | every item the client reads (type hash, bytes), each item component's read and the bytes it consumed, and 0xc0 inventory reads ([../protocol/13-items.md](../protocol/13-items.md)) |
 | `trace-flask-use.js` | 0x263 item-use reads, the two native use callbacks, the sound path they pick and its audio submission: what a flask press's confirmation actually plays (13-items.md §8) |
 | `trace-flask-mana.js` | read-only flask/mana probe: outgoing 0x24/0x25/0x70, the client's mana pool per change and every 0x263 result — used to find that the client pays for attack-moves the server only walks |

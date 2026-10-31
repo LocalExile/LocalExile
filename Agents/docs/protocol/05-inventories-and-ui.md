@@ -139,8 +139,11 @@ Handler: bit2/3/4 → `0x142155bf0(…, 0/1/2)`, which **creates slot 0/1/2** at
 the computed active index differs from `+0xc2f0`, it switches and notifies (`0x14019a1b0(+0xb1f0, old, new)`). UI code
 `0x140785160` reads `slots[+0xc2f0]` without a null check (crash at `0x140785acf` when they are missing). The three
 slots are the **Atlas** passive tree's three presets (their check `0x141eed000` logs "atlas passive skills allocated
-but only allowed"; the character's tree is S→C 0x33, [15](15-progression.md) §2). We send `003D 0000 0000 1C 0000`: all
-three created, empty lists.
+but only allowed"; the character's tree is S→C 0x33, [15](15-progression.md) §2). The server sends one message per
+preset (`flags` 0x04/0x08/0x10), with `u28` = that preset's allocated count and `u2a` = the point budget; the list is
+the preset's PassiveSkillGraphIds. Allocation is **C→S 0x3e** (7 bytes: u8 preset, u32 BE node) and refund **0x3f**
+(8 bytes: u8 preset, u32 BE node, u8 flag). The server saves the three lists and the point budget per character; map
+completion does not award points yet (dev: `/atlas_points <n>`).
 
 ## 5. What the UI did not need (so far)
 

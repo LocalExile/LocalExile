@@ -222,7 +222,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             Assert.Null((await Exchange(async (stream, cipher) =>
             {
                 await (Task)GatewayMethod("AreaSkillHit").Invoke(null, ["polytheist-integration", stream, cipher, State, skillId, gem,
-                    self, aim, true, (ushort)0, null, null, null, 0u])!;
+                    self, aim, true, (ushort)0, null, null, null, 1.0, 0u, null, null, 0u])!;
                 return null;
             })).Error);
             State.Monsters.Remove(46);
@@ -244,12 +244,12 @@ public sealed partial class AscendancyGatewayIntegrationTests
             return null;
         });
 
-        // One player tick of the monsters' ignites (BurnIgnites) over the last `seconds`, with these monsters.
-        public Task<(string? Error, byte[] Bytes)> PolytheistBurnIgnites(double seconds, params (uint Id, SpawnedMonster M)[] monsters) =>
+        // One player tick of the monsters' ignites (BurnIgnited) up to now, with these monsters.
+        public Task<(string? Error, byte[] Bytes)> PolytheistBurnIgnites(params (uint Id, SpawnedMonster M)[] monsters) =>
             Exchange(async (stream, cipher) =>
             {
                 foreach (var (id, m) in monsters) State.Monsters[id] = m;
-                await Program.BurnIgnites("polytheist-integration", stream, cipher, State, seconds);
+                await Program.BurnIgnited("polytheist-integration", stream, cipher, State);
                 foreach (var (id, _) in monsters) State.Monsters.Remove(id);
                 return null;
             });
@@ -344,7 +344,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
             ushort slam = FamilySkills(state).Single(s => s.EffectsPerLevelRow
                 == Program.Skills.FindByRow(0, Program.Items.GemEffects(gem).First(), 1)!.EffectsPerLevelRow).Id;
             return [Program.AttackHit(weapon, stats, melee: true), AttackSkillHit.Resolve(weapon, stats, [], Program.Stats, 10000, melee: true),
-                OrdinaryBowShot.Capture(weapon, stats, [], Program.Stats, 0, 0, 0).Hit, Program.SupportedProjectileHit(state, slam, area: true)];
+                OrdinaryRangedShot.Capture(weapon, stats, [], Program.Stats, 0, 0, 0).Hit, Program.SupportedProjectileHit(state, slam, area: true)];
         }
         (int Min, int Max) NativeBounds()
         {
@@ -695,7 +695,9 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // strike) and shows it burning; the other is not ignited.
         now = state.Clock.Elapsed.TotalSeconds;
         Assert.InRange(near.Ignites.PerSecond(now), .9 * 300 * 2, .9 * 450 * 2 * 1.5);
-        Assert.True(bytes.AsSpan().IndexOf(Program.IgnitedBuff(48, near.Ignites.Shown!.Value)) >= 0);
+        // The buff's timer (u68) and the empty list count close the message; the rest names the monster and instance.
+        var shown = Program.IgnitedBuff(48, near.Ignites.Buff!.Value, 0);
+        Assert.True(bytes.AsSpan().IndexOf(shown.AsSpan(0, shown.Length - 8)) >= 0);
         Assert.True(far.Ignites.Idle);
         string art = Program.Art.Animated(PassiveGrantedSkills.ExplosionArtVariation, 0)!;
         Assert.Equal("Metadata/Effects/Microtransactions/Aura/Uniques/Disjunction/Abberaths_Hooves_fireimpact.ao", art);
@@ -745,20 +747,22 @@ public sealed partial class AscendancyGatewayIntegrationTests
         Assert.Equal(.8, chanced.RemainingSeconds, 9);
         // Only the strongest burns: 100/s for 4 s with 300/s in the second second.
         var two = new MonsterIgnites();
-        two.Add(0, new(DamageType.Fire, 100, 4));
-        two.Add(1, new(DamageType.Fire, 300, 1));
-        Assert.Equal(600, two.Advance(0, 4, 1));
+        two.Add(0, 100, 4);
+        two.Add(1, 300, 1);
+        Assert.Equal(600, two.Advance(4, 1));
         Assert.True(two.Idle);
-        // The player tick burns them: a quarter through 75% fire resistance; one that died is put out; the last point kills.
+        // The player tick burns them: a quarter through 75% fire resistance; one that ended since the last tick deals its
+        // last second and its buff comes off; the last point kills.
         now = state.Clock.Elapsed.TotalSeconds;
         var (burning, ended, dying) = (Monster(resistant), Monster(), Monster(life: 10));
-        ushort buff = Program.IgniteLocked(state, burning, new(DamageType.Fire, 100.5, 4), now - 1)!.Value;
-        ushort endedBuff = Program.IgniteLocked(state, ended, new(DamageType.Fire, 100, 1), now - 3)!.Value;
-        Program.IgniteLocked(state, dying, new(DamageType.Fire, 100, 4), now - 1);
-        var (burnError, burnt) = await game.PolytheistBurnIgnites(1, (50, burning), (51, ended), (52, dying));
+        Assert.NotNull(Program.IgniteLocked(state, 50, burning, new(DamageType.Fire, 100.5, 4), now - 1));
+        Assert.NotNull(Program.IgniteLocked(state, 51, ended, new(DamageType.Fire, 100, 1), now - 3));
+        Program.IgniteLocked(state, 52, dying, new(DamageType.Fire, 100, 4), now - 1);
+        ushort buff = burning.Ignites.Buff!.Value, endedBuff = ended.Ignites.Buff!.Value;
+        var (burnError, burnt) = await game.PolytheistBurnIgnites((50, burning), (51, ended), (52, dying));
         Assert.Null(burnError);
-        Assert.Equal(burning.MaxLife - 25, burning.Life);
-        Assert.Equal((ended.MaxLife, true), (ended.Life, ended.Ignites.Idle));
+        Assert.InRange(burning.MaxLife - burning.Life, 25u, 26u);
+        Assert.Equal((ended.MaxLife - 100, true), (ended.Life, ended.Ignites.Idle));
         Assert.True(burnt.AsSpan().IndexOf(InstanceEntities.RemoveBuff(51, endedBuff)) >= 0);
         Assert.True(burnt.AsSpan().IndexOf(InstanceEntities.RemoveBuff(50, buff)) < 0);
         Assert.Equal((0u, true, true), (dying.Life, dying.Dead, dying.Ignites.Idle));
@@ -839,7 +843,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // An area spell's sweep: Ice Nova's 7.5% with 1200% increased is 97.5%, and 100% against the Blinded monster.
         Set("spell_critical_strike_chance_+%", 1200);
         await Struck((stream, cipher) => ProgramValue<Task>("AreaSkillHit", "polytheist-integration", stream, cipher, state,
-            nova.Id, nova, at, at, true, (ushort)0, null, null, null, 0u));
+            nova.Id, nova, at, at, true, (ushort)0, null, null, null, 1.0, 0u, null, null, 0u));
         // Abberath's Fury's footstep: its 5% with 1850% increased is 97.5%, and 100% against the Blinded monster.
         Set("spell_critical_strike_chance_+%", 1850);
         var skill = Assert.Single(Program.FootstepSkills(state, state.Clock.Elapsed.TotalSeconds));
@@ -910,7 +914,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
         // regeneration loop steps with the on-hit regeneration stat.
         Assert.Superset(new HashSet<string> { "RunPlayerTick", "RunFootstepSkills", "RunMonsterRegeneration", "RunMonsterAi" },
             Callees("OnClientMessages"));
-        Assert.Superset(new HashSet<string> { "TickPassiveAuras", "BurnIgnites", "SendAttackerSlows", "SendWhileMovingStats" },
+        Assert.Superset(new HashSet<string> { "TickPassiveAuras", "BurnIgnited", "SendAttackerSlows", "SendWhileMovingStats" },
             Callees("RunPlayerTick"));
         Assert.Superset(new HashSet<string> { "FootstepsDue", "FootstepSkills", "TriggerFootstepSkill" }, Callees("RunFootstepSkills"));
         Assert.Contains("RegenerateConnectionMonsters", Callees("RunMonsterRegeneration"));

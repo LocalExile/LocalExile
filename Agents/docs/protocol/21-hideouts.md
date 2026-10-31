@@ -298,16 +298,31 @@ is used. The recipe rows' 130 distinct RecipeIds are league quest flags: unlock 
 publishes those flags with the player, making all active recipes available on this local server.
 
 The craft button (0x140c40720) sends **C→S 0x15d**, exactly four bytes. Serializer
-0x141f9b2e0 writes u16 message id and u16 recipe row, both big-endian; bit 15 of the row
-confirms replacing an existing crafted modifier. The target is the one item in Inventories row
+0x141f9b2e0 writes u16 message id and u16 recipe row, both big-endian. Bit 15 of the row is set
+only by the window's second button (+0x308), which first shows the Tencent "Bound Currency
+Crafting" confirmation (TencentBoundCurrencyCraftingConfirmationTitle); the local server ignores it. The target is the one item in Inventories row
 16, StrMasterCrafting (inventory id 17). Requests are served after opening the bench in a hideout.
+
+Ctrl + click with the bench open sends **C→S 0xe9** (7 bytes; 0x14030e3e0 → 0x142167ed0, serializer
+0x141f98e80): u16 id, u32 item id, then a flag byte. 0x80 is set when the clicked item is in the
+player's inventory (move it onto the bench), clear when it is the bench's item (row 16, move it back);
+0x40 marks an item in ExpandedMainInventory1 (row 84). The server moves the item, keeping its id, onto
+the empty bench slot or into the main inventory's first free cell, and answers with two 0xbf changes;
+a taken slot or a full inventory leaves it where it is. The same handler shape (0x142167f20,
+0x142167f70, 0x142167fc0) covers other crafting panels (rows 0x1b, 0x1f, 0x10 with class checks).
 
 Supported operations: add/replace crafted prefixes and suffixes; the three-crafted-modifier
 metamod and additional-crafted-mod enchantments; remove crafted mods; add/remove flask
 enchantments; exact socket count and link count; non-white socket recipes; rarity reroll; and
 one/three-affix rare-item rerolls. Affix slots and conflicting mod families are checked. Magic
 items have one prefix/suffix slot, rare equipment three; normal items become magic when a
-mod is crafted. Replacement needs confirmation and one extra Orb of Scouring. Unidentified,
+mod is crafted. Replacement needs no separate request: the client relabels the Craft button
+"Replace" (CraftingModReplace) and sends the ordinary 0x15d (verified live: bit 15 clear). The
+server removes the one crafted mod the new one conflicts with (same mod or shared family), or the
+single crafted mod when the crafted-mod limit is reached, and charges only the recipe's cost. More
+than one crafted mod to remove is refused (CannotReplaceMultipleModifiers); with the multimod
+(limit 3) only the conflicting craft is replaced and a fourth non-conflicting craft is refused.
+Fractured crafted mods are never replaced. A refused craft logs its recipe and the bench item. Unidentified,
 unique, fractured and protected items are checked according to the requested operation.
 Socket crafts bypass item-level socket caps but respect base capacity; occupied sockets are
 never discarded. Corrupted socket crafts add the same number of Vaal Orbs as the base cost.
@@ -338,7 +353,7 @@ ordinary stash kind **0x11**, while accepting currency-count kind **0x12**. Thus
 real stash inventories for vendors did not initialize the bench's balance.
 
 `BenchBalance` builds a client-only view of current personal stash totals for every recipe
-currency, including replacement Scouring and corrupted-socket Vaal costs. It is sent before
+currency, including corrupted-socket Vaal costs. It is sent before
 opening the bench using 0xc0, inventory id 0xfffffe00, kind 0x12, row 26. Row 26 deliberately
 does not overwrite the native manager's fixed inventory-slot lookup (0x141d625f0). The
 ordinary 0x1421f4cc0 reader/0x1421edc10 constructor supports this kind; no client files change.
@@ -508,3 +523,103 @@ Tests cover raw-row hashes/costs, a guaranteed-tag reforge, augment removal+addi
 Before serializing the player, PrepareHideoutWaypoint restores the character's saved waypoint position.
 It sets the hideout spawn and movement origin to that exact cell, rather than a nearby cell or old template spawn.
 This applies to login, waypoint travel and returns from other areas; moving the waypoint changes later arrivals.
+
+## Delve: sulphite and the Crawler (live 2026-10-29)
+
+- **S→C 0x228** (class `0x1435dc940`, read `0x1421ad670`, dispatcher case 0xa9 at `0x142152f98`): u8, 20 raw bytes, 14
+  raw bytes. The handler builds a 34-byte record at instance `+0xd874`: the 14 bytes first, then the 20. It sets
+  `+0xd896` = 0x101 and raises the event at `+0x2878`.
+  - Record `+0x1e` (bytes 16..18 of the 20, little-endian) is the current Voltaxic Sulphite.
+  - Its capacity comes from bytes 0..16 (`0x14246e390`, the upgrade levels).
+  - S→C 0x226 (u16 old, u16 new) changes the current value. 0x227 (u32) changes the record's `+0xe`.
+  - `InstanceDelve.DelveData` writes it.
+- **The gauge** (`delve_energy_bar`, `0x14042e790`, built with the HUD by `0x140db0150`). It is updated on area entry
+  (S→C 0x21, `0x14042fff0`) and shown when both of these hold:
+  - the area is not of kind 0x25 (`(+0xc278)+0xd0`);
+  - the area's WorldAreas type (`(+0xc278)+0xb0` → `+0x1e4`, column `__col51`) is 27 (every `Delve_*` mine area), or
+    the gauge's own flag `+0x2f1` is set. Only the Subterranean Chart's windows (`0x14044fd80`, `0x1404586f0`) set it.
+
+  Delve_Hub is type 15, so in the encampment the sulphite shows in the chart (live: 300 after `/sulphite 300`).
+- **The Crawler**, `Metadata/Terrain/Leagues/Delve/Objects/DelveRobot`, deserializes 11 components (`read` 11; Render and
+  Wheels are client-only). `DelveRobotObject` writes them:
+  - Positioned, Animated (`DelveRobot.ao`) and Transitionable (state 1);
+  - Stats, Buffs and Life as a monster's, with 1 life;
+  - **DelveLight** (`0x1415d88d0`): u32, u32 n, u8, u8; then, for a type whose `+0xa7` is set (the Crawler), a u32
+    variation; then n × u32. The variation indexes `DelveRobotVariations.dat` (0 Default, 1 DelveBear) in `0x1415d75d0`.
+    Without it, the client read the next bytes as the index and crashed at `0x1415d7671` (live);
+  - MinimapIcon, then StateMachine with the shared states `sector` and `mtx_variation`, each sent with flag 0x02.
+
+  The roaming `DelveRobot` type has no Targetable component.
+  The stationary hub Crawler instead uses the native `DelveMapViewer` interaction type with the Crawler's model:
+  Positioned, BaseEvents (no bytes), Animated, Transitionable, MinimapIcon, InteractionAction, then tasks.
+  Its native Targetable component uses league quest flag 68, already sent for Niko's chart access.
+  Hover outlines the model and shows the localized chart label; a real mouse click sends C→S 0x24 and opens the chart
+  with S→C 0x7b kind 0x1c, followed by 0x23f/0x240.
+  It is created once on each Delve_Hub entry at (408, 310), facing 90°; repeated `/delve_crawler` does not duplicate it.
+  Three invisible `Metadata/NPC/Blocker` objects provide matching client/server collision along its length.
+  Moving the Crawler removes the old blockers, creates the new ones and pushes the player out of collision.
+  Chart opening checks the interaction action token and actual walk-up range.
+  The interactive type does not inherit the robot's client-only Wheels component.
+  Two PermanentServerEffect objects attach the original wheel art to `aux_L_wheel_attachment` and
+  `aux_R_wheel_attachment` through Animated bit 2; an attached powered DelveLight carries the torch.
+  Explicit 0x1b2 clip 0 selects the rig's looping idle engine animation; the waypoint type's default clips are invalid
+  for this two-clip robot rig.
+  A stationary Crawler also spawns beside arrival in the initial mine section.
+- **Voltaxic Generator.** `Metadata/MiscellaneousObjects/Delve/DelveCraftingBench` is the interactive console.
+  Its hub.arm placement is local (337,307), rotation 0.412551, with model
+  `Metadata/Terrain/Doodads/Leagues/Delve/DelveMapViewerTutorial.ao`.
+  With hub room origin (69,69), size 621 and orientation 3 this becomes (376,352), rotation 5.12494.
+  The large decorative machine's centre (382,370) is not the interaction point and is not walkable.
+  Components: Positioned, BaseEvents, Animated, InteractionAction, MinimapIcon; object_size 5.
+  The separate DelveCraftingBenchAttachment at (382,370) supplies cables and two shared equipment visual states.
+  A walk-up interaction opens S→C 0x7b kind 0x1d (DelveUpgradeScreen).
+  This screen is a child of the shared achievements window, not a standalone panel.
+  AreaInstance's vec8 at native +0x50 supplies visible achievement set ids; Delve areas send permanent set 2.
+  With an empty list, the client hides the entire TabControl, leaving a blank Challenges window even though
+  league flag 68 created and selected the Delve tab.
+  The real client now displays all equipment values, costs and consumable buttons; live purchases await Azurite.
+  C→S 0x23e requests equipment state; 0x229 carries a BE u16 upgrade type; 0x22a carries u8 flare/dynamite and u8 count.
+  Both purchase messages are four bytes including their id; the request is two bytes.
+  S→C 0x228's raw20 contains Azurite at 0..3, ten upgrade levels at 6..15 and sulphite at 16..17.
+  Its raw14 contains flare/dynamite counts at 8/9.
+  DelveUpgrades provides costs, stat rows and limits; DelveFlares.__col6 and DelveDynamite.__col12 provide purchase prices.
+  Equipment, consumables and Azurite persist in the account/league stash header, with atomic debit/update and rollback.
+  Equipment stats are projected while in Delve areas; sulphite still uses the existing character save.
+  Resource use, darkness damage and the machine's upgraded cable visual tiers remain future work.
+- **Route selection.** Native chart click C→S 0x241 carries u8 count then count × four BE i32 coordinates
+  (block X/Y and cell X/Y).
+  The first observed selection was (0,0,2,0) → (0,0,2,1).
+  Framing handles every TCP split; the Gateway logs the requested path and reports unavailable until execution exists.
+  No sulphite is debited and no movement starts on an unsupported route.
+  [GGG's FAQ](https://www.pathofexile.com/forum/view-thread/2197540) and
+  [Delve announcement](https://www.pathofexile.com/delve) describe route travel, speed scaling/catch-up,
+  darkness and equipment upgrades.
+  Their 2018 ownership/progression details are historical; this protocol implementation targets client 3.29.3b.
+  The next server slice should validate adjacent route cells against saved completed nodes, resolve the terrain path
+  and native depth cost, then atomically admit the trip before moving the Crawler.
+  Travel follows that path with player-speed scaling and catch-up when the player is ahead.
+  The Crawler's light determines darkness exposure; leaving a guessed player-centred circle is not a route request.
+  Encounters, success/failure and reward commitment need explicit states before routes can award progress.
+- **First mine entrance.** Delve_Hub's upper `DelveEntrance01_area_transition.ao` leads to `Delve_Main` (HASH16 64840).
+  The unused lower elevator must not be paired with it as a generic local gate.
+  Delve_Main receives `InstanceDelve.FirstMineTerrain()` in the area packet's extra terrain data.
+  It selects a Delve terrain block: eight header bytes, with width/height in the low/high nibbles of byte 6,
+  then five bytes per cell and any stat groups counted by header byte 7.
+  The initial 1×2 block contains Mines biome cells: MineEntrance (feature 1) and the Azurite quest room (feature 7),
+  joined north/south by bits 0x10/0x40 of each cell's biome/connections byte.
+  This block was accepted by the real client's parser and generated Delve_Main seed 1 successfully.
+  The native level includes a hub subarea as well as the mine rooms.
+  Arrival must use the mine's `delvemine_areatransition_v01_01_area_transition.ao`, not the copied hub gate.
+  That mine-side gate leads back to Delve_Hub; normal arrival places the character beside the matching return gate.
+  Real-client checks covered hub entry, walking inside the mine and returning to the hub.
+  Geometry still comes from the client's capture (`live.ps1 -Walkmaps`), not the server level generator.
+  This is a fixed initial terrain block; chart-driven route selection, Crawler movement, darkness, encounters,
+  Azurite rewards and persistent mine progression remain separate work.
+- **Placing stationary objects (dev).** `/stash_place`, `/guild_stash_place`, `/delve_crawler` and `/wp_place`
+  `<x> <y> <degrees>` move an object with S→C 0x1b7 (terrain height 0x7fffffff) and turn it with the Positioned
+  rotation update, as the hideout editor does. The path blocker moves too (the waypoint has none). `/wp_place` alone
+  prints the area waypoint's place. `/wp_state active <n> | bits all|none|area|<bit> | model <.ao>` recreates the
+  waypoint with another StateMachine "active" or model, or sends 0x4c with the given bits (16 §4, hub waypoints).
+- **League hub stashes.** The Menagerie (stash 455 480 0°, guild stash 440 480 0°, placed live 2026-10-30), the
+  Forbidden Sanctum (116 160, 106 166), Kingsmarch, the Rogue Harbour and the Monastery of the Keepers (offsets from the
+  arrival) get a stash and a guild stash, as the Mine Encampment does.

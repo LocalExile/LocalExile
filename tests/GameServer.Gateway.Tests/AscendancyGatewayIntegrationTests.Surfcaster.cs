@@ -770,7 +770,7 @@ public sealed partial class AscendancyGatewayIntegrationTests
                 "GemSkillEffects", State).Single();
             var at = State.Walk.Position(State.Clock.Elapsed.TotalSeconds);
             await (Task)GatewayMethod("AreaSkillHit").Invoke(null, ["surfcaster-sweep", stream, cipher, State, gem.Id, gem,
-                at, at, true, (ushort)1, State.ActionCount, null, null, 0u])!;
+                at, at, true, (ushort)1, State.ActionCount, null, null, 1.0, 0u, null, null, 0u])!;
             return null;
         });
 

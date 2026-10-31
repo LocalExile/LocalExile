@@ -3,6 +3,8 @@
   <ItemGroup>
     <ProjectReference Include="..\GameServer.Core\GameServer.Core.csproj" />
     <ProjectReference Include="..\GameServer.Storage\GameServer.Storage.csproj" />
+    <!-- The mods' API (ModHost, Program.Mods.cs). -->
+    <ProjectReference Include="..\GameServer.Modding\GameServer.Modding.csproj" />
     <!-- The game files and the level generator port (ServerLevels.cs). -->
     <ProjectReference Include="..\GameServer.Data\GameServer.Data.csproj" />
     <Compile Include="..\..\scripts\re\ggdump\NodeOodleDecoder.cs" Link="NodeOodleDecoder.cs" />

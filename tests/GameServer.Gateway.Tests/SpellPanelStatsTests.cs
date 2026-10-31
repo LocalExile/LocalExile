@@ -10,7 +10,7 @@ public class SpellPanelStatsTests
     static Dictionary<uint, int> Values(params (string Name, int Value)[] values) =>
         values.ToDictionary(v => Stats.Value.Key(v.Name)!.Value, v => v.Value);
     static Dictionary<string, int> Rows(SkillHitPlan plan, DamagePacket hit, int cps = 100) =>
-        SpellPanelStats.Compute(plan, hit, cps).ToDictionary(r => r.Stat, r => r.Value);
+        SpellPanelStats.Compute(plan, hit, cps / 100.0).ToDictionary(r => r.Stat, r => r.Value);
 
     [Fact]
     public void Real_fireball_uses_its_modified_packet_with_floored_ranges_and_fractional_average()

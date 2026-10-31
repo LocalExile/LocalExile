@@ -21,6 +21,20 @@ public class GemDropsTests
             .Select(d => (d.Drop, d.Type, catalog.Gem(d.Type)!))];
     }
 
+    // The quantity multiplier scales how many items roll: above 1 too (a mod's), not only Ruthless's 0.2.
+    [Fact]
+    public void Item_quantity_scales_the_number_of_drops_both_ways()
+    {
+        var (_, drops) = Setup.Value;
+        int Total(double quantity) => Enumerable.Range(0, 300)
+            .Sum(seed => drops.Roll(40, MonsterRarity.Rare, new Random(seed), quantityMultiplier: quantity).Count);
+        int ordinary = Total(1);
+        Assert.InRange(Total(100), ordinary * 90, ordinary * 110);
+        Assert.InRange(Total(2.5), ordinary * 2.2, ordinary * 2.8);
+        Assert.InRange(Total(0.2), ordinary * 0.1, ordinary * 0.3);
+        Assert.Equal(ordinary, Total(1));
+    }
+
     [Fact]
     public void Gems_drop_unlevelled_and_are_part_of_the_item_drops()
     {

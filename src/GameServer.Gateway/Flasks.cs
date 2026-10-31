@@ -45,6 +45,24 @@ static class Flasks
         InstanceEntities.AddBuff(player, buff, row, player, slot, values,
             u68: seconds is double s ? BitConverter.SingleToUInt32Bits((float)s) : null);
 
+    /// <summary>A hybrid's Life and Mana recover and end independently (wiki Hybrid flask; PoB CalcPerform).
+    /// Give each resource its own existing recovery queue, native buff and remaining duration. Its companion continues
+    /// after one resource fills or expires. Legacy/manual Use records retain their shared Seconds fallback.</summary>
+    public static List<Effect> RecoveryEffects(FlaskRecovery.Use use, byte slot, double now, Func<ushort> nextBuff,
+        ushort lifeBuffRow, ushort manaBuffRow)
+    {
+        var effects = new List<Effect>();
+        bool hybrid = use.Life > 0 && use.Mana + use.ManaAtEnd > 0;
+        double lifeSeconds = use.LifeSeconds ?? use.Seconds, manaSeconds = use.ManaSeconds ?? use.Seconds;
+        if (use.Life > 0 && lifeSeconds > 0)
+            effects.Add(new(slot, nextBuff(), lifeBuffRow, use.Life / lifeSeconds, 0, now, now + lifeSeconds,
+                LifeStays: use.LifeStaysAtFull, NoQueue: hybrid ? use.LifeStaysAtFull : use.NoQueue));
+        if (use.Mana + use.ManaAtEnd > 0 && manaSeconds > 0)
+            effects.Add(new(slot, nextBuff(), manaBuffRow, 0, use.Mana / manaSeconds, now, now + manaSeconds,
+                use.ManaAtEnd, ManaStays: use.ManaStaysAtFull, NoQueue: hybrid ? use.ManaStaysAtFull : use.NoQueue));
+        return effects;
+    }
+
     /// <summary>A flask's recovery under way: the flask-bar cell it came from, its buff (S→C 0x1c1; 0: none, the extra life
     /// of a life flask's suffix) and how much life and mana it gives per second for <paramref name="Ends"/> −
     /// <paramref name="Started"/> seconds of recovery from <paramref name="Started"/> (connection clock seconds; a queued

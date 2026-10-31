@@ -25,6 +25,12 @@ partial class Program
             public bool Created, Ended, SecondFormStarted;
             public ProjectileArc? Arc;
             public int MotionVersion;
+            // Where the object is created (the release point) and whether its first move has been sent from there.
+            public ProjectileVector SpawnedAt;
+            public bool Glided;
+            // An ended flight whose stop keeps the object (an impact clip, a stuck arrow) is still created when its
+            // creation snapshot runs late: the shot then appears at its impact rather than not at all.
+            public bool StaysAfterEnd;
         }
         readonly Dictionary<long, Visual> visuals = [];
         readonly Dictionary<SpawnedMonster, int> generations = new(ReferenceEqualityComparer.Instance);
@@ -91,7 +97,7 @@ partial class Program
                             var use = release() with { Seed = ++seed };
                             long useId = Runtime.Release(use);
                             Console.WriteLine($"[gateway] {remote} projectile release use={useId} "
-                                + $"skill={(use.Payload as ProjectileOffense)?.Label} metadata={use.Profile.Id} count={use.Profile.Count} "
+                                + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
                                 + $"origin={use.Origin} aim={use.Aim} speed={use.Profile.Speed:0.###}");
                         }
                         catch (InvalidOperationException ex)
@@ -168,6 +174,10 @@ partial class Program
             return new(id, value);
         }
 
+        /// <summary>The actor key a monster has in this session's world: a monster's own shot names it as owner, so its
+        /// flight never contacts the monster itself.</summary>
+        internal ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
+
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
             var result = new List<ProjectileActor>();
@@ -185,25 +195,40 @@ partial class Program
         }
 
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
-            ProjectileGeometry.TraceGrid(from, to, (x, y) =>
-                x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
-                || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
-                || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true);
+            ProjectileGeometry.TraceGrid(from, to, Wall);
+
+        bool Wall(int x, int y) => x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
+            || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
+            || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true;
+
+        int? Height(int x, int y) => TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y);
+
+        // A player's primary projectile flies at the ground its aim gives it (ProjectileAimHeight); returns,
+        // continuation children and monster shots keep the plain projectile grid.
+        int? FlightGround(ProjectileEntity p) => p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 ? null
+            : ProjectileAimHeight.Ground(p.Use.Origin, p.Use.Aim, Height);
+
+        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
+            FlightGround(p) is int ground
+                ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ProjectileAimHeight.Blocks(x, y, ground, Height))
+                : TraceTerrain(from, to);
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
         {
-            if (!Active || contact.Projectile.Use.Payload is not ProjectileOffense shot) return ProjectileHitResult.Miss;
+            if (!Active) return ProjectileHitResult.Miss;
+            // A monster's shot: the player is the target and the monster's damage pipeline commits the hit.
+            if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
+            if (contact.Projectile.Use.Payload is not ProjectileOffense shot) return ProjectileHitResult.Miss;
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
-            if (!shot.Spell && !shot.AlwaysHits)
+            double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            int hitChance = 100;
+            if (!shot.Spell)
             {
-                double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-                int accuracy = TargetAccuracy.AgainstTarget(shot.Accuracy, shot.AccuracyMoreUnique, shot.AccuracyMoreClose,
-                    target.Rarity == MonsterRarity.Unique,
-                    TargetAccuracy.InCloseRange(Dist(Conn.Walk.Position(at), target.Walk.Position(at))));
-                int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
-                if (!DamageModel.Hits(DamageModel.AccuracyHitChance(UnderBlind(Conn, contact.Target.Id, evasion), accuracy), random.Next(100)))
+                var accuracy = shot.AccuracyProfile ?? new(shot.Accuracy, shot.AccuracyMoreUnique, shot.AccuracyMoreClose, shot.AlwaysHits);
+                hitChance = AttackHitChanceAt(Conn, contact.Target.Id, target, at, accuracy);
+                if (!accuracy.CannotBeEvaded && !target.AttackEvasion.Hits(hitChance, at, Conn.AttackAccuracyRandom))
                     return ProjectileHitResult.Miss;
             }
             if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
@@ -214,28 +239,26 @@ partial class Program
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player)
                 .Hit(baseHit).Scale(more);
             var gambler = GamblerFor(player);
-            var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random);
-            if (!shot.Spell)
-            {
-                double stored = target.Impale.Bonus;
-                target.Impale.AfterHit();
-                if (stored > 0) rolled = rolled.Add(DamageType.Physical, new DamageRange(stored, stored));
-                if (shot.ImpaleChance > 0 && random.Next(100) < shot.ImpaleChance)
-                    target.Impale.Apply(baseHit[DamageType.Physical].Max * more);
-            }
+            var rolled = WithDamageVsRarity(player, target, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random));
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
-            bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell);
-            double contactAt = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll)
+                && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier);
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, contactAt, shot.ResistanceMods,
+            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
                 shot.Penetration, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
+            LeechOnHitLocked(Conn, target, MonsterTakenComponents(target, mitigated, shot.Spell), damage, shot.Leech);
+            var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
+            double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
+            var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Mods.Effects["avoid_impale_%"]);
+            damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             var hit = ApplyMonsterHitLocked(Conn, target, damage);
             if (hit is null) return ProjectileHitResult.Miss;
             AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
-                contactAt, contact.Projectile.ReactionRandomSource);
+                at, contact.Projectile.ReactionRandomSource);
+            if (hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
@@ -255,19 +278,31 @@ partial class Program
             if (presentation.EventEffect?.Invoke(value) is { } eventEffect)
                 Effect(x, y, eventEffect, presentation.EffectLifetime,
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null);
+            // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
+            // areas and continuation children, which do get objects).
+            if (value.Kind == ProjectileEventKind.Spawn && p.ParentId == 0
+                && p.Use.Payload is ProjectileOffense { ClientPredicted: true }) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
                 uint id = Conn.NextObjectId++;
-                var height = ProjectileHeight.Flight(TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
-                    Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"));
-                var visual = new Visual(id, height);
+                // A shot aimed at higher ground flies at that ground's height, so its object clears the cliff it passes over.
+                var height = ProjectileHeight.Flight(FlightGround(p) ?? TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
+                    Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
+                var visual = new Visual(id, height) { SpawnedAt = value.Position };
                 visuals[p.Id] = visual; Conn.ProjectileObjects.Add(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
                 Packet(() =>
                 {
-                    if (visual.Ended) return null;
-                    var obj = new ProjectileObject(p.Profile.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y),
+                    // A flight that ended before this snapshot is created only when its stop keeps the object (the impact
+                    // clip or stuck arrow then shows where it hit); otherwise a create followed by its removal is a flash.
+                    if (visual.Ended && !visual.StaysAfterEnd) return null;
+                    // Created where it was released, not where the simulation has it when this snapshot is taken: an arrow
+                    // covers a cell every 3 ms, so the late snapshot put it one to ten cells past the bow (live 2026-10-29).
+                    // The first glide starts here too; the visual trails the simulation by the output delay and catches
+                    // up at its stop.
+                    var at = visual.SpawnedAt;
+                    var obj = new ProjectileObject(p.Profile.Id, (int)Math.Round(at.X), (int)Math.Round(at.Y),
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
@@ -275,13 +310,13 @@ partial class Program
                     visual.Created = true;
                     if (p.ParentId == 0)
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
-                            + $" metadata={p.Profile.Id} release={value.Position} shown={p.Position} direction={p.Direction}"
-                            + $" ageMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
+                            + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
+                            + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(p.Profile.Id), obj.Blob(), headerU32: 0xffffffff);
                 });
                 Packet(() => visual.Created ? InstanceProtocol.EnterWakeZone(id) : null);
                 if (presentation.FlightClip is { } clip)
-                    Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, 1) : null);
+                    Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
                 UpdateForm(p, visual);
                 Glide(p, visual);
             }
@@ -291,15 +326,41 @@ partial class Program
                 UpdateForm(p, redirect);
                 Glide(p, redirect);
             }
-            else if (value.Kind == ProjectileEventKind.End && visuals.Remove(p.Id, out var end))
+            else if (value.Kind == ProjectileEventKind.End && visuals.TryGetValue(p.Id, out var end) && !end.Ended)
             {
                 end.Ended = true;
+                // A lobbed shot's landing is its impact too (the mortar's "end" clip plays where it comes down).
+                end.StaysAfterEnd = (presentation.ImpactClip is not null || presentation.StayOnImpact)
+                    && value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing;
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : end.Height;
-                Packet(() =>
+                if (end.StaysAfterEnd)
                 {
-                    Conn.ProjectileObjects.Remove(end.Id);
-                    return end.Created ? [.. height.StopAt(end.Id, x, y), .. InstanceProtocol.RemoveObject(end.Id)] : null;
-                });
+                    // The stop ends the glide and the object stays for ImpactLifetime of game time: for the rig's own impact
+                    // clip (an ordinary wand bolt, with its particles and sound), or as the arrow left in its target or a
+                    // wall. Its removal follows on the same pause- and transfer-aware game clock as an effect's lifetime.
+                    Packet(() => !end.Created ? null
+                        : presentation.ImpactClip is { } impactClip
+                            ? [.. height.StopAt(end.Id, x, y), .. InstanceProtocol.AnimationUpdate(end.Id, 0, impactClip, 1)]
+                            : height.StopAt(end.Id, x, y));
+                    Runtime.Schedule(Runtime.Now + presentation.ImpactLifetime, () =>
+                    {
+                        visuals.Remove(p.Id);
+                        Packet(() =>
+                        {
+                            Conn.ProjectileObjects.Remove(end.Id);
+                            return end.Created ? InstanceProtocol.RemoveObject(end.Id) : null;
+                        });
+                    });
+                }
+                else
+                {
+                    visuals.Remove(p.Id);
+                    Packet(() =>
+                    {
+                        Conn.ProjectileObjects.Remove(end.Id);
+                        return end.Created ? [.. height.StopAt(end.Id, x, y), .. InstanceProtocol.RemoveObject(end.Id)] : null;
+                    });
+                }
             }
             else if (value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
                 Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
@@ -361,7 +422,8 @@ partial class Program
                 return;
             }
             int start = p.GroundBounces == 0
-                ? ProjectileHeight.Flight(startGround, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT")).Marker
+                ? ProjectileHeight.Flight(startGround, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"),
+                    PresentationFor(p).LaunchHeight).Marker
                 : startGround;
             var arc = new ProjectileArc(p.Distance, p.Remaining, start, endGround);
             visual.Arc = arc;
@@ -395,12 +457,25 @@ partial class Program
                 if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceTerrain(p.Position, end) is { } wall)
                     end = p.Position + (end - p.Position) * wall.Fraction;
                 if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
-                float duration = (float)Math.Max(.001, (end - p.Position).Length / p.Speed);
-                return [.. startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)),
-                    .. endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration)];
+                // The first move starts where the object was created (the release point), without a stop there and with
+                // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)
+                // first stop at the simulated position.
+                bool first = !visual.Glided;
+                visual.Glided = true;
+                var start = first ? visual.SpawnedAt : p.Position;
+                float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
+                byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
+                return first ? move
+                    : [.. startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), .. move];
             });
         }
         internal static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
+        static string? PayloadLabel(object? payload) => payload switch
+        {
+            ProjectileOffense offense => offense.Label,
+            HostileProjectileOffense hostile => hostile.Label,
+            _ => null,
+        };
     }
 
     static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

@@ -22,8 +22,22 @@ partial class Program
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
             session.Packet(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
-        if (HitReaction.TryFlinch(target, damage, now, random) is { } flinch)
-            session.Packet(InstanceProtocol.AnimationUpdate(id, 0, (uint)flinch.Index, 1));
+        // Native Actor TakeHit recovery (0x1d1), as the melee path sends: a rig-only clip (0x1b2) leaves the client
+        // monster walking while the server's estimate has stopped (11-skills.md "Hit reaction").
+        if (HitReaction.TryFlinch(target, damage, now, random) is not null)
+            session.Packet(InstanceProtocol.ActorAnimation(id, (float)(target.FlinchUntil - now), PlayerHitRecovery.TakeHitAnimation));
+        if (shot.HitPacket)
+        {
+            // S→C 0x1af before the life update, as the melee default attack sends it: an immediate package (kind 3) for the
+            // shot's action with blood (0x0001), the generic particles (0x4000) of its largest damage type, the critical
+            // bit when it crit, and the main-hand bit (0x0200: the weapon's own effect and stat selection), which GGG's
+            // server sets on every bow hit (live capture 2026-10-29, ranged-monster-actions-port.md "Live reference").
+            // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
+            var direction = contact.Projectile.Direction;
+            ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
+            session.Packet(InstanceProtocol.ActionHit(PlayerId, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
+                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000))));
+        }
         session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
             $"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
@@ -71,14 +85,14 @@ partial class Program
     {
         var conn = session.Conn;
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
-        monster.Impale.Clear();
-        session.Runtime.Schedule(at + 1200000, () =>
-        {
-            if (conn.Monsters.TryGetValue(id, out var current) && ReferenceEquals(current, monster))
-            { conn.Monsters.Remove(id); session.Packet(InstanceProtocol.RemoveObject(id)); }
-        });
+        // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
+        // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
+        var killer = PlayerOf(conn);
+        var modMonster = ModMonster(monster, position);
+        session.Enqueue(() => ServerMods.MonsterKilled(new(killer, modMonster)));
         ChargesOnKill(conn, monster);
+        StealMonsterMods(conn, monster);
         if (conn.Layout.Id == TutorialObjects.Strand && variety.Id == TutorialObjects.Zombie
             && CharacterSaves.Load(CharacterName(conn))?.Tutorial is { ZombieKilled: false })
         {
@@ -99,7 +113,8 @@ partial class Program
         uint xp = 0;
         if (conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level);
+            xp = ServerMods.Experience(killer, modMonster,
+                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
         var (gemPackets, leveled) = CommitGemExperience(conn, xp);
         foreach (var packet in gemPackets) session.Packet(packet);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
@@ -114,6 +129,7 @@ partial class Program
                 CommitExperienceLevel(conn, level);
                 conn.PlayerLife = conn.PlayerMaxLife; conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
+                TrimLeechLocked(conn);
                 session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
@@ -127,9 +143,17 @@ partial class Program
         if (Environment.GetEnvironmentVariable("Game_DROPS") != "0")
         {
             var balance = conn.Ruthless ? RuthlessSettings.Current : null;
-            List<ItemDrops.Drop> drops = [.. DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
-                balance?.ItemDropMultiplier ?? 1, balance?.EquipmentRarityMultiplier ?? 1)];
-            if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance?.GoldMultiplier ?? 1) is { } gold) drops.Add(gold);
+            var modded = ServerMods.Drops(killer, modMonster);
+            List<ItemDrops.Drop> drops = [];
+            if (modded is not { Cancel: true })
+            {
+                drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
+                    (balance?.ItemDropMultiplier ?? 1) * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn), (balance?.EquipmentRarityMultiplier ?? 1) * (modded?.Rarity ?? 1)));
+                if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, (balance?.GoldMultiplier ?? 1) * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
+            }
+            foreach (string query in modded?.Items ?? [])
+                if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
+                else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
             foreach (var drop in drops)
             {
                 double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;

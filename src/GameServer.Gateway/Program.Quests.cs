@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 partial class Program
 {
@@ -301,7 +302,7 @@ partial class Program
         try { return GlyphQuest.Load(conn.Layout.Id, conn.Seed); }
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
-            Console.WriteLine($"[gateway] {remote} a1q4 capture: {ex.Message}");
+            Console.WriteLine($"[gateway] {remote} a1q4 capture: {ServerLog.Describe(ex)}");
             return null;
         }
     }
@@ -345,7 +346,7 @@ partial class Program
             }
         }
         catch (Exception ex) when (ex is IOException or JsonException or ObjectDisposedException or KeyNotFoundException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] a1q4 objects: {ex.Message}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] a1q4 objects: {ServerLog.Describe(ex)}"); }
     }
 
     // Which glyph (0–2) an item is, or null.

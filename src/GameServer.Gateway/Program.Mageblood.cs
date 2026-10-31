@@ -6,8 +6,8 @@ partial class Program
 {
     // Mageblood (UniqueCatalog): the belt's unique word and the mod that says how many magic utility flasks always apply.
     // The client shows the item and enforces "cannot be used" itself (the mod); the server is the backstop here.
-    // Not modelled yet: the flask buff icons/durations (the stats are applied continuously), the "effects cannot be
-    // removed" backstop and the Foulborn rightmost variant.
+    // The flask buffs are kept in step by RunUniqueBeltEffects (Program.UniqueBelts.cs). Not modelled yet: the "effects
+    // cannot be removed" backstop (nothing here removes a flask's effect) and the Foulborn rightmost variant.
     const uint MagebloodWord = 3562871479;
     const string MagebloodFlasksMod = "MagicUtilityFlasksAlwaysApplyUnique__1";
 
@@ -49,7 +49,8 @@ partial class Program
 
     /// <summary>The sources of the magic utility flasks Mageblood keeps applied, or none when it is not worn. The flasks'
     /// own effect mods count; <paramref name="character"/> is the character's stats for increased flask effect/duration.</summary>
-    internal static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(ClientState conn, Func<string, int> character)
+    internal static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(ClientState conn, Func<string, int> character,
+        int? playerLevel = null)
     {
         if (MagebloodBelt(conn) is not { } belt) return [];
         var items = ItemsFor(conn);
@@ -58,7 +59,7 @@ partial class Program
         List<UtilityFlasks.Source> sources = [];
         foreach (var flask in MagebloodFlasks(ItemsOf(conn).Items(PlayerInventories.Flask), count, items))
             if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
-                sources.AddRange(UtilityFlasks.For(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character).Stats);
+                sources.AddRange(UtilityFlasks.For(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character, playerLevel ?? conn.Pools.Level).Stats);
         return sources;
     }
 
@@ -71,8 +72,9 @@ partial class Program
 
     /// <summary>The utility flask stats that count now: the running effects deduplicated against Mageblood's permanent
     /// ones. Callers apply this once, not the two sets separately.</summary>
-    internal static IReadOnlyList<(string Stat, int Value)> UtilityStats(ClientState conn, Func<string, int> character) =>
-        CombineUtilitySources(conn.UtilityFlaskEffects.Sources(), MagebloodSources(conn, character));
+    internal static IReadOnlyList<(string Stat, int Value)> UtilityStats(ClientState conn, Func<string, int> character,
+        int? playerLevel = null) =>
+        CombineUtilitySources(conn.UtilityFlaskEffects.Sources(), MagebloodSources(conn, character, playerLevel));
 
     /// <summary>Whether Mageblood forbids using this flask: magic utility flasks cannot be used while it is worn (normal and
     /// unique ones still can).</summary>
