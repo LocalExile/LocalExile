@@ -255,6 +255,8 @@ static class AreaLayouts
     static Func<int, int, bool> Walkable(byte[] cells, int w, int h) =>
         (x, y) => x >= 0 && y >= 0 && x < w && y < h && cells[y * w + x] >= 2;
 
+    static readonly (int Dx, int Dy)[] Neighbours = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
     /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells).</summary>
     static (int X, int Y) DeepestCell(byte[] cells, int w, int h)
     {
@@ -265,7 +267,7 @@ static class AreaLayouts
         while (q.Count > 0)
         {
             int i = q.Dequeue(), x = i % w, y = i / w;
-            foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+            foreach (var (dx, dy) in Neighbours)
             {
                 int nx = x + dx, ny = y + dy;
                 if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
