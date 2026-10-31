@@ -58,7 +58,7 @@ sealed class AscendancyCatalog(string folder = "data")
     {
         string path = Path.Combine(folder, GraphFile);
         if (!File.Exists(path)) return new Dictionary<AscendancyFamily, HashSet<ushort>>();
-        using var graph = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var graph = GameTables.Open(path);
         if (graph.RootElement.GetProperty("revision").GetString() != Revision)
             throw new InvalidDataException($"{path}: expected ascendancy data revision {Revision}");
         return Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, f =>
@@ -88,7 +88,7 @@ sealed class AscendancyCatalog(string folder = "data")
         using var characters = GameTables.Open(characterPath);
         byte[] baseClasses = characters.RootElement.EnumerateArray().Select(r => checked((byte)r.GetProperty("IntegerId").GetInt32())).ToArray();
         using var ascendancies = GameTables.Open(ascendancyPath);
-        using var passives = JsonDocument.Parse(File.ReadAllBytes(passivePath));
+        using var passives = GameTables.Open(passivePath);
         var rows = new Dictionary<ushort, JsonElement>();
         foreach (var r in passives.RootElement.EnumerateArray())
         {

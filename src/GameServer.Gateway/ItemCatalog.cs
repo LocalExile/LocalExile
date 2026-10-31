@@ -341,7 +341,7 @@ sealed class ItemCatalog
         var result = new Dictionary<int, Flasks.Flask>();
         if (!File.Exists(flasks) || !File.Exists(charges)) return result;
         var perUse = new Dictionary<string, (int Max, int PerCharge)>();
-        using (var c = JsonDocument.Parse(File.ReadAllBytes(charges)))
+        using (var c = GameTables.Open(charges))
             foreach (var r in c.RootElement.EnumerateArray())
                 perUse.TryAdd(r.GetProperty("BaseItemTypesKey").GetString() ?? "", (r.GetProperty("MaxCharges").GetInt32(), r.GetProperty("PerCharge").GetInt32()));
         using var f = GameTables.Open(flasks);
