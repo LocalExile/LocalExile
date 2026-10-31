@@ -112,10 +112,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Spawn points.** Logins, Resurrect in Town and one-way entries other than The Twilight Strand → Lioneye's Watch use
   the area's spawn: the town's fixed point, or the walkable cell farthest from any edge in a generated area.
 - **Area seeds.** A new instance of an area the Gateway generates itself gets a random seed (`Game_RANDOM_SEEDS=0`
-  pins it to 1); towns, hideouts and the areas still read from captures use seed 1. A seed the port cannot generate
-  (2 of 21 for The Coast, 5 of 21 for 1_2_12) is played at the first of 8 replacements derived from it that the port
-  generates (`ServerLevels.PlayableSeed`, sent in 0x1d): before, such a map had no walk grid, area transitions or
-  waypoint.
+  pins it to 1); towns, hideouts and the areas still read from captures use seed 1.
+  An area the client cannot generate at seed 1 either (The Crossroads of acts 2 and 7, Act 6's Twilight Strand and
+  Southern Forest, The Karui Fortress, some maps and league arenas) is played at a seed the client built in place of
+  seed 1 (`ServerLevelAreas.SeedsInPlaceOfOne`, `AreaSeeds`); the Gateway generates it once a trace at that seed
+  matches in every layer (re/011 §7), not yet the Labyrinth's Estate Crossing sections.
+  A seed the port cannot generate (2 of 21 for The Coast, 5 of 21 for 1_2_12) is played at the first of 8 replacements
+  derived from it that the port generates (`ServerLevels.PlayableSeed`, sent in 0x1d): before, such a map had no walk
+  grid, area transitions or waypoint.
 - **Level generator port.** `GameServer.Data/Terrain/Generation` reproduces the client's level generator: the tile
   grid, the walkability and projectile grids, the doodads, every cell's ground height (`CellHeights.cs`) and the area
   transitions and waypoints (`AreaObjects.cs`: the tiles' objects, and a room's `Waypoint` line where no tile places
