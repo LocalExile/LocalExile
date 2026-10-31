@@ -81,8 +81,11 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   displayed rate once. Automated checks and real-client -80%/+100%/zero clip durations pass.
   Projectile release/contact alignment was not separately measured.
   Instant casts and attack timing stay separate; conditional action-speed and special native mechanics remain open.
-  Attack gems now share level-aware inherent speed with server pacing/contact and native total-duration/APS stats.
-  Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s; automated checks also pass.
+  Attack gems now share level-aware inherent speed with server pacing/contact and the APS stat; the client applies its
+  own to the clip. Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s.
+  Open: an attack longer than its clip stretches the clip's slow span, which `AttackContactDelay` does not model
+  ([11](../docs/protocol/11-skills.md)), and the arrow still arrives about 25 ms after the muzzle flash, with a fixed
+  60 ms lead tuned on localhost rather than one that follows the connection's latency.
   Attack-gem damage/DPS and conditional speed remain separate work.
 - **Spell hit panel (#188):** selected-spell ranges now share combat's converted packet and hitless spells clear
   inherited weapon hit damage. Automated checks pass; verify selection, equipment updates and relog in the client.

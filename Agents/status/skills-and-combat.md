@@ -905,11 +905,12 @@ and can require explicit recipes.
 - **Attack speed passives.** Generic, melee, one-/two-handed, weapon-family, shield and dual-wield passive attack
   speed is summed into the client's `main_hand_attack_speed_+%`;
   dual wielding adds PoB's 10% more and the server's unarmed attack uses the same final value.
-  Attack gems now apply their extracted inherent speed multiplier to total base duration separately from player speed.
-  Pacing, contact/release timing, channel intervals and selected APS share the same rounded native base duration.
-  Actual native bow input verified ordinary duration 0.714 s and Burning Arrow 1.02 s, with stored APS 1.40 and 0.98.
-  Original weapon base 714 ms and player speed 0% stayed unchanged; release/contact timing was not separately measured.
-  Catalog, modifier-order, native-field and spell-exclusion tests pass.
+  Attack gems apply their extracted inherent speed multiplier on the server only; the client applies its own, so the
+  total base duration it is sent stays the weapon's. Pacing, contact/release timing, channel intervals and selected APS
+  share the server's duration. Frida verified the clips with a 714 ms bow: ordinary 0.714 s, Burning Arrow 1.02 s.
+  An attack's server-created projectile is released 60 ms before its contact (`AttackReleaseDelay`), for the time before
+  the server reads the action, its tick and the output queue. Burning Arrow's arrow arrives about 25 ms after the client's
+  muzzle flash (was about 75 ms); the default arrow 0-52 ms after its contact, in two clusters (about 265 and 319 ms).
   Supports, conditional/per-charge speed, special time overrides and attack-gem damage/DPS remain separate work.
   Selected attack-gem main-hand ranges now share the converted combat packet, including skill effectiveness.
   All twelve ranges clear absent types; pre-crit averages retain fractions and DPS uses the emitted APS value.
