@@ -6,9 +6,9 @@ Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../.
 ## Making one
 
 1. Actions > **Release** > Run workflow, on `main`, with the version (`0.2.0`, or `0.2.0-beta.1` for a pre-release).
-2. The workflow (`.github/workflows/release.yml`, a hosted Windows runner) builds the package, runs the three test suites,
+2. The workflow (`.github/workflows/release.yml`, a hosted Windows runner) builds the package, runs no tests,
    attests the zip and creates a **draft** release with the notes, the zip and its `.sha256`.
-   It cannot check the real client: the runner has no client, and tests that need one quietly pass.
+   It cannot check the real client: the runner has neither the client nor `data/`.
 3. Download the draft's zip, extract it into a new folder and play through it with the real client.
    Use a separate folder from any checkout, and close every other client first.
 4. Write the Highlights in the notes, then publish. Publishing creates the tag `v<version>` on the built commit.
