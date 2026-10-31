@@ -367,6 +367,30 @@ name words and artwork, unique rarity and the fixed explicit mods; the base type
 Mageblood the Heavy Belt's +25-35 Strength). A unique's alternate-art row in `UniqueStashLayout` is not its art. Checked live 2026-10-26: the client shows the Mageblood name, unique art
 and full tooltip. Chancing and most uniques' own mechanics remain open (#60).
 
+**Utility flask orb enchantments** (`FlaskEnchantments`, Game's flask handlers): Enkindling and Instilling
+use native generation types 21/22, first-match tag weights and effective mod ranges from Mods.dat.
+There are 5 Enkindling and 15 enabled Instilling choices; the guard-expired row has zero spawn weight.
+They apply to uncorrupted, unmirrored utility flasks, including uniques; life/mana/hybrid flasks and tinctures refuse.
+The ordinary 0x71 transaction consumes one sphere only after a valid result, preserving item identity and affixes.
+The enchant list and matching old Harvest enchant family are replaced, so the two orb kinds do not stack.
+
+Enkindling's local effect, duration, charges used, maximum charges and charge recovery feed the existing calculations.
+Its cannot-gain flag is checked before Standard/Ruthless charge-gain rules, across all existing gain paths.
+Instilling queues authoritative events and uses the ordinary paid utility-flask path, including Mageblood/death checks.
+Events cover charges reaching full, natural effect expiry, neighbouring flask use, life-flask use, rare/unique hits,
+blocks, savage hits losing at least 15% maximum Life, paid Guard/Travel skills and new elemental ailments.
+Bleed/Poison condition matching is present, but incoming Bleed/Poison source mechanics do not yet exist.
+Guard-expired is excluded from the random pool. There is no fabricated ailment or guard effect implementation.
+The existing 250 ms pause-aware flask ticker drains coalesced events outside combat locks; each flask can use once per
+event chain, so adjacent-flask loops terminate. Refresh replaces that flask's previous timed effect and buffs.
+Natural expiry can reuse the same flask; removing it, death, towns and grace-period suppression cannot start a chain.
+Automated checks cover all 20 choices, admission, replacement, roll ranges, charge lock/coefficient inputs and triggers.
+Native verification (2026-10-31): both orbs consumed one currency and replaced the enchantment on a Quicksilver Flask.
+Removing increased maximum charges clamps stored charges to the new maximum. Enkindling blocked periodic charge gain
+throughout the active effect and allowed it after expiry. Hitting a spawned rare monster automatically used the
+Instilling-enchanted flask through the normal charge/buff path. Other trigger conditions have automated coverage.
+Official mechanic reference: https://www.pathofexile.com/forum/view-thread/3147479 (Major New Content).
+
 **Mageblood's mechanic** (`Program.Mageblood`): while the belt is worn (and its requirements met), the leftmost N (2-4,
 from `num_magic_utility_flasks_always_apply`) magic utility flasks in the flask bar constantly apply their effects. The
 stats are added where a running utility flask's stats are added (pools, the client's stats, phasing), scaled like a use
@@ -381,7 +405,7 @@ already used when the belt went on counts once, not twice, while different effec
 their own duration and stay after the belt is removed.
 
 Not modelled yet: the "Magic Utility Flask Effects cannot be removed" backstop (nothing in the server removes a flask's
-effect), the Foulborn rightmost variant, and Enkindling/instilling. How the client draws a flask buff without a duration
+effect), the Foulborn rightmost variant. Enkindling/Instilling server logic is described above. How the client draws a flask buff without a duration
 has not been seen live.
 
 **Headhunter's mechanic** (`StolenMods`, `Program.UniqueBelts`): killing a rare monster with

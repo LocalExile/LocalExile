@@ -14,6 +14,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   of the types they read), the HNC mask and GGPK root hash come from `data/client-constants.json`, and Node is not needed
   at run time. `live.ps1` refreshes the root hash before each client start, because the gateway list in the GGPK changes it.
   Code: `scripts/re/game-pack`, `GamePack.cs`, `ClientConstants.cs`.
+- Player releases, started by hand: a workflow builds a draft with a self-contained zip, and `LocalExile.exe` takes a player
+  from the client to the game with no SDK, Python or Node installed (`--json` for a GUI).
+  Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
+  Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
+  Docs: [releases](../docs/dev/releases.md).
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.

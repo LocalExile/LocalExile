@@ -27,6 +27,8 @@ A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod 
   Gateway tests use the shared `tests/GameServer.Gateway.Tests/TestEnvironment.cs` module initializer.
   Do not change the process working directory in individual tests; fix the shared test setup if it fails.
 - **Write all commit messages and pull request titles and descriptions in English.**
+  Subjects follow Conventional Commits (`feat:`, `fix:`, `docs:`, ...): they become the
+  [release](Agents/docs/dev/releases.md) notes.
 - **Verify the current integration base before declaring a PR ready.** Fetch the latest `main` and update the
   branch using the requested repository workflow; resolve shared code by preserving both mechanics.
   Re-run the solution build and all three required test suites, including regressions for the combined behavior.
@@ -43,6 +45,7 @@ A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod 
 - **Game data comes from `scripts/dev/extract-data.ps1`** (`live.ps1` runs it). A change that adds a game-data file
   under `data/`, or changes what a generator writes, adds or bumps that file's entry in the script's manifest (and in
   the Gateway's `GameDataFiles.cs`) in the same PR, instead of a "regenerate after pulling" note.
+  A file a server or generator reads outside `data/` also goes in `scripts/release/build-release.ps1`.
 - **Keep the docs current:** when you find or build something, update `Agents/docs/` and move the item from its
   area's file in `Agents/roadmap/` to the one in `Agents/status/` in the same change. Put entries where they belong,
   never at the top or bottom of a file, and edit an existing entry instead of adding a dated note; the rules are in

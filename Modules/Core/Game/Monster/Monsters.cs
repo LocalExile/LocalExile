@@ -628,11 +628,14 @@ static partial class Game
         damage = FortificationDamageTaken(conn, damage);
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
         if (blocked) { damage = 0; chaosDamage = 0; }
+        uint lifeBefore = conn.PlayerLife;
         uint manaBefore = conn.PlayerMana;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock : 0;
         int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock : 0;
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife - DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats) + gainedLife));
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
+        if (lifeBefore > conn.PlayerLife && (long)(lifeBefore - conn.PlayerLife) * 100 >= (long)conn.PlayerMaxLife * 15)
+            QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.SavageHit);
         TrimLeechLocked(conn);
         ApplyPlayerAilmentsLocked(conn, a.Damage, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
@@ -678,6 +681,13 @@ static partial class Game
                 $"0x01b1 player mana {hit.Mana} ({(hit.Blocked ? $"+{conn.Pools.ManaGainedOnBlock} on block" : "no block gain")})");
         if (hit.Life == 0)
             await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
-        else if (!hit.Blocked) await GainFlaskChargesWhenHit(remote, stream, ciphers, conn);
+        else
+        {
+            if (hit.Blocked) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Block);
+            else
+            {
+                await GainFlaskChargesWhenHit(remote, stream, ciphers, conn);
+            }
+        }
     }
 }
