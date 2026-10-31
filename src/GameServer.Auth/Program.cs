@@ -110,7 +110,7 @@ static async Task Serve(LoginServerKeys keys)
         CharacterHome.SelectedHideout(progress, character) is { } area && hideoutAreas.TryGetValue(area, out ushort hash) ? hash : null);
     _ = directory.ServeControlAsync(InstanceControl.Port);
     Console.WriteLine($"[auth] login server on tcp/{port}");
-    // Game_LEAGUES: comma-separated base leagues (default Standard, Allflame), each with its Hardcore / SSF / Ruthless variants.
+    // Game_LEAGUES: comma-separated base leagues (default Standard and those the league modules declare), each with its variants.
     Console.WriteLine($"[auth] leagues: {string.Join(", ", LeagueCatalog.FromEnvironment().All.Select(l => l.Name))}");
     while (true)
     {

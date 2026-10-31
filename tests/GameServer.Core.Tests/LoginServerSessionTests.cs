@@ -166,7 +166,7 @@ public class LoginServerSessionTests
         var accounts = new AccountService(new JsonAccountStore());
         var account = accounts.Register("legacy", "pw1234").Value!;
         accounts.CreateCharacter(account.Id, "LegacyRanger", CharacterClass.Ranger, leagueName);
-        var session = new LoginServerSession(accounts) { Leagues = new([LeagueCatalog.Standard]) };
+        var session = new LoginServerSession(accounts) { Leagues = new([LeagueCatalog.Standard], LeagueCatalog.FromEnvironment().Forms) };
         var offered = Assert.IsType<LeagueList>(session.Handle(Request("legacy", "pw1234"))[1]);
         Assert.DoesNotContain(offered.Leagues, l => l.Name == leagueName);
         Assert.Null(session.Leagues.Find(leagueName));
@@ -174,7 +174,7 @@ public class LoginServerSessionTests
         session.Handle(new U8U32(0, 0));
         var resolved = Assert.IsType<League>(session.CharacterLeague);
         Assert.Equal((leagueName, hardcore, ssf, ruthless),
-            (resolved.Name, resolved.Hardcore, resolved.Ssf, resolved.Ruthless));
+            (resolved.Name, resolved.Hardcore, resolved.Ssf, resolved.Form is not null));
         Assert.Equal(leagueName, Assert.Single(accounts.Characters(account.Id)).League);
 
         var rejected = Assert.IsType<CreateCharacterResult>(Assert.Single(session.Handle(
@@ -184,14 +184,14 @@ public class LoginServerSessionTests
     }
 
     [Fact]
-    public void Saved_league_resolution_prefers_configured_modes_and_rejects_unknown_names()
+    public void Saved_league_resolution_prefers_configured_modes_and_keeps_unknown_names_on_standard()
     {
-        var leagues = new LeagueCatalog(["Configured"]);
+        var leagues = new LeagueCatalog(["Configured"], LeagueCatalog.FromEnvironment().Forms);
         var configured = leagues.Find("HC SSF R Configured")!;
         Assert.Same(configured, leagues.ResolveSavedLeague("hc ssf r configured"));
-        Assert.Equal((true, true, true), (configured.Hardcore, configured.Ssf, configured.Ruthless));
+        Assert.Equal((true, true, true), (configured.Hardcore, configured.Ssf, configured.Form is not null));
         Assert.Null(leagues.ResolveSavedLeague(null));
-        Assert.Null(leagues.ResolveSavedLeague("Unknown"));
+        Assert.Equal(("Unknown", null), (leagues.ResolveSavedLeague("Unknown")!.Name, leagues.ResolveSavedLeague("Unknown")!.Form));
     }
 
     [Fact]

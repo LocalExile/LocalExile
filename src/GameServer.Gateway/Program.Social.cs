@@ -41,7 +41,7 @@ partial class Program
     // Presence is shared even when SSF world state is private. Check the authoritative modes at each trade boundary.
     internal static bool PlayerTradeAllowed(ClientState a, ClientState b) =>
         !ReferenceEquals(a, b) && !a.Ssf && !b.Ssf
-        && a.Hardcore == b.Hardcore && a.Ruthless == b.Ruthless
+        && a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
         && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase)
         && ReferenceEquals(a.Instance.Presence, b.Instance.Presence)
         && !a.Closed && !b.Closed && !a.LeavingArea && !b.LeavingArea

@@ -18,7 +18,7 @@ public sealed class GameModeMergeIntegrationTests : IDisposable
         characters.Add(name);
         var conn = new ClientState(new(ushort.MaxValue, "mode-merge", 300, 300, 10, 10, null, []), 1, 1)
         {
-            Character = name, ClassRow = SkillCatalog.WitchRow, Ruthless = ruthless, Ssf = ssf, Hardcore = hardcore,
+            Character = name, ClassRow = SkillCatalog.WitchRow, LeagueForm = ruthless ? "ruthless" : null, Ssf = ssf, Hardcore = hardcore,
             League = ruthless ? "Ruthless" : "Standard", Instance = instance ?? new(),
             PlayerSent = true, PlayerLife = 100, PlayerMana = 100,
         };

@@ -420,10 +420,10 @@ partial class Program
             if (!ReferenceEquals(conn.PendingTransfer, t)) return; // the acknowledgement and fallback timer can race
             conn.PendingTransfer = null;
         }
-        if (!RetireRuthlessVitalsForTransfer(conn))
+        if (!RetireVitalsForTransfer(conn))
         {
             conn.ResumeAfterFailedTransfer();
-            Console.WriteLine($"[gateway] {remote} transfer refused: Ruthless resources belong to a newer connection");
+            Console.WriteLine($"[gateway] {remote} transfer refused: saved life and mana belong to a newer connection");
             return;
         }
         var r = await (control ?? (request => InstanceControl.CallAsync(request)))(new ControlRequest
@@ -433,7 +433,7 @@ partial class Program
         t.Done?.Invoke(r);
         if (!r.Ok)
         {
-            ResumeRuthlessVitalsAfterFailedTransfer(conn);
+            ResumeVitalsAfterFailedTransfer(conn);
             conn.ResumeAfterFailedTransfer();
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
             return;

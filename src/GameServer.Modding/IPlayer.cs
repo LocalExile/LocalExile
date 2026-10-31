@@ -18,9 +18,6 @@ public interface IPlayer
     /// <summary>Solo self-found.</summary>
     bool SoloSelfFound { get; }
 
-    /// <summary>Ruthless.</summary>
-    bool Ruthless { get; }
-
     /// <summary>The league module this connection plays by (<see cref="ILeague.Id"/>), "standard" when none.</summary>
     string LeagueId { get; }
 

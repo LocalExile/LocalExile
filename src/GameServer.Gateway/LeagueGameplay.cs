@@ -1,6 +1,6 @@
 static class LeagueGameplay
 {
-    public static bool CanGainUtilityCharges(bool ruthless, bool active, bool exception) => !ruthless || !active || exception;
+    public static bool CanGainUtilityCharges(bool restricted, bool active, bool exception) => !restricted || !active || exception;
 
     // Keep fractional XP so small campaign kills still eventually advance gems at a reduced rate.
     public static int GemExperience(uint monsterExperience, double multiplier, ref double carry)

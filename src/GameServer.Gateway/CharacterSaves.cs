@@ -103,7 +103,7 @@ static class CharacterSaves
     /// <summary>The character's Voltaxic Sulphite (the Delve gauge's current value).</summary>
     public static void SetSulphite(string character, ushort amount) => Update(character, s => s with { Sulphite = amount });
 
-    /// <summary>A Ruthless resource writer. Retired transfer owners retain their token so only that exact failed
+    /// <summary>A saved-vitals writer. Retired transfer owners retain their token so only that exact failed
     /// transfer can resume; a newer area's token can never be reclaimed by the old connection.</summary>
     public sealed record VitalsSession(Guid CharacterId, Guid SessionId, bool Retired = false);
 

@@ -1285,7 +1285,7 @@ partial class Program
         {
             if (HardcoreProgressBlocked(conn)) return ([], false);
             int share = LeagueFor(conn).Rules.GemExperienceMultiplier is { } gemShare ? LeagueGameplay.GemExperience(gain, gemShare,
-                ref conn.RuthlessGemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
+                ref conn.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
             if (share == 0) return ([], false);
             var items = ItemsOf(conn);
             var changed = items.ChangeSocketedGems((itemId, gem) =>

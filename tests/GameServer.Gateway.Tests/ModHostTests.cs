@@ -368,9 +368,9 @@ public sealed class ModHostTests : IDisposable
         _player.LeagueId = "scoped";
         await _host.Tick(_player, 1);
         Assert.Equal(["tick"], _player.Told);
-        Assert.Equal("scoped", ServerLeagues.Resolve(false, "Scoped League", _ => true).Id);
+        Assert.Equal("scoped", ServerLeagues.Resolve(null, "Scoped League", _ => true).Id);
         Assert.True(_host.SetEnabled("custom", false));
-        Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(false, "Scoped League", _ => true));
+        Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, "Scoped League", _ => true));
         Assert.True(await _host.Unloaded("custom"));
     }
 

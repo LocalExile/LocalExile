@@ -171,19 +171,19 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public uint Seed => seed;
     public string? Character { get; init; }
     public Guid? CharacterId { get; init; }
-    public readonly Guid RuthlessVitalsSessionId = Guid.NewGuid();
+    public readonly Guid VitalsSessionId = Guid.NewGuid();
     /// <summary>The account the character belongs to (Auth's resolve): its stash (AccountStash) is shared by all of them.</summary>
     public string? Account { get; init; }
     public string? League { get; init; }
     public bool Hardcore { get; init; }
     public bool Ssf { get; init; }
-    public bool Ruthless { get; init; }
-    /// <summary>The league this connection plays by (Program.LeagueFor); Ruthless above says what the character is.</summary>
+    public string? LeagueForm { get; init; }
+    /// <summary>The league this connection plays by (Program.LeagueFor); LeagueForm above is the character's league form, from Auth.</summary>
     internal LeagueRuntime? LeagueModule;
     /// <summary>What sends to this client, for what is reached only with the connection (the built-in mods).</summary>
     internal (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers) Wire;
-    public double RuthlessGemExperienceCarry;
-    public bool RuthlessDeathHandled;
+    public double GemExperienceCarry;
+    public bool BossRecoveryHandled;
     public bool HardcoreDeathRecorded;
     /// <summary>The character's last town (HASH16, from Auth's resolve): Resurrect in Town goes there. 0 before the
     /// character has entered a town (the death screen then has no Resurrect in Town).</summary>

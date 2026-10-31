@@ -1,0 +1,7 @@
+{
+  "id": "allflame",
+  "version": "1.0.0",
+  "kind": "league",
+  "depends": [],
+  "league": { "bases": ["Allflame"] }
+}

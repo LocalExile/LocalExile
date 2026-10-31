@@ -40,12 +40,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
-  Leagues are modules: `LeagueFor(conn)` and `ILeague` replace the `conn.Ruthless` switches, `Mods/Source/Ruthless/` holds the
-  rules and tunables, and a character whose module is missing or disabled plays by Standard's rules with its saves untouched.
-  Not tried in the client: a Ruthless character with the module on, then off.
+  Leagues are external: the framework knows only Standard, Ruthless and Allflame are modules in `Mods/Source/`, declared to Auth in
+  `mod.json` (`league`) and to the Gateway with `ILeague`, and a character whose module is missing or off plays by Standard's rules
+  with its saves untouched.
+  Not tried in the client: a Ruthless character with the module on, then off; the create screen's list from the declarations.
   Harvest, Heist and Delve are built-in mods in `Features/`, reached through the mod hooks and switched by `/mod_disable`.
   They still use Gateway internals, so they are not separate assemblies. Not tried in the client after the move.
-  `Mods/Source/` has seven: six examples, of which only `example` is on by default, and `ruthless`, on.
+  `Mods/Source/` has eight: six examples, of which only `example` is on by default, and the leagues `ruthless` and `allflame`, on.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
   `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.

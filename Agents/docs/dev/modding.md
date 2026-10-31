@@ -65,7 +65,7 @@ new folder's name in lower case.
 | `ItemRarity` | 10 times the chance of magic, rare and unique equipment | no |
 | `DoubleExperience` | twice the experience from kills | no |
 | `BossLoot` | an Exalted Orb from every unique monster: an extra drop by name | no |
-| `Ruthless` | the Ruthless league ([Leagues](#leagues)) | yes |
+| `Ruthless`, `Allflame` | leagues ([Leagues](#leagues)) | yes |
 
 ```csharp
 public sealed class MyMod : IMod
@@ -107,28 +107,49 @@ cheap (`ModifyStats` runs on every stat rebuild).
 
 ## Leagues
 
-`Program.LeagueFor(conn)` is what the Gateway asks instead of switching on a league: the character's module, kept for the
-connection. A module implements `ILeague` and registers with `mod.AddLeague(league)`:
+The framework knows no league but Standard. Every other league is a module in `Mods/Source/`, and an upcoming league changes
+the framework only to add something generic that any league could use: a rule, a hook, a declaration field. Never its name.
+What still says Ruthless in `src/` is the client's wire names (`LeagueEntry.RuthlessParent`, its flag) and the game tables' column
+names (`IndexRuthless`, `ShopRuthless`, `RuthlessValue`).
+
+A league has two halves, because the Auth server gives the client its list and does not load mods:
+
+**In `mod.json`, what Auth reads.** A mod that is off is not offered; its saved characters keep their league.
+
+```json
+"league": {
+  "bases": ["Necropolis"],
+  "form": {
+    "standardNames": { "plain": "Grim", "hardcore": "Hardcore Grim", "ssf": "SSF Grim", "hardcoreSsf": "SSF Hardcore Grim" },
+    "challengeNames": { "plain": "Grim {base}", "hardcore": "HC Grim {base}", "ssf": "SSF Grim {base}", "hardcoreSsf": "HC SSF G {base}" },
+    "description": "Added to the card text.",
+    "permanentDeath": true
+  }
+}
+```
+
+- `bases` are challenge leagues, each with Hardcore and SSF variants. `Game_LEAGUES` replaces the offered bases.
+- `form` is a family of variants of every base, reached with the client's one form check box. Its id is the mod's id.
+
+**In code, an `ILeague` registered with `mod.AddLeague(league)`**, what the Gateway asks through `Program.LeagueFor(conn)`:
 
 | Member | What it is |
 |---|---|
-| `Id` | lower case, as `IPlayer.LeagueId` says it |
-| `ClientLeagueName` | the league in the client's list. `Ruthless` takes every Ruthless form; another name takes that league and its Hardcore and SSF forms |
-| `Rules` | a `LeagueRules`: multipliers and mechanics, read at each use, so a tunables file hot-reloads |
+| `Id` | lower case, as `IPlayer.LeagueId` says it; a form's characters are found by it, so it is the mod's id |
+| `ClientLeagueName` | the base league it takes, with that league's Hardcore and SSF variants |
+| `Rules` | a `LeagueRules`, read at each use, so a tunables file hot-reloads: multipliers, saved life and mana, shops, vendors, rewards, flasks, gems |
 | `RequiredFeatures` | mods that must be loaded (a built-in's id counts) |
-| `Catalogs` | which of the game files' data: `Standard` or `HardMode` |
+| `Catalogs` | the game files' data set: `Standard` or `HardMode` |
 | `Load(league)` | the league's hooks: an `IModContext` whose hooks run only for this league's players |
 
-- Standard is built in. A character whose league has no module, or whose module lacks a required feature, plays by Standard's
-  rules and data until the next connection after the module is back. It keeps its league name, stash and saves, and the
-  client still shows the league; nothing is converted.
+- A character whose module is missing, off, or lacks a required feature plays by Standard's rules and data, keeping its league
+  name, Hardcore and SSF, stash and saves; nothing is converted, and it returns when the module does. A league name no module
+  declares any more keeps its name, without Hardcore (with no declaration its variants cannot be told apart).
 - Disabling a module mid-session leaves a connection on its rules until its next area, because its items and skills came from
   that league's data.
-- `Mods/Source/Ruthless/` is the first one. Its numbers stay in `config/ruthless.json` (`Game_RUTHLESS_RULES` moves it,
-  `config/ruthless.example.json` shows it), reread at most once a second, keeping the last good ones through a bad edit.
-  What is still the Gateway's: reading the `HardMode` tables and columns, the saved-vitals mechanism, and vendor rules that
-  use the `HardMode` data.
-- A new league's name must also be in `Game_LEAGUES`: the Auth server gives the client its list.
+- `Mods/Source/Ruthless/` holds Ruthless: its names, rules, gem lists and tunables. Its numbers stay in `config/ruthless.json`
+  (`Game_RUTHLESS_RULES` moves it, `config/ruthless.example.json` shows it), reread at most once a second, keeping the last good
+  ones through a bad edit. `Mods/Source/Allflame/` is the smallest league: a declaration, and Standard's rules.
 
 ## Built-in mods
 
@@ -165,5 +186,5 @@ warning).
 
 - A mod can use the framework, `GameServer.Modding`, the assemblies of the mods it depends on and the files in its
   folder; any other `GameServer.*` assembly is refused when it loads.
-- Not built yet: a mod replacing rows of the catalogs (`Catalogs` only picks between the game files' two sets), and the rest of
+- Not built yet: a mod replacing rows of the catalogs (`Catalogs` only picks between the game files' two data sets), and the rest of
   the systems moved behind the API ([roadmap](../../roadmap/setup-and-tooling.md)).

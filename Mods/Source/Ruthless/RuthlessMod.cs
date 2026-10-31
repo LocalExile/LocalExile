@@ -58,7 +58,16 @@ public sealed class RuthlessLeague(string settingsPath, Action<string>? log = nu
         CraftingBench = false,
         TutorialGifts = false,
         UtilityFlaskChargesWhileActive = false,
-        VendorsRefillVitals = true,
+        UtilityFlaskExceptionStat = "hard_mode_utility_flask_gain_charges_while_active",
+        VitalRefillNpcs = ["Metadata/NPC/Act1/Nessa", "Metadata/NPC/Act2/Yeena", "Metadata/NPC/Act3/ClarissaTown", "Metadata/NPC/Act4/PetarusVanja", "Metadata/NPC/Act5/Lani", "Metadata/NPC/Act7/YeenaTown", "Metadata/NPC/Act8/ClarissaTown", "Metadata/NPC/Act9/PetarusVanja", "Metadata/NPC/Act10/Lani", "Metadata/NPC/Epilogue/Lani", "Metadata/NPC/Missions/Hideout/Helena", "*/Delve/DelveMiner"],
+        // Siosa exchanges an Uncarved Gemstone for an active gem; no other vendor sells gems, and none sells supports.
+        SellsMaps = false,
+        FullGemStock = false,
+        GemVendors = ["/Siosa"],
+        SellsSupportGems = false,
+        SellsGemsInGoods = false,
+        ShopExcludedClasses = ["Ring", "Amulet", "Belt"],
+        SupportGemRewards = false,
         // Explicit unavailable gems from GGG's Ruthless rules, also absent from the pinned Ruthless active index. A native
         // HardMode effect definition is not proof that its gem is obtainable. Quickstep remains allowed.
         UnavailableGemBases =

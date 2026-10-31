@@ -906,7 +906,7 @@ partial class Program
         string? character, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places, IReadOnlySet<uint>? inactive,
         LeagueRuntime league)
     {
-        var catalog = league.HardMode ? RuthlessItems.Value : Items;
+        var catalog = league.HardMode ? HardModeItems.Value : Items;
         string name = string.IsNullOrEmpty(character) ? "Exile" : character;
         var gems = places
             .Where(g => catalog.ByHash(g.Gem.TypeHash) is not { } type ? !league.HardMode : league.Rules.AllowsGemBase(type.Id))

@@ -23,7 +23,8 @@
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
     <!-- Copied beside the tests for ModHostTests, which load it as a mod; no test uses its types directly. -->
     <ProjectReference Include="..\GameServer.Modding.TestMod\GameServer.Modding.TestMod.csproj" />
-    <!-- The Ruthless league module: TestEnvironment registers it, as the mod host does in the server. -->
+    <!-- The league modules: TestEnvironment registers them, as the mod host does in the server. -->
     <ProjectReference Include="..\..\Mods\Source\Ruthless\Ruthless.csproj" />
+    <ProjectReference Include="..\..\Mods\Source\Allflame\Allflame.csproj" />
   </ItemGroup>
 </Project>

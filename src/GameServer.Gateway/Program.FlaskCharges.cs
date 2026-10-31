@@ -102,7 +102,7 @@ partial class Program
             || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
         var active = conn.UtilityFlaskEffects.Of(flask.Id);
         bool running = active is not null && active.Ends > conn.Clock.Elapsed.TotalSeconds;
-        bool exception = Stats.Key("hard_mode_utility_flask_gain_charges_while_active") is uint key
+        bool exception = rules.UtilityFlaskExceptionStat is { } stat && Stats.Key(stat) is uint key
             && CharacterPlayerStats(conn).GetValueOrDefault(key) > 0;
         return LeagueGameplay.CanGainUtilityCharges(!rules.UtilityFlaskChargesWhileActive, running, exception);
     }

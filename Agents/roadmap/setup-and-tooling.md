@@ -15,7 +15,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   `SplitClientMessages` drops the rest of a read at an unknown id, so every message after it in that read is lost.
 - Mods: the rest after the [mod host](../status/setup-and-tooling.md) ([modding](../docs/dev/modding.md)).
   Catalog overrides (a mod replacing rows of the Gateway's catalogs) are the hook the host does not have yet.
-  Legacy and custom leagues become league modules, as Ruthless is; the Auth server's list still comes from `Game_LEAGUES`.
+  Legacy and custom leagues become league modules, as Ruthless and Allflame are.
   Existing systems keep moving out of the static `Program` one at a time. Harvest, Heist and Delve are built-in mods; making
   them separate assemblies needs contracts for items, stash and objects. Survivors does not exist in the Gateway yet and should
   start as a module.

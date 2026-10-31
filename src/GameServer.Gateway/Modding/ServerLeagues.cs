@@ -14,7 +14,7 @@ sealed class LeagueRuntime(string id, string name, bool hardMode, LeagueRules ru
     public string Id { get; } = id;
     public string Name { get; } = name;
 
-    /// <summary>Uses the game files' Ruthless ("HardMode") data; fixed for the connection, as its items and skills are.</summary>
+    /// <summary>Uses the game files' HardMode data; fixed for the connection, as its items and skills are.</summary>
     public bool HardMode { get; } = hardMode;
 
     /// <summary>The module's rules now (its tunables hot-reload), the last ones it gave once it has unloaded.</summary>
@@ -46,21 +46,19 @@ static class ServerLeagues
         return null;
     }
 
-    /// <summary>The rules of the league that uses the HardMode data, for what is built from that data.</summary>
-    public static LeagueRules? HardModeRules =>
-        _leagues.Values.FirstOrDefault(l => l.Catalogs == LeagueCatalogs.HardMode)?.Rules;
-
-    /// <summary>A character's module: the Ruthless one for any Ruthless form, else the one named as its league or that
-    /// league's base (Hardcore X is X). Standard when there is none, or a feature it needs is not loaded.</summary>
-    public static LeagueRuntime Resolve(bool ruthless, string? name, Func<string, bool> loaded, Action<string>? log = null)
+    /// <summary>A character's module: the one of its league form (<see cref="ILeague.Id"/>), else the one named as its league
+    /// or that league's base (Hardcore X is X). Standard when there is none, or a feature it needs is not loaded.</summary>
+    public static LeagueRuntime Resolve(string? form, string? name, Func<string, bool> loaded, Action<string>? log = null)
     {
-        string? wanted = ruthless ? "Ruthless" : name;
-        if (wanted is null || wanted.Equals(LeagueCatalog.Standard, StringComparison.OrdinalIgnoreCase)) return LeagueRuntime.Standard;
-        string? baseName = LeagueCatalog.FromEnvironment().ResolveSavedLeague(name)?.Base;
-        if (!_leagues.TryGetValue(wanted, out var league) && !(baseName is not null && _leagues.TryGetValue(baseName, out league)))
+        var all = _leagues;
+        ILeague? league = form is null ? null : all.Values.FirstOrDefault(l => l.Id.Equals(form, StringComparison.OrdinalIgnoreCase));
+        if (league is null && form is null && name is not null && !name.Equals(LeagueCatalog.Standard, StringComparison.OrdinalIgnoreCase)
+            && !all.TryGetValue(name, out league) && LeagueCatalog.FromEnvironment().ResolveSavedLeague(name)?.Base is { } baseName)
+            all.TryGetValue(baseName, out league);
+        if (league is null)
         {
-            // Hardcore, SSF and the base leagues without a module are Standard's rules by design: only Ruthless says so.
-            if (ruthless) log?.Invoke($"[leagues] no module for {wanted}: {name} plays by Standard's rules");
+            // A form always means a module; a base league without one (Hardcore, SSF) is just Standard's rules.
+            if (form is not null) log?.Invoke($"[leagues] no module for {form}: {name} plays by Standard's rules");
             return LeagueRuntime.Standard;
         }
         var missing = league.RequiredFeatures.Where(f => !loaded(f)).ToList();

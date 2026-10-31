@@ -11,6 +11,7 @@
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
   </Folder>
   <Folder Name="/Mods/Source/">
+    <Project Path="Mods/Source/Allflame/Allflame.csproj" />
     <Project Path="Mods/Source/BossLoot/BossLoot.csproj" />
     <Project Path="Mods/Source/DoubleExperience/DoubleExperience.csproj" />
     <Project Path="Mods/Source/Example/Example.csproj" />

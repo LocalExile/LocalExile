@@ -11,8 +11,8 @@ public interface ILeague
     /// <summary>The module's id, lower case: what <see cref="IPlayer.LeagueId"/> says.</summary>
     string Id { get; }
 
-    /// <summary>The league's name in the client's league list. "Ruthless" takes every Ruthless form of every league
-    /// (Hardcore Ruthless, SSF Ruthless …). Other names take the league of that name with its Hardcore and SSF forms.</summary>
+    /// <summary>The league's name in the client's league list: it takes the league of that name with its Hardcore and SSF
+    /// variants. A league form (<c>mod.json</c> "league"."form") is found by <see cref="Id"/> instead: the mod's id.</summary>
     string ClientLeagueName { get; }
 
     /// <summary>The rules now. Asked often, so return a kept object; a new value applies at once (a tunables file).</summary>
@@ -34,7 +34,7 @@ public enum LeagueCatalogs
 {
     /// <summary>The ordinary tables and columns.</summary>
     Standard,
-    /// <summary>The Ruthless ("HardMode") tables and columns: items, gems, passives, drops, rewards, vendors.</summary>
+    /// <summary>The game files' HardMode tables and columns: items, gems, passives, drops, rewards, vendor prices.</summary>
     HardMode,
 }
 
@@ -52,7 +52,7 @@ public sealed record LeagueRules
     public double EquipmentRarityMultiplier { get; init; } = 1;
     /// <summary>Gems gain this share of a tenth of a kill's experience, keeping the fraction; null: a whole tenth.</summary>
     public double? GemExperienceMultiplier { get; init; }
-    /// <summary>Vendor recipes use the Ruthless table scaled by this; null: the ordinary table.</summary>
+    /// <summary>Vendors pay a basic sale (no recipes) scaled by this; null: the ordinary recipes.</summary>
     public double? VendorRewardMultiplier { get; init; }
     /// <summary>From this level the character's experience shrinks; null: it never does.</summary>
     public int? ExperiencePenaltyStartLevel { get; init; }
@@ -70,13 +70,29 @@ public sealed record LeagueRules
     public bool CraftingBench { get; init; } = true;
     /// <summary>The tutorial's chest and support gem exist.</summary>
     public bool TutorialGifts { get; init; } = true;
-    /// <summary>A utility flask gains charges while its effect runs (false: only with the hard-mode exception stat).</summary>
+    /// <summary>A utility flask gains charges while its effect runs (false: only with <see cref="UtilityFlaskExceptionStat"/>).</summary>
     public bool UtilityFlaskChargesWhileActive { get; init; } = true;
-    /// <summary>Gem vendors other than Siosa and Lilly refill life and mana when spoken to.</summary>
-    public bool VendorsRefillVitals { get; init; }
+    /// <summary>The <c>Stats.dat</c> id that lifts <see cref="UtilityFlaskChargesWhileActive"/>.</summary>
+    public string? UtilityFlaskExceptionStat { get; init; }
+    /// <summary>NPC ids that refill life, mana and flasks when spoken to; an entry starting with * matches inside an id.</summary>
+    public IReadOnlyList<string> VitalRefillNpcs { get; init; } = [];
+    /// <summary>Nessa's map stock is for sale.</summary>
+    public bool SellsMaps { get; init; } = true;
+    /// <summary>The development assortment of every gem at the vendors that have it.</summary>
+    public bool FullGemStock { get; init; } = true;
+    /// <summary>The only NPC id endings whose gem tabs exist; null: every gem vendor's.</summary>
+    public IReadOnlyList<string>? GemVendors { get; init; }
+    /// <summary>Support gems are in the gem tabs.</summary>
+    public bool SellsSupportGems { get; init; } = true;
+    /// <summary>Gems in the ordinary stock are for sale.</summary>
+    public bool SellsGemsInGoods { get; init; } = true;
+    /// <summary>Item classes left out of every shop's ordinary stock.</summary>
+    public IReadOnlyList<string> ShopExcludedClasses { get; init; } = [];
+    /// <summary>Quests offer support gems.</summary>
+    public bool SupportGemRewards { get; init; } = true;
     /// <summary>Gem base type ids (the last part of the path) that do not work; each also takes its "Alt" variants.</summary>
     public IReadOnlyList<string> UnavailableGemBases { get; init; } = [];
-    /// <summary>Skill effect ids (without "HardMode") that do not work; each also takes its "Alt" variants.</summary>
+    /// <summary>Skill effect ids (without the data set's "HardMode") that do not work; each also takes its "Alt" variants.</summary>
     public IReadOnlyList<string> UnavailableGemEffects { get; init; } = [];
 
     /// <summary>What experience is multiplied by at this level.</summary>
@@ -85,6 +101,13 @@ public sealed record LeagueRules
 
     /// <summary>An amount scaled, rounded down.</summary>
     public static uint Scale(uint amount, double multiplier) => (uint)Math.Clamp(Math.Floor(amount * multiplier), 0, uint.MaxValue);
+
+    /// <summary>Whether speaking to this NPC refills life, mana and flasks.</summary>
+    public bool RefillsVitalsAt(string npcId) => VitalRefillNpcs.Any(entry => entry.StartsWith('*')
+        ? npcId.Contains(entry[1..], StringComparison.Ordinal) : npcId.Equals(entry, StringComparison.Ordinal));
+
+    /// <summary>Whether this gem vendor has gem tabs.</summary>
+    public bool SellsGemsAt(string npcId) => GemVendors is null || GemVendors.Any(end => npcId.EndsWith(end, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Whether a gem of this base type works.</summary>
     public bool AllowsGemBase(string baseId)

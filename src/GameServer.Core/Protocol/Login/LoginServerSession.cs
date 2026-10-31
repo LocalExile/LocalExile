@@ -23,7 +23,7 @@ public sealed class LoginServerSession(AccountService accounts)
 
     /// <summary>The leagues sent in 0x1b after login: the create screen offers them (with none its Create button stays
     /// disabled).</summary>
-    public LeagueCatalog Leagues { get; init; } = LeagueCatalog.Default;
+    public LeagueCatalog Leagues { get; init; } = LeagueCatalog.FromEnvironment();
 
     public Session? Session { get; private set; }
     public Account? Account { get; private set; }

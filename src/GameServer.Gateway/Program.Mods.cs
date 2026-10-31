@@ -61,7 +61,6 @@ partial class Program
         public string League => conn.League ?? "Standard";
         public bool Hardcore => conn.Hardcore;
         public bool SoloSelfFound => conn.Ssf;
-        public bool Ruthless => conn.Ruthless;
         public string LeagueId => LeagueFor(conn).Id;
         public int Level => conn.Pools.Level;
         public string AreaId => conn.Layout.Id;

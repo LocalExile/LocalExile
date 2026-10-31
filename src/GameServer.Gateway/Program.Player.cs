@@ -166,9 +166,9 @@ partial class Program
             ClearBloodChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);
         }
-        foreach (var (id, life) in RecoverRuthlessBossesOnDeath(conn))
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"Ruthless campaign boss 0x{id:x} recovers to {life} life after player death");
-        PersistRuthlessVitals(conn, bestEffort: true);
+        foreach (var (id, life) in RecoverBossesOnDeath(conn))
+            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), $"boss 0x{id:x} recovers to {life} life after player death");
+        PersistVitals(conn, bestEffort: true);
         await SendVaalSouls(remote, stream, ciphers, conn);
         await SendRage(remote, stream, ciphers, conn);
         await EndAurasOnDeath(remote, stream, ciphers, conn);
@@ -538,7 +538,7 @@ partial class Program
                 }
                 if (LeagueFor(conn).Rules.PersistsVitals && now >= nextVitalsSave)
                 {
-                    PersistRuthlessVitals(conn, bestEffort: true);
+                    PersistVitals(conn, bestEffort: true);
                     nextVitalsSave = now + 5;
                 }
                 double seconds = now - last;
@@ -799,7 +799,7 @@ partial class Program
             conn.HitRecovery.Clear();
             conn.Ward.SetMaximum(conn.Pools.Ward); conn.Ward.Restore();
             conn.AuraDeathHandled = false;
-            conn.RuthlessDeathHandled = false;
+            conn.BossRecoveryHandled = false;
             conn.PlayerMana = (uint)UnreservedMana(conn);
             foreach (var m in conn.Monsters.Values) m.Aggro = false;
         }

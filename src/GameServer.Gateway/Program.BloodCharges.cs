@@ -10,7 +10,7 @@ partial class Program
 
     // Whether a GrantedEffects row uses Blood Charges (its per-charge damage stat, a constant at every level), decided
     // once per row: CharacterPlayerStats asks on every hit, and resolving a stat set each time would cost a crowd's hits.
-    static readonly ConcurrentDictionary<(bool Ruthless, int Effect), bool> BloodChargeEffects = new();
+    static readonly ConcurrentDictionary<(bool HardMode, int Effect), bool> BloodChargeEffects = new();
 
     static bool UsesBloodCharges(ClientState conn, int effect) => BloodChargeEffects.GetOrAdd((LeagueFor(conn).HardMode, effect),
         key => BloodCharges.Uses(name => Stats.Key(name) is uint k

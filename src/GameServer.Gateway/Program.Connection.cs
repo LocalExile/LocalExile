@@ -118,11 +118,11 @@ partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, Ruthless = resolved.Ruthless, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 ConnectionMetrics.Add(ciphers, conn.Performance);
                 PacketHistories.Add(ciphers, conn.Packets);
                 left = conn;
-                RegisterRuthlessVitalsAdmission(conn);
+                RegisterVitalsAdmission(conn);
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Wire = (remote, stream, ciphers);
@@ -220,14 +220,14 @@ partial class Program
                 {
                     CharacterSaves.SaveExperience(CharacterName(left));
                     ItemsOf(left).SaveUnsaved();
-                    PersistRuthlessVitals(left);
+                    PersistVitals(left);
                 }
             }
             catch (Exception e)
             {
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
             }
-            ForgetRuthlessVitalsAdmission(left);
+            ForgetVitalsAdmission(left);
             // The instance keeps its monsters as they are now, for the next connection (#12).
             if (left.MonstersPlaced)
                 lock (left.Monsters) left.Instance.Monsters = SavedMonster.Save(left.Monsters.Values, left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
