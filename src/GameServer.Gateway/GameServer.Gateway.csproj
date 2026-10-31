@@ -7,7 +7,6 @@
     <ProjectReference Include="..\GameServer.Modding\GameServer.Modding.csproj" />
     <!-- The game files and the level generator port (ServerLevels.cs). -->
     <ProjectReference Include="..\GameServer.Data\GameServer.Data.csproj" />
-    <Compile Include="..\..\scripts\re\ggdump\NodeOodleDecoder.cs" Link="NodeOodleDecoder.cs" />
     <!-- Compiles a mod's loose .cs files (ModScripts.cs). -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
@@ -27,6 +26,7 @@
     <InternalsVisibleTo Include="mercy" />
     <InternalsVisibleTo Include="npcdialogue" />
     <InternalsVisibleTo Include="portals" />
+    <InternalsVisibleTo Include="phreciaascendancies" />
     <InternalsVisibleTo Include="questobjects" />
     <InternalsVisibleTo Include="ruthless" />
     <InternalsVisibleTo Include="social" />
@@ -35,6 +35,8 @@
     <InternalsVisibleTo Include="vendors" />
     <!-- scripts/re/exits: the offline area transition audit. -->
     <InternalsVisibleTo Include="exits" />
+    <!-- scripts/perf/PerfBench: the in-process performance measurements (Agents/docs/dev/performance.md). -->
+    <InternalsVisibleTo Include="perfbench" />
   </ItemGroup>
 
   <PropertyGroup>

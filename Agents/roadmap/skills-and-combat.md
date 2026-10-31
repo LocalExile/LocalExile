@@ -81,8 +81,11 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   displayed rate once. Automated checks and real-client -80%/+100%/zero clip durations pass.
   Projectile release/contact alignment was not separately measured.
   Instant casts and attack timing stay separate; conditional action-speed and special native mechanics remain open.
-  Attack gems now share level-aware inherent speed with server pacing/contact and native total-duration/APS stats.
-  Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s; automated checks also pass.
+  Attack gems now share level-aware inherent speed with server pacing/contact and the APS stat; the client applies its
+  own to the clip. Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s.
+  Open: an attack longer than its clip stretches the clip's slow span, which `AttackContactDelay` does not model
+  ([11](../docs/protocol/11-skills.md)), and the arrow still arrives about 25 ms after the muzzle flash, with a fixed
+  60 ms lead tuned on localhost rather than one that follows the connection's latency.
   Attack-gem damage/DPS and conditional speed remain separate work.
 - **Spell hit panel (#188):** selected-spell ranges now share combat's converted packet and hitless spells clear
   inherited weapon hit damage. Automated checks pass; verify selection, equipment updates and relog in the client.
@@ -433,8 +436,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Verify held death notifications, Vaal Haste/Grace aura costs, death/resurrection and slow destination loading.
   Include attribute gear removal before inventory notifications; current automated coverage is not native proof.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md) and Status for the explicit LocalExile policies.
-  Vaal executors, payment, official distribution/capacity parity and the SGP countdown require separate work.
-  Unsupported Vaal casts remain refused; Behemoth and whole-class enablement remain separate.
+  Vaal Ground Slam payment, shared attack admission and prevention now have a bounded implementation.
+  Validate the [modular Behemoth candidate](../docs/game/behemoth.md) with current full suites and the native client.
+  Other executors and official distribution/capacity parity remain separate; unsupported casts stay refused.
 
 ### Death screen variants
 
@@ -458,6 +462,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   (extraction manifest version 2 supplies the ordered stance pools and exact rig contacts for all seven classes).
   Complete off-hand timing/damage and nonzero intrinsic attack repeats remain open.
   Basic catalog flight does not implement all special skill behavior; unknown metadata is refused before costs.
+  One movement instance is capped at 150 cells (15 m) through `projectile_maximum_range_cells`; fork, chain and split
+  get a fresh per-leg budget. Open: per-skill duration before the cap and a native check of the continuation boundary.
+  Action speed is not a projectile input; the native action-speed/Tailwind contract remains #246.
   Issue #75 accuracy, shared critical rolls, impale and leech are integrated with automated composition coverage.
   Earlier native packet/collision controls need retesting on the new path; actor positions still use integer walk
   estimates and shared projectile radii; Gateway actor radii are zero, making area coverage center-based even

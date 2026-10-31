@@ -13,7 +13,7 @@ using GameServer.Storage;
 /// (from <see cref="FirstItemId"/>, never reused: the next id is saved) and keeps it when a character takes it out.
 /// PlayerInventories does not count stash ids when it picks its next id.</para>
 /// </summary>
-sealed class AccountStash
+sealed partial class AccountStash
 {
     /// <summary>Stash item ids start here (PlayerInventories counts from 1, ground items from 0x100000).</summary>
     public const uint FirstItemId = 0x40000000;
@@ -40,7 +40,7 @@ sealed class AccountStash
     /// tab settings, C→S 0xd3).</summary>
     /// <summary>A tab as saved. <paramref name="Position"/>: its button's place in the panel (C→S 0xcc), null for its index.</summary>
     public sealed record SavedTab(string Name, byte Type, byte R, byte G, byte B, List<CharacterSaves.SavedPlacement> Items, uint Affinities = 0,
-        ushort? Position = null, uint Colour = 0);
+        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue);
 
     public sealed record Save(List<SavedTab> Tabs, int LastTab = 0, uint NextItemId = FirstItemId, uint Gold = 0, System.Text.Json.JsonElement? Delve = null, Dictionary<string, string>? ModuleData = null)
     {
@@ -239,6 +239,7 @@ sealed class AccountStash
 
     public void SetLastTab(int tab)
     {
+        tab = UniqueParent(tab);
         lock (_lock)
         {
             if (tab < 0 || tab >= _tabs.Count || tab == _lastTab) return;
@@ -326,11 +327,13 @@ sealed class AccountStash
     public List<InstanceStash.Tab> Records(int? selectBit, ISet<int>? loaded = null)
     {
         lock (_lock)
-            return [.. _tabs.Select((t, i) => new InstanceStash.Tab((ushort)i, t.Saved.Name, InventoryOf(i), t.Saved.Type,
+            return [.. _tabs.Select((t, i) => new InstanceStash.Tab((ushort)i, t.Saved.Name,
+                t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) ? 0 : InventoryOf(i), t.Saved.Type,
                 t.Saved.R, t.Saved.G, t.Saved.B,
                 Flags: IsPremium(t.Saved.Type) ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
-                Position: t.Saved.Position ?? (ushort)i, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
-                Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour))];
+                Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
+                Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
+                Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory))];
     }
 
     public string NameOf(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Name : "?"; }
@@ -377,6 +380,12 @@ sealed class AccountStash
     (int X, int Y)? CellIn(TabState t, Item item, int x, int y, out string why)
     {
         why = "";
+        if (t.Saved.UniqueCategory != 0)
+        {
+            if (_rules.Uniques.Find(item) is not { } unique || unique.Category != t.Saved.UniqueCategory)
+            { why = "this unique does not belong to the collection category"; return null; }
+            return (unique.X, unique.Y);
+        }
         if (_rules.TakesAnything(t.Saved.Type, x, y)) return (x, y);   // the currency tab's crafting slot: any item, where dropped
         if (!_rules.Holds(t.Saved.Type, item.TypeHash)) { why = $"the {TypeName(t)} tab doesn't hold that item"; return null; }
         if (!_rules.Slotted(t.Saved.Type)) return (x, y);
@@ -687,6 +696,8 @@ sealed class AccountStash
             if (tab < 0 || tab >= _tabs.Count || shapeOf(item) is not { } shape) return null;
             var t = _tabs[tab];
             if (CellIn(t, item, 0, 0, out _) is not var (sx, sy)) return null;
+            if (t.Saved.UniqueCategory != 0)
+                return t.Items.Any(i => i.X == sx && i.Y == sy) ? null : ((byte)sx, (byte)sy);
             if (!_rules.Slotted(t.Saved.Type)) return FreeCellIn(t, shape.Width, shape.Height, shapeOf);
             return t.Items.Any(i => i.X == sx && i.Y == sy) ? null : ((byte)sx, (byte)sy);
         }

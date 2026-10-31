@@ -48,6 +48,16 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     public IReadOnlyList<Definition> All => GameDataCatalog.Uniques;
 
+    /// <summary>Creatable collection entries include the named-map catalogue as well as equipment and jewels.</summary>
+    public IReadOnlyList<(string Name, Item? Item)> CollectionItems(Random random)
+    {
+        var result = All.Select(d => (d.Name, Item: Create(d.Name, random))).ToList();
+        // A pre-existing catalogue can gain this captured field through hot reload without rerunning its constructor.
+        result.AddRange(NessaMapStock.Build(items, folder ?? "data").Where(m => m.Item.Rarity == ItemRarity.Unique)
+            .Select(m => (m.Name, (Item?)m.Item)));
+        return result;
+    }
+
     /// <summary>The definition a name matches (exact first, then the first containing it), or null.</summary>
     public Definition? Find(string name) =>
         All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))

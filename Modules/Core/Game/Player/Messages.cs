@@ -154,7 +154,7 @@ static partial class Game
                 Func<Task> echo = () => Send(remote, stream, ciphers,
                     InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
                     $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
-                    still: () => acknowledged = OwnAuraAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                    still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                         () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
                 if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
                 else await echo();
@@ -573,6 +573,9 @@ static partial class Game
                     _ = RunCharges(remote, stream, ciphers, conn);
                     _ = RunFortification(remote, stream, ciphers, conn);
                     _ = RunRage(remote, stream, ciphers, conn);
+                    _ = conn.RampageWorld;
+                    lock (conn.Monsters)
+                        if (conn.OwnedCombatState is RampageWorld world) EnsureRampageWorker(conn, world);
                     _ = RunFlaskChargeRegen(remote, stream, ciphers, conn);
                 }
             }

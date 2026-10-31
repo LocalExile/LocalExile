@@ -17,7 +17,7 @@ static class CommandsFeature
     /// it (e.g. "divination" → DivinationStash); null when none or several match.</summary>
     internal static int? ItemTabOf(AccountStash stash, string name)
     {
-        var tabs = Enumerable.Range(0, stash.Count).ToList();
+        var tabs = Enumerable.Range(0, stash.Count).Where(t => stash.UniqueParent(t) == t).ToList();
         var named = tabs.Where(t => string.Equals(stash.NameOf(t), name, StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count > 0) return named[0];
         var typed = tabs.Where(t => stash.TypeOf(t).StartsWith(name, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -57,7 +57,8 @@ static class CommandsFeature
             int percent = int.Parse(args[0]);
             if (percent is < 10 or > 1000) throw new ArgumentException("10 to 1000");
             int totalPct = conn.Pools.MovementVelocityPct + percent - 100;
-            conn.Walk.SetSpeed(WalkSpeed * (100 + totalPct) / 100, conn.Clock.Elapsed.TotalSeconds);
+            conn.Walk.SetSpeed(Math.Max(1, WalkSpeed * (100 + totalPct) / 100 * PlayerActionFactor(conn)),
+                conn.Clock.Elapsed.TotalSeconds);
             lock (conn.Monsters) conn.PlayerStats[StatKeys.MovementVelocityPct] = totalPct;
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, totalPct)]),
                 $"0x01b3 stats: movement_velocity_+% (key {StatKeys.MovementVelocityPct}) = {totalPct} ({conn.Pools.MovementVelocityPct} passive + {percent - 100} dev)");
@@ -110,6 +111,11 @@ static class CommandsFeature
                     }
                 }
             }
+            // Action speed and its base-speed floors change the walk estimate immediately; attack/cast pacing reads the
+            // same stat through PlayerActionFactor when the next action starts.
+            if (Stats.Name(stat) is "action_speed_-%" or "action_speed_cannot_be_reduced_below_base"
+                or "movement_speed_cannot_be_reduced_below_base")
+                conn.ApplyMovementSpeed();
             // The client's requirement checks (gear and gems) read virtual_strength/dexterity/intelligence_for_requirements,
             // not the attributes themselves (13-items.md §2d), so an attribute set here sets its requirement value too.
             if (Stats.Key($"virtual_{args[0]}_for_requirements") is uint requirement && requirement != stat)
@@ -321,7 +327,7 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
-        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: slotted tabs add up to count, at most {ItemTabMax}; Gem and Flask add one of each missing variant, e.g. /item_tab Flask 1)", async args =>
+        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: slotted tabs add up to count, at most {ItemTabMax}; Gem, Flask and Unique add one of each available missing variant, e.g. /item_tab Unique 1)", async args =>
         {
             if (args.Length < 2 || !int.TryParse(args[^1], out int requested) || requested < 1)
                 throw new ArgumentException("/item_tab <stash tab name> <count>, e.g. /item_tab Currency 1000");
@@ -342,6 +348,14 @@ static class CommandsFeature
                     await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [], flasks.Added),
                         $"0x00bf stash tab {tab}: /item_tab {stash.NameOf(tab)}, {flasks.Added.Count} flask(s)");
                 await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\" (FlaskStash): {flasks.Added.Count} flask(s) added, {flasks.Full} already present, {flasks.Skipped} unavailable; one of each flask/tincture base and unique");
+                return;
+            }
+            if (stash.TabType(tab) == StashRules.Unique)
+            {
+                var collection = stash.FillUniques(tab, UniquesFor(conn), ShapeOf);
+                await Game.RefreshUniqueCollection(remote, stream, ciphers, conn, stash, tab);
+                await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {collection.Added} unique(s) added, {collection.Present} already present, {collection.Skipped.Count} unavailable.");
+                if (collection.Skipped.Count > 0) Console.WriteLine($"[gateway] /item_tab unique unavailable: {string.Join(", ", collection.Skipped)}");
                 return;
             }
             if (stash.TabType(tab) == StashRules.Gem)
@@ -836,17 +850,17 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Level {conn.Pools.Level}, {conn.Experience} experience: {points} passive skill point(s), {unspent} unspent, {refundPoints} refund point(s).\n" +
                 string.Join("\n", nodes.Select(n => $"{n} {PassivesFor(conn).Find(n)?.Name}").DefaultIfEmpty("No passives allocated.")));
         })
-        .Add("ascendancy", "/ascendancy [normal|phrecia] [name] (list or choose; Phrecia play is gated pending client compatibility)", async args =>
+        .Add("ascendancy", "/ascendancy [normal|phrecia] [name] (list or choose an available ascendancy)", async args =>
         {
             byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
-            var choices = Ascendancies.Choices(baseClass).ToArray();
+            var choices = Ascendancies.Choices(baseClass).Where(c => AscendancyPolicies.Available(conn, c.Identity)).ToArray();
             if (choices.Length == 0) throw new ArgumentException("ascendancy data is missing; run scripts/dev/extract-data.ps1");
             if (args.Length == 0)
             {
                 var current = Game.AscendancyRules.Validate(baseClass, conn.MainAscendancy);
                 int spent = Game.AscendancyRules.SpentPoints(baseClass, conn.MainAscendancy);
                 await conn.Commands!.Reply($"Main ascendancy - {current?.Name ?? "none"}. Ascendancy points {spent}/{conn.MainAscendancy.EarnedPoints}.\n" +
-                    string.Join("\n", choices.Select(c => $"/ascendancy {c.Identity.Family.ToString().ToLowerInvariant()} {c.Name}{(c.Identity.Family == AscendancyFamily.Phrecia ? " (play gated)" : "")}")));
+                    string.Join("\n", choices.Select(c => $"/ascendancy {c.Identity.Family.ToString().ToLowerInvariant()} {c.Name}")));
                 return;
             }
             bool hasFamily = Enum.TryParse<AscendancyFamily>(args[0], true, out var family) && Enum.IsDefined(family);
@@ -855,25 +869,28 @@ static class CommandsFeature
                 (c.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || c.Identity.Id.Equals(name, StringComparison.OrdinalIgnoreCase))).ToArray();
             if (matching.Length != 1) throw new ArgumentException("choose one name from /ascendancy, including its normal/phrecia family when needed");
             var chosen = matching[0];
-            AscendancyClientCompatibility.RequirePlayable(chosen.Identity);
+            AscendancyClientCompatibility.RequirePlayable(conn, chosen.Identity);
             if (conn.MainAscendancy.Selection == chosen.Identity)
             {
                 await conn.Commands!.Reply($"{chosen.Name} is already your main ascendancy.");
                 return;
             }
-            var next = Saves.Atomically(() =>
-            {
-                var saved = CharacterSaves.Load(CharacterName(conn));
-                return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                {
-                    var candidate = Game.AscendancyRules.Select(baseClass, latest, chosen.Identity);
-                    ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
-                    return candidate;
-                });
-            });
+            AscendancyProgress next;
             lock (conn.Monsters)
             {
+                using var availability = AscendancyPolicies.Enter(conn, chosen.Identity);
+                next = Saves.Atomically(() =>
+                {
+                    var saved = CharacterSaves.Load(CharacterName(conn));
+                    return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+                    {
+                        var candidate = Game.AscendancyRules.Select(baseClass, latest, chosen.Identity);
+                        ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
+                        return candidate;
+                    });
+                });
                 conn.MainAscendancy = next;
+                AscendancyPolicies.SelectionChanged(conn);
                 conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
             }
             await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
@@ -884,15 +901,19 @@ static class CommandsFeature
             if (args.Length != 1) throw new ArgumentException("a Labyrinth tier or all");
             string tier = args[0].ToLowerInvariant();
             byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
-            var next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-            {
-                foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
-                    latest = Game.AscendancyRules.Award(baseClass, latest, award);
-                return latest;
-            });
+            AscendancyProgress next;
             lock (conn.Monsters)
             {
+                using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
+                next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
+                {
+                    AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, latest.Selection);
+                    foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
+                        latest = Game.AscendancyRules.Award(baseClass, latest, award);
+                    return latest;
+                });
                 conn.MainAscendancy = next;
+                AscendancyPolicies.SelectionChanged(conn);
                 conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
             }
             await SendPassives(remote, stream, ciphers, conn);

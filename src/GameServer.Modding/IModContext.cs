@@ -14,6 +14,9 @@ public interface IModContext
     /// <summary>The mod's <c>mod.json</c>.</summary>
     ModManifest Manifest { get; }
 
+    /// <summary>The host-issued lifetime of this load, for generation checks, cancellation and owned registrations.</summary>
+    IModuleLifetime Lifetime { get; }
+
     /// <summary>The mod's folder (<c>Mods/Binaries/&lt;id&gt;</c>), for its own files.</summary>
     string Folder { get; }
 
