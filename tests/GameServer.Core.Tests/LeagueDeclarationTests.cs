@@ -21,7 +21,7 @@ public sealed class LeagueFolderTests : IDisposable
     {
         var leagues = LeagueCatalog.FromEnvironment();
         Assert.Empty(leagues.Errors);
-        Assert.Equal(["Standard", "Allflame", "Hardcore Allflame"], leagues.Entries().Where(e => (e.Flags0 & LeagueEntry.Main) != 0).Select(e => e.Name).OrderBy(n => n != "Standard").ThenBy(n => n.Length));
+        Assert.Equal(["Standard", "Phrecia", "Allflame", "Hardcore Allflame"], leagues.Entries().Where(e => (e.Flags0 & LeagueEntry.Main) != 0).Select(e => e.Name).OrderBy(n => n != "Standard").ThenBy(n => n.Length));
         Assert.Equal("Standard", leagues.Find("Hardcore")!.EntryOf);
         Assert.Null(leagues.Find("Void"));
         Assert.NotNull(leagues.FindLoaded("Void"));
