@@ -3,17 +3,21 @@ using System.Diagnostics;
 /// <summary>Modules are compiled against the Gateway, and `dotnet watch` rebuilds only the Gateway when an edit needs a
 /// restart: an older module would load and fail only when it runs, with a MissingFieldException or MissingMethodException
 /// on a member the edit removed. So a watched start (DOTNET_WATCH=1) rebuilds the modules older than the server, before
-/// any is loaded. The compiler leaves a module as it is when the Gateway's API did not change. Mods use only
-/// GameServer.Modding, and the Gateway compiles leagues itself.</summary>
+/// any is loaded. The compiler leaves a module as it is when the Gateway's API did not change, so its date stays old:
+/// the checked file (written here and by live.ps1) records the last time they all built against the server. Mods use
+/// only GameServer.Modding, and the Gateway compiles leagues itself.</summary>
 static class StaleModules
 {
     const int Concurrent = 4;
     static readonly string[] ServerAssemblies = ["GameServer.Gateway.dll", "GameServer.Core.dll", "GameServer.Modding.dll"];
+    static string CheckedFile => Path.Combine(AppContext.BaseDirectory, "modules-checked");
 
     internal static void Rebuild(string folder)
     {
         if (Environment.GetEnvironmentVariable("DOTNET_WATCH") != "1" || !Directory.Exists(folder)) return;
         DateTime server = ServerAssemblies.Max(name => File.GetLastWriteTimeUtc(Path.Combine(AppContext.BaseDirectory, name)));
+        // A missing file reads as 1601, older than any server.
+        if (File.GetLastWriteTimeUtc(CheckedFile) >= server) return;
         string[] projects = [.. Directory.EnumerateFiles(folder, "*.csproj", SearchOption.AllDirectories)];
         if (!projects.Any(p => File.GetLastWriteTimeUtc(Binary(p)) < server)) return;
         var clock = Stopwatch.StartNew();
@@ -23,6 +27,7 @@ static class StaleModules
         void Build(string project) { if (!BuildProject(project)) failed.Add(Path.GetFileNameWithoutExtension(project)); }
         foreach (string game in projects.Where(IsGame)) Build(game);
         Parallel.ForEach(projects.Where(p => !IsGame(p)), new ParallelOptions { MaxDegreeOfParallelism = Concurrent }, Build);
+        if (failed.IsEmpty) File.WriteAllText(CheckedFile, DateTime.UtcNow.ToString("O"));
         Console.WriteLine(failed.IsEmpty
             ? $"[modules] built in {clock.Elapsed.TotalSeconds:0.0} s"
             : $"[modules] did not build, their old builds may fail when they run: {string.Join(", ", failed)}");
