@@ -86,18 +86,27 @@ static class GameTables
     /// Runs a load on a thread of its own and waits for it. JsonDocument rents its buffers from ArrayPool&lt;byte&gt;.Shared,
     /// which keeps a returned buffer in the returning thread's slot (and per-core stacks) with no idle trim: the startup
     /// loads (Mods.json alone rents a 128 MB buffer) left ~240 MB of them in the main thread for the life of the
-    /// Gateway. A thread that ends takes its slots with it. The load's result and exceptions are the caller's.
+    /// Gateway. A thread that ends takes its slots with it. The load's result and exceptions are the caller's. When no
+    /// thread can be started (out of memory or threads), the load runs on the calling thread, as it did before.
     /// </summary>
     public static T Isolated<T>(Func<T> load)
     {
         T result = default!;
         System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
-        var thread = new Thread(() =>
+        Thread thread;
+        try
         {
-            try { result = load(); }
-            catch (Exception ex) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
-        }, 16 << 20) { Name = "game data load", IsBackground = true };
-        thread.Start();
+            thread = new Thread(() =>
+            {
+                try { result = load(); }
+                catch (Exception ex) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
+            }, 16 << 20) { Name = "game data load", IsBackground = true };
+            thread.Start();
+        }
+        catch (Exception ex) when (ex is OutOfMemoryException or ThreadStartException)
+        {
+            return load();
+        }
         thread.Join();
         failure?.Throw();
         return result;
@@ -109,13 +118,15 @@ static class GameTables
     /// <summary>Disposes every parse nobody is using now (the Gateway calls it once its startup loads are done).</summary>
     public static void Release()
     {
+        var idle = new List<Entry>();
         lock (Gate)
             foreach (var (key, entry) in Entries.Where(e => e.Value.Users == 0).ToList())
             {
                 entry.Expiry?.Dispose();
                 Entries.Remove(key);
-                Isolated(entry.Document.Dispose);   // its buffers go back to the pool of a thread that ends
+                idle.Add(entry);
             }
+        foreach (var entry in idle) Dispose(entry);
     }
 
     static void Expire((string, long, DateTime) key, Entry entry)
@@ -125,7 +136,12 @@ static class GameTables
             if (entry.Users > 0 || !Entries.TryGetValue(key, out var current) || !ReferenceEquals(current, entry)) return;
             Entries.Remove(key);
             entry.Expiry?.Dispose();
-            Isolated(entry.Document.Dispose);   // its buffers go back to the pool of a thread that ends
         }
+        // Out of the table, so nobody can lease it again: disposed outside the lock, on a timer thread that must not fail.
+        try { Dispose(entry); }
+        catch (Exception ex) { Console.WriteLine($"[gateway] game tables: a parse was not disposed ({ex.GetType().Name}: {ex.Message})"); }
     }
+
+    // Its buffers go back to the pool of a thread that ends (Isolated; inline when no thread can start).
+    static void Dispose(Entry entry) => Isolated(entry.Document.Dispose);
 }
