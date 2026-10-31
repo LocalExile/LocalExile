@@ -97,10 +97,14 @@ partial class Program
 
     internal static bool CanGainFlaskCharges(ClientState conn, InventoryItem flask)
     {
-        if (!conn.Ruthless || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
-            || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
         var active = conn.UtilityFlaskEffects.Of(flask.Id);
         bool running = active is not null && active.Ends > conn.Clock.Elapsed.TotalSeconds;
+        // Enkindling's "Gains no Charges during Effect" is the flask's own local stat, whichever source asks (kill,
+        // hit, crit, every 3 s, a refill or a projectile). It is absolute, so it wins over the Ruthless exception.
+        if (running && ItemModStats.Local(flask.Item, ItemsFor(conn).Mods)
+                .GetValueOrDefault("local_flask_cannot_gain_charges_during_flask_effect") > 0) return false;
+        if (!conn.Ruthless || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
+            || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
         bool exception = Stats.Key("hard_mode_utility_flask_gain_charges_while_active") is uint key
             && CharacterPlayerStats(conn).GetValueOrDefault(key) > 0;
         return RuthlessGameplay.CanGainUtilityCharges(conn.Ruthless, running, exception);

@@ -71,6 +71,11 @@ features.
   success and refusal paths. Influence/synthesis/veiled modifiers and Reflective Oil/Split/Sanctified remain separate,
   and Mirror from a stash tab is still unsupported. See
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
+  Enkindling and Instilling are implemented with the official five/fifteen pools, coexistence and Harvest/bench
+  replacement; the Enkindling "Gains no Charges during Effect" drawback is enforced by the shared charge-gain path.
+  Unique flask definitions, the zero-weight Instilling row, a native legacy-Harvest check and the bench Instilling
+  recipes remain. See [the Enkindling evidence](../docs/re/enkindling-coe.md) and
+  [the Instilling evidence](../docs/re/instilling-coe.md).
 - **Socket colours (3.29):** the 3.29 rules are in (white by default with an item-level colour chance, the
   Chromatic and non-white bench crafts, white sockets from Jeweller's/bench socket adds, Vaal colouring one white
   socket; [13](../docs/protocol/13-items.md), "Socket colours (3.29)", Status).

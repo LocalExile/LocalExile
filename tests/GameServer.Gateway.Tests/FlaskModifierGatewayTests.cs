@@ -100,6 +100,59 @@ public sealed partial class AscendancyGatewayIntegrationTests
     }
 
     [Fact]
+    public async Task Enkindled_active_flask_gains_no_charges_through_the_shared_path()
+    {
+        using var game = new GatewayCharacter(level: 100, family: AscendancyFamily.Normal, choice: "Slayer");
+        var catalog = Program.Items;
+        var inventory = PlayerInventories.For(game.Character, catalog);
+        var type = catalog.Find("Diamond Flask")!;
+        var enchant = catalog.Mods.ById("FlaskEnchantmentSealIncreasedEffect_")!;
+        var flask = inventory.Add(PlayerInventories.Flask, 0, 0,
+            ItemCatalog.Create(type) with
+            {
+                Charges = 0,
+                Mods = [enchant.Roll(ModSection.Enchant, new Random(1))],
+            });
+        game.State.UtilityFlaskEffects.Start(new(flask.Id, 0, type.Name, catalog.UtilityFlaskOf(type)!, 10, null, [], 0, 1000));
+
+        await game.GiveModifierFlaskCharges(4);
+        Assert.Equal(0, inventory.Items(PlayerInventories.Flask).Single(i => i.Id == flask.Id).Item.Charges);
+
+        game.State.UtilityFlaskEffects.End(double.MaxValue, true, out _);
+        await game.GiveModifierFlaskCharges(4);
+        Assert.Equal(4, inventory.Items(PlayerInventories.Flask).Single(i => i.Id == flask.Id).Item.Charges);
+    }
+
+    [Fact]
+    public async Task Projectile_flask_gain_honors_the_enkindling_prohibition()
+    {
+        var conn = new ClientState(new(1, "projectile-enkindling", 300, 300, 10, 10, null, []), 1, 1)
+            { Character = "projectile-enkindling", PlayerLife = 100 };
+        await using var fixture = new ProjectileRuntimeFixture(conn);
+        var catalog = Program.ItemsFor(fixture.Conn);
+        var type = catalog.Find("Diamond Flask")!;
+        var enchant = catalog.Mods.ById("FlaskEnchantmentSealIncreasedEffect_")!;
+        var inventory = PlayerInventories.For(fixture.Conn.Character!, catalog);
+        var flask = inventory.Add(PlayerInventories.Flask, 0, 0,
+            ItemCatalog.Create(type) with
+            {
+                Charges = 0,
+                Mods = [enchant.Roll(ModSection.Enchant, new Random(1))],
+            });
+        fixture.Conn.UtilityFlaskEffects.Start(new(flask.Id, 0, type.Name, catalog.UtilityFlaskOf(type)!, 10, null, [], 0, 1000));
+        var commit = typeof(Program).GetMethod("CommitProjectileFlaskGain", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var gain = (Func<InventoryItem, IReadOnlyDictionary<string, int>, double>)((_, _) => 4);
+
+        commit.Invoke(null, [fixture.Session, gain]);
+        Assert.Equal(0, inventory.Items(PlayerInventories.Flask).Single(i => i.Id == flask.Id).Item.Charges);
+
+        fixture.Conn.UtilityFlaskEffects.End(double.MaxValue, true, out _);
+        commit.Invoke(null, [fixture.Session, gain]);
+        Assert.Equal(4, inventory.Items(PlayerInventories.Flask).Single(i => i.Id == flask.Id).Item.Charges);
+        await Task.CompletedTask;
+    }
+
+    [Fact]
     public void The_native_passive_and_belt_sources_use_raw_charge_gain_and_Mana_rate_keys()
     {
         uint charge = Program.Stats.Key("charges_gained_+%")!.Value;
