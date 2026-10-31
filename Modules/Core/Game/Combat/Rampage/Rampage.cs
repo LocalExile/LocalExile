@@ -29,10 +29,11 @@ static partial class Game
             _ = Task.Run(() => RunRampage(conn, runtime, owner, source, generation));
     }
 
-    static (uint Life, bool StageStarts) TakeOwnerDamageLocked(ClientState conn, SpawnedMonster m, int damage)
+    static (uint Life, bool StageStarts) TakeOwnerDamageLocked(ClientState conn, SpawnedMonster m, int damage,
+        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         var result = TakeDamageLocked(m, damage);
-        if (m.Life > 0 && result.Life == 0) RampageOnKillLocked(conn, m);
+        if (m.Life > 0 && result.Life == 0) RampageOnKillLocked(conn, m, rampageSource, player);
         return result;
     }
 
@@ -43,31 +44,66 @@ static partial class Game
     static bool RampageActive(ClientState conn) =>
         !conn.Closed && !conn.LeavingArea && !conn.RageRetired && !conn.Paused;
 
-    static bool RampageSource(ClientState conn)
+    static bool RampageSource(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
     {
-        var sources = CharacterStatSources(conn).Stats;
-        return Stats.Key(RampageSession.Source) is uint key
-            && conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key)) != 0;
+        if (Stats.Key(RampageSession.Source) is not uint key) return false;
+        if (conn.PlayerStats.TryGetValue(key, out int current)) return current != 0;
+        return (player ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key) != 0;
     }
 
-    static void RampageOnMeleeHitLocked(ClientState conn, SpawnedMonster target, bool melee)
+    // The caller may reuse this source decision for the same contact's lethal mutation, without a second stat read.
+    static bool? RampageOnMeleeHitLocked(ClientState conn, SpawnedMonster target, bool melee,
+        IReadOnlyDictionary<uint, int>? player = null)
     {
-        if (!CurrentRampageWork || conn.Paused || target.Dead || target.Life == 0) return;
-        CharacterPlayerStats(conn);
+        if (!melee || !target.Hostile || target.Dead || target.Life == 0 || conn.PlayerLife == 0
+            || !CurrentRampageWork || !RampageActive(conn)) return null;
+        bool enabled = RampageSource(conn, player);
+        double now = ProjectileWorldTime(conn);
+        ReconcileRampage(conn, enabled, now);
         int movement = conn.Rampage.Current.MovementPercent;
-        conn.Rampage.MeleeHit(ProjectileWorldTime(conn), RampageSource(conn), conn.PlayerLife > 0,
-            RampageActive(conn), melee, target.Hostile);
-        if (movement != conn.Rampage.Current.MovementPercent) conn.ApplyMovementSpeedAt(ProjectileWorldTime(conn));
+        conn.Rampage.MeleeHit(now, enabled, true, true, true, true);
+        if (movement != conn.Rampage.Current.MovementPercent) conn.ApplyMovementSpeedAt(now);
+        return enabled;
     }
 
-    static void RampageOnKillLocked(ClientState conn, SpawnedMonster target)
+    static void RampageOnKillLocked(ClientState conn, SpawnedMonster target, bool? source = null,
+        IReadOnlyDictionary<uint, int>? player = null)
     {
-        if (!CurrentRampageWork || conn.Paused) return;
-        CharacterPlayerStats(conn);
+        if (!target.Hostile || conn.PlayerLife == 0 || !CurrentRampageWork || !RampageActive(conn)) return;
+        bool enabled = source ?? RampageSource(conn, player);
+        double now = ProjectileWorldTime(conn);
+        ReconcileRampage(conn, enabled, now);
         int movement = conn.Rampage.Current.MovementPercent;
-        conn.Rampage.Kill(ProjectileWorldTime(conn), target, RampageSource(conn), conn.PlayerLife > 0,
-            RampageActive(conn), target.Hostile);
-        if (movement != conn.Rampage.Current.MovementPercent) conn.ApplyMovementSpeedAt(ProjectileWorldTime(conn));
+        conn.Rampage.Kill(now, target, enabled, true, true, true);
+        if (movement != conn.Rampage.Current.MovementPercent) conn.ApplyMovementSpeedAt(now);
+    }
+
+    // Contact accounting needs only this mechanic, not a full character/skill stat rebuild for every victim.
+    static RampageState.Value ReconcileRampage(ClientState conn, bool enabled, double now)
+    {
+        var before = conn.Rampage.Current;
+        var value = conn.Rampage.Observe(now, enabled, conn.PlayerLife > 0, !conn.Closed && !conn.RageRetired);
+        if (before.MovementPercent != value.MovementPercent)
+            conn.ApplyMovementSpeedAt(enabled && conn.PlayerLife > 0 && before.ExpiresAt is double end && now >= end ? end : now);
+        if (enabled && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea && !conn.RageRetired)
+        {
+            var runtime = conn.RampageWorld;
+            runtime.Enable();
+            EnsureRampageWorker(conn, runtime);
+        }
+        else if (conn.OwnedCombatState is not null || conn.RetiredCombatObjects.Count != 0
+            || conn.RetiredCombatBuffs.Count != 0)
+        {
+            var runtime = conn.RampageWorld;
+            runtime.Disable();
+            foreach (uint actor in runtime.PendingRemoval)
+                if (conn.Monsters.Remove(actor, out var removed)) removed.Dead = true;
+            foreach (var (actor, _) in runtime.Blinds)
+                if (conn.Monsters.TryGetValue(actor, out var target)) target.RampageBlindUntil = 0;
+            // Flush primitive cleanup once, then the worker releases its lease when idle.
+            EnsureRampageWorker(conn, runtime);
+        }
+        return value;
     }
 
     static void WithRampage(ClientState conn, Dictionary<uint, int> stats)
@@ -77,30 +113,8 @@ static partial class Game
             if (!CurrentRampageWork) return;
             bool enabled = Stats.Key(RampageSession.Source) is uint source && stats.GetValueOrDefault(source) != 0;
             // Pausing holds the game clock; it does not remove a streak.
-            var before = conn.Rampage.Current;
             double now = conn.LeavingArea && conn.RampageTransferAt is double frozen ? frozen : ProjectileWorldTime(conn);
-            var value = conn.Rampage.Observe(now, enabled, conn.PlayerLife > 0,
-                !conn.Closed && !conn.RageRetired);
-            if (before.MovementPercent != value.MovementPercent)
-                conn.ApplyMovementSpeedAt(enabled && conn.PlayerLife > 0 && before.ExpiresAt is double end && now >= end ? end : now);
-            if (enabled && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea && !conn.RageRetired)
-            {
-                var runtime = conn.RampageWorld;
-                runtime.Enable();
-                EnsureRampageWorker(conn, runtime);
-            }
-            else if (conn.OwnedCombatState is not null || conn.RetiredCombatObjects.Count != 0
-                || conn.RetiredCombatBuffs.Count != 0)
-            {
-                var runtime = conn.RampageWorld;
-                runtime.Disable();
-                foreach (uint actor in runtime.PendingRemoval)
-                    if (conn.Monsters.Remove(actor, out var removed)) removed.Dead = true;
-                foreach (var (actor, _) in runtime.Blinds)
-                    if (conn.Monsters.TryGetValue(actor, out var target)) target.RampageBlindUntil = 0;
-                // Flush primitive cleanup once, then the worker releases its lease when idle.
-                EnsureRampageWorker(conn, runtime);
-            }
+            var value = ReconcileRampage(conn, enabled, now);
             void Add(string name, int amount)
             {
                 if (amount != 0 && Stats.Key(name) is uint key)

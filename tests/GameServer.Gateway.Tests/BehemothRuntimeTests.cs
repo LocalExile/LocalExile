@@ -125,6 +125,39 @@ public sealed class BehemothRuntimeTests
     {
         using var setup = new AdmissionSetup();
         var c = setup.Conn;
+        // Contact/kill accounting must not rebuild the full player snapshot for every sweep victim.
+        int sourceReads = 0;
+        using (GameEvents.PlayerStatSources.Add("Game", (_, sources) => { sourceReads++; return sources; }))
+        {
+            var melee = typeof(Game).GetMethod("RampageOnMeleeHitLocked", BindingFlags.NonPublic | BindingFlags.Static)!;
+            var kill = typeof(Game).GetMethod("RampageOnKillLocked", BindingFlags.NonPublic | BindingFlags.Static)!;
+            static object? Call(MethodInfo method, params object?[] arguments) => method.Invoke(null,
+                [.. arguments, .. method.GetParameters().Skip(arguments.Length).Select(parameter => parameter.DefaultValue)]);
+            var victim = new SpawnedMonster("rampage contact", new(105, 100, 0), 0, 0, 100);
+            Call(melee, c, victim, false);
+            Assert.Equal(0, sourceReads); Assert.Equal(0, c.Rampage.Current.Stacks);
+            uint source = Program.Stats.Key(RampageSession.Source)!.Value;
+            c.PlayerStats[source] = 1;
+            Call(melee, c, victim, true);
+            Call(kill, c, victim);
+            Call(kill, c, victim); // A repeated lethal notification never grants again.
+            Assert.Equal(2, c.Rampage.Current.Stacks);
+            Assert.Equal(0, sourceReads); // Explicit current source needs no player or raw-source rebuild.
+            c.PlayerStats[source] = 0;
+            Call(melee, c, victim, true);
+            Assert.Equal(0, c.Rampage.Current.Stacks); Assert.Equal(0, sourceReads);
+            Assert.True(c.OwnedCombatState is not RampageWorld world || !world.Enabled);
+            c.PlayerStats.Remove(source);
+            var snapshot = new Dictionary<uint, int> { [source] = 1 };
+            var nextVictim = new SpawnedMonster("snapshot contact", new(105, 100, 0), 0, 0, 100);
+            var eligible = Call(melee, c, nextVictim, true, snapshot);
+            Call(kill, c, nextVictim, eligible, snapshot);
+            Assert.Equal(2, c.Rampage.Current.Stacks); Assert.Equal(0, sourceReads);
+            c.PlayerStats[source] = 0; // Current removal wins over an earlier caller snapshot.
+            Call(melee, c, nextVictim, true, snapshot);
+            Assert.Equal(0, c.Rampage.Current.Stacks); Assert.Equal(0, sourceReads);
+            c.PlayerStats.Remove(source);
+        }
         var skill = Game.GemSkillEffects(c).Single(g => Game.SkillsFor(c).EffectId(g.Effect) == "VaalGroundSlam");
         var rage = new RageState.Inputs(NoInherentLoss: true);
         Assert.True(c.Rage.Gain(30, 0, rage));

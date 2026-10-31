@@ -60,7 +60,8 @@ The lock-free `SourceOwner` query exposes only a host-issued lifetime, without g
 Gateway cleanup resources contain identities, not old module delegates; retirement clears opaque combat state.
 Mutations and sends also recheck current source flags and effect epochs after refunds, death and transfer.
 No class-specific job runs without its optional node source.
-The older Game-only worker remains historical evidence; current modular native checks are pending.
+The older Game-only worker remains historical evidence.
+Bounded modular native checks cover reload/re-entry and Rampage dispatch; exact-head outcomes are recorded in the PR.
 See [Behemoth's ownership and validation boundaries](behemoth.md).
 
 ## Validation and delivery

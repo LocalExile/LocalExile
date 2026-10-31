@@ -13,9 +13,11 @@ This candidate reconstructs PR #328 over main `2a9904758c3a9fad0df7cb963c7450b84
 The original feature head `4c90a1f9`, atomic Vaal correction `74e3a1f8`, modular port `4d5f9bca` and
 reload correction `adb1de26` remain historical source references on their private branches.
 Their old foundation commits, deleted fixtures and intermediate Game-only admission policy are not merged here.
-The current solution build and two deterministic Gateway regressions are the bounded implementation checks.
-Full Core/Data/Gateway verification, independent review and current modular native acceptance remain pending.
-Historical whole-class/native results do not establish readiness of this reconstruction.
+The solution build and two deterministic Gateway regressions are the bounded implementation checks.
+Parent verification at `23ef5712` passed Core 436, Data 45, Gateway 6 and eleven bounded modular native checks.
+The contact-accounting follow-up requires renewed exact-head checks; final revisions/results are recorded in the PR
+and ignored validation receipts rather than inferred from an earlier head.
+Historical whole-class/native results do not establish current whole-class parity.
 
 ## Capability and engine ownership
 
@@ -87,6 +89,11 @@ Raw developer sources are useful engine controls, but do not prove optional clas
 Policy v1 grants one stack per accepted owner melee contact and one per attributed hostile kill, including both
 on a melee killing blow.
 Kill credit is idempotent per monster, and a streak expires after five seconds of game time.
+Non-melee, friendly and inactive contacts return before reading player sources.
+Eligible contacts and kills reconcile only Rampage state, reusing fresh caller/source decisions within one contact.
+Later sweep victims resolve the current raw source after notification awaits, preserving refund/removal checks.
+They do not rebuild full player stats per victim; movement changes still use main's action-speed factor.
+This removes the reviewed repeated work; no measured throughput or latency improvement is claimed.
 Pause holds that clock; successful area transfer carries only streak and remaining time once.
 Old jobs, strikes, actors and projectiles do not transfer.
 The native buff publishes count and duration, with increased damage/movement derived from the current streak.
@@ -147,13 +154,24 @@ duplicate activation,
 old-generation isolation, primitive actor/buff cleanup, transfer/expiry/death, and actual early Vaal object/ground
 input followed by valid paid admission, duplicate rejection, movement cancellation and cooldown controls.
 The Vaal regression fails when the atomic readiness check is removed.
+The same Fact checks that ineligible contacts and explicitly sourced hit/kill accounting do not call player-source
+builders, while preserving hit-plus-kill credit, idempotence and current-source removal over a stale snapshot.
 They use explicit state/send gates and do not sleep or wait for real time.
 They do not prove the native Rampage tier/actor presentation or every legal class build on this modular source.
+
+The eleven native checks at `23ef5712` covered the Berserker choice/graph, Rampager allocation and size, a real
+owner hit-plus-kill producing two stacks, independent Phrecia/Game reload closure and retained-progress re-entry,
+eight post-reload melee kills dispatching tier 15 followed by natural expiry, paid refund and ordinary fallback.
+Ordinary connections remained in the area across each reload and consumed distinct live Strength 777/778 inputs.
+The tier-15 result is a server-dispatch log following native kills, not a complete actor-visual matrix.
+Game reload resets developer damage overrides; the ignored harness reinstalls those controls before continuing.
+Neither all thirteen tiers nor the full Vaal matrix was repeated in that bounded modular session.
 
 Historical acceptance at `9657e0ad` covered all thirteen tiers, three legal builds, paid resets, actual Vaal payment,
 pause, death, transfer, relog, restart and ordinary controls.
 Later source `74e3a1f8` passed full suites and a bounded native matrix before the modular-main restructuring.
 The old 160-focused and twelve admission artifacts remain ignored references under `logs/pr328-b690/reference`
 and `logs/pr328-p2` with their exact source revisions.
-Current receipts belong under `logs/pr328-phrecia`; parent validation must rebuild and pin Gateway, Game and
-PhreciaAscendancies along with Core/Auth/Patch/Host at the final candidate head.
+Current source receipts belong under `logs/pr328-phrecia`, `logs/pr328-identity` and `logs/pr328-contact-perf`.
+Final parent validation pins Gateway, Game and PhreciaAscendancies with Core/Auth/Patch/Host at its exact tested head;
+the PR records those full-suite, review and bounded native outcomes.

@@ -259,8 +259,8 @@ static partial class Game
             impaleStored = m.Impale.Bonus;
             FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
                 WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration);
-            RampageOnMeleeHitLocked(conn, m, WeaponProfileFor(conn, activeSet: true).Melee);
-            (m.Life, stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+            var rampageSource = RampageOnMeleeHitLocked(conn, m, WeaponProfileFor(conn, activeSet: true).Melee, player);
+            (m.Life, stageStarts) = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
             if (stageStarts)
             {
                 CommitBossStage(remote, stream, ciphers, conn, use.TargetId, m, ProjectileWorldTime(conn));
@@ -886,6 +886,7 @@ static partial class Game
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
                     || !Current() || cooldownUse is null && !PlayerActionCurrent(conn, action)) return;
                 if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
+                bool freshPlayer = player is null;
                 if (player is null)
                 {
                     player = CharacterPlayerStats(conn);
@@ -921,8 +922,11 @@ static partial class Game
                 LeechOnHitLocked(conn, m, taken, damage, leech!);
                 damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, sweepMultiplier,
                     critical ? criticalImpale : impale, more).Damage;
-                RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect));
-                applied = ApplyMonsterHitLocked(conn, m, damage);
+                // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
+                // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
+                var rampagePlayer = freshPlayer ? player : null;
+                var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
+                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer);
                 if (applied is not null) landed++;
                 if (applied is { StageStarts: true } staged)
                 {
@@ -1034,10 +1038,11 @@ static partial class Game
     }
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters.
-    internal static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage)
+    internal static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
+        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         if (m.Dead || m.Life == 0) return null;
-        (m.Life, bool starts) = TakeOwnerDamageLocked(conn, m, damage);
+        (m.Life, bool starts) = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
         conn.LastEnemyHitAt = ProjectileWorldTime(conn);
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
         return new(m.Life, starts);

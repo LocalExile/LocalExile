@@ -767,7 +767,7 @@ and can require explicit recipes.
   Unsupported Vaal casts are refused before action echoes or cooldown reservation, including effective zero cost.
   Vaal Ground Slam now has a shared executor, atomic soul/Rage payment and pausable prevention timer.
   Attack readiness commits before payment/action reservation, including object-targeted flags bit0.
-  Other Vaal executors remain explicit refusals; modular native acceptance is pending.
+  Other Vaal executors remain explicit refusals; the bounded modular native session did not repeat a full Vaal matrix.
   See [Behemoth](../docs/game/behemoth.md) for execution models and source ownership.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md).
 - Aura restoration bootstrap fix: socketed gem requirements no longer deactivate their entire host item during pool
