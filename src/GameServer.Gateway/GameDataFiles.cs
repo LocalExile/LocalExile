@@ -14,6 +14,7 @@ static class GameDataFiles
         ("data/tables/Mods.json", "mods, affix rolls and the editable mod reference"),
         ("data/tables/Tags.json", "mod spawn tags (affix rolls)"),
         ("data/tables/UniqueStashLayout.json", "unique item names and artwork"),
+        ("data/tables/VillageUniqueDisenchantValues.json", "unique drop weights"),
         ("data/tables/PassiveJewelSlots.json", "ordinary passive tree jewel sockets"),
         ("data/tables/ModType.json", "vendor affix sale-price categories"),
         ("data/tables/Essences.json", "essence crafting and class-specific guaranteed modifiers"),

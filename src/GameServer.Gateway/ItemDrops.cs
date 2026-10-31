@@ -16,8 +16,10 @@ using GameServer.Core.Protocol.Instance;
 ///    unidentified, at the monster's level plus <see cref="ItemLevelBonus"/>.
 /// </summary>
 sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool ruthless = false, AtlasCatalog? maps = null,
-    UniqueCatalog? uniques = null)
+    UniqueCatalog? uniques = null, UniqueWeightProvider? uniqueWeights = null)
 {
+    readonly UniqueWeightProvider _uniqueWeightProvider = uniqueWeights ?? UniqueWeightProvider.Default;
+
     /// <summary>A dropped piece of equipment's chances by the monster's rarity, each of what the earlier ones left: first
     /// unique, then rare, then magic.</summary>
     public readonly record struct Chances(double Unique, double Rare, double Magic);
@@ -248,11 +250,14 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     /// <summary>How likely a unique is once its base rolled one: the inverse of its disenchant value
     /// (VillageUniqueDisenchantValues, Ruthless has its own column), the client's own measure of how rare a unique is:
     /// Wanderlust 1.06, Kaom's Heart 43, Mageblood 891. The table leaves out old names and some non-equipment; those do not
-    /// drop. Without the table every unique weighs 1.</summary>
+    /// drop. The Gateway publishes the seeded/overridden weights through <see cref="UniqueWeightProvider"/>; without a
+    /// reference table the extracted JSON is the fallback and every unique weighs 1.</summary>
     internal double UniqueWeight(string name) =>
-        _uniqueWeights.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(name) : 1;
+        _uniqueWeightProvider.HasTable
+            ? _uniqueWeightProvider.Weight(name, ruthless)
+            : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(name) : 1;
 
-    private readonly Lazy<Dictionary<string, double>> _uniqueWeights = new(() => LoadUniqueWeights(folder, ruthless));
+    private readonly Lazy<Dictionary<string, double>> _uniqueWeightsFile = new(() => LoadUniqueWeights(folder, ruthless));
 
     static Dictionary<string, double> LoadUniqueWeights(string folder, bool ruthless)
     {

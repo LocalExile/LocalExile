@@ -67,7 +67,7 @@ public class GameDataTests
             {
                 store.SetModRange("LocalAddedPhysicalDamage9", 0, 100, 200);
                 store.SetLimit("timeless_jewel", 2);
-                Assert.Equal("2", store.Meta("schema_version"));
+                Assert.Equal("3", store.Meta("schema_version"));
                 Assert.Equal([new GameDataStore.ModStatOverride("LocalAddedPhysicalDamage9", 0, 100, 200)],
                     store.LoadModRanges());
                 Assert.Equal([new GameDataStore.LimitOverride("timeless_jewel", 2)], store.LoadLimits());
