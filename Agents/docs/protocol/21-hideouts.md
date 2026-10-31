@@ -634,7 +634,7 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   The destination is marked with the original `DelveWaypointObject.ao` (default `idle_on`) on a nonblocking scenery
   object. Arrival waits for all journey-spawned monster IDs to die; unrelated monsters do not hold the reward.
   A connection-local completion latch prevents repeated chart requests/ticks from paying twice. Highest completed
-  physical depth is saved as `CompletedDelveDepth`; this does not yet unlock or persist a complete chart graph.
+  physical depth is saved as the character's module data `delve.depth`; this does not yet unlock or persist a complete chart graph.
   A new paid visit may reward the same depth again. Rewards follow the normal world-item pickup/save path; ground
   items and the claim latch remain instance-local and are not a durable crash-recovery ledger.
   Server reward policy: `delve_reward_min_items=15`, `delve_reward_max_items=20`,

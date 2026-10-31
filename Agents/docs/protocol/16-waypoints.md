@@ -7,7 +7,7 @@ The Coast (the client plays the activation), pins and connection lines on the Ac
 
 Code: `InstanceWaypoints`, `WaypointObject` (`src/GameServer.Core/Protocol/Instance/InstanceWaypoints.cs`),
 `WorldAreaWaypoints`, `AreaVisitFlags` (`src/GameServer.Core/World/`), `PlayerObject.WriteFlagSet` and
-`InstanceEntities.PlayerQuestFlagsUpdate`, `WaypointCatalog` and the handlers in `src/GameServer.Gateway/Program.Travel.cs`
+`InstanceEntities.PlayerQuestFlagsUpdate`, `WaypointCatalog` and the handlers in `Modules/Core/Game/World/Travel.cs`
 (`UseWaypoint`, `ActivateWaypoint`, `SendWaypoints`, `TravelByWaypoint`). Tests: `tests/GameServer.Core.Tests/WaypointTests.cs`.
 
 ## 1. Flow

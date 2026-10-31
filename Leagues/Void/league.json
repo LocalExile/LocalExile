@@ -1,0 +1,9 @@
+{
+  "name": "Void",
+  "parent": null,
+  "base": "Void",
+  "hardcore": false,
+  "ssf": false,
+  "description": "Voided characters.",
+  "creatable": false
+}
