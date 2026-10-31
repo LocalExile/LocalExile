@@ -181,6 +181,8 @@ function Start-SessionLauncher([string]$session, [string]$folder, [string]$recor
     $arguments = @((Join-Path $repo 'scripts\dev\nullifier.py'), '--cwd', $folder, '--record', $record,
         '--patch-port', "$($stack.Ports.patch)", '--login-port', "$($stack.Ports.login)")
     $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10') } else { @('--renderer', 'configured') }
+    # Game_NULLIFIER_ARGS: extra launcher options (space-separated, no spaces inside one), e.g. a diagnostic --probe.
+    if ("$env:Game_NULLIFIER_ARGS".Trim()) { $arguments += @("$env:Game_NULLIFIER_ARGS".Trim() -split '\s+') }
     $log = Join-Path $out "nullifier-$session.log"; $err = Join-Path $out "nullifier-$session.err"
     $wrapper = Start-Detached $python $arguments $log $err -PassThru
     $deadline = (Get-Date).AddSeconds($script:LauncherTimeout)

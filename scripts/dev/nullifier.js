@@ -15,6 +15,9 @@
 //                 works with the Null device, which has no vsync or present to wait on.
 //   crashLog      append a crash's registers and backtrace to this file (diagnostics).
 //   traceFiles    log every CreateFileW of a path matching this regular expression (diagnostics).
+//   traceMovies   log every Bink movie the client opens and closes, with its frames (diagnostics).
+//   mimalloc      {name: value} the launcher put in the client's environment as MIMALLOC_<NAME>: the allocator's
+//                 values for these options are logged once it has read them.
 'use strict';
 const module = Process.getModuleByName('Game.patched.exe');
 const at = va => module.base.add(ptr(va).sub(ptr('0x140000000')));
@@ -267,6 +270,34 @@ if (OPTIONS.traceFiles) {
   });
 }
 
+// Bink movies (bink2w64.dll, delay-loaded; 23 imports, BinkOpen ... BinkClose): every open with its name and flags,
+// and at its close the frames decoded (BinkDoFrameAsyncMulti / BinkNextFrame calls) and how long it was open.
+if (OPTIONS.traceMovies) {
+  whenLoaded('bink2w64.dll', bink => {
+    const open = new Map();
+    const name = p => { try { const a = p.readAnsiString(); return a && a.length > 1 ? a : p.readUtf16String(); } catch (_) { return `${p}`; } };
+    Interceptor.attach(bink.getExportByName('BinkOpen'), {
+      // The engine appends its file-callback handle (decimal) to the name.
+      onEnter(args) { this.name = name(args[0]).replace(/(\.bk2)\d+$/i, '$1'); this.flags = args[1].toUInt32(); },
+      onLeave(handle) {
+        if (!handle.isNull()) open.set(handle.toString(), {name: this.name, since: Date.now(), frames: 0});
+        log(`movie open ${this.name} flags 0x${this.flags.toString(16)} -> ${handle.isNull() ? 'failed' : 'ok'}`);
+      }});
+    for (const api of ['BinkDoFrameAsyncMulti', 'BinkNextFrame']) {
+      Interceptor.attach(bink.getExportByName(api), {onEnter(args) {
+        const movie = open.get(args[0].toString());
+        if (movie) movie.frames++;
+      }});
+    }
+    Interceptor.attach(bink.getExportByName('BinkClose'), {onEnter(args) {
+      const movie = open.get(args[0].toString());
+      open.delete(args[0].toString());
+      if (movie) log(`movie close ${movie.name} after ${Date.now() - movie.since} ms, ${movie.frames} frame calls`);
+    }});
+    log('movie trace on');
+  });
+}
+
 // A crash is written to OPTIONS.crashLog synchronously, with registers and image-relative return addresses, before
 // the process dies as it would anyway.
 if (OPTIONS.crashLog) {
@@ -287,6 +318,26 @@ if (OPTIONS.crashLog) {
     } catch (_) {}
     return false;
   });
+}
+
+// The client's allocator is mimalloc 2.2 (built Aug 15 2025, linked in; the engine's aligned allocation 0x142c839f0 is
+// mi_heap_malloc_aligned). It reads each option from MIMALLOC_<NAME> the first time it needs it. Its option table
+// (0x143a5ab90, 37 entries of 0x20 bytes: i32 value, i32 initialised, i32 option, pad, char *name, char *legacy name)
+// is read 20 s after the start, when the allocator has read them, and the asked-for options are logged.
+if (OPTIONS.mimalloc && Object.keys(OPTIONS.mimalloc).length) {
+  const table = at('0x143a5ab90');
+  if (table.add(0x10).readPointer().readCString() !== 'show_errors') {
+    throw new Error('Unsupported client: mimalloc option table differs from 3.29.3b');
+  }
+  setTimeout(() => {
+    const seen = {};
+    for (let i = 0; i < 37; i++) {
+      const entry = table.add(i * 0x20);
+      const name = entry.add(0x10).readPointer().readCString();
+      if (name in OPTIONS.mimalloc) seen[name] = entry.add(4).readS32() ? entry.readS32() : 'not read yet';
+    }
+    log(`mimalloc options: ${JSON.stringify(seen)}`);
+  }, 20000);
 }
 
 rpc.exports.ready = () => ({pid: Process.id, options: OPTIONS});

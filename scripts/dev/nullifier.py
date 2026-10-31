@@ -199,8 +199,25 @@ def agent_options(options, folder):
     return {
         "nullRenderer": options.renderer == "null", "noRenderJobs": options.no_render_jobs,
         "noTextureUpload": options.no_texture_upload, "frameSleepMs": max(0, options.frame_sleep_ms),
-        "window": options.window, "traceFiles": options.trace_files, "runMutexPrefix": run_mutex_prefix(folder),
+        "window": options.window, "traceFiles": options.trace_files, "traceMovies": options.trace_movies,
+        "runMutexPrefix": run_mutex_prefix(folder),
+        "mimalloc": dict(mimalloc_options(options.mimalloc)),
         "crashLog": str(Path(os.path.abspath(options.crash_log))) if options.crash_log else None}
+
+
+MIMALLOC_OPTION = re.compile(r"^([a-z_]+)=(-?\d+)$")
+
+
+def mimalloc_options(items):
+    """[(name, value)] from --mimalloc NAME=VALUE: options of the client's allocator (mimalloc 2.2, linked into the
+    executable), which reads them from MIMALLOC_<NAME> in its environment the first time it needs each one."""
+    out = []
+    for item in items:
+        match = MIMALLOC_OPTION.match(item.strip().lower())
+        if not match:
+            raise SystemExit(f"--mimalloc {item!r}: expected name=integer, e.g. eager_commit=0")
+        out.append((match.group(1), match.group(2)))
+    return out
 
 
 def client_argv(options):
@@ -230,7 +247,11 @@ def parse(argv=None):
     parser.add_argument("--window", choices=["minimized", "hidden", "normal"], default="normal",
                         help="how the window shows; it is never activated, and minimizing it does not stop the client")
     parser.add_argument("--sound", action="store_true", help="keep sound (default: --nosound)")
+    parser.add_argument("--mimalloc", action="append", default=[], metavar="NAME=VALUE",
+                        help="a mimalloc option for the client (MIMALLOC_<NAME>), e.g. eager_commit=0; repeatable. The "
+                             "agent logs the values the allocator then uses")
     parser.add_argument("--trace-files", help="log CreateFileW paths matching this regex (diagnostics)")
+    parser.add_argument("--trace-movies", action="store_true", help="log the Bink movies the client opens (diagnostics)")
     parser.add_argument("--crash-log", type=Path, help="append a client crash's registers and backtrace here")
     parser.add_argument("--probe", type=Path, action="append", default=[],
                         help="append this Frida script to the agent (diagnostics; it sees OPTIONS, at(), checked(), log())")
@@ -255,6 +276,7 @@ def main(argv=None):
     # As Start-Offline.ps1: optional web requests (news, shop) fail locally instead of reaching the internet.
     env = {"HTTP_PROXY": "http://127.0.0.1:1", "HTTPS_PROXY": "http://127.0.0.1:1", "ALL_PROXY": "http://127.0.0.1:1",
            "NO_PROXY": "localhost,127.0.0.1,::1"}
+    env.update({f"MIMALLOC_{name.upper()}": value for name, value in mimalloc_options(options.mimalloc)})
 
     device = frida.get_local_device()
     # stdio "pipe": the client also logs to its standard output; Frida reads it (the "output" events, dropped).

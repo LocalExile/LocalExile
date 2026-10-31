@@ -159,6 +159,19 @@ class NullifierTests(unittest.TestCase):
         self.assertTrue(nullifier.agent_options(options, Path("x"))["nullRenderer"])
         self.assertEqual(nullifier.client_argv(options)[-1], "--nologo")
 
+    def test_mimalloc_options_and_movie_trace(self):
+        options = nullifier.parse(["--cwd", "x", "--patch-port", "1", "--login-port", "2", "--mimalloc", "purge_delay=0",
+                                   "--mimalloc", "ARENA_PURGE_MULT=1", "--trace-movies"])
+        self.assertEqual(nullifier.mimalloc_options(options.mimalloc), [("purge_delay", "0"), ("arena_purge_mult", "1")])
+        agent = nullifier.agent_options(options, Path("x"))
+        self.assertEqual(agent["mimalloc"], {"purge_delay": "0", "arena_purge_mult": "1"})
+        self.assertTrue(agent["traceMovies"])
+        for bad in ("purge_delay", "purge-delay=0", "purge_delay=x", "a=1;b=2"):
+            with self.assertRaises(SystemExit):
+                nullifier.mimalloc_options([bad])
+        self.assertEqual(nullifier.agent_options(nullifier.parse(["--cwd", "x", "--patch-port", "1", "--login-port", "2"]),
+                                                 Path("x"))["mimalloc"], {})
+
     def test_preset_and_agent_exist(self):
         text = (nullifier.ROOT / "config" / "nullifier_Config.ini").read_text(encoding="utf-8")
         self.assertIn("[DISPLAY]", text)

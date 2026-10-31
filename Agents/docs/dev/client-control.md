@@ -147,7 +147,7 @@ Get-FileHash src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll -Al
 ## Targeted development interactions
 
 JSON RPC also accepts `game:resources` (read-only Life component pools and recent 0x1b1 corrections),
-`object:interact` with an object `id`, `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
+`object:interact` with an object `id` (and an optional `skill`, e.g. `258` = 0x0102, the default attack, to attack it), `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
 `reward:claim` with choice `id` and main-inventory `x`/`y`, and `inventory:pickup`/`inventory:place` with `inventoryId`
 and item `id` or destination `x`/`y`, and `flask:use` with a flask-bar `slot` (0-4) or `key` (1-5; CLI
 `flask:use 1`). `flask:use` sends the flask key's own C→S 0x70 (u32 cell, [13](../protocol/13-items.md) §8), so a flask

@@ -540,7 +540,12 @@ class ClientControl:
             target = int(request["id"])
             if not 0 < target <= 0xffffffff:
                 raise ValueError("Object id must be a positive uint32")
-            return self.rpc("interaction", bytes=list(struct.pack(">HIHHH",0x24,target,0x266,0,0x408)))
+            # The same C->S 0x24 a click sends: 0x266 interacts; a skill id uses that skill on the target (the
+            # default attack is 0x0102, 11-skills.md).
+            skill = int(request.get("skill", 0x266))
+            if not 0 < skill <= 0xffff:
+                raise ValueError("Skill id must be a positive uint16")
+            return self.rpc("interaction", bytes=list(struct.pack(">HIHHH",0x24,target,skill,0,0x408)))
         if command == "move":
             x,y=int(request["x"]),int(request["y"])
             if not 0<=x<=0x7fffffff or not 0<=y<=0x7fffffff:

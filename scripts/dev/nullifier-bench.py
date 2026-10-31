@@ -185,6 +185,9 @@ def main():
     parser.add_argument("--rpc-timeout", type=float, default=120, help="seconds a bridge call may take")
     parser.add_argument("--lock", type=Path, help="lock file shared by agents that launch extra clients")
     parser.add_argument("--out", type=Path, default=ROOT / "logs" / "nullifier" / "bench.jsonl")
+    parser.add_argument("--survey", type=Path, help="also run this read-only memory survey (python -I <script> <pid>) after "
+                                                    "each measurement and keep its output in the record")
+    parser.add_argument("--launcher-args", default="", help="extra nullifier.py options for this run (Game_NULLIFIER_ARGS)")
     options = parser.parse_args()
 
     if not client_control.STACK.exists():
@@ -207,6 +210,7 @@ def main():
     stop = threading.Event()
     control = client_control.ClientControl(client_session=session)
     try:
+        os.environ["Game_NULLIFIER_ARGS"] = options.launcher_args
         started = live("-ClientOnly", "-Session", session, *(["-Nullifier"] if options.nullifier else []))
         log("live.ps1:", started.stdout.strip(), started.stderr.strip())
         if started.returncode:
@@ -236,7 +240,11 @@ def main():
                                             str(client.pid), "-Seconds", str(seconds), "-Label", label],
                                            text=True, timeout=seconds + 60).strip()
             frames = rpc({"command": "game:frames"}, show=False).get("result")
-            value = {**json.loads(text), "frames": frames, "nullifier": options.nullifier}
+            value = {**json.loads(text), "frames": frames, "nullifier": options.nullifier,
+                     "launcherArgs": options.launcher_args}
+            if options.survey:
+                value["survey"] = subprocess.run([sys.executable, "-I", str(options.survey), str(client.pid)],
+                                                 capture_output=True, text=True, timeout=300).stdout
             record(value); log("measured", json.dumps(value))
             return value
 
