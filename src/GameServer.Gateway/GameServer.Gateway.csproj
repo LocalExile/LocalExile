@@ -13,6 +13,8 @@
   <!-- The Gateway's types are internal (top-level program); its tests reach them. -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+    <!-- scripts/re/exits: the offline area transition audit. -->
+    <InternalsVisibleTo Include="exits" />
   </ItemGroup>
 
   <PropertyGroup>

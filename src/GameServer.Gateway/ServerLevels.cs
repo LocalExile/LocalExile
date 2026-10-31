@@ -28,6 +28,13 @@ static class ServerLevels
         /// <summary>The client's tile hash of the generated grid, and how long the generation took.</summary>
         public uint TileHash { get; init; }
         public long Milliseconds { get; init; }
+        /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
+        public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
+        /// <summary>Every area transition object of the layout with its role from its room's graph node
+        /// (<see cref="AreaExits"/>): what <see cref="AreaTransitionCatalog"/> creates.</summary>
+        public IReadOnlyList<PlacedExit> Exits { get; init; } = [];
+        /// <summary>Where each "entranceN" of the layout is (an arrival point, also for one-way entrances).</summary>
+        public IReadOnlyList<EntrancePoint> Entrances { get; init; } = [];
     }
 
     /// <summary>Where the supported list comes from (the repository root is the Gateway's directory; tests replace it).</summary>
@@ -133,13 +140,20 @@ static class ServerLevels
             doodads.Run(result.Records);
             var heights = CellHeights.Build(result.Grid, t => files.Walk(t.Path));
             var objects = AreaObjects.Transitions(files, result);
+            // An object counts as an exit only if a player can walk up to it: a walkable cell within the walk-up range
+            // of an area transition (PlayerWalk.InWalkUpRange, size 5: 13 cells).
+            var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
             Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} ({walk.Width}x{walk.Height} cells, " +
                 $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
-                AreaObjects.QuestObjects(files, result), walk.Projectile) { TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds };
+                AreaObjects.QuestObjects(files, result), walk.Projectile)
+            {
+                TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
+                Exits = exits.Exits, Entrances = exits.Entrances,
+            };
         }
         catch (Exception ex)
         {
@@ -147,6 +161,17 @@ static class ServerLevels
             Errors[(areaId, seed)] = ex.ToString();
             return null;
         }
+    }
+
+    static bool WithinReach(byte[] cells, int w, int h, int x, int y, int r)
+    {
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = x + dx, cy = y + dy;
+                if (dx * dx + dy * dy <= r * r && cx >= 0 && cy >= 0 && cx < w && cy < h && cells[cy * w + cx] >= 2) return true;
+            }
+        return false;
     }
 
     // Opened on the first generation and kept.

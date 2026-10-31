@@ -1402,7 +1402,8 @@ doodads' collision, the cell heights (§6b), and the area transitions and waypoi
 (`AreaObjects.RoomWaypoints`: The Ledge's `Act1/Area5/Rooms/waypoint.arm`, also Act 5 area 5, Act 8 area 2 level 2
 and Act 10 area 4). The doodad stage skips such a line (no client doodad) and the recorder does not capture it, so it
 is left out of the gate's transitions check. `AreaLayouts`, `AreaTransitionCatalog` and `WaypointCatalog` take these in place of the
-`data/walkability/<area>_seed<seed>.*` captures. A capture's transitions still win when there is one.
+`data/walkability/<area>_seed<seed>.*` captures. The exits' destinations come from the placed rooms' graph node
+descriptions (`AreaExits`, [08](../protocol/08-area-transitions.md) §8), so the generated layout wins over a capture there.
 
 The supported areas come from the committed gate baseline. An area counts when its `capture` entry matches in tile
 hash, both grids, every port draw, the doodads, the cell heights and the transitions; a check without a capture does
