@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using GameServer.Data.Ggpk;
-using GgDump;
 
 namespace GameServer.Modules.PhreciaAscendancies;
 
@@ -22,12 +21,10 @@ internal static class VerifiedPhreciaGraph
     {
         try
         {
-            // Use the same decoder as read-only extraction; the target's Mermaid chunks exceed the managed decoder.
+            // The client's own graph files as extracted (data/game-files.zip), hashed whole here.
             // Failure is a refusal, never a fallback to unverified exported JSON.
-            using var decoder = new NodeOodleDecoder("node", Path.GetFullPath("Tools/ooz/ooz_worker.mjs"));
-            using var fs = GameFileSystem.Open("Client/Content.ggpk", decoder);
-            Verify(fs.ReadFile("metadata/passiveskillgraph.psg"),
-                fs.ReadFile("metadata/alternateskillgraphs/customascendancypassiveskillgraph.psg"), className);
+            Verify(GamePack.Default.Read("metadata/passiveskillgraph.psg"),
+                GamePack.Default.Read("metadata/alternateskillgraphs/customascendancypassiveskillgraph.psg"), className);
         }
         catch (AscendancyRuleException) { throw; }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException

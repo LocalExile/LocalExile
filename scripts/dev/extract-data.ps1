@@ -57,6 +57,13 @@ $manifest = @(
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 5; Needs = @('tables')
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
+    # The servers never open Client/ as they run: what they would read from it comes from these two.
+    @{ Name = 'client-constants'; Outputs = @('data\client-constants.json'); Runner = 'dotnet'
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 1; Needs = @()
+       UsedBy = 'the Gateway''s HNC mask and the Patch server''s root hash (live.ps1 refreshes the hash before each client start)' }
+    @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 1; Needs = @()
+       UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
 )
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }

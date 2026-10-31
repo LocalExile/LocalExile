@@ -73,6 +73,10 @@ the memory their parsing left committed; `AreaLayouts.DeepestCell` no longer all
 Stats.json, Mods.json, MonsterVarieties.json and GrantedEffects.json among the catalogues that load them in one burst;
 `MonsterSurround.Assign` checks a refused cell once per assignment.
 
+The GGPK rows of these numbers predate `data/game-files.zip`: the Gateway now generates levels from that pack, with no
+bundle cache or Node worker (`GamePack`), and its layout timings have not been measured again. The chunk and bundle
+caches still serve the tools that read the GGPK.
+
 Tried and dropped (no measurable effect): `DOTNET_GCConserveMemory` (5, 7), `DOTNET_GCgen0size`,
 `DOTNET_ThreadPool_UnfairSemaphoreSpinLimit=0`, shift-based bucket math and span loops in `BlockerSet.Query`, skipping
 the pathfinder for a swing's stay-in-place order (they are a few per step and the search ends at once), skipping
@@ -89,9 +93,6 @@ kept levels) or the server's own counters.
 - **Release builds for stacks that do not need hot reload.** `live.ps1` runs Debug builds under `dotnet watch`; the JIT
   then does not optimize our assemblies: the planner is 2.3× and a busy instance ~1.6× slower than in Release. An
   agent's test stack or a long validation run could start the Release build (`-NoHotReload` already skips the watcher).
-- **One Oodle decoder per machine.** Level generation decodes Selkie chunks through one `node` process per Gateway
-  (~130 MB private each). A shared decoder service (as levelgen's `serve` already shares the game files) would save that
-  per stack; with the chunk cache it is used far less often than before.
 
 ## Where the remaining cost is
 

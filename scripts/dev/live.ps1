@@ -340,6 +340,9 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 # waits for them. The default client starts plainly, as before.
 function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
+    # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
+    & dotnet (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll') root-hash (Join-Path $client 'Content.ggpk') --save 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
     $folder = $client
     if ($session -ne 'default') {
         $folder = Join-Path $clients $session
@@ -493,9 +496,12 @@ if ($Stop) {
 
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
 Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json missing: run GameServer.Auth keygen'
-Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'
-Need (Test-Path (Join-Path $repo 'Client\Game.patched.exe')) 'Client\Game.patched.exe missing: run GameServer.Auth patch'
-Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+# Only a client needs Client\: the servers run from data\ alone (-NoClient, -Only).
+if (-not $NoClient -and -not $Only) {
+    Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'
+    Need (Test-Path (Join-Path $repo 'Client\Game.patched.exe')) 'Client\Game.patched.exe missing: run GameServer.Auth patch'
+    Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+}
 
 # The control bridge can open a closed client without restarting the servers or touching any other client.
 # With -Walkmaps the recorder starts beside the default client of the default ports (and the Gateway announces area

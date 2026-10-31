@@ -13,20 +13,22 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public sealed class HncSender
 {
-    /// <summary>VA of the 64-byte mask in the 3.29.3b client, and the SHA-256 of its contents (the mask itself is read
-    /// from the local client, not shipped).</summary>
+    /// <summary>VA of the 64-byte mask in the 3.29.3b client, and the SHA-256 of its contents (the mask itself is
+    /// extracted from the local client, not shipped).</summary>
     public const long MaskVa = 0x142fe0da0;
     private const string MaskSha256 = "0e88f29acc9cab88ee400ca78bbfeeeaebc333afb11f1ea9be3fd37aeb7cbc31";
 
     private static byte[]? _mask;
 
     private static byte[] Mask => _mask ?? throw new InvalidOperationException(
-        "HNC mask not loaded: call HncSender.LoadMask with the client executable (Client/Game.exe).");
+        "HNC mask not loaded: call HncSender.UseMask with the extracted mask (data/client-constants.json).");
 
     /// <summary>Reads the mask from the client executable (PE file) and checks it against the known hash.</summary>
-    public static void LoadMask(byte[] clientExe)
+    public static void LoadMask(byte[] clientExe) => UseMask(PeImage.ReadAtVa(clientExe, MaskVa, 64));
+
+    /// <summary>Uses a mask extracted from the client (data/client-constants.json), checked against the known hash.</summary>
+    public static void UseMask(byte[] mask)
     {
-        byte[] mask = PeImage.ReadAtVa(clientExe, MaskVa, 64);
         string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(mask)).ToLowerInvariant();
         if (hash != MaskSha256)
             throw new InvalidDataException("HNC mask not found: the client is not the expected 3.29.3b build.");
