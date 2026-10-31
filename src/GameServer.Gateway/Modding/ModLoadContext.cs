@@ -59,6 +59,21 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
         catch (UnauthorizedAccessException) { return false; }
     }
 
+    /// <summary>Deletes what earlier runs left behind (a stopped Gateway collects nothing). A copy a running Gateway has
+    /// loaded is skipped: its assembly cannot be deleted. Recent ones may be a starting Gateway's, before it loaded them.</summary>
+    internal static void DeleteOldCopies()
+    {
+        if (!Directory.Exists(CopyRoot)) return;
+        var before = DateTime.UtcNow - TimeSpan.FromMinutes(10);
+        foreach (string directory in Directory.GetDirectories(CopyRoot))
+        {
+            if (Directory.GetLastWriteTimeUtc(directory) > before) continue;
+            try { foreach (string dll in Directory.GetFiles(directory, "*.dll")) File.Delete(dll); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+            TryDeleteCopy(directory);
+        }
+    }
+
     /// <summary>Loads what a mod's files or its compiled scripts were read into, by the same private disk copy as
     /// <see cref="LoadCopy"/>: never from a stream.</summary>
     public Assembly LoadImage(byte[] image, byte[]? symbols)
