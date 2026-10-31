@@ -42,6 +42,25 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
         return true;
     }
 
+    /// <summary>Hinekora's Lock: a modifiable item that is not already foreseeing enters the state with a non-zero
+    /// seed. Gems, corrupted, mirrored and unmodifiable items are refused (they have no Mods component or fail
+    /// <see cref="TryModifiable"/>). The original is unchanged on refusal.</summary>
+    public Item? ApplyLock(Item item, Random random)
+    {
+        if (item.Foreseeing || !TryModifiable(item, out _)) return null;
+        uint seed = (uint)random.NextInt64(1, (long)uint.MaxValue + 1);
+        return item with { Foreseeing = true, ForeseeSeed = seed };
+    }
+
+    /// <summary>Any successful modification clears the foreseeing state; a refused one keeps it.</summary>
+    public static Item ClearForesee(Item item) =>
+        item.Foreseeing || item.ForeseeSeed != 0 ? item with { Foreseeing = false, ForeseeSeed = 0 } : item;
+
+    /// <summary>The RNG shared by the preview and the committed result: the item's seed mixed with the currency's
+    /// type hash, so the same currency type always previews and commits the same result.</summary>
+    public static Random ForeseeRandom(Item item, uint currencyTypeHash) =>
+        new(unchecked((int)(item.ForeseeSeed ^ currencyTypeHash)));
+
     /// <summary>Transmutation's validated normal-to-magic upgrade. Refused targets return null before rolling or
     /// spending: no unknown/unmodifiable bases or empty ordinary affix pools. Ordinary magic counts stay 50/50.</summary>
     public Item? Transmute(Item item, Random random)
