@@ -1,22 +1,28 @@
-// usage (from the repository root): dotnet run --project scripts/re/exits -c Release -- [area regex] [--seeds N]
-//   [--seed S]… [--json out.json] [--all] [--quiet] [--notes]
+// usage (from the repository root): dotnet run --project scripts/re/exits -c Release -- [area regex] [--all] [--seeds N]
+//   [--seed S]… [--json out.json] [--quiet] [--notes] [--objects]
 // The offline area transition audit (Agents/docs/protocol/08-area-transitions.md §8). For every campaign area (WorldAreas
-// ids "1_…" / "2_…" of acts 1–10 with a topology) that the Gateway generates itself (ServerLevels, the gate baseline),
-// at seed 1 and N further seeds (default 3, fixed per area), it generates the layout, asks AreaTransitionCatalog for the
+// ids "1_…" / "2_…" of acts 1–10 with a topology; --all: every area with one) that the Gateway generates itself
+// (ServerLevels, the gate baseline), at seed 1 and N further seeds (default 3, fixed per area), it generates the layout, asks AreaTransitionCatalog for the
 // exits exactly as the Gateway does when a player enters (captures off) and checks:
-//   missing      a node of the layout names "entranceN" (enabled), its room holds a transition object no other exit
-//                took, and no exit leads to Connections[N-1]
+//   missing      a node of the layout names "entranceN" (enabled), its room holds a transition object at which no exit
+//                was created (by position), and no exit leads to Connections[N-1]
 //   misplaced    an exit leads there, but none sits in (or next to) the room of that node
-//   unexpected   an exit leads to an area no enabled "entranceN" of the layout names (and not within the area)
+//   unexpected   an exit leads to an area no enabled "entranceN" of the layout names (and not within the area), and
+//                the model matching does not lead there either (info unnamed-exit: Delve's mine)
 //   duplicate    more exits lead to an area than the layout's enabled entrances name it
 //   teleport     a node names "teleportN" (enabled) and no in-area exit there takes the player to the "telepadN" node
 //   unreachable  an exit (or teleport) the player cannot get to by walking and the layout's in-area exits, starting
 //                next to the exit back to Connections[0] (else the largest walkable region); "next to" is the
 //                Gateway's walk-up range (PlayerWalk.InWalkUpRange), a gate's arrival AreaLayout.Near's 20 cells
-//   no-object    (info) an enabled "entranceN" whose room holds no transition object left (a quest portal, a one-way
-//                arrival: The Harvest's way to Highgate after Malachai)
+//   no-object    (info) an enabled "entranceN" with no exit there or elsewhere and no object left in its room
 //   point-only   (info) the same, while another exit leads there (The Ship Graveyard's intact ship)
 //   unnamed      (info) a WorldAreas connection no node of the layout names, enabled or disabled
+//   lost         the model matching (08 §7) over the same objects reaches a destination no exit reaches now (info
+//                lost-one-way when the layout names it only as a disabled entrance)
+//   lost-gate    it had a gate (an exit within the area) where no exit is now, at an object the layout names as a
+//                teleport (info not-a-gate otherwise: its pairs of unnamed objects, e.g. a Labyrinth room's two doors)
+//   unusable     (info) a gate with no walkable cell in reach whose target is reached anyway
+//   orphan-telepad (info) a "telepadN" no node's "teleportN" leads to (a portal the game opens after a fight)
 //   dropped      (info) a placed transition object the catalog did not create, with its note
 // Exit code 1 when any problem (not info) is found. --json writes every (area, seed) result for comparisons.
 using System.Text.Json;
@@ -30,7 +36,7 @@ string filter = ".";
 int extraSeeds = 3;
 var fixedSeeds = new List<uint>();
 string? jsonOut = null;
-bool quiet = false, all = false, showNotes = false;
+bool quiet = false, all = false, showNotes = false, showObjects = false;
 for (int i = 0; i < args.Length; i++)
     switch (args[i])
     {
@@ -40,6 +46,7 @@ for (int i = 0; i < args.Length; i++)
         case "--quiet": quiet = true; break;
         case "--all": all = true; break;
         case "--notes": showNotes = true; break;
+        case "--objects": showObjects = true; break;
         default: filter = args[i]; break;
     }
 
@@ -101,9 +108,19 @@ foreach (var area in areas)
         checkedLoads++;
         var notes = new List<string>();
         var exits = AreaTransitionCatalog.For(area.Hash, area.Id, seed, notes).Select(e => e.Transition).ToList();
-        Audit(area, level, exits, notes, result);
+        // The model matching over the same objects, for the comparison (lost / lost-gate).
+        AreaTransitionCatalog.UseLayout = false;
+        var matched = AreaTransitionCatalog.For(area.Hash, area.Id, seed, []).Select(e => e.Transition).ToList();
+        AreaTransitionCatalog.UseLayout = true;
+        Audit(area, level, exits, matched, notes, result);
         Print(result);
         if (showNotes) foreach (var n in notes) Console.WriteLine($"      - {n}");
+        if (showObjects)
+        {
+            foreach (var o in level.Objects) Console.WriteLine($"      object {o.Type} {o.Model} ({o.X}, {o.Y})");
+            foreach (var r in level.Records.SelectMany(r => r.Rooms))
+                Console.WriteLine($"      room {r.Room.Path} at tile ({r.X}, {r.Y}) {r.Width}x{r.Height} [{string.Join(" ", r.Descriptions)}]");
+        }
     }
 }
 
@@ -129,7 +146,7 @@ void Print(AreaResult r)
 }
 
 void Audit((string Id, string Name, int Act, ushort Hash) area, ServerLevels.Level level, List<AreaTransitionObject> exits,
-    List<string> notes, AreaResult result)
+    List<AreaTransitionObject> matched, List<string> notes, AreaResult result)
 {
     result.Exits = exits.Count;
     var conns = connections.GetValueOrDefault(area.Id) ?? [];
@@ -141,11 +158,11 @@ void Audit((string Id, string Name, int Act, ushort Hash) area, ServerLevels.Lev
     foreach (var room in rooms)
         foreach (var d in room.Descriptions)
         {
-            var m = Regex.Match(d, @"^entrance(\d+)(disabled)?$", RegexOptions.IgnoreCase);
+            var m = Regex.Match(d, @"^entrance\s*(\d+)(-?disabled)?$", RegexOptions.IgnoreCase);
             if (m.Success) { entrances.Add((int.Parse(m.Groups[1].Value), !m.Groups[2].Success, room)); continue; }
-            m = Regex.Match(d, @"^teleport(\d+)(disabled)?(-.*)?$", RegexOptions.IgnoreCase);
+            m = Regex.Match(d, @"^teleport\s*(\d+)(disabled)?([-=].*)?$", RegexOptions.IgnoreCase);
             if (m.Success) { teleports.Add((int.Parse(m.Groups[1].Value), !m.Groups[2].Success, room)); continue; }
-            m = Regex.Match(d, @"^telepad(\d+)$", RegexOptions.IgnoreCase);
+            m = Regex.Match(d, @"^telepad\s*(\d+)(-.*)?$", RegexOptions.IgnoreCase);
             if (m.Success) telepads.Add((int.Parse(m.Groups[1].Value), room));
         }
     bool Near(PlacedRoom room, int x, int y, int margin = 23) =>
@@ -159,12 +176,13 @@ void Audit((string Id, string Name, int Act, ushort Hash) area, ServerLevels.Lev
     foreach (var (n, enabled, room) in entrances)
     {
         var c = conns.FirstOrDefault(c => c.Index == n);
-        if (c.Id is null) { Problem("bad-index", $"entrance{n} in {Path.GetFileName(room.Room.Path)}, the area has {conns.Count} connection(s)"); continue; }
+        if (c.Id is null) { Info("no-connection", $"entrance{n} in {Path.GetFileName(room.Room.Path)}, the area has {conns.Count} connection(s)"); continue; }
         if (!enabled) continue;
         expected[c.Hash] = expected.GetValueOrDefault(c.Hash) + 1;
         var to = exits.Where(e => e.DestinationHash16 == c.Hash && e.TeleportTo is null).ToList();
-        // An object of the room that no other exit took could have been this one.
-        bool holdsObject = level.Exits.Any(x => Near(room, x.Object.X, x.Object.Y, 0) && x.Kind == ExitKind.Unused);
+        // A transition object placed in the room where no exit was created could have been this one (by position only).
+        bool holdsObject = level.Exits.Any(x => Near(room, x.Object.X, x.Object.Y, 0)
+            && !exits.Any(e => e.GridX == x.Object.X && e.GridY == x.Object.Y));
         if (to.Count == 0 && !holdsObject) Info("no-object", $"entrance{n} → {c.Id}: {Path.GetFileName(room.Room.Path)} holds no transition object (a quest portal or a one-way arrival)");
         else if (to.Count == 0) Problem("missing", $"entrance{n} → {c.Id} ({Path.GetFileName(room.Room.Path)}) has no exit");
         else if (!to.Any(e => Near(room, e.GridX, e.GridY)) && !level.Exits.Any(x => Near(room, x.Object.X, x.Object.Y, 0)))
@@ -176,7 +194,9 @@ void Audit((string Id, string Name, int Act, ushort Hash) area, ServerLevels.Lev
     foreach (var g in exits.Where(e => e.TeleportTo is null).GroupBy(e => e.DestinationHash16))
     {
         if (g.Key == area.Hash) continue;
-        if (!expected.TryGetValue(g.Key, out int want)) Problem("unexpected", $"{g.Count()} exit(s) to {Name(g.Key)} at {string.Join(", ", g.Select(e => $"({e.GridX}, {e.GridY})"))}, which no enabled entrance names");
+        if (!expected.TryGetValue(g.Key, out int want) && matched.Any(m => m.DestinationHash16 == g.Key && m.TeleportTo is null))
+            Info("unnamed-exit", $"{g.Count()} exit(s) to {Name(g.Key)}, which no node names; the model matching leads there too");
+        else if (!expected.TryGetValue(g.Key, out want)) Problem("unexpected", $"{g.Count()} exit(s) to {Name(g.Key)} at {string.Join(", ", g.Select(e => $"({e.GridX}, {e.GridY})"))}, which no enabled entrance names");
         else if (g.Count() > want) Problem("duplicate", $"{g.Count()} exits to {Name(g.Key)} for {want} entrance(s): {string.Join(", ", g.Select(e => $"({e.GridX}, {e.GridY})"))}");
     }
     // In-area teleports.
@@ -191,10 +211,33 @@ void Audit((string Id, string Name, int Act, ushort Hash) area, ServerLevels.Lev
             else Info("teleport-off", $"teleport{n}disabled ({Path.GetFileName(room.Room.Path)}) has no gate");
         }
     }
+    foreach (var (n, room) in telepads.Where(p => !teleports.Any(t => t.N == p.N)))
+        Info("orphan-telepad", $"telepad{n} in {Path.GetFileName(room.Room.Path)}: no node names teleport{n}");
     foreach (var e in exits.Where(e => e.TeleportTo is { } to && !teleports.Any(t => Near(t.Room, e.GridX, e.GridY))))
         Info("gate", $"in-area gate at ({e.GridX}, {e.GridY}) → ({e.TeleportTo!.Value.X}, {e.TeleportTo!.Value.Y}) in no teleport node");
     foreach (var n in notes.Where(n => n.Contains("not created") || n.Contains("ambiguous") || n.Contains("not in topology")))
         Info("dropped", n);
+
+    // Against the model matching over the same objects: a destination it reaches that no exit reaches now, and a gate of
+    // its with no exit near it now.
+    foreach (var g in matched.Where(e => e.TeleportTo is null && e.DestinationHash16 != area.Hash).GroupBy(e => e.DestinationHash16))
+        if (exits.Any(e => e.DestinationHash16 == g.Key && e.TeleportTo is null)) continue;
+        // The layout names that connection only as a disabled entrance: an arrival point, no way back (The Sarn Ramparts'
+        // "entrance1-disabled" from The Temple of Decay).
+        else if (conns.Where(c => c.Hash == g.Key).All(c => entrances.Any(e => e.N == c.Index && !e.Enabled)))
+            Info("lost-one-way", $"the model matching led to {Name(g.Key)}; the layout names it only as a disabled entrance");
+        else
+            Problem("lost", $"the model matching led to {Name(g.Key)} from {string.Join(", ", g.Select(e => $"({e.GridX}, {e.GridY})"))}, no exit does now");
+    // Its gates pair two objects no topology names; one the layout names as an entrance or as no exit was no gate.
+    foreach (var m in matched.Where(e => e.TeleportTo is not null || e.DestinationHash16 == area.Hash))
+        if (!exits.Any(e => Math.Abs(e.GridX - m.GridX) <= 10 && Math.Abs(e.GridY - m.GridY) <= 10))
+        {
+            var role = level.Exits.FirstOrDefault(x => x.Object.X == m.GridX && x.Object.Y == m.GridY);
+            if (role is { Kind: ExitKind.Teleport })
+                Problem("lost-gate", $"the model matching had a gate at ({m.GridX}, {m.GridY}), no exit is there now");
+            else
+                Info("not-a-gate", $"the model matching paired ({m.GridX}, {m.GridY}) as a gate; the layout: {role?.Why ?? "no such object"}");
+        }
 
     // Reachability over the walk grid (cells >= 2, 8 neighbours) and the in-area gates.
     var comp = Components(level.Walk, level.Width, level.Height, out int[] sizes);
@@ -229,8 +272,22 @@ void Audit((string Id, string Name, int Act, ushort Hash) area, ServerLevels.Lev
                 foreach (int c in Around(e.TeleportTo!.Value.X, e.TeleportTo!.Value.Y, arrival: true))
                     grew |= reach.Add(c);
     }
+    int Nearest(int x, int y)
+    {
+        for (int r = 0; r < 200; r++)
+            for (int dy = -r; dy <= r; dy++)
+                foreach (int dx in new[] { -r, r })
+                    foreach (var (cx, cy) in new[] { (x + dx, y + dy), (x + dy, y + dx) })
+                        if (cx >= 0 && cy >= 0 && cx < level.Width && cy < level.Height && level.Walk[cy * level.Width + cx] >= 2) return r;
+        return -1;
+    }
+    if (Environment.GetEnvironmentVariable("EXITS_WHY") == "1")
+        foreach (var e in exits.Where(e => e.TeleportTo is not null))
+            Console.WriteLine($"      why: gate ({e.GridX}, {e.GridY}) walkable at {Nearest(e.GridX, e.GridY)}; target {e.TeleportTo} walkable at {Nearest(e.TeleportTo!.Value.X, e.TeleportTo!.Value.Y)}");
     foreach (var e in exits)
-        if (!Around(e.GridX, e.GridY).Overlaps(reach))
+        if (Around(e.GridX, e.GridY).Count == 0 && e.TeleportTo is { } to && Around(to.X, to.Y, arrival: true).Overlaps(reach))
+            Info("unusable", $"gate at ({e.GridX}, {e.GridY}) has no walkable cell in reach; where it leads is reached anyway");
+        else if (!Around(e.GridX, e.GridY).Overlaps(reach))
             Problem("unreachable", $"{(e.TeleportTo is null ? "exit to " + Name(e.DestinationHash16) : "gate")} at ({e.GridX}, {e.GridY})");
 }
 
