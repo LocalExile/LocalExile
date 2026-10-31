@@ -19,10 +19,10 @@ static class TestEnvironment
                     Directory.SetCurrentDirectory(dir.FullName);
                     // The league modules, as the host and Auth see them in the server, whether or not they are built.
                     string mods = Path.Combine(Path.GetTempPath(), "localexile-test-modules-" + Environment.ProcessId);
-                    foreach (string module in new[] { "Ruthless", "Allflame" })
+                    foreach (string module in new[] { "standard", "ruthless", "allflame", "harvest", "heist", "delve" })
                     {
-                        Directory.CreateDirectory(Path.Combine(mods, module.ToLowerInvariant()));
-                        File.Copy(Path.Combine(dir.FullName, "Modules", "Source", module, "module.json"), Path.Combine(mods, module.ToLowerInvariant(), "module.json"), overwrite: true);
+                        Directory.CreateDirectory(Path.Combine(mods, module));
+                        File.Copy(Path.Combine(dir.FullName, "Modules", module, "module.json"), Path.Combine(mods, module, "module.json"), overwrite: true);
                     }
                     Environment.SetEnvironmentVariable("Game_MODULES_FOLDER", mods);
                     ServerLeagues.Add(new GameServer.Modules.Ruthless.RuthlessLeague(Path.Combine("config", "ruthless.json")));

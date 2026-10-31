@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "kind": "league",
   "depends": [],
+  "assembly": "bin/ruthless.dll",
   "league": {
     "form": {
       "standardNames": { "plain": "Ruthless", "hardcore": "Hardcore Ruthless", "ssf": "SSF Ruthless", "hardcoreSsf": "SSF Hardcore Ruthless" },

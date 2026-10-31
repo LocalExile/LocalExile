@@ -1,0 +1,8 @@
+{
+  "id": "standard",
+  "version": "1.0.0",
+  "kind": "league",
+  "depends": [],
+  "assembly": "bin/standard.dll",
+  "league": { "bases": ["Standard"] }
+}

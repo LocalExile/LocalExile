@@ -50,25 +50,24 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     public const string ManifestFile = "mod.json";
     /// <summary>The choices of /mod_enable and /mod_disable, in the mods' folder: an "id on" or "id off" per line.</summary>
     public const string StateFile = "mod-state.txt";
-    /// <summary>The same two files of a host of modules.</summary>
-    public const string ModuleManifestFile = "module.json", ModuleStateFile = "module-state.txt";
+    /// <summary>A module's manifest. Modules have no state file: deleting a module's folder is what turns it off.</summary>
+    public const string ModuleManifestFile = "module.json";
 
     string Manifest => modules ? ModuleManifestFile : ManifestFile;
-    string State => modules ? ModuleStateFile : StateFile;
     // What its lines start with.
     string Tag => modules ? "[modules]" : "[mods]";
     string Noun => modules ? "module" : "mod";
     public static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(400);
     const int BusyRetries = 5;
 
-    /// <summary>One of the server's own features behind the mods' API: it needs no folder, no assembly and no load context,
-    /// loads at once and at every start, and /mod_disable turns it off like any mod.</summary>
+    /// <summary>One of the server's own features behind the API: its code is the Gateway's, so it has no assembly or load
+    /// context and does not reload. It loads, once, when its folder (with a manifest) is there.</summary>
     public ModHost AddBuiltIn(string id, Func<IModule> create)
     {
         lock (_gate)
         {
             _builtIn[id] = create;
-            LoadBuiltIn(id, create);
+            if (File.Exists(Path.Combine(Folder, id, Manifest))) LoadBuiltIn(id, create);
         }
         return this;
     }
@@ -99,7 +98,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         Directory.CreateDirectory(Folder);
         lock (_gate)
         {
-            ReadChoices();
+            if (!modules) ReadChoices();
             LoadMissing();
         }
         if (!watch) return;
@@ -148,6 +147,11 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     {
         lock (_gate)
         {
+            if (modules)
+            {
+                foreach (string one in id is null ? [.. _loaded.Keys] : new[] { id }) HotReload(one);
+                return;
+            }
             if (id is null) foreach (string all in UnloadOrder([.. _loaded.Keys])) Unload(all);
             else foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
             if (id is null) _failed.Clear(); else _failed.Remove(id);
@@ -159,11 +163,12 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     /// them again. False when the folder has no such mod.</summary>
     public bool SetEnabled(string id, bool enabled)
     {
+        if (modules) throw new InvalidOperationException("a module is turned off by deleting its folder");
         lock (_gate)
         {
             if (id != Path.GetFileName(id) || (!_builtIn.ContainsKey(id) && !IsMod(Path.Combine(Folder, id)))) return false;
             _choices[id] = enabled;
-            File.WriteAllLines(Path.Combine(Folder, State), _choices.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} {(c.Value ? "on" : "off")}"));
+            File.WriteAllLines(Path.Combine(Folder, StateFile), _choices.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} {(c.Value ? "on" : "off")}"));
             if (!enabled) foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
             _failed.Remove(id);
             LoadMissing();
@@ -173,7 +178,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
 
     void ReadChoices()
     {
-        string path = Path.Combine(Folder, State);
+        string path = Path.Combine(Folder, StateFile);
         if (!File.Exists(path)) return;
         foreach (string line in File.ReadAllLines(path))
             if (line.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var id, var state and ("on" or "off")]) _choices[id] = state == "on";
@@ -304,7 +309,10 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     {
         string relative = Path.GetRelativePath(Path.GetFullPath(Folder), path);
         string id = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
-        if (id is "" or "." or ".." || id == State || relative.StartsWith("..", StringComparison.Ordinal)) return;
+        if (id is "" or "." or ".." or StateFile || relative.StartsWith("..", StringComparison.Ordinal)) return;
+        // A module's source and its build's scratch are not the module: its build's output is.
+        if (modules && relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) is [_, var part, ..]
+            && (part == "obj" || (part != "bin" && part != Manifest && HasProject(Path.Combine(Folder, id))))) return;
         Later(id, busy: 0);
     }
 
@@ -329,13 +337,55 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
             if (!_pending.Remove(id, out var pending)) return;
             pending.Timer.Dispose();
             tries = pending.Busy;
-            foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
-            _failed.Remove(id);
-            LoadMissing();
-            busy = _failed.TryGetValue(id, out string? error) && error.StartsWith("busy:", StringComparison.Ordinal);
+            if (modules) busy = HotReload(id);
+            else
+            {
+                foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
+                _failed.Remove(id);
+                LoadMissing();
+                busy = _failed.TryGetValue(id, out string? error) && error.StartsWith("busy:", StringComparison.Ordinal);
+            }
         }
         // A file still being written: try again a few times before leaving the error.
         if (busy && tries < BusyRetries) Later(id, tries + 1);
+    }
+
+    // A loaded module's new files, with the modules that depend on it. A module stays while the Gateway runs: what is wrong
+    // with the new files (a failed compile, a half-written build, a deleted folder) leaves the running one as it is, and one
+    // that throws while loading goes back to the assemblies it had. A folder that was not loaded at start waits for the next.
+    // True when a file was still being written.
+    bool HotReload(string id)
+    {
+        if (!_loaded.TryGetValue(id, out var old) || old.Context is null) return false;
+        if (!Directory.Exists(old.Folder))
+        {
+            Tell($"{Tag} {id}'s folder is gone: it stays loaded until the Gateway restarts");
+            return false;
+        }
+        ModManifest manifest;
+        Images images;
+        try
+        {
+            manifest = ReadManifest(id, File.ReadAllText(Path.Combine(old.Folder, Manifest)));
+            images = ReadImages(manifest, old.Folder);
+        }
+        catch (Exception ex) when (ex is IOException and not FileNotFoundException or UnauthorizedAccessException) { return true; }
+        catch (Exception ex) when (ex is JsonException or FormatException or FileNotFoundException or ModScripts.CompileException)
+        {
+            Tell($"{Tag} {id} keeps running, the new files are not usable: {ex.Message}");
+            return false;
+        }
+        var affected = UnloadOrder(Dependents(id));
+        var before = affected.Select(a => _loaded[a]).ToList();
+        foreach (string a in affected) Unload(a);
+        if (!Load(manifest, old.Folder, images))
+        {
+            string why = _failed.GetValueOrDefault(id, "");
+            Load(old.Manifest, old.Folder, old.Images);
+            Tell($"{Tag} {id} keeps running as it was, the new build did not load: {why}");
+        }
+        foreach (var dependent in before.Where(m => m != old).Reverse()) Load(dependent.Manifest, dependent.Folder, dependent.Images);
+        return false;
     }
 
     // Every folder whose mod is not loaded, each after the mods it depends on; what cannot load keeps its reason.
@@ -343,15 +393,6 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
     {
         var waiting = new Dictionary<string, (ModManifest Manifest, string Folder)>(StringComparer.Ordinal);
         _off.Clear();
-        foreach (var (id, create) in _builtIn)
-        {
-            if (!_choices.GetValueOrDefault(id, true))
-            {
-                Unload(id);
-                _off.Add(id);
-            }
-            else if (!_loaded.ContainsKey(id)) LoadBuiltIn(id, create);
-        }
         foreach (string dir in Directory.Exists(Folder) ? Directory.GetDirectories(Folder) : [])
         {
             string id = Path.GetFileName(dir);
@@ -364,7 +405,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
                 var manifest = File.Exists(manifestPath) ? ReadManifest(id, File.ReadAllText(manifestPath))
                     : new ModManifest(id, "0", ModKind.Script, [], id + ".dll");
                 if (!modules && manifest.Kind == ModKind.League) throw new FormatException("a league is a module: it belongs in Modules/, with a module.json");
-                if (_choices.GetValueOrDefault(id, manifest.Enabled)) waiting[id] = (manifest, dir);
+                if (modules || _choices.GetValueOrDefault(id, manifest.Enabled)) waiting[id] = (manifest, dir);
                 else { _off.Add(id); _failed.Remove(id); }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Fail(id, $"busy: {ex.Message}"); }
@@ -389,26 +430,42 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         }
     }
 
-    bool Load(ModManifest manifest, string dir)
+    // A module with a project is built by it; only a folder of loose files is compiled here.
+    static bool HasProject(string dir) => Directory.Exists(dir) && Directory.GetFiles(dir, "*.csproj").Length > 0;
+
+    // What a mod is made of, read into memory: its assembly (with symbols), its compiled scripts (last).
+    sealed record Images(IReadOnlyList<(byte[] Dll, byte[]? Pdb)> Assemblies, byte[]? Scripts);
+
+    Images ReadImages(ModManifest manifest, string dir)
+    {
+        string path = Path.Combine(dir, manifest.Assembly);
+        string[] scripts = modules && HasProject(dir) ? [] : ModScripts.Sources(dir);
+        if (!File.Exists(path) && scripts.Length == 0) throw new FileNotFoundException($"no {manifest.Assembly} in the {Noun}'s folder (built yet?)");
+        List<(byte[], byte[]?)> assemblies = [];
+        if (File.Exists(path))
+        {
+            string pdb = Path.ChangeExtension(path, ".pdb");
+            assemblies.Add((File.ReadAllBytes(path), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null));
+        }
+        if (scripts.Length == 0) return new(assemblies, null);
+        var compiled = ModScripts.Compile(manifest.Id, scripts, ScriptReferences(manifest, dir));
+        assemblies.Add(compiled);
+        return new(assemblies, compiled.Dll);
+    }
+
+    bool Load(ModManifest manifest, string dir, Images? images = null)
     {
         string id = manifest.Id;
         var context = new ModLoadContext(id, Path.GetFullPath(dir), [.. manifest.Depends.Select(d => _loaded[d].Context).OfType<ModLoadContext>()]);
         var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context);
         try
         {
-            string path = Path.Combine(mod.Folder, manifest.Assembly);
-            string[] scripts = ModScripts.Sources(mod.Folder);
-            if (!File.Exists(path) && scripts.Length == 0) throw new FileNotFoundException($"no {manifest.Assembly} in the mod's folder (built yet?)");
-            List<Assembly> assemblies = File.Exists(path) ? [context.LoadCopy(path)] : [];
-            if (scripts.Length > 0)
-            {
-                var (dll, pdb) = ModScripts.Compile(id, scripts, ScriptReferences(manifest, mod.Folder));
-                mod.ScriptImage = dll;
-                assemblies.Add(context.LoadImage(dll, pdb));
-            }
+            mod.Images = images ?? ReadImages(manifest, mod.Folder);
+            mod.ScriptImage = mod.Images.Scripts;
+            List<Assembly> assemblies = [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
             var entries = assemblies.SelectMany(a => a.GetExportedTypes())
                 .Where(t => (modules ? typeof(IModule) : typeof(IMod)).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }).ToList();
-            if (entries.Count == 0) throw new InvalidOperationException($"{(scripts.Length > 0 ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
+            if (entries.Count == 0) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
             var api = new Context(this, mod);
             foreach (var type in entries)
             {
@@ -578,6 +635,8 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         public List<ILeague> Leagues { get; } = [];
         /// <summary>The compiled scripts, for the scripts of the mods that depend on this one.</summary>
         public byte[]? ScriptImage;
+        /// <summary>What it was loaded from, to go back to when a module's new build does not load.</summary>
+        public Images? Images;
         public int Hooks;
         public volatile bool Unloaded;
     }

@@ -10,7 +10,7 @@ partial class Program
         {
             if (!conn.Hardcore || conn.PlayerLife != 0 || conn.HardcoreDeathRecorded) return;
             string name = CharacterName(conn);
-            var source = LeagueCatalog.FromEnvironment().ResolveSavedLeague(conn.League)
+            var source = LeagueCatalog.Startup.ResolveSavedLeague(conn.League)
                 ?? throw new InvalidOperationException("Cannot resolve the dying character's Hardcore league");
             var dead = HardcoreDeathPersistence.Commit(Saves.Db, name, source, () =>
             {

@@ -1,0 +1,7 @@
+{
+  // the Heist Locker: its code is in the Gateway (src/GameServer.Gateway/Features/). This folder is what turns it on.
+  "id": "heist",
+  "version": "built in",
+  "kind": "feature",
+  "depends": []
+}

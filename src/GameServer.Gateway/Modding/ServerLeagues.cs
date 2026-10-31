@@ -46,14 +46,15 @@ static class ServerLeagues
         return null;
     }
 
+    // Without the standard module's folder LeagueRuntime.Standard is what is left: the rules' defaults.
     /// <summary>A character's module: the one of its league form (<see cref="ILeague.Id"/>), else the one named as its league
     /// or that league's base (Hardcore X is X). Standard when there is none, or a feature it needs is not loaded.</summary>
     public static LeagueRuntime Resolve(string? form, string? name, Func<string, bool> loaded, Action<string>? log = null)
     {
         var all = _leagues;
         ILeague? league = form is null ? null : all.Values.FirstOrDefault(l => l.Id.Equals(form, StringComparison.OrdinalIgnoreCase));
-        if (league is null && form is null && name is not null && !name.Equals(LeagueCatalog.Standard, StringComparison.OrdinalIgnoreCase)
-            && !all.TryGetValue(name, out league) && LeagueCatalog.FromEnvironment().ResolveSavedLeague(name)?.Base is { } baseName)
+        if (league is null && form is null && !all.TryGetValue(name ?? LeagueCatalog.Standard, out league)
+            && LeagueCatalog.Startup.ResolveSavedLeague(name)?.Base is { } baseName)
             all.TryGetValue(baseName, out league);
         if (league is null)
         {

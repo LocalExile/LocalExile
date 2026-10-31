@@ -324,23 +324,57 @@ public sealed class ModHostTests : IDisposable
     }
 
     [Fact]
-    public async Task A_built_in_module_loads_without_a_folder_turns_off_and_stays_off_across_a_restart()
+    public async Task A_built_in_module_loads_only_with_its_folder()
     {
-        var host = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn());
-        Assert.True(host.IsLoaded("feature"));
-        Assert.True(await host.RunCommand(_player, "builtin", []));
+        using (var host = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn()))
+            Assert.False(host.IsLoaded("feature"));
+        Directory.CreateDirectory(Path.Combine(_root, "feature"));
+        File.WriteAllText(Path.Combine(_root, "feature", ModHost.ModuleManifestFile), "{ }");
+        using var loaded = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn());
+        loaded.Start(watch: false);
+        Assert.True(await loaded.RunCommand(_player, "builtin", []));
+        Assert.Single(loaded.Mods());
+    }
+
+    static string ModulePing(string reply) => $$"""
+        public sealed class Ping : IModule
+        {
+            public void Load(IModuleContext module) => module.OnChatCommand("ping", "/ping", c => c.Player.Tell("{{reply}}"));
+        }
+        """;
+
+    [Fact]
+    public async Task A_module_stays_loaded_when_its_folder_goes_and_a_new_folder_waits_for_the_next_start()
+    {
+        string dir = AddScript("m", ModulePing("pong"));
+        using var host = new ModHost(_root, _ => { }, modules: true);
         host.Start(watch: false);
-        Assert.True(host.IsLoaded("feature"));
-        Assert.True(host.SetEnabled("feature", false));
-        Assert.False(await host.RunCommand(_player, "builtin", []));
-        Assert.Equal("disabled", host.Mods().Single().Error);
-        Assert.True(File.Exists(Path.Combine(_root, ModHost.ModuleStateFile)));
-        using var next = new ModHost(_root, _ => { }, modules: true).AddBuiltIn("feature", () => new BuiltIn());
-        next.Start(watch: false);
-        Assert.False(next.IsLoaded("feature"));
-        Assert.True(next.SetEnabled("feature", true));
-        Assert.True(next.IsLoaded("feature"));
-        host.Dispose();
+        Assert.Throws<InvalidOperationException>(() => host.SetEnabled("m", false));
+        Directory.Delete(dir, recursive: true);
+        host.Reload("m");
+        Assert.True(await host.RunCommand(_player, "ping", []));
+        AddScript("later", ModulePing("later"));
+        host.Reload();
+        Assert.False(host.IsLoaded("later"));
+    }
+
+    [Fact]
+    public async Task A_module_hot_reloads_and_bad_files_leave_the_old_one_running()
+    {
+        AddScript("m", ModulePing("one"));
+        using var host = new ModHost(_root, _ => { }, modules: true);
+        host.Start(watch: false);
+        AddScript("m", "broken");
+        host.Reload("m");
+        Assert.True(await host.RunCommand(_player, "ping", []));
+        AddScript("m", "public sealed class Throws : IModule { public void Load(IModuleContext module) => throw new Exception(); }");
+        host.Reload("m");
+        Assert.True(await host.RunCommand(_player, "ping", []));
+        Assert.Equal(["one", "one"], _player.Told);
+        AddScript("m", ModulePing("two"));
+        host.Reload("m");
+        Assert.True(await host.RunCommand(_player, "ping", []));
+        Assert.Equal("two", _player.Told[^1]);
     }
 
     [Theory]
@@ -374,9 +408,8 @@ public sealed class ModHostTests : IDisposable
         await host.Tick(_player, 1);
         Assert.Equal(["tick"], _player.Told);
         Assert.Equal("scoped", ServerLeagues.Resolve(null, "Scoped League", _ => true).Id);
-        Assert.True(host.SetEnabled("custom", false));
+        host.Dispose();
         Assert.Same(LeagueRuntime.Standard, ServerLeagues.Resolve(null, "Scoped League", _ => true));
-        Assert.True(await host.Unloaded("custom"));
     }
 
     [Fact]

@@ -20,9 +20,10 @@ sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadConte
             throw new FileNotFoundException($"a mod can use GameServer.Modding, not {name.Name} (the server's own code)");
         foreach (var dependency in dependencies)
             if (dependency.Assemblies.FirstOrDefault(a => a.GetName().Name == name.Name) is { } shared) return shared;
-        string path = Path.Combine(folder, name.Name + ".dll");
-        // null: the default context's (the framework).
-        return File.Exists(path) ? LoadCopy(path) : null;
+        // Beside its manifest, or in its build's output (a module). null: the default context's (the framework).
+        foreach (string path in new[] { Path.Combine(folder, name.Name + ".dll"), Path.Combine(folder, "bin", name.Name + ".dll") })
+            if (File.Exists(path)) return LoadCopy(path);
+        return null;
     }
 
     /// <summary>Loads the assembly (and its .pdb, for line numbers in errors) from a copy in memory, so the files stay free
@@ -35,11 +36,11 @@ sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadConte
         return LoadFromStream(dll, symbols);
     }
 
-    /// <summary>Loads an assembly that exists only in memory (the mod's compiled scripts).</summary>
-    public Assembly LoadImage(byte[] image, byte[] symbols)
+    /// <summary>Loads an assembly already read into memory (a mod's files, its compiled scripts).</summary>
+    public Assembly LoadImage(byte[] image, byte[]? symbols)
     {
         using var dll = new MemoryStream(image);
-        using var pdb = new MemoryStream(symbols);
+        using var pdb = symbols is null ? null : new MemoryStream(symbols);
         return LoadFromStream(dll, pdb);
     }
 }

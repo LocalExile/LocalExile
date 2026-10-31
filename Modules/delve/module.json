@@ -1,0 +1,7 @@
+{
+  // Delve: its code is in the Gateway (src/GameServer.Gateway/Features/). This folder is what turns it on.
+  "id": "delve",
+  "version": "built in",
+  "kind": "feature",
+  "depends": []
+}

@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "kind": "league",
   "depends": [],
+  "assembly": "bin/allflame.dll",
   "league": { "bases": ["Allflame"] }
 }

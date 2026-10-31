@@ -2,20 +2,19 @@
   <!-- The repository's settings (nullable, warnings as errors), then what makes a project here a module. -->
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
-  <!-- A module: Modules/Source/<Name>/<Name>.csproj builds into Modules/Binaries/<name>/ (gitignored) as <name>.dll beside its
-       module.json. The running Gateway sees the new files and reloads the module (Agents/docs/dev/modules.md). -->
+  <!-- A module: Modules/<id>/<Name>.csproj builds into Modules/<id>/bin/ (gitignored) as <id>.dll. Deleting the folder removes the
+       module at the next start; the running Gateway hot-reloads a new build (Agents/docs/dev/modules.md). -->
   <PropertyGroup>
     <ModuleId>$(MSBuildProjectName.ToLowerInvariant())</ModuleId>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>$(ModuleId)</AssemblyName>
-    <OutputPath>$(MSBuildThisFileDirectory)..\Binaries\$(ModuleId)\</OutputPath>
+    <OutputPath>$(MSBuildProjectDirectory)\bin\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateDependencyFile>false</GenerateDependencyFile>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Compiled against, not copied: every module uses the Gateway's own GameServer.Modding. -->
-    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\src\GameServer.Modding\GameServer.Modding.csproj" Private="false" />
-    <None Include="module.json" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\GameServer.Modding\GameServer.Modding.csproj" Private="false" />
   </ItemGroup>
 </Project>

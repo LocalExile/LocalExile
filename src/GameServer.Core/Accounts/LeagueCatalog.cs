@@ -39,7 +39,7 @@ public sealed record LeagueFormNames(string Plain, string Hardcore, string Ssf, 
 public sealed record LeagueForm(string Id, LeagueFormNames StandardNames, LeagueFormNames ChallengeNames, string Description = "", bool PermanentDeath = false);
 
 /// <summary>What one module's <c>module.json</c> says about leagues ("league": { "bases": [...], "form": {...} }).</summary>
-public sealed record LeagueDeclaration(bool Enabled, IReadOnlyList<string> Bases, LeagueForm? Form);
+public sealed record LeagueDeclaration(IReadOnlyList<string> Bases, LeagueForm? Form);
 
 /// <summary>
 /// The server's leagues: each base league with its Hardcore and SSF variants, and those of every league form. Named as the
@@ -63,57 +63,53 @@ public sealed class LeagueCatalog
     /// <param name="baseLeagues">The base leagues to offer.</param>
     /// <param name="forms">The forms to offer.</param>
     /// <param name="savedBases">More base leagues saved characters may be in.</param>
-    /// <param name="savedForms">More forms saved characters may be in.</param>
     public LeagueCatalog(IEnumerable<string> baseLeagues, IEnumerable<LeagueForm>? forms = null,
-        IEnumerable<string>? savedBases = null, IEnumerable<LeagueForm>? savedForms = null)
+        IEnumerable<string>? savedBases = null)
     {
         Forms = [.. forms ?? []];
         var bases = baseLeagues.Select(n => n.Trim()).Where(n => n.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (bases.Count == 0) bases.Add(Standard);
         All = [.. bases.SelectMany(b => Variants(b, Forms))];
-        var allForms = Forms.Concat(savedForms ?? []).DistinctBy(f => f.Id, StringComparer.OrdinalIgnoreCase).ToList();
-        _saved = [.. bases.Append(Standard).Concat(savedBases ?? []).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(b => Variants(b, allForms))];
+        
+        _saved = [.. bases.Append(Standard).Concat(savedBases ?? []).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(b => Variants(b, Forms))];
     }
 
-    /// <summary>The configured leagues and those of the modules in <c>Game_MODULES_FOLDER</c> (default Modules/Binaries).
-    /// A module that is off is not offered, but its saved characters keep their league.</summary>
+    /// <summary>The configured leagues and those of the module folders in <c>Game_MODULES_FOLDER</c> (default Modules).
+    /// A league whose folder was deleted is not offered, and its saved characters keep their league's name on Standard.</summary>
     public static LeagueCatalog FromEnvironment()
     {
         var declared = Environment.GetEnvironmentVariable("Game_MODULES") == "0" ? []
-            : Declarations(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? Path.Combine("Modules", "Binaries"));
-        var on = declared.Where(d => d.Enabled).ToList();
-        IEnumerable<string> bases = Environment.GetEnvironmentVariable("Game_LEAGUES") is { Length: > 0 } list ? list.Split(',')
-            : on.SelectMany(d => d.Bases).Prepend(Standard);
-        return new(bases, on.Select(d => d.Form).OfType<LeagueForm>(), declared.SelectMany(d => d.Bases), declared.Select(d => d.Form).OfType<LeagueForm>());
+            : Declarations(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules");
+        var bases = declared.SelectMany(d => d.Bases).OrderBy(b => !b.Equals(Standard, StringComparison.OrdinalIgnoreCase)).ToList();
+        IEnumerable<string> offered = Environment.GetEnvironmentVariable("Game_LEAGUES") is { Length: > 0 } list ? list.Split(',') : bases;
+        return new(offered, declared.Select(d => d.Form).OfType<LeagueForm>(), bases);
     }
 
-    /// <summary>Reads each module's declaration in a modules folder, on or off as the Gateway's host has it.</summary>
+    /// <summary>The leagues as they were when this server started: modules come and go only with a restart.</summary>
+    public static LeagueCatalog Startup => _startup.Value;
+    static readonly Lazy<LeagueCatalog> _startup = new(FromEnvironment);
+
+    /// <summary>Reads what each module folder declares.</summary>
     public static IReadOnlyList<LeagueDeclaration> Declarations(string folder)
     {
         if (!Directory.Exists(folder)) return [];
-        var choices = new Dictionary<string, bool>(StringComparer.Ordinal);
-        string state = Path.Combine(folder, "module-state.txt");
         var result = new List<LeagueDeclaration>();
         try
         {
-            if (File.Exists(state))
-                foreach (string line in File.ReadAllLines(state))
-                    if (line.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var id, var value and ("on" or "off")]) choices[id] = value == "on";
             foreach (string dir in Directory.GetDirectories(folder).Order(StringComparer.Ordinal))
-                if (Read(Path.GetFileName(dir), Path.Combine(dir, "module.json"), choices) is { } declared) result.Add(declared);
+                if (Read(Path.GetFileName(dir), Path.Combine(dir, "module.json")) is { } declared) result.Add(declared);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.WriteLine($"[leagues] {folder}: {e.Message}"); }
         return result;
     }
 
-    static LeagueDeclaration? Read(string id, string path, Dictionary<string, bool> choices)
+    static LeagueDeclaration? Read(string id, string path)
     {
         if (!File.Exists(path)) return null;
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(path), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
             if (!doc.RootElement.TryGetProperty("league", out var league)) return null;
-            bool enabled = choices.GetValueOrDefault(id, !doc.RootElement.TryGetProperty("enabled", out var on) || on.GetBoolean());
             string[] bases = league.TryGetProperty("bases", out var b) ? [.. b.EnumerateArray().Select(n => n.GetString()!)] : [];
             LeagueForm? form = null;
             if (league.TryGetProperty("form", out var f))
@@ -124,7 +120,7 @@ public sealed class LeagueCatalog
                     f.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "",
                     f.TryGetProperty("permanentDeath", out var p) && p.GetBoolean());
             }
-            return new(enabled, bases, form);
+            return new(bases, form);
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
         {
@@ -137,7 +133,7 @@ public sealed class LeagueCatalog
         name is null ? null : All.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>A saved character's league, on offer or not. A name no module declares any more keeps its name (the ticket
-    /// and the stash go by it) and plays by Standard's rules. Creation uses <see cref="Find"/>, so what is off is not offered.</summary>
+    /// and the stash go by it) and plays by Standard's rules. Creation uses <see cref="Find"/>.</summary>
     public League? ResolveSavedLeague(string? name) => name is null ? null : Find(name)
         ?? _saved.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase))
         ?? new League(name, Standard, false, false);

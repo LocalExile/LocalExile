@@ -6,10 +6,11 @@ using Mod = GameServer.Modding;
 // message dispatch, the area's setup, a kill, its drops and experience, the character's stats).
 partial class Program
 {
-    // Modules (Agents/docs/dev/modules.md) are overhauls, mods small modifications: two folders, each with its own commands.
+    // Modules (Agents/docs/dev/modules.md) are overhauls, mods small modifications. A module is a folder in Modules/, loaded at the start
+    // of the Gateway and there until it stops; it may hot-reload. Delete the folder to turn it off.
     // Game_MODULES=0 and Game_MODS=0 load none from their folder; Game_MODULES_FOLDER and Game_MODS_FOLDER move it (relative
-    // to the repository root, like data/). The server's own features behind the API (Features/) are always modules.
-    internal static readonly ModHost ServerModules = new ModHost(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules/Binaries", Console.WriteLine, modules: true)
+    // to the repository root, like data/). The server's own features behind the API (Features/) are modules too.
+    internal static readonly ModHost ServerModules = new ModHost(Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules", Console.WriteLine, modules: true)
         .AddBuiltIn(HarvestFeature.Id, () => new HarvestFeature())
         .AddBuiltIn(HeistFeature.Id, () => new HeistFeature())
         .AddBuiltIn("delve", () => new DelveFeature());
@@ -28,14 +29,6 @@ partial class Program
         // A mod (re)loaded or failed while players are in: they read it in chat, as a hot reload.
         ServerMods.Changed += line => HotReload.Tell(line.Replace("[mods] ", "Mods: "));
         ServerMods.Start();
-    }
-
-    // /module_enable and /module_disable. A league that is turned off leaves the create screen at the next login.
-    static Task SetModuleEnabled(ClientState conn, string[] args, bool enabled)
-    {
-        if (args.Length != 1) throw new ArgumentException("which module? /module lists them");
-        return conn.Commands!.Reply(ServerModules.SetEnabled(args[0], enabled)
-            ? $"Module {args[0]} {(enabled ? "enabled" : "disabled")} (/module for the list)." : $"No module \"{args[0]}\" in {ServerModules.Folder}/ (/module for the list).");
     }
 
     // /mod_enable and /mod_disable.

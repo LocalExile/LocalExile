@@ -44,19 +44,6 @@ public sealed class LeagueDeclarationTests : IDisposable
     }
 
     [Fact]
-    public void A_disabled_module_is_not_offered_but_its_characters_keep_their_league()
-    {
-        Mod("grim", Form);
-        File.WriteAllText(Path.Combine(_mods, "module-state.txt"), "grim off\n");
-        var declared = Assert.Single(LeagueCatalog.Declarations(_mods));
-        Assert.False(declared.Enabled);
-        var catalog = new LeagueCatalog([LeagueCatalog.Standard], savedForms: [declared.Form!]);
-        Assert.Null(catalog.Find("Hardcore Grim"));
-        var saved = catalog.ResolveSavedLeague("Hardcore Grim")!;
-        Assert.Equal(("grim", true), (saved.Form, saved.Hardcore));
-    }
-
-    [Fact]
     public void A_league_no_module_declares_keeps_its_name_on_standard()
     {
         var saved = new LeagueCatalog([LeagueCatalog.Standard]).ResolveSavedLeague("Gone")!;
