@@ -15,22 +15,23 @@ stack's first start (the Gateway seeds the game-data reference tables into the d
 restarts. `-Env @{ NAME = 'value' }` tries runtime settings (`DOTNET_GCConserveMemory`, …). It never binds the default
 ports and never starts a client.
 
-**In-process scenarios**: `PerfBenchmarkTests` in the Gateway tests, which only run with `Game_PERF=1`:
+**In-process scenarios**: `scripts/perf/PerfBench`, a console tool (not a test: it waits on real time) that reaches the
+Gateway's and the game module's internals:
 
 ```
-$env:Game_PERF = '1'; $env:Game_PERF_LABEL = 'my-change'
-dotnet test tests/GameServer.Gateway.Tests -c Release --filter FullyQualifiedName~PerfBenchmarkTests.Area_instance_creation
+$env:Game_PERF_LABEL = 'my-change'
+dotnet run -c Release --project scripts/perf/PerfBench -- area
 ```
 
-Run one test per process (catalogues load once per process). Results go to the test output and, as JSON lines, to
+One scenario per process (catalogues load once per process). Results go to stdout and, as JSON lines, to
 `artifacts/perf/bench.jsonl`.
 
-| Test | What it measures |
+| Scenario | What it measures |
 |---|---|
-| `Catalogue_loads` | the first-player loads in a fixed order (Program's statics, stats, items, skills, the skill-type sets, monsters, packs, area transitions, waypoints, the passive tree): time, allocation and what each retains |
-| `Area_instance_creation` | six supported areas at seeds nobody asked for before: the layout (server level generation, `AreaLayouts.For`) and the monster population over a loopback connection; the GGPK caches and the heap afterwards. `Game_PERF_MORE_AREAS=N` adds N more layouts, as a long session visits them |
-| `Busy_instance_ticks` | The Coast with 60 monsters of its pack kinds (and a Sand Spitter, for projectiles) around a walking player and 140 idle ones farther away; the real `RunMonsterAi` loop with swings, contacts and projectiles, every packet encrypted and sent. Process CPU per game second, measured after a 5 s warm-up (a fresh process first spends seconds in tier-1 JIT) |
-| `Monster_planner` | `PlanMonsterAi` alone over the same crowd, 2000 steps: time, process CPU and allocation per step |
+| `catalogue` | the first-player loads in a fixed order (Program's statics, stats, items, skills, the skill-type sets, monsters, packs, area transitions, waypoints, the passive tree): time, allocation and what each retains |
+| `area` | six supported areas at seeds nobody asked for before: the layout (server level generation, `AreaLayouts.For`) and the monster population over a loopback connection; the GGPK caches and the heap afterwards. `Game_PERF_MORE_AREAS=N` adds N more layouts, as a long session visits them |
+| `busy` | The Coast with 60 monsters of its pack kinds (and a Sand Spitter, for projectiles) around a walking player and 140 idle ones farther away; the real `RunMonsterAi` loop with swings, contacts and projectiles, every packet encrypted and sent. Process CPU per game second, measured after a 5 s warm-up (a fresh process first spends seconds in tier-1 JIT) |
+| `planner` | `PlanMonsterAi` alone over the same crowd, 2000 steps: time, process CPU and allocation per step |
 
 The busy instance is the same in every run (fixed placement, no buried monsters, which rise on a wall-clock watch);
 `PopulateArea` is not, because it seeds placement with the process's randomized `HashCode`. Timings on a shared
@@ -38,8 +39,8 @@ machine vary by ±20 %: compare several runs, and prefer allocation, which is ex
 
 **Profiles**: set `DOTNET_EnableEventPipe=1`, `DOTNET_EventPipeOutputPath=…\trace-{pid}.nettrace` and
 `DOTNET_EventPipeConfig=Microsoft-DotNETCore-SampleProfiler:0:5,Microsoft-Windows-DotNETRuntime:0x4c14fccbd:5` for a
-test run: CPU samples and allocation ticks with stacks (read them with TraceEvent or `dotnet-trace report`).
-`Game_PERF_HOLD=1` keeps the area test's state alive for `dotnet-gcdump collect`.
+run: CPU samples and allocation ticks with stacks (read them with TraceEvent or `dotnet-trace report`).
+`Game_PERF_HOLD=1` keeps the area scenario's state alive for `dotnet-gcdump collect`.
 
 ## Results (2026-10-30, this branch against origin/main 89b7aa90, same machine)
 
