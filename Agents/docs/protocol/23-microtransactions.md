@@ -130,14 +130,15 @@ uses `SupporterIconFrame128.dds`). Four rows have no such art, 269, 295, 327 and
 +0x1a8 is the player object's field and 0x2ba's flags bit 2 (`0x141e7ee30`, which fires the component's listeners when
 it changes). A known player's frame and portrait are 0xa7's second pair ([28](28-player-trade.md) §2).
 
-The client's text for a pick, BackendErrors `PortraitFrameChanged` (row 272), ends "You must log out and in again for
-the change to take effect", so a pick is kept apart from what is shown. The account store's `PortraitFrame` takes it at
-once (control op `set_portrait_frame`) and the character list shows it; the login session copies it at Play, tickets
-carry that copy through area changes, and "resolve" gives it to the Gateway (`ClientState.PortraitFrame`). The text goes
-out as a 0x17 line with the frame's `MtxTypes` name: 0x12d leaves `{0}` unfilled ([10](10-chat-and-commands.md) §2).
-Emptying the slot names ClientStrings `DefaultPortraitFrame`. Live 2026-10-31 (a 0x1f9 through the bridge, watching the
-image loader `0x1418667d0`): frame 3 asked for and loaded `SupporterIconFrame3` at selection, in game and, through 0xa7,
-in a party member's client; +0x1a8 stayed 0 through an area change after the pick and was 3 after the next Play.
+The client tells the player itself, so the server sends no text. After a pick in slot 16 or 17 the sender's
+`0x140cdc9c0` prints ClientStrings `PortraitFrameEquippedMessage` (row 0xb5c) to chat with the cosmetic's name, or
+`DefaultPortraitFrame` / `DefaultCharacterPortrait` for an emptied slot: "You must log out and in again for the change
+to take effect" (a 0x17 line of the same text showed twice, live 2026-10-31). So a pick is kept apart from what is shown. The account store's `PortraitFrame` takes it at once (control op
+`set_portrait_frame`) and the character list shows it; the login session copies it at Play, tickets carry that copy
+through area changes, and "resolve" gives it to the Gateway (`ClientState.PortraitFrame`). Live 2026-10-31 (a 0x1f9
+through the bridge, watching the image loader `0x1418667d0`): frame 3 asked for and loaded `SupporterIconFrame3` at
+selection, in game and, through 0xa7, in a party member's client; +0x1a8 stayed 0 through an area change after the pick
+and was 3 after the next Play.
 
 **Skill effects.** The Cosmetics tab's skill slots are 0x1f3's second list (message +0x40 → session +0xd5c8, 40 bytes
 each, sorted by key): raw u32 key, a target variant, u32 BE record id, u32 BE MtxTypeGameSpecific hash, raw u64. The

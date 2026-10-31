@@ -126,12 +126,11 @@ static class CosmeticsFeature
         }
         if (pick.Slot == SocialFrameSlot)
         {
-            // Unlike the portrait this is not sent to the client now: the frame applies at the next login.
-            var frame = WornFrame(conn);
-            var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait_frame", Ticket = conn.Ticket, PortraitFrame = frame?.Frame ?? 0 });
-            if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait_frame {frame?.Frame ?? 0}: {told.Error}");
-            string text = PortraitFrameChangedText(frame?.FrameName);
-            await Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
+            // Unlike the portrait this is not sent to the client now: the frame applies at the next login, as the line the
+            // client prints for the pick says (0x140cdc9c0).
+            ushort frame = WornFrame(conn);
+            var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait_frame", Ticket = conn.Ticket, PortraitFrame = frame });
+            if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait_frame {frame}: {told.Error}");
         }
     }
 
