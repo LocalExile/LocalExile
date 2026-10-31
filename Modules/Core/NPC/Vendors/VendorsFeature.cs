@@ -329,8 +329,6 @@ static class VendorsFeature
         var tabs = NpcShops.Tabs(npc.Npc.Id, catalog, items.NewItemId, notes, gemStock: gemStock,
             gemPrice: gemVendor is null ? null : gemVendor.Price, hardMode: LeagueFor(conn).HardMode, rules: LeagueFor(conn).Rules,
             fullGemStock: npc.Npc.Id.Equals("Metadata/NPC/Act1/Nessa", StringComparison.OrdinalIgnoreCase));
-        var shopSource = Npcs.Value.TalkSource(npc.Npc);
-        int shopRow = LeagueFor(conn).HardMode ? shopSource.HardModeShopRow : shopSource.ShopRow;
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} shop {npc.Npc.Name}: {n}");
         // One manager-1 inventory per tab (S→C 0xc0), then 0x8c lists them with their names.
         var ids = tabs.Select((_, i) => NpcShops.FirstTabId + (uint)i).ToList();
@@ -339,11 +337,12 @@ static class VendorsFeature
             await Send(remote, stream, ciphers, InstanceInventories.AddInventory(ids[i], NpcShops.Tab, NpcShops.Manager, tabs[i].Items),
                 $"0x00c0 shop tab {ids[i]} \"{tabs[i].Name}\" (manager {NpcShops.Manager}) of {npc.Npc.Name}: {tabs[i].Items.Count} items");
         conn.InNpcTalk = false;
-        // 0x8c's u8: 0 opens the window at UI +0x7b0, 1 the one at +0x7b8 (listener 0x140dcccf0); being tested live whether
-        // +0x7b8 is the tabbed vendor window (with 8 tabs +0x7b0 drew its tab bar over the title and the grid below the frame).
-        await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, (ushort)Math.Max(0, shopRow), tabs.Count > 1, ids,
-            [.. tabs.Select((t, i) => new InstanceNpcs.Choice(i, t.Name))]),
-            $"0x008c open the buy window of {npc.Npc.Name} (NPCShop row {shopRow}) with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
+        // 0x8c's u16 is the window kind (0x14073ee60, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
+        // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073d570). The NPC's DialogueStyle
+        // picks the window, not the u8 (0x140dcccf0). A tab's compact value is its colour (0x14073d570: ARGB, 0 the default).
+        await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, 0, false, ids,
+            [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
+            $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
     }
 
 }
