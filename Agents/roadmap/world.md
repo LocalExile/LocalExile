@@ -53,9 +53,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   - Delve (82): the mine cells and biomes (`Delve_*`); the client needs the server's cell data.
     An initial Delve_Main block, hub entrance and mine return gate now work with native generation and captured movement.
     The initial Crawler has attached wheels, engine idle and a torch; the hub's native equipment console is placed.
-    Equipment purchases/upgrades have account/league persistence; the chart's route request is parsed.
-    Remaining: validate/price selected routes against a persistent mine graph, route-bound Crawler movement with
-    player-speed catch-up and waiting, darkness stacks/resistance, flare/dynamite use, encounters and rewards.
+    Equipment purchases/upgrades have account/league persistence. The first quest trip has a bounded authored-rail
+    implementation with gradual exact-total debit, escort pacing and tutorial pack reveals. Native checks confirmed movement/light/combat and exact debit using assisted escort.
+    Remaining: validate/price general routes against a persistent mine graph, original biome population and encounter
+    wave scripts, darkness stacks/resistance and flare/dynamite use. Initial victory rewards and highest completed
+    depth now persist; general node-specific rewards and the mine graph still need implementation. Finish chart continuity inside the mine
+    restore laid lamp/cable trails on re-entry, and verify a continuous walking escort without debug teleports.
     Also finish shared sulphite migration, equipment cable visual tiers and other biome sections.
     This does not add Delve to the server level generator's supported areas.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.

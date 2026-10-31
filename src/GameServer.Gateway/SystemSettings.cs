@@ -55,6 +55,11 @@ sealed class SystemSettings
         ["impossible_escape_limit"] = 1,
         ["radius_jewel_default_limit"] = 0,
         ["grace_period_seconds"] = 60,
+        ["delve_reward_min_items"] = 15,
+        ["delve_reward_max_items"] = 20,
+        ["delve_reward_quantity_per_depth_pct"] = 10,
+        ["delve_reward_rarity_per_depth_pct"] = 5,
+        ["delve_reward_item_cap"] = 250,
     };
 
     static readonly Dictionary<string, string> SocketKeys = new(StringComparer.Ordinal)
@@ -170,7 +175,16 @@ sealed class SystemSettings
             error = $"unknown setting \"{key}\"";
             return false;
         }
-        if (key.StartsWith("socket_max_", StringComparison.OrdinalIgnoreCase))
+        if (key.StartsWith("delve_reward_", StringComparison.OrdinalIgnoreCase))
+        {
+            bool percentage = key.EndsWith("_pct", StringComparison.OrdinalIgnoreCase);
+            if (!double.IsFinite(value) || value < (percentage ? 0 : 1) || value > (percentage ? 1000 : 2000)
+                || (!percentage && value != Math.Round(value)))
+                error = "Delve reward counts are integers 1..2000; percentages are finite numbers 0..1000";
+            if (key == "delve_reward_min_items" && value > Default.Get("delve_reward_max_items")) error = "minimum exceeds maximum";
+            if (key == "delve_reward_max_items" && value < Default.Get("delve_reward_min_items")) error = "maximum is below minimum";
+        }
+        else if (key.StartsWith("socket_max_", StringComparison.OrdinalIgnoreCase))
         {
             if (value < 0 || value > SocketLayout.MaximumSockets || value != Math.Round(value))
                 error = $"{key} is an integer 0..{SocketLayout.MaximumSockets}";

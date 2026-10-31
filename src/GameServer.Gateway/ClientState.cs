@@ -529,6 +529,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// <summary>The Delve Crawler in the Azurite Mine Encampment (Program.Delve), and its cell.</summary>
     public uint DelveCrawlerObject;
     public (int X, int Y) DelveCrawlerAt;
+    public DelveJourney? DelveJourney;
     public readonly List<uint> DelveCrawlerBlockers = [];
     public readonly List<uint> DelveCrawlerAttachments = [];
     public uint DelveGeneratorObject;
