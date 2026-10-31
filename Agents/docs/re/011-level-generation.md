@@ -1546,6 +1546,11 @@ the target open, so the recorder's write of the fourth object threw and left the
   1_2_14_2 496072668: the client's `n(1)` from `0x142031e88` (the port `n(100)`), in the dungeon layout.
 - **Heights:** `lg.ps1 heights <area> <seed>` compares the port's cell heights with `<area>_seed<seed>.heights.bin`,
   by tile.
+- **Server objects:** `lg.ps1 questobjects <area regex> [seed] [--rooms]` generates each matching area (default seed 1)
+  and lists every placed room's server object lines and every tile `.tmd` record whose type is not a plain doodad
+  (NPCs, quest objects, chests, spawners, blockers, exits), one line per type with its count and first source (room or
+  tile, cell); `--rooms` also lists every placed `.arm` room. It tells which quest objects and NPCs an area holds; a
+  seed the client also fails (e.g. `1_2_3` at seed 1) prints the exception instead.
 - **Client failures (2026-10-27):** the gate also runs every (area, seed) the client failed to generate (the
   "Terrain generation failed: …" or "Critical Terrain Generation Error in …" line after its "Generating level" line,
   `Shared.LoggedFailures`) at its level: it matches when the port fails with the same first three words and only
