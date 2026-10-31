@@ -366,7 +366,9 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false) : 
         Images images;
         try
         {
-            manifest = ReadManifest(id, File.ReadAllText(Path.Combine(old.Folder, Manifest)));
+            string manifestPath = Path.Combine(old.Folder, Manifest);
+            // Scripts need no manifest.
+            manifest = File.Exists(manifestPath) ? ReadManifest(id, File.ReadAllText(manifestPath)) : old.Manifest;
             images = ReadImages(manifest, old.Folder);
         }
         catch (Exception ex) when (ex is IOException and not FileNotFoundException or UnauthorizedAccessException) { return true; }
