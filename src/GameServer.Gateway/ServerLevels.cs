@@ -198,7 +198,9 @@ static class ServerLevels
     static TerrainCache Files()
     {
         if (_files is not null) return _files;
-        var oodle = _oodle = new IdleWorkerDecoder(() => new NodeOodleDecoder("node", Path.GetFullPath(Path.Combine("Tools", "ooz", "ooz_worker.mjs"))));
+        // When the worker stops, the decompressed chunks go too: until the next generation nothing reads the game files.
+        var oodle = _oodle = new IdleWorkerDecoder(() => new NodeOodleDecoder("node", Path.GetFullPath(Path.Combine("Tools", "ooz", "ooz_worker.mjs"))),
+            () => _fs?.ClearBundleCache());
         // A small bundle cache: a read whose chunks are all in the decompressed-chunk cache needs no bundle, and the
         // default 1 GiB ceiling would be every Gateway's on a multi-stack machine (the perf benchmark's 46 areas filled
         // 173 MB of it; Agents/docs/dev/performance.md).
@@ -208,14 +210,14 @@ static class ServerLevels
 
     static byte[]? Read(string path) => _fs!.TryReadFile(path, out var d) ? d : null;
 
-    /// <summary>How long the Oodle worker (a Node process, ~90 MB) stays after a generation before it stops; the next
-    /// generation that needs a chunk decoded starts it again.</summary>
+    /// <summary>How long the Oodle worker (a Node process, ~80 MB) and the decompressed chunks (up to 64 MB) stay after a
+    /// generation; the next generation that needs a chunk decoded starts the worker again.</summary>
     internal static TimeSpan DecoderIdle { get; set; } = TimeSpan.FromSeconds(60);
     static IdleWorkerDecoder? _oodle;
 
     /// <summary>A decoder whose worker starts on the first chunk and stops when <see cref="StopAfter"/>'s time has passed
     /// without a chunk. Each chunk is decoded the same way by whichever worker runs.</summary>
-    sealed class IdleWorkerDecoder(Func<NodeOodleDecoder> start) : GameServer.Data.Ggpk.IOodleDecoder
+    sealed class IdleWorkerDecoder(Func<NodeOodleDecoder> start, Action stopped) : GameServer.Data.Ggpk.IOodleDecoder
     {
         readonly Lock gate = new();
         NodeOodleDecoder? worker;
@@ -254,6 +256,8 @@ static class ServerLevels
                 worker?.Dispose();
                 worker = null;
             }
+            // Outside the gate: a read holds the game files' lock while it decodes through this decoder.
+            stopped();
         }
     }
 

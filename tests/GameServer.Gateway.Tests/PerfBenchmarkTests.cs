@@ -205,11 +205,6 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             if (int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_DECODER_IDLE_MS"), out int idleMs)
                 && typeof(ServerLevels).GetProperty("DecoderIdle", BindingFlags.NonPublic | BindingFlags.Static) is { } idle)
                 idle.SetValue(null, TimeSpan.FromMilliseconds(idleMs));
-            // Started before the loads, as the Gateway starts it.
-            string? settle = Environment.GetEnvironmentVariable("Game_PERF_SETTLE");
-            using var stop = new CancellationTokenSource();
-            var settler = settle == "1" && typeof(Program).Assembly.GetType("MemorySettler") is { } type
-                ? (Task)type.GetMethod("Run")!.Invoke(null, [stop.Token])! : Task.CompletedTask;
             var open = typeof(Program).Assembly.GetType("GameTables")?.GetMethod("Isolated", [typeof(Action)]);
             Action startup = () => GameData.Open(db);
             if (open is not null) open.Invoke(null, [startup]); else startup();
@@ -236,18 +231,12 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
                 foreach (string field in new[] { "_cacheBytes", "_chunkBytes" })
                     if (fs.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance) is { } f)
                         Record("single", $"game files {field} MB", (long)f.GetValue(fs)! / 1048576.0, "MB");
-            // Game_PERF_SETTLE=1 / 0: two minutes more with / without the Gateway's MemorySettler, then the heap and private
-            // bytes as they are (no collection of the test's own).
-            if (settle is not null)
+            // The player stays in the boss area: once the Oodle worker's idle time has passed (Game_PERF_DECODER_IDLE_MS).
+            if (typeof(ServerLevels).GetProperty("DecoderIdle", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null) is TimeSpan wait
+                && wait < TimeSpan.FromSeconds(20))
             {
-                await Task.Delay(TimeSpan.FromSeconds(130));
-                stop.Cancel();
-                await settler;
-                GC.Collect(0);   // an ephemeral collection: it reports the whole heap's size and trims nothing
-                var after = GC.GetGCMemoryInfo(GCKind.Ephemeral);
-                Record("single", $"after 130 s (settler {settle}): heap MB", after.HeapSizeBytes / 1048576.0, "MB");
-                Record("single", $"after 130 s (settler {settle}): GC committed MB", after.TotalCommittedBytes / 1048576.0, "MB");
-                Record("single", $"after 130 s (settler {settle}): process private MB", PrivateMegabytes(), "MB");
+                await Task.Delay(wait + TimeSpan.FromSeconds(2));
+                Snapshot("boss area, generation idle");
             }
             await Hold("single");
             GC.KeepAlive(held);
