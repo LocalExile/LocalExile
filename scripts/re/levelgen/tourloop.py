@@ -15,7 +15,8 @@ FAILURES = ROOT / "data" / "walkability" / "tour-failures.txt"
 LOG = ROOT / "logs" / "tourloop.log"
 RUNS = ROOT / "logs" / "tour-runs"
 RECORDS = ROOT / "data" / "tour-records" / "stops.jsonl"
-CLIENT_LOG = ROOT / "Client" / "logs" / "Client.txt"
+STACK = ROOT / "data" / "stack.json"  # live.ps1 -PortBase: this checkout's ports
+CLIENT_RECORD = ROOT / "data" / "clients" / "default.json"  # live.ps1: the default client's PID and working folder
 GATEWAY_LOG = ROOT / "logs" / "live-gateway.log"
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 CONTROL = ROOT / "scripts" / "dev" / "client_control.py"
@@ -61,8 +62,25 @@ def recorder_running():
     return r.stdout.strip() != ""
 
 
+def gateway_port():
+    try:
+        return int(json.loads(STACK.read_text(encoding="utf-8-sig"))["ports"]["gateway"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 6112
+
+
+def client_log():
+    """The Client.txt of this checkout's default client: in the working folder live.ps1 recorded (Client by default)."""
+    try:
+        folder = Path(json.loads(CLIENT_RECORD.read_text(encoding="utf-8-sig"))["folder"])
+    except (OSError, ValueError, KeyError, TypeError):
+        folder = ROOT / "Client"
+    return folder / "logs" / "Client.txt"
+
+
 def gateway_listening():
-    return ps("@(Get-NetTCPConnection -LocalPort 6112 -State Listen -ErrorAction SilentlyContinue).Count").stdout.strip() not in ("", "0")
+    return ps(f"@(Get-NetTCPConnection -LocalPort {gateway_port()} -State Listen -ErrorAction SilentlyContinue).Count"
+              ).stdout.strip() not in ("", "0")
 
 
 def stop_all():
@@ -121,7 +139,7 @@ def record_drop(current, reason):
     area, _, seed = current.partition(" ")
     lines = []
     try:
-        with CLIENT_LOG.open(encoding="utf-8", errors="replace") as f:
+        with client_log().open(encoding="utf-8", errors="replace") as f:
             text = f.read().splitlines()
         at = max((i for i, l in enumerate(text) if f'area "{area}" with seed {seed}' in l), default=None)
         lines = text[at:at + 400] if at is not None else text[-80:]

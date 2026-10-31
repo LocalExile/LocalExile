@@ -111,6 +111,12 @@ try {
     # A record whose PID now belongs to a later process does not count.
     Record 'a1' 45 ([datetime]'2026-10-30T20:00:00')
     Assert (@(Get-OwnClients 'a1').Count -eq 0) 'a reused PID is not the session client'
+    # A launch under way (pid 0 until the PID is known): a client started after it is not the default session's.
+    Remove-Item (Join-Path $clients '*.json')
+    $script:processes = @((Client 42 $ownExe), (Client 46 $ownExe (Get-Date)))
+    @{ pid = 0; started = (Get-Date).AddSeconds(-5).ToFileTimeUtc() } | ConvertTo-Json | Set-Content (Join-Path $clients 'a3.json')
+    Assert ((@(Get-OwnClients 'default').ProcessId -join ',') -eq '42') 'a client of a pending launch must not be the default session'
+    Assert (@(Get-OwnClients 'a3').Count -eq 0) 'a pending session has no client yet'
     Remove-Item (Join-Path $clients '*.json')
     foreach ($bad in '-x', 'a b', '..\x', ('a' * 25)) {
         $failed = $false; try { Get-SessionName $bad | Out-Null } catch { $failed = $true }
@@ -124,9 +130,12 @@ try {
     Assert (($stack.Ports.Values -join ',') -eq '21000,21001,21002,21003,21004') "port base order: $($stack.Ports.Values -join ',')"
     Assert ((Get-Content (Join-Path $repo 'data\stack.json') -Raw | ConvertFrom-Json).ports.login -eq 21002) 'stack.json must remember the ports'
     Assert ((Get-Stack -1).Base -eq 21000) 'a later run must reuse the remembered base'
-    $env:Game_LOGIN_PORT = '30000'
-    Assert ((Get-Stack -1).Ports.login -eq 30000) "a server's own variable wins over the base"
-    $env:Game_LOGIN_PORT = $null
+    # With a base the shell's own port variables (left from a default-port run) do not count; on the default ports they do.
+    $env:Game_LOGIN_PORT = '30000'; $env:Game_PATCH_URL = 'http://127.0.0.1:8080'
+    Assert ((Get-Stack -1).Ports.login -eq 21002 -and (Get-Stack -1).Ports.patchWeb -eq 21001) "the base must win over the shell's port variables"
+    Assert ((Get-Stack 0).Ports.login -eq 30000) "on the default ports a server's own variable wins"
+    Assert ((Get-Stack 21000).Base -eq 21000) 'base restored'
+    $env:Game_LOGIN_PORT = $null; $env:Game_PATCH_URL = $null
     $stack = Get-Stack -1
     Run
     Assert (($script:events -join ',') -eq 'launch:default') "a stack on its own ports must not touch the shared GGPK: $($script:events -join ',')"
@@ -148,6 +157,10 @@ try {
     $script:gatewayExit = 1
     Expect-Failure 'could not select local login server'
     Assert (($script:events -join ',') -eq 'gateway-read,gateway-write') 'failed gateway reset must prevent launch'
+    # A full run selects the list after it stopped this checkout's servers: there it warns and goes on.
+    $script:events.Clear()
+    $warned = @(Select-LocalGateway 20493 3>&1)
+    Assert ($warned.Count -eq 1 -and ($script:events -join ',') -eq 'gateway-read,gateway-write') 'a full run must not stop on the gateway list'
     $script:gatewayExit = 0
     $NoClient = $true
     Expect-Failure '-ClientOnly cannot be combined'
@@ -179,6 +192,14 @@ try {
         (P 41 1 'dotnet.exe' "dotnet test $repo\tests\GameServer.Gateway.Tests")
         # an older process whose reused PID is a later root's "parent"
         (P 5 24 'dotnet.exe' 'dotnet something-else.dll')
+        # shared build processes a watched Gateway's build started: they serve every build on the PC
+        (P 50 21 'dotnet.exe' '"C:\Program Files\dotnet\dotnet.exe" "C:\Program Files\dotnet\sdk\10.0.302\MSBuild.dll" /noautoresponse /nologo /nodemode:1 /nodeReuse:true')
+        (P 51 50 'conhost.exe' 'conhost.exe 0x4')
+        (P 52 21 'VBCSCompiler.exe' '"C:\Program Files\dotnet\sdk\10.0.302\Roslyn\bincore\VBCSCompiler.exe" -pipename:x')
+        (P 53 21 'dotnet.exe' 'dotnet build-server shutdown')
+        # a worktree nested in this checkout is another checkout
+        (P 60 1 'cmd.exe' "cmd.exe /c dotnet src\GameServer.Auth\bin\Debug\net10.0\GameServer.Auth.dll serve 1>`"$repo\.claude\worktrees\x\logs\live-auth.log`"")
+        (P 61 60 'dotnet.exe' 'dotnet  src\GameServer.Auth\bin\Debug\net10.0\GameServer.Auth.dll serve')
     )
     $own = @(Get-OwnServers 'Auth', 'Gateway' | ForEach-Object { $_.ProcessId } | Sort-Object)
     Assert (($own -join ',') -eq '10,11,20,21,22,23,24') "own servers: $($own -join ',')"
@@ -189,4 +210,21 @@ finally {
     $env:Game_PORT_BASE = $null
     Remove-Item $repo -Recurse -Force -ErrorAction SilentlyContinue
 }
-Write-Output 'live.ps1 client, port and ownership checks passed (mocked; no client, server or GGPK touched).'
+
+# Not mocked: the real gateway-list read (GameServer.Patch gateway) on this checkout's GGPK while a client holds it, as
+# other checkouts' clients do. The list must be read; a write it might then want cannot happen while the GGPK is held.
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$patchDll = Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll'
+$ggpk = Join-Path $repo 'Client\Content.ggpk'
+if ((Test-Path $patchDll) -and (Test-Path $ggpk)) {
+    Remove-Item function:dotnet
+    $held = [IO.File]::Open($ggpk, 'Open', 'Read', 'Read')
+    try {
+        $listed = @(& dotnet $patchDll gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
+        Assert ($LASTEXITCODE -eq 0 -and $listed.Count -gt 0) "the gateway list must be readable while a client holds the GGPK (exit $LASTEXITCODE)"
+        Select-LocalGateway 20493 3>$null  # reads; never throws without -Strict
+    }
+    finally { $held.Dispose() }
+}
+else { Write-Output 'skipped the real gateway-list read (no built GameServer.Patch or no Client\Content.ggpk)' }
+Write-Output 'live.ps1 client, port and ownership checks passed (mocked, and the real gateway-list read; no client or server started, nothing written).'

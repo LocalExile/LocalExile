@@ -9,7 +9,8 @@
 #               data/ (a quick check when nothing is missing)
 #   -Walkmaps   also run scripts/walkmaps/walkmaps.py (needs Python + `pip install frida`): captures the walk map of every
 #               area the client generates into data/walkability/, and lets the Gateway announce each load to it and run
-#               capture tours (Game_WALKMAPS=1). Without it nothing is recorded. Default ports and client session only.
+#               capture tours (Game_WALKMAPS=1). Without it nothing is recorded. Default ports and client session only
+#               (otherwise the run goes on without the recorder).
 #   -Only Gateway[,Auth,Patch]   rebuild and restart only these servers; the others and the client keep running (implies
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
 #   The Gateway runs under `dotnet watch` (.NET hot reload): a saved edit to its code applies to the running server
@@ -20,6 +21,7 @@
 #   -PortBase N run this checkout's stack on ports N to N+4 (Patch, Patch web, Auth login, Auth control, Gateway) instead
 #               of 12995, 8080, 20493, 20495 and 6112, beside another checkout's stack. Game_PORT_BASE does the same. The
 #               base is remembered in data\stack.json for later runs and scripts/dev/client_control.py; 0 = default ports.
+#               With a base, the shell's Game_*_PORT, Game_PATCH_URL and Game_PATCH_WEB_ROOT are not used.
 #   -Session S  a named client (also Game_CLIENT_SESSION) beside the others of this stack: its own working folder
 #               data\clients\S\ (its logs\Client.txt), settings file and saved login. Without it: the one client as before.
 #   -Stop       stop this checkout's servers, walk-map recorder and clients; with -ClientOnly only the -Session client.
@@ -37,9 +39,9 @@ New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
 
-# This checkout's ports. Without a base, today's; with one, five in a row from it. A base given here or in Game_PORT_BASE
-# is written to data\stack.json (0 removes it), which later runs and the control bridge read. A server's own variable
-# (Game_LOGIN_PORT, ...) still wins over the base.
+# This checkout's ports. Without a base, today's, where a server's own variable (Game_LOGIN_PORT, Game_PATCH_URL, ...)
+# still wins; with one, five in a row from it, whatever such variables the shell has. A base given here or in
+# Game_PORT_BASE is written to data\stack.json with its ports (0 removes it): later runs and the control bridge read it.
 function Get-Stack([int]$base) {
     $file = Join-Path $repo 'data\stack.json'
     $given = $base -ge 0
@@ -48,9 +50,9 @@ function Get-Stack([int]$base) {
     if ($base -ne 0 -and ($base -lt 1024 -or $base -gt 65530)) { throw "port base $base is outside 1024-65530 (0 = the default ports)" }
     function Pick([string]$name, [int]$offset, [int]$default) {
         $value = [Environment]::GetEnvironmentVariable($name)
-        if ($value) { [int]$value } elseif ($base) { $base + $offset } else { $default }
+        if ($base) { $base + $offset } elseif ($value) { [int]$value } else { $default }
     }
-    $web = if ($env:Game_PATCH_URL -match ':(\d+)') { [int]$Matches[1] } elseif ($base) { $base + 1 } else { 8080 }
+    $web = if ($base) { $base + 1 } elseif ($env:Game_PATCH_URL -match ':(\d+)') { [int]$Matches[1] } else { 8080 }
     $ports = [ordered]@{ patch = (Pick 'Game_PATCH_TCP_PORT' 0 12995); patchWeb = $web; login = (Pick 'Game_LOGIN_PORT' 2 20493)
         control = (Pick 'Game_AUTH_CONTROL_PORT' 3 20495); gateway = (Pick 'Game_GATEWAY_PORT' 4 6112) }
     if ($given -and $base) { [ordered]@{ portBase = $base; ports = $ports } | ConvertTo-Json | Set-Content $file -Encoding ascii }
@@ -65,14 +67,17 @@ function Get-SessionName([string]$name) {
     $name
 }
 
-# Whether a process (Win32_Process) names a path inside this checkout on its command line or as its executable.
+# Whether a process (Win32_Process) names a path inside this checkout on its command line or as its executable. A git
+# worktree nested in it (.claude\worktrees\<name>) is another checkout.
 function Test-Here($process) {
-    $null -ne $process -and "$($process.CommandLine)|$($process.ExecutablePath)".IndexOf("$repo\", [StringComparison]::OrdinalIgnoreCase) -ge 0
+    $null -ne $process -and [regex]::IsMatch("$($process.CommandLine)|$($process.ExecutablePath)",
+        [regex]::Escape("$repo\") + '(?!\.claude\\worktrees\\)', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
 }
 
 # This checkout's patched clients. Each checkout reaches the shared client through its own Client\ path, which tells
 # checkouts apart; the PID records Start-Client writes (data\clients\<session>.json) tell its sessions apart. A client
-# no record names (one an older live.ps1 started) is the default session's. Without a session: all of them.
+# no record names (one an older live.ps1 started) is the default session's, unless it started while a launch was
+# pending (a record with pid 0, written just before the start): that is another session's. Without a session: all.
 function Get-OwnClients([string]$session) {
     $exe = Join-Path $repo 'Client\Game.patched.exe'
     $mine = @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue |
@@ -84,9 +89,12 @@ function Get-OwnClients([string]$session) {
     }
     # The PID and its start time: a later process may reuse the PID.
     $recorded = { param($p, $r) $p.ProcessId -eq $r.pid -and [math]::Abs($p.CreationDate.ToFileTimeUtc() - [long]$r.started) -lt 20000000 }
-    if ($records.ContainsKey($session)) { $r = $records[$session]; return @($mine | Where-Object { & $recorded $_ $r }) }
+    if ($records.ContainsKey($session) -and $records[$session].pid) { $r = $records[$session]; return @($mine | Where-Object { & $recorded $_ $r }) }
     if ($session -ne 'default') { return @() }
-    @($mine | Where-Object { $p = $_; -not @($records.Values | Where-Object { & $recorded $p $_ }).Count })
+    $now = (Get-Date).ToFileTimeUtc()
+    $pending = @($records.Values | Where-Object { -not $_.pid -and $now - [long]$_.started -lt 600000000 } | ForEach-Object { [long]$_.started })
+    @($mine | Where-Object { $p = $_; -not @($records.Values | Where-Object { & $recorded $p $_ }).Count -and
+        -not @($pending | Where-Object { $p.CreationDate.ToFileTimeUtc() -ge $_ }).Count })
 }
 
 # This checkout's processes of the given servers: `dotnet <server>.dll`, a watched Gateway's `dotnet watch`, and their cmd
@@ -112,8 +120,13 @@ function Get-OwnServers([string[]]$names) {
         $p = $queue.Dequeue()
         if ($found.ContainsKey([int]$p.ProcessId)) { continue }
         $found[[int]$p.ProcessId] = $p
-        # Children started after their parent (an older process may hold a reused parent PID).
-        foreach ($c in $all) { if ($c.ParentProcessId -eq $p.ProcessId -and $c.CreationDate -ge $p.CreationDate) { $queue.Enqueue($c) } }
+        # Children started after their parent (an older process may hold a reused parent PID). Build nodes and the
+        # compiler server a watched Gateway's builds start are shared by every build on the PC: they stay.
+        foreach ($c in $all) {
+            if ($c.ParentProcessId -ne $p.ProcessId -or $c.CreationDate -lt $p.CreationDate) { continue }
+            if ($c.Name -eq 'VBCSCompiler.exe' -or "$($c.CommandLine)" -match 'MSBuild\.dll.*/nodemode|VBCSCompiler|\bbuild-server\b') { continue }
+            $queue.Enqueue($c)
+        }
     }
     @($found.Values)
 }
@@ -130,14 +143,18 @@ function Stop-Processes($processes) {
 # The client's own Log In goes to the login server of the GGPK's cached gateway list; the control bridge
 # (client_control.py) connects to this stack's Auth by port and needs no list. The GGPK is shared by every checkout and
 # cannot be written while any client runs, so only the default stack points it at its Auth, and only when the list
-# (read first) does not already.
-function Select-LocalGateway([int]$loginPort) {
+# (read first; reading works while clients run) does not already. When it cannot be written: with -Strict (before
+# anything was stopped) the script stops; otherwise a warning, and the client's own Log In may go elsewhere.
+function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
     $patch = Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll'
     $ggpk = Join-Path $repo 'Client\Content.ggpk'
-    $list = @(& dotnet $patch gateway $ggpk | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
+    $list = @(& dotnet $patch gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
     if ($LASTEXITCODE -eq 0 -and $list.Count -and -not @($list | Where-Object { "$_" -notmatch "^[^;]*;[^;]*;127\.0\.0\.1:$loginPort;" }).Count) { return }
-    & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'could not select local login server; close all clients and retry' }
+    & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { return }
+    $message = 'could not select local login server (a client holds the GGPK); close all clients and retry'
+    if ($Strict) { throw $message }
+    Write-Warning "$message. The client's own Log In may go to another login server; client_control.py logs in by port."
 }
 
 # Starts the session's client through this stack's patching server and records its PID. A named session runs in its own
@@ -175,10 +192,19 @@ function Start-Client([string]$session, $stack) {
             [IO.File]::WriteAllLines($ini, [string[]]$lines, [Text.UTF8Encoding]::new($true))
         }
     }
-    $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', "127.0.0.1:$($stack.Ports.patch)" -WorkingDirectory $folder -PassThru
+    # The record goes first as a pending launch (pid 0, the time before the start): until it has the PID, nobody takes
+    # the new client for the default session's (Get-OwnClients, client_control.py).
     New-Item -ItemType Directory -Force $clients | Out-Null
-    [ordered]@{ pid = $p.Id; started = $p.StartTime.ToFileTimeUtc(); session = $session; folder = $folder; ports = $stack.Ports } |
-        ConvertTo-Json | Set-Content (Join-Path $clients "$session.json") -Encoding ascii
+    $record = Join-Path $clients "$session.json"
+    [ordered]@{ pid = 0; started = (Get-Date).AddSeconds(-1).ToFileTimeUtc(); session = $session } | ConvertTo-Json | Set-Content $record -Encoding ascii
+    $p = Start-Process (Join-Path $client 'Game.patched.exe') -ArgumentList '--patching-server', "127.0.0.1:$($stack.Ports.patch)" -WorkingDirectory $folder -PassThru
+    $started = try { $p.StartTime.ToFileTimeUtc() } catch { $null }
+    if ($null -eq $started -or $p.HasExited) {
+        Remove-Item $record -ErrorAction SilentlyContinue
+        throw "the client exited right after starting (exit code $($p.ExitCode)); see $(Join-Path $folder 'logs\Client.txt')"
+    }
+    [ordered]@{ pid = $p.Id; started = $started; session = $session; folder = $folder; ports = $stack.Ports } |
+        ConvertTo-Json | Set-Content $record -Encoding ascii
     Write-Output "client pid $($p.Id)$(if ($session -ne 'default') { " (session $session, $folder)" })"
 }
 
@@ -212,18 +238,20 @@ if ($ClientOnly) {
     foreach ($port in @($stack.Ports.patch, $stack.Ports.login, $stack.Ports.gateway)) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
-    if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login }
+    if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
     Start-Client $session $stack
     return
 }
 
 $python = $null
+# The recorder meets the Gateway in data\walkability\current.json, which every checkout's stack would share: it records
+# only on the default ports and for the default client session (which it attaches to by its recorded PID). Otherwise
+# the run goes on without it.
+if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
+    Write-Warning '-Walkmaps records only on the default ports and for the default client session; starting without the walk-map recorder'
+    $Walkmaps = $false
+}
 if ($Walkmaps) {
-    # The recorder attaches to the client by name and meets the Gateway in the shared data\walkability\current.json.
-    if ($stack.Base -or $session -ne 'default') { throw '-Walkmaps records only with the default ports and client session (data\walkability\current.json is shared)' }
-    $foreign = @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { -not [string]::Equals("$($_.ExecutablePath)", (Join-Path $repo 'Client\Game.patched.exe'), [StringComparison]::OrdinalIgnoreCase) })
-    if ($foreign.Count) { throw "-Walkmaps attaches to the client by name, and another checkout's client runs (pid $($foreign[0].ProcessId))" }
     # A virtual environment in the repository (.venv) wins over the python on PATH.
     $venv = Join-Path $repo '.venv\Scripts\python.exe'
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
@@ -332,7 +360,8 @@ if (-not $NoClient -and -not $stack.Base) {
 $serverEnv = @{
     Game_PATCH_TCP_PORT = "$($stack.Ports.patch)"; Game_LOGIN_PORT = "$($stack.Ports.login)"
     Game_AUTH_CONTROL_PORT = "$($stack.Ports.control)"; Game_GATEWAY_PORT = "$($stack.Ports.gateway)"
-    Game_PATCH_URL = if ($env:Game_PATCH_URL) { $env:Game_PATCH_URL } else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
+    Game_PATCH_URL = if ($env:Game_PATCH_URL -and -not $stack.Base) { $env:Game_PATCH_URL } else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
+    Game_PATCH_WEB_ROOT = if ($stack.Base) { $null } else { $env:Game_PATCH_WEB_ROOT }
     Game_PACKET_DUMPS = if ($env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS } else { 'logs\packets' }
     Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } else { $null }
 }
@@ -394,7 +423,7 @@ foreach ($name in ($servers | Where-Object { $_ -ne 'Patch' } | ForEach-Object {
 }
 
 if ($Walkmaps) {
-    Start-Detached $python @((Join-Path $repo 'scripts\walkmaps\walkmaps.py')) (Join-Path $out 'walkmaps.log') (Join-Path $out 'walkmaps.err')
+    Start-Detached $python @((Join-Path $repo 'scripts\walkmaps\walkmaps.py'), '--record', (Join-Path $clients 'default.json')) (Join-Path $out 'walkmaps.log') (Join-Path $out 'walkmaps.err')
     Write-Output 'walk-map capture on (logs\walkmaps.log)'
 }
 
