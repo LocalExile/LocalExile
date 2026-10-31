@@ -130,24 +130,37 @@ static class GameDataCatalog
 
     /// <summary>
     /// <see cref="Seed"/> never changes a row it wrote, so a corrected seed would not reach an existing database. When
-    /// <paramref name="revision"/> is new, the rows nobody edited since the last seed take their new defaults, and those
-    /// whose key left the seed go (a base type correction changes the key). Edited rows stay as they are, and so do
-    /// rows an admin deleted, unless the correction gave them a new key.
+    /// <paramref name="revision"/> is new, the enabled rows that still hold the default the seed last gave them take
+    /// their new defaults, and those whose key left the seed go (a base type correction changes the key). Any other row
+    /// stays as it is, however many revisions pass: an edit, a disabled row and a row no seed gave. A row an admin
+    /// deleted stays deleted, unless the correction gave it a new key. A database from before the defaults were recorded
+    /// has only <c>updated_utc</c> to tell an edit by, once.
     /// </summary>
     internal static void RefreshSeed<T>(GameDataStore store, string kind, T[] seed, Func<T, string> key, string revision)
     {
-        string revisionKey = "catalog_seed_revision:" + kind, writtenKey = "catalog_seed_written:" + kind;
-        if (store.Meta(revisionKey) == revision) return;
-        if ((store.Meta(writtenKey) ?? store.Meta("catalog_seeded:" + kind)) is { } written)
+        string revisionKey = "catalog_seed_revision:" + kind;
+        var defaults = seed.ToDictionary(key, entry => JsonSerializer.Serialize(entry, Json), StringComparer.Ordinal);
+        var applied = store.LoadSeedDefaults(kind);
+        if (store.Meta(revisionKey) == revision)
         {
-            var defaults = seed.ToDictionary(key, entry => JsonSerializer.Serialize(entry, Json), StringComparer.Ordinal);
-            var unedited = store.CatalogKeysWrittenBy(kind, written);
-            foreach (var row in store.LoadCatalog(kind).Where(row => unedited.Contains(row.Key)))
-                if (!defaults.TryGetValue(row.Key, out string? payload)) store.DeleteCatalogRow(kind, row.Key);
-                else if (payload != row.Payload) store.PutCatalogRow(kind, row.Key, payload, row.Enabled);
+            // A key the seed gained without a revision took this default when Seed wrote it.
+            var gained = defaults.Where(entry => !applied.ContainsKey(entry.Key)).ToList();
+            if (gained.Count > 0) store.ReplaceSeedDefaults(kind, [.. applied, .. gained]);
+            return;
         }
-        store.SetMeta(revisionKey, revision);
-        store.SetMeta(writtenKey, DateTime.UtcNow.ToString("O"));
+
+        var untouched = applied.Count == 0 && store.Meta("catalog_seeded:" + kind) is { } seeded
+            ? store.CatalogKeysWrittenBy(kind, seeded) : null;
+        bool Unedited(GameDataStore.CatalogRow row) => row.Enabled && (untouched?.Contains(row.Key)
+            ?? (applied.TryGetValue(row.Key, out string? old) && old == row.Payload));
+        store.InTransaction(() =>
+        {
+            foreach (var row in store.LoadCatalog(kind).Where(Unedited))
+                if (!defaults.TryGetValue(row.Key, out string? payload)) store.DeleteCatalogRow(kind, row.Key);
+                else if (payload != row.Payload) store.PutCatalogRow(kind, row.Key, payload);
+            store.ReplaceSeedDefaults(kind, defaults);
+            store.SetMeta(revisionKey, revision);
+        });
     }
 
     /// <summary>The first full-catalogue build used the unique name alone as the key; move those rows aside once so

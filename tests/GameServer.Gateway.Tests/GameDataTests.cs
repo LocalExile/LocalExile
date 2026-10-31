@@ -418,6 +418,250 @@ public class GameDataTests
         finally { DeleteDatabase(path); }
     }
 
+    static void Revise(GameDataStore store, string revision, params SeedRow[] seed)
+    {
+        GameDataCatalog.Seed(store, "test", seed, row => row.Key);
+        GameDataCatalog.RefreshSeed(store, "test", seed, row => row.Key, revision);
+    }
+
+    static void EditByHand(GameDataStore store, string sql)
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + store.Path);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        Assert.Equal(1, command.ExecuteNonQuery());
+    }
+
+    [Fact]
+    public void Admin_edit_survives_two_successive_seed_revisions()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("item", "first"));
+            store.PutCatalogRow("test", "item", "{\"Key\":\"item\",\"Value\":\"admin\"}");
+
+            Revise(store, "2", new SeedRow("item", "second"));
+            Assert.Contains("admin", Payload(store, "item"));
+            Revise(store, "3", new SeedRow("item", "third"));
+            Assert.Contains("admin", Payload(store, "item"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void An_unedited_row_takes_every_revision_until_its_key_leaves_the_seed()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("item", "first"));
+            Revise(store, "2", new SeedRow("item", "second"));
+            Assert.Contains("second", Payload(store, "item"));
+            Revise(store, "3", new SeedRow("item", "third"));
+            Assert.Contains("third", Payload(store, "item"));
+
+            Revise(store, "4", new SeedRow("renamed", "fourth"));
+            Assert.Equal("renamed", store.LoadCatalog("test").Single().Key);
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void An_edited_row_stays_after_its_key_leaves_the_seed()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("item", "first"));
+            store.PutCatalogRow("test", "item", "{\"Key\":\"item\",\"Value\":\"admin\"}");
+
+            Revise(store, "2", new SeedRow("item", "second"));
+            Revise(store, "3", new SeedRow("renamed", "third"));
+            Revise(store, "4", new SeedRow("renamed", "fourth"));
+
+            Assert.Contains("admin", Payload(store, "item"));
+            Assert.Contains("fourth", Payload(store, "renamed"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void A_row_no_seed_gave_survives_successive_revisions()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("item", "first"));
+            store.PutCatalogRow("test", "custom", "{\"Key\":\"custom\",\"Value\":\"admin\"}");
+
+            Revise(store, "2", new SeedRow("item", "second"));
+            Revise(store, "3", new SeedRow("item", "third"));
+
+            Assert.Contains("admin", Payload(store, "custom"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void A_disabled_row_keeps_its_payload_through_successive_revisions()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("item", "first"), new SeedRow("gone", "first"));
+            store.PutCatalogRow("test", "item", Payload(store, "item"), enabled: false);
+            store.PutCatalogRow("test", "gone", Payload(store, "gone"), enabled: false);
+
+            Revise(store, "2", new SeedRow("item", "second"));
+            Revise(store, "3", new SeedRow("item", "third"));
+
+            var rows = store.LoadCatalog("test");
+            Assert.Equal(2, rows.Count);
+            Assert.All(rows, row => Assert.False(row.Enabled));
+            Assert.All(rows, row => Assert.Contains("first", row.Payload));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void An_edit_by_hand_stays_without_a_new_timestamp()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("edited", "first"), new SeedRow("disabled", "first"));
+            EditByHand(store, "UPDATE catalog_entries SET payload = '{\"Key\":\"edited\",\"Value\":\"admin\"}' WHERE key = 'edited'");
+            EditByHand(store, "UPDATE catalog_entries SET enabled = 0 WHERE key = 'disabled'");
+
+            Revise(store, "2", new SeedRow("edited", "second"), new SeedRow("disabled", "second"));
+
+            Assert.Contains("admin", Payload(store, "edited"));
+            Assert.Contains("first", Payload(store, "disabled"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void Seed_revisions_keep_edits_across_a_restart_and_reloads()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using (var store = new GameDataStore(path))
+            {
+                Revise(store, "1", new SeedRow("same", "first"), new SeedRow("edited", "first"));
+                store.PutCatalogRow("test", "edited", "{\"Key\":\"edited\",\"Value\":\"admin\"}");
+                Revise(store, "2", new SeedRow("same", "second"), new SeedRow("edited", "second"));
+                Revise(store, "2", new SeedRow("same", "second"), new SeedRow("edited", "second"));
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+            using var reopened = new GameDataStore(path);
+            Revise(reopened, "2", new SeedRow("same", "second"), new SeedRow("edited", "second"));
+            Revise(reopened, "3", new SeedRow("same", "third"), new SeedRow("edited", "third"));
+
+            Assert.Contains("third", Payload(reopened, "same"));
+            Assert.Contains("admin", Payload(reopened, "edited"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void A_database_without_recorded_defaults_goes_by_time_once_then_by_payload()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            GameDataCatalog.Seed(store, "test", [new SeedRow("same", "first"), new SeedRow("edited", "first"),
+                new SeedRow("gone", "first")], row => row.Key);
+            Thread.Sleep(20);
+            store.PutCatalogRow("test", "edited", "{\"Key\":\"edited\",\"Value\":\"admin\"}");
+            store.PutCatalogRow("test", "custom", "{\"Key\":\"custom\",\"Value\":\"admin\"}");
+
+            Revise(store, "1", new SeedRow("same", "second"), new SeedRow("edited", "second"));
+            Assert.Contains("second", Payload(store, "same"));
+            Assert.Contains("admin", Payload(store, "edited"));
+            Assert.DoesNotContain("gone", store.LoadCatalog("test").Select(row => row.Key));
+
+            Revise(store, "2", new SeedRow("same", "third"), new SeedRow("edited", "third"));
+            Assert.Contains("third", Payload(store, "same"));
+            Assert.Contains("admin", Payload(store, "edited"));
+            Assert.Contains("admin", Payload(store, "custom"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void A_database_at_the_current_revision_records_its_defaults_for_the_next()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("same", "first"), new SeedRow("edited", "first"));
+            store.ReplaceSeedDefaults("test", []);
+            store.PutCatalogRow("test", "edited", "{\"Key\":\"edited\",\"Value\":\"admin\"}");
+
+            Revise(store, "1", new SeedRow("same", "first"), new SeedRow("edited", "first"));
+            Revise(store, "2", new SeedRow("same", "second"), new SeedRow("edited", "second"));
+
+            Assert.Contains("second", Payload(store, "same"));
+            Assert.Contains("admin", Payload(store, "edited"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void A_key_added_without_a_revision_takes_the_next_correction()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("item", "first"));
+            Revise(store, "1", new SeedRow("item", "first"), new SeedRow("added", "first"));
+
+            Revise(store, "2", new SeedRow("item", "first"), new SeedRow("added", "second"));
+
+            Assert.Contains("second", Payload(store, "added"));
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    [Fact]
+    public void A_seed_revision_that_fails_changes_nothing()
+    {
+        string path = CatalogDatabase();
+        try
+        {
+            using var store = new GameDataStore(path);
+            Revise(store, "1", new SeedRow("item", "first"));
+            string before = Payload(store, "item");
+
+            Assert.Throws<InvalidOperationException>(() => store.InTransaction(() =>
+            {
+                store.PutCatalogRow("test", "item", "{\"Key\":\"item\",\"Value\":\"second\"}");
+                store.ReplaceSeedDefaults("test", []);
+                store.SetMeta("catalog_seed_revision:test", "2");
+                throw new InvalidOperationException("stopped");
+            }));
+
+            Assert.Equal(before, Payload(store, "item"));
+            Assert.Equal("1", store.Meta("catalog_seed_revision:test"));
+            Assert.Equal(before, store.LoadSeedDefaults("test")["item"]);
+        }
+        finally { DeleteDatabase(path); }
+    }
+
     [Fact]
     public void A_gold_multiplier_above_one_increases_the_pile()
     {

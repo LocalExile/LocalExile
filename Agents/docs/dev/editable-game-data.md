@@ -294,6 +294,13 @@ CREATE TABLE IF NOT EXISTS catalog_seed_keys (
     PRIMARY KEY (kind, key)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS catalog_seed_defaults (
+    kind TEXT NOT NULL,                   -- the catalogue kind (unique_item for now)
+    key TEXT NOT NULL,                    -- a default key
+    payload TEXT NOT NULL,                -- the payload the seed last gave it; a row still holding this is unedited
+    PRIMARY KEY (kind, key)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS item_templates (
     id TEXT PRIMARY KEY,                  -- admin id, e.g. fire_wand
     label TEXT NOT NULL,                  -- admin label, not sent to the client
@@ -338,11 +345,16 @@ with this tracking, an existing catalogue is kept and the current seed becomes t
 before the table existed. `catalog_seeded:<kind>` in `game_data_meta` remains as an informational first-run flag.
 
 A seed correction would not reach those rows by itself, so `GameDataCatalog.UniqueSeedRevision` carries it: raise it
-when `UniqueItemSeed` corrects existing rows. On the first start with a new revision, `RefreshSeed` gives the new
-default to every `unique_item` row last written no later than the previous seed (`catalog_seed_written:<kind>`, else
-`catalog_seeded:<kind>`), since an edit or a disable writes a row's `updated_utc`; it removes such a row
-whose key left the seed, as a corrected base type changes the key. Edited rows stay. A deleted row stays deleted,
-unless the correction gave that unique a new key, which reads as a new default.
+when `UniqueItemSeed` corrects existing rows. `catalog_seed_defaults` holds the payload the seed last gave each key, and
+on the first start with a new revision, `RefreshSeed` gives the new default to every enabled `unique_item` row that
+still holds it; it removes such a row whose key left the seed, as a corrected base type changes the key. The whole pass
+is one transaction. Comparing payloads means an edit by any route counts, with or without a new `updated_utc`, and stays
+through every later revision. So does a disabled row, and a row no seed gave. An edit put back to the exact default reads
+as unedited. A deleted row stays deleted, unless the correction gave that unique a new key, which reads as a new default.
+
+A database from before `catalog_seed_defaults` has no payloads to compare, so its first revision goes by time: a row
+counts as unedited when its `updated_utc` is no later than `catalog_seeded:<kind>`. A hand edit that left `updated_utc`
+alone cannot be told from a seed row on that one pass.
 
 `Mod` keeps its base `ModStat` values. The effective range is resolved through a `ModRangeProvider` held by the
 `ModCatalog`:

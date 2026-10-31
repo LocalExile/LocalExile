@@ -21,7 +21,8 @@ build wrote it) is kept as it is by the next write. Nothing is cached across pro
 the database directly, and a write waits for another process's transaction to end.
 
 The same file also holds the server's game-data overlay (`game_data_meta`, `mod_stat_overrides`, `limit_overrides`,
-`system_settings`, `catalog_entries`, `catalog_seed_keys`, the `stats`/`mods`/`mod_stats` reference tables, the
+`system_settings`, `catalog_entries`, `catalog_seed_keys`, `catalog_seed_defaults`, the `stats`/`mods`/`mod_stats`
+reference tables, the
 `effective_mod_stats` view and the future `item_templates`), which is not player progress: the Gateway loads it into
 an in-memory snapshot at startup and republishes the snapshot after a `/game_data` edit. See
 [editable game data](dev/editable-game-data.md) for the client-compatibility boundary and the cache rules.
