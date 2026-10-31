@@ -242,7 +242,15 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
     (`AccountStash.FillCells`), and a variant already there is not added again. The client sorts the gems into its colour
     sub-tabs by itself (live 2026-10-28). The server can create 1044 variants and the tab has 500 cells, so the rest are
     reported as finding no room.
-  - Refused: normal, premium, quad and flask tabs (no slot per type), and the `NotShown` tabs.
+  - Flask tab (StashType 17, 250 × 4): `AccountStash.FillFlasks` adds one ordinary, fully charged flask or
+    inactive tincture per supported standard base, sorted by class, drop level and name, plus creatable uniques.
+    Ordinary flasks have 48 bases (life 12, mana 12, hybrid 6, utility 18); Royale duplicate bases are excluded.
+    Normal/magic items deduplicate by base hash. Uniques use base hash, Words name and visual identity,
+    so different uniques sharing a base coexist and do not suppress ordinary bases. Existing items are preserved.
+    `/item_tab <flask tab name> 1` uses free cells and sends the loaded tab an inventory change (`0xbf`).
+    Repeat/reload, tinctures, different uniques on one base and existing unique/magic coverage are tested.
+    Serialization of stored tinctures does not implement their active combat mechanics.
+  - Refused: normal, premium and quad tabs (no slot per type), and the `NotShown` tabs.
   - Skipped:
     - types the server can't write;
     - a slot already holding another type;
