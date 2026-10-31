@@ -143,6 +143,19 @@ public sealed class GameFileSystem : IDisposable
         return data;
     }
 
+    /// <summary>Drops the cached compressed bundles only; the decompressed chunks and the bundle layouts stay, so a file
+    /// whose chunks are cached is still read without its bundle.</summary>
+    public void ReleaseBundles()
+    {
+        lock (_gate)
+        {
+            _bundleCache.Clear();
+            _lru.Clear();
+            _lruNodes.Clear();
+            _cacheBytes = 0;
+        }
+    }
+
     /// <summary>Drops every cached bundle, decompressed chunk and bundle layout.</summary>
     public void ClearBundleCache()
     {

@@ -184,6 +184,10 @@ static class ServerLevels
             Errors[(areaId, seed)] = ex.ToString();
             return null;
         }
+        // The compressed bundles a generation read (~80 MB for a first area) are not kept between generations: the
+        // decompressed chunks in front of them serve the next one's repeated reads, a chunk missing from them is read
+        // from the GGPK again (performance.md).
+        finally { _fs?.ReleaseBundles(); }
     }
 
     // Opened on the first generation and kept.
