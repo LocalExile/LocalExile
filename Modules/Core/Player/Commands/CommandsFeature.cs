@@ -386,6 +386,16 @@ static class CommandsFeature
                 if (collection.Skipped.Count > 0) Console.WriteLine($"[gateway] /item_tab unique unavailable: {string.Join(", ", collection.Skipped)}");
                 return;
             }
+            if (stash.TabType(tab) == StashRules.Flask)
+            {
+                var flasks = stash.FillFlasks(tab, ItemsFor(conn), ShapeOf, out string flaskWhy);
+                if (flasks is null) { await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {flaskWhy}"); return; }
+                if (flasks.Added.Count > 0 && TabsSentOf(conn, stash).Contains(tab))
+                    await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [], flasks.Added),
+                        $"0x00bf stash tab {tab}: /item_tab {stash.NameOf(tab)}, {flasks.Added.Count} flask(s)");
+                await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\" (FlaskStash): {flasks.Added.Count} flask(s) added, {flasks.Full} already present, {flasks.Skipped} unavailable; one of each flask/tincture base and unique");
+                return;
+            }
             if (stash.TabType(tab) == StashRules.Gem)
             {
                 // The gem tab: one of every creatable gem variant (transfigured and Vaal too), red, green, blue then white,

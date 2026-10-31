@@ -384,6 +384,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A movement skill (ActiveSkillType Movement: Leap Slam, Whirling Blades, Flame Dash …): the player ends
     /// where it was aimed.</summary>
     public bool IsMovement(int effectRow) => _movementEffects.Value.Contains(effectRow);
+    public bool IsTravel(int effectRow) => _skillTypes.Travel.Value.Contains(effectRow);
+    public bool IsGuard(int effectRow) => _skillTypes.Guard.Value.Contains(effectRow);
 
     /// <summary>Whether a GrantedEffects row's skill is an attack (ActiveSkillType Attack: the default attack, Holy
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
@@ -470,6 +472,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Instant = Of("Instant"); Movement = Of("Movement"); Attack = Of("Attack"); Melee = Of("Melee");
             Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
             Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
+            Travel = Of("Travel"); Guard = Of("Guard");
         }
 
         public Lazy<HashSet<int>> Instant { get; }
@@ -483,6 +486,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> Curse { get; }
         public Lazy<HashSet<int>> AddedAura { get; }
         public Lazy<HashSet<int>> Brand { get; }
+        public Lazy<HashSet<int>> Travel { get; }
+        public Lazy<HashSet<int>> Guard { get; }
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
 

@@ -8,6 +8,7 @@ static partial class Game
         if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type))) return;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var previousAilments = conn.ElementalAilments.Snapshot(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         bool frozen = previousAction == 0;
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
@@ -15,6 +16,7 @@ static partial class Game
         int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
         conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom);
+        QueueFlaskAilmentChanges(conn, previousAilments, conn.ElementalAilments.Snapshot(now));
         if (!frozen && conn.ElementalAilments.ActionFactor(now) == 0)
         {
             conn.FreezeGeneration++;

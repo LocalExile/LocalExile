@@ -21,7 +21,14 @@ static partial class Game
             {
                 if (HardcoreProgressBlocked(conn)) return;
                 var items = ItemsOf(conn);
+                var before = items.Items(PlayerInventories.Flask).ToDictionary(i => i.Id, i => i.Item.Charges);
                 if (change(items) is not { } done || done.Changed.Count == 0) return;
+                foreach (var changed in done.Changed)
+                    if (before.TryGetValue(changed.Id, out int held) && changed.Item.Charges > held
+                        && ItemsFor(conn).ByHash(changed.Item.TypeHash) is { } flaskType
+                        && ItemsFor(conn).FlaskChargesOf(flaskType) is { } baseCharges
+                        && changed.Item.Charges >= FlaskCharges.Of(baseCharges, ItemModStats.Local(changed.Item, ItemsFor(conn).Mods)).MaxCharges)
+                        QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Full, changed.Id, changed.X);
                 packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
                     items.NextRevision(PlayerInventories.Flask), done.Removed, done.Changed);
                 message = log(done.Changed);
@@ -89,7 +96,9 @@ static partial class Game
                 if (!CanGainFlaskCharges(conn, flask)) continue;
                 int whole = conn.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get));
                 if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, charges, whole)) is { } done)
+                {
                     changed.Add(done);
+                }
             }
             return ([.. changed.Select(c => c.Id)], changed);
         }, changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
@@ -97,6 +106,9 @@ static partial class Game
 
     internal static bool CanGainFlaskCharges(ClientState conn, InventoryItem flask)
     {
+        var activeEffect = conn.UtilityFlaskEffects.Of(flask.Id);
+        if (FlaskEnchantments.BlocksGain(ItemModStats.Local(flask.Item, ItemsFor(conn).Mods),
+                activeEffect is not null && activeEffect.Ends > conn.Clock.Elapsed.TotalSeconds)) return false;
         var rules = LeagueFor(conn).Rules;
         if (rules.UtilityFlaskChargesWhileActive || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
             || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
@@ -151,6 +163,7 @@ static partial class Game
                 await Task.Delay(250);
                 if (conn.Closed || conn.RageRetired) break;
                 if (conn.LeavingArea) { next = conn.Clock.Elapsed.TotalSeconds + 3; continue; }
+                await DrainFlaskTriggers(remote, stream, ciphers, conn);
                 if (conn.Clock.Elapsed.TotalSeconds < next || conn.PlayerLife == 0) continue;
                 next += 3;
                 var character = CharacterPlayerStats(conn);

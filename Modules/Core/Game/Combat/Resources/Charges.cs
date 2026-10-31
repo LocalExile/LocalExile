@@ -25,6 +25,8 @@ static partial class Game
     internal static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
         int quality = 0, bool? melee = null, bool primary = true)
     {
+        if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
+            QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
         Func<string, int>? skill = null;
         if (effect >= 0)
         {
