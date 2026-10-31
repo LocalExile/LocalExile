@@ -24,8 +24,17 @@ already has it). Run from the repository root:
 `game:open` attaches to an existing client, or calls `live.ps1 -ClientOnly`. That switch starts only the copied client
 with the local patching-server argument and requires the local servers already running; it does not restart services,
 rebuild, extract data, or close an existing client. It waits up to 60 seconds for a native menu, so login can immediately
-follow its successful result. Before opening a closed client, it resets the cached GGPK gateway list to local Auth,
-as a normal startup does; an existing client returns before that write. Startup asset loading still takes the
+follow its successful result. Before opening a closed client on the default ports, it points the cached GGPK gateway
+list at the local Auth when the list does not already (a stack on its own ports never writes the shared GGPK: the
+bridge's login connects to its Auth by port); an existing client returns before that.
+
+Several clients: `--session NAME` (`control.ps1 -Session NAME`, or `Game_CLIENT_SESSION`) drives one of several clients
+of this checkout's stack, each opened by `game:open` with that session as `live.ps1 -ClientOnly -Session NAME` does
+([live testing](live-testing.md#several-stacks-and-clients)). The bridge attaches to the PID `live.ps1` recorded for the
+session in `data/clients/NAME.json` (checked with the process's start time and this checkout's client path), never to
+another checkout's or session's client; without a session it takes this checkout's one unrecorded or default-recorded
+client, as before. Logins go to this stack's Auth: `Game_LOGIN_PORT`, else `Game_PORT_BASE`, else the ports
+`live.ps1 -PortBase` remembered in `data/stack.json`, else 20493. Startup asset loading still takes the
 client's normal time. After merging upstream's gateway reset, a fresh client opened against the already-running
 Patch/Auth/Gateway services in 9.5 seconds, then logged in, listed characters and entered an area successfully
 (2026-10-25, isolated validation database). Mocked startup checks also cover existing clients and failed preflights.
@@ -39,8 +48,10 @@ line (the client's own 0x15, as typed in the chat box), and `tp` the `/tp` dev c
 `id`, `target` (+ `index`) or `list`. For slash commands the result also has `replies`: the chat lines the Gateway
 answered with, read from `logs/live-gateway.log` (its `=> 0x0017 chat line` entries) until 0.25 s pass without a new
 one or `wait` seconds (default 1.5) in total. `replies` is null when the servers were not started by this checkout's
-`live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Replies of commands
-sent from the chat box meanwhile are mixed in; the bridge does not capture the HUD.
+`live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Only the lines sent
+to this client's own connection count (the log names each connection by the client's local port, which the bridge
+reads from the TCP table for the client's PID), so other sessions on the same Gateway do not mix in; replies of
+commands typed in this client's chat box meanwhile still do. The bridge does not capture the HUD.
 
 Explicit password login replaces both the outgoing account/digest and the native message's saved-credential flag.
 The ordinary handshake can submit a remembered form before the explicit login RPC runs.

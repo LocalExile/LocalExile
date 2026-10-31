@@ -8,9 +8,10 @@ How to run the patched 3.29.3b client against our servers safely and repeatably.
    `scripts/dev/live.ps1`, which passes `--patching-server 127.0.0.1:12995`. The patch server advertises only
    `http://127.0.0.1:8080/` and answers 404 for everything except `gateway_list.txt`. Check
    `Tools/re/out/live-patch.log` for `cdn passthrough off`.
-2. **Never start a second client** while one runs (that includes computer-use `open_application("Game.patched")`). A
-   second instance started without the patching-server argument tried to download `PathOfExile.exe` from the real CDN on
-   2026-10-16. To bring the running client to the front, restore its window:
+2. **Never start a second client other than through `live.ps1`** (that includes computer-use
+   `open_application("Game.patched")`). A second instance started without the patching-server argument tried to
+   download `PathOfExile.exe` from the real CDN on 2026-10-16. Several clients at once are named sessions
+   ([below](#several-stacks-and-clients)). To bring the running client to the front, restore its window:
    ```powershell
    Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);'
    $h = (Get-Process -Name Game.patched).MainWindowHandle; [W.U]::ShowWindow($h, 9); [W.U]::SetForegroundWindow($h)
@@ -47,8 +48,9 @@ Gateway env: `Game_MOVE_MODE` = `echo` (default: only the 0x1ab echo), `move` (a
 `teleport` (0x1b7); `Game_PLAYER_AO` overrides the Animated path; `Game_HIT_OFFSET_MS` (default 150) delays the
 default attack's hit past its contact keyframe ([11](../protocol/11-skills.md) §5).
 
-`live.ps1` stops anything on ports 20493, 12995, 8080 and 6112 and the client, builds Auth, Patch and Gateway, starts all
-three (logs in `Tools/re/out/live-*.log`), waits for the patch server and launches the client. Then:
+`live.ps1` stops this checkout's servers and clients (anything else on its ports is reported, not stopped), builds
+Auth, Patch and Gateway, starts all three (logs in `Tools/re/out/live-*.log`), waits for the patch server and launches the
+client. Then:
 
 1. wait for "Loading in" in `Client/logs/Client.txt` (startup takes about a minute; the file check is local)
 2. log in as `devtester` and select DevWitch
@@ -56,6 +58,58 @@ three (logs in `Tools/re/out/live-*.log`), waits for the patch server and launch
 
 To restart only the Gateway: `.\scripts\dev\live.ps1 -Only Gateway`. The client drops to the login screen and you
 log in again; the login server keeps running.
+
+## Several stacks and clients
+
+Many people or agents can each run their own servers and clients on one PC, one checkout (git worktree) each, without
+touching each other's.
+
+```powershell
+.\scripts\dev\live.ps1 -PortBase 21000 -NoClient           # this checkout's servers on 21000-21004
+.\scripts\dev\control.ps1 game:open -Session a1             # a client of this stack, session a1
+.\scripts\dev\control.ps1 login:offline -Session a1 -PasswordStdin
+.\scripts\dev\control.ps1 game:open -Session a2             # a second one beside it
+.\scripts\dev\live.ps1 -Stop                                # this checkout's servers and clients, nothing else
+```
+
+- **Ports.** `-PortBase N` (or `Game_PORT_BASE`) puts the stack on N (Patch), N+1 (Patch web), N+2 (Auth login), N+3
+  (Auth control) and N+4 (Gateway). `live.ps1` remembers the base in `data\stack.json`, so later runs, `-ClientOnly` and
+  the bridge in the same checkout use it without being told again; `-PortBase 0` goes back to the default ports
+  (12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses. A server's own variable
+  (`Game_LOGIN_PORT`, ...) still wins. Auth sends the client to its own Gateway (`Game_GATEWAY_PORT` in login 0x14, as
+  the Gateway does in 0x27). The levelgen server (`lg.ps1`) needs no port: its named pipe is per checkout.
+- **What is stopped.** `live.ps1` stops only this checkout's processes: servers whose command line, executable or cmd
+  wrapper names a path inside the checkout (it starts them with absolute paths), with everything they started (a watched
+  Gateway's `dotnet watch` tree); clients started from this checkout's `Client\` path (each checkout reaches the shared
+  client through its own junction, so the path tells checkouts apart) and, among those, the session's by the PID and
+  start time recorded in `data\clients\<session>.json`; and its own walk-map recorder. Another program or checkout on its
+  ports is reported, not stopped: give one of them other ports.
+- **Client sessions.** `-Session NAME` (also `Game_CLIENT_SESSION`; `client_control.py --session`, `control.ps1
+  -Session`) starts a client in its own folder, `data\clients\NAME\`, with a hard link to the shared `Content.ggpk` (the
+  same file: nothing is copied or written) and a `config.json` naming the session's own settings file and saved login,
+  `localexile-<checkout>-NAME_Config.ini` and `..._login.credentials` in `Documents\My Games\Path of Exile`. A new
+  settings file starts as a copy of the default client's `poeoffline_Config.ini` without its `[LOGIN]` section, so the
+  session sends no saved login anywhere. The client reads `GGG_CONFIG_FILE_NAME`, `GGG_CREDENTIAL_FILE_NAME` and the
+  other `GGG_*` keys from `config.json` in its working folder (the key table at `0x140e2cd0d` looks them up in the parsed
+  file; nothing reads them from the environment), and opens `Content.ggpk` (`0x1400fc163`) and its logs there too. This
+  comes from the executable alone: no named session has run against a live client yet (2026-10-30: the PC had no memory
+  to spare for another client). The bridge attaches to the session's recorded PID and reads only the chat replies sent
+  to that client's connection (the Gateway log names each connection by the client's port). Without a session the
+  client starts in `Client\` with the shared settings, as before.
+- **Logging in.** The bridge (`login:offline`, `login:saved`) connects to this stack's Auth by port. The client's own
+  Log In button and a saved login use the login server in the GGPK's cached gateway list, which only the default stack
+  writes (and only when it does not already name its Auth): the GGPK is shared and cannot be written while any client
+  runs. A client of a stack on its own ports therefore logs in through the bridge.
+- **Shared by everyone:** `Client\` (the executable and `Content.ggpk`, which every client opens read-only), the shader,
+  pipeline and minimap caches in `%LOCALAPPDATA%\Path of Exile`, crash dumps in `Documents\My Games\Path of
+  Exile\release`, and, in worktrees made by linking, whatever they link (`data\tables`, `data\walkability`). **Per
+  checkout:** the ports, `logs\`, the save database (`Game_SAVES_DB`), `data\stack.json`. **Per session:** the working
+  folder, `Client.txt`, settings, saved login and PID record.
+- **Walk maps** (`-Walkmaps`) only on the default ports and client session, with no other checkout's client running:
+  the recorder attaches to the client by name and meets the Gateway in the shared `data\walkability\current.json`.
+- **Memory.** Each in-game client commits about 7 GB (6.75 to 7.43 GB measured for three campaign clients on
+  2026-10-30); a Gateway about 0.75 GB right after start, Auth and Patch under 0.05 GB. Check the free commit
+  (`(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory`) before opening another client.
 
 ## Changing the Gateway while it runs (hot reload)
 
@@ -127,8 +181,11 @@ field, character row and Play button were near (245, 217), (375, 61) and (455, 2
 
 | Var | Default | Used by |
 |---|---|---|
+| `Game_PORT_BASE` | unset | `live.ps1` (like `-PortBase`): every port below from one base |
+| `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly`, `client_control.py` (like `-Session` / `--session`) |
 | `Game_LOGIN_PORT` | 20493 | Auth |
-| `Game_GATEWAY_PORT` | 6112 | Gateway |
+| `Game_GATEWAY_PORT` | 6112 | Gateway, and Auth (where Play sends the client) |
+| `Game_AUTH_CONTROL_PORT` | 20495 | Auth and Gateway |
 | `Game_GATEWAY_ENTER` | unset | Gateway: `1` sends 0x21 |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | Auth and Gateway (must match) |
 | `Game_SAVES_DB` | `data/saves.db` | Gateway, Auth, Host |

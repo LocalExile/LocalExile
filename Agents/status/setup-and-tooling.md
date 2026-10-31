@@ -58,6 +58,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `PassiveSkillGraph.cs`, `AdditionalAscendancyGraph.cs`, `GameFileSystem.cs`, `scripts/re/passive-graphs`.
   Docs: [passive graph data guide](../docs/dev/passive-graph-data.md).
 
+- Several stacks and clients on one PC: `live.ps1 -PortBase N` runs a checkout's servers on their own five ports
+  (remembered in `data\stack.json`; Auth now sends the client to that Gateway), `-Session NAME` starts more clients of a
+  stack, each in its own folder with its own settings file, saved login, `Client.txt` and PID record, and `-Stop` stops
+  the checkout's own servers and clients. Whatever `live.ps1` stops is the checkout's own; a stack off the default ports
+  never writes the shared GGPK gateway list. The bridge (`--session`) attaches to its session's client and filters the
+  Gateway's chat replies by that client's connection.
+  Verified: a stack on 21000-21004 started, restarted and stopped next to another checkout's live stack and client on the
+  default ports, which kept running; mocked checks (`scripts/dev/test_live_client_only.ps1`) and unit tests
+  (`test_client_control.py`) cover ports, sessions, PID records and process ownership. Not yet run: a named session's
+  client (no memory to spare on 2026-10-30), so the per-session `config.json` and working folder rest on static analysis.
+  Code: `scripts/dev/live.ps1`, `scripts/dev/client_control.py`, `GatewayEndpoint.cs`.
+  Docs: [live testing](../docs/dev/live-testing.md#several-stacks-and-clients).
+
 - Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its
   messages), the reason on every `DISCONNECT` line, archived logs of the last 10 full runs, each connection's last 256
   packets (printed after an error or an unexplained disconnect, dumped to `logs\packets`, `/lastpackets`), `Game_TRACE`
