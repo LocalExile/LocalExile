@@ -94,16 +94,22 @@ public sealed class GameFileSystem : IDisposable
         for (int chunk = first; chunk <= last; chunk++)
             if (!_chunks.ContainsKey((bundle, chunk))) return false;
         data = new byte[size];
-        for (int chunk = first, written = 0; chunk <= last; chunk++)
+        int written = 0;
+        for (int chunk = first; chunk <= last; chunk++)
         {
             var node = _chunks[(bundle, chunk)];
             _chunkLru.Remove(node);
             _chunkLru.AddFirst(node);
             int start = chunk * layout.Granularity;
-            int begin = Math.Max(offset - start, 0), end = Math.Min(offset + size - start, node.Value.Data.Length);
+            int begin = Math.Max(offset - start, 0), end = Math.Min(offset + size - start, layout.Granularity);
+            // The same checks as BundleFile.DecompressSlice's.
+            if (node.Value.Data.Length < end)
+                throw new GgpkFormatException($"chunk produced {node.Value.Data.Length} bytes, need {end}");
             node.Value.Data.AsSpan(begin, end - begin).CopyTo(data.AsSpan(written));
             written += end - begin;
         }
+        if (written != size)
+            throw new GgpkFormatException($"bundle slice incomplete: wrote {written} of {size} bytes");
         return true;
     }
 
