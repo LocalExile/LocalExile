@@ -19,6 +19,15 @@ $lines.Add('')
 $lines.Add('<!-- The person publishing writes these. -->')
 $lines.Add('')
 
+# Rows of login, account type, name, by tabs: "@login" for a person's account, the name when there is no account.
+function Get-People($rows) {
+    foreach ($row in $rows) {
+        $login, $type, $person = "$row" -split "`t"
+        if ($login -and $type -eq 'User' -and $login -notin $notPeople) { "@$login" }
+        elseif (-not $login -and $person -and $person -notin $notPeople) { $person }
+    }
+}
+
 function Add-Contributors($names) {
     $lines.Add('## Contributors')
     $lines.Add('')
@@ -30,9 +39,10 @@ if (-not $previous) {
     # The first release has no range to list: its whole history is the project's start.
     $lines.Add('The first release.')
     $lines.Add('')
-    $people = gh api "repos/$repository/contributors" --paginate --jq '.[] | select(.type == "User") | "@" + .login'
+    # No quotes in a --jq: Windows PowerShell strips them from a native command's arguments.
+    $rows = gh api "repos/$repository/contributors" --paginate --jq '.[] | [.login, .type, .login] | @tsv'
     if ($LASTEXITCODE -ne 0) { throw 'gh api contributors failed' }
-    Add-Contributors @($people | Where-Object { $_ })
+    Add-Contributors @(Get-People $rows)
     Write-Host 'first release: no bump to suggest'
 }
 else {
@@ -66,9 +76,9 @@ else {
     }
     # A login when GitHub knows the commit's author; else the name, never the email.
     $sha = (git rev-parse $Head).Trim()
-    $people = gh api "repos/$repository/compare/$previous...$sha" --paginate --jq '.commits[] | if (.author.login // "") != "" then (if .author.type == "User" then "@" + .author.login else empty end) else .commit.author.name end'
+    $rows = gh api "repos/$repository/compare/$previous...$sha" --paginate --jq '.commits[] | [.author.login, .author.type, .commit.author.name] | @tsv'
     if ($LASTEXITCODE -ne 0) { throw 'gh api compare failed' }
-    Add-Contributors @($people | Where-Object { $_ -and $_ -notin $notPeople })
+    Add-Contributors @(Get-People $rows)
     $lines.Add("**Full changes:** https://github.com/$repository/compare/$previous...v$Version")
     Write-Host "commits since $previous suggest a $bump bump (0.x: breaking or feat raise the minor, fix the patch)"
 }
