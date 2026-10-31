@@ -507,6 +507,7 @@ partial class Program
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, last = conn.Clock.Elapsed.TotalSeconds;
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0;
+        bool zealotsOath = false, convertLifeRegen = false;
         double nextVitalsSave = last + 5;
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(string name) => Stats.Key(name) is uint key ? recoveryStats.GetValueOrDefault(key) : 0;
@@ -549,6 +550,8 @@ partial class Program
                     lifeRate = LifeRegenPerSecond(conn);
                     manaRate = ManaRegenPerSecond(conn);
                     recoveryStats = CharacterPlayerStats(conn);
+                    zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
+                    convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
                         Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire));
                     (ratesAt, cachedRf) = (now, rf);
@@ -584,11 +587,17 @@ partial class Program
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
                     int lifeBurn = conn.EnergyShield.Damage(burnWhole, false, now);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
-                    conn.EnergyShield.Gain(leeched.EnergyShield);
+                    conn.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds : 0));
                     double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
+                    if (convertLifeRegen) conn.EnergyShield.Gain(fortificationLife);
+                    double antiquarianLife = conn.Antiquarian.TakeRecovery(now);
+                    if (convertLifeRegen) conn.EnergyShield.Gain(antiquarianLife);
+                    double enduringCryLife = conn.EnduringCryRecovery.Take(now);
+                    if (convertLifeRegen) conn.EnergyShield.Gain(enduringCryLife);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, conn.PlayerMaxLife,
-                        life + lifeRate * seconds + fortificationLife + leeched.Life + conn.Antiquarian.TakeRecovery(now)
-                            + conn.EnduringCryRecovery.Take(now) - lifeBurn, ref lifeCarry, minimum: 1);
+                        life + (zealotsOath ? 0 : lifeRate * seconds) + (zealotsOath ? 0 : fortificationLife) + leeched.Life
+                            + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife) - lifeBurn,
+                        ref lifeCarry, minimum: 1);
                     AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
                     lifeAfter = conn.PlayerLife;
                     if (lifeAfter == 0) ailmentDeathEpoch = conn.IncomingHitEpoch;
@@ -923,6 +932,9 @@ partial class Program
             if (layout.Id.StartsWith("Delve", StringComparison.Ordinal))
             {
                 messages.Add(("0x0228 Delve resources and equipment", PlayerDelveData(conn)));
+                ushort currentSulphite = CharacterSaves.Load(CharacterName(conn))?.Sulphite ?? 0;
+                for (int i = 0; i < 2; i++)
+                    messages.Add(("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(currentSulphite, currentSulphite)));
             }
             // The contents of every stash tab with currency in it (stackable items), as 0xc7 would send them (0xc0, no 0xc8:
             // the panel is not open). The client checks a shop price against the currency it knows of, the inventory's and

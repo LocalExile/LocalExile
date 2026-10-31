@@ -9,9 +9,9 @@ using GgDump;
 /// for an area the port reproduces 1:1, the Gateway generates the layout itself from the seed instead of reading the
 /// client's capture: the walkability grid (doodad collision included), every cell's ground height, and the area
 /// transitions and waypoint. Supported areas are the ones whose seed-1 trace passes every check of the level
-/// generator's gate (scripts/re/levelgen/gate-baseline.json, committed with each generator change) and whose logged
-/// loads all match. Needs the game files (Client/Content.ggpk) and Node for their Oodle blocks (Tools/ooz);
-/// Game_SERVER_LEVELS=0 turns it off.</summary>
+/// generator's gate (scripts/re/levelgen/gate-baseline.json, committed with each generator change), or whose seed-1
+/// failure the port reproduces (the client cannot build it either), and whose logged loads all match. Needs the game
+/// files (Client/Content.ggpk) and Node for their Oodle blocks (Tools/ooz); Game_SERVER_LEVELS=0 turns it off.</summary>
 static class ServerLevels
 {
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
@@ -28,6 +28,13 @@ static class ServerLevels
         /// <summary>The client's tile hash of the generated grid, and how long the generation took.</summary>
         public uint TileHash { get; init; }
         public long Milliseconds { get; init; }
+        /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
+        public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
+        /// <summary>Every area transition object of the layout with its role from its room's graph node
+        /// (<see cref="AreaExits"/>): what <see cref="AreaTransitionCatalog"/> creates.</summary>
+        public IReadOnlyList<PlacedExit> Exits { get; init; } = [];
+        /// <summary>Where each "entranceN" of the layout is (an arrival point, also for one-way entrances).</summary>
+        public IReadOnlyList<EntrancePoint> Entrances { get; init; } = [];
     }
 
     /// <summary>Where the supported list comes from (the repository root is the Gateway's directory; tests replace it).</summary>
@@ -36,6 +43,7 @@ static class ServerLevels
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
     static readonly object Gate = new();
     static HashSet<string>? _supported;
+    static Dictionary<string, uint>? _inPlaceOfOne;
     static TerrainCache? _files;
     static GameFileSystem? _fs;
     static readonly ConcurrentDictionary<(string Area, uint Seed), Level?> Generated = new();
@@ -56,8 +64,17 @@ static class ServerLevels
         lock (Gate) return (_supported ??= LoadSupported(BaselineFile)).Contains(areaId);
     }
 
-    /// <summary>Drops the supported list, so the next check reads <see cref="BaselineFile"/> again (tests).</summary>
-    internal static void Reload() { lock (Gate) _supported = null; }
+    /// <summary>The seed played in place of seed 1 for an area whose seed-1 load the client fails too, or null
+    /// (<see cref="GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne"/>; Auth gives new instances the same).</summary>
+    public static uint? SeedInPlaceOfOne(string areaId)
+    {
+        lock (Gate)
+            return (_inPlaceOfOne ??= GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(BaselineFile,
+                m => Console.WriteLine($"[gateway] server levels: {m}"))).TryGetValue(areaId, out uint seed) ? seed : null;
+    }
+
+    /// <summary>Drops the lists read from the baseline, so the next check reads <see cref="BaselineFile"/> again (tests).</summary>
+    internal static void Reload() { lock (Gate) { _supported = null; _inPlaceOfOne = null; } }
 
     /// <summary>The supported areas of a gate baseline (<see cref="GameServer.Core.World.ServerLevelAreas.Load"/>).</summary>
     internal static HashSet<string> LoadSupported(string file) =>
@@ -85,16 +102,25 @@ static class ServerLevels
         }
     }
 
-    /// <summary>The seed an instance of a supported area is played at: its own, unless the port cannot generate it (a
-    /// few random seeds per area, e.g. 1_1_2 at 32124476: "Mismatching ground types"), then the first of
-    /// <see cref="Replacements"/> it can. Without a level the Gateway would have no walk map, area transitions or
-    /// waypoint while the client still builds the map. The replacement depends only on the seed, so everyone entering
+    /// <summary>The seed an instance is played at (sent in 0x1d). Seed 1 of an area whose seed-1 load the client fails
+    /// too (The Crossroads, Act 6's Twilight Strand, …) is <see cref="SeedInPlaceOfOne"/>, a seed the client built,
+    /// also when the Gateway does not generate levels, and is then treated as any other seed. A seed of a supported area
+    /// is its own, unless the port
+    /// cannot generate it (a few random seeds per area, e.g. 1_1_2 at 32124476: "Mismatching ground types"), then the
+    /// first of <see cref="Replacements"/> it can. Without a level the Gateway would have no walk map, area transitions
+    /// or waypoint while the client still builds the map. The replacement depends only on the seed, so everyone entering
     /// the instance gets the same one. Kept as it is for the capture tour (<see cref="AreaLayouts.Recording"/>) and
     /// Game_SEED, which ask for that seed's trace.</summary>
     public static uint PlayableSeed(string areaId, uint seed)
     {
-        if (seed == 1 || AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 }
-            || !IsSupported(areaId) || For(areaId, seed) is not null) return seed;
+        if (AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 }) return seed;
+        if (seed == 1)
+        {
+            if (SeedInPlaceOfOne(areaId) is not { } inPlace) return seed;
+            Console.WriteLine($"[gateway] server levels: the client cannot generate {areaId} at seed 1; played at seed {inPlace}");
+            seed = inPlace;
+        }
+        if (!IsSupported(areaId) || For(areaId, seed) is not null) return seed;
         foreach (uint other in Replacements(seed))
             if (For(areaId, other) is not null)
             {
@@ -133,13 +159,20 @@ static class ServerLevels
             doodads.Run(result.Records);
             var heights = CellHeights.Build(result.Grid, t => files.Walk(t.Path));
             var objects = AreaObjects.Transitions(files, result);
+            // An object counts as an exit only if a player can walk up to it: a walkable cell within the walk-up range
+            // of an area transition (PlayerWalk.InWalkUpRange, size 5: 13 cells).
+            var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
             Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} ({walk.Width}x{walk.Height} cells, " +
                 $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
-                AreaObjects.QuestObjects(files, result), walk.Projectile) { TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds };
+                AreaObjects.QuestObjects(files, result), walk.Projectile)
+            {
+                TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
+                Exits = exits.Exits, Entrances = exits.Entrances,
+            };
         }
         catch (Exception ex)
         {
@@ -147,6 +180,17 @@ static class ServerLevels
             Errors[(areaId, seed)] = ex.ToString();
             return null;
         }
+    }
+
+    static bool WithinReach(byte[] cells, int w, int h, int x, int y, int r)
+    {
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = x + dx, cy = y + dy;
+                if (dx * dx + dy * dy <= r * r && cx >= 0 && cy >= 0 && cx < w && cy < h && cells[cy * w + cx] >= 2) return true;
+            }
+        return false;
     }
 
     // Opened on the first generation and kept.

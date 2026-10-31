@@ -17,6 +17,15 @@ public class ItemRarityDropsTests
         [.. Enumerable.Range(0, seeds).SelectMany(seed => Setup.Value.Drops.Roll(level, rarity, new Random(seed), increased, rarityMultiplier: rarityMultiplier))];
 
     [Fact]
+    public void Node_container_produces_requested_count_and_varied_pickable_items()
+    {
+        var drops = Setup.Value.Drops.Container(35, 20, 5, new Random(42));
+        Assert.Equal(20, drops.Count);
+        Assert.True(drops.Select(d => d.Type.Class).Distinct().Count() > 2);
+        Assert.All(drops, d => Assert.NotEmpty(new WorldItemObject(10, 10, d.Item).Blob()));
+    }
+
+    [Fact]
     public void Increased_rarity_raises_every_rarity_chance_uniques_too()
     {
         var normal = ItemDrops.RarityChances(MonsterRarity.Normal);
