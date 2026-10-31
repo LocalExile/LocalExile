@@ -287,22 +287,25 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             }
         });
         using var self = Process.GetCurrentProcess();
-        GC.Collect();
+        var ai = Program.RunMonsterAi("perf", wire.Stream, wire.Ciphers, conn);
+        // A warm-up first: the JIT's tier-1 recompilation of the hot methods is a one-time cost of a fresh process,
+        // not of a running server's instance.
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        self.Refresh();
         var cpuBefore = self.TotalProcessorTime;
         long allocatedBefore = Allocated();
         int gen0 = GC.CollectionCount(0), gen2 = GC.CollectionCount(2);
         long sentBefore = Interlocked.Read(ref wire.Received);
         long linesBefore = LogLines();
         var clock = Stopwatch.StartNew();
-        var ai = Program.RunMonsterAi("perf", wire.Stream, wire.Ciphers, conn);
         await Task.Delay(TimeSpan.FromSeconds(Seconds));
+        double elapsed = clock.Elapsed.TotalSeconds;
+        self.Refresh();
+        double cpuMs = (self.TotalProcessorTime - cpuBefore).TotalMilliseconds;
         lock (conn.Monsters) conn.Closed = true;
         stop.Cancel();
         await ai.WaitAsync(TimeSpan.FromSeconds(10));
         await walking;
-        double elapsed = clock.Elapsed.TotalSeconds;
-        self.Refresh();
-        double cpuMs = (self.TotalProcessorTime - cpuBefore).TotalMilliseconds;
         Record("busy", "process CPU ms per game second", cpuMs / elapsed, "ms/s");
         Record("busy", "allocated MB per game second", (Allocated() - allocatedBefore) / 1048576.0 / elapsed, "MB/s");
         Record("busy", "gen0 GCs per game second", (GC.CollectionCount(0) - gen0) / elapsed, "/s");
