@@ -36,6 +36,8 @@
     <InternalsVisibleTo Include="vendors" />
     <!-- scripts/re/exits: the offline area transition audit. -->
     <InternalsVisibleTo Include="exits" />
+    <!-- scripts/perf/PerfBench: the in-process performance measurements (Agents/docs/dev/performance.md). -->
+    <InternalsVisibleTo Include="perfbench" />
   </ItemGroup>
 
   <PropertyGroup>

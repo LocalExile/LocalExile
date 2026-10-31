@@ -104,6 +104,11 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x00c7 stash {kind} tab {tab}: no such tab");
             return;
         }
+        if (stash.UniqueParent(tab) != tab)
+        {
+            await SendUniqueChild(remote, stream, ciphers, conn, stash, tab);
+            return;
+        }
         // The panel asks for the tab it shows: as it opens (its tab before the selection) and when a tab without contents
         // is picked. The client sends its queue newest first, so during the first open the forced tab's request comes before
         // the panel's old one; that one is answered but not taken as the player's choice.
@@ -141,6 +146,35 @@ static partial class Game
                 $"0x0136 stash tab list again ({tabs.Count} tabs): {unload.Count} unloaded tab(s) marked not loaded");
         }
         await Send(remote, stream, ciphers, InstanceStash.TabLoaded(tab, inventory, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded");
+        foreach (int child in stash.UniqueChildren(tab)) await SendUniqueChild(remote, stream, ciphers, conn, stash, child);
+    }
+
+    static async Task SendUniqueChild(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab)
+    {
+        var sent = TabsSentOf(conn, stash);
+        byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
+        if (sent.Add(tab))
+        {
+            var (slot, items) = stash.Inventory(tab);
+            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(stash.InventoryOf(tab), slot, manager, items),
+                $"Unique category {stash.NameOf(tab)}: {items.Count} items");
+        }
+        await Send(remote, stream, ciphers, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
+            stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), null);
+    }
+
+    internal static async Task RefreshUniqueCollection(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int parent)
+    {
+        var sent = TabsSentOf(conn, stash);
+        byte kind = stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal;
+        // Advertise hidden category records before the loaded notifications that bind the native collection pages.
+        await Send(remote, stream, ciphers, InstanceStash.TabList(stash.Records(null, sent), kind), "Unique collection category list");
+        foreach (int child in stash.UniqueChildren(parent))
+        {
+            if (sent.Remove(child)) await Send(remote, stream, ciphers, InstanceInventories.RemoveInventory(stash.InventoryOf(child),
+                stash.IsGuild ? InstanceStash.GuildManager : (byte)0), null);
+            await SendUniqueChild(remote, stream, ciphers, conn, stash, child);
+        }
     }
 
     // C→S 0x28 on a stash tab: the item leaves the tab for the (empty) cursor, keeping its id; both saves in one transaction

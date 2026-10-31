@@ -17,7 +17,7 @@ static class CommandsFeature
     /// it (e.g. "divination" → DivinationStash); null when none or several match.</summary>
     internal static int? ItemTabOf(AccountStash stash, string name)
     {
-        var tabs = Enumerable.Range(0, stash.Count).ToList();
+        var tabs = Enumerable.Range(0, stash.Count).Where(t => stash.UniqueParent(t) == t).ToList();
         var named = tabs.Where(t => string.Equals(stash.NameOf(t), name, StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count > 0) return named[0];
         var typed = tabs.Where(t => stash.TypeOf(t).StartsWith(name, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -57,7 +57,8 @@ static class CommandsFeature
             int percent = int.Parse(args[0]);
             if (percent is < 10 or > 1000) throw new ArgumentException("10 to 1000");
             int totalPct = conn.Pools.MovementVelocityPct + percent - 100;
-            conn.Walk.SetSpeed(WalkSpeed * (100 + totalPct) / 100, conn.Clock.Elapsed.TotalSeconds);
+            conn.Walk.SetSpeed(Math.Max(1, WalkSpeed * (100 + totalPct) / 100 * PlayerActionFactor(conn)),
+                conn.Clock.Elapsed.TotalSeconds);
             lock (conn.Monsters) conn.PlayerStats[StatKeys.MovementVelocityPct] = totalPct;
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, totalPct)]),
                 $"0x01b3 stats: movement_velocity_+% (key {StatKeys.MovementVelocityPct}) = {totalPct} ({conn.Pools.MovementVelocityPct} passive + {percent - 100} dev)");
@@ -110,6 +111,11 @@ static class CommandsFeature
                     }
                 }
             }
+            // Action speed and its base-speed floors change the walk estimate immediately; attack/cast pacing reads the
+            // same stat through PlayerActionFactor when the next action starts.
+            if (Stats.Name(stat) is "action_speed_-%" or "action_speed_cannot_be_reduced_below_base"
+                or "movement_speed_cannot_be_reduced_below_base")
+                conn.ApplyMovementSpeed();
             // The client's requirement checks (gear and gems) read virtual_strength/dexterity/intelligence_for_requirements,
             // not the attributes themselves (13-items.md §2d), so an attribute set here sets its requirement value too.
             if (Stats.Key($"virtual_{args[0]}_for_requirements") is uint requirement && requirement != stat)
@@ -321,7 +327,7 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
-        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: up to count, at most {ItemTabMax}, more of every item type that has its own slot on that tab, as far as each slot holds, e.g. /item_tab Currency 1000)", async args =>
+        .Add("item_tab", $"/item_tab <stash tab name> <count> (dev: slotted tabs add up to count, at most {ItemTabMax}; Gem and Unique add one of each available missing variant, e.g. /item_tab Unique 1)", async args =>
         {
             if (args.Length < 2 || !int.TryParse(args[^1], out int requested) || requested < 1)
                 throw new ArgumentException("/item_tab <stash tab name> <count>, e.g. /item_tab Currency 1000");
@@ -332,6 +338,14 @@ static class CommandsFeature
             if (ItemTabOf(stash, name) is not int tab)
             {
                 await conn.Commands!.Reply($"No stash tab \"{name}\"; tabs: {string.Join(", ", Enumerable.Range(0, stash.Count).Select(stash.NameOf))}");
+                return;
+            }
+            if (stash.TabType(tab) == StashRules.Unique)
+            {
+                var collection = stash.FillUniques(tab, UniquesFor(conn), ShapeOf);
+                await Game.RefreshUniqueCollection(remote, stream, ciphers, conn, stash, tab);
+                await conn.Commands!.Reply($"Tab \"{stash.NameOf(tab)}\": {collection.Added} unique(s) added, {collection.Present} already present, {collection.Skipped.Count} unavailable.");
+                if (collection.Skipped.Count > 0) Console.WriteLine($"[gateway] /item_tab unique unavailable: {string.Join(", ", collection.Skipped)}");
                 return;
             }
             if (stash.TabType(tab) == StashRules.Gem)
