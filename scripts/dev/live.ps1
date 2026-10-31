@@ -18,19 +18,25 @@
 #   -NoHotReload  start the built Gateway without `dotnet watch`. Agents/GettingStarted.md step 10.
 #   -Release    build and run the servers' Release builds (implies -NoHotReload): the JIT optimizes them (the monster AI
 #               runs 1.6-2.3x faster), and no `dotnet watch` (~220 MB) runs beside the Gateway. Agents/docs/dev/performance.md.
-param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload, [switch]$Release, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
+#   -Debug      the Debug builds (the default). Without either, a run uses the configuration of the last full run
+#               (data\live-configuration.txt), so -Only, -ClientOnly and -NoBuild keep to the builds that are running.
+param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload, [switch]$Release, [switch]$Debug, [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @())
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$configuration = if ($Release) { 'Release' } else { 'Debug' }
-if ($Release) { $NoHotReload = $true }
+if ($Release -and $Debug) { throw '-Release and -Debug cannot be combined' }
+$configurationFile = Join-Path $repo 'data\live-configuration.txt'
+$remembered = if (Test-Path $configurationFile) { (Get-Content $configurationFile -TotalCount 1) } else { $null }
+$configuration = if ($Release) { 'Release' } elseif ($Debug) { 'Debug' } elseif ($remembered -in 'Debug', 'Release') { $remembered } else { 'Debug' }
+if ($configuration -eq 'Release') { $NoHotReload = $true }
 $out = Join-Path $repo 'logs'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
-function Select-LocalGateway {
+function Select-LocalGateway([string] $Configuration) {
+    if (-not $Configuration) { $Configuration = 'Debug' }
     # The client can use a cached gateway list even when the patch welcome needs no download.
-    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") gateway (Join-Path $repo 'Client\Content.ggpk') --login '127.0.0.1:20493' | Out-Null
+    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$Configuration\net10.0\GameServer.Patch.dll") gateway (Join-Path $repo 'Client\Content.ggpk') --login '127.0.0.1:20493' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'could not select local login server; close all clients and retry' }
 }
 Need (Get-Command dotnet -ErrorAction SilentlyContinue) '.NET SDK not found (dotnet)'
@@ -51,7 +57,7 @@ if ($ClientOnly) {
     foreach ($port in @(12995, 20493, 6112)) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
-    Select-LocalGateway
+    Select-LocalGateway $configuration
     $p = Start-Process (Join-Path $repo 'Client\Game.patched.exe') -ArgumentList '--patching-server', '127.0.0.1:12995' -WorkingDirectory (Join-Path $repo 'Client') -PassThru
     Write-Output "client pid $($p.Id)"
     return
@@ -156,13 +162,15 @@ function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [strin
 }
 
 $bin = "bin\$configuration\net10.0"
+# A full run decides the configuration the next -Only, -ClientOnly or -NoBuild run uses.
+if (-not $Only) { Set-Content -Path $configurationFile -Value $configuration -Encoding ascii }
 $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
 # The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
 $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
 # Select the local Auth explicitly before the patch server or client opens the GGPK.
 if (-not $NoClient) {
-    Select-LocalGateway
+    Select-LocalGateway $configuration
 }
 
 # Each connection's last packets go to a file when it closes (PacketHistory): the lead for a client crash. Relative to
