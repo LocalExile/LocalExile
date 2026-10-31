@@ -19,14 +19,19 @@ static class PerfBenchMain
     // Not top-level statements: their class would be named Program, beside the Gateway's own.
     static async Task<int> Main(string[] args)
     {
-        switch (args.FirstOrDefault() ?? "")
+        try
         {
-            case "catalogue": PerfBench.Catalogue_loads(); break;
-            case "area": await PerfBench.Area_instance_creation(); break;
-            case "busy": await PerfBench.Busy_instance_ticks(); break;
-            case "planner": await PerfBench.Monster_planner(); break;
-            default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner"); return 2;
+            switch (args.FirstOrDefault() ?? "")
+            {
+                case "catalogue": PerfBench.Catalogue_loads(); break;
+                case "area": await PerfBench.Area_instance_creation(); break;
+                case "busy": await PerfBench.Busy_instance_ticks(); break;
+                case "planner": await PerfBench.Monster_planner(); break;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner"); return 2;
+            }
         }
+        // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
+        finally { PerfBench.DeleteSaves(); }
         return 0;
     }
 }
@@ -127,20 +132,22 @@ static class PerfBench
 
     static Task PopulateArea(Wire wire, ClientState conn) => Game.PopulateArea("perf", wire.Stream, wire.Ciphers, conn);
 
-    // A save database of its own for the run (the characters the scenarios create), deleted at exit.
-    static bool _saves;
+    // A save database of its own for the run (the characters the scenarios create); Main deletes it.
+    static string? _saves;
     static void EnsureSaves()
     {
-        if (_saves) return;
-        string path = Path.Combine(Path.GetTempPath(), $"localexile-perf-{Guid.NewGuid():N}.db");
-        Saves.Open(path);
-        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-        {
-            Saves.Db.Dispose();
-            foreach (string f in new[] { path, path + "-wal", path + "-shm" })
-                try { File.Delete(f); } catch (IOException) { }
-        };
-        _saves = true;
+        if (_saves != null) return;
+        _saves = Path.Combine(Path.GetTempPath(), $"localexile-perf-{Guid.NewGuid():N}.db");
+        Saves.Open(_saves);
+    }
+
+    public static void DeleteSaves()
+    {
+        if (_saves == null) return;
+        Saves.Db.Dispose();
+        foreach (string f in new[] { _saves, _saves + "-wal", _saves + "-shm" })
+            try { File.Delete(f); }
+            catch (IOException e) { Console.Error.WriteLine($"perfbench: {f} not deleted: {e.Message}"); }
     }
 
     static long Allocated() => GC.GetTotalAllocatedBytes(precise: false);
