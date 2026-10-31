@@ -733,8 +733,9 @@ partial class Program
                 conn.ForesightRequest = (key, currencyInventory, currencyId, targetInventory, targetId,
                     target?.Item.ForeseeSeed ?? 0, preview);
                 await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
-                    key, (ushort)targetId, preview is null ? [] : [preview]),
-                    $"0x029f foresight preview key {key} for item {targetId}");
+                    key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+                    preview is null ? [] : [preview]),
+                    $"0x029f foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
             }
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.
             if (uid == InstanceTransfer.LeaveAreaAckId && conn.PendingTransfer is { } t) await Transfer(remote, stream, ciphers, conn, t);

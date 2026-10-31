@@ -42,19 +42,24 @@ the commit.
 ```
 u16 0x029f
 u16 keyA (BE) — the key from the 0x29c request
-u16 keyB (raw LE) — the target item id
+u16 status (raw LE) — 0: preview, non-zero: failure (0x04FA is the client's own fail code)
 u64 count (raw LE)
 count × item (u16 BE length + Item.Payload)
 ```
 
 Handler `0x1421544c1`, reader `0x141fa1c50`, writer `0x141fa1b50`, class vtable `0x1435bfcf8`. The handler builds
-`{u16 keyA, u16 keyB, vector<Item> at +8}` and dispatches it through `0x14019a240` to the instance-client event bus
-at `+0x48f0` (`+0x48f8` is the listener field). The client logs `CurrencyApplicationForesightResult recieved`
-(`0x1435d96a0`).
+`{u16 keyA, u16 status, vector<Item> at +8}` and dispatches it through `0x14019a240` to the item popup's listener.
+The client logs `CurrencyApplicationForesightResult recieved` (`0x1435d96a0`).
 
-The key matters: a response with keyA = the target id instead of the request key is accepted and logged but the
-client cannot match it to the pending use. The correct native response was
-`029F 0001 4F05 0100000000000000 37 2F62B1D9...`: keyA 1, keyB 0x054F (1359), one item.
+The second field is a **result status**, not the target id. The client's handler `0x1402d0120` matches only keyA
+against the pending request and then branches on `status == 0`: the success path adds the preview element and loads
+`HinekorasLockFutureSight` / `HinekorasLockLoop`, while any non-zero status plays `HinekorasLockFail`. The client's
+own local failure path (`0x1402cfb70`) uses `0x04FA`, so that is the failure status the server sends when no preview
+can be computed.
+
+A correct success response is therefore `029F 0001 0000 0100000000000000 37 2F62B1D9...`: keyA 1, status 0, one
+item. The earlier `029F 0001 4F05 ...` (status = target id 1359) was the bug: it made the client take the fail
+branch.
 
 ## Commit
 
@@ -67,21 +72,21 @@ Native run 2026-10-31:
 
 - Lock 1353 on wand 1359 through `0x71`: the `0xbf` payload carried `Mods` flags `0x0100`; the client showed the
   Lock tooltip text.
-- `0x29c` key 1, Orb of Alchemy 1357 on 1359: the server answered `0x29f` keyA 1, keyB 0x054F, count 1, with the
-  preview item; the client logged `CurrencyApplicationForesightResult recieved`.
+- `0x29c` key 1, Orb of Alchemy 1357 on 1359: the server answered `0x29f` keyA 1, status 0x054F, count 1, with the
+  preview item; the client logged `CurrencyApplicationForesightResult recieved` but took the fail branch because
+  0x054F is non-zero.
 - `0x71` Orb of Alchemy on 1359: the `0xbf` payload's `Mods` flags were `0x0000`, the item was rare with the
   previewed mods, the Orb stack was spent and the save held `Foreseeing: false`, `ForeseeSeed: 0`.
 
-## Open: native preview popup
+## Preview UI
 
-The `0x29f` handler dispatches to the `+0x48f0` event bus, but the bus has **no listener** in every tested state
-(hover with a currency, real `0x29c`/`0x29f`, item tooltip open, after the Lock). Live handler evidence: the
-handler's `r13` equals the instance-client/world pointer, `[world+0x48f0] = 0` and `[world+0x48f8]` is the listener
-sentinel node whose first qword (vtable) is 0; the dispatch loop therefore does not run. The client logs the message
-and drops the event, so the preview popup does not render.
+The client has the complete preview UI: `HinekoraForesightPopupIcon`, `HinekorasLockFutureSight`,
+`HinekorasLockLoop` and `HinekorasLockFail`. The item popup's controller sends C→S `0x29c` (`0x1402cfb70` →
+`0x1402cfe60`) when the player uses a currency in use mode on a foreseeing item; the `0x29f` handler
+`0x1421544c1` builds `{keyA, status, vector<Item>}` and dispatches it to the popup's listener `0x1402d0120`.
+Status 0 adds the preview element; any other status plays the fail animation. The earlier "empty +0x48f0 bus"
+observation was taken while the popup's listener was not registered (the `0x29f` was injected without an open item
+popup); it was not a client gap.
 
-The `ItemDisplayCaseWindow` lambda names (`0x44b0c14` / `0x44b0d64`) are the **Ancestral league item display case**,
-not the foresight preview; `ClientItemDisplayCase`/`ItemDisplayCase` are game components. The next target is
-`ItemView::GetItemPopupCreateInfo` / `ItemPopupGeneric::DoInitialise` and the `ItemPopupCreateInfo` field that would
-create the preview window. The server-side preview/commit identity and all refusal/persistence rules are covered by
-the Gateway tests.
+The server-side preview/commit identity and all refusal/persistence rules are covered by the Gateway tests. The
+`0x29f` builder now sends status 0 on success and `0x04FA` on failure; the framed test asserts both.

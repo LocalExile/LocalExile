@@ -9,7 +9,7 @@ public class HinekoraLockGatewayTests
 {
     const byte Main = PlayerInventories.MainInventory;
 
-    sealed record Preview(ushort Key, ushort Target, ulong Count, byte[] Payload);
+    sealed record Preview(ushort Key, ushort Status, ulong Count, byte[] Payload);
 
     [Fact]
     public async Task Lock_application_sets_the_flag_and_persists()
@@ -91,7 +91,7 @@ public class HinekoraLockGatewayTests
 
             var preview = await readPreview();
             Assert.Equal(7, preview.Key);
-            Assert.Equal((ushort)target.Id, preview.Target);
+            Assert.Equal((ushort)0, preview.Status);
             Assert.Equal(1ul, preview.Count);
             Assert.Equal(target.Item.TypeHash, BitConverter.ToUInt32(preview.Payload, 0));
             Assert.True(Current(items, target.Id).Item.Foreseeing);
@@ -138,6 +138,7 @@ public class HinekoraLockGatewayTests
 
             await sendRaw(PreviewRequest(3, currency, target));
             var preview = await readPreview();
+            Assert.NotEqual((ushort)0, preview.Status);
             Assert.Equal(0ul, preview.Count);
 
             await send(Request(currency, target));
@@ -197,9 +198,9 @@ public class HinekoraLockGatewayTests
                 clientCiphers.Receive.Process(header);
                 Assert.Equal(0x029f, (ushort)(header[0] << 8 | header[1]));
                 ushort key = (ushort)(header[2] << 8 | header[3]);
-                ushort target = (ushort)(header[4] | header[5] << 8);
+                ushort status = (ushort)(header[4] | header[5] << 8);
                 ulong count = BitConverter.ToUInt64(header, 6);
-                if (count == 0) return new(key, target, 0, []);
+                if (count == 0) return new(key, status, 0, []);
                 var lengthBytes = new byte[2];
                 await ReadExactly(reader.GetStream(), lengthBytes);
                 clientCiphers.Receive.Process(lengthBytes);
@@ -207,7 +208,7 @@ public class HinekoraLockGatewayTests
                 var payload = new byte[length];
                 await ReadExactly(reader.GetStream(), payload);
                 clientCiphers.Receive.Process(payload);
-                return new(key, target, count, payload);
+                return new(key, status, count, payload);
             }
             await action(conn, items, stash, Send, SendRaw, ReadPreview);
         }

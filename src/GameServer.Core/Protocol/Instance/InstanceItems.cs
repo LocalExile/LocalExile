@@ -355,16 +355,20 @@ public static class InstanceItems
 
     public const ushort CurrencyApplicationForesightResultId = 0x29f;
 
+    /// <summary>The 0x29f result code that plays the client's Hinekora fail animation (0 shows the preview).</summary>
+    public const ushort CurrencyApplicationForesightFailure = 0x04FA;
+
     /// <summary>
     /// S→C 0x29f CurrencyApplicationForesightResult (dispatcher case 223, handler 0x1421544c1, reader 0x141fa1c50):
-    /// u16 id, u16 BE keyA (the C→S 0x29c request key), u16 raw keyB (the target item id), u64 raw count, then
-    /// count × item (u16 BE length + <see cref="Item.Payload"/>). The client logs the message and dispatches it to the
-    /// event bus at instance-client +0x48f0.
+    /// u16 id, u16 BE keyA (the C→S 0x29c request key), u16 raw status (0: preview, non-zero: failure; the client's
+    /// own fail path uses <see cref="CurrencyApplicationForesightFailure"/>), u64 raw count, then count × item
+    /// (u16 BE length + <see cref="Item.Payload"/>). The handler builds {keyA, status, vector&lt;Item&gt;} and dispatches
+    /// it to the instance-client event bus at +0x48f0, where the open item popup shows the preview.
     /// </summary>
-    public static byte[] CurrencyApplicationForesightResult(ushort keyA, ushort keyB, IReadOnlyList<Item> items)
+    public static byte[] CurrencyApplicationForesightResult(ushort keyA, ushort status, IReadOnlyList<Item> items)
     {
         var w = new LoginWriter().U16(CurrencyApplicationForesightResultId).U16(keyA)
-            .Bytes([(byte)keyB, (byte)(keyB >> 8)]).RawU64((ulong)items.Count);
+            .Bytes([(byte)status, (byte)(status >> 8)]).RawU64((ulong)items.Count);
         foreach (var item in items) w.Bytes(item.Wire());
         return w.ToArray();
     }
