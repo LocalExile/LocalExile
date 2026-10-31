@@ -1042,7 +1042,9 @@ so a crash never keeps it both waiting and in the inventory. A new instance or a
 it there again; so does a new character with a deleted one's name in the same instance (its weapon is another item).
 `Game_START_ITEMS=0` starts empty.
 
-The kit is built once, when the character has no save, and saved at once. Without `data/tables` (`Characters.json`,
+The kit is built once, when the character has no save, and saved at once: admission sets the class
+(`PlayerInventories.SetClass`) and passes its read-only progress preflight first, because a kit built without the class
+would be the Witch's. Without `data/tables` (`Characters.json`,
 `SkillGems.json`) and `data/item-types.json` it is empty, the Gateway logs `start kit is empty`, and the character keeps
 the empty kit: remove its row from the `characters` table of `data/saves.db` (with the Gateway stopped) to give it the kit
 again.

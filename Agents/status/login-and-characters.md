@@ -35,7 +35,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `LoginServerSession`, Auth.
   Docs: [01](../docs/protocol/01-login.md) §5.
 - Every class in game: the Characters.dat row's object type and model, class byte, attributes, unarmed attack and
-  start kit (weapon, gems, sockets in the gems' colours); verified with a Templar.
+  start kit (weapon with two linked white sockets, gems); verified with a Templar, the weapon on the ground and the
+  saved gems also with a Ranger and a Shadow.
   Code: Gateway (`SkillCatalog.cs`, `PlayerInventories.cs`).
   Docs: [01](../docs/protocol/01-login.md) §7, [04](../docs/protocol/04-player-entity.md).
 - Exit to character selection: Esc → "Exit to Character Selection" and the hardcore death screen's Exit (C→S 0x153);
