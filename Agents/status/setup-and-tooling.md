@@ -68,6 +68,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
   Docs: [debugging](../docs/dev/debugging.md).
 
+- Headless clients for agent sessions (opt-in): `scripts/dev/nullifier.py` spawns the client with a Frida agent that
+  switches on the engine's own Null renderer (no GPU device, swap chain or textures), gives it its own settings file
+  (preset `config/nullifier_Config.ini`), caps its frame rate and keeps its window from taking focus, sets a low
+  priority and EcoQoS, and serves client_control's commands (plus `waypoint:travel`, `nullifier:stats`) for that pid
+  only. Offline-tested (`scripts/dev/test_nullifier.py`); not yet run against the real client: the machine had too
+  little free memory for an extra client, so the measurement table is still empty.
+  Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`.
+  Docs: [headless client](../docs/dev/headless-client.md).
+
 ## Not working yet
 
 Nothing yet.
