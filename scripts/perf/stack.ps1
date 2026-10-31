@@ -5,6 +5,8 @@
 # IdleSeconds records each process's CPU time, private bytes (its commit) and working set, and stops exactly the processes
 # it started. No player connects. Never touches the default ports. Run from the repository root after `dotnet build`
 # (or `dotnet build -c Release` with -Configuration Release).
+# PortBase: a block of 10 ports of the worktree's own; the defaults of stack.ps1 (23000), watch.ps1 (23010) and
+# startup.ps1 (23020) do not overlap. The shell's location and environment are as they were afterwards.
 param(
     [int] $PortBase = 23000,
     [string] $Configuration = 'Debug',
@@ -16,7 +18,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-Set-Location $repo
+Push-Location $repo
+try {
 $out = Join-Path $repo 'artifacts\perf'
 New-Item -ItemType Directory -Force $out | Out-Null
 $bin = "bin\$Configuration\net10.0"
@@ -80,3 +83,5 @@ foreach ($run in 1..$Runs) {
     "run {0}: stack private {1} MB, working set {2} MB, idle CPU {3} ms per minute" -f $run,
         ($r | Measure-Object PrivateMB -Sum).Sum, ($r | Measure-Object WorkingSetMB -Sum).Sum, ($r | Measure-Object CpuMsPerMinute -Sum).Sum
 }
+}
+finally { Pop-Location }

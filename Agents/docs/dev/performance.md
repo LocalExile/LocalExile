@@ -19,6 +19,8 @@ ports and never starts a client.
 PortBase+1 … +6, and after they are ready records each one's private bytes (its commit), working set and CPU time over
 an idle minute (`-IdleSeconds`). `scripts/perf/watch.ps1` does the same for a Gateway under `dotnet watch` (as
 `live.ps1` runs it by default) and lists every process of that tree. Neither binds the default ports or starts a client.
+Each perf script takes `-PortBase`, a block of 10 ports of the worktree's own (defaults: stack.ps1 23000, watch.ps1
+23010, startup.ps1 23020, which do not overlap), and leaves the shell's location and environment as they were.
 
 **In-process scenarios**: `PerfBenchmarkTests` in the Gateway tests, which run only with `Game_PERF=1` (otherwise they
 are reported as skipped):
