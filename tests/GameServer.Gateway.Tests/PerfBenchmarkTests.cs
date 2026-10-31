@@ -76,6 +76,25 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         }
     }
 
+    // The Gateway's log as a server writes it (live.ps1 redirects stdout to a file; ServerLog stamps every line), so the
+    // logging a scenario does costs what it costs in a server. Once per test process (perf runs only).
+    static readonly Lazy<string> ConsoleLog = new(() =>
+    {
+        string path = Path.GetFullPath(Path.Combine("artifacts", "perf", $"console-{Environment.ProcessId}.log"));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Console.SetOut(new StreamWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true });
+        GameServer.Core.Diagnostics.ServerLog.Install("gateway");
+        return path;
+    });
+
+    static long LogLines()
+    {
+        using var reader = new StreamReader(new FileStream(ConsoleLog.Value, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+        long lines = 0;
+        while (reader.ReadLine() is not null) lines++;
+        return lines;
+    }
+
     static ClientState Player(AreaLayout layout, uint seed)
     {
         TestSaves.Ensure();
@@ -111,6 +130,7 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         if (!Enabled) return;
         var steps = new (string Name, Action Load)[]
         {
+            ("Program statics", () => _ = Program.Items),
             ("Stats", () => Program.Stats.Key("base_maximum_life")),
             ("Items (BaseItemTypes)", () => Program.Items.Find("Iron Ring")),
             ("Items.Mods (Mods.json)", () => _ = Program.Items.Mods.All.Count),
@@ -124,12 +144,14 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         double total = 0;
         foreach (var (name, load) in steps)
         {
+            long live = GC.GetTotalMemory(forceFullCollection: true);
             long before = Allocated();
             var clock = Stopwatch.StartNew();
             load();
             total += clock.Elapsed.TotalMilliseconds;
             Record("catalogue", $"{name} ms", clock.Elapsed.TotalMilliseconds, "ms");
             Record("catalogue", $"{name} allocated MB", (Allocated() - before) / 1048576.0, "MB");
+            Record("catalogue", $"{name} retained MB", (GC.GetTotalMemory(forceFullCollection: true) - live) / 1048576.0, "MB");
         }
         Record("catalogue", "total ms", total, "ms");
         GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -143,6 +165,7 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
     public async Task Area_instance_creation()
     {
         if (!Enabled) return;
+        _ = ConsoleLog.Value;
         string[] areas = ["1_1_2", "1_1_3", "1_1_4_1", "1_1_5", "1_1_7_1", "1_2_1"];
         bool first = true;
         foreach (string id in areas)
@@ -167,45 +190,77 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             Record("area", $"{id} monsters", conn.Monsters.Count, "");
             conn.Closed = true;
         }
+        // What the Gateway keeps afterwards: the generated levels (ServerLevels keeps the last few), the game files'
+        // caches and the catalogues.
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        Record("area", "live heap after full GC MB", GC.GetTotalMemory(false) / 1048576.0, "MB");
+        Record("area", "process private MB", PrivateMegabytes(), "MB");
+        if (typeof(ServerLevels).GetField("_fs", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null) is { } fs)
+            foreach (string field in new[] { "_cacheBytes", "_chunkBytes" })
+                if (fs.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance) is { } f)
+                    Record("area", $"game files {field} MB", (long)f.GetValue(fs)! / 1048576.0, "MB");
+        await Hold("area");
     }
 
-    // A busy instance: the area's packs, plus a crowd of its monster kinds around a player who keeps walking, so most
-    // monsters chase, surround, swing and shoot. The real AI loop runs (RunMonsterAi, its swings, contacts and
-    // projectiles, every packet encrypted and sent); the measure is the process CPU it costs per second of game time,
-    // and the planner's own cost per step.
-    [Fact]
-    public async Task Busy_instance_ticks()
+    // Game_PERF_HOLD=1: the test waits (up to 2 minutes) with its state alive until artifacts/perf/<name>.release
+    // exists, after writing its process id to artifacts/perf/<name>.pid, for `dotnet-gcdump collect -p <pid>`.
+    static async Task Hold(string name)
     {
-        if (!Enabled) return;
+        if (Environment.GetEnvironmentVariable("Game_PERF_HOLD") != "1") return;
+        string folder = Path.Combine("artifacts", "perf"), release = Path.Combine(folder, name + ".release");
+        File.Delete(release);
+        File.WriteAllText(Path.Combine(folder, name + ".pid"), Environment.ProcessId.ToString());
+        for (var clock = Stopwatch.StartNew(); !File.Exists(release) && clock.Elapsed < TimeSpan.FromMinutes(2);) await Task.Delay(200);
+    }
+
+    // A busy instance, the same in every run: the kinds of the area's scattered packs (and a Sand Spitter, for
+    // projectiles), Crowd of them around a player who keeps walking, so they chase, surround, swing and shoot, and Idle
+    // more farther away, as the rest of an area's population. (PopulateArea is not used: its placement is seeded with
+    // the process's randomized HashCode.)
+    async Task<(Wire Wire, ClientState Conn, (int X, int Y)[] Path)> BusyInstance()
+    {
+        _ = ConsoleLog.Value;
+        var wire = new Wire();
         const string id = "1_1_2";
-        const int Crowd = 60;
-        const double Seconds = 10;
+        const int Crowd = 60, Idle = 140;
         ushort hash = AreaTransitionCatalog.HashOf(id)!.Value;
         var layout = AreaLayouts.For(hash, 1);
-        using var wire = new Wire();
         var conn = Player(layout, 1);
-        await PopulateArea(wire, conn);
-        var kinds = conn.Monsters.Values.Select(m => m.Variety).OfType<MonsterCatalog.Variety>().DistinctBy(v => v.Row).ToList();
-        // A ranged kind for projectiles, when the catalogue has one.
+        var kinds = Program.Packs.For(id)!.Scattered.SelectMany(p => p.Pack.Entries).Select(e => Program.Monsters.Find(e.Variety.ToString()))
+            .OfType<MonsterCatalog.Variety>().Where(v => v.Supported).DistinctBy(v => v.Row).ToList();
         if (Program.Monsters.Find("Metadata/Monsters/SandSpitters/SandSpitterUntainted") is { Supported: true } spitter) kinds.Add(spitter);
         Assert.NotEmpty(kinds);
         var random = new Random(7);
         var (px, py) = (layout.SpawnX, layout.SpawnY);
         int placed = 0;
-        for (int attempt = 0; placed < Crowd && attempt < Crowd * 50; attempt++)
+        for (int attempt = 0; placed < Crowd + Idle && attempt < (Crowd + Idle) * 50; attempt++)
         {
-            int x = px + random.Next(-40, 41), y = py + random.Next(-40, 41);
+            int spread = placed < Crowd ? 40 : 400;
+            int x = px + random.Next(-spread, spread + 1), y = py + random.Next(-spread, spread + 1);
+            if (placed >= Crowd && Math.Max(Math.Abs(x - px), Math.Abs(y - py)) < 150) continue;
             if (!layout.WalkableFor(x, y, 2)) continue;
             await Program.SpawnMonster("perf", wire.Stream, wire.Ciphers, conn, kinds[placed % kinds.Count], 5,
                 MonsterRarity.Normal, x, y, log: false);
             placed++;
         }
         Record("busy", "monsters", conn.Monsters.Count, "");
-        Record("busy", "crowd placed near the player", placed, "");
+        Record("busy", "kinds", kinds.Count, "");
 
         // The player walks between points around the spawn, as a player kiting the crowd.
         var path = new[] { (px + 12, py), (px, py + 12), (px - 12, py), (px, py - 12) }
             .Where(p => layout.WalkableFor(p.Item1, p.Item2, 0)).DefaultIfEmpty((px, py)).ToArray();
+        return (wire, conn, path);
+    }
+
+    // The real AI loop runs over the busy instance (RunMonsterAi, its swings, contacts and projectiles, every packet
+    // encrypted and sent); the measure is the process CPU it costs per second of game time.
+    [Fact]
+    public async Task Busy_instance_ticks()
+    {
+        if (!Enabled) return;
+        const double Seconds = 10;
+        var (wire, conn, path) = await BusyInstance();
+        using var _ = wire;
         using var stop = new CancellationTokenSource();
         var walking = Task.Run(async () =>
         {
@@ -222,6 +277,7 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         long allocatedBefore = Allocated();
         int gen0 = GC.CollectionCount(0), gen2 = GC.CollectionCount(2);
         long sentBefore = Interlocked.Read(ref wire.Received);
+        long linesBefore = LogLines();
         var clock = Stopwatch.StartNew();
         var ai = Program.RunMonsterAi("perf", wire.Stream, wire.Ciphers, conn);
         await Task.Delay(TimeSpan.FromSeconds(Seconds));
@@ -238,9 +294,17 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
         Record("busy", "gen2 GCs", GC.CollectionCount(2) - gen2, "");
         Record("busy", "bytes sent per game second", (Interlocked.Read(ref wire.Received) - sentBefore) / elapsed, "B/s");
         Record("busy", "aggro monsters", conn.Monsters.Values.Count(m => m.Aggro), "");
+        Record("busy", "log lines per game second", (LogLines() - linesBefore) / elapsed, "/s");
+    }
 
-        // The planner alone, single-threaded, over the same crowd: one decision pass per AI step (no sends).
-        conn.Closed = false;
+    // The planner alone, single-threaded, over the same crowd: one decision pass per AI step (no sends).
+    [Fact]
+    public async Task Monster_planner()
+    {
+        if (!Enabled) return;
+        var (wire, conn, path) = await BusyInstance();
+        using var _ = wire;
+        var clock = new Stopwatch();
         var cadence = new MonsterAiCadence();
         const int Steps = 2000;
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -256,9 +320,9 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             // Swings complete at once here: the planner keeps reserving them.
             lock (conn.Monsters) foreach (var (_, m, action) in plan.Swings) cadence.CompleteSwing(m, action);
         }
-        Record("busy", "PlanMonsterAi µs per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "µs");
-        Record("busy", "PlanMonsterAi allocated KB per step", (GC.GetAllocatedBytesForCurrentThread() - planAllocated) / 1024.0 / Steps, "KB");
-        Record("busy", "PlanMonsterAi moves per step", moves / (double)Steps, "");
+        Record("planner", "PlanMonsterAi µs per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "µs");
+        Record("planner", "PlanMonsterAi allocated KB per step", (GC.GetAllocatedBytesForCurrentThread() - planAllocated) / 1024.0 / Steps, "KB");
+        Record("planner", "PlanMonsterAi moves per step", moves / (double)Steps, "");
         conn.Closed = true;
     }
 }
