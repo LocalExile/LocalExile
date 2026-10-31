@@ -201,7 +201,7 @@ def agent_options(options, folder):
         "noTextureUpload": options.no_texture_upload, "frameSleepMs": max(0, options.frame_sleep_ms),
         "window": options.window, "traceFiles": options.trace_files, "traceMovies": options.trace_movies,
         "runMutexPrefix": run_mutex_prefix(folder),
-        "mimalloc": dict(mimalloc_options(options.mimalloc)), "lazyNullBuffersKb": max(0, options.lazy_null_buffers),
+        "mimalloc": dict(mimalloc_options(options.mimalloc)), "lazyNullBuffersKb": max(0, options.lazy_null_buffers) if options.renderer == "null" else 0,
         "crashLog": str(Path(os.path.abspath(options.crash_log))) if options.crash_log else None}
 
 

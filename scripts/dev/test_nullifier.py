@@ -168,6 +168,9 @@ class NullifierTests(unittest.TestCase):
         self.assertTrue(agent["traceMovies"])
         self.assertEqual(agent["lazyNullBuffersKb"], 0)
         lazy = nullifier.parse(["--cwd", "x", "--patch-port", "1", "--login-port", "2", "--lazy-null-buffers", "8"])
+        self.assertEqual(nullifier.agent_options(lazy, Path("x"))["lazyNullBuffersKb"], 0)  # only with the Null device
+        lazy = nullifier.parse(["--cwd", "x", "--patch-port", "1", "--login-port", "2", "--lazy-null-buffers", "8",
+                                "--renderer", "null"])
         self.assertEqual(nullifier.agent_options(lazy, Path("x"))["lazyNullBuffersKb"], 8)
         for bad in ("purge_delay", "purge-delay=0", "purge_delay=x", "a=1;b=2"):
             with self.assertRaises(SystemExit):

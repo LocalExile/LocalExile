@@ -162,7 +162,8 @@ whenLoaded('user32.dll', user32 => {
       for (let i = 0; i < count; i++) {
         const device = args[0].add(i * size), flags = device.add(4).readU32(), out = inputFlags(flags);
         if (out !== flags) device.add(4).writeU32(out);
-        once(`input: raw input usage ${device.readU16()}/${device.add(2).readU16()} flags 0x${flags.toString(16)} -> 0x${out.toString(16)}`);
+        once(`input: raw input usage ${device.readU16()}/${device.add(2).readU16()} ` +
+          `flags 0x${flags.toString(16)} -> 0x${out.toString(16)}`);
       }
     }});
   }
@@ -249,78 +250,172 @@ if (OPTIONS.nullRenderer) {
   log('Null index buffers describe their format');
 }
 
-// Null buffers' CPU copies, committed on first touch (lazyNullBuffersKb). Each Null device buffer (the index buffer
-// 0x14320e140 and the buffers 0x143212bc0 / 0x143212be0 / 0x143212c00 / 0x14369c088, built in 0x140e939b0,
-// 0x142bb4730, 0x142bb4a00, 0x142bb4cd0 and 0x142bb5110) keeps a byte vector of its full size, zero-filled by
-// vector<u8>::resize (0x140898aa0) right after the object is made; Map returns it. Most are never written: the GPU
-// particle ring buffers alone ("Particle bone buffer", "Particle instance buffer", "Particle Index Buffer") are tens
-// of MB each, all zero, and with the mesh buffers they were ~440 MB of all-zero committed pages in town. With the
-// option, when that resize returns to one of these five call sites, the whole pages of a vector of at least this
-// many KiB are decommitted, and a vectored exception handler (native code, below) commits a page back, zero-filled,
-// the first time anything touches it, so every read and write sees what it saw before (the zeros, then its own
-// data); only addresses in the recorded ranges are handled. Commit is then charged only for pages the game touches.
-// The memory is the allocator's (mimalloc), which frees and reuses it as before: its own first touch of such a page
-// is handled the same way.
-if (OPTIONS.lazyNullBuffersKb > 0) {
+// Null buffers' CPU copies, committed on first touch (lazyNullBuffersKb, with the Null renderer only). Each Null device
+// buffer (the index buffer 0x14320e140 and the buffers 0x143212bc0 / 0x143212be0 / 0x143212c00 / 0x14369c088, built in
+// 0x140e939b0, 0x142bb4730, 0x142bb4a00, 0x142bb4cd0 and 0x142bb5110) keeps a byte vector of its full size, zero-filled
+// by vector<u8>::resize (0x140898aa0) right after the object is made; Map returns it, and nothing else of the class
+// touches it until its destructor (0x140ee8150, 0x140f74000, 0x140f740c0, 0x140f74060, 0x142bbb6b0: the vector at
+// +0x130, +0x130, +0x140, +0x130, +0x1a0) frees it. Most are never written: the GPU particle ring buffers alone
+// ("Particle bone buffer", "Particle instance buffer", "Particle Index Buffer") are tens of MB each, all zero.
+// With the option (all native code, compiled by Frida's CModule; no JavaScript runs per call):
+// - the resize is filtered by its return address: only the five construction calls, and only a vector that was empty
+//   before the resize and is at least lazyNullBuffersKb KiB, is recorded (whole pages, keyed to the vector's address)
+//   and then decommitted;
+// - a vectored exception handler handles only read or write faults inside a recorded range: a reserved page there is
+//   committed (zero-filled, what the zero fill had left) and the access continues; a page another thread committed
+//   meanwhile also continues; anything else goes on to the next handler;
+// - the destructors commit the vector's range again and drop it before the vector is freed, so the allocator gets back
+//   exactly the memory it handed out (committed), and no range outlives its buffer.
+// Every access during the buffer's life sees what it saw before; commit is charged only for touched pages. (A system
+// call reading into or writing from an untouched page of such a buffer would fail instead of faulting; nothing passes
+// a Null buffer's memory to the system: only Map exposes it, for the engine's own copies and the mesh ray test.)
+if (OPTIONS.nullRenderer && OPTIONS.lazyNullBuffersKb > 0) {
   const resize = checked('vectorResize', '0x140898aa0', '48895c24084889742410574883ec2048');
-  const sites = new Set(['0x140e93cc1', '0x142bb496a', '0x142bb4c34', '0x142bb4f58', '0x142bb547b'].map(va => {
-    checked(`resize call before ${va}`, ptr(va).sub(5), 'e8');
-    return at(va).toString();
-  }));
+  const siteVas = ['0x140e93cc1', '0x142bb496a', '0x142bb4c34', '0x142bb4f58', '0x142bb547b'];
+  for (const va of siteVas) checked(`resize call before ${va}`, ptr(va).sub(5), 'e8');
+  const destructors = [['0x140ee8150', '48895c2408574883ec20488d05df5f32', 0x130],
+    ['0x140f74000', '48895c2408574883ec20488bf98bda48', 0x130],
+    ['0x140f740c0', '48895c2408574883ec20488bf98bda48', 0x140],
+    ['0x140f74060', '48895c2408574883ec20488bf98bda48', 0x130],
+    ['0x142bbb6b0', '48895c2408574883ec20488d05c709ae', 0x1a0]];
   const MAX = 1 << 16;
-  const ranges = Memory.alloc(MAX * 16), state = Memory.alloc(16);  // state: u32 count, pad, u64 pages recommitted
-  keep.push(ranges, state);
+  const ranges = Memory.alloc(MAX * 24), sites = Memory.alloc(8 * siteVas.length), settings = Memory.alloc(16);
+  const stats = Memory.alloc(8 * 8), lock = Memory.alloc(8);
+  siteVas.forEach((va, i) => sites.add(8 * i).writePointer(at(va)));
+  settings.writeU64(OPTIONS.lazyNullBuffersKb * 1024);
+  settings.add(8).writeU32(MAX);
+  keep.push(ranges, sites, settings, stats, lock);
   const kernel32 = Process.getModuleByName('kernel32.dll');
-  const virtualAlloc = kernel32.getExportByName('VirtualAlloc');
-  const virtualFree = new NativeFunction(kernel32.getExportByName('VirtualFree'), 'int',
-    ['pointer', 'size_t', 'uint32']);
-  const handler = new CModule(`
+  const lazy = new CModule(`
+    #include <gum/guminterceptor.h>
     typedef unsigned long long u64;
+    typedef struct { u64 lo, hi, vector; } Range;
     typedef struct Record { unsigned int code; unsigned int flags; struct Record *next; void *address;
                             unsigned int count; u64 info[15]; } Record;
     typedef struct { Record *record; void *context; } Pointers;
-    extern u64 ranges[];
-    extern volatile unsigned int state[];
+    typedef struct { u64 base, allocation_base; unsigned int allocation_protect; unsigned short partition, pad1;
+                     u64 size; unsigned int state, protect, type, pad2; } Region;
+    extern Range ranges[];
+    extern void *sites[];
+    extern u64 settings[];        /* [0] minimum bytes, [1] low u32: capacity */
+    extern volatile u64 stats[];  /* live ranges, live bytes, decommitted total, pages committed again, dropped */
+    extern volatile long lock[];
     extern void *VirtualAlloc (void *, u64, unsigned int, unsigned int);
-    long handle (Pointers *e) {
-      Record *r = e->record;
-      if (r->code != 0xC0000005u || r->count < 2) return 0;
-      u64 a = r->info[1];
-      unsigned int n = state[0];
-      for (unsigned int i = 0; i < n; i++) {
-        if (a >= ranges[2 * i] && a < ranges[2 * i + 1]) {
-          if (VirtualAlloc ((void *) (a & ~0xfffULL), 0x1000, 0x1000, 0x04) == 0) return 0;
-          ((volatile u64 *) &state[2])[0]++;  /* statistics only */
-          return -1;  /* EXCEPTION_CONTINUE_EXECUTION */
+    extern int VirtualFree (void *, u64, unsigned int);
+    extern u64 VirtualQuery (const void *, Region *, u64);
+    #define SITES ${siteVas.length}
+
+    static void acquire (void) {
+      long v;
+      do { v = 1; __asm__ __volatile__ ("xchgl %0, %1" : "+r" (v), "+m" (lock[0]) : : "memory"); } while (v != 0);
+    }
+    static void release (void) { __asm__ __volatile__ ("" : : : "memory"); lock[0] = 0; }
+    /* index of the first range with lo > a (ranges sorted by lo, never overlapping) */
+    static long upper (u64 a) {
+      long l = 0, h = (long) stats[0];
+      while (l < h) { long m = (l + h) / 2; if (ranges[m].lo <= a) l = m + 1; else h = m; }
+      return l;
+    }
+    static int insert (u64 lo, u64 hi, u64 vector) {
+      int ok = 0;
+      acquire ();
+      long n = (long) stats[0];
+      if (n < (long) (unsigned int) settings[1]) {
+        long i = upper (lo);
+        for (long j = n; j > i; j--) ranges[j] = ranges[j - 1];
+        ranges[i].lo = lo; ranges[i].hi = hi; ranges[i].vector = vector;
+        stats[0] = n + 1; stats[1] += hi - lo;
+        ok = 1;
+      }
+      release ();
+      return ok;
+    }
+    /* the range recorded for this vector (by its begin), committed again and dropped */
+    static void drop (u64 *vector) {
+      u64 lo = (vector[0] + 0xfff) & ~0xfffULL, hi = 0;
+      acquire ();
+      long i = upper (lo) - 1;
+      if (i >= 0 && ranges[i].lo == lo && ranges[i].vector == (u64) vector) hi = ranges[i].hi;
+      release ();
+      if (hi == 0) return;
+      /* MEM_COMMIT, PAGE_READWRITE: the allocator gets back what it handed out */
+      VirtualAlloc ((void *) lo, hi - lo, 0x1000, 0x04);
+      acquire ();
+      i = upper (lo) - 1;
+      if (i >= 0 && ranges[i].lo == lo && ranges[i].vector == (u64) vector) {
+        long n = (long) stats[0];
+        for (long j = i; j < n - 1; j++) ranges[j] = ranges[j + 1];
+        stats[0] = n - 1; stats[1] -= hi - lo; stats[4]++;
+      }
+      release ();
+    }
+
+    typedef struct { u64 *vector; } State;
+    void on_resize_enter (GumInvocationContext *ic) {
+      State *s = GUM_IC_GET_INVOCATION_DATA (ic, State);
+      void *from = gum_invocation_context_get_return_address (ic);
+      s->vector = 0;
+      for (int i = 0; i < SITES; i++) {
+        if (from == sites[i]) {
+          u64 *v = (u64 *) gum_invocation_context_get_nth_argument (ic, 0);
+          if (v[0] == v[1]) s->vector = v;  /* empty before: the whole vector is the zero fill */
+          return;
         }
       }
-      return 0;  /* EXCEPTION_CONTINUE_SEARCH */
-    }`, {ranges, state, VirtualAlloc: virtualAlloc});
-  keep.push(handler);
+    }
+    void on_resize_leave (GumInvocationContext *ic) {
+      State *s = GUM_IC_GET_INVOCATION_DATA (ic, State);
+      u64 *v = s->vector;
+      if (v == 0 || v[1] - v[0] < settings[0]) return;
+      u64 lo = (v[0] + 0xfff) & ~0xfffULL, hi = v[1] & ~0xfffULL;
+      if (hi <= lo || !insert (lo, hi, (u64) v)) return;  /* recorded before its pages go */
+      if (VirtualFree ((void *) lo, hi - lo, 0x4000)) stats[2] += hi - lo;  /* MEM_DECOMMIT */
+      else drop (v);
+    }
+    void on_destroy_130 (GumInvocationContext *ic) {
+      drop ((u64 *) ((char *) gum_invocation_context_get_nth_argument (ic, 0) + 0x130));
+    }
+    void on_destroy_140 (GumInvocationContext *ic) {
+      drop ((u64 *) ((char *) gum_invocation_context_get_nth_argument (ic, 0) + 0x140));
+    }
+    void on_destroy_1a0 (GumInvocationContext *ic) {
+      drop ((u64 *) ((char *) gum_invocation_context_get_nth_argument (ic, 0) + 0x1a0));
+    }
+
+    long handle (Pointers *e) {
+      Record *r = e->record;
+      if (r->code != 0xC0000005u || r->count < 2 || r->info[0] > 1) return 0;  /* read or write faults only */
+      u64 a = r->info[1];
+      acquire ();
+      long i = upper (a) - 1;
+      int inside = i >= 0 && a < ranges[i].hi;
+      release ();
+      if (!inside) return 0;  /* EXCEPTION_CONTINUE_SEARCH */
+      Region region;
+      void *page = (void *) (a & ~0xfffULL);
+      if (VirtualQuery (page, &region, sizeof region) != sizeof region) return 0;
+      if (region.state == 0x2000) {  /* MEM_RESERVE: the decommitted zero fill */
+        if (VirtualAlloc (page, 0x1000, 0x1000, 0x04) == 0) return 0;
+        stats[3]++;
+        return -1;  /* EXCEPTION_CONTINUE_EXECUTION */
+      }
+      if (region.state == 0x1000 && region.protect == 0x04) return -1;  /* another thread committed it meanwhile */
+      return 0;
+    }`, {ranges, sites, settings, stats, lock, VirtualAlloc: kernel32.getExportByName('VirtualAlloc'),
+    VirtualFree: kernel32.getExportByName('VirtualFree'), VirtualQuery: kernel32.getExportByName('VirtualQuery')});
+  keep.push(lazy);
   const addHandler = new NativeFunction(kernel32.getExportByName('AddVectoredExceptionHandler'), 'pointer',
     ['uint32', 'pointer']);
-  if (addHandler(1, handler.handle).isNull()) throw new Error('AddVectoredExceptionHandler failed');
-  const minimum = OPTIONS.lazyNullBuffersKb * 1024;
-  let decommitted = 0, vectors = 0;
-  Interceptor.attach(resize, {
-    onEnter(args) { this.vector = sites.has(this.returnAddress.toString()) ? args[0] : null; },
-    onLeave() {
-      if (this.vector === null) return;
-      // Addresses as numbers (user-mode addresses are below 2^47, exact in a double).
-      const number = p => parseInt(p.toString(), 16);
-      const begin = number(this.vector.readPointer()), end = number(this.vector.add(8).readPointer());
-      const lo = Math.ceil(begin / 4096) * 4096, hi = Math.floor(end / 4096) * 4096;
-      const count = state.readU32();
-      if (end - begin < minimum || hi <= lo || count >= MAX) return;
-      ranges.add(count * 16).writePointer(ptr(lo));
-      ranges.add(count * 16 + 8).writePointer(ptr(hi));
-      state.writeU32(count + 1);  // the range is visible to the handler before its pages go
-      if (virtualFree(ptr(lo), hi - lo, 0x4000 /* MEM_DECOMMIT */)) { decommitted += hi - lo; vectors++; }
-    }
-  });
-  setInterval(() => log(`lazy Null buffers: ${vectors} vectors, ${(decommitted / 1048576).toFixed(1)} MB ` +
-    'decommitted, ' +
-    `${(state.add(8).readU64().toNumber() * 4 / 1024).toFixed(1)} MB touched again`), 60000);
+  if (addHandler(1, lazy.handle).isNull()) throw new Error('AddVectoredExceptionHandler failed');
+  for (const [va, code, offset] of destructors) {
+    Interceptor.attach(checked(`Null buffer destructor ${va}`, va, code),
+      {onEnter: lazy[`on_destroy_${offset.toString(16)}`]});
+  }
+  Interceptor.attach(resize, {onEnter: lazy.on_resize_enter, onLeave: lazy.on_resize_leave});
+  const mb = i => (stats.add(8 * i).readU64().toNumber() / 1048576).toFixed(1);
+  setInterval(() => log(`lazy Null buffers: ${stats.readU64()} live (${mb(1)} MB uncommitted at most), ${mb(2)} MB ` +
+    `decommitted in all, ${(stats.add(24).readU64().toNumber() * 4 / 1024).toFixed(1)} MB touched again, ` +
+    `${stats.add(32).readU64()} dropped with their buffer`), 60000);
   log(`lazy Null buffers: vectors of ${OPTIONS.lazyNullBuffersKb} KiB or more`);
 }
 

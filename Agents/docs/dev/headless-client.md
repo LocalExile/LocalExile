@@ -408,16 +408,29 @@ buffers alone ("Particle bone buffer", "Particle instance buffer", "Particle Ind
 "72 MB pool, 98 % zero" is one of them), and with the mesh buffers they came to ~440 MB of all-zero committed pages.
 They cannot simply be left out: `Map` callers read and write them (the mesh ray test reads the index buffers, §2).
 
-With `--lazy-null-buffers KIB` the agent watches that resize at its five call sites (return addresses `0x140e93cc1`,
-`0x142bb496a`, `0x142bb4c34`, `0x142bb4f58`, `0x142bb547b`, each checked to be the call): when a vector of at least KIB
-KiB has been zero-filled, its whole pages are decommitted, and a vectored exception handler (native code compiled by
-Frida's CModule; it only handles addresses in the recorded ranges) commits a page back, zero-filled, the first time
-anything reads or writes it. Every access then sees what it saw before (zeros, then its own data); commit is charged
-only for pages that are touched. The memory still belongs to the allocator, which frees and reuses it as before (its
-own first touch of such a page is handled the same way). Up to 65,536 ranges are recorded; past that, buffers are
-simply left as they are. Live: in town 1,232 vectors and 182 MB decommitted, of which 4 MB were touched again; through
-the whole coverage tour (24 areas) 8,196 vectors, 619 MB decommitted, 90 MB touched again; no crash, every step of the
-tour passed. A default of `-Nullifier` (8 KiB).
+With `--lazy-null-buffers KIB` (only with the Null renderer; all of it native code compiled by Frida's CModule, no
+JavaScript per call) the agent:
+
+- filters that resize by its return address: only its five construction calls (`0x140e93cc1`, `0x142bb496a`,
+  `0x142bb4c34`, `0x142bb4f58`, `0x142bb547b`, each checked to be the call), and only a vector that was empty before
+  the resize (so all of it is the zero fill) and is at least KIB KiB. Its whole pages are recorded, keyed to the
+  vector, and then decommitted;
+- handles, in a vectored exception handler, only read or write faults inside a recorded range: a reserved page there
+  is committed (zero-filled, what the zero fill had left) and the access continues; a page another thread committed
+  meanwhile also continues; anything else (other faults, other addresses, execute faults) goes on to the next handler;
+- hooks the five destructors (`0x140ee8150`, `0x140f74000`, `0x140f740c0`, `0x140f74060`, `0x142bbb6b0`; the vector at
+  `+0x130`, `+0x130`, `+0x140`, `+0x130`, `+0x1a0`), which commit the vector's range again and drop it before the vector
+  is freed: the allocator gets back exactly the committed memory it handed out, and no range outlives its buffer.
+
+Nothing else of these classes touches the vector (their other methods are `Map`, which returns it, and no-ops), so
+every access during a buffer's life sees what it saw before (zeros, then its own data), and commit is charged only for
+the pages that are touched. A system call reading into or writing from an untouched page of such a buffer would fail
+instead of faulting; nothing passes a Null buffer's memory to the system (only `Map` exposes it, to the engine's own
+copies and the mesh ray test). Up to 65,536 live ranges; past that, new buffers are left as they are. Live, in town:
+1,229 live ranges, 182 MB decommitted, 4 MB touched again; after travel 165 ranges had been dropped with their
+buffers. An earlier version (JavaScript filter, ranges never dropped) ran the whole coverage tour (24 areas: 8,196
+vectors, 619 MB decommitted, 90 MB touched again) without a crash; the current one passed it as well (§7). A default
+of `-Nullifier` (8 KiB).
 
 What stays all-zero afterwards (~300 MB in town): 24 MB held by the shader source builder (`ShaderSourceBuilder`,
 `0x140fdfa20`), smaller Null buffers below 8 KiB or grown later, ~13 MB of allocator page slack, and ~170 MB whose
@@ -445,7 +458,8 @@ waypoint travel to The Coast, `/goto 1_1_town`, `/pos`, chat, `/tp`, 20 s measur
 | Null, before (2 runs) | 1,931 / 1,926 MB | 1,982 / 2,046 MB | 82–146 / 47 MB | 15.4–17.0 / 6.9–7.3 |
 | + `purge_delay=0`, `arena_purge_mult=1` (2 runs) | 1,748 / 1,760 MB | 1,814 / 1,774 MB | 89–93 / 46 MB | 17.9–18.6 / 5.4–5.8 |
 | + lazy Null buffers ≥ 64 KiB | 1,615 MB | 1,628 MB | 87 / 47 MB | 19.3 / 6.7 |
-| **`-Nullifier` now** (+ lazy ≥ 8 KiB) | **1,579 MB** | **1,580 MB** | 104 / 47 MB | 21.0 / 9.4 |
+| `-Nullifier` (+ lazy ≥ 8 KiB, JavaScript filter) | 1,579 MB | 1,580 MB | 104 / 47 MB | 21.0 / 9.4 |
+| **`-Nullifier` now** (native filter, ranges dropped with their buffers) | **1,589 MB** | **1,584 MB** | 109 / 47 MB | 19.1 / 6.9 |
 
 | Two clients at once, per client | Private commit, town | after travel | CPU, town / after |
 |---|---|---|---|
