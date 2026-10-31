@@ -9,6 +9,7 @@
     <Project Path="src/GameServer.DevClient/GameServer.DevClient.csproj" />
     <Project Path="src/GameServer.Patch/GameServer.Patch.csproj" />
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
+    <Project Path="src/LocalExile/LocalExile.csproj" />
   </Folder>
   <Folder Name="/Modules/">
     <Project Path="Modules/Core/Game/Game.csproj" />

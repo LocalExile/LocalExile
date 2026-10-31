@@ -7,7 +7,8 @@
 #   -List          print the manifest and each entry's state, run nothing
 # A change to a generator's output bumps its entry's Version in the same PR (AGENTS.md); everyone's next run
 # regenerates it. An entry that runs also reruns the entries that need it (Needs).
-param([switch]$Force, [string[]]$Only = @(), [switch]$List)
+#   -ExportManifest <file>   write the manifest as JSON and run nothing (a release's launcher reads it: scripts/release)
+param([switch]$Force, [string[]]$Only = @(), [switch]$List, [string]$ExportManifest)
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 
 $ErrorActionPreference = 'Stop'
@@ -67,6 +68,12 @@ $manifest = @(
 )
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
+
+if ($ExportManifest) {
+    ConvertTo-Json -Depth 4 -InputObject @($manifest | ForEach-Object { [ordered]@{ Name = $_.Name; Outputs = @($_.Outputs); Runner = $_.Runner; Args = @($_.Args); Version = $_.Version; Needs = @($_.Needs) } }) |
+        Set-Content $ExportManifest -Encoding ascii
+    return
+}
 
 $unknown = $Only | Where-Object { $n = $_; -not ($manifest | Where-Object { $_.Name -eq $n }) }
 if ($unknown) { throw "extract-data: unknown entry $($unknown -join ', '); entries: $(($manifest | ForEach-Object { $_.Name }) -join ', ')" }

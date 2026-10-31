@@ -39,10 +39,18 @@ static class ModScripts
     static readonly Lazy<MetadataReference[]> Platform = new(() =>
     {
         string runtime = RuntimeEnvironment.GetRuntimeDirectory();
-        return [.. Directory.GetFiles(runtime, "*.dll").Where(IsManaged)
+        return [.. Directory.GetFiles(runtime, "*.dll").Where(IsFramework).Where(IsManaged)
             .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
             .Append(MetadataReference.CreateFromFile(typeof(IMod).Assembly.Location))];
     });
+
+    // In a release the runtime's folder is the server's own (self-contained), with the server's assemblies and packages in it.
+    static bool IsFramework(string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+        return name.StartsWith("System.", StringComparison.Ordinal) || name.StartsWith("Microsoft.Win32.", StringComparison.Ordinal)
+            || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal) || name is "System" or "mscorlib" or "netstandard" or "WindowsBase" or "Microsoft.CSharp";
+    }
 
     static bool IsManaged(string path)
     {
