@@ -91,8 +91,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   working-set trimming. New sessions default to the cheap DirectX 11 preset. Live 2026-10-31 (with the earlier
   stand-alone launcher): login, play, 60 s in town, slash commands, chat, `/tp`, waypoint travel and `/goto` worked
   with both renderers; DirectX 11 preset 4.3 GB commit, 1.7 GB VRAM, ~11 % of a core; Null 1.9 GB, no GPU memory,
-  ~15 % (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %). The live.ps1 integration, the run-mutex renaming and
-  `game:frames` are tested offline only; only Lioneye's Watch and The Coast were entered with the Null renderer.
+  ~15 % (a normal client: 7.5 GB, 3.4 GB VRAM, 37 %). The live.ps1 integration was verified live on 2026-10-31
+  (start, record, bridge, waypoint travel, `/goto`, stop, a killed launcher, two sessions at once with the Global
+  slots free, minimized clients, no focus taken); only Lioneye's Watch and The Coast were entered with the Null renderer.
   Offline tests: `test_nullifier.py`, `test-nullifier-mutex.cjs`, `test_client_control.py`, `test_live_client_only.ps1`.
   Code: `scripts/dev/nullifier.js`, `nullifier.py`, `nullifier-measure.ps1`, `nullifier-bench.py`.
   Docs: [headless client](../docs/dev/headless-client.md).

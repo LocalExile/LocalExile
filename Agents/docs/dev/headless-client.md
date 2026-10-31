@@ -42,7 +42,7 @@ counted at client-control.js's own frame point) were added for these clients.
 [--frame-sleep-ms N] [--crash-log <file>] [--trace-files <regex>] [--probe <js>] [--no-render-jobs]
 [--no-texture-upload] [--window minimized|hidden|normal] [--priority …] [--no-eco-qos] [--affinity 0x3] [--sound]`
 (ports default to the stack's, `data\stack.json`). `--no-render-jobs`/`--no-texture-upload` stalled the main loop
-(§3); a minimized client with a real renderer runs no frames.
+(§3).
 
 **Settings and folder.** The client opens `config.json`, `Content.ggpk`, its asset folders and `logs\Client.txt` in
 its working folder (§2). `live.ps1` prepares the session folder (`data\clients\S\`: a hard link to `Content.ggpk`,
@@ -88,7 +88,9 @@ mutexes. Settings, saved login and `Client.txt` are per folder; `Content.ggpk` i
 clients hold Global slots. A client a launcher started, from any checkout, holds none, and is known by its parent (a
 python running `nullifier.py`, started before it), by `--nologo` on its command line (only the launcher passes it),
 or by this checkout's records. The renaming is checked offline (`scripts/dev/test-nullifier-mutex.cjs`, Frida's API stubbed);
-it has not run against the real client yet (§5).
+live (§5) the session clients held `\Sessions\3\BaseNamedObjects\LocalExile-pr-nullifier-v1-PoERunMutexA` (and
+`…-v2-…`) and no Global one, and while two of them ran a separate process could still take and release both
+`Global\PoERunMutexA` and `B` with a zero wait.
 
 A plain `client_control.py` from a checkout without sessions (`main` before the multi-instance work) finds its client
 by process name: it attaches to any lone `Game.patched.exe`, a session client included, and refuses when two run. That
@@ -181,10 +183,16 @@ ProcessPowerThrottling, EXECUTION_SPEED | IGNORE_TIMER_RESOLUTION)`, retried wit
 Windows 10 refuses the second flag: low clocks / efficient cores, and the client's `timeBeginPeriod` no longer raises
 the system timer rate), optionally the CPU affinity and a periodic `EmptyWorkingSet` (`--trim-seconds`: pages move
 to the standby list; private commit is unchanged, so it helps physical RAM, not the commit limit). The window is
-shown without activation (`SW_SHOWNOACTIVATE`, default), minimized (`SW_SHOWMINNOACTIVE`) or hidden, and
+created with `WS_EX_NOACTIVATE` (live: without it a new client's window took the keyboard focus at creation; with
+it the foreground window stayed the user's and the clients' logs show no focus at all; it also keeps them off the
+taskbar), shown without activation (`SW_SHOWNOACTIVATE`, default), minimized (`SW_SHOWMINNOACTIVE`) or hidden, and
 `SetForegroundWindow` is neutralised, so a launched client cannot take the keyboard focus from the user's window.
-**A minimized client with a real renderer stops its main loop** (`[WINDOW] Minimized`, no frames: it never reached
-the login screen in 60 s). A hidden window also hides an error dialog.
+**Minimizing does not stop it.** The engine pauses its main loop when its window procedure (`0x140e67380` →
+`0x140e68220`) sees `WM_SIZE` / `SIZE_MINIMIZED` (it logs `[WINDOW] Minimized`): live, a DirectX 11 client started
+minimized never reached the login screen, and a Null client someone minimized stopped answering the bridge. The agent
+turns that one message into `WM_NULL` before the engine sees it; the window still minimizes, and the engine keeps its
+last size and runs at its background frame rate (live: both renderers minimized at 9 fps, `/pos`, waypoint travel,
+`/goto`, chat and `/tp` answered). A hidden window also hides an error dialog.
 
 ## 3. Measurements
 
@@ -253,17 +261,32 @@ renaming.
   commit, no GPU device or memory, ~15 % of a core, 50–230 MB resident. Only Lioneye's Watch and The Coast were
   entered; another area or combat may still reach a Null-device gap (the first one, the index format, is fixed). If a
   session breaks under it, drop `-Nullifier` for that session and report the crash (`nullifier.py --crash-log`).
-- **Not a default:** `--window minimized`/`hidden` with a real renderer (the client stops),
-  `--no-render-jobs`/`--no-texture-upload` (more CPU, and the main loop stalled), `--frame-sleep-ms` (the preset's
-  cap already gives 9.2 fps).
+- **Not a default:** `--no-render-jobs`/`--no-texture-upload` (more CPU, and the main loop stalled),
+  `--frame-sleep-ms` (the preset's cap already gives 9.2 fps).
 - **Untried:** WARP (`adapter_name=Microsoft Basic Render Driver` in the preset, no hook), which trades the GPU for
   CPU and is not needed now that the Null device holds.
 
-## 5. Not yet verified live
+## 5. Live verification of the live.ps1 integration (2026-10-31)
 
-The `live.ps1` → `nullifier.py` start, the record handshake and `-Stop` of a launcher, the run-mutex renaming, and
-`game:frames` are covered by mocked and offline tests only (`test_live_client_only.ps1`, `test_client_control.py`,
-`test_nullifier.py`, `test-nullifier-mutex.cjs`). The live check, once allowed: one session (`-PortBase` stack, a
-`-Session` client with and without `-Nullifier`: start, record, login, play, travel, `/goto`, chat, `/tp`,
-`game:frames`, the client holding `Local\LocalExile-…-PoERunMutexA` and no Global one, `-Stop`), then three clients at
-once including a Global one (two session clients and a default client of another checkout, which must start normally).
+Run from this checkout on its own ports (`live.ps1 -PortBase 22000 -NoClient`), the extra-client lock held, a
+watchdog on memory and on foreign clients or default-port servers (it never fired), no default client started.
+
+| Step | Check | Result |
+|---|---|---|
+| 1 | `live.ps1 -ClientOnly -Session v1` (DirectX 11 preset) | ✓ in 2.1 s; record with `pid`, `started`, `launcher`, `launcherStarted`; `run mutex -> Local\LocalExile-pr-nullifier-v1-PoERunMutexA` in `logs\nullifier-v1.log`; handles: the Local name, no Global one |
+| 1 | bridge on v1 | ✓ login, list, play (in game 5.9 s after the bridge started), `/pos`, `game:frames` 9 fps, `/waypoints all`, waypoint travel (`(626, 488) in 1_1_2`), `/goto 1_1_town`, chat, `/tp +5 +0` |
+| 1 | cost (30 s in town) | 4.27 GB private, 2.90 GB working set, 10.4 % of a core, GPU 8 %, 1.66 GB VRAM |
+| 1 | settings | the session's `localexile-pr-nullifier-v1_Config.ini` rewritten by the client at login (922 → 8349 bytes) |
+| 1 | `-Stop -ClientOnly -Session v1` | ✓ launcher and client gone, record removed |
+| 2 | `-Session n1 -Nullifier`, same bridge sequence | ✓ all; 1.89 GB private, 0.18 GB working set (trimmed), 23 % of a core, no GPU or VRAM |
+| 3 | kill the launcher | ✓ its job ended the client at once |
+| 3 | `-ClientOnly -Session f2` with this stack's Patch server stopped | ✓ refused before anything was written or started (`missing port 22000`); no record, launcher or client |
+| 4 | v1 (DirectX 11) and v2 (`-Nullifier`) at once | ✓ both logged in and played the same character on the one Gateway; each held only its Local name; `Global\PoERunMutexA` and `B` were free (taken and released with a zero wait by a separate process) |
+| 4 | focus | ✗ first run: each new window took the focus at creation; fixed (`WS_EX_NOACTIVATE`), rerun ✓: the foreground window unchanged, no focus in the clients' logs |
+| 4 | minimized | ✗ first run: v2, minimized, stopped answering; fixed (the minimize message is withheld from the engine), rerun ✓: both minimized at 9 fps; v2 minimized did waypoint travel, `/goto`, chat, `/tp` |
+| 4 | cost of the pair (20 s) | v1 4.28 GB / 2.72 GB / 11.6 % / 1.66 GB VRAM; v2 1.82 GB / 0.04 GB / 7.4 % / none |
+| 4 | `-Stop -ClientOnly -Session v1` | ✓ v1 and its launcher gone, v2, its launcher and record untouched, v2 still in game (`/pos`) |
+| — | user's `poeoffline_Config.ini`, `production_Config.ini` | ✓ mtime and SHA-256 unchanged |
+
+Not covered live: another checkout's default client beside the sessions (the Global-slot count is tested with mocks),
+`--window hidden`, areas other than Lioneye's Watch and The Coast under the Null renderer.

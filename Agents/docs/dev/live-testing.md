@@ -148,11 +148,12 @@ touching each other's.
   `live.ps1` refuses to start it when two clients hold Global slots, and checks that before it stops or starts
   anything (a full run would otherwise leave servers up for a client that cannot start). Session clients of any
   checkout do not count: they are known by their launcher parent, the `--nologo` only the launcher passes, or the
-  records. Not yet verified live: the renaming is tested offline.
+  records. Live 2026-10-31: two session clients held only their Local names, and both Global names stayed free.
 - **Cheap session settings.** A session's new settings file starts from `config\nullifier_Config.ini` when the
   checkout has that preset (DirectX 11, 800x600, low textures, 10 fps, no sound), else from the default client's;
   `-SeedConfig <file>` (`Game_CLIENT_SEED_CONFIG`) starts it over from another file. Session clients run at below-normal
-  priority with EcoQoS. Do not minimize a client with a real renderer: it stops its main loop. The default for a new
+  priority with EcoQoS. Their windows never take the focus (`WS_EX_NOACTIVATE`), and minimizing one does not stop it
+  (the engine is not told). The default for a new
   session is that preset with its DirectX 11 renderer: the broadest-tested cheap setting (login, play, waypoint travel,
   `/goto`, chat, `/tp` live; 4.3 GB commit, 1.7 GB VRAM, ~11 % of a core at 9 fps). `-Nullifier` is the choice for many
   agent clients or a machine without a spare GPU: 1.9 GB commit, no GPU memory, ~15 % of a core, 50-230 MB resident with

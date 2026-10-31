@@ -1,7 +1,9 @@
-// Offline check of nullifier.js's two-copies mutex renaming, with Frida's API stubbed: only Global\PoERunMutexA/B
-// become session-local names, through the wide and the ANSI variants; every other mutex name (single-instance
-// hand-off, crash upload, LMDB) is left alone, and each rename is reported ("run mutex -> ", which nullifier.py
-// waits for).
+// Offline check of nullifier.js's always-on hooks, with Frida's API stubbed:
+// - the two-copies mutexes: only Global\PoERunMutexA/B become session-local names, through the wide and the ANSI
+//   variants; every other mutex name (single-instance hand-off, crash upload, LMDB) is left alone, and each rename is
+//   reported ("run mutex -> ", which nullifier.py waits for);
+// - top-level windows are created with WS_EX_NOACTIVATE;
+// - the engine is never told its window was minimized.
 //   node scripts/dev/test-nullifier-mutex.cjs
 'use strict';
 const fs = require('fs');
@@ -12,15 +14,23 @@ const text = (s, encoding = 'wide') => ({isNull: () => s === null, readUtf16Stri
   value: s, encoding});
 const hooks = {};
 const sent = [];
+// The code nullifier.js checks before it hooks (the always-on hooks only), as 3.29.3b has it.
+const code = {0x140e67380: '4883ec38488bc1488b0d926376034885'};
+const number = v => (typeof v === 'object' && v !== null ? v.value : Number(v));
+const pointer = v => ({value: number(v), toInt32: () => number(v) | 0, toUInt32: () => number(v) >>> 0,
+  isNull: () => !number(v), add: x => pointer(number(v) + number(x)), sub: x => pointer(number(v) - number(x)),
+  readByteArray: () => Uint8Array.from(Buffer.from(code[number(v)] || '', 'hex')).buffer});
 const sandbox = {
   OPTIONS: {runMutexPrefix: 'Local\\LocalExile-pr-x-bot1-', window: 'normal'},
-  ptr: v => ({value: v, toInt32: () => Number(v), isNull: () => !v, add: () => sandbox.ptr(0), sub: () => sandbox.ptr(0)}),
+  ptr: pointer,
   send: message => sent.push(message.message),
   rpc: {exports: {}},
   Memory: {allocUtf16String: s => text(s, 'wide'), allocAnsiString: s => text(s, 'ansi')},
-  Interceptor: {attach: (target, callbacks) => { hooks[target] = callbacks; }},
+  Interceptor: {attach: (target, callbacks) => {
+    hooks[typeof target === 'string' ? target : `0x${target.value.toString(16)}`] = callbacks;
+  }},
   Process: {
-    getModuleByName: () => ({base: sandbox.ptr(0x140000000)}),
+    getModuleByName: () => ({base: pointer(0x140000000)}),
     findModuleByName: name => ({name, findExportByName: api => `${name}!${api}`, getExportByName: api => `${name}!${api}`}),
     attachModuleObserver: () => ({}),
   },
@@ -52,4 +62,21 @@ for (const other of ['PathOfExileSingleInstance', 'Global\\PoERunMutexCrashUploa
 assert.strictEqual(hooks['kernelbase.dll!CreateMutexW'].onEnter([text(null), text(null), text(null)]), undefined);
 assert.ok(sent.includes(`run mutex -> ${A}`) && sent.includes(`run mutex -> ${B}`), 'each rename is reported');
 assert.ok(!sent.some(m => /PoERunMutexCrashUpload|MDB|SingleInstance/.test(m)), 'other names are not reported');
+
+// Top-level windows never activate (WS_EX_NOACTIVATE); child windows are left alone.
+const topLevel = Array.from({length: 12}, () => pointer(0));
+topLevel[0] = pointer(0x100);
+hooks['user32.dll!CreateWindowExW'].onEnter(topLevel);
+assert.strictEqual(topLevel[0].value, 0x08000100);
+const child = Array.from({length: 12}, () => pointer(0));
+child[8] = pointer(0x1234);
+hooks['user32.dll!CreateWindowExW'].onEnter(child);
+assert.strictEqual(child[0].value, 0);
+// The engine is never told its window was minimized (WM_SIZE / SIZE_MINIMIZED becomes WM_NULL); other sizes pass.
+const minimized = [pointer(0x10), pointer(5), pointer(1), pointer(0)];
+hooks['0x140e67380'].onEnter(minimized);
+assert.strictEqual(minimized[1].value, 0);
+const restored = [pointer(0x10), pointer(5), pointer(0), pointer(0x02580320)];
+hooks['0x140e67380'].onEnter(restored);
+assert.strictEqual(restored[1].value, 5);
 console.log('ok');

@@ -228,8 +228,7 @@ def parse(argv=None):
     parser.add_argument("--affinity", type=lambda v: int(v, 0), default=0, help="CPU affinity mask (0: all)")
     parser.add_argument("--trim-seconds", type=float, default=0, help="trim the working set this often (0: never)")
     parser.add_argument("--window", choices=["minimized", "hidden", "normal"], default="normal",
-                        help="how the window shows; it is never activated. A minimized client with a real renderer "
-                             "stops its main loop")
+                        help="how the window shows; it is never activated, and minimizing it does not stop the client")
     parser.add_argument("--sound", action="store_true", help="keep sound (default: --nosound)")
     parser.add_argument("--trace-files", help="log CreateFileW paths matching this regex (diagnostics)")
     parser.add_argument("--crash-log", type=Path, help="append a client crash's registers and backtrace here")

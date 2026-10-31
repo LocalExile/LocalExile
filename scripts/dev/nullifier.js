@@ -76,11 +76,15 @@ if (OPTIONS.runMutexPrefix) {
 }
 
 // The window is created and shown as usual (the engine needs it), but never activated: it cannot take the keyboard
-// focus from the user's window. A minimized client with a real renderer runs no frames; only the Null renderer may be
-// minimized or hidden.
+// focus from the user's window. Its top-level windows get WS_EX_NOACTIVATE (live 2026-10-31, without it a new client's
+// window took the focus at creation even with the hooks below; it also keeps them off the taskbar), ShowWindow never
+// activates, and SetForegroundWindow is neutralised.
 whenLoaded('user32.dll', user32 => {
   const show = {minimized: 7 /* SW_SHOWMINNOACTIVE */, hidden: 0 /* SW_HIDE */, normal: 4 /* SW_SHOWNOACTIVATE */};
   const mode = show[OPTIONS.window] ?? 4;
+  Interceptor.attach(user32.getExportByName('CreateWindowExW'), {onEnter(args) {
+    if (args[8].isNull()) args[0] = ptr(args[0].toUInt32() | 0x08000000);  // a top-level window: WS_EX_NOACTIVATE
+  }});
   Interceptor.attach(user32.getExportByName('ShowWindow'), {onEnter(args) {
     const cmd = args[1].toInt32();
     if (cmd !== 0 && cmd !== 6 /* SW_MINIMIZE */) args[1] = ptr(mode);
@@ -88,6 +92,22 @@ whenLoaded('user32.dll', user32 => {
   // SetForegroundWindow(NULL) fails, which the client tolerates (it does so whenever Windows refuses).
   Interceptor.attach(user32.getExportByName('SetForegroundWindow'), {onEnter(args) { args[0] = ptr(0); }});
 });
+
+// A minimized client runs no frames: its window procedure (0x140e67380 → 0x140e68220) logs "[WINDOW] Minimized" on
+// WM_SIZE / SIZE_MINIMIZED and the main loop then waits (live 2026-10-31: a Null client someone minimized stopped
+// answering the bridge, and a DirectX 11 client started minimized never reached the login screen). An agent client
+// must keep running whoever minimizes its window, so that message becomes WM_NULL (0) before the engine sees it; the
+// window itself still minimizes. The engine keeps its last size and runs at its background frame rate.
+{
+  const windowProc = checked('windowProc', '0x140e67380', '4883ec38488bc1488b0d926376034885');
+  let reported = false;
+  Interceptor.attach(windowProc, {onEnter(args) {
+    if (args[1].toInt32() === 5 /* WM_SIZE */ && args[2].toInt32() === 1 /* SIZE_MINIMIZED */) {
+      args[1] = ptr(0);
+      if (!reported) { reported = true; log('window minimized: the engine is not told'); }
+    }
+  }});
+}
 
 // Engine::Init(engine, options) (0x1410048f0) copies the options' switches into the engine, renderer and texture
 // manager and logs each ("[RENDER] Render: ON", "[TEXTURE] Upload: ON", ...). Options offsets, from that function:
