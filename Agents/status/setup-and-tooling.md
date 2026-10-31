@@ -28,7 +28,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hooks for outside tools such as the desktop launcher: `live.ps1 -Stop` (also with `-Only` or `-NoClient`),
   `live.ps1 -ClientOnly -Walkmaps` (the client and its walk-map recorder against running servers), the
   Gateway's `commands` and `values <kind>` modes (its chat commands, their argument kinds and values, as JSON lines),
-  and the dev host's `accounts`.
+  its `crafter` mode with `/item_give` (an item crafter's bases, mod pools and English stat descriptions, and the item
+  it composed: [item-crafter.md](../docs/dev/item-crafter.md)), and the dev host's `accounts`.
   Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
   the account list from the real save database.
   Code: `scripts/dev/live.ps1`, `Program.Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
