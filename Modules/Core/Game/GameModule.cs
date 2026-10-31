@@ -28,7 +28,7 @@ sealed class GameLogic : IGameLogic
         return level;
     }
 
-    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(ClientState conn) => Rules.LeagueStatsFor(conn.MainAscendancy);
+    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(ClientState conn) => Rules.LeagueStatsFor(conn);
 
     public async Task Entered(string remote, ClientState conn, int level, int ticketLevel)
     {
