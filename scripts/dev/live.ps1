@@ -23,13 +23,16 @@
 #               base is remembered in data\stack.json for later runs and scripts/dev/client_control.py; 0 = default ports.
 #               With a base, the shell's Game_*_PORT, Game_PATCH_URL and Game_PATCH_WEB_ROOT are not used.
 #   -Session S  a named client (also Game_CLIENT_SESSION) beside the others of this stack: its own working folder
-#               data\clients\S\ (its logs\Client.txt), settings file and saved login. Without it: the one client as before.
+#               data\clients\S\ (its logs\Client.txt), settings file and saved login, at below-normal priority. Its new
+#               settings file starts from config\nullifier_Config.ini when the checkout has that cheap preset, else from the
+#               default client's. Without it: the one client as before.
+#   -SeedConfig F  (also Game_CLIENT_SEED_CONFIG) start the -Session client's settings file over from F (without [LOGIN]).
 #   -Stop       stop this checkout's servers, walk-map recorder and clients; with -ClientOnly only the -Session client.
 #   Several stacks and clients on one PC: Agents/docs/dev/live-testing.md ("Several stacks and clients"). Whatever this
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [switch]$Stop)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -162,10 +165,12 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 # Streamline, D3D12), CachedHLSLShaders and logs\Client.txt in its working folder (live 2026-10-30). So the folder gets a
 # hard link to the shared Content.ggpk (the same file: nothing is copied or written), junctions to the shared asset
 # folders, its own shader cache and log, and a config.json naming the session's own settings file and saved login
-# (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME, in Documents\My Games\Path of Exile). A new settings file starts as a
-# copy of the default client's without its [LOGIN] section: no saved login to send to whichever login server the shared
-# gateway list names.
-function Start-Client([string]$session, $stack) {
+# (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME, in Documents\My Games\Path of Exile). A new settings file (or any,
+# with -SeedConfig) starts as a copy of the seed without its [LOGIN] section: no saved login to send to whichever login
+# server the shared gateway list names. The seed: -SeedConfig, else the cheap preset config\nullifier_Config.ini (DX11,
+# 800x600, low textures, 10 fps, no sound) when this checkout has it, else the default client's settings. A session
+# client runs at below-normal priority: agents' clients yield to the person playing.
+function Start-Client([string]$session, $stack, [string]$seedConfig) {
     $client = Join-Path $repo 'Client'
     $folder = $client
     if ($session -ne 'default') {
@@ -188,8 +193,9 @@ function Start-Client([string]$session, $stack) {
             ConvertTo-Json | Set-Content (Join-Path $folder 'config.json') -Encoding ascii
         $settings = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Path of Exile'
         $ini = Join-Path $settings "${prefix}_Config.ini"
-        $seed = Join-Path $settings 'poeoffline_Config.ini'
-        if (-not (Test-Path $ini) -and (Test-Path $seed)) {
+        $preset = Join-Path $repo 'config\nullifier_Config.ini'
+        $seed = if ($seedConfig) { (Resolve-Path $seedConfig).Path } elseif (Test-Path $preset) { $preset } else { Join-Path $settings 'poeoffline_Config.ini' }
+        if (($seedConfig -or -not (Test-Path $ini)) -and (Test-Path $seed)) {
             $section = $null
             $lines = foreach ($line in [IO.File]::ReadAllLines($seed)) {
                 if ($line -match '^\[(.+)\]\s*$') { $section = $Matches[1] }
@@ -209,6 +215,7 @@ function Start-Client([string]$session, $stack) {
         Remove-Item $record -ErrorAction SilentlyContinue
         throw "the client exited right after starting (exit code $($p.ExitCode)); see $(Join-Path $folder 'logs\Client.txt')"
     }
+    if ($session -ne 'default') { try { $p.PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal } catch { } }
     [ordered]@{ pid = $p.Id; started = $started; session = $session; folder = $folder; ports = $stack.Ports } |
         ConvertTo-Json | Set-Content $record -Encoding ascii
     Write-Output "client pid $($p.Id)$(if ($session -ne 'default') { " (session $session, $folder)" })"
@@ -245,7 +252,7 @@ if ($ClientOnly) {
         Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
     if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
-    Start-Client $session $stack
+    Start-Client $session $stack $SeedConfig
     return
 }
 
@@ -433,6 +440,6 @@ if ($Walkmaps) {
     Write-Output 'walk-map capture on (logs\walkmaps.log)'
 }
 
-if (-not $NoClient) { Start-Client $session $stack }
+if (-not $NoClient) { Start-Client $session $stack $SeedConfig }
 $portsText = if ($stack.Base) { " on ports $(($stack.Ports.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', ')" } else { '' }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')$portsText" } else { "servers up$portsText" })
