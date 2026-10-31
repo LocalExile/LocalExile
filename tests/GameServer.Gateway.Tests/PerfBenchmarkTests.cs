@@ -161,6 +161,17 @@ public class PerfBenchmarkTests(ITestOutputHelper output)
             Record("catalogue", $"{name} retained MB", (GC.GetTotalMemory(forceFullCollection: true) - live) / 1048576.0, "MB");
         }
         Record("catalogue", "total ms", total, "ms");
+        // A per-gem question the skill panel and every hit ask (three type sets per call).
+        {
+            const int Calls = 1_000_000;
+            bool any = false;
+            long before = Allocated();
+            var clock = Stopwatch.StartNew();
+            for (int i = 0; i < Calls; i++) any |= Program.Skills.IsRangedAttack(i & 0x3ff);
+            Record("catalogue", "IsRangedAttack ns per call", clock.Elapsed.TotalMilliseconds * 1e6 / Calls, "ns");
+            Record("catalogue", "IsRangedAttack bytes per call", (Allocated() - before) / (double)Calls, "B");
+            GC.KeepAlive(any);
+        }
         GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
         Record("catalogue", "live heap after full GC MB", GC.GetTotalMemory(false) / 1048576.0, "MB");
         Record("catalogue", "process private MB", PrivateMegabytes(), "MB");

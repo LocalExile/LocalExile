@@ -437,29 +437,47 @@ sealed class SkillCatalog(string folder = "data", bool ruthless = false)
     // The effects of one ActiveSkillType each: ActiveSkillType, ActiveSkills and GrantedEffects are parsed once for all
     // of them (each set used to parse the three tables again: ~100 MB of JSON per catalogue at the first spawn).
     private readonly SkillTypeSets _skillTypes = new(folder);
-    private Lazy<HashSet<int>> _instantEffects => _skillTypes.Of("Instant");
-    private Lazy<HashSet<int>> _movementEffects => _skillTypes.Of("Movement");
-    private Lazy<HashSet<int>> _attackEffects => _skillTypes.Of("Attack");
-    private Lazy<HashSet<int>> _meleeEffects => _skillTypes.Of("Melee");
-    private Lazy<HashSet<int>> _spellEffects => _skillTypes.Of("Spell");
-    private Lazy<HashSet<int>> _projectileEffects => _skillTypes.Of("Projectile");
-    private Lazy<HashSet<int>> _warcryEffects => _skillTypes.Of("Warcry");
-    private Lazy<HashSet<int>> _auraEffects => _skillTypes.Of("Aura");
-    private Lazy<HashSet<int>> _curseEffects => _skillTypes.Of("AppliesCurse");
-    private Lazy<HashSet<int>> _addedAuraEffects => _skillTypes.Of("Aura", added: true);
-    private Lazy<HashSet<int>> _brandEffects => _skillTypes.Of("Brand");
+    private Lazy<HashSet<int>> _instantEffects => _skillTypes.Instant;
+    private Lazy<HashSet<int>> _movementEffects => _skillTypes.Movement;
+    private Lazy<HashSet<int>> _attackEffects => _skillTypes.Attack;
+    private Lazy<HashSet<int>> _meleeEffects => _skillTypes.Melee;
+    private Lazy<HashSet<int>> _spellEffects => _skillTypes.Spell;
+    private Lazy<HashSet<int>> _projectileEffects => _skillTypes.Projectile;
+    private Lazy<HashSet<int>> _warcryEffects => _skillTypes.Warcry;
+    private Lazy<HashSet<int>> _auraEffects => _skillTypes.Aura;
+    private Lazy<HashSet<int>> _curseEffects => _skillTypes.Curse;
+    private Lazy<HashSet<int>> _addedAuraEffects => _skillTypes.AddedAura;
+    private Lazy<HashSet<int>> _brandEffects => _skillTypes.Brand;
 
     /// <summary>The GrantedEffects rows whose active skill has an ActiveSkillType (or, <c>added</c>, that add the type to
-    /// the skill they support), from one read of the three tables.</summary>
-    sealed class SkillTypeSets(string folder)
+    /// the skill they support), from one read of the three tables. Each set is computed on first use.</summary>
+    sealed class SkillTypeSets
     {
         sealed record Rows(string?[] TypeIds, int[][] ActiveSkillTypes, int?[] EffectSkills, int[][] AddedTypes);
 
-        readonly Lazy<Rows?> _rows = new(() => Load(folder));
-        readonly System.Collections.Concurrent.ConcurrentDictionary<(string Type, bool Added), Lazy<HashSet<int>>> _sets = new();
+        readonly Lazy<Rows?> _rows;
 
-        public Lazy<HashSet<int>> Of(string typeId, bool added = false) =>
-            _sets.GetOrAdd((typeId, added), key => new(() => Effects(_rows.Value, key.Type, key.Added)));
+        public SkillTypeSets(string folder)
+        {
+            _rows = new(() => Load(folder));
+            Instant = Of("Instant"); Movement = Of("Movement"); Attack = Of("Attack"); Melee = Of("Melee");
+            Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
+            Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
+        }
+
+        public Lazy<HashSet<int>> Instant { get; }
+        public Lazy<HashSet<int>> Movement { get; }
+        public Lazy<HashSet<int>> Attack { get; }
+        public Lazy<HashSet<int>> Melee { get; }
+        public Lazy<HashSet<int>> Spell { get; }
+        public Lazy<HashSet<int>> Projectile { get; }
+        public Lazy<HashSet<int>> Warcry { get; }
+        public Lazy<HashSet<int>> Aura { get; }
+        public Lazy<HashSet<int>> Curse { get; }
+        public Lazy<HashSet<int>> AddedAura { get; }
+        public Lazy<HashSet<int>> Brand { get; }
+
+        Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
 
         static HashSet<int> Effects(Rows? rows, string typeId, bool added)
         {
