@@ -121,8 +121,17 @@ touching each other's.
   without the recorder): the recorder meets the Gateway in the shared `data\walkability\current.json`. It attaches to
   the default client by the PID `live.ps1` records (`walkmaps.py --record data\clients\default.json`), so other
   checkouts' clients may run.
-- **Memory.** Each in-game client commits about 7 GB (6.75 to 7.43 GB measured for three campaign clients on
-  2026-10-30); a Gateway about 0.75 GB right after start, Auth and Patch under 0.05 GB. Check the free commit
+- **Two clients per PC at most.** The client takes one of two machine-wide mutexes, `Global\PoERunMutexA` and
+  `Global\PoERunMutexB` (`0x140101d85`), and with both taken it waits on a dialog, "You may only run up to two copies
+  of Path of Exile at a time." (seen live 2026-10-31). The count is over every checkout's clients; `live.ps1` refuses a
+  third launch instead of leaving a client on that dialog.
+- **Cheap session settings.** A session's new settings file starts from `config\nullifier_Config.ini` when the
+  checkout has that preset (DirectX 11, 800x600, low textures, 10 fps, no sound), else from the default client's;
+  `-SeedConfig <file>` (`Game_CLIENT_SEED_CONFIG`) starts it over from another file. Session clients run at below-normal
+  priority. Do not minimize a client with a real renderer: it stops its main loop.
+- **Memory.** Each in-game client commits about 7 GB with the default settings (6.75 to 7.43 GB measured for three
+  campaign clients on 2026-10-30), and while it starts it takes about 4.6 GB within seconds, even with the cheap preset;
+  a Gateway about 0.75 GB right after start, Auth and Patch under 0.05 GB. Check the free commit
   (`(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory`) before opening another client.
 
 ## Changing the Gateway while it runs (hot reload)

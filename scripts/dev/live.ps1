@@ -204,6 +204,12 @@ function Start-Client([string]$session, $stack, [string]$seedConfig) {
             [IO.File]::WriteAllLines($ini, [string[]]$lines, [Text.UTF8Encoding]::new($true))
         }
     }
+    # The client runs at most two copies per PC: it takes one of two machine-wide mutexes (Global\PoERunMutexA, B;
+    # 0x140101d85) and otherwise waits on "You may only run up to two copies of Path of Exile at a time."
+    $running = @(Get-CimInstance Win32_Process -Filter "Name = 'Game.patched.exe'" -ErrorAction SilentlyContinue)
+    if ($running.Count -ge 2) {
+        throw "the client runs at most two copies per PC, and two run already (pids $(($running | ForEach-Object { $_.ProcessId }) -join ', '))"
+    }
     # The record goes first as a pending launch (pid 0, the time before the start): until it has the PID, nobody takes
     # the new client for the default session's (Get-OwnClients, client_control.py).
     New-Item -ItemType Directory -Force $clients | Out-Null
