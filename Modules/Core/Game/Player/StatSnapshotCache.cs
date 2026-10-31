@@ -18,6 +18,8 @@ static partial class Game
         /// <summary>The head's stats, in their order (a dictionary's order is what the packets built from it list).</summary>
         public required Dictionary<uint, int> Stats;
         public required Dictionary<uint, int> RawOverrides;
+        /// <summary>RawOverrides' keys (the stats /set_stat replaces): derived from RawOverrides, which Matches compares, so it
+        /// is not compared itself.</summary>
         public required HashSet<uint> DevSet;
         public required CharacterStats.Pools Pools;
         public required SkillCatalog Skills;
@@ -157,8 +159,10 @@ static partial class Game
         var key = new Dictionary<uint, int>(inputs.Stats);
         var result = ComputeStatSnapshotTail(inputs);
         inputs.Stats = key;
-        slot.Last = new(inputs, new(result));
-        return result;
+        // A reuse returns a copy of the result, so the first use does too: both are the same fresh, compacted dictionary
+        // (one order and layout, whatever the tail did to build the result).
+        slot.Last = new(inputs, result);
+        return new(result);
     }
 
     // The tail: reads only inputs (and the game data). Changes inputs.Stats in place and returns it.

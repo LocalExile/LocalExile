@@ -3,9 +3,4 @@
   <!-- The game's rules: casting, hits, monsters, items, passives, travel (Agents/docs/dev/modules.md). Its parts call one another, so they
        are one assembly, in subfolders by subject. Everything else is in Directory.Build.props. -->
 
-  <!-- The Gateway tests reach the rules' internals, as they reach the Gateway's. -->
-  <ItemGroup>
-    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
-  </ItemGroup>
-
 </Project>
