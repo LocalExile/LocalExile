@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -18,12 +19,35 @@ static partial class Game
                     await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
                 }
                 PublishPlayerPose(conn);
+                if (ServerTrace.Sync) TraceSync(conn);
                 if ((frames++ & 1) == 0) await SyncInstancePlayers(remote, stream, ciphers, conn);
                 await Task.Delay(50);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
         finally { conn.Instance.RemovePlayer(conn.PeerId); }
+    }
+
+    // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of
+    // scripts/re/frida/trace-sync.js. scripts/re/sync_report.py compares the two.
+    internal static void TraceSync(ClientState conn)
+    {
+        if (!conn.PlayerSent) return;
+        var line = new System.Text.StringBuilder();
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var p = conn.Walk.Position(now);
+            line.Append($"[sync] qpc={System.Diagnostics.Stopwatch.GetTimestamp()} peer={conn.PeerId:x} speed={conn.Walk.Speed:0.###} ");
+            line.Append($"moving={(now < conn.Walk.ArrivesAt ? 1 : 0)} p={p.X},{p.Y} m=");
+            foreach (var (id, m) in conn.Monsters)
+            {
+                if (m.Dead || m.Life <= 0) continue;
+                var at = m.Walk.Position(now);
+                line.Append($"{id:x}:{at.X},{at.Y};");
+            }
+        }
+        Console.WriteLine(line);
     }
 
     internal static void PublishPlayerPose(ClientState conn)

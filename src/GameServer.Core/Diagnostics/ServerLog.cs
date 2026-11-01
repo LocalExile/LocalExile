@@ -84,7 +84,8 @@ public sealed class TimestampedWriter(TextWriter inner, Func<DateTime>? clock = 
 /// <summary>
 /// The dev traces: log lines too many for every run, on with Game_TRACE=&lt;category&gt;[,…] or Game_TRACE=all.
 /// Categories: move (movement messages with QPC stamps), latency (per-phase timings), ticks (every 50th 0x1b tick),
-/// ai (monster chase moves), packets (every message in both directions, hex). The older Game_MOVE_TRACE=1 and
+/// ai (monster chase moves), packets (every message in both directions, hex), sync (the server's position estimates
+/// every 50 ms, QPC stamped, for scripts/re/sync_report.py). The older Game_MOVE_TRACE=1 and
 /// Game_LATENCY_METRICS=1 still turn on move and latency.
 /// </summary>
 public static class ServerTrace
@@ -96,6 +97,7 @@ public static class ServerTrace
     public static readonly bool Ticks = Enabled("ticks");
     public static readonly bool Ai = Enabled("ai");
     public static readonly bool Packets = Enabled("packets");
+    public static readonly bool Sync = Enabled("sync");
 
     public static bool Enabled(string category) => On.Contains("all") || On.Contains(category);
 
