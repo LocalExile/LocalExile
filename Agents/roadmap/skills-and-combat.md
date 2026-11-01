@@ -469,6 +469,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 ### Skill projectiles
 
+- **TLS-dependent decisions:** the [K1 workbench](../docs/re/projectile-tls-scope.md) investigates one ordinary
+  prevent-Pierce decision's incoming state, enclosing scope and draw order. Algorithm recovery alone does not
+  establish deterministic client/server outcomes. Review the bounded scope before expanding to adjacent consumers.
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production projectile routing and the
   only Core simulator. Catalog-known gems and ordinary bows and wands have basic straight flight and resolved
   modifiers; [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB
