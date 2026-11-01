@@ -51,7 +51,7 @@ static class MercyFeature
                 await SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
                 return true;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true)) return true;
+        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupTolerance)) return true;
         var (action, now, here, _, arrive) = objectWalk;
         await Send(remote, stream, ciphers,
             InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),

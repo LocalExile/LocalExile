@@ -139,10 +139,8 @@ static partial class Game
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway.
                     if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect))
                     {
-                        // A target past the walkable ground ends where the line to it does on the client (live 2026-11-01).
-                        var landing = conn.Layout.Walkable is not { } canWalk ? (use.X, use.Y)
-                            : GameServer.Core.World.ClientPathfinder.Line((use.X, use.Y), (px, py)).FirstOrDefault(c => canWalk(c.Item1, c.Item2), (px, py));
-                        conn.Walk.Teleport(landing.Item1, landing.Item2, at);
+                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
+                        conn.Walk.Teleport(landing.X, landing.Y, at);
                     }
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
                     conn.ChannelSkillSequence = use.Slot;

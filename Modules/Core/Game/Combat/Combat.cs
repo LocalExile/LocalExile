@@ -460,8 +460,12 @@ static partial class Game
                 aim = m.Walk.Position(castAt);
                 stand = conn.Walk.Position(castAt);
                 conn.Walk.Order(stand.X, stand.Y, castAt);
-                // A movement skill aimed at a monster lands on it, as one aimed at the ground does.
-                if (moves) conn.Walk.Teleport(aim.X, aim.Y, castAt);
+                // A movement skill aimed at a monster travels as one aimed at the ground does.
+                if (moves)
+                {
+                    var landing = MovementLanding(conn, gem.Effect, stand, aim);
+                    conn.Walk.Teleport(landing.X, landing.Y, castAt);
+                }
             }, out var spellUse, requestedAt: requestedAt)) return;
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect);
