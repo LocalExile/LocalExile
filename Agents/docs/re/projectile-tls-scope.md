@@ -10,9 +10,10 @@ It starts with the ordinary Fireball binding of shared qualification: selected p
 between 0 and 100, a legal Pierce opportunity and no earlier mode/prohibition rejection. These are witness
 conditions, not a claim that a particular running character currently supplies those values.
 
-**Draft; no new scope closure yet.** The baseline already recovers the helper arithmetic and selected
-consumption chains. Actual incoming TLS state, its enclosing scope, thread membership and preceding
-consumer order remain open. A stopped search is not proof that no enclosing scope exists.
+**Draft; local gate and selected contact ingress rechecked, no scope closure yet.** The baseline already
+recovers the helper arithmetic and selected consumption chains. Actual incoming TLS state, its enclosing
+scope, thread membership and preceding consumer order remain open. A stopped search is not proof that
+no enclosing scope exists.
 
 The research uses client 3.29.3b, executable SHA256
 `78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5`.
@@ -40,9 +41,9 @@ The known thread-local state is at TLS `+0x170`; its transition is uint32
 
 | Step | Required result | State |
 |---|---|---|
-| T0: freeze and preflight | Pin baseline, witness, known stopped routes and exact missing edge | Defined; selected historical envelope evidence to inspect |
-| T1: local gate | Verify reached/skip conditions, TLS address and direct caller state access | Pending fresh check |
-| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Open |
+| T0: freeze and preflight | Pin baseline, witness, known stopped routes and exact missing edge | Complete; prior World/scope audits reused |
+| T1: local gate | Verify reached/skip conditions, TLS address and direct caller state access | Fresh original-byte and final-slot checks complete; inherited arithmetic reconfirmed |
+| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Selected ordinary contact ingress bound; earlier state/outer scope open |
 | T3: reproducibility | Check exact state transitions with declared inputs; classify which inputs are action-derived, external or unobserved | Open |
 | T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | Pending |
 
@@ -57,6 +58,34 @@ write in a few bodies is insufficient to prove dependence on the entire thread's
 
 An **unresolved result** remains unresolved: an untyped callback, unknown caller or unobserved state is not
 converted into either closure above. K1 retains all other witnesses and obligations after a local result.
+
+## Investigation A: selected local contact envelope
+
+The [compact receipt](projectile-tls-scope-evidence.json) pins the six inspected code spans, ordinary
+Fireball's final `+0x678` binding and fixed source documents. This is original-byte inspection, not runtime
+execution. Reconfirming these inherited rules is not counted as discovery of a new seed producer.
+
+| Selected boundary | Freshly checked fact | What it does not prove |
+|---|---|---|
+| Fireball final table `0x14333ac40`, slot `+0x678` | Binds qualification `0x141ba96a0` | Actual runtime class selection or effective chance |
+| Qualification prefix through `0x141ba9715` | Mode/prohibition gates precede chance; selected key `0x3438` is read at `0x141ba96f1`; signed positive chance calls the helper at `0x141ba9708`; forced mask is checked afterward | A nonzero Pierce grant alone does not guarantee this TLS draw is reached |
+| Chance helper `0x140e3b450..0x140e3b4a9` | Zero and unsigned at-least-100 shortcuts; ordinary chance draws seven bits and retries values at least 100 | No action-to-incoming-state seed is provided by this helper |
+| Bit helper `0x140e3b310..0x140e3b393` | Reads the TLS base through `gs:[0x58] → [0]`; multiplies/adds current `+0x170` and stores it at `0x140e3b35b` | The helper does not identify the actual enclosing scope or executing OS thread |
+| Ordinary contact `0x141ba7b30` | Calls virtual `+0x678` at `0x141ba8a15`; its inspected inline body has no GS access | Earlier direct/virtual callees and pointer aliases have not been proved free of state effects |
+| Capture thunk `0x141a43720..0x141a4372c` | Loads the target and captured action, then tail-jumps to ordinary contact; this leaf does not establish a seed scope | State established before entering the thunk remains unknown |
+| Query tail `0x141e32fb3..0x141e330a7` | Selected ordinary route loads capture pointer at Positioned `+0x198` (`0x141e33082`) and invokes its `+0x10` at `0x141e3301e`; special routes remain distinct | Earlier query/filter work and the caller of the spatial query remain outside this selected tail |
+
+The leaf/slot/transfer facts join the chosen gate to the existing ordinary contact contract. This narrows
+the local input path, but does not bind its incoming random value. In particular, absence of an inline GS
+write cannot certify transitive absence of save/seed/restore, and the prior system-time seed writer cannot
+be substituted for a real decision-point value.
+
+The current missing edge is **state at the selected capture ingress, including effects of earlier reached
+callbacks and any enclosing scope**. Previous World/dispatcher studies already left their scope/thread
+binding open; repeating those generic traversals is not a new lead. The next investigation must name one
+concrete connection to that ingress, or specify a bounded observation of its caller/state/ordering. If no
+new edge narrows, the scope-review rule below applies. No whole-thread consumer inventory is authorized
+by this local result.
 
 ## Scope review rules
 

@@ -1,0 +1,84 @@
+{
+  "format": 1,
+  "scope": "Investigation A static identity receipt; no native replay, runtime state, complete scope or thread claim",
+  "client_sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
+  "address_convention": "Preferred-image VA; start inclusive, end exclusive. Selected spans do not imply complete transitive call coverage. Linear counts are not execution counts.",
+  "ranges": [
+    {
+      "label": "Pierce qualification",
+      "start": "0x141ba96a0",
+      "end": "0x141ba99d0",
+      "sha256": "4db19e1d0b687337a3f70e12cca441e5915b6177c81755132e902260557a9bde",
+      "linear_instructions": 210
+    },
+    {
+      "label": "chance helper with both returns",
+      "start": "0x140e3b450",
+      "end": "0x140e3b4a9",
+      "sha256": "cbd6384734ed56f41f7a11ae65c5352307871bc7c076ca668270fe3c2c209f0b",
+      "linear_instructions": 33
+    },
+    {
+      "label": "TLS bit helper",
+      "start": "0x140e3b310",
+      "end": "0x140e3b393",
+      "sha256": "9878a41663e28072c9e4275753b48d9dc0db4e6feb48009a94f675cb2f014739",
+      "linear_instructions": 35
+    },
+    {
+      "label": "ordinary contact handler",
+      "start": "0x141ba7b30",
+      "end": "0x141ba8d12",
+      "sha256": "e897a233f41c13ad28b30dfecddde3502375befddc4dc23a9068a6b5873192ee",
+      "linear_instructions": 1105
+    },
+    {
+      "label": "capture forwarding leaf",
+      "start": "0x141a43720",
+      "end": "0x141a4372c",
+      "sha256": "4edb229ecbcf75e64ee110a4b0a1b7512fe14a5d4e52968d9aee2f4ec72d6365",
+      "linear_instructions": 3
+    },
+    {
+      "label": "selected query tails, not full query function",
+      "start": "0x141e32fb3",
+      "end": "0x141e330a7",
+      "sha256": "e0f4105204b86fe968134e19e690980cecf9991ee1978e0dc7e18f3462f6710f",
+      "linear_instructions": 63
+    }
+  ],
+  "slots": [
+    {
+      "table": "0x14333ac40",
+      "offset": "0x678",
+      "target": "0x141ba96a0"
+    }
+  ],
+  "baseline_sources": [
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/random-inputs.md",
+      "sha256": "68459ffa67e2430518a77d9304c7274caf0bc1c52739e59c4841519d30e3add0"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/verification-and-limitations.md",
+      "sha256": "eb8bee0cffc4487119adaba3c8a0ba02e54b464c9129d728c3b7c6343b88b4ff"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/world-scheduling.md",
+      "sha256": "51caebd92cf8f2178d7197d92adfc3580e4ce8fffd26fafb584dbe1b55ce7169"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/motion-and-contact.md",
+      "sha256": "abcb7c8569ae0f30518495194821d8c589a94abb117f437097313c01631dbfd7"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/fireball-and-kinetic-blast.md",
+      "sha256": "6f810a6bccd5bc7f3266060d9b4d67968c51b7e403a8226cd2959b3b03e8fc32"
+    }
+  ]
+}
