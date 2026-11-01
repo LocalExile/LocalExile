@@ -217,6 +217,28 @@ swing's timing on both sides. `skill_is_non_pathing` on the skill skips all of t
 stands, without a 0x1ac. The Gateway's melee skills no longer carry it, and its ranged skills and boss stages still do.
 It chases the same way (`PlanMonsterAi`, `InstanceProtocol.ActionStartedNow`), and its estimate walks the same walk-up
 with `PlayerWalk.Approach` at the search budget of §5.
+A monster told to swing while the player is out of its reach does not stand: on the client it walks after the player
+until it can swing. So the Gateway calls a swing off when the player is out of reach in its first 150 ms, and swings at a
+walking player only from 2 cells inside the reach, since the client's player is already farther on.
+
+**The player's own walk-up.** The client's action goes on until the target is in reach, paths again every 0.05 s for a
+player (0.25 s for a monster, `0x141e8eb60`), and needs no word from the server to swing. The Gateway follows it: it
+paths again every 100 ms, for up to 3 s (`FollowMonsterToSwing`), instead of giving up after one walk with no swing and
+no echo. Live: 158 attacks in a crowd, 158 swings, none out of reach.
+
+**Stun and freeze.** The client stops for a hit's recovery (0x1d1) and then goes on with its walk, so the server holds
+its walk for that long (`PlayerWalk.Pause`) instead of ending it (live: 30 cells apart when it ended it, 8 after). A
+click in the meantime starts when the recovery ends, and only the newest counts (`ReleaseHeldMove`). The client does not
+stop for `is_frozen`, and `virtual_action_speed_+%` at -100 would divide its clips by zero, so a freeze plays a recovery
+of its own length (`ShowFreeze`).
+
+**Movement skills.** The client limits the target itself before it sends the 0x25 (Flame Dash lands where the server
+does). A target past the walkable ground ends where the line to it does. Aimed at a monster it lands on the monster, by
+the 0x24 path. The client can still refuse a skill the server has landed (a Lightning Warp often), so a resync follows
+at the end of the action. Leap Slam, Flame Dash and Lightning Warp were checked live; the player's p90 is under 3 cells,
+with a brief spike while the client is in the air, since the server lands at once.
+
+**Blockers.** Totems and the tutorial chest block paths as the client's other objects do.
 
 **Server side.** `PlayerWalk` runs `ClientPathfinder` from the player's cell on every order and steps the result at the
 client's step times; walk-ups to NPCs, stashes, waypoints and area transitions use the client's range
@@ -232,6 +254,9 @@ at 370 cells/s one 16 ms frame is ~6 cells): the client applies a click from its
 the walk-up arguments, all 246 town paths of a third capture match, NPC, stash and waypoint walks included. Monsters
 walk on `PlayerWalk` too. `Approach` (a melee target, an item pickup, the map device) keeps a reach in cells; the
 client's arguments for those walks are not traced yet.
+
+**Speed changes mid-walk.** The client restarts the segment in progress from its cell at the new pace at once
+(`PlayerWalk.SetSpeed`). Live, with the speed changing every 0.7 s: player p90 1.4 to 3.6 cells, from 2.2 to 9.1.
 
 **Passive movement speed.** The passives' `base_movement_velocity_+%` are summed into `CharacterStats.Pools` and the
 walk estimate uses `37 × (1 + pct / 100)` cells/s; the same total is sent as the client's `movement_velocity_+%`, so the
@@ -260,13 +285,14 @@ and with no other hit (0 of 79), listing the player and the monsters within 23.4
 **The client asks for it.** Each commenced action other than Move adds one to a counter, each 0x1ac takes one off and
 5 s take one off; above 3 it sends C→S 0x16 command 8 (`InstanceItems.ForceResyncCommand`) and starts again. The
 Gateway answers with a 0x128, and `/oos` does the same by hand. GGG ends non-Move actions with a 0x1ac in the same tick
-(87 of 88), so its clients rarely ask. The Gateway sends no 0x1ac for them, so its clients ask every few skills in
-combat, and that is wanted while its estimates are worse than GGG's: the request is the only way a 20-cell error ends.
+(87 of 88), so its clients rarely ask. The Gateway does so for monsters but not for the player's own actions: a request
+costs nothing when nothing is 20 cells off, and it stays a safety net.
 
 **Measuring it.** `Game_TRACE=sync` logs the server's estimates every 50 ms, `scripts/dev/sync_drive.py` plays a session
 client with real mouse input through `scripts/re/frida/drive-input.js` and records where the client has every object
 (`trace-sync.js`), and `scripts/re/sync_report.py` compares them. The bridge's `move` is no use for this: it only writes
-a 0x25, so the client predicts nothing.
+a 0x25, so the client predicts nothing. `skill-clicks` plays the skill on the right button or a key, and
+`scripts/re/frida/trace-monster-actions.js` shows when the client takes, starts and stops other actors' actions.
 
 
 ### Living actor clearance
@@ -374,9 +400,10 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
-- An attack on a monster that moved or that bodies cut off ends "out of reach": no swing and no echo. The positions are
-  right now, so the client mostly cannot reach it either, but it keeps trying and the server does not.
 - Monster estimates still differ in the 5–50 ms until the client applies an order, and in the monsters far from the
   player that the client freezes.
-- The client's walk-up arguments for item pickups and the map device (`Approach`).
+- The client's walk-up arguments for item pickups and the map device (`Approach`): the pickup's reach of 22 cells is not
+  traced, so the server may stop short of the client until the next walk.
+- Whirling Blades, Shield Charge, Dash and other travelling skills are not checked live. The server lands them at once
+  and the resync settles the end.
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

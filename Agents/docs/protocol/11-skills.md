@@ -1493,7 +1493,8 @@ use) with and without the stat is not checked live yet; the Gateway log's 0x01ab
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23).
+player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
+it ([07](07-latency-visibility-movement.md) §5).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
