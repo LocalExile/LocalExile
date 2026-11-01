@@ -69,7 +69,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     the floor graph from the rooms the server sends.
   - Deepwater (2): the 3.29 league's DeepwaterEncounter and DeepwaterEncounterVoyage, built from a biome grid the
     server sends; the only seed-1 traces the port does not match.
-- The daily Labyrinth layout is the first step of [The Labyrinth](#the-labyrinth).
+- The daily Labyrinth layout is step 2 of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
 ## 3. Gameplay
@@ -122,26 +122,26 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   their toggling `Switch` levers and `Door_Open` cages, and the Crypt's spinners with its `Switch_Multi` and rail
   switches;
   The Lower Prison's trial completes with the real client ([status](../status/world.md), "Trials of Ascendancy").
-  A trial is done for the client by its quest flag or its league quest flag
+  A trial is done for the client by its quest flag or its league quest flag; the plaque sets both, and the league
+  flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Saving league quest flags so a trial counts for every character of the league.
-  2. The trial traps in the Labyrinth's own rooms: each trial teaches one kind (spikes, darts, roombas, sawblades,
+  1. The trial traps in the Labyrinth's own rooms: each trial teaches one kind (spikes, darts, roombas, sawblades,
      spinners and furnaces are done in the trials), the same objects; their timing and damage as the trials'
      ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
-  3. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
+  2. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
      data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).
      The node's LabyrinthNodeOverrides and secrets then apply in `LabyrinthPass`; the levelgen gate stays green.
-  4. A run: the plaza's device opens a tier once its required trials are done (Labyrinths `RequiredTrials`), and each
+  3. A run: the plaza's device opens a tier once its required trials are done (Labyrinths `RequiredTrials`), and each
      room is an instance linked by the layout's connections.
      No waypoints inside; a portal out, a death or a logout ends the run.
      Find what the client sends at the device and at a type 5 transition before choosing a server state.
-  5. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
+  4. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
      `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
-  6. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
+  5. The Ascendancy Chamber: the Altar (`LabyrinthAscendancyDevice`) chooses the ascendancy on the first Normal run,
      awards the tier's two points through `AscendancyProgress` and sets the tier's quest flag (Labyrinths
      `QuestFlag`); agree the shared code with #151.
-  7. The Cruel and Merciless trials, then secrets and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  6. The Cruel and Merciless trials, then secrets and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
 - **Done when:** a character completes the six Normal trials, enters the day's Normal Labyrinth from the plaza,
   walks its rooms, defeats Izaro three times and chooses an ascendancy at the Altar, keeping it and its two points

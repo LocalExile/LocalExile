@@ -1311,6 +1311,23 @@ static class CommandsFeature
             await SetQuestFlags(remote, stream, ciphers, conn, [args[0]], on: !off);
             await conn.Commands!.Reply($"{args[0]} {(off ? "cleared" : "set")}");
         }, "quest_flag")
+        .Add("trials", "/trials [on|off] [1|2|3|4] (dev: set or clear the Trials of Ascendancy's quest flags and league quest flags, saved, of one Labyrinth tier (1 Normal's six, 2 Cruel's three, 3 Merciless's three, 4 Eternal's six) or of all, then open the Trial Plaque window with the trials done)", async args =>
+        {
+            bool change = args.Length >= 1 && (args[0].Equals("on", StringComparison.OrdinalIgnoreCase) || args[0].Equals("off", StringComparison.OrdinalIgnoreCase));
+            int tier = args.Length > (change ? 1 : 0) && int.TryParse(args[change ? 1 : 0], out int n) && n is >= 1 and <= 4 ? n : 0;
+            List<LabyrinthTrials.Trial> trials = [.. LabyrinthTrials.Trials.Where(t => tier == 0 || LabyrinthTrials.Tier(t) == tier)];
+            string which = tier == 0 ? "every tier" : $"tier {tier}";
+            if (change)
+            {
+                bool on = args[0].Equals("on", StringComparison.OrdinalIgnoreCase);
+                await SetQuestFlags(remote, stream, ciphers, conn, [.. trials.Select(t => t.Flag)], on);
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, [.. trials.Select(t => t.LeagueFlag)], on);
+                await conn.Commands!.Reply($"{trials.Count} trial(s) of {which} {(on ? "done" : "cleared")}: their quest flags and league quest flags.");
+            }
+            int own = trials.Count(t => conn.HasQuestFlag(t.Flag)), league = trials.Count(t => conn.LeagueQuestFlags.Contains(t.LeagueFlag));
+            await conn.Commands!.Reply($"Trials done ({which}): {own} of {trials.Count} by the character's quest flag, {league} by the league's.");
+            await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (/trials)");
+        })
         .Add("trial_spike_hit", "/trial_spike_hit [<from ms> <to ms>] (dev: how long after firing the Trials of Ascendancy spike traps hit, up to 3000 ms, e.g. /trial_spike_hit 1000 1250)", async args =>
         {
             if (args.Length >= 2 && int.TryParse(args[0], out int from) && int.TryParse(args[1], out int to) && from >= 0 && to > from && to <= 3000)
@@ -1434,7 +1451,7 @@ static class CommandsFeature
             // Not awaited: a step waits for the client to arrive or to fail.
             _ = ContinueTour(remote, stream, ciphers, conn, starting: true);
         })
-        .Add("league_flag", "/league_flag [<id> [off]] (dev: list, set or clear league quest flags by the client's id, e.g. /league_flag 350)", async args =>
+        .Add("league_flag", "/league_flag [<id> [off]] (dev: list, set or clear league quest flags by the client's id, saved for the league, e.g. /league_flag 350)", async args =>
         {
             if (args.Length < 1 || !int.TryParse(args[0], out int flag))
             {
@@ -1442,9 +1459,7 @@ static class CommandsFeature
                 return;
             }
             bool off = args.Length > 1 && args[1].Equals("off", StringComparison.OrdinalIgnoreCase);
-            if (off) conn.LeagueQuestFlags.Remove(flag); else conn.LeagueQuestFlags.Add(flag);
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)),
-                $"0x02ba player league quest flags: {string.Join(", ", conn.LeagueQuestFlags.Order())}");
+            await SetLeagueQuestFlags(remote, stream, ciphers, conn, [flag], on: !off);
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"League quest flag {flag} {(off ? "cleared" : "set")}."), $"0x0017 chat line: league quest flag {flag}");
         })
         .Add("hideout_keys", "/hideout_keys <a> <b> (dev: the Player component's two Hideouts.dat keys, HASH16 hex or a hideout area id)", async args =>

@@ -428,8 +428,13 @@ The client counts a trial done (`0x141f69230`, for each of a Labyrinths row's `R
 **the row's quest flag** (column 7, a QuestFlags row: `NormalLabyrinthCompletedPrison` …
 `MapLabyrinthCompletedCatacombs`, rows 2564–2581, tested by `0x1400f42b0`) or **the league quest flag** of column 1
 (263–286; Player +0x1d0, bit id − 1, `0x14012aae0`).
-The real game shares trials across a league's characters; the league flags are how, but the Gateway does not save
-league quest flags yet, so a trial is the character's own quest flag.
+The real game shares trials across a league's characters; the league flags are how.
+The plaque sets both: the character's quest flag and the trial's league quest flag, which the Gateway saves with the
+account's stash of that league (`Game.SetLeagueQuestFlags`, [saves](../saves.md)), so every character of the account
+in the league has the trial done.
+`/trials [on|off] [1|2|3|4]` (dev) sets or clears both flags of one Labyrinth tier's trials (Labyrinths
+`RequiredTrials`: 1 Normal's six, 2 Cruel's three, 3 Merciless's three, 4 Eternal's six) or of all, and opens the
+Trial Plaque window.
 Columns 2 and 3 are not read.
 A Labyrinths row is unlocked by its own `QuestFlag` (`LabyrinthComplete1` …).
 
@@ -444,5 +449,4 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 - The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
 - The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
   the alternate arrow traps).
-- Saving league quest flags, so that trials are shared across a league's characters.
 - The Eternal trials' plaques drop an Offering to the Goddess.

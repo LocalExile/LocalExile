@@ -727,7 +727,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // set, so two at once could send an older set last.
     public readonly SemaphoreSlim QuestGate = new(1, 1);
 
-    /// <summary>The character's league quest flags (client ids, Quests.League); not saved: every character has the same.</summary>
+    /// <summary>The character's league quest flags (client ids, Quests.League): every character's, and at login those the
+    /// account saved in its league (AccountStash.LeagueQuestFlags, Game.SetLeagueQuestFlags).</summary>
     public HashSet<int> LeagueQuestFlags = [.. Quests.League.EveryCharacter, .. Program.Bench.UnlockFlags];
 
     /// <summary>The hideout doodads created in this area (the map device), by object id.</summary>

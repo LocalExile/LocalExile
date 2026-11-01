@@ -57,6 +57,8 @@ Live picker confirmation is pending; choosing/persisting another template remain
 04 §4.6; update bit 0x08, `PlayerLeagueQuestFlagsUpdate`). **The client tests bit id − 1** (`0x14155cdf0`, and the map
 device's Targetable at `0x141e65563`, which tested bit 349 for `UnlockedMapDevice` 350): `Quests.League.Bits`. Quest
 flags (QuestFlags rows) are tested by row, without the shift. `/league_flag [<id> [off]]` (dev) sets them by id.
+The ones a character sets (a trial's plaque, `/league_flag`) are saved with the account's stash of its league
+(`AccountStash.LeagueQuestFlags`) and given to every character of the account in that league at login.
 
 **How these were found:** a Frida hook on the flag-set test `0x14012aae0(set, bit)` logged each (caller, bit, result)
 while hovering the map device and opening the HUD; the failing tests named the missing flags. The Player component

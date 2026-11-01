@@ -199,7 +199,11 @@ static partial class QuestobjectsRules
                 break;
             case LabyrinthTrials.Plaque:
                 if (await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o))
+                {
+                    // The character's own flag, and the league's: the trial counts for every character of the league.
                     await SetQuestFlags(remote, stream, ciphers, conn, [trial.Flag]);
+                    await SetLeagueQuestFlags(remote, stream, ciphers, conn, [trial.LeagueFlag]);
+                }
                 List<KeyValuePair<uint, AreaPopulation.RoomObject>> portals;
                 lock (conn.Monsters) portals = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.Portal)];
                 foreach (var (id, portal) in portals)

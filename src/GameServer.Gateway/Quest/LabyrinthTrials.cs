@@ -821,6 +821,16 @@ static class LabyrinthTrials
     /// <summary>The trial in this area, or null.</summary>
     public static Trial? For(string areaId) => All.Value.GetValueOrDefault(areaId);
 
+    /// <summary>Every trial of the table (Normal, Cruel, Merciless and Eternal).</summary>
+    public static IReadOnlyCollection<Trial> Trials => All.Value.Values;
+
+    /// <summary>The Labyrinth tier that needs the trial (Labyrinths RequiredTrials): 1 Normal's six, 2 Cruel's three,
+    /// 3 Merciless's three, 4 Eternal's six (the map trials), by its quest flag (NormalLabyrinthCompleted…, Cruel…,
+    /// Merciless…, Map…).</summary>
+    public static int Tier(Trial trial) =>
+        trial.Flag.StartsWith("Normal", StringComparison.Ordinal) ? 1 : trial.Flag.StartsWith("Cruel", StringComparison.Ordinal) ? 2
+        : trial.Flag.StartsWith("Merciless", StringComparison.Ordinal) ? 3 : 4;
+
     static readonly Lazy<Dictionary<string, Trial>> All = new(() =>
     {
         try
