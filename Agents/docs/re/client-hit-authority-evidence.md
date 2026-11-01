@@ -74,6 +74,8 @@ It needs stable record ordinals and direction, the source/target entity mapping,
 one action announcement and matching feedback sequence/selector, and the player's
 pool-0 updates before/after that event, with enough surrounding traffic to expose
 other hits, regeneration and other resource changes.
+Include both directions in that window so a client report is not omitted by
+selecting only server-to-client messages; absence claims remain limited to that window.
 Preserve message bytes/unknown fields and relative timing; omit credentials and account identity.
 Such an excerpt may narrow attribution but must still be assessed against the
 actual application/scheduling consumers; adjacency alone is insufficient.
@@ -83,9 +85,9 @@ The pinned combat-signals audit already separates an action-associated result
 from an entity/pool-addressed absolute assignment.
 It establishes no action key linking the latter to the former; the shared header
 fields have scheduling consumers and cannot simply be renamed a damage-event ID.
-The next useful static deliverable is a compact responsibility/identity matrix
-assembled from those fixed audits, retaining mode-dependent guards.
-Keep that partial contract distinct from demonstrating a recorded event in Q0/Q2.
+The [responsibility/identity matrix](client-hit-authority-obligations.md) assembles
+those fixed audits and retains mode-dependent guards.
+It remains a partial contract, distinct from demonstrating a recorded event in Q0/Q2.
 Do not expand into formula discovery or port the historical sniffer as a substitute
 for the missing record.
 New collection, client attachment and game operation are outside this research authorization.

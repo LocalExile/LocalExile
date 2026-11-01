@@ -16,10 +16,15 @@ Do not catalogue every monster, damage formula or defence.
 
 This is active Draft research under issue #370 and PR #478.
 Q0 has a bounded evidence-availability audit; the single-hit witness and client
-mode remain unverified, so Q0 is Partial and Q1-Q3 remain Pending.
+mode remain unverified, so Q0 is Partial.
+Q1 has a static responsibility/identity matrix and Q2 a conditional-path diagram;
+both remain Partial until the selected event's mandatory edges are established.
+Q3 remains Pending.
 See the [evidence ledger](client-hit-authority-evidence.md) for the historical
 capture candidate, public sniffer investigation and exact remaining inputs.
 No new runtime observation, per-hit attribution or official server algorithm is claimed.
+The [static obligations](client-hit-authority-obligations.md) separate established
+consumer contracts from the missing per-event association and client contribution.
 
 ## Fixed inputs to reuse
 
@@ -63,8 +68,8 @@ Its unresolved consumers do not block or become the subject of this batch.
 | Gate | Deliverable and acceptance | Current state |
 |---|---|---|
 | Q0: evidence and witness | Freeze one scenario and client mode; inventory relevant records by exact revision/hash, availability and provenance; identify the smallest missing observation | Partial: sources inventoried; witness/mode open |
-| Q1: responsibilities and data | Bind required messages/fields, action/entity identity and receiver/state-write paths; distinguish prediction, report, feedback/control and resource authority | Pending |
-| Q2: minimal authority contract | One evidence-annotated sequence/state diagram and field/obligation table sufficient to describe the selected server interaction; establish mandatory associations and application conditions | Pending |
+| Q1: responsibilities and data | Bind required messages/fields, action/entity identity and receiver/state-write paths; distinguish prediction, report, feedback/control and resource authority | Partial: static matrix; selected witness/client contribution open |
+| Q2: minimal authority contract | One evidence-annotated sequence/state diagram and field/obligation table sufficient to describe the selected server interaction; establish mandatory associations and application conditions | Partial: independent paths diagrammed; mandatory event/resource association open |
 | Q3: delivery audit | Separate established obligations, inference and Known issues; preserve source identities and old findings, update related docs/#370, verify current main/exact head and appropriate checks before Ready | Pending |
 
 Q0 comes first. Use existing static and historical evidence before proposing
