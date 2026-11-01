@@ -84,5 +84,15 @@ public class InflictedAilmentTests
         Assert.Equal(50, Magnitude(Shock, Taken(lightning: 300), With()));   // floor(50 × 3^0.4) is 77
         Assert.Equal(77, Magnitude(Shock, Taken(lightning: 300),
             With(("unique_voltaxic_rift_shock_maximum_magnitude_override", 100))));
+
+        // "Chill/Shock Attackers for 4 seconds on Block" deals no damage: a 10% chill and a 15% shock through the effect
+        // modifiers, for 4 s through the duration modifiers.
+        static MonsterElementalAilments.Effect OnBlock(MonsterElementalAilments.Kind kind, Func<string, int> player) =>
+            new MonsterElementalAilments().WithoutDamage(kind, 4, now: 0, player, With())!;
+        Assert.Equal((10.0, 4.0), (OnBlock(Chill, With()).Magnitude, OnBlock(Chill, With()).Until));
+        Assert.Equal(15, OnBlock(Chill, With(("virtual_chill_effect_+%", 50))).Magnitude);
+        Assert.Equal(6, OnBlock(Chill, With(("virtual_chill_duration_+%", 50))).Until);
+        Assert.Equal(15, OnBlock(Shock, With()).Magnitude);
+        Assert.Equal(50, OnBlock(Shock, With(("virtual_shock_effect_+%", 300))).Magnitude);   // 60% over the cap
     }
 }

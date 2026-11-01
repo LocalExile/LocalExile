@@ -183,6 +183,18 @@ sealed class MonsterElementalAilments
         Shattered = true;
     }
 
+    /// <summary>A chill or shock that deals no damage ("Chill Attackers for 4 seconds on Block"), for <paramref name="seconds"/>
+    /// through a hit's duration modifiers and immunity. A shock spreads by the player's area modifier <paramref name="area"/>.</summary>
+    public Effect? WithoutDamage(Kind kind, double seconds, double now, Func<string, int> attacker, Func<string, int> target,
+        double area = 1) =>
+        Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target))
+            { Spread = kind == Kind.Shock ? SpreadRadius(attacker, area) : 0 }, attacker, target);
+
+    // Chill and shock without damage: 10% and 15% base (wiki Chill and Shock) through the effect modifiers, up to the cap.
+    static double BaseWithoutDamage(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
+        Math.Min(kind == Kind.Chill ? ChillCap(attacker) : ShockCap(attacker),
+            Math.Floor((kind == Kind.Chill ? 10 : 15) * EffectModifier(kind, attacker, target)));
+
     /// <summary>A hit killed it while frozen and it shattered: its freeze is gone, but the kill was of a frozen enemy.</summary>
     public bool Shattered { get; private set; }
 
@@ -190,7 +202,7 @@ sealed class MonsterElementalAilments
     /// through the shock effect and duration modifiers (wiki Within the Tempest; the 15% of shocks without damage, wiki
     /// Shock), up to the shock cap. It spreads like any shock the player inflicts, by the player's area modifier <paramref name="area"/>.</summary>
     public Effect? ShockOnKill(double now, Func<string, int> attacker, Func<string, int> target, double area = 1) =>
-        Apply(new(Kind.Shock, now, now + 2, Math.Min(ShockCap(attacker), Math.Floor(15 * EffectModifier(Kind.Shock, attacker, target))))
+        Apply(new(Kind.Shock, now, now + 2, BaseWithoutDamage(Kind.Shock, attacker, target))
             { Spread = SpreadRadius(attacker, area), OnKill = true }, attacker, target);
 
     // "Shock/Chill/Freeze Enemies as though dealing X% more Damage" (PoB CalcOffence: the ailment's damage times each

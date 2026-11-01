@@ -980,6 +980,7 @@ static partial class Game
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
             m.Ailments.Freeze(1, now, StatOf, name => m.Mods.Effects[name]);
+        if (blocked) AilmentsOnBlockLocked(m, StatOf, now);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
         bool spirit = m.Rarity == MonsterRarity.Unique

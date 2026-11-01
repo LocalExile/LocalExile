@@ -27,6 +27,19 @@ static partial class Game
             m.Ailments.ShockOnKill(now, Get, name => m.Mods.Effects[name], AilmentArea(Get, _ => 0, spell: false));
     }
 
+    /// <summary>"X% chance to Chill/Shock Attackers for 4 seconds on Block": a monster hit the player blocks may chill or
+    /// shock its monster without damage (MonsterElementalAilments.WithoutDamage), each on its own roll of Random.Shared so
+    /// the incoming hit's draws stay in order. The shock spreads by the player's area modifier, as Within the Tempest's.
+    /// </summary>
+    internal static void AilmentsOnBlockLocked(SpawnedMonster m, Func<string, int> player, double now)
+    {
+        int Target(string name) => m.Mods.Effects[name];
+        if (RandomRolls.Chance(player("chill_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
+            m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target);
+        if (RandomRolls.Chance(player("shock_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
+            m.Ailments.WithoutDamage(Kind.Shock, 4, now, player, Target, AilmentArea(player, _ => 0, spell: false));
+    }
+
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
     /// skill_area_of_effect_+% (which holds the player's base form, so that is left out, as AreaPlayerStats does) and the
     /// skill's own stats.</summary>

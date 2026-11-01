@@ -1463,6 +1463,13 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   effects), never for an evaded one. The freeze is 1 s through the usual duration modifiers, threshold, minimum and
   immunity; whether duration modifiers apply to this fixed 1 s is not verified. It draws from `Random.Shared`, so the
   incoming hit's own draws keep their order.
+- **Chill or shock attackers on block.** `chill_attackers_for_4_seconds_on_block_%_chance` and
+  `shock_attackers_for_4_seconds_on_block_%_chance` (Replica Ungil's Gauche, Shaper and Crusader mods) roll once
+  each for a monster hit the player blocks (`AilmentsOnBlockLocked`, after Brine Bound's roll, from
+  `Random.Shared`). The ailment deals no damage, so it starts at the 10% chill or 15% shock base (wiki Chill and
+  Shock: sources that deal no damage) through the player's effect modifiers and the monster's own, at most the cap,
+  for 4 s through the usual duration modifiers and immunity; the shock spreads like any other the player inflicts.
+  Whether the 4 s takes duration modifiers is not verified.
 - **Shock on kill.** `enemy_shock_on_kill` (Within the Tempest) shocks a monster the player kills
   (`ShockOnKillLocked`: from `AilmentsOnHitLocked` after a killing hit's own ailments, and from Righteous Fire's burn):
   15% base (wiki Shock: shocks without damage) and 2 s, through the player's shock effect and duration modifiers and
