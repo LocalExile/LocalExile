@@ -25,7 +25,11 @@ static partial class Game
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
-            return [.. SkillsFor(conn).PlayerDefaults(player), .. GemSkills(conn, player, character, panelSources!)];
+            // A survivors run's own skills are Actor skills too: the client puts their gems on the skill bar.
+            var run = conn.Survivors is { } survivors && conn.SurvivorsCatalog is { } catalog
+                ? SurvivorsGrantedSkills(conn, survivors, catalog) : [];
+            return [.. SkillsFor(conn).PlayerDefaults(player),
+                .. GemSkills(conn, player, character, panelSources!), .. run];
         }
         finally { StatsScope.Value = outer; }
     }
@@ -677,18 +681,30 @@ static partial class Game
     internal static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         FillSkillBar(conn);
-        if (CharacterSaves.Load(CharacterName(conn))?.SkillBar is not { Count: > 0 } bar) return;
+        var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar;
+        // Without a saved bar the client keeps its own default, unless a run's skills need a place.
+        if (saved is not { Count: > 0 } bar && conn.Survivors is null) return;
         var ids = new ushort[InstanceProtocol.SkillBarSlots];
         var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
             .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
-        foreach (var (slot, entry) in bar)
-        {
-            if (slot < 0 || slot >= ids.Length) continue;
-            if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
-            else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
-        }
-        if (!bar.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
+        if (saved is { Count: > 0 })
+            foreach (var (slot, entry) in saved)
+            {
+                if (slot < 0 || slot >= ids.Length) continue;
+                if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
+                else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
+            }
+        if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
+        // A run's skills take the free slots from Q on (slots 0-2 are the mouse buttons in the client's own layout),
+        // and are not saved: they belong to the run, not to the character.
+        if (conn.Survivors is { } run && conn.SurvivorsCatalog is { } catalog)
+            foreach (var id in SurvivorsGrantedSkills(conn, run, catalog).Select(s => s.Id))
+            {
+                int free = Array.IndexOf(ids, (ushort)0, 3);
+                if (free < 3) break;
+                ids[free] = id;
+            }
         await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids),
             $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}");
     }
@@ -1084,7 +1100,9 @@ static partial class Game
         // bar first (FillSkillBar: the right mouse button, then Q W E R T …), so it goes out with the bar.
         FillSkillBar(conn);
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
-        if (added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
+        // A run's skills are not saved on the bar (SendSkillBar places them), so any change of them resends it.
+        if (conn.Survivors is not null
+            || added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
             await SendSkillBar(remote, stream, ciphers, conn);
         // The same recalculation may have changed which worn weapons qualify.
         await SendModelIfHandsChanged(remote, stream, ciphers, conn);

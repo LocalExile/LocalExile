@@ -735,6 +735,15 @@ static partial class Game
         damage = FortificationDamageTaken(conn, damage);
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
         if (blocked) { damage = 0; chaosDamage = 0; }
+        // A survivors run is fought by a character built for one attacker at a time: the mode cuts incoming monster
+        // hits to a quarter, so the horde's numbers are the pressure rather than a single volley (survivors-mode.md).
+        if (conn.Survivors is not null && damage > 0)
+        {
+            int full = damage;
+            damage = GameServer.Core.World.SurvivorsRules.IncomingDamage(damage,
+                conn.Survivors?.IncomingDamagePercent ?? GameServer.Core.World.SurvivorsRules.IncomingDamagePercent);
+            chaosDamage = (int)Math.Round((double)chaosDamage * damage / full);
+        }
         else m.HitPlayerAt = now;
         uint manaBefore = conn.PlayerMana;
         var onBlock = blocked ? BlockRecovery(conn, stats) : default;

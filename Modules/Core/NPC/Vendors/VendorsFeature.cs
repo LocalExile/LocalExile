@@ -10,6 +10,9 @@ static class VendorsFeature
     // creates a fresh inventory id, while a manager-1 update refreshes the original template in its shop cell.
     internal static async Task BuyFromShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceNpcs.Buy buy)
     {
+        // A survivors level-up window is the quest-reward window: its choice is picked with the same click.
+        if (conn.SurvivorsOffer is not null
+            && await Game.ChooseSurvivorsSkill(remote, stream, ciphers, conn, buy.ItemId)) return;
         if (conn.NpcRewardOffer is not null)
         {
             if (buy.InventoryId == PlayerInventories.InventoryId(PlayerInventories.MainInventory))
@@ -78,6 +81,8 @@ static class VendorsFeature
     // (ItemMoves.BuyToInventory). Without room or enough to pay, nothing happens.
     internal static async Task CtrlBuyFromShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceNpcs.CtrlBuy buy)
     {
+        if (conn.SurvivorsOffer is not null
+            && await Game.ChooseSurvivorsSkill(remote, stream, ciphers, conn, buy.ItemId)) return;
         if (conn.NpcRewardOffer is not null)
         {
             await ClaimNpcReward(remote, stream, ciphers, conn, buy.ItemId);

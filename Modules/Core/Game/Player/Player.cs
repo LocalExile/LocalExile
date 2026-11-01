@@ -478,9 +478,11 @@ static partial class Game
             if (conn.Layout.Waypoint is { } waypoint
                 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (waypoint.GridX, waypoint.GridY)) <= WaypointActivationRange)
                 await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
-            // Gold within the configured auto-loot radius is picked up without a click.
+            // Gold within the configured auto-loot radius is picked up without a click; a survivors run hides all loot.
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            foreach (var (id, gold) in conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold))
+            foreach (var (id, gold) in conn.Survivors is null
+                ? conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold)
+                : [])
             {
                 await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted");
                 lock (conn.Monsters)
