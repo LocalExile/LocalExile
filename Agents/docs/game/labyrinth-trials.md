@@ -218,11 +218,12 @@ screen, live 2026-10-31), a crooked U for one ground roomba and a run with a 90�
 their ends and back.
 
 **What it does** (live 2026-10-31, the original): damage for as long as the player is in it, with no buff shown and
-no knockback, and it does not block the way. No skill: BuffDefinitions `labyrinth_trap_bleed` (invisible,
-`base_physical_damage_%_of_maximum_life_taken_per_minute` and `…_of_maximum_energy_shield_…`) is the likely carrier,
-with no values in the client data. So a player within 10 cells of a roomba's centre takes 40% of maximum life plus
-25% of maximum energy shield a second (our numbers), physical, energy shield first. `/trial_roomba_damage <life %>
-<energy shield %> [<radius>]` (dev) changes them.
+no knockback, and it does not block the way. No skill: BuffDefinitions `roomba_damage` ("Death Rhoomba", invisible;
+the flying one's `flying_roomba_damage`) carries `base_physical_damage_%_of_maximum_life_taken_per_minute` and
+`…_of_maximum_energy_shield_…`, with no values in the client data (nor in the wiki or PoEDB). So a player within 10
+cells of a roomba's centre takes 20% of maximum life plus 12.5% of maximum energy shield a second (our numbers, fitted
+to the original's: a full Normal character dies in it in about 5 s, live 2026-11-01; 40% and 25% were twice too
+much), physical, energy shield first. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
 In the original the pools melt in it rather than drop in steps (live 2026-10-31). The Gateway deals the damage every
 50 ms and sends the pools with it; the client cannot melt them itself: its pool step (`0x141e6b320`) adds the pool's
 native recovery rate only when it is above 0, so a negative `energy_shield_recovery_per_minute` or

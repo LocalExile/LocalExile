@@ -36,11 +36,12 @@ static class LabyrinthTrials
     public static double RoombaRadius = 10;
 
     /// <summary>What a roomba deals while the player is in it (live 2026-10-31, the original: damage all the time, no
-    /// buff shown, no knockback): BuffDefinitions <c>labyrinth_trap_bleed</c> (invisible) takes
-    /// <c>base_physical_damage_%_of_maximum_life_taken_per_minute</c> and <c>…_of_maximum_energy_shield_…</c>, whose values
-    /// the client data lacks: these shares a second are ours, physical, energy shield first.
+    /// buff shown, no knockback): BuffDefinitions <c>roomba_damage</c> ("Death Rhoomba", invisible; the flying one's
+    /// <c>flying_roomba_damage</c>) takes <c>base_physical_damage_%_of_maximum_life_taken_per_minute</c> and
+    /// <c>…_of_maximum_energy_shield_…</c>, whose values the client data lacks: these shares a second are ours, physical,
+    /// energy shield first, fitted to the original's (live 2026-11-01: a full Normal character dies in it in about 5 s).
     /// <c>/trial_roomba_damage</c> (dev) changes them.</summary>
-    public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.40, 0.25);
+    public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.20, 0.125);
 
     /// <summary>A roomba's 0x2b9 blob: LabyrinthRoomba.ot reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement,
     /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement. Movement
