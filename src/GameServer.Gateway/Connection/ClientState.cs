@@ -133,6 +133,7 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // SwingGeneration identifies ordinary attack recovery so canceling it does not clear an emerge or boss stage.
     public int ActionGeneration;
     public int? SwingGeneration;
+    public double SwingOrderedAt;
     // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
     // seconds) with the taunted buff shown and the end it shows, his passives' enemy auras (BuffDefinitions row → buff
     // instance), and the increased damage taken they give (every type; fire, cold and lightning) that its hits read.

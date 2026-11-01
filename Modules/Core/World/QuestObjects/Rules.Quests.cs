@@ -21,6 +21,7 @@ static partial class QuestobjectsRules
                     await Send(remote,stream,ciphers,InstanceEntities.CreateObject(conn.TutorialChestId,InstanceEntities.ObjectTypeHash(chest.Type),
                         TutorialObjects.ChestBlob(chest,opened)), $"0x02b9 tutorial support chest at ({chest.X},{chest.Y}), opened={opened}");
                     await Send(remote,stream,ciphers,InstanceProtocol.EnterWakeZone(conn.TutorialChestId),null);
+                    await RegisterStationaryCollision(remote,stream,ciphers,conn,conn.TutorialChestId,chest.Type,chest.X,chest.Y,0);
                     if (opened) await DropTutorialGem(remote,stream,ciphers,conn,true,chest.X,chest.Y);
                     return;
                 }

@@ -32,6 +32,10 @@ static partial class Game
     /// <summary>The sequence of a monster's actions (0x1ab); the client's clip selector is seeded with it.</summary>
     internal const ushort MonsterActionSequence = 0xffff;
 
+    // How long after its order a melee swing can still turn out not to have begun on the client, and how far inside its
+    // reach a monster must be to swing at a walking player (37 cells a second over the order's way to the client).
+    const double SwingOrderSeconds = .15, MovingReachMargin = 2;
+
     // A projectile skill's release, from what the client itself plays: the clip of the variety's ACT pool for the skill's
     // animation key (MonsterMortar.Animation; the Spitter's SpellProjectile = attack1, attack2), chosen with the native
     // sequence-seeded selector, gives the contact keyframe's time, which the client stretches to the attack time, and its
@@ -305,6 +309,15 @@ static partial class Game
                     if (now < m.Walk.ArrivesAt) continue;
                     m.Fleeing = false;
                 }
+                // A swing that has only just been ordered: the client's monster has not begun it while the player is out of
+                // reach, it walks after the player until it can (07 §5), so the chase goes on and the swing is off.
+                if (m.Attack is { Ranged: false } ordered && m.SwingGeneration == m.ActionGeneration
+                    && now - m.SwingOrderedAt < SwingOrderSeconds && d > ordered.Range)
+                {
+                    m.BusyUntil = now;
+                    m.SwingGeneration = null;
+                    m.ActionGeneration++;
+                }
                 if (!m.Aggro || !MonsterAiCadence.Due(now, m.BusyUntil) || cadence.SwingPending(m)) continue;
                 // The player's fighting minions attack his enemies near them; with none they follow him.
                 if (conn.Minions.Fights(id) && m.Attack is { } ma && MinionTargetLocked(conn, id, m, (mx, my), (px, py), now) is { } target)
@@ -332,7 +345,8 @@ static partial class Game
                 // Attack cadence remains the attack's own duration; faster AI only reduces the delay after expiry.
                 // A pending echo/contact keeps its original generation instead of reserving repeated swings at the gate.
                 // A chill slows the swing by its action speed, as the native clip does.
-                if (m.Hostile && m.Attack is { } a && d <= a.Range)
+                // A walking player has already gone farther on the client: no swing right at the edge of the reach.
+                if (m.Hostile && m.Attack is { } a && d <= (a.Ranged || now >= conn.Walk.ArrivesAt ? a.Range : a.Range - MovingReachMargin))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
                     m.LastTarget = null;
@@ -614,6 +628,7 @@ static partial class Game
             var player = conn.Walk.Position(startedAt);
             m.BusyUntil = startedAt + seconds;
             m.SwingGeneration = action;
+            m.SwingOrderedAt = startedAt;
             return a.Ranged ? InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0x0408, targetObjectId: PlayerId)
                 : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0, PlayerId);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
