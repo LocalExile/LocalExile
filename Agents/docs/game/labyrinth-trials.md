@@ -83,6 +83,15 @@ Locked Door in the first group is not found.
 So the Gateway removes an opened Locked Door (0x2bb) 1.5 s after its opening, when the bars have lifted, and does not
 create it again in that instance.
 
+The trial's own door opened for walking in The Lower Prison, but in The Catacombs it kept its cells closed after 0x1c6
+(live 2026-10-31: a movement skill crossed). The unblock (`0x141e43b60`) merges the saved cells back into the walk grid
+(adding nibbles, clamped at 5) only while a flag of the object (owner +0x78 → +0x111) is clear; it is not known which
+objects set it. So the Gateway also removes an opened trial door 1.5 s after its opening and creates it again at once,
+open and unblocked (which stamps nothing).
+Where a door's line parts nothing on the server's walk map (the Catacombs: the arrival reached the plaque round some
+other way), the server closes the door's own walk Hull instead (`LabyrinthTrials.DoorHull`: `LabyrinthDoor.ao`
+±14 × ±6 cells), or the walk up to the closed door stopped on its far side, where the client could not be.
+
 ## The Bronze Monograph
 
 Each early trial's door has one (wiki: a "bronze monograph" at the entrance of each early trial).

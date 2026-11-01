@@ -375,16 +375,27 @@ static class LabyrinthTrials
     /// server's flew on).</summary>
     public const double ArrowTrapWalkHalf = 3.25, ArrowTrapProjectileHalf = 2.26;
 
-    /// <summary>The cells whose centres lie in a turret's square of this half size, turned by its angle.</summary>
-    public static IEnumerable<(int X, int Y)> ArrowTrapCells(int x, int y, float angle, double half)
+    /// <summary>The cells whose centres lie in an object's Hull rectangle of these half sizes (cells, its model's
+    /// walk_tri / proj_tri), turned by its angle.</summary>
+    public static IEnumerable<(int X, int Y)> HullCells(int x, int y, float angle, double halfX, double halfY)
     {
-        int reach = (int)Math.Ceiling(half * Math.Sqrt(2));
+        int reach = (int)Math.Ceiling(Math.Sqrt(halfX * halfX + halfY * halfY));
         double cos = Math.Cos(angle), sin = Math.Sin(angle);
         for (int dy = -reach; dy <= reach; dy++)
             for (int dx = -reach; dx <= reach; dx++)
-                if (Math.Abs(dx * cos + dy * sin) <= half && Math.Abs(-dx * sin + dy * cos) <= half)
+                if (Math.Abs(dx * cos + dy * sin) <= halfX && Math.Abs(-dx * sin + dy * cos) <= halfY)
                     yield return (x + dx, y + dy);
     }
+
+    /// <summary>A trial door's walk Hull, half sizes in cells (across the way, through it), by its room line's model:
+    /// <c>LabyrinthDoor.ao</c> (the trial's door) ±14 × ±6, <c>preview_labyrinthdoornofx.ao</c> (the Catacombs' Locked
+    /// Door) ±14 × ±3.6, <c>doorbar_prison.ao</c> ±2 × ±5.5.</summary>
+    public static (double X, double Y) DoorHull(string model) => Path.GetFileName(model).ToLowerInvariant() switch
+    {
+        "preview_labyrinthdoornofx.ao" => (14, 3.6),
+        "doorbar_prison.ao" => (2, 5.5),
+        _ => (14, 6),
+    };
 
     /// <summary>Where the darts leave the turret: its rig's <c>cast</c> contact (<c>StatueTurret/rig.amd</c>, 118.757 up).</summary>
     public static int ArrowLaunchHeight => new ContactPoint(0, 0, -118.757f).HeightSteps;

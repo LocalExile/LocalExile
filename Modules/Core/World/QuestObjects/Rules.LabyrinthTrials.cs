@@ -59,6 +59,14 @@ static partial class QuestobjectsRules
             var cells = conn.Layout.Walkable is { } walkable
                 ? QuestBarriers.Cells(walkable, conn.Layout.GridW, conn.Layout.GridH, (o.X, o.Y), o.Angle, from, guarded)
                 : [];
+            // Where the door's line parts nothing on the server's walk map (the Catacombs' trial, live 2026-10-31: it
+            // reached the plaque round some other way), its own Hull closes the way through it, or the walk to the door
+            // would stop on its far side, where the client cannot be.
+            if (cells.Count == 0 && conn.Layout.Walkable is { } walk)
+            {
+                var (halfX, halfY) = LabyrinthTrials.DoorHull(o.Model);
+                cells = [.. LabyrinthTrials.HullCells(o.X, o.Y, o.Angle, halfX, halfY).Where(c => walk(c.X, c.Y))];
+            }
             Console.WriteLine($"[gateway] {remote} trial door 0x{id:x}: {cells.Count} walkable cell(s) closed on the server between " +
                 $"({from.X}, {from.Y}) and {string.Join(", ", guarded)}" + (cells.Count == 0 ? "" : $", from {cells.Min()} to {cells.Max()}"));
             lock (conn.Monsters)
@@ -144,6 +152,7 @@ static partial class QuestobjectsRules
             conn.UpdateBarrier();
         }
         if (o.Type == LabyrinthTrials.Door) _ = RemoveOpenedDoor(remote, stream, ciphers, conn, id);
+        else _ = RecreateOpenedDoor(remote, stream, ciphers, conn, id, o);
         return true;
     }
 
@@ -157,6 +166,21 @@ static partial class QuestobjectsRules
         if (conn.Closed) return;
         lock (conn.Monsters) conn.TrialObjects.Remove(id);
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb opened trial door 0x{id:x} removed");
+    }
+
+    // Live (2026-10-31), the Catacombs trial's door kept its cells closed to the client's walking after 0x1c6, though The
+    // Lower Prison's opened: the unblock (0x141e43b60) writes back the cells it saved only while a flag of the object
+    // (+0x78 → +0x111) is clear, and which objects set it is not found. Its opening played, the door goes (0x2bb) and comes
+    // back open and unblocked, which stamps nothing.
+    static async Task RecreateOpenedDoor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        AreaPopulation.RoomObject o)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(DoorOpeningSeconds));
+        if (conn.Closed) return;
+        await Send(remote, stream, ciphers, [.. InstanceProtocol.RemoveObject(id),
+            .. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
+                LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, LabyrinthTrials.Open)),
+            .. InstanceProtocol.EnterWakeZone(id)], $"0x02bb/0x02b9 opened trial door 0x{id:x} created again open");
     }
 
     // How long a Locked Door's opening plays before it goes (our own number: the animation's length is not read).
@@ -424,8 +448,8 @@ static partial class QuestobjectsRules
             // Its Hull, as the client stamps it: a wall to the darts and to the player's walk estimate.
             lock (conn.Monsters)
             {
-                conn.ProjectileWalls.UnionWith(LabyrinthTrials.ArrowTrapCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapProjectileHalf));
-                conn.DoorBarriers[id] = LabyrinthTrials.ArrowTrapCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapWalkHalf).ToHashSet();
+                conn.ProjectileWalls.UnionWith(LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapProjectileHalf, LabyrinthTrials.ArrowTrapProjectileHalf));
+                conn.DoorBarriers[id] = LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapWalkHalf, LabyrinthTrials.ArrowTrapWalkHalf).ToHashSet();
                 conn.UpdateBarrier();
             }
         }
