@@ -43094,7 +43094,8 @@
       "sourceBatches": [
         "r14-buff-initial-values-final",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r75-mod-derived-primary-buff-descriptors"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -57601,7 +57602,8 @@
       "sourceBatches": [
         "r1-active-context",
         "r12-applydamage-index-final",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r75-mod-derived-primary-buff-descriptors"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -73566,7 +73568,8 @@
         "r34-buff-clock-authority",
         "r49-buff-replacement",
         "r50-wire-source-composition",
-        "r69-native-source-add"
+        "r69-native-source-add",
+        "r75-mod-derived-primary-buff-descriptors"
       ],
       "selectedDecompilationCompleted": false
     },
@@ -75444,6 +75447,155 @@
         "r74-addbuff-visual-dependency-receiver"
       ],
       "selectedDecompilationCompleted": null
+    },
+    "0x1421ff8f0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1421ff8f0",
+          "endExclusive": "0x142201042",
+          "bytes": 5970,
+          "fileOffset": 35646704,
+          "sha256": "907f5c6a35a5dd9cf00cb603acbdb5da46ac9c132d32990b44aaba36e0988161"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1421ff3c0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1421ff3c0",
+          "endExclusive": "0x1421ff8eb",
+          "bytes": 1323,
+          "fileOffset": 35645376,
+          "sha256": "aba279fca435e06a130704cced76499a16776bafa1df6724153d0a92e2dbaab9"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424305a0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424305a0",
+          "endExclusive": "0x142430682",
+          "bytes": 226,
+          "fileOffset": 37943712,
+          "sha256": "cd3d116649480b6f275ec7f085d85d2846353f9f4930676446a3a03707810fd5"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x142430710": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x142430710",
+          "endExclusive": "0x142430860",
+          "bytes": 336,
+          "fileOffset": 37944080,
+          "sha256": "8163eee4f6fe6d7b4c6119aed48870d487d57a492aa3bbc575dc15259b0e2aed"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x142207aa0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x142207aa0",
+          "endExclusive": "0x142207b11",
+          "bytes": 113,
+          "fileOffset": 35679904,
+          "sha256": "8edf7cdcfe9f1bf9237f4a002029cf07d7827ca5dbc6db5fbd6a636d227610bd"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x142427880": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x142427880",
+          "endExclusive": "0x1424278f0",
+          "bytes": 112,
+          "fileOffset": 37907584,
+          "sha256": "b6e65a94b12941abd9932103c5b1b65eed8029737d78183100ca61e587df27dc"
+        },
+        {
+          "start": "0x1424278f0",
+          "endExclusive": "0x142427919",
+          "bytes": 41,
+          "fileOffset": 37907696,
+          "sha256": "aef4b79d7946e1e2f25f31ec6561e234e4eef4b128b89b55530e01f370c95cf7"
+        },
+        {
+          "start": "0x142427919",
+          "endExclusive": "0x142427948",
+          "bytes": 47,
+          "fileOffset": 37907737,
+          "sha256": "00d3abc98ac8da2f3331486ebe1d71446978ca7918570be3f1ec69da282b644f"
+        },
+        {
+          "start": "0x142427948",
+          "endExclusive": "0x14242795e",
+          "bytes": 22,
+          "fileOffset": 37907784,
+          "sha256": "ca04f52890a9d9e7cd2fcae06e2463c1c4397a9fc3c4b30bc5d600c2d6a25e05"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424ab580": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424ab580",
+          "endExclusive": "0x1424ab6fc",
+          "bytes": 380,
+          "fileOffset": 38447488,
+          "sha256": "c3b8febc77e7b998e0353c8aa9c90183886c3442dbb3e56d47310ee1c3050d24"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424e13b0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424e13b0",
+          "endExclusive": "0x1424e18a5",
+          "bytes": 1269,
+          "fileOffset": 38668208,
+          "sha256": "9654c96e10426e9a60c6cd39acb9bf5165373956c07e895a122ae1be0f7ecbd9"
+        }
+      ],
+      "sourceBatches": [
+        "r75-mod-derived-primary-buff-descriptors"
+      ],
+      "selectedDecompilationCompleted": null
     }
   },
   "batches": [
@@ -76870,6 +77022,11 @@
     {
       "name": "r74-addbuff-visual-dependency-receiver",
       "auditSha256": "77eaffec4a18339aa504f2bb7dc9b4dc967c948e6abaad5a8dd319587293e31d",
+      "functionCount": 11
+    },
+    {
+      "name": "r75-mod-derived-primary-buff-descriptors",
+      "auditSha256": "88af931a3099c7558221e119711dd1aea8f74a58ec1f370b0557cb6f8ba33aab",
       "functionCount": 11
     }
   ],
@@ -79388,15 +79545,15 @@
     }
   ],
   "verification": {
-    "entryCount": 4105,
-    "originalByteRangeCount": 5132,
+    "entryCount": 4113,
+    "originalByteRangeCount": 5143,
     "historicalBoundedThunkEntries": 4,
     "pointerSlotCount": 309,
     "selectedDecompilationRecords": 877,
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R74: 11 functions / 13 ranges / 955 linear records, 39 anchors, 5 RIP bindings, 7 original pointer values, 118 bounded references in 78 owners, 3 installation controls / 306 interpreted original instructions. Four actual visual rows provide 1/1/1/2 EPK references to the existing R15 collector. Prior 4099 identities / 5126 ranges / 302 slots / 1250 supports and 308 sealed snapshot records rechecked. Selected original-default/inline installation and resource dependency collector, not live callable state, later replacement exclusion, package/render internals or whole-client numerical absence. Actual DoT instance/target publication/shared cap/withdrawal, accepted numerical Hit and generic existing-Buff refresh remain open; original R2/R3/R4 Partial."
+    "additionalFreshValidation": "R75: 11 original function identities / 17 ranges / 2544 linear records, 40 semantic anchors, 8 switch entries; 32 original-instruction/scalar controls / 17270 instructions / 546 visited sites. Thirteen table identities and ten applicable direct-reference schemas bind seven actual Mod/template links. Prior 1260 public supports and 329 sealed snapshot file records rechecked. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
   },
   "supportingRecords": [
     {
@@ -86913,6 +87070,102 @@
       "bytes": 1171,
       "sha256": "99a7ab62f58f615a22109c2684c5997c49500d8c5d01370bef2816d333dbf6d9",
       "role": "R74 installed AddBuff BuffVisuals dependency receiver. Selected original-default/inline installation and resource dependency collector, not live callable state, later replacement exclusion, package/render internals or whole-client numerical absence. Actual DoT instance/target publication/shared cap/withdrawal, accepted numerical Hit and generic existing-Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-fresh-verify.py",
+      "bytes": 5150,
+      "sha256": "f6017c8f7c5127e50133f3ee25cfdcf4b6584000c2b232aa1d35898b056482bf",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-mod-builder-bind.py",
+      "bytes": 1404,
+      "sha256": "acbf37b45455cdad9818769d924c7c75b7951b99b3889c50a355f8e65870f127",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-mod-builder-controls.py",
+      "bytes": 9587,
+      "sha256": "0d57ca8683dbc360cc828fa909ce5b5bba918dc08c09cad837ffcf9afea44d53",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-parent-consumers.py",
+      "bytes": 1642,
+      "sha256": "f5b6d47fa260c1faf7bb70ed1ca4ab261d30f1fcc017c3d99cf8c4353cca3683",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-publish-prepare.py",
+      "bytes": 5034,
+      "sha256": "69509e33dadffdce301c4184c9de2b865f9b073c00dbe2e2feb113f76a1ed51e",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-field-navigation.py",
+      "bytes": 1892,
+      "sha256": "600a9c8addd79e5c8506584663f83af6d4215f327b6de2e1c452ee11324fa472",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parent-navigation.py",
+      "bytes": 4773,
+      "sha256": "414b1c5ceaba2b0d902ce257415de75049d36f17b5d4bee00aa28c3b9c6a5a56",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/builder-bindings.json",
+      "bytes": 342985,
+      "sha256": "88af931a3099c7558221e119711dd1aea8f74a58ec1f370b0557cb6f8ba33aab",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/builder-controls.json",
+      "bytes": 320026,
+      "sha256": "3a2d760567f7e4b6cf9f68df17edbec2cad58d1bf168ee6cc89bab04fbf35e8f",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/consumers.json",
+      "bytes": 2797464,
+      "sha256": "7ddd1c67f2808817fae2354567b0ca0442efa036fc0ac48cc68f2e333b1f79b3",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/data.json",
+      "bytes": 54614,
+      "sha256": "84fe50c1907f8d864cc897c00d9fcdcc1e7932849801ead408483206f8cc771e",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/field-navigation.json",
+      "bytes": 1767422,
+      "sha256": "bae2f5b5c425109857d43338fde277d8e2b706022c9dba3344372b5045a43e56",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/findings.md",
+      "bytes": 8377,
+      "sha256": "140bdff4af7fa5d71092aca59e5d24ecb975e17b1dce1151ab7cbf6c8bfae005",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/navigation.json",
+      "bytes": 239522,
+      "sha256": "115e7e5221d5fa03706259f019430f44ff1e6040e5a3247a5a62be629d0e15eb",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/publication.json",
+      "bytes": 1008,
+      "sha256": "ef538688eafe790557c8afaeb5d2b641d5d89c82145f33a41b19907513262e96",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r75-template-parents/verification.json",
+      "bytes": 2815,
+      "sha256": "aacdefedaf12e3755fc80bd4ddd89b9147a841c42757193c85a289b6468ebcb0",
+      "role": "R75 Mod-derived primary-template descriptor. Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
     }
   ],
   "auxiliaryDataTables": [
@@ -87000,6 +87253,56 @@
       "path": "data/tables/BuffVisuals.json",
       "sha256": "1cc6931afd5d67656e5aa98aeff8bc3b47e25be83714d70d0a6e74f9bee1d1f1",
       "rows": 2468
+    },
+    {
+      "path": "data/tables/Shrines.json",
+      "sha256": "ac2ea6e8915c9b22654b981c5b80270d7300b793ef3a07c644d74ba315f7670c",
+      "rows": 68
+    },
+    {
+      "path": "data/tables/BeyondFactions.json",
+      "sha256": "eb53b8d0660a2410924a127665b33d5ea3994f32ba21c0220c6a466acb7a8214",
+      "rows": 3
+    },
+    {
+      "path": "data/tables/UltimatumModifiers.json",
+      "sha256": "a12cd00da46e18ca2cc38781a3d5ba44ef704b9ac4302b2db892832a8d2f135b",
+      "rows": 99
+    },
+    {
+      "path": "data/tables/SentinelTaggedMonsterStats.json",
+      "sha256": "1ef20919f628cce1371d5ccf449f809cba1f1b0c9d1f6e5714f55479eecfcbb2",
+      "rows": 38
+    },
+    {
+      "path": "data/tables/AncestralEmbraceVariations.json",
+      "sha256": "a5a045a7c2ad86e0e4a955cabe60923f79f4e0eabda23ea3ce51bf88559936df",
+      "rows": 10
+    },
+    {
+      "path": "data/tables/DivinationBuffTemplates.json",
+      "sha256": "b39fb5a1e5bc2f67739ed284e218498feaf0eb5cc9f35c9a5dd65d5164076fdd",
+      "rows": 40
+    },
+    {
+      "path": "data/tables/ExplodingStormBuffs.json",
+      "sha256": "dcd2f1fdcb4cf919da9301d119f4bd5068f5c1cf0b07020bb491299127a2f40c",
+      "rows": 53
+    },
+    {
+      "path": "data/tables/Mods.json",
+      "sha256": "b7efb3d3e38b678bbdf256fd924d2fe7cb5805784574e3438c46a3012fb09ec1",
+      "rows": 40355
+    },
+    {
+      "path": "data/tables/PassiveSkills.json",
+      "sha256": "d8599198c58a9de827b3f366a61080ca5ac5d97763dc306c097fc6e5e214eea1",
+      "rows": 5706
+    },
+    {
+      "path": "data/tables/PlayerBuffsFromMapStats.json",
+      "sha256": "d05793551381fa9dd47032ac56e5ff8bbd43e48d26375ee449051456777c4a97",
+      "rows": 8
     }
   ],
   "comparisonSources": [
@@ -88052,5 +88355,10 @@
       "adaptation": "Register aliases, allowed move/destructor targets, first-block entry and next-block stop; original instruction bodies unchanged."
     },
     "limitation": "Selected original-default/inline installation and resource dependency collector, not live callable state, later replacement exclusion, package/render internals or whole-client numerical absence. Actual DoT instance/target publication/shared cap/withdrawal, accepted numerical Hit and generic existing-Buff refresh remain open; original R2/R3/R4 Partial."
+  },
+  "modBuffDescriptorVerification": {
+    "path": "Tools/re/out/client-damage-audit/r75-template-parents/verification.json",
+    "sha256": "aacdefedaf12e3755fc80bd4ddd89b9147a841c42757193c85a289b6468ebcb0",
+    "limitation": "Selected original primary-template descriptor preparation with supplied packed rows/values and reserved-capacity support fixtures; not an applied gameplay Buff, actor Stats, target numerical publication, source selection/shared cap/withdrawal or gameplay snapshot timing. Secondary-template/later special handling excluded. Original R2/R3/R4 remain Partial."
   }
 }

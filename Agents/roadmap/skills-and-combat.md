@@ -315,6 +315,10 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   investigate actual freshness separately from the two recovered undeclared reads. Do not restage the formulas.
   Outgoing RF parameters and 14408/8198/5981 formulas are bound separately from incoming base rates.
   Resolve source instances into base rates and actual publication eligibility.
+  Follow the numerical consumer of [Mod-derived Buff descriptors](../docs/re/client-mod-buff-descriptors.md):
+  primary-template default copy, key-matched overwrite and ordinary-aggregate separation are established.
+  Bind an actual recipient/application/removal relationship; do not restage the builder or treat its
+  descriptor as an applied Buff, actor Stats, or proof of gameplay snapshot timing.
   Reuse [AddBuffToTarget's recovered sparse variety index](../docs/re/client-addbuff-varieties.md);
   its four incoming-rate declarations and optional-backend misses are not actual target contribution writes.
   Its [selected BuffVisuals receiver](../docs/re/client-addbuff-visual-dependencies.md) now closes as dependency

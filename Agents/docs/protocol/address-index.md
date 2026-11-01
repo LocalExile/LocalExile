@@ -667,6 +667,7 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x141973a60` / `0x141989800` | Fn | AddBuffToTarget registration / metadata callback: native 6433 selects variety by sparse __col5 key ([binding](../re/client-addbuff-varieties.md)); actual target-rate publication remains open |
 | `0x14239a230` / `0x14239a6e0` | Fn | AddBuffToTargetVarieties loader / record fixup: 0x5c stride and row+0x44 index key; table declaration is not a DoT contribution |
 | `0x141e517a0` | Fn | Selected variety row to BuffVisuals dependency callback and strict Id2 backend-callback route; four incoming-rate rows miss the audited backend startup catalogue |
+| `0x1421ff8f0` / `0x1424305a0` | Fn | Mod primary-template Buff descriptor preparation / first matching StatsKey slot; defaults overwritten separately from ordinary aggregate ([audit](../re/client-mod-buff-descriptors.md)); actual recipient/application remains open |
 | `0x141599a80` | Fn | Selected global 0x144499878 callable receiver: traverse BuffVisuals EPK/resource references into retained-handle output ([binding](../re/client-addbuff-visual-dependencies.md)); not recovered DoT publication |
 | `0x1415baea0` / `0x1415bae90` | Leaf | Actual call/table-anchored BuffVisuals callable copy/move / invocation tail thunk to 0x141599a80; selected installation uses table 0x14345e928 |
 | `0x141e4f370` | Fn | Resolve a configured resource reference and append its retained handle to the dependency vector |

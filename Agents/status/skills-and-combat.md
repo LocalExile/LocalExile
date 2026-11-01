@@ -1309,6 +1309,10 @@ and can require explicit recipes.
   Code: `HitResistances.cs`, `HitMitigation.cs`, Gateway (`MonsterDamage`).
   Docs: [20](../docs/protocol/20-damage.md) §4.
 - **Client damage research (static, partial).** The client integrates per-minute continuous resource rates.
+  [Mod-derived Buff descriptors](../docs/re/client-mod-buff-descriptors.md) now connect seven actual rate-bearing
+  templates to original numerical preparation: defaults are copied, matching Mod values overwrite descriptor
+  slots, and unmatched values enter a separate ordinary aggregate. Thirty-two supplied-state controls pass;
+  the prepared descriptor is not yet an applied gameplay Buff or target-rate publisher.
   [AddBuffToTarget variety selection](../docs/re/client-addbuff-varieties.md) binds its registered callback to
   83 packed rows indexed by the sparse `__col5` key, rather than row ordinal. Four rows declare incoming rates;
   their optional backend keys miss the audited startup catalogue. Actual target-rate publication remains open.
