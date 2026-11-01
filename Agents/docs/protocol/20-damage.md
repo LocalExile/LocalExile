@@ -1483,27 +1483,33 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   damage over time (Righteous Fire) never shatters. The client's shatter visual is not sent, because the packet that
   starts it is not known, so the client still shows the corpse; on-death effects that shatter would stop are not
   modelled either.
-- **Shock proliferation.** A shock takes the attacker's `virtual_shock_proliferation_radius` when it lands, as the
-  client's calculator `0x142828340` builds it: the largest of `gloves_shock_proliferation_radius`,
-  `virtual_elemental_status_effect_aura_radius` (the larger of `elemental_status_effect_aura_radius` and
-  `elementalist_...`, `0x142828e10`), `unique_vinktars_flask_shock_proliferation_radius`,
+- **Proliferation.** A chill, freeze or shock takes the attacker's `virtual_{kind}_proliferation_radius` when it
+  lands, as the client's calculators build them (`ProliferationRadius`), each the largest of its sources. Shock
+  (`0x142828340`): `gloves_shock_proliferation_radius`, `virtual_elemental_status_effect_aura_radius` (the larger of
+  `elemental_status_effect_aura_radius` and `elementalist_...`, `0x142828e10`),
+  `unique_vinktars_flask_shock_proliferation_radius`,
   `ascendancy_non_damaging_elemental_ailment_proliferation_radius` and `passive_mastery_shock_proliferation_radius`,
-  and 15 with `shock_proliferation_radius_is_at_least_15`. Nothing else in the client reads the radius. The calculator
-  scales none of them by area of effect; the server grows the radius by the area modifier like a skill's area
-  (`SpreadRadius`: × the square root of `SkillArea.Modifier`, truncated to two places), because the wiki's
-  Elemental proliferation page says modifiers to area of effect affect proliferation. A hit's shock uses the hitting
-  skill's area stats over the player's, a kill's shock the player's own. Whether the game scales Within the Tempest's
-  fixed 1.5 m this way is not verified beyond that general rule.
-  Each AI tick (`ProliferateShocksLocked`), every living hostile monster has, at the same effect until it ends, the
-  strongest shock whose own radius (cells) reaches it from the monster it is on, a corpse included: each spreading
-  shock is an aura of its own (wiki Elemental proliferation), so a weaker shock with a wider radius still reaches the
-  monsters beyond a stronger one's. The copy does not spread again, does not count as inflicting, and goes as soon as
-  the monster is out of range or the source shock ends. The receiving monster's immunity counts; its own
-  `shocked_effect_on_self_+%` does not change the copy (not verified). Chill, freeze and ignite proliferation are not
-  modelled, nor a reflected shock spreading from the player. A shattered monster spreads nothing.
+  and 15 with `shock_proliferation_radius_is_at_least_15`. Freeze (`0x142828810`): the elemental aura radius, 12 with
+  `spread_freeze_to_nearby_enemies`, `gloves_freeze_proliferation_radius` (19 mods), the ascendancy's and
+  `amulet_freeze_proliferation_radius`. Chill (`0x142828c00`): the elemental aura radius and the ascendancy's.
+  Nothing else in the client reads the three radii. The calculators scale none of them by area of effect; the server
+  grows the radius by the area modifier like a skill's area (`SpreadRadius`: × the square root of
+  `SkillArea.Modifier`, truncated to two places), because the wiki's Elemental proliferation page says modifiers to
+  area of effect affect proliferation. A hit's ailments use the hitting skill's area stats over the player's; a
+  kill's shock, a block's chill or shock and Brine Bound's freeze use the player's own. Whether the game scales
+  Within the Tempest's fixed 1.5 m this way is not verified beyond that general rule. Each AI tick
+  (`ProliferateLocked`), every living hostile monster has, for each kind, at the same effect until it ends, the
+  strongest one (of equal freezes, the longest) whose own radius (cells) reaches it from the monster it is on, a
+  corpse included: each spreading ailment is an aura of its own (wiki Elemental proliferation), so a weaker one with
+  a wider radius still reaches the monsters beyond a stronger one's. The copy does not spread again, does not count
+  as inflicting, and goes as soon as the monster is out of range or the source ends. The receiving monster's immunity
+  to the kind counts; its own `shocked_effect_on_self_+%` or `chill_effectiveness_on_self_+%` does not change the
+  copy (not verified). A spread chill keeps Glacial Wave's effects, as the wiki says effects built into an ailment
+  spread with it (not verified for Glacial Wave). Ignite proliferation is not modelled, nor a reflected ailment
+  spreading from the player. A shattered monster spreads nothing.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
-effects but sends nothing, and shocks do not spread. A kind is re-sent only when its strongest magnitude changes: S→C
+effects but sends nothing, and nothing spreads. A kind is re-sent only when its strongest magnitude changes: S→C
 0x1c2 for the old buff, then 0x1c1 with BuffDefinitions 1 chilled, 2 frozen or 3 shocked (BuffVisuals 3, 4, 5), the
 player as source. Chill and shock have no duration; freeze carries its remaining time (flag 0x02, f32 +0x68), because
 without a duration or a value the client draws no icon under the monster's life bar (live 2026-10-30). Each kind always uses the same instance on its monster, 0xfffd, 0xfffe or 0xffff

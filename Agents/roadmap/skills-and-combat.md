@@ -448,8 +448,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   and find what 0x1c1's +0x82 u16 does.
   The shatter visual (the server ends a shattered monster's ailments and spreads nothing from it; the packet that
   removes the corpse is not known), unique/boss
-  thresholds and the monster variety's own immunities remain open, as do chill, freeze and ignite proliferation and a
-  native check of the shock proliferation radius's area scaling.
+  thresholds and the monster variety's own immunities remain open, as do ignite proliferation and a native check of
+  the proliferation radius's area scaling.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
 - Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.
   Finish dedicated native buff icons and source/threshold/conditional-immunity parity before claiming a general ailment engine.

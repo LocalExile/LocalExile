@@ -95,4 +95,39 @@ public class InflictedAilmentTests
         Assert.Equal(15, OnBlock(Shock, With()).Magnitude);
         Assert.Equal(50, OnBlock(Shock, With(("virtual_shock_effect_+%", 300))).Magnitude);   // 60% over the cap
     }
+
+    // The client builds each kind's proliferation radius from its own sources: Elemental Proliferation's counts for all
+    // three, the gloves' freeze one for freeze only. Each AI tick a monster within a source's radius has its copy, which
+    // does not spread again.
+    [Fact]
+    public void Chill_freeze_and_shock_spread_by_their_own_proliferation_radius()
+    {
+        static int Radius(MonsterElementalAilments.Kind kind, Func<string, int> player) =>
+            MonsterElementalAilments.ProliferationRadius(kind, player);
+        var spreading = With(("elemental_status_effect_aura_radius", 15), ("gloves_freeze_proliferation_radius", 20));
+        Assert.Equal((15, 20, 15), (Radius(Chill, spreading), Radius(Freeze, spreading), Radius(Shock, spreading)));
+        Assert.Equal(0, Radius(Chill, With(("gloves_freeze_proliferation_radius", 20))));
+        Assert.Equal(12, Radius(Freeze, With(("spread_freeze_to_nearby_enemies", 1))));
+        Assert.Equal(21, MonsterElementalAilments.SpreadRadius(Chill, spreading, area: 2));   // 15 × 1.41
+
+        var conn = new ClientState(new(1, "spread", 300, 300, 100, 100, null, []), 1, 1);
+        // Speed 1, as NewMonsterWalk's floor: a chill re-times the walk.
+        SpawnedMonster At(int x, params (string, int)[] stats) => new($"at {x}", new(x, 100, 1), 0, 0, 100)
+            { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };
+        var (source, near, mid, far, immune) = (At(100), At(112), At(118), At(125), At(105, ("immune_to_chill", 1)));
+        uint id = 0;
+        foreach (var m in new[] { source, near, mid, far, immune }) conn.Monsters[++id] = m;
+        // A 10% cold critical strike: a 19% chill and a 0.6 s freeze.
+        source.Ailments.Inflict(Taken(cold: 10), critical: true, threshold: 100, now: 0, spreading, With(),
+            new Random(1));
+        Game.MonsterAilmentChangesLocked(conn, now: .1);
+        Assert.Equal((19.0, 100.0), (near.Ailments.Magnitude(Chill, .1), near.Ailments.Magnitude(Freeze, .1)));
+        Assert.Equal((0.0, 100.0), (mid.Ailments.Magnitude(Chill, .1), mid.Ailments.Magnitude(Freeze, .1)));
+        Assert.Equal((0.0, 0.0), (far.Ailments.Magnitude(Chill, .1), far.Ailments.Magnitude(Freeze, .1)));
+        Assert.Equal((0.0, 100.0), (immune.Ailments.Magnitude(Chill, .1), immune.Ailments.Magnitude(Freeze, .1)));
+        Assert.Empty(near.Ailments.Spreading(.1));
+        // The freeze copy ends with its source; the chill's lasts.
+        Game.MonsterAilmentChangesLocked(conn, now: .7);
+        Assert.Equal((19.0, 0.0), (near.Ailments.Magnitude(Chill, .7), near.Ailments.Magnitude(Freeze, .7)));
+    }
 }

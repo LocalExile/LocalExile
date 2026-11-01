@@ -29,15 +29,16 @@ static partial class Game
 
     /// <summary>"X% chance to Chill/Shock Attackers for 4 seconds on Block": a monster hit the player blocks may chill or
     /// shock its monster without damage (MonsterElementalAilments.WithoutDamage), each on its own roll of Random.Shared so
-    /// the incoming hit's draws stay in order. The shock spreads by the player's area modifier, as Within the Tempest's.
+    /// the incoming hit's draws stay in order. Each spreads by the player's area modifier, as Within the Tempest's shock.
     /// </summary>
     internal static void AilmentsOnBlockLocked(SpawnedMonster m, Func<string, int> player, double now)
     {
         int Target(string name) => m.Mods.Effects[name];
+        double area = AilmentArea(player, _ => 0, spell: false);
         if (RandomRolls.Chance(player("chill_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
-            m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target);
+            m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target, area);
         if (RandomRolls.Chance(player("shock_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
-            m.Ailments.WithoutDamage(Kind.Shock, 4, now, player, Target, AilmentArea(player, _ => 0, spell: false));
+            m.Ailments.WithoutDamage(Kind.Shock, 4, now, player, Target, area);
     }
 
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
@@ -46,20 +47,23 @@ static partial class Game
     static double AilmentArea(Func<string, int> player, Func<string, int> skill, bool spell) =>
         SkillArea.Modifier(name => (name == SkillArea.BaseIncreased ? 0 : player(name)) + skill(name), spell);
 
-    /// <summary>Shock proliferation, once per AI tick before the buffs are sent: every living hostile monster within a
-    /// spreading shock's own radius (cells, 10 to the metre) of the monster it is on, a corpse included, has the strongest
-    /// shock that reaches it until that ends (MonsterElementalAilments.Proliferated). Under the Monsters lock.</summary>
-    static void ProliferateShocksLocked(ClientState conn, double now)
+    /// <summary>Proliferation, once per AI tick before the buffs are sent: every living hostile monster within a
+    /// spreading chill's, freeze's or shock's own radius (cells, 10 to the metre) of the monster it is on, a corpse
+    /// included, has the strongest of each kind that reaches it until that ends (MonsterElementalAilments.Proliferated).
+    /// Under the Monsters lock.</summary>
+    static void ProliferateLocked(ClientState conn, double now)
     {
-        var sources = new List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Shock)>();
+        var sources = new List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Ailment)>();
         foreach (var m in conn.Monsters.Values)
-            foreach (var shock in m.Ailments.Spreading(now)) sources.Add((m, m.Walk.Position(now), shock));
+            foreach (var ailment in m.Ailments.Spreading(now)) sources.Add((m, m.Walk.Position(now), ailment));
         foreach (var m in conn.Monsters.Values)
         {
-            if (m.Dead || !m.Hostile || sources.Count == 0) { m.Ailments.Proliferated(null, _ => 0); continue; }
-            var at = m.Walk.Position(now);
-            m.Ailments.Proliferated(sources.Where(s => !ReferenceEquals(s.M, m) && Dist(s.At, at) <= s.Shock.Spread)
-                .Select(s => s.Shock).MaxBy(s => s.Magnitude), name => m.Mods.Effects[name]);
+            bool reached = sources.Count > 0 && !m.Dead && m.Hostile;
+            var at = reached ? m.Walk.Position(now) : default;
+            for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
+                m.Ailments.Proliferated(kind, reached ? sources.Where(s => s.Ailment.Kind == kind && !ReferenceEquals(s.M, m)
+                    && Dist(s.At, at) <= s.Ailment.Spread).Select(s => s.Ailment).MaxBy(s => (s.Magnitude, s.Until)) : null,
+                    name => m.Mods.Effects[name]);
         }
     }
 
@@ -135,7 +139,7 @@ static partial class Game
     }
 
     /// <summary>
-    /// What changed on the monsters' ailments since the last AI tick, spread shocks included, as packets: the chilled, frozen and shocked buffs
+    /// What changed on the monsters' ailments since the last AI tick, spread ones included, as packets: the chilled, frozen and shocked buffs
     /// (BuffDefinitions 1, 2, 3, which draw BuffVisuals 3, 4, 5) and the virtual_action_speed_+% the native walk
     /// (0x141e7c0b0) and action clips read, which network stats do not derive (04 §4.1a). A chill re-times the server's
     /// walk by the same factor, so both walk the monster alike. A freeze is not sent there (−100 would divide the native
@@ -143,7 +147,7 @@ static partial class Game
     /// </summary>
     internal static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now)
     {
-        ProliferateShocksLocked(conn, now);
+        ProliferateLocked(conn, now);
         var packets = new List<(byte[], string)>();
         foreach (var (id, m) in conn.Monsters)
         {
