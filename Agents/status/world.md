@@ -107,8 +107,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Combined regressions cover silent channel updates, removed gems and projectile contacts before crowd movement.
   AI and correction passes share indexed body snapshots; surround reservations use spatial queries and cached rings.
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
-  Live against the real client (2026-11-01), 16 extra zombies at The Coast: the player's median error is 0 cells and its
-  worst under 6 in eight runs, and up to 25 monsters around the player match cell for cell.
   Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
   an attack follows its target to the swing; totems and the tutorial chest block paths.
   Melee hits land at the swing clip's contact keyframe.

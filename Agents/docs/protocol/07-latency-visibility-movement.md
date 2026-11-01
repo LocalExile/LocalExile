@@ -131,7 +131,7 @@ confirmation (`InstanceProtocol.ActionStarted`), so any smaller error stays unti
 The first version sent the target in the position pair: long clicks teleported the player, sometimes onto unwalkable
 cells past the town edge (toward The Coast), where the client could no longer path anywhere. The server therefore keeps
 its own copy of the player's walk, and since 2026-10-21 that copy is the client's own algorithm, ported 1:1
-(`ClientPathfinder`, `PlayerWalk`). The earlier fitted A* (`WalkEstimator`, used for monsters until 2026-11-01, still used for pets) drifted by a median
+(`ClientPathfinder`, `PlayerWalk`). The earlier fitted A* (`WalkEstimator`, now only for pets) drifted by a median
 13 cells and up to 50 on held-mouse walks: it walked zig-zag cell paths where the client walks straight lines, rounded
 to whole cells on every re-order, walked through NPCs and refused detours the client takes.
 
@@ -222,17 +222,16 @@ until it can swing. So the Gateway calls a swing off when the player is out of r
 walking player only from 2 cells inside the reach, since the client's player is already farther on.
 
 Each melee order has its own rising sequence with the top bit set, as GGG's do. The client picks the swing's clip by it,
-and the hit lands at that clip's contact keyframe (`monster-contacts.json`; 26 to 60 % of the attack in captures), not at
-half the attack.
+and the hit lands at that clip's contact keyframe (`monster-contacts.json`).
 
 **The player's own walk-up.** The client's action goes on until the target is in reach, paths again every 0.05 s for a
 player (0.25 s for a monster, `0x141e8eb60`), and needs no word from the server to swing. The Gateway follows it: it
-paths again every 100 ms, for up to 3 s (`FollowMonsterToSwing`), instead of giving up after one walk with no swing and
-no echo. Live: 158 attacks in a crowd, 158 swings, none out of reach.
+paths again every 100 ms, for up to 3 s (`FollowMonsterToSwing`). In reach means the walk-up's own goal: the distance less
+the target's size within the weapon's range.
 
 **Stun and freeze.** The client stops for a hit's recovery (0x1d1) and then goes on with its walk, so the server holds
-its walk for that long (`PlayerWalk.Pause`) instead of ending it (live: 30 cells apart when it ended it, 8 after). A
-click in the meantime starts when the recovery ends, and only the newest counts (`ReleaseHeldMove`). The client does not
+its walk for that long (`PlayerWalk.Pause`) instead of ending it. A held walker is not moving for anything that asks
+(`PlayerWalk.Moving`). A click in the meantime starts when the recovery ends, and only the newest counts (`ReleaseHeldMove`). The client does not
 stop for `is_frozen`, and `virtual_action_speed_+%` at -100 would divide its clips by zero, so a freeze plays a recovery
 of its own length (`ShowFreeze`).
 
@@ -243,12 +242,10 @@ stop at the first cell they cannot walk (no stat carries either number). The cli
 has landed (a Lightning Warp often), so a resync follows at the end of the action, and every other resync but a stun's
 waits for it: until then the server has the player landed and the client has it on its way. ActiveSkillType Movement also
 covers skills that leave the player where it stands when used (Mirror Arrow, Smoke Mine, Phase Run, Chain Hook, Withering
-Step, Ambush), and channelled ones, which report their own way: none of these moves the estimate. Leap Slam, Flame Dash, Lightning Warp,
-Whirling Blades and Dash were checked live; the player's p90 is under 3 cells after landing, with a brief spike while the
-client travels, since the server lands at once.
+Step, Ambush), and channelled ones, which report their own way: none of these moves the estimate (`Game.LandsAtAim`).
 
-**Ranged monsters** keep Move orders and `skill_is_non_pathing`. On the attack-aimed chase the client walks a Sand Spitter
-well inside its reach of 30 (median error 8 cells against 2 to 3), so its stand-off needs the server's slots.
+**Ranged monsters** keep Move orders and `skill_is_non_pathing`: on the attack-aimed chase the client walks a Sand Spitter
+well inside its reach of 30, so its stand-off needs the server's slots.
 
 **Pickups.** The client's walk to a ground item has max range 20 and tolerance 1 (traced live with real clicks), so it
 ends on the first cell within 21 of the item.
@@ -267,11 +264,10 @@ around monsters (hence monsters as blockers). Held-mouse walks drift by a few ce
 at 370 cells/s one 16 ms frame is ~6 cells): the client applies a click from its previous frame, the server when the
 0x25 arrives, so the timing differences add up while the button is held and vanish when a walk ends on its target. With
 the walk-up arguments, all 246 town paths of a third capture match, NPC, stash and waypoint walks included. Monsters
-walk on `PlayerWalk` too. `Approach` (a melee target, an item pickup, the map device) keeps a reach in cells; the
-client's arguments for those walks are not traced yet.
+walk on `PlayerWalk` too. `Approach` (a melee target, an item pickup, the map device) keeps a reach in cells.
 
 **Speed changes mid-walk.** The client restarts the segment in progress from its cell at the new pace at once
-(`PlayerWalk.SetSpeed`). Live, with the speed changing every 0.7 s: player p90 1.4 to 3.6 cells, from 2.2 to 9.1.
+(`PlayerWalk.SetSpeed`).
 
 **Passive movement speed.** The passives' `base_movement_velocity_+%` are summed into `CharacterStats.Pools` and the
 walk estimate uses `37 × (1 + pct / 100)` cells/s; the same total is sent as the client's `movement_velocity_+%`, so the
@@ -300,9 +296,8 @@ and with no other hit (0 of 79), listing the player and the monsters within 23.4
 **Once a second.** In a tight crowd a body's cell differs by one for a few milliseconds between client and server, which is
 enough to send a monster round the other side of the pack, and nothing tells the server. So the Gateway sends a 0x128
 every second for the player and the monsters within 171 cells (`KeepInSync`, the wake zone GGG keeps). It moves only what
-is 20 or more cells off, so it costs nothing when all is well. Live at real attack speed and with the mouse held, the
-monsters' p90 stays at 10 to 15 cells (20 to 33 without it), and the swings the client never starts fall from 30 % to
-under 20 %.
+is 20 or more cells off, so it costs nothing when all is well. An area with no walk map gets none: the estimates there go
+through walls.
 
 **The client asks for it.** Each commenced action other than Move adds one to a counter, each 0x1ac takes one off and
 5 s take one off; above 3 it sends C→S 0x16 command 8 (`InstanceItems.ForceResyncCommand`) and starts again. The
@@ -342,8 +337,7 @@ walker that started inside a body walks out of it. The 50 ms loop does the same 
 against the other bodies, and sends nothing; a chaser's next order paths it again. Nothing moves a monster or the player
 out of a monster: the client does not, and a server that did so walked its copy away from the client's (it used to send
 ActionEnded and Teleport, then to teleport only its estimate, and to walk the player out through a crowd that held the
-client). Live 2026-11-01, The Coast, 16 extra zombies, eight 20 s runs: the player's median error 0 cells, its worst 5.8
-(from a median of 3.4 and a worst of 22.8), the monsters' median 0, and up to 25 monsters around the player cell for cell.
+client).
 The client never snaps a non-predicted monster to the 0x1ab position pair by the 92-cell check, which runs only for
 sequence ≥ 0. It does snap one that is 46 or more cells from the pair when the action starts. The overlap test reads
 every body's cell once per frame, and `BlockerSet` buckets the blockers by cell so `ClientPathfinder.ObjectBlocks` reads
@@ -429,7 +423,7 @@ frames (the tick rules above) and sending the start of each action in the frame 
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
 - Monster estimates still differ in the 5–50 ms until the client applies an order. The Gateway never sends 0x1aa (GGG does
-  at about 171 cells); no measured error comes from it, since a chase gives up before that distance.
+  at about 171 cells).
 - The client's walk-up arguments for the map device (`Approach`).
 - Shield Charge never fired from the test input, so it is not checked live. The server lands it at once and the resync
   settles the end.

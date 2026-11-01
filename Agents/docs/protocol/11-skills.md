@@ -1582,7 +1582,7 @@ Lunaris) has its self-targeted Novas centred on the aimed point
 use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
-cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
+cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
 player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
 it ([07](07-latency-visibility-movement.md) §5).
 
