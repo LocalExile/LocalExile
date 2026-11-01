@@ -486,14 +486,19 @@ static partial class QuestobjectsRules
         var conn = session.Conn;
         if (contact.Target.Id != PlayerId || InGracePeriod(conn)) return ProjectileHitResult.Miss;
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
-        if (LabyrinthTrials.ArrowDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int damage
-            || TrapHitLocked(conn, damage, now) is not uint life) return ProjectileHitResult.Miss;
+        // The dart is an arrow (its skill's skill_can_fire_arrows): a physical hit, which the player's armour reduces.
+        if (LabyrinthTrials.ArrowDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int share) return ProjectileHitResult.Miss;
+        int damage = PlayerHitMitigation.AfterResistance(conn.Pools, GameServer.Core.World.DamageType.Physical, share);
+        if (TrapHitLocked(conn, damage, now) is not uint life) return ProjectileHitResult.Miss;
         int poison = LabyrinthTrials.ArrowPoisonBase(conn.PlayerMaxLife) ?? 0;
         session.Enqueue(async () =>
         {
             if (await PresentTrapHit(session.remote, session.stream, session.ciphers, conn, id,
                     $"trial dart trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
+            {
                 await ArrowPoison(session.remote, session.stream, session.ciphers, conn, poison);
+                await ArrowSlow(session.remote, session.stream, session.ciphers, conn);
+            }
         });
         return ProjectileHitResult.Hit;
     }
@@ -572,6 +577,72 @@ static partial class QuestobjectsRules
                 if (over) return;
             }
         });
+    }
+
+    // The darts' slow on a connection: whether the pools carry it, until when (Clock seconds) and its buff instance.
+    sealed class DartSlow
+    {
+        public bool Active;
+        public double Until;
+        public ushort Buff;
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, DartSlow> DartSlows = new();
+
+    // PlayerStatSources: a slowed player's final movement modifier (LabyrinthTrials.ArrowSlowStat), which the pools apply
+    // to their whole movement speed.
+    internal static Dictionary<uint, int> WithDartSlow(ClientState conn, Dictionary<uint, int> sources)
+    {
+        if (DartSlows.TryGetValue(conn, out var slow) && slow.Active && Stats.Key(LabyrinthTrials.ArrowSlowStat) is uint key)
+            sources[key] = sources.GetValueOrDefault(key) + LabyrinthTrials.ArrowSlowPercent;
+        return sources;
+    }
+
+    // A dart's slow (LabyrinthTrials.ArrowSlowPercent for ArrowSlowSeconds from the latest hit, not stacking): it starts
+    // with the first hit, a later one moves its end, and it ends then or at a death.
+    static async Task ArrowSlow(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var slow = DartSlows.GetValue(conn, _ => new());
+        lock (conn.Monsters)
+        {
+            slow.Until = conn.Clock.Elapsed.TotalSeconds + LabyrinthTrials.ArrowSlowSeconds;
+            if (slow.Active) return;   // the running watch keeps it on to the new end
+            (slow.Active, slow.Buff) = (true, conn.NextBuff++);
+        }
+        await DartSlowChanged(remote, stream, ciphers, conn, slow);
+        _ = Task.Run(async () =>
+        {
+            while (!conn.Closed)
+            {
+                double left;
+                lock (conn.Monsters)
+                {
+                    left = conn.PlayerLife == 0 ? 0 : slow.Until - conn.Clock.Elapsed.TotalSeconds;
+                    if (left <= 0) slow.Active = false;   // a hit after this starts a slow of its own
+                }
+                if (left > 0) { await Task.Delay(TimeSpan.FromSeconds(left)); continue; }
+                await DartSlowChanged(remote, stream, ciphers, conn, slow);
+                return;
+            }
+        });
+    }
+
+    // The slow came or went: the pools again (WithDartSlow), the walk estimate's speed, the client's stats (its own walk
+    // and the panel read movement_velocity_+%) and the invisible labyrinth_arrow_slow buff.
+    static async Task DartSlowChanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, DartSlow slow)
+    {
+        bool on;
+        lock (conn.Monsters)
+        {
+            on = slow.Active;
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            conn.ApplyMovementSpeed();
+        }
+        if (LabyrinthTrials.ArrowSlowBuffRow is ushort row)
+            await Send(remote, stream, ciphers, on
+                ? InstanceEntities.AddBuff(PlayerId, slow.Buff, row, u68: BitConverter.SingleToUInt32Bits((float)LabyrinthTrials.ArrowSlowSeconds))
+                : InstanceEntities.RemoveBuff(PlayerId, slow.Buff), null);
+        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+            $"0x01b3 player stats (trial dart slow {(on ? "starts" : "ends")}: movement {conn.Pools.MovementVelocityPct:+0;-0}%)");
     }
 
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on

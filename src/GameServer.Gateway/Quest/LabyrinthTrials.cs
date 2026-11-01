@@ -154,7 +154,7 @@ static class LabyrinthTrials
         int row = 0;
         foreach (var buff in table.RootElement.EnumerateArray())
         {
-            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison")) rows.TryAdd(id, (ushort)row);
+            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow")) rows.TryAdd(id, (ushort)row);
             row++;
         }
         return rows;
@@ -273,10 +273,19 @@ static class LabyrinthTrials
     /// <summary>A dart's hit poisons (<c>global_poison_on_hit</c>): the wiki's poison is 30% of the hit's physical and
     /// chaos damage a second for 2 s, here with the .ot's <c>monster_poison_damage_+%_final</c> −50; every hit adds a
     /// stack of its own. Chaos damage: past energy shield, less the player's chaos resistance. Its base is the hit's life
-    /// share only (<see cref="ArrowPoisonBase"/>). The slow the original's
-    /// darts leave (BuffDefinitions <c>labyrinth_arrow_slow</c>, <c>labyrinth_arrow_movement_speed_+%_final</c>) has
-    /// no value in the client data: not applied.</summary>
+    /// share only (<see cref="ArrowPoisonBase"/>).</summary>
     public const double ArrowPoisonPerSecond = 0.30 * (1 - 0.50), ArrowPoisonSeconds = 2;
+
+    /// <summary>A dart's slow: BuffDefinitions <c>labyrinth_arrow_slow</c> (invisible), whose stat is this, for the skill's
+    /// <c>base_skill_effect_duration</c> (2 s) from the latest hit. Its value is not in the client data: live
+    /// (2026-10-31, the original) a character's movement speed went from +19% to −52% under the darts,
+    /// (1 − 0.52) / 1.19 ≈ 0.40 of it, so 60% less, final.</summary>
+    public const string ArrowSlowStat = "labyrinth_arrow_movement_speed_+%_final";
+    public const int ArrowSlowPercent = -60;
+    public const double ArrowSlowSeconds = 2;
+
+    /// <summary>The <c>labyrinth_arrow_slow</c> BuffDefinitions row, or null without the table.</summary>
+    public static ushort? ArrowSlowBuffRow => BuffRows.Value.TryGetValue("labyrinth_arrow_slow", out ushort row) ? row : null;
 
     /// <summary>A dart trap's 0x2b9 blob (LabyrinthArrowTrap.ot: Positioned, Transitionable, Animated, Pathfinding,
     /// BaseEvents, Stats, Buffs, Life, Actor), as the spike trap's (<see cref="SpikeTrapBlob"/>): the .ot's team 14, the

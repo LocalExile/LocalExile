@@ -164,7 +164,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
   The Imperial Gardens' 14 dart turrets fire together every 1.5 s, four poison darts each a quarter turn apart, through
   the projectile world, stopping at walls and at the turrets' Hull; a dart hits for LbArrowTrap's share and adds a 2 s
-  poison stack reckoned from the hit's life share. Being checked live; their slow is not applied.
+  poison stack reckoned from the hit's life share, less armour, and slows movement by 60% for 2 s. Being checked live.
   Not built: the other traps, the trials' monsters, the toggling, multi and timed levers of the other trials, and
   league-wide trials (league quest flags are not saved).
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.

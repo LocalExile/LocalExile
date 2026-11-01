@@ -162,7 +162,8 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
 
 **What it does.** A dart that reaches the player hits once and stops:
 - `LbArrowTrap`'s stat set (GrantedEffectStatSets 5469) deals 15% of maximum life plus 9% of maximum energy shield,
-  33% more against players, as the spike trap's share does (always hitting, armour and resistances not applied);
+  33% more against players, as the spike trap's share does; the dart is an arrow (`skill_can_fire_arrows`), so the
+  hit is physical and the player's armour reduces it (our reading; evasion and block are not rolled);
 - it poisons (`global_poison_on_hit`): 30% of the hit a second for 2 s (the wiki's poison), with the `.ot`'s
   `monster_poison_damage_+%_final` −50. Every hit adds a stack with its own BuffDefinitions `poison` ("Poisoned",
   whose count the client shows; the client keeps a buff until it is removed, through a death and the resurrection,
@@ -170,8 +171,11 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
   shield, less the player's chaos resistance.
   Its base is the hit's life share alone (our reading): reckoned from the whole hit, a character with about 100 000
   energy shield took a 13 135 hit whose poison (3 940 over 2 s) killed their 3 707 life (live 2026-10-31).
-- The original's darts also slow (the user's observation): BuffDefinitions `labyrinth_arrow_slow` (invisible,
-  `labyrinth_arrow_movement_speed_+%_final`), whose value the client data lacks. Not applied.
+- it slows: BuffDefinitions `labyrinth_arrow_slow` (invisible) with `labyrinth_arrow_movement_speed_+%_final`, for
+  the skill's `base_skill_effect_duration` (2 s) from the latest hit, not stacking. The value is not in the client
+  data; in the original a character's movement speed went from +19% to −52% under the darts (live 2026-10-31), so
+  60% less, final: the pools apply it to the whole `movement_velocity_+%`, which the client walks with and the panel
+  shows, and the walk estimate follows.
 
 ## A completed trial
 
@@ -193,7 +197,7 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 ## Not built yet
 
 - The other traps (spinners, sawblades, roombas, lava) and the step-triggered spikes of Izaro's rooms.
-- The darts' slow (`labyrinth_arrow_slow`) and the Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
+- The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
   the alternate arrow traps).
 - The other puzzle parts: `Switch` and `Door_Open` (toggling), `Switch_Multi`, `TimerGears` (timed levers).
 - The trials' monster spawners (`PrisonPoacherSpawner`, `CryptFrostPriestSpawner`, `CremPyroSpawner`).

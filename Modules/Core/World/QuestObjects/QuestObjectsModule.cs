@@ -40,6 +40,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             var (remote, stream, ciphers) = kill.Conn.Wire;
             kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
         });
+        // A trial dart's slow on the player's movement speed.
+        On(GameEvents.PlayerStatSources, WithDartSlow);
         On(GameEvents.NpcTalk, async (conn, id, npc) =>
         {
             if (npc.Npc.Id.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal))
