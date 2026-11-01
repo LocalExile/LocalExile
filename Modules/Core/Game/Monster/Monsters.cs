@@ -430,7 +430,7 @@ static partial class Game
                 ServerTrace.Ai || why == "gives up" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null);
         foreach (var (id, m, action, from, to) in plan.Chases)
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action,
-                () => InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, m.Attack!.SkillId, MonsterActionSequence, 0, targetObjectId: PlayerId),
+                () => InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, m.Attack!.SkillId, m.NextSequence(), 0, targetObjectId: PlayerId),
                 ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases the player from {from} to {to}" : null);
         foreach (var (id, m) in plan.BossBars)
         {
@@ -621,34 +621,38 @@ static partial class Game
             seconds = MonsterSwingSeconds(conn, m, ProjectileWorldTime(conn)) / factor;
         }
         double startedAt = 0;
+        ushort sequence = MonsterActionSequence;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
             startedAt = conn.Clock.Elapsed.TotalSeconds;
+            if (!a.Ranged) sequence = m.NextSequence();
             var from = m.Walk.Position(startedAt);
             var player = conn.Walk.Position(startedAt);
             m.BusyUntil = startedAt + seconds;
             m.SwingGeneration = action;
             m.SwingOrderedAt = startedAt;
             return a.Ranged ? InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0x0408, targetObjectId: PlayerId)
-                : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0, PlayerId);
+                : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, sequence, 0, PlayerId);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
-        // The contact: the clip's keyframe for a projectile skill (the Spitter's attack1 spits at 37.5 % of the attack),
-        // half the attack time for a melee swing (its clips' keyframes are not read yet).
-        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * (a.Release?.Fraction ?? 0.5))) return;
+        // The contact: the clip's keyframe (the Spitter's attack1 spits at 37.5 % of the attack; GGG's melee hits land by
+        // their clip too, 26 to 60 % of the attack in captures), half the attack time without rig data.
+        double contact = a.Release?.Fraction ?? (m.Variety is { } variety
+            ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", sequence)?.ContactFraction : null) ?? 0.5;
+        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
         if (a.Projectile is { } projectile)
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
             LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, projectile, action);
             return;
         }
-        await MonsterContact(remote, stream, ciphers, conn, id, m, action);
+        await MonsterContact(remote, stream, ciphers, conn, id, m, action, sequence);
     }
 
     // A melee contact at the attack's halfway point: committed at the actual send gate under the monster's action, so a
     // flinch accepted while it was queued suppresses both the packet and the life mutation. A ranged monster's shot commits
     // the same pipeline when its flight reaches the player instead (Program.ProjectileHostile.cs).
     internal static async Task MonsterContact(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        uint id, SpawnedMonster m, int action)
+        uint id, SpawnedMonster m, int action, ushort sequence = MonsterActionSequence)
     {
         if (m.Attack is not { } a) return;
         MonsterHitOutcome? outcome = null;
@@ -667,9 +671,9 @@ static partial class Game
                 Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) frozen: its swing is cancelled");
                 return null;
             }
-            outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, conn.Walk.Position(now), m.Walk.Position(now), checkRange: true);
+            outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, conn.Walk.Position(now), m.Walk.Position(now), checkRange: true, sequence: sequence);
             return outcome?.HitPacket;
-        }, $"0x01af monster 0x{id:x} hit on the player (kind 3, sequence 0xffff)")) return;
+        }, $"0x01af monster 0x{id:x} hit on the player (kind 3, sequence 0x{sequence:x4})")) return;
         if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
     }
 
@@ -686,7 +690,7 @@ static partial class Game
     // evasion, the mod-rolled packet, block, armour, resistances, ailments, recovery and death. Null when it misses or is
     // evaded. `from` is where the hit comes from: the monster for a swing, the shot's contact point for a projectile.
     internal static MonsterHitOutcome? CommitMonsterHitLocked(string remote, ClientState conn, uint id, SpawnedMonster m, MonsterAttack a,
-        double now, (int X, int Y) here, (int X, int Y) from, bool checkRange)
+        double now, (int X, int Y) here, (int X, int Y) from, bool checkRange, ushort sequence = MonsterActionSequence)
     {
         int priorContacts = conn.RecentEnemyHits.Count(now);
         using var defenceTime = FortificationOf(conn).Capture(now);
@@ -794,7 +798,7 @@ static partial class Game
         // The 3.29.3b decode (action-hit-packet-3.29.3b.md §§1–4) shows kind 2 only queues the package until an
         // action with that sequence consumes it, which 0xffff never guarantees, and that 0x0400 asks the client for
         // its own stun roll; the player's recovery is the authoritative 0x1d1 (SendPlayerHitRecovery).
-        var packet = InstanceProtocol.ActionHit(id, 0xffff, PlayerId, flags: MonsterHitFlags(blocked, monsterCritical), kind: 0x03,
+        var packet = InstanceProtocol.ActionHit(id, sequence, PlayerId, flags: MonsterHitFlags(blocked, monsterCritical), kind: 0x03,
             code: HitCode(mitigated), angle: HitAngle(here.X - from.X, here.Y - from.Y));
         return new(packet, life, conn.PlayerMana, manaBefore, damage, rawDamage, blocked, monsterCritical, recovery, armour, spirit);
     }

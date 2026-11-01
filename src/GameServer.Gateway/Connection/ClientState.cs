@@ -134,6 +134,9 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public int ActionGeneration;
     public int? SwingGeneration;
     public double SwingOrderedAt;
+    // The sequence of its last melee order, rising with the top bit set as GGG's do: the client picks the swing's clip by it.
+    public ushort Sequence = 0x8000;
+    public ushort NextSequence() => Sequence = (ushort)(0x8000 | ((Sequence + 1) & 0x7fff));
     // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
     // seconds) with the taunted buff shown and the end it shows, his passives' enemy auras (BuffDefinitions row → buff
     // instance), and the increased damage taken they give (every type; fire, cold and lightning) that its hits read.
@@ -234,6 +237,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration, FreezeShown;
+    public double NextKeepInSyncAt;
     public int ActionInterruptionGeneration => unchecked(HitRecovery.Generation + FreezeGeneration);
     public (int Count, int Chance)? PresentedRecentEnemyHits;
 

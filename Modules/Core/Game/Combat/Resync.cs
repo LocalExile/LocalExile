@@ -7,9 +7,27 @@ static partial class Game
 {
     // How far around the player GGG lists monsters in a resync (the largest seen in captures is 23.4 cells).
     internal const int ResyncRadius = 24;
+    // In a tight crowd a body's cell differs by one for a few milliseconds between client and server, which is enough to
+    // send a monster round the other side, and nothing tells the server. The list only moves what is 20 or more cells off,
+    // so sending it costs nothing when all is well; between stuns it is what ends such a drift.
+    const double KeepInSyncSeconds = 1;
+    const int KeepInSyncRadius = 64;
 
     // S→C 0x128 with the player first, then the monsters around it, where the server has them. Called under conn.Monsters.
-    internal static byte[] ResyncPacketLocked(ClientState conn, double now)
+    internal static async Task KeepInSync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (now < conn.NextKeepInSyncAt || !conn.PlayerSent) return;
+        conn.NextKeepInSyncAt = now + KeepInSyncSeconds;
+        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            lock (conn.Monsters)
+                return conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 ? null
+                    : ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds, KeepInSyncRadius);
+        });
+    }
+
+    internal static byte[] ResyncPacketLocked(ClientState conn, double now, int radius = ResyncRadius)
     {
         var player = conn.Walk.Position(now);
         List<(uint Id, int X, int Y)> objects = [(PlayerId, player.X, player.Y)];
@@ -17,7 +35,7 @@ static partial class Game
         {
             if (m.Dead || m.Life <= 0) continue;
             var at = m.Walk.Position(now);
-            if (Dist(at, player) <= ResyncRadius) objects.Add((id, at.X, at.Y));
+            if (Dist(at, player) <= radius) objects.Add((id, at.X, at.Y));
         }
         return InstanceProtocol.Resync(objects);
     }

@@ -19,6 +19,7 @@ static partial class Game
                     await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
                     await ShowFreeze(remote, stream, ciphers, conn);
                     await ReleaseHeldMove(remote, stream, ciphers, conn);
+                    await KeepInSync(remote, stream, ciphers, conn);
                 }
                 PublishPlayerPose(conn);
                 if (ServerTrace.Sync) TraceSync(conn);
