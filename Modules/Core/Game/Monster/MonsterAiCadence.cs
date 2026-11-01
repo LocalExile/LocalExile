@@ -11,7 +11,7 @@ sealed class MonsterAiCadence
     public const int StepMilliseconds = 50;
     public const double StepSeconds = StepMilliseconds / 1000.0;
     public const double RepathSeconds = 0.1;
-    // A chase aimed at the player repeats about every 200 ms (GGG's cadence in captures), near or far.
+    // A chase aimed at the player repeats about every 200 ms (GGG's cadence), near or far.
     public const double AttackChaseSeconds = 0.2;
     public const int TargetChangeCells = 3;
     public const double RetrySeconds = 0.5;

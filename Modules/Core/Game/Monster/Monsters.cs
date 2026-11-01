@@ -650,7 +650,7 @@ static partial class Game
                 : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, sequence, 0, PlayerId);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
         // The contact: the clip's keyframe (the Spitter's attack1 spits at 37.5 % of the attack; GGG's melee hits land by
-        // their clip too, 26 to 60 % of the attack in captures), half the attack time without rig data.
+        // their clip too), half the attack time without rig data.
         double contact = a.Release?.Fraction ?? (m.Variety is { } variety
             ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", sequence)?.ContactFraction : null) ?? 0.5;
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;

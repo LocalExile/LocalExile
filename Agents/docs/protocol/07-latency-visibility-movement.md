@@ -212,7 +212,7 @@ chase. A server-created attack that paths is not played at once: the action walk
 as the attack's reach (MoveTo with max range reach − 1 and the target's size as the tolerance, so distance ≤ reach), and
 waits there until S→C 0x1ac sets the Actor's flag 0x10 (`0x141e94720`). The tick paths a waiting action again every
 0.25 s. So 0x1ac is what starts the swing, and when it arrives first the swing starts on arrival. GGG sends it when its
-own copy arrives, or with the 0x1ab in the same tick when the monster is already in reach (87 of 88), and that sets the
+own copy arrives, or with the 0x1ab in the same tick when the monster is already in reach, and that sets the
 swing's timing on both sides. `skill_is_non_pathing` on the skill skips all of this: the action plays where the monster
 stands, without a 0x1ac. The Gateway's melee skills no longer carry it, and its ranged skills and boss stages still do.
 It chases the same way (`PlanMonsterAi`, `InstanceProtocol.ActionStartedNow`), and its estimate walks the same walk-up
@@ -290,8 +290,8 @@ and crawled (~1 cell per 1.5 s), so it is not sent for the local player (`Game_M
 cells, big-endian, with the player first. Ignored in lockstep. When the player is 20 or more cells from the first
 record the client puts it there, and then every listed object on its record; otherwise only the objects 20 or more
 cells from theirs. Under 20 cells nothing moves, so sending one costs nothing. Live 2026-10-31: the player jumped 30
-and 25 cells onto the records and went on playing. In GGG's captures it came with every stun of the player (13 of 13)
-and with no other hit (0 of 79), listing the player and the monsters within 23.4 cells; the Gateway does the same.
+and 25 cells onto the records and went on playing. GGG sends it with every stun of the player and with no other hit,
+listing the player and the monsters within 23.4 cells; the Gateway does the same.
 
 **Once a second.** In a tight crowd a body's cell differs by one for a few milliseconds between client and server, which is
 enough to send a monster round the other side of the pack, and nothing tells the server. So the Gateway sends a 0x128
@@ -301,8 +301,8 @@ through walls.
 
 **The client asks for it.** Each commenced action other than Move adds one to a counter, each 0x1ac takes one off and
 5 s take one off; above 3 it sends C→S 0x16 command 8 (`InstanceItems.ForceResyncCommand`) and starts again. The
-Gateway answers with a 0x128, and `/oos` does the same by hand. GGG ends non-Move actions with a 0x1ac in the same tick
-(87 of 88), so its clients rarely ask. The Gateway does so for monsters but not for the player's own actions: a request
+Gateway answers with a 0x128, and `/oos` does the same by hand. GGG ends non-Move actions with a 0x1ac in the same tick,
+so its clients rarely ask. The Gateway does so for monsters but not for the player's own actions: a request
 costs nothing when nothing is 20 cells off, and it stays a safety net.
 
 **Measuring it.** `Game_TRACE=sync` logs the server's estimates every 50 ms, `scripts/dev/sync_drive.py` plays a session
@@ -345,8 +345,8 @@ only those that can reach the queried cell (same answers as the full scan).
 The player's own path treats estimated monster bodies as blockers too, so a player the client finds boxed in stays in
 on both sides.
 Alive friendly monsters also block; corpses and removed objects do not.
-S→C 0x2b0 tells the client the same about a corpse, about 165 ms after its life reached 0, as GGG does (seen on 15 of 15
-in captures). The client takes it live; what it changes in the client's own paths is not measured.
+S→C 0x2b0 tells the client the same about a corpse, about 165 ms after its life reached 0, as GGG does.
+The client takes it live; what it changes in the client's own paths is not measured.
 Phasing removes living bodies from the local player's path checks.
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.
 

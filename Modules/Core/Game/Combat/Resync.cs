@@ -5,13 +5,13 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
-    // How far around the player GGG lists monsters in a resync (the largest seen in captures is 23.4 cells).
+    // How far around the player GGG lists monsters in a resync (23.4 cells at most).
     internal const int ResyncRadius = 24;
     // In a tight crowd a body's cell differs by one for a few milliseconds between client and server, which is enough to
     // send a monster round the other side, and nothing tells the server. The list only moves what is 20 or more cells off,
     // so sending it costs nothing when all is well; between stuns it is what ends such a drift.
     const double KeepInSyncSeconds = 1;
-    const int KeepInSyncRadius = 171;   // the wake zone GGG keeps (0x1a9 and 0x1aa, captures)
+    const int KeepInSyncRadius = 171;   // the wake zone GGG keeps (0x1a9 and 0x1aa)
 
     internal static async Task KeepInSync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
