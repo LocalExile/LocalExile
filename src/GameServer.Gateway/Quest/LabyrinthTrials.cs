@@ -41,7 +41,7 @@ static class LabyrinthTrials
     /// <c>…_of_maximum_energy_shield_…</c>, whose values the client data lacks: these shares a second are ours, physical,
     /// energy shield first, fitted live to the original's (2026-11-01).
     /// <c>/trial_roomba_damage</c> (dev) changes them.</summary>
-    public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.30, 0.50);
+    public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.40, 0.50);
 
     /// <summary>A roomba's 0x2b9 blob: LabyrinthRoomba.ot reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement,
     /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement. Movement

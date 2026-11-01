@@ -222,7 +222,7 @@ their ends and back.
 no knockback, and it does not block the way. No skill: BuffDefinitions `roomba_damage` ("Death Rhoomba", invisible;
 the flying one's `flying_roomba_damage`) carries `base_physical_damage_%_of_maximum_life_taken_per_minute` and
 `…_of_maximum_energy_shield_…`, with no values in the client data (nor in the wiki or PoEDB). So a player within 10
-cells of a roomba's centre degenerates by 30% of maximum life plus 50% of maximum energy shield a second (our numbers,
+cells of a roomba's centre degenerates by 40% of maximum life plus 50% of maximum energy shield a second (our numbers,
 fitted live to the original's with `/trial_roomba_damage`, 2026-11-01), physical, energy shield first, and can die of
 it, energy shield and life alike, whether or not they can bleed (live 2026-11-01, the original: a character immune
 to bleeding stood in one only by out-regenerating it). When the degeneration starts the Gateway logs it with the
