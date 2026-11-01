@@ -19,7 +19,6 @@ public sealed class PlayerWalk
     private List<Segment> _segments = [];
     private (int X, int Y) _rest;
     private double _restSince;
-    private ((int X, int Y) Target, int MaxRange, int Tolerance)? _order;
 
     private sealed record Segment((int X, int Y) From, (int X, int Y)[] Cells, double T0, float Step)
     {
@@ -88,7 +87,6 @@ public sealed class PlayerWalk
     public void Teleport(int x, int y, double now)
     {
         _segments = [];
-        _order = null;
         _rest = (x, y);
         _restSince = now;
     }
@@ -107,15 +105,15 @@ public sealed class PlayerWalk
         _segments = walk;
     }
 
-    /// <summary>Paths the last order again from where the walker is (the client does when a walk is cut short).</summary>
-    public void Repath((int X, int Y) target, double now)
-    {
-        if (_order is { } order && order.Target == target) Walk(target, order.MaxRange, order.Tolerance, now);
-        else Order(target.X, target.Y, now);
-    }
-
-    /// <summary>When the current walk ends (when it ended, once the walker stands).</summary>
+    /// <summary>When the current walk ends (when it ended, once the walker stands), holds included.</summary>
     public double ArrivesAt => _segments.Count == 0 ? _restSince : _segments[^1].End;
+
+    /// <summary>Whether the walker is under way: it has a walk left and is not held (<see cref="Pause"/>).</summary>
+    public bool Moving(double now)
+    {
+        var walk = _segments;
+        return walk.Count > 0 && walk[0].T0 <= now && now < walk[^1].End;
+    }
 
     /// <summary>Where the current walk ends.</summary>
     public (int X, int Y) Destination => _segments.Count == 0 ? _rest : _segments[^1].Cells[^1];
@@ -158,12 +156,8 @@ public sealed class PlayerWalk
     private (int X, int Y) Walk((int X, int Y) target, int maxRange, int tolerance, double now)
     {
         var here = At(now, out double fraction);
-        _order = (target, maxRange, tolerance);
         var path = ClientPathfinder.FindPath(here, target, _walkable, _w, _h, _blockers(), _size, 0, maxRange, tolerance, _limit);
-        _segments = [];
-        _rest = here;
-        _restSince = now;
-        if (path.Count < 2) return here;
+        var walk = new List<Segment>();
         double t = now;
         for (int i = 1; i < path.Count; i++)
         {
@@ -171,9 +165,13 @@ public sealed class PlayerWalk
             float step = StepTime(path[i - 1], path[i]);
             // The first step comes when the step in progress would have: its elapsed fraction carries over.
             if (i == 1) t -= fraction * step;
-            _segments.Add(new Segment(path[i - 1], cells, t, step));
+            walk.Add(new Segment(path[i - 1], cells, t, step));
             t += cells.Length * (double)step;
         }
+        // Whole: monsters' walks are read outside the lock too (Rampage's weapons).
+        _rest = here;
+        _restSince = now;
+        _segments = walk;
         return here;
     }
 

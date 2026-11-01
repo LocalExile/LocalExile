@@ -35,8 +35,9 @@ static partial class Game
                     if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds))
                     {
                         // The client starts the newest click when it can again: the server walks it then (ReleaseHeldMove).
-                        conn.HeldMove = id == InstanceProtocol.UseSkillAtLocationId && InstanceProtocol.ReadUseSkillAtLocation(bytes) is var held
-                            && SkillsFor(conn).ActionName(held.SkillId) == "Move" ? held : null;
+                        if (id != InstanceProtocol.ChannelUpdateId)
+                            conn.HeldMove = id == InstanceProtocol.UseSkillAtLocationId && InstanceProtocol.ReadUseSkillAtLocation(bytes) is var held
+                                && SkillsFor(conn).ActionName(held.SkillId) == "Move" ? held : null;
                         continue;
                     }
                     conn.HeldMove = null;
@@ -136,7 +137,7 @@ static partial class Game
                     (px, py) = cast ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
                     if (cast) conn.Walk.Order(px, py, at);
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway.
-                    if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect))
+                    if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
                     {
                         var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
                         conn.Walk.Teleport(landing.X, landing.Y, at);
@@ -175,7 +176,7 @@ static partial class Game
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
                 // The server lands a movement skill at once, and the client can refuse it or take its time (a Lightning Warp
                 // often does neither, live 2026-11-01): the resync settles which, once the action is over.
-                if (cast && gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect))
+                if (cast && gem.Name is not null && LandsAtAim(conn, gem.Effect))
                     ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";

@@ -3,8 +3,7 @@ object (scripts/re/frida/trace-sync.js), to compare with the Gateway's Game_TRAC
 
     .venv/Scripts/python.exe scripts/dev/sync_drive.py --session sync --out logs/sync-client.jsonl walk-clicks
 
-The client must be in game (client_control). The scenarios are at the end of this file; a line of the --commands file
-runs one bridge request (JSON), so an area can be prepared without a scenario for it.
+The client must be in game (client_control). The scenarios are at the end of this file.
 """
 import frida
 import argparse

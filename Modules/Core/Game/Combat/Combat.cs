@@ -153,7 +153,9 @@ static partial class Game
                 now = ProjectileWorldTime(conn);
                 if (!current()) return null;
                 var target = m.Walk.Position(now);
-                if (m.Life == 0 || now >= giveUp || now >= arrive && SwingInReach(m, stop, target, reach)) return (stop, arrive);
+                bool done = m.Life == 0 || now >= giveUp;
+                if (now >= arrive && (done || SwingInReach(m, stop, target, reach))) return (stop, arrive);
+                if (done) continue;
                 (_, stop, arrive) = conn.Walk.Approach(target.X, target.Y, reach, now, tolerance: m.StopRange - 2);
                 if (arrive <= now && SwingInReach(m, stop, target, reach)) return (stop, arrive);
             }
@@ -456,7 +458,7 @@ static partial class Game
         double castAt = conn.Clock.Elapsed.TotalSeconds;
         int castAction = 0;
         (int X, int Y) aim = default, stand = default;
-        bool moves = gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect);
+        bool moves = gem.Name is not null && LandsAtAim(conn, gem.Effect);
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -1285,6 +1287,8 @@ static partial class Game
             .Any(s => s.Item2 != 0 && Stats.Name(s.Item1).StartsWith("skill_cannot_be_stunned", StringComparison.Ordinal))))
         { Trace("unsupported skill immunity"); return null; }
         if (PlayerHasEnergyShieldForRecovery(conn, Get)) { Trace("energy shield present"); return null; }
+        // A freeze already holds the player, and its action factor would stretch the recovery a hundredfold.
+        if (conn.ElementalAilments.ActionFactor(now) == 0) { Trace("frozen"); return null; }
         double chance = PlayerHitRecovery.Chance(damage, conn.PlayerMaxLife, Get);
         float seconds = PlayerHitRecovery.Duration(Get, PlayerActionFactor(conn));
         if (seconds <= 0 || Random.Shared.NextDouble() * 100 >= chance

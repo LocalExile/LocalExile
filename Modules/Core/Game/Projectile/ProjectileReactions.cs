@@ -52,7 +52,7 @@ static partial class Game
             var final = CharacterPlayerStats(conn);
             int Get(string name) => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
             var step = charges.Step(now, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0,
-                now < conn.Walk.ArrivesAt, InTown(conn), random);
+                conn.Walk.Moving(now), InTown(conn), random);
             foreach (var buff in charges.Presentation(now, () => conn.NextBuff++))
                 foreach (var (packet, _) in ChargeBuffs.Packets(buff, PlayerId)) session.Packet(packet);
             if (step.CountsChanged)

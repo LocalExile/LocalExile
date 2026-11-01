@@ -513,7 +513,7 @@ No generator output changes are needed: the multiplier is already extracted.
 ## 5. Combat timing (Gateway `Attack`)
 
 1. C→S 0x24 arrives when the player clicks, before the client walks into range. The server walks its position estimate
-   toward the monster and stops at the first cell within `MaxAttackDistance` (`WalkEstimator.Approach`).
+   toward the monster and stops at the first cell within `MaxAttackDistance` (`PlayerWalk.Approach`).
 2. On arrival it starts the swing: the 0x1ab echo (from the stop cell, aimed at the monster). Echoing at the click made
    the client swing on the spot, out of range.
 3. At the swing's contact point it rolls the accuracy check and, on a hit, lowers the monster's life with 0x1b1. The
@@ -1702,7 +1702,7 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   a transfer cancels the retry and takes ownership of visual cleanup.
   Live pause held the projectile at (289, 220) for 1.2 seconds, with no removal until the game resumed.
   Local validation captures: `logs/projectile-collision-live.json` and `logs/projectile-fixed-height-live.json`.
-  These remain estimates: monster positions are integer `WalkEstimator` samples, movement between samples is a
+  These remain estimates: monster positions are integer `PlayerWalk` samples, movement between samples is a
   straight chord, the radius is shared across monsters, and the client has its own cell stepping/network delay.
   Static wall checks use a captured two-dimensional grid, not object/doodad colliders or three-dimensional geometry.
   Sharp turns between samples or long scheduling stalls can still differ from the client. This is not an official

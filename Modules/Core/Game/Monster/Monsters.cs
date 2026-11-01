@@ -347,7 +347,7 @@ static partial class Game
                 // A pending echo/contact keeps its original generation instead of reserving repeated swings at the gate.
                 // A chill slows the swing by its action speed, as the native clip does.
                 // A walking player has already gone farther on the client: no swing right at the edge of the reach.
-                if (m.Hostile && m.Attack is { } a && d <= (a.Ranged || now >= conn.Walk.ArrivesAt ? a.Range : a.Range - MovingReachMargin))
+                if (m.Hostile && m.Attack is { } a && d <= (a.Ranged || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
                     m.LastTarget = null;
@@ -357,6 +357,8 @@ static partial class Game
                     plan.Swings.Add((id, m, m.ActionGeneration));
                     continue;
                 }
+                // Totems, statues and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not move them.
+                if (m.Variety is { MovementSpeed: 0 }) continue;
                 // A melee monster chases as GGG's do: its attack aimed at the player, repeated, so the client walks it to
                 // where it really has the player. The estimate walks the same walk-up: until the distance is within the
                 // attack's reach (max range reach - 1, the player's size as the tolerance: 0x141e8eb60, 0x141e7b260).
@@ -458,9 +460,9 @@ static partial class Game
         finally { lock (conn.Monsters) cadence.CompleteSwing(m, action); }
     }
 
-    // A monster swings at the player: its skill as an action aimed at the player (0x1ab, flags | 0x80 + target id, sequence
-    // 0xffff), then at the contact point (half the attack time for a melee swing; a projectile skill's clip contact,
-    // MonsterRelease) the hit lands if the monster still lives and the player is still in reach (walking away dodges
+    // A monster swings at the player: its skill as an action aimed at the player (0x1ab, flags | 0x80 + target id; a melee
+    // swing with its own rising sequence and the 0x1ac that starts it), then at the contact point (the clip's keyframe,
+    // half the attack time without rig data; a projectile skill's clip contact, MonsterRelease) the hit lands if the monster still lives and the player is still in reach (walking away dodges
     // it): the player's life goes down by the monster's damage (0x1b1 on the player). At 0 the client runs the player's
     // death.
     // PoE's evasion entropy (wiki: Evasion): shared by every attack against the player, reset after 3.33 s. Call under
@@ -649,7 +651,7 @@ static partial class Game
         await MonsterContact(remote, stream, ciphers, conn, id, m, action, sequence);
     }
 
-    // A melee contact at the attack's halfway point: committed at the actual send gate under the monster's action, so a
+    // A melee contact at the clip's keyframe: committed at the actual send gate under the monster's action, so a
     // flinch accepted while it was queued suppresses both the packet and the life mutation. A ranged monster's shot commits
     // the same pipeline when its flight reaches the player instead (Program.ProjectileHostile.cs).
     internal static async Task MonsterContact(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

@@ -16,7 +16,8 @@ static partial class Game
     internal static async Task KeepInSync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
-        if (now < conn.NextKeepInSyncAt || !conn.PlayerSent) return;
+        // Without a walk map the estimates go through walls: nothing may be put where they stand.
+        if (now < conn.NextKeepInSyncAt || now < conn.LandingUntil || !conn.PlayerSent || conn.Layout.Walkable is null) return;
         conn.NextKeepInSyncAt = now + KeepInSyncSeconds;
         await Send(remote, stream, ciphers, [], null, atGate: () =>
         {
@@ -45,6 +46,15 @@ static partial class Game
     static int TravelCells(string? effect) =>
         effect is null ? 0 : effect.StartsWith("WhirlingBlades", StringComparison.Ordinal) ? 40
             : effect is "Dash" or "DashHardMode" ? 33 : 0;
+
+    // ActiveSkillType Movement also covers these, which leave the player where it stands when used: the estimate must stay
+    // too, or a resync would teleport the client to the aimed cell.
+    static readonly string[] MovementInPlace = ["MirrorArrow", "SmokeMine", "PhaseRun", "ChainHook", "WitheringStep", "Ambush"];
+
+    /// <summary>Whether a skill puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
+    internal static bool LandsAtAim(ClientState conn, int effect) =>
+        SkillsFor(conn).IsMovement(effect) && !SkillsFor(conn).IsChannelled(effect)
+        && !(SkillsFor(conn).EffectId(effect) is { } id && MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal)));
 
     /// <summary>Where a movement skill ends: the aimed cell, or the last walkable cell of the line to it. One that travels a
     /// set distance goes on past the target and stops at the first cell it cannot walk.</summary>
@@ -80,7 +90,7 @@ static partial class Game
     // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.
     internal static void ResyncAfter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double seconds, string why)
     {
-        conn.NextKeepInSyncAt = Math.Max(conn.NextKeepInSyncAt, conn.Clock.Elapsed.TotalSeconds + seconds);
+        conn.LandingUntil = Math.Max(conn.LandingUntil, conn.Clock.Elapsed.TotalSeconds + seconds);
         SendAfter(seconds, () => SendResync(remote, stream, ciphers, conn, why));
     }
 
@@ -96,6 +106,8 @@ static partial class Game
     internal static Task SendResync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why) =>
         Send(remote, stream, ciphers, [], $"0x0128 resync ({why})", atGate: () =>
         {
-            lock (conn.Monsters) return conn.Closed || conn.LeavingArea ? null : ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds);
+            lock (conn.Monsters)
+                return conn.Closed || conn.LeavingArea || conn.Clock.Elapsed.TotalSeconds < conn.LandingUntil ? null
+                    : ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds);
         });
 }

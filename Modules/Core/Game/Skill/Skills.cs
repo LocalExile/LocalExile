@@ -221,7 +221,7 @@ static partial class Game
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below.
         double statsAt = conn.Clock.Elapsed.TotalSeconds;
-        var recovery = PanelStats.WhileMoving(Get, statsAt < conn.Walk.ArrivesAt);
+        var recovery = PanelStats.WhileMoving(Get, conn.Walk.Moving(statsAt));
         if (Stats.Key("evasion_rating") is uint evasionKey && !devSet.Contains(evasionKey)) stats[evasionKey] = PlayerEvasion(conn, statsAt);
         ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
         ConfigureLeech(conn, Get, rawOverrides, CriticalOnLowLife(conn, stats));

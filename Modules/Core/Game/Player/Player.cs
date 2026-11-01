@@ -42,7 +42,7 @@ static partial class Game
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        return PanelStats.ManaPerMinute(PanelStats.WhileMoving(Get, conn.Clock.Elapsed.TotalSeconds < conn.Walk.ArrivesAt), conn.Pools.Mana) / 60;
+        return PanelStats.ManaPerMinute(PanelStats.WhileMoving(Get, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)), conn.Pools.Mana) / 60;
     }
 
     // The mana the running auras reserve, and what is left for casting and regeneration.
@@ -392,7 +392,7 @@ static partial class Game
         var criticalContext = CriticalContext(conn);
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
-        bool moving = last < conn.Walk.ArrivesAt;
+        bool moving = conn.Walk.Moving(last);
         while (!conn.Closed && !conn.RageRetired)
         {
             await Task.Delay(PlayerTickMs);
@@ -445,7 +445,7 @@ static partial class Game
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [.. SuppressionChanceKeys.Select(k => (k, chance))]),
                     $"0x01b3 player Spell Suppression chance {chance}%");
             }
-            if (tickNow < conn.Walk.ArrivesAt is var nowMoving && nowMoving != moving)
+            if (conn.Walk.Moving(tickNow) is var nowMoving && nowMoving != moving)
             {
                 moving = nowMoving;
                 await SendWhileMovingStats(remote, stream, ciphers, conn);
@@ -763,7 +763,7 @@ static partial class Game
             fullEnergyShield = conn.PlayerLife > 0 && conn.EnergyShield.Full;
             hitRecently = now - conn.LastEnemyHitAt <= RecentlySeconds;
         }
-        return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: now < conn.Walk.ArrivesAt, hitRecently,
+        return (CharacterStats.SuppressionChance(conn.Pools, fullLife, moving: conn.Walk.Moving(now), hitRecently,
                 fullEnergyShield),
             Math.Max(0, conn.Pools.SpellSuppressionEffect),
             conn.Pools.SpellSuppressionLucky, conn.Pools.SpellSuppressionUnlucky);
@@ -792,7 +792,7 @@ static partial class Game
 
     // The evasion rating monster attacks roll against: the while-moving rating during a walk (Devout of Garukhan).
     internal static int PlayerEvasion(ClientState conn, double now) =>
-        now < conn.Walk.ArrivesAt && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
+        conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
 
     // The death screen's buttons (C→S 0x54). Both hide the screen (0x55 with bit1) and give the player full life; "at
     // checkpoint" revives next to the area's activated waypoint, else at its arrival point (teleport 0x1b7, AreaLayout.Checkpoint),

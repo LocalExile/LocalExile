@@ -237,7 +237,10 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration, FreezeShown;
+    public double FreezeHeldUntil;
     public double NextKeepInSyncAt;
+    // When the movement skill under way ends on the client: the server has already landed it (Game.ResyncAfter).
+    public double LandingUntil;
     public int ActionInterruptionGeneration => unchecked(HitRecovery.Generation + FreezeGeneration);
     public (int Count, int Chance)? PresentedRecentEnemyHits;
 

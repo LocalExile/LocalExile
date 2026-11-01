@@ -86,7 +86,7 @@ static partial class Game
             double now = conn.Clock.Elapsed.TotalSeconds;
             var p = conn.Walk.Position(now);
             line.Append($"[sync] qpc={System.Diagnostics.Stopwatch.GetTimestamp()} peer={conn.PeerId:x} speed={conn.Walk.Speed:0.###} ");
-            line.Append($"moving={(now < conn.Walk.ArrivesAt ? 1 : 0)} p={p.X},{p.Y} m=");
+            line.Append($"moving={(conn.Walk.Moving(now) ? 1 : 0)} p={p.X},{p.Y} m=");
             foreach (var (id, m) in conn.Monsters)
             {
                 if (m.Dead || m.Life <= 0) continue;
@@ -177,7 +177,7 @@ static partial class Game
                 if (!LivingCollision.Blocks(m)) { m.CollisionPosition = null; continue; }
                 int self = index++;
                 var current = (bodies[self].X, bodies[self].Y);
-                var previous = m.CollisionPosition ?? current;
+                var previous = m.CollisionPosition ??= current;
                 if (current == previous) continue;
                 int size = bodies[self].Size;
                 var blockers = conn.MonsterBlockers(id);
@@ -191,7 +191,7 @@ static partial class Game
                     m.Walk.Teleport(stop.X, stop.Y, now);
                     frame.Move(id, stop.X, stop.Y);
                     // A chaser's next order paths it again; a Move's client does so itself when its walk ends short.
-                    if (m.LastTarget is { } target && m is not { Hostile: true, Attack.Ranged: false }) m.Walk.Repath(target, now);
+                    if (m.LastTarget is { } target && m is not { Hostile: true, Attack.Ranged: false }) m.Walk.Order(target.X, target.Y, now);
                 }
                 m.CollisionPosition = stop;
             }

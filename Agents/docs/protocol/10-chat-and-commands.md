@@ -369,7 +369,7 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   Monsters with negative footprints chase directly without taking a slot; stationary objects and walls still block them.
   A ring-0 slot is kept while it stays free and on the ring. Before, every monster aimed at the cell on the line
   toward itself, so a pack from one side queued in a wedge and only the front ones attacked. The server follows each monster's walk with
-  a `WalkEstimator` (A* on the walk map) at MonsterVarieties `MovementSpeed` cells/s (8 for Hungry Corpse, 44 for Haku)
+  a `PlayerWalk` (the client's pathfinder on the walk map) at MonsterVarieties `MovementSpeed` cells/s (8 for Hungry Corpse, 44 for Haku)
   and reports that position as the action's start; live, the chase showed no snapping, so the estimate keeps up. All
   sends go through one lock per connection (the AI tick and the read loop share the Salsa20 stream).
 - **Team** (live 2026-10-17). Positioned's u16 at `+0x1e0` (after x, y and the f32 at `+0x29c`) is the object's team;

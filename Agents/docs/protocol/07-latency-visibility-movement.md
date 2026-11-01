@@ -131,7 +131,7 @@ confirmation (`InstanceProtocol.ActionStarted`), so any smaller error stays unti
 The first version sent the target in the position pair: long clicks teleported the player, sometimes onto unwalkable
 cells past the town edge (toward The Coast), where the client could no longer path anywhere. The server therefore keeps
 its own copy of the player's walk, and since 2026-10-21 that copy is the client's own algorithm, ported 1:1
-(`ClientPathfinder`, `PlayerWalk`). The earlier fitted A* (`WalkEstimator`, still used for monsters) drifted by a median
+(`ClientPathfinder`, `PlayerWalk`). The earlier fitted A* (`WalkEstimator`, used for monsters until 2026-11-01, still used for pets) drifted by a median
 13 cells and up to 50 on held-mouse walks: it walked zig-zag cell paths where the client walks straight lines, rounded
 to whole cells on every re-order, walked through NPCs and refused detours the client takes.
 
@@ -240,8 +240,10 @@ of its own length (`ShowFreeze`).
 does). A target past the walkable ground ends where the line to it does. Aimed at a monster it lands on the monster, by
 the 0x24 path. Whirling Blades and Dash do not stop at the target: they travel 40 and 33 cells along the aimed line and
 stop at the first cell they cannot walk (no stat carries either number). The client can still refuse a skill the server
-has landed (a Lightning Warp often), so a resync follows at the end of the action, and the once-a-second one waits for
-it: until then the server has the player landed and the client has it on its way. Leap Slam, Flame Dash, Lightning Warp,
+has landed (a Lightning Warp often), so a resync follows at the end of the action, and every other resync but a stun's
+waits for it: until then the server has the player landed and the client has it on its way. ActiveSkillType Movement also
+covers skills that leave the player where it stands when used (Mirror Arrow, Smoke Mine, Phase Run, Chain Hook, Withering
+Step, Ambush), and channelled ones, which report their own way: none of these moves the estimate. Leap Slam, Flame Dash, Lightning Warp,
 Whirling Blades and Dash were checked live; the player's p90 is under 3 cells after landing, with a brief spike while the
 client travels, since the server lands at once.
 
