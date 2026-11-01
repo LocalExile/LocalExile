@@ -444,6 +444,26 @@ It lights each trial from the flags above (`0x140b76170` → `0x141f69230`); the
 Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes window, not this one: the other HUD class
 (`0x140d65b50`) keeps the plaque window at +0xa30.
 
+## The Lord's Labyrinth quest
+
+Quest rows 51–61 (`labyrinth_a1` … `labyrinth_a11`, "The Lord's Labyrinth", one per act and one for the maps) have no
+script: the client picks their tracker text from the flags (QuestStates, [12](../protocol/12-quests.md) §1).
+Besides `FlagsPresent` / `FlagsMissing`, a row lists league quest flags that must be set (column 13: the trials of
+the tiers before) or clear (column 14: the area's own trial), and the areas it shows in (`Area`).
+In a trial's area the first matching row gives:
+
+| Flags | Tracker |
+|---|---|
+| `LabyrinthQuestReceived`, the area's trial not done | Solve the Trial of Ascendancy in this Area |
+| the six Normal trials done, no `LabyrinthAccess` (act 3: also in Sarn) | Enter the Labyrinth (in the Sarn Encampment) |
+| `LabyrinthAccess`, no `LabyrinthComplete1` | Complete the Labyrinth |
+| `LabyrinthQuestReceived`, not all done | Solve the Trials of Ascendancy |
+
+The Cruel and Merciless rows go on with `LabyrinthComplete1` / `LabyrinthComplete2` and the tiers' trials.
+The Gateway sets `LabyrinthQuestReceived` (`Quests.LabyrinthQuestReceived`) when the character enters an area with a
+trial, before the player object is sent; which event sets it in the real game is not known.
+`LabyrinthAccess` (every Labyrinth area's `EndQuestFlags`) and `LabyrinthComplete1`–`3` come with the runs, not built yet.
+
 ## Not built yet
 
 - The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.

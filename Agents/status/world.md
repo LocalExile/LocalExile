@@ -169,6 +169,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   flag, saved for the account's league so the trial is done for each of its characters there (the client counts it
   done), opens the portal back to the door and opens the Trial Plaque window (0x7b kind 9) with the trials done; a
   done trial's portal too opens only when its plaque is used.
+  Entering a trial's area gives the Lord's Labyrinth quest (`LabyrinthQuestReceived`): the client's tracker then says
+  "Solve the Trial of Ascendancy in this Area" until it is done, and "Enter the Labyrinth" once the six Normal trials
+  are ([labyrinth-trials](../docs/game/labyrinth-trials.md), "The Lord's Labyrinth quest"). Being checked live.
   What an instance opened stays open; an opened Locked Door is removed, since the client keeps its cells closed.
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
