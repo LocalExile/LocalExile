@@ -10,22 +10,26 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class MagicProperties
 {
-    public const ushort Identified = 0x08, CustomName = 0x80, NameWords = 0x100;
+    public const ushort Identified = 0x08, CustomName = 0x80, NameWords = 0x100, AlternateQuality = 0x200;
 
     static readonly ModSection[] Order = [ModSection.Implicit, ModSection.Enchant, ModSection.Scourge, ModSection.Hidden];
 
     /// <summary>Writes the base magic properties. Unidentified objects send no explicit list and no name;
     /// <paramref name="customName"/> wins over <paramref name="nameWords"/> (the reader takes bit 7 first).</summary>
     public static void Write(BlobWriter w, byte rarity, bool identified, IReadOnlyList<ItemMod> mods,
-        IReadOnlyList<uint>? nameWords = null, string? customName = null, byte u7a = 0)
+        IReadOnlyList<uint>? nameWords = null, string? customName = null, byte u7a = 0,
+        byte? alternateQualityType = null, byte alternateQualityValue = 0)
     {
         var sections = mods.Where(m => identified || m.Section != ModSection.Explicit).GroupBy(m => m.Section)
             .ToDictionary(g => g.Key, g => g.ToList());
         bool custom = identified && customName is not null;
         bool words = identified && !custom && nameWords is { Count: > 0 };
-        ushort flags = (ushort)(rarity & 7 | (identified ? Identified : 0) | (custom ? CustomName : 0) | (words ? NameWords : 0));
+        ushort flags = (ushort)(rarity & 7 | (identified ? Identified : 0) | (custom ? CustomName : 0) | (words ? NameWords : 0)
+            | (alternateQualityType is not null ? AlternateQuality : 0));
         foreach (var s in sections.Keys) flags |= (ushort)(1 << (byte)s);
         w.U16(flags).U8(u7a);
+        if (alternateQualityType is byte row)
+            w.U8(row).U8(alternateQualityValue);
         foreach (var s in Order) List(w, sections, s);
         // The name comes between the lists read for every object and the identified-only explicit list.
         if (custom) w.WStr32(customName!);

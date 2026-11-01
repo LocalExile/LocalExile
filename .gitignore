@@ -21,6 +21,8 @@ PathOfExile*.exe
 # Only the dat schema is source.
 /data/*
 !/data/schema/
+!/data/divination-cards.json
+/_compat-game/
 /artifacts/
 /captures/
 

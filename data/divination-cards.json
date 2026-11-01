@@ -1,0 +1,2643 @@
+{
+    "A Chilling Wind":  {
+                            "stack":  4,
+                            "kind":  "gem",
+                            "item":  "Vaal Cold Snap",
+                            "corrupted":  true,
+                            "quality":  20,
+                            "gemLevel":  21
+                        },
+    "A Dab of Ink":  {
+                         "stack":  9,
+                         "kind":  "unique",
+                         "item":  "The Poet\u0027s Pen"
+                     },
+    "A Dusty Memory":  {
+                           "stack":  5,
+                           "kind":  "rare",
+                           "item":  "Item",
+                           "itemLevel":  100
+                       },
+    "A Familiar Call":  {
+                            "stack":  3,
+                            "kind":  "magic",
+                            "item":  "Jewellery of Farrul",
+                            "itemLevel":  100
+                        },
+    "A Fate Worse Than Death":  {
+                                    "stack":  4,
+                                    "kind":  "unique",
+                                    "item":  "Cortex",
+                                    "corrupted":  true
+                                },
+    "A Modest Request":  {
+                             "stack":  3,
+                             "kind":  "unique",
+                             "item":  "Megalomaniac",
+                             "corrupted":  true
+                         },
+    "A Mother\u0027s Parting Gift":  {
+                                         "stack":  6,
+                                         "kind":  "unique",
+                                         "item":  "Fertile Mind",
+                                         "corrupted":  true
+                                     },
+    "A Note in the Wind":  {
+                               "stack":  4,
+                               "kind":  "unique",
+                               "item":  "Asenath\u0027s Mark"
+                           },
+    "A Sea of Blue":  {
+                          "stack":  3,
+                          "kind":  "currency",
+                          "item":  "Orb of Alteration",
+                          "count":  13
+                      },
+    "A Stone Perfected":  {
+                              "stack":  5,
+                              "kind":  "unique",
+                              "item":  "Jewel",
+                              "corrupted":  true
+                          },
+    "Abandoned Wealth":  {
+                             "stack":  5,
+                             "kind":  "currency",
+                             "item":  "Exalted Orb",
+                             "count":  3
+                         },
+    "Acclimatisation":  {
+                            "stack":  2,
+                            "kind":  "currency",
+                            "item":  "Orb of Alteration",
+                            "count":  20
+                        },
+    "Akil\u0027s Prophecy":  {
+                                 "stack":  3,
+                                 "kind":  "unique",
+                                 "item":  "Elegant Round Shield",
+                                 "twoImplicit":  true,
+                                 "corrupted":  true
+                             },
+    "Alivia\u0027s Grace":  {
+                                "stack":  6,
+                                "kind":  "unique",
+                                "item":  "Queen of the Forest"
+                            },
+    "Alluring Bounty":  {
+                            "stack":  7,
+                            "kind":  "currency",
+                            "item":  "Exalted Orb",
+                            "count":  10
+                        },
+    "Alone in the Darkness":  {
+                                  "stack":  5,
+                                  "kind":  "unique",
+                                  "item":  "Delve Item"
+                              },
+    "Altered Perception":  {
+                               "stack":  3,
+                               "kind":  "currency",
+                               "item":  "Simulacrum"
+                           },
+    "Ambitious Obsession":  {
+                                "stack":  4,
+                                "kind":  "currency",
+                                "item":  "Skittering Delirium Orb"
+                            },
+    "Anarchy\u0027s Price":  {
+                                 "stack":  13,
+                                 "kind":  "unique",
+                                 "item":  "Voltaxic Rift",
+                                 "corrupted":  true
+                             },
+    "Apocalypse":  {
+                       "stack":  2,
+                       "kind":  "unique",
+                       "item":  "Eyes of the Greatwolf",
+                       "corrupted":  true,
+                       "itemLevel":  82
+                   },
+    "Arrogance of the Vaal":  {
+                                  "stack":  8,
+                                  "kind":  "random_unique",
+                                  "twoImplicit":  true,
+                                  "corrupted":  true
+                              },
+    "Assassin\u0027s Favour":  {
+                                   "stack":  9,
+                                   "kind":  "unique",
+                                   "item":  "Dagger"
+                               },
+    "Assassin\u0027s Gift":  {
+                                 "stack":  9,
+                                 "kind":  "unique",
+                                 "item":  "Divinarius",
+                                 "twoImplicit":  true,
+                                 "corrupted":  true
+                             },
+    "Astral Protection":  {
+                              "stack":  5,
+                              "kind":  "normal",
+                              "item":  "Shield"
+                          },
+    "Atziri\u0027s Arsenal":  {
+                                  "stack":  4,
+                                  "kind":  "unique",
+                                  "item":  "Weapon",
+                                  "corrupted":  true
+                              },
+    "Audacity":  {
+                     "stack":  5,
+                     "kind":  "unique",
+                     "item":  "Doryani\u0027s Fist",
+                     "corrupted":  true
+                 },
+    "Auspicious Ambitions":  {
+                                 "stack":  4,
+                                 "kind":  "normal",
+                                 "item":  "Experimented Item",
+                                 "itemLevel":  100
+                             },
+    "Avian Pursuit":  {
+                          "stack":  3,
+                          "kind":  "currency",
+                          "item":  "Vivid Crystallised Lifeforce",
+                          "count":  500
+                      },
+    "Azure Rage":  {
+                       "stack":  4,
+                       "kind":  "magic",
+                       "item":  "Punishing MapMap Tier: 16"
+                   },
+    "Azyran\u0027s Reward":  {
+                                 "stack":  9,
+                                 "kind":  "unique",
+                                 "item":  "Prismatic Jewel",
+                                 "corrupted":  true
+                             },
+    "Baited Expectations":  {
+                                "stack":  8,
+                                "kind":  "unique",
+                                "item":  "Fishing Item"
+                            },
+    "Beauty Through Death":  {
+                                 "stack":  5,
+                                 "kind":  "unique",
+                                 "item":  "Atziri\u0027s Reflection"
+                             },
+    "Bijoux":  {
+                   "stack":  3,
+                   "kind":  "rare",
+                   "item":  "Cluster Jewel",
+                   "itemLevel":  84
+               },
+    "Blind Venture":  {
+                          "stack":  7,
+                          "kind":  "unique",
+                          "item":  "Ring",
+                          "corrupted":  true
+                      },
+    "Boon of Justice":  {
+                            "stack":  6,
+                            "kind":  "normal",
+                            "item":  "Offering to the Goddess"
+                        },
+    "Boon of the First Ones":  {
+                                   "stack":  6,
+                                   "kind":  "unique",
+                                   "item":  "Bestiary Item"
+                               },
+    "Bound by Flame":  {
+                           "stack":  2,
+                           "kind":  "gem",
+                           "item":  "Flame Link",
+                           "quality":  20,
+                           "gemLevel":  21
+                       },
+    "Boundless Realms":  {
+                             "stack":  4,
+                             "kind":  "normal",
+                             "item":  "Map"
+                         },
+    "Bowyer\u0027s Dream":  {
+                                "stack":  6,
+                                "kind":  "normal",
+                                "item":  "Harbinger Bow",
+                                "sixLink":  true,
+                                "itemLevel":  91
+                            },
+    "Broken Truce":  {
+                         "stack":  5,
+                         "kind":  "unique",
+                         "item":  "Cold Iron Point"
+                     },
+    "Brother\u0027s Gift":  {
+                                "stack":  1,
+                                "kind":  "currency",
+                                "item":  "Divine Orb",
+                                "count":  5
+                            },
+    "Brother\u0027s Stash":  {
+                                 "stack":  1,
+                                 "kind":  "currency",
+                                 "item":  "Exalted Orb",
+                                 "count":  5
+                             },
+    "Brotherhood in Exile":  {
+                                 "stack":  5,
+                                 "kind":  "unique",
+                                 "item":  "One With Nothing",
+                                 "corrupted":  true
+                             },
+    "Brush, Paint and Palette":  {
+                                     "stack":  5,
+                                     "kind":  "card",
+                                     "item":  "The Artist"
+                                 },
+    "Buried Treasure":  {
+                            "stack":  3,
+                            "kind":  "normal",
+                            "item":  "Sulphite Scarab"
+                        },
+    "Burning Blood":  {
+                          "stack":  6,
+                          "kind":  "unique",
+                          "item":  "Xoph\u0027s Blood",
+                          "corrupted":  true
+                      },
+    "Call to the First Ones":  {
+                                   "stack":  5,
+                                   "kind":  "rare",
+                                   "item":  "Talisman"
+                               },
+    "Cameria\u0027s Cut":  {
+                               "stack":  2,
+                               "kind":  "normal",
+                               "item":  "Scarab"
+                           },
+    "Cartographer\u0027s Delight":  {
+                                        "stack":  3,
+                                        "kind":  "normal",
+                                        "item":  "Map"
+                                    },
+    "Chaotic Disposition":  {
+                                "stack":  1,
+                                "kind":  "currency",
+                                "item":  "Chaos Orb",
+                                "count":  5
+                            },
+    "Chasing Risk":  {
+                         "stack":  4,
+                         "kind":  "unique",
+                         "item":  "Synthesis Item"
+                     },
+    "Checkmate":  {
+                      "stack":  8,
+                      "kind":  "currency",
+                      "item":  "Simulacrum Splinter",
+                      "count":  76
+                  },
+    "Choking Guilt":  {
+                          "stack":  6,
+                          "kind":  "unique",
+                          "item":  "Stranglegasp"
+                      },
+    "Costly Curio":  {
+                         "stack":  6,
+                         "kind":  "unique",
+                         "item":  "ItemDouble-"
+                     },
+    "Council of Cats":  {
+                            "stack":  4,
+                            "kind":  "unique",
+                            "item":  "Farrul Item"
+                        },
+    "Coveted Possession":  {
+                               "stack":  9,
+                               "kind":  "currency",
+                               "item":  "Regal Orb",
+                               "count":  5
+                           },
+    "Cursed Words":  {
+                         "stack":  13,
+                         "kind":  "unique",
+                         "item":  "Maw of Mischief"
+                     },
+    "Damnation":  {
+                      "stack":  16,
+                      "kind":  "unique",
+                      "item":  "The Original Scripture",
+                      "itemLevel":  83
+                  },
+    "Dark Dreams":  {
+                        "stack":  4,
+                        "kind":  "rare",
+                        "item":  "Bone Helmet"
+                    },
+    "Dark Temptation":  {
+                            "stack":  5,
+                            "kind":  "unique",
+                            "item":  "Obliteration"
+                        },
+    "Darker Half":  {
+                        "stack":  3,
+                        "kind":  "currency",
+                        "item":  "Eldritch Chaos Orb",
+                        "count":  5
+                    },
+    "Deadly Joy":  {
+                       "stack":  6,
+                       "kind":  "unique",
+                       "item":  "Torrent\u0027s Reclamation",
+                       "twoImplicit":  true,
+                       "corrupted":  true
+                   },
+    "Death":  {
+                  "stack":  4,
+                  "kind":  "unique",
+                  "item":  "Mon\u0027tregul\u0027s Grasp"
+              },
+    "Deathly Designs":  {
+                            "stack":  7,
+                            "kind":  "gem",
+                            "item":  "Trap Gem",
+                            "corrupted":  true,
+                            "quality":  23,
+                            "gemLevel":  21
+                        },
+    "Dementophobia":  {
+                          "stack":  11,
+                          "kind":  "currency",
+                          "item":  "Delirium Orb",
+                          "count":  10
+                      },
+    "Demigod\u0027s Wager":  {
+                                 "stack":  7,
+                                 "kind":  "currency",
+                                 "item":  "Orb of Annulment"
+                             },
+    "Desecrated Virtue":  {
+                              "stack":  9,
+                              "kind":  "gem",
+                              "item":  "Exceptional Support Gem",
+                              "corrupted":  true,
+                              "quality":  23,
+                              "gemLevel":  4
+                          },
+    "Desperate Crusade":  {
+                              "stack":  3,
+                              "kind":  "unique",
+                              "item":  "Prism Guardian"
+                          },
+    "Destined to Crumble":  {
+                                "stack":  5,
+                                "kind":  "rare",
+                                "item":  "Body Armour",
+                                "itemLevel":  100
+                            },
+    "Dialla\u0027s Subjugation":  {
+                                      "stack":  7,
+                                      "kind":  "gem",
+                                      "item":  "Support Gem",
+                                      "corrupted":  true,
+                                      "quality":  23
+                                  },
+    "Disdain":  {
+                    "stack":  5,
+                    "kind":  "currency",
+                    "item":  "Delirium Orb"
+                },
+    "Divine Beauty":  {
+                          "stack":  12,
+                          "kind":  "currency",
+                          "item":  "Divine Orb",
+                          "count":  7
+                      },
+    "Divine Justice":  {
+                           "stack":  1,
+                           "kind":  "unique",
+                           "item":  "Grand Spectrum",
+                           "corrupted":  true
+                       },
+    "Divine Shard":  {
+                         "stack":  2,
+                         "kind":  "normal",
+                         "item":  "Divine Vessel"
+                     },
+    "Doedre\u0027s Madness":  {
+                                  "stack":  9,
+                                  "kind":  "unique",
+                                  "item":  "Doedre Item"
+                              },
+    "Doryani\u0027s Epiphany":  {
+                                    "stack":  3,
+                                    "kind":  "gem",
+                                    "item":  "Transfigured Gem",
+                                    "corrupted":  true,
+                                    "quality":  20,
+                                    "gemLevel":  21
+                                },
+    "Draped in Dreams":  {
+                             "stack":  5,
+                             "kind":  "normal",
+                             "item":  "Astral Plate",
+                             "sixLink":  true,
+                             "itemLevel":  100
+                         },
+    "Duality":  {
+                    "stack":  2,
+                    "kind":  "normal",
+                    "item":  "Body Armour",
+                    "itemLevel":  100
+                },
+    "Dying Anguish":  {
+                          "stack":  8,
+                          "kind":  "gem",
+                          "item":  "Transfigured Gem",
+                          "quality":  19,
+                          "gemLevel":  19
+                      },
+    "Dying Light":  {
+                        "stack":  10,
+                        "kind":  "rare",
+                        "item":  "Diamond Ring",
+                        "itemLevel":  100
+                    },
+    "Earth Drinker":  {
+                          "stack":  5,
+                          "kind":  "unique",
+                          "item":  "Granite Flask"
+                      },
+    "Echoes of Love":  {
+                           "stack":  3,
+                           "kind":  "unique",
+                           "item":  "Fidelitas\u0027 Spike",
+                           "twoImplicit":  true,
+                           "corrupted":  true
+                       },
+    "Eldritch Perfection":  {
+                                "stack":  4,
+                                "kind":  "normal",
+                                "item":  "Item",
+                                "itemLevel":  100
+                            },
+    "Emperor of Purity":  {
+                              "stack":  7,
+                              "kind":  "normal",
+                              "item":  "Holy Chainmail",
+                              "sixLink":  true,
+                              "itemLevel":  60
+                          },
+    "Emperor\u0027s Luck":  {
+                                "stack":  5,
+                                "kind":  "currency",
+                                "item":  "Currency",
+                                "count":  5
+                            },
+    "Endless Night":  {
+                          "stack":  7,
+                          "kind":  "unique",
+                          "item":  "Maloney\u0027s Mechanism"
+                      },
+    "Energy Sword":  {
+                         "stack":  3,
+                         "kind":  "unique",
+                         "item":  "Ephemeral Edge"
+                     },
+    "Etched in Blood":  {
+                            "stack":  9,
+                            "kind":  "unique",
+                            "item":  "Rigwald\u0027s Quills",
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "Eternal Bonds":  {
+                          "stack":  4,
+                          "kind":  "unique",
+                          "item":  "Replica Cortex"
+                      },
+    "Ever-Changing":  {
+                          "stack":  3,
+                          "kind":  "currency",
+                          "item":  "Orb of Unmaking",
+                          "count":  10
+                      },
+    "Fateful Meeting":  {
+                            "stack":  9,
+                            "kind":  "unique",
+                            "item":  "League-Specific Item",
+                            "itemLevel":  97,
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "Father\u0027s Love":  {
+                               "stack":  2,
+                               "kind":  "unique",
+                               "item":  "Sublime Vision"
+                           },
+    "Fire Of Unknown Origin":  {
+                                   "stack":  7,
+                                   "kind":  "unique",
+                                   "item":  "Nimis"
+                               },
+    "Forbidden Power":  {
+                            "stack":  4,
+                            "kind":  "unique",
+                            "item":  "Balefire",
+                            "corrupted":  true
+                        },
+    "Friendship":  {
+                       "stack":  3,
+                       "kind":  "unique",
+                       "item":  "Aul\u0027s Uprising"
+                   },
+    "From Bone to Ashes":  {
+                               "stack":  8,
+                               "kind":  "unique",
+                               "item":  "Ngamahu\u0027s Flame",
+                               "twoImplicit":  true,
+                               "corrupted":  true
+                           },
+    "Further Invention":  {
+                              "stack":  4,
+                              "kind":  "magic",
+                              "item":  "Helmet",
+                              "itemLevel":  100
+                          },
+    "Gemcutter\u0027s Mercy":  {
+                                   "stack":  3,
+                                   "kind":  "gem",
+                                   "item":  "Empower, Enhance or Enlighten"
+                               },
+    "Gemcutter\u0027s Promise":  {
+                                     "stack":  3,
+                                     "kind":  "gem",
+                                     "item":  "Gem",
+                                     "quality":  20
+                                 },
+    "Gift of Asenath":  {
+                            "stack":  5,
+                            "kind":  "unique",
+                            "item":  "Asenath\u0027s Gentle Touch",
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "Gift of the Gemling Queen":  {
+                                      "stack":  9,
+                                      "kind":  "gem",
+                                      "item":  "Support Gem",
+                                      "gemLevel":  20
+                                  },
+    "Glimmer of Hope":  {
+                            "stack":  8,
+                            "kind":  "unique",
+                            "item":  "Gold Ring"
+                        },
+    "Grave Knowledge":  {
+                            "stack":  6,
+                            "kind":  "gem",
+                            "item":  "Summon Raging Spirit",
+                            "quality":  20
+                        },
+    "Guardian\u0027s Challenge":  {
+                                      "stack":  4,
+                                      "kind":  "normal",
+                                      "item":  "Shaper Guardian Map"
+                                  },
+    "Harmony of Souls":  {
+                             "stack":  9,
+                             "kind":  "currency",
+                             "item":  "Shrieking Essence",
+                             "count":  9
+                         },
+    "Haunting Shadows":  {
+                             "stack":  4,
+                             "kind":  "unique",
+                             "item":  "Metamorph Item"
+                         },
+    "Her Mask":  {
+                     "stack":  4,
+                     "kind":  "normal",
+                     "item":  "Sacrifice Fragment"
+                 },
+    "Heterochromia":  {
+                          "stack":  2,
+                          "kind":  "unique",
+                          "item":  "Two-Stone Ring"
+                      },
+    "History":  {
+                    "stack":  5,
+                    "kind":  "currency",
+                    "item":  "Hinekora\u0027s Lock",
+                    "count":  2
+                },
+    "Home":  {
+                 "stack":  3,
+                 "kind":  "gem",
+                 "item":  "Exceptional Support Gem"
+             },
+    "Hope":  {
+                 "stack":  5,
+                 "kind":  "unique",
+                 "item":  "Prismatic Ring",
+                 "corrupted":  true
+             },
+    "House of Mirrors":  {
+                             "stack":  9,
+                             "kind":  "currency",
+                             "item":  "Mirror of Kalandra"
+                         },
+    "Hubris":  {
+                   "stack":  5,
+                   "kind":  "unique",
+                   "item":  "Ring"
+               },
+    "Humility":  {
+                     "stack":  9,
+                     "kind":  "unique",
+                     "item":  "Tabula Rasa"
+                 },
+    "Hunter\u0027s Resolve":  {
+                                  "stack":  8,
+                                  "kind":  "unique",
+                                  "item":  "Bow"
+                              },
+    "Hunter\u0027s Reward":  {
+                                 "stack":  3,
+                                 "kind":  "unique",
+                                 "item":  "The Taming"
+                             },
+    "I See Brothers":  {
+                           "stack":  2,
+                           "kind":  "currency",
+                           "item":  "Fracturing Orb",
+                           "count":  2
+                       },
+    "Immortal Resolve":  {
+                             "stack":  6,
+                             "kind":  "normal",
+                             "item":  "Body Armour",
+                             "sixLink":  true
+                         },
+    "Imperfect Memories":  {
+                               "stack":  5,
+                               "kind":  "currency",
+                               "item":  "Astrolabe"
+                           },
+    "Imperial Legacy":  {
+                            "stack":  22,
+                            "kind":  "normal",
+                            "item":  "Imperial Bow",
+                            "sixLink":  true,
+                            "itemLevel":  100
+                        },
+    "Jack in the Box":  {
+                            "stack":  4,
+                            "kind":  "random_unique"
+                        },
+    "Judging Voices":  {
+                           "stack":  9,
+                           "kind":  "unique",
+                           "item":  "Forbidden Shako"
+                       },
+    "Justified Ambition":  {
+                               "stack":  5,
+                               "kind":  "unique",
+                               "item":  "Synthesis Map"
+                           },
+    "Keeper\u0027s Corruption":  {
+                                     "stack":  7,
+                                     "kind":  "magic",
+                                     "item":  "Eldritch Bone Helmet (Concentrated Effect)",
+                                     "itemLevel":  89
+                                 },
+    "Lachrymal Necrosis":  {
+                               "stack":  3,
+                               "kind":  "rare",
+                               "item":  "Jewel",
+                               "corrupted":  true
+                           },
+    "Lantador\u0027s Lost Love":  {
+                                      "stack":  7,
+                                      "kind":  "rare",
+                                      "item":  "Two-Stone Ring"
+                                  },
+    "Last Hope":  {
+                      "stack":  3,
+                      "kind":  "normal",
+                      "item":  "Mortal Hope"
+                  },
+    "Last Stand":  {
+                       "stack":  3,
+                       "kind":  "unique",
+                       "item":  "The Surrender"
+                   },
+    "Left to Fate":  {
+                         "stack":  4,
+                         "kind":  "rare",
+                         "item":  "Map",
+                         "corrupted":  true
+                     },
+    "Lethean Temptation":  {
+                               "stack":  6,
+                               "kind":  "unique",
+                               "item":  "Nebulis"
+                           },
+    "Light and Truth":  {
+                            "stack":  2,
+                            "kind":  "unique",
+                            "item":  "Crystal Sceptre"
+                        },
+    "Lingering Remnants":  {
+                               "stack":  16,
+                               "kind":  "rare",
+                               "item":  "Vaal Temple Map",
+                               "corrupted":  true
+                           },
+    "Lonely Warrior":  {
+                           "stack":  10,
+                           "kind":  "unique",
+                           "item":  "Defiance of Destiny"
+                       },
+    "Lost Worlds":  {
+                        "stack":  8,
+                        "kind":  "normal",
+                        "item":  "Map"
+                    },
+    "Love Through Ice":  {
+                             "stack":  4,
+                             "kind":  "unique",
+                             "item":  "Unnatural Instinct",
+                             "twoImplicit":  true,
+                             "corrupted":  true
+                         },
+    "Loyalty":  {
+                    "stack":  5,
+                    "kind":  "currency",
+                    "item":  "Orb of Fusing",
+                    "count":  3
+                },
+    "Lucky Bastion":  {
+                          "stack":  6,
+                          "kind":  "unique",
+                          "item":  "Svalinn"
+                      },
+    "Lucky Connections":  {
+                              "stack":  7,
+                              "kind":  "currency",
+                              "item":  "Orb of Fusing",
+                              "count":  20
+                          },
+    "Lucky Deck":  {
+                       "stack":  9,
+                       "kind":  "currency",
+                       "item":  "Stacked Deck",
+                       "count":  10
+                   },
+    "Luminous Trove":  {
+                           "stack":  7,
+                           "kind":  "unique",
+                           "item":  "Voices",
+                           "corrupted":  true
+                       },
+    "Lysah\u0027s Respite":  {
+                                 "stack":  6,
+                                 "kind":  "unique",
+                                 "item":  "Agate Amulet",
+                                 "corrupted":  true
+                             },
+    "Man With Bear":  {
+                          "stack":  3,
+                          "kind":  "normal",
+                          "item":  "Bestiary Scarab"
+                      },
+    "Matryoshka":  {
+                       "stack":  8,
+                       "kind":  "unique",
+                       "item":  "ItemVestigial",
+                       "itemLevel":  86
+                   },
+    "Mawr Blaidd":  {
+                        "stack":  16,
+                        "kind":  "unique",
+                        "item":  "Eyes of the Greatwolf"
+                    },
+    "Merciless Armament":  {
+                               "stack":  4,
+                               "kind":  "magic",
+                               "item":  "Merciless Two-Hand Weapon",
+                               "itemLevel":  100
+                           },
+    "Might is Right":  {
+                           "stack":  9,
+                           "kind":  "unique",
+                           "item":  "Trypanon"
+                       },
+    "Misery in Darkness":  {
+                               "stack":  6,
+                               "kind":  "unique",
+                               "item":  "Shroud of the Lightless"
+                           },
+    "Mitts":  {
+                  "stack":  5,
+                  "kind":  "unique",
+                  "item":  "Gloves"
+              },
+    "Monochrome":  {
+                       "stack":  3,
+                       "kind":  "currency",
+                       "item":  "Valdo\u0027s Puzzle Box"
+                   },
+    "More is Never Enough":  {
+                                 "stack":  7,
+                                 "kind":  "normal",
+                                 "item":  "Scarab",
+                                 "count":  4
+                             },
+    "No Traces":  {
+                      "stack":  9,
+                      "kind":  "currency",
+                      "item":  "Orb of Scouring",
+                      "count":  30
+                  },
+    "Nook\u0027s Crown":  {
+                              "stack":  4,
+                              "kind":  "rare",
+                              "item":  "Bone Helmet",
+                              "itemLevel":  100
+                          },
+    "One Last Score":  {
+                           "stack":  5,
+                           "kind":  "normal",
+                           "item":  "Experimented Jewellery",
+                           "itemLevel":  86
+                       },
+    "Outfoxed":  {
+                     "stack":  2,
+                     "kind":  "currency",
+                     "item":  "Veiled Exalted Orb"
+                 },
+    "Peaceful Moments":  {
+                             "stack":  5,
+                             "kind":  "unique",
+                             "item":  "Timeless Jewel"
+                         },
+    "Pearls Before Swine":  {
+                                "stack":  3,
+                                "kind":  "unique",
+                                "item":  "Progenesis"
+                            },
+    "Perfection":  {
+                       "stack":  5,
+                       "kind":  "rare",
+                       "item":  "Jewellery",
+                       "itemLevel":  100
+                   },
+    "Poisoned Faith":  {
+                           "stack":  8,
+                           "kind":  "unique",
+                           "item":  "Arakaali\u0027s Fang",
+                           "corrupted":  true
+                       },
+    "Prejudice":  {
+                      "stack":  7,
+                      "kind":  "random_unique"
+                  },
+    "Pride Before the Fall":  {
+                                  "stack":  8,
+                                  "kind":  "unique",
+                                  "item":  "Kaom\u0027s Heart",
+                                  "corrupted":  true
+                              },
+    "Pride of the First Ones":  {
+                                    "stack":  7,
+                                    "kind":  "unique",
+                                    "item":  "Farrul\u0027s Fur"
+                                },
+    "Prometheus\u0027 Armoury":  {
+                                     "stack":  6,
+                                     "kind":  "rare",
+                                     "item":  "One-Hand Weapon",
+                                     "itemLevel":  100
+                                 },
+    "Prosperity":  {
+                       "stack":  10,
+                       "kind":  "magic",
+                       "item":  "Perandus\u0027 Gold Ring"
+                   },
+    "Rain of Chaos":  {
+                          "stack":  8,
+                          "kind":  "currency",
+                          "item":  "Chaos Orb"
+                      },
+    "Rain Tempter":  {
+                         "stack":  9,
+                         "kind":  "normal",
+                         "item":  "Map"
+                     },
+    "Rats":  {
+                 "stack":  8,
+                 "kind":  "unique",
+                 "item":  "Rat\u0027s Nest"
+             },
+    "Rebirth":  {
+                    "stack":  27,
+                    "kind":  "unique",
+                    "item":  "Charan\u0027s Sword"
+                },
+    "Rebirth and Renewal":  {
+                                "stack":  4,
+                                "kind":  "normal",
+                                "item":  "Horned Scarab"
+                            },
+    "Reckless Ambition":  {
+                              "stack":  6,
+                              "kind":  "unique",
+                              "item":  "Omeyocan"
+                          },
+    "Reflection of the Heart":  {
+                                    "stack":  2,
+                                    "kind":  "unique",
+                                    "item":  "Kalandra\u0027s Touch"
+                                },
+    "Remembrance":  {
+                        "stack":  8,
+                        "kind":  "unique",
+                        "item":  "Precursor\u0027s Emblem",
+                        "corrupted":  true
+                    },
+    "Runic Luck":  {
+                       "stack":  4,
+                       "kind":  "currency",
+                       "item":  "Vendor Refresh Currency",
+                       "count":  10
+                   },
+    "Sambodhi\u0027s Vow":  {
+                                "stack":  3,
+                                "kind":  "normal",
+                                "item":  "Mortal Fragment"
+                            },
+    "Sambodhi\u0027s Wisdom":  {
+                                   "stack":  3,
+                                   "kind":  "unique",
+                                   "item":  "Tabula Rasa",
+                                   "twoImplicit":  true,
+                                   "corrupted":  true
+                               },
+    "Scholar of the Seas":  {
+                                "stack":  7,
+                                "kind":  "unique",
+                                "item":  "Mao Kun"
+                            },
+    "Seven Years Bad Luck":  {
+                                 "stack":  13,
+                                 "kind":  "currency",
+                                 "item":  "Mirror Shard"
+                             },
+    "Shard of Fate":  {
+                          "stack":  4,
+                          "kind":  "magic",
+                          "item":  "Vivid Jewel"
+                      },
+    "Silence and Frost":  {
+                              "stack":  7,
+                              "kind":  "unique",
+                              "item":  "The Pandemonius"
+                          },
+    "Society\u0027s Remorse":  {
+                                   "stack":  1,
+                                   "kind":  "currency",
+                                   "item":  "Orb of Alteration",
+                                   "count":  10
+                               },
+    "Something Dark":  {
+                           "stack":  5,
+                           "kind":  "normal",
+                           "item":  "Blueprint"
+                       },
+    "Squandered Prosperity":  {
+                                  "stack":  5,
+                                  "kind":  "unique",
+                                  "item":  "The Light of Meaning",
+                                  "corrupted":  true
+                              },
+    "Struck by Lightning":  {
+                                "stack":  3,
+                                "kind":  "magic",
+                                "item":  "Electrocuting Jewellery",
+                                "itemLevel":  76
+                            },
+    "Succor of the Sinless":  {
+                                  "stack":  6,
+                                  "kind":  "unique",
+                                  "item":  "Bottled Faith"
+                              },
+    "Temperance":  {
+                       "stack":  4,
+                       "kind":  "unique",
+                       "item":  "Relic",
+                       "itemLevel":  83
+                   },
+    "Terrible Secret of Space":  {
+                                     "stack":  8,
+                                     "kind":  "gem",
+                                     "item":  "Transfigured Golem Gem",
+                                     "corrupted":  true,
+                                     "quality":  23,
+                                     "gemLevel":  21
+                                 },
+    "The Academic":  {
+                         "stack":  8,
+                         "kind":  "unique",
+                         "item":  "Inspired Learning"
+                     },
+    "The Admirer":  {
+                        "stack":  9,
+                        "kind":  "unique",
+                        "item":  "Atziri Item"
+                    },
+    "The Adventuring Spirit":  {
+                                   "stack":  6,
+                                   "kind":  "unique",
+                                   "item":  "Victario\u0027s Influence"
+                               },
+    "The Aesthete":  {
+                         "stack":  8,
+                         "kind":  "unique",
+                         "item":  "Shavronne Item"
+                     },
+    "The Apothecary":  {
+                           "stack":  5,
+                           "kind":  "unique",
+                           "item":  "Mageblood"
+                       },
+    "The Archmage\u0027s Right Hand":  {
+                                           "stack":  7,
+                                           "kind":  "magic",
+                                           "item":  "Glyphic Prophecy Wand",
+                                           "itemLevel":  100
+                                       },
+    "The Arena Champion":  {
+                               "stack":  10,
+                               "kind":  "normal",
+                               "item":  "Map"
+                           },
+    "The Army of Blood":  {
+                              "stack":  6,
+                              "kind":  "unique",
+                              "item":  "Bloodbond"
+                          },
+    "The Artist":  {
+                       "stack":  11,
+                       "kind":  "gem",
+                       "item":  "Enhance",
+                       "corrupted":  true,
+                       "gemLevel":  4
+                   },
+    "The Aspirant":  {
+                         "stack":  5,
+                         "kind":  "magic",
+                         "item":  "ItemElevated Item"
+                     },
+    "The Astromancer":  {
+                            "stack":  7,
+                            "kind":  "unique",
+                            "item":  "The Eternity Shroud",
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "The Avenger":  {
+                        "stack":  12,
+                        "kind":  "unique",
+                        "item":  "Mjölner",
+                        "corrupted":  true
+                    },
+    "The Awakened":  {
+                         "stack":  6,
+                         "kind":  "rare",
+                         "item":  "Jewellery",
+                         "itemLevel":  86
+                     },
+    "The Battle Born":  {
+                            "stack":  5,
+                            "kind":  "unique",
+                            "item":  "Axe"
+                        },
+    "The Bear Woman":  {
+                           "stack":  6,
+                           "kind":  "magic",
+                           "item":  "Fecund Ursine PeltWarlord Item"
+                       },
+    "The Beast":  {
+                      "stack":  6,
+                      "kind":  "unique",
+                      "item":  "Belly of the Beast"
+                  },
+    "The Betrayal":  {
+                         "stack":  9,
+                         "kind":  "unique",
+                         "item":  "Maligaro\u0027s Virtuosity"
+                     },
+    "The Bitter Blossom":  {
+                               "stack":  3,
+                               "kind":  "gem",
+                               "item":  "Chaos Gem",
+                               "corrupted":  true,
+                               "quality":  23,
+                               "gemLevel":  21
+                           },
+    "The Blazing Fire":  {
+                             "stack":  6,
+                             "kind":  "unique",
+                             "item":  "Chin Sol"
+                         },
+    "The Blessing of Moosh":  {
+                                  "stack":  4,
+                                  "kind":  "gem",
+                                  "item":  "Transfigured Gem",
+                                  "corrupted":  true,
+                                  "gemLevel":  21
+                              },
+    "The Body":  {
+                     "stack":  4,
+                     "kind":  "unique",
+                     "item":  "Body Armour"
+                 },
+    "The Bones":  {
+                      "stack":  6,
+                      "kind":  "gem",
+                      "item":  "Vaal Summon Skeletons",
+                      "corrupted":  true,
+                      "gemLevel":  21
+                  },
+    "The Brawny Battle Mage":  {
+                                   "stack":  5,
+                                   "kind":  "magic",
+                                   "item":  "Merciless Tornado Wand",
+                                   "itemLevel":  100
+                               },
+    "The Breach":  {
+                       "stack":  4,
+                       "kind":  "unique",
+                       "item":  "Breach Item"
+                   },
+    "The Brittle Emperor":  {
+                                "stack":  8,
+                                "kind":  "unique",
+                                "item":  "Voll\u0027s Devotion",
+                                "corrupted":  true
+                            },
+    "The Cache":  {
+                      "stack":  6,
+                      "kind":  "unique",
+                      "item":  "Jewellery"
+                  },
+    "The Cacophony":  {
+                          "stack":  8,
+                          "kind":  "currency",
+                          "item":  "Deafening Essence",
+                          "count":  3
+                      },
+    "The Calling":  {
+                        "stack":  6,
+                        "kind":  "unique",
+                        "item":  "Beyond Item"
+                    },
+    "The Card Sharp":  {
+                           "stack":  4,
+                           "kind":  "normal",
+                           "item":  "Divination Scarab"
+                       },
+    "The Carrion Crow":  {
+                             "stack":  4,
+                             "kind":  "magic",
+                             "item":  "Life Armour"
+                         },
+    "The Cataclysm":  {
+                          "stack":  13,
+                          "kind":  "gem",
+                          "item":  "Spell Gem",
+                          "corrupted":  true,
+                          "gemLevel":  21
+                      },
+    "The Catalyst":  {
+                         "stack":  3,
+                         "kind":  "currency",
+                         "item":  "Vaal Orb"
+                     },
+    "The Catch":  {
+                      "stack":  18,
+                      "kind":  "normal",
+                      "item":  "Fishing Rod",
+                      "itemLevel":  99
+                  },
+    "The Celestial Justicar":  {
+                                   "stack":  6,
+                                   "kind":  "normal",
+                                   "item":  "Astral Plate",
+                                   "sixLink":  true
+                               },
+    "The Celestial Stone":  {
+                                "stack":  10,
+                                "kind":  "normal",
+                                "item":  "Opal Ring",
+                                "itemLevel":  100
+                            },
+    "The Chains that Bind":  {
+                                 "stack":  11,
+                                 "kind":  "normal",
+                                 "item":  "Body Armour",
+                                 "sixLink":  true
+                             },
+    "The Chosen":  {
+                       "stack":  5,
+                       "kind":  "unique",
+                       "item":  "Skin of the Lords",
+                       "corrupted":  true
+                   },
+    "The Coming Storm":  {
+                             "stack":  8,
+                             "kind":  "unique",
+                             "item":  "Lightning Coil"
+                         },
+    "The Conduit":  {
+                        "stack":  9,
+                        "kind":  "unique",
+                        "item":  "Doryani\u0027s Fist"
+                    },
+    "The Craving":  {
+                        "stack":  4,
+                        "kind":  "unique",
+                        "item":  "Unending Hunger"
+                    },
+    "The Cursed King":  {
+                            "stack":  8,
+                            "kind":  "unique",
+                            "item":  "Rigwald\u0027s Curse"
+                        },
+    "The Damned":  {
+                       "stack":  6,
+                       "kind":  "unique",
+                       "item":  "Soul Ripper"
+                   },
+    "The Dapper Prodigy":  {
+                               "stack":  6,
+                               "kind":  "normal",
+                               "item":  "Body Armour",
+                               "sixLink":  true,
+                               "itemLevel":  100
+                           },
+    "The Dark Mage":  {
+                          "stack":  6,
+                          "kind":  "normal",
+                          "item":  "Staff",
+                          "sixLink":  true,
+                          "itemLevel":  55
+                      },
+    "The Darkest Dream":  {
+                              "stack":  6,
+                              "kind":  "unique",
+                              "item":  "Severed in Sleep",
+                              "corrupted":  true
+                          },
+    "The Deal":  {
+                     "stack":  5,
+                     "kind":  "normal",
+                     "item":  "Cartography Scarab"
+                 },
+    "The Deceiver":  {
+                         "stack":  4,
+                         "kind":  "unique",
+                         "item":  "Belt of the Deceiver",
+                         "corrupted":  true
+                     },
+    "The Deep Ones":  {
+                          "stack":  5,
+                          "kind":  "unique",
+                          "item":  "Tidebreaker"
+                      },
+    "The Demon":  {
+                      "stack":  10,
+                      "kind":  "unique",
+                      "item":  "Headhunter",
+                      "twoImplicit":  true,
+                      "corrupted":  true
+                  },
+    "The Demoness":  {
+                         "stack":  5,
+                         "kind":  "unique",
+                         "item":  "Death\u0027s Hand"
+                     },
+    "The Destination":  {
+                            "stack":  9,
+                            "kind":  "unique",
+                            "item":  "Watcher\u0027s Eye",
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "The Doctor":  {
+                       "stack":  8,
+                       "kind":  "unique",
+                       "item":  "Headhunter"
+                   },
+    "The Doppelganger":  {
+                             "stack":  2,
+                             "kind":  "gem",
+                             "item":  "Mirror Arrow",
+                             "quality":  20
+                         },
+    "The Dragon":  {
+                       "stack":  4,
+                       "kind":  "unique",
+                       "item":  "Coruscating Elixir"
+                   },
+    "The Dragon\u0027s Heart":  {
+                                    "stack":  11,
+                                    "kind":  "gem",
+                                    "item":  "Empower",
+                                    "corrupted":  true,
+                                    "gemLevel":  4
+                                },
+    "The Dreamer":  {
+                        "stack":  6,
+                        "kind":  "unique",
+                        "item":  "Chayula Item"
+                    },
+    "The Dreamland":  {
+                          "stack":  8,
+                          "kind":  "unique",
+                          "item":  "Poorjoy\u0027s Asylum"
+                      },
+    "The Drunken Aristocrat":  {
+                                   "stack":  8,
+                                   "kind":  "unique",
+                                   "item":  "Divination Distillate"
+                               },
+    "The Dungeon Master":  {
+                               "stack":  7,
+                               "kind":  "unique",
+                               "item":  "Belt"
+                           },
+    "The Easy Stroll":  {
+                            "stack":  2,
+                            "kind":  "rare",
+                            "item":  "Map",
+                            "corrupted":  true
+                        },
+    "The Eldritch Decay":  {
+                               "stack":  4,
+                               "kind":  "normal",
+                               "item":  "Uber Elder Fragment"
+                           },
+    "The Encroaching Darkness":  {
+                                     "stack":  8,
+                                     "kind":  "random_unique_map",
+                                     "corrupted":  true
+                                 },
+    "The Endless Darkness":  {
+                                 "stack":  9,
+                                 "kind":  "unique",
+                                 "item":  "Voidforge"
+                             },
+    "The Endurance":  {
+                          "stack":  4,
+                          "kind":  "magic",
+                          "item":  "Vivid Crimson Jewel"
+                      },
+    "The Enforcer":  {
+                         "stack":  4,
+                         "kind":  "magic",
+                         "item":  "Spiked Gloves of the Conquest (Culling Strike)",
+                         "itemLevel":  86
+                     },
+    "The Enlightened":  {
+                            "stack":  6,
+                            "kind":  "gem",
+                            "item":  "Enlighten",
+                            "gemLevel":  3
+                        },
+    "The Enthusiasts":  {
+                            "stack":  3,
+                            "kind":  "unique",
+                            "item":  "Victario\u0027s Influence",
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "The Escape":  {
+                       "stack":  5,
+                       "kind":  "unique",
+                       "item":  "Seven-League Step"
+                   },
+    "The Eternal War":  {
+                            "stack":  4,
+                            "kind":  "unique",
+                            "item":  "Timeless Jewel",
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "The Ethereal":  {
+                         "stack":  7,
+                         "kind":  "normal",
+                         "item":  "Vaal Regalia",
+                         "sixLink":  true
+                     },
+    "The Everlasting":  {
+                            "stack":  3,
+                            "kind":  "unique",
+                            "item":  "Originator Incarnation Item"
+                        },
+    "The Explorer":  {
+                         "stack":  6,
+                         "kind":  "rare",
+                         "item":  "Map",
+                         "corrupted":  true
+                     },
+    "The Eye of Terror":  {
+                              "stack":  8,
+                              "kind":  "unique",
+                              "item":  "Mageblood"
+                          },
+    "The Eye of the Dragon":  {
+                                  "stack":  10,
+                                  "kind":  "unique",
+                                  "item":  "Jewel",
+                                  "corrupted":  true
+                              },
+    "The Fathomless Depths":  {
+                                  "stack":  8,
+                                  "kind":  "unique",
+                                  "item":  "Lightpoacher"
+                              },
+    "The Feast":  {
+                      "stack":  5,
+                      "kind":  "unique",
+                      "item":  "Romira\u0027s Banquet",
+                      "corrupted":  true
+                  },
+    "The Fiend":  {
+                      "stack":  11,
+                      "kind":  "unique",
+                      "item":  "Headhunter",
+                      "corrupted":  true
+                  },
+    "The Finishing Touch":  {
+                                "stack":  2,
+                                "kind":  "currency",
+                                "item":  "Fertile Catalyst"
+                            },
+    "The Fishmonger":  {
+                           "stack":  4,
+                           "kind":  "normal",
+                           "item":  "Albino Rhoa Feather"
+                       },
+    "The Fletcher":  {
+                         "stack":  5,
+                         "kind":  "unique",
+                         "item":  "Drillneck",
+                         "corrupted":  true
+                     },
+    "The Flora\u0027s Gift":  {
+                                  "stack":  5,
+                                  "kind":  "normal",
+                                  "item":  "Five-Link Staff",
+                                  "itemLevel":  66
+                              },
+    "The Fool":  {
+                     "stack":  4,
+                     "kind":  "currency",
+                     "item":  "Orb of Chance",
+                     "count":  20
+                 },
+    "The Forbidden Fruit":  {
+                                "stack":  1,
+                                "kind":  "normal",
+                                "item":  "Uber Pinnacle Fragment"
+                            },
+    "The Forgotten Treasure":  {
+                                   "stack":  6,
+                                   "kind":  "unique",
+                                   "item":  "Leather Belt"
+                               },
+    "The Formless Sea":  {
+                             "stack":  7,
+                             "kind":  "unique",
+                             "item":  "Varunastra"
+                         },
+    "The Forsaken":  {
+                         "stack":  7,
+                         "kind":  "unique",
+                         "item":  "Umbilicus Immortalis"
+                     },
+    "The Fortunate":  {
+                          "stack":  12,
+                          "kind":  "currency",
+                          "item":  "Divine Orb",
+                          "count":  2
+                      },
+    "The Forward Gaze":  {
+                             "stack":  6,
+                             "kind":  "unique",
+                             "item":  "Replica Item"
+                         },
+    "The Fox":  {
+                    "stack":  6,
+                    "kind":  "gem",
+                    "item":  "Gem",
+                    "gemLevel":  20
+                },
+    "The Fox in the Brambles":  {
+                                    "stack":  7,
+                                    "kind":  "unique",
+                                    "item":  "Bramblejack",
+                                    "twoImplicit":  true,
+                                    "corrupted":  true
+                                },
+    "The Gambler":  {
+                        "stack":  5,
+                        "kind":  "random_card"
+                    },
+    "The Garish Power":  {
+                             "stack":  4,
+                             "kind":  "unique",
+                             "item":  "Jewel"
+                         },
+    "The Gemcutter":  {
+                          "stack":  3,
+                          "kind":  "currency",
+                          "item":  "Gemcutter\u0027s Prism"
+                      },
+    "The Gentleman":  {
+                          "stack":  4,
+                          "kind":  "unique",
+                          "item":  "Sword",
+                          "corrupted":  true
+                      },
+    "The Gladiator":  {
+                          "stack":  5,
+                          "kind":  "unique",
+                          "item":  "Nightmare Bascinet"
+                      },
+    "The Golden Era":  {
+                           "stack":  7,
+                           "kind":  "magic",
+                           "item":  "Flaring Eclipse Staff",
+                           "itemLevel":  100
+                       },
+    "The Greatest Intentions":  {
+                                    "stack":  10,
+                                    "kind":  "unique",
+                                    "item":  "The Saviour",
+                                    "twoImplicit":  true,
+                                    "corrupted":  true
+                                },
+    "The Gulf":  {
+                     "stack":  5,
+                     "kind":  "unique",
+                     "item":  "Thread of Hope",
+                     "twoImplicit":  true,
+                     "corrupted":  true
+                 },
+    "The Hale Heart":  {
+                           "stack":  4,
+                           "kind":  "rare",
+                           "item":  "Item",
+                           "itemLevel":  100
+                       },
+    "The Harvester":  {
+                          "stack":  11,
+                          "kind":  "unique",
+                          "item":  "The Harvest"
+                      },
+    "The Hermit":  {
+                       "stack":  9,
+                       "kind":  "unique",
+                       "item":  "Lifesprig"
+                   },
+    "The Heroic Shot":  {
+                            "stack":  1,
+                            "kind":  "currency",
+                            "item":  "Chromatic Orb",
+                            "count":  17
+                        },
+    "The Hive of Knowledge":  {
+                                  "stack":  6,
+                                  "kind":  "unique",
+                                  "item":  "Machina Mitts",
+                                  "twoImplicit":  true,
+                                  "corrupted":  true
+                              },
+    "The Hoarder":  {
+                        "stack":  12,
+                        "kind":  "currency",
+                        "item":  "Exalted Orb"
+                    },
+    "The Hook":  {
+                     "stack":  8,
+                     "kind":  "gem",
+                     "item":  "Transfigured Gem",
+                     "corrupted":  true,
+                     "quality":  23,
+                     "gemLevel":  21
+                 },
+    "The Hunger":  {
+                       "stack":  9,
+                       "kind":  "unique",
+                       "item":  "Taste of Hate"
+                   },
+    "The Immortal":  {
+                         "stack":  10,
+                         "kind":  "card",
+                         "item":  "House of Mirrors"
+                     },
+    "The Incantation":  {
+                            "stack":  4,
+                            "kind":  "unique",
+                            "item":  "The Whispering Ice"
+                        },
+    "The Innocent":  {
+                         "stack":  10,
+                         "kind":  "currency",
+                         "item":  "Orb of Regret",
+                         "count":  40
+                     },
+    "The Inoculated":  {
+                           "stack":  4,
+                           "kind":  "magic",
+                           "item":  "Seraphim\u0027s Armour"
+                       },
+    "The Insane Cat":  {
+                           "stack":  9,
+                           "kind":  "unique",
+                           "item":  "Mageblood",
+                           "corrupted":  true,
+                           "itemLevel":  84
+                       },
+    "The Insatiable":  {
+                           "stack":  3,
+                           "kind":  "unique",
+                           "item":  "The Harvest",
+                           "corrupted":  true
+                       },
+    "The Inventor":  {
+                         "stack":  6,
+                         "kind":  "currency",
+                         "item":  "Vaal Orb",
+                         "count":  10
+                     },
+    "The Jester":  {
+                       "stack":  9,
+                       "kind":  "magic",
+                       "item":  "Merciless One-Hand Weapon",
+                       "itemLevel":  100
+                   },
+    "The Jeweller\u0027s Boon":  {
+                                     "stack":  5,
+                                     "kind":  "normal",
+                                     "item":  "Five-Linked Body Armour"
+                                 },
+    "The Journalist":  {
+                           "stack":  10,
+                           "kind":  "rare",
+                           "item":  "Helmet"
+                       },
+    "The Journey":  {
+                        "stack":  4,
+                        "kind":  "currency",
+                        "item":  "Journey Tattoo"
+                    },
+    "The King\u0027s Blade":  {
+                                  "stack":  5,
+                                  "kind":  "magic",
+                                  "item":  "Bloodthirsty Eternal Sword",
+                                  "itemLevel":  66
+                              },
+    "The King\u0027s Heart":  {
+                                  "stack":  8,
+                                  "kind":  "unique",
+                                  "item":  "Kaom\u0027s Heart"
+                              },
+    "The Lake":  {
+                     "stack":  8,
+                     "kind":  "currency",
+                     "item":  "Reflecting Mist"
+                 },
+    "The Last Laugh":  {
+                           "stack":  5,
+                           "kind":  "unique",
+                           "item":  "Replica Dragonfang\u0027s Flight",
+                           "corrupted":  true
+                       },
+    "The Last One Standing":  {
+                                  "stack":  10,
+                                  "kind":  "unique",
+                                  "item":  "Atziri\u0027s Disfavour"
+                              },
+    "The Last Supper":  {
+                            "stack":  6,
+                            "kind":  "unique",
+                            "item":  "Bino\u0027s Kitchen Knife"
+                        },
+    "The Leviathan":  {
+                          "stack":  7,
+                          "kind":  "unique",
+                          "item":  "Maven Item",
+                          "twoImplicit":  true,
+                          "corrupted":  true
+                      },
+    "The Lich":  {
+                     "stack":  12,
+                     "kind":  "unique",
+                     "item":  "Midnight Bargain",
+                     "corrupted":  true
+                 },
+    "The Life Thief":  {
+                           "stack":  6,
+                           "kind":  "unique",
+                           "item":  "Zerphi\u0027s Heart"
+                       },
+    "The Lion":  {
+                     "stack":  5,
+                     "kind":  "unique",
+                     "item":  "Lioneye Item"
+                 },
+    "The Long Con":  {
+                         "stack":  4,
+                         "kind":  "currency",
+                         "item":  "Elderslayer\u0027s Exalted Orb"
+                     },
+    "The Long Watch":  {
+                           "stack":  3,
+                           "kind":  "unique",
+                           "item":  "The Fourth Vow"
+                       },
+    "The Lord in Black":  {
+                              "stack":  6,
+                              "kind":  "magic",
+                              "item":  "Ring of Bameth",
+                              "itemLevel":  83
+                          },
+    "The Lord of Celebration":  {
+                                    "stack":  4,
+                                    "kind":  "magic",
+                                    "item":  "Sceptre of Celebration"
+                                },
+    "The Lover":  {
+                      "stack":  2,
+                      "kind":  "rare",
+                      "item":  "Jewellery",
+                      "itemLevel":  79
+                  },
+    "The Lunaris Priestess":  {
+                                  "stack":  5,
+                                  "kind":  "unique",
+                                  "item":  "Sire of Shards"
+                              },
+    "The Mad King":  {
+                         "stack":  7,
+                         "kind":  "unique",
+                         "item":  "Vaal Aspect"
+                     },
+    "The Magma Crab":  {
+                           "stack":  6,
+                           "kind":  "gem",
+                           "item":  "Vaal Molten Shell",
+                           "corrupted":  true,
+                           "gemLevel":  21
+                       },
+    "The Master Artisan":  {
+                               "stack":  5,
+                               "kind":  "currency",
+                               "item":  "Quality Currency",
+                               "count":  20
+                           },
+    "The Mayor":  {
+                      "stack":  5,
+                      "kind":  "unique",
+                      "item":  "The Light of Meaning"
+                  },
+    "The Mercenary":  {
+                          "stack":  5,
+                          "kind":  "unique",
+                          "item":  "Shield",
+                          "corrupted":  true
+                      },
+    "The Messenger":  {
+                          "stack":  4,
+                          "kind":  "unique",
+                          "item":  "Harbinger Item"
+                      },
+    "The Metalsmith\u0027s Gift":  {
+                                       "stack":  6,
+                                       "kind":  "normal",
+                                       "item":  "Prismatic Ring"
+                                   },
+    "The Mind\u0027s Eyes":  {
+                                 "stack":  7,
+                                 "kind":  "unique",
+                                 "item":  "Astral Projector"
+                             },
+    "The Miracle":  {
+                        "stack":  3,
+                        "kind":  "gem",
+                        "item":  "Awakened Exceptional Gem"
+                    },
+    "The Mountain":  {
+                         "stack":  6,
+                         "kind":  "magic",
+                         "item":  "Jewel of Potency"
+                     },
+    "The Nurse":  {
+                      "stack":  8,
+                      "kind":  "card",
+                      "item":  "The Doctor"
+                  },
+    "The Oath":  {
+                     "stack":  6,
+                     "kind":  "unique",
+                     "item":  "Death\u0027s Oath"
+                 },
+    "The Offering":  {
+                         "stack":  8,
+                         "kind":  "unique",
+                         "item":  "Shavronne\u0027s Wrappings"
+                     },
+    "The Offspring":  {
+                          "stack":  9,
+                          "kind":  "unique",
+                          "item":  "Ryslatha\u0027s Coil"
+                      },
+    "The Old Man":  {
+                        "stack":  12,
+                        "kind":  "rare",
+                        "item":  "Fishing Rod",
+                        "twoImplicit":  true,
+                        "corrupted":  true
+                    },
+    "The One That Got Away":  {
+                                  "stack":  7,
+                                  "kind":  "unique",
+                                  "item":  "Replica Bated Breath"
+                              },
+    "The One With All":  {
+                             "stack":  6,
+                             "kind":  "unique",
+                             "item":  "Le Heup of All",
+                             "corrupted":  true
+                         },
+    "The Opulent":  {
+                        "stack":  5,
+                        "kind":  "rare",
+                        "item":  "Ring",
+                        "itemLevel":  100
+                    },
+    "The Pack Leader":  {
+                            "stack":  6,
+                            "kind":  "unique",
+                            "item":  "Alpha\u0027s Howl"
+                        },
+    "The Pact":  {
+                     "stack":  9,
+                     "kind":  "unique",
+                     "item":  "Pledge of Hands"
+                 },
+    "The Patient":  {
+                        "stack":  8,
+                        "kind":  "card",
+                        "item":  "The Nurse"
+                    },
+    "The Penitent":  {
+                         "stack":  5,
+                         "kind":  "unique",
+                         "item":  "Unset Ring"
+                     },
+    "The Poet":  {
+                     "stack":  9,
+                     "kind":  "unique",
+                     "item":  "Blood of Corruption",
+                     "corrupted":  true
+                 },
+    "The Polymath":  {
+                         "stack":  3,
+                         "kind":  "unique",
+                         "item":  "Astramentis"
+                     },
+    "The Porcupine":  {
+                          "stack":  6,
+                          "kind":  "normal",
+                          "item":  "Short Bow",
+                          "sixLink":  true,
+                          "itemLevel":  50
+                      },
+    "The Price of Devotion":  {
+                                  "stack":  7,
+                                  "kind":  "unique",
+                                  "item":  "Mageblood",
+                                  "quality":  20,
+                                  "twoImplicit":  true,
+                                  "corrupted":  true
+                              },
+    "The Price of Loyalty":  {
+                                 "stack":  4,
+                                 "kind":  "unique",
+                                 "item":  "Skin of the Loyal",
+                                 "itemLevel":  25,
+                                 "twoImplicit":  true,
+                                 "corrupted":  true
+                             },
+    "The Price of Prescience":  {
+                                    "stack":  5,
+                                    "kind":  "rare",
+                                    "item":  "Vaal Temple Map",
+                                    "corrupted":  true
+                                },
+    "The Price of Protection":  {
+                                    "stack":  5,
+                                    "kind":  "rare",
+                                    "item":  "Elder Guardian Occupied MapModifiers: 8",
+                                    "corrupted":  true
+                                },
+    "The Primordial":  {
+                           "stack":  5,
+                           "kind":  "unique",
+                           "item":  "Jewel"
+                       },
+    "The Prince of Darkness":  {
+                                   "stack":  6,
+                                   "kind":  "unique",
+                                   "item":  "Elegant Hubris"
+                               },
+    "The Professor":  {
+                          "stack":  4,
+                          "kind":  "unique",
+                          "item":  "The Putrid Cloister"
+                      },
+    "The Progeny of Lunaris":  {
+                                   "stack":  2,
+                                   "kind":  "unique",
+                                   "item":  "Dying Sun"
+                               },
+    "The Queen":  {
+                      "stack":  16,
+                      "kind":  "unique",
+                      "item":  "Atziri\u0027s Acuity"
+                  },
+    "The Rabbit\u0027s Foot":  {
+                                   "stack":  8,
+                                   "kind":  "currency",
+                                   "item":  "Incursion Vial",
+                                   "count":  10
+                               },
+    "The Rabid Rhoa":  {
+                           "stack":  4,
+                           "kind":  "magic",
+                           "item":  "Malicious Gemini Claw",
+                           "itemLevel":  83
+                       },
+    "The Realm":  {
+                      "stack":  5,
+                      "kind":  "gem",
+                      "item":  "Portal"
+                  },
+    "The Return of the Rat":  {
+                                  "stack":  3,
+                                  "kind":  "unique",
+                                  "item":  "Tavukai"
+                              },
+    "The Risk":  {
+                     "stack":  3,
+                     "kind":  "unique",
+                     "item":  "Ventor\u0027s Gamble"
+                 },
+    "The Rite of Elements":  {
+                                 "stack":  5,
+                                 "kind":  "gem",
+                                 "item":  "Golem Gem",
+                                 "corrupted":  true,
+                                 "gemLevel":  21
+                             },
+    "The Road to Power":  {
+                              "stack":  7,
+                              "kind":  "magic",
+                              "item":  "Runic One-Hand Weapon",
+                              "itemLevel":  100
+                          },
+    "The Rusted Bard":  {
+                            "stack":  9,
+                            "kind":  "currency",
+                            "item":  "Tainted Mythic Orb",
+                            "count":  4
+                        },
+    "The Ruthless Ceinture":  {
+                                  "stack":  7,
+                                  "kind":  "unique",
+                                  "item":  "Meginord\u0027s Girdle",
+                                  "corrupted":  true
+                              },
+    "The Sacrifice":  {
+                          "stack":  4,
+                          "kind":  "normal",
+                          "item":  "Sacrificial Garb",
+                          "sixLink":  true,
+                          "itemLevel":  100
+                      },
+    "The Saint\u0027s Treasure":  {
+                                      "stack":  10,
+                                      "kind":  "currency",
+                                      "item":  "Exalted Orb",
+                                      "count":  2
+                                  },
+    "The Samurai\u0027s Eye":  {
+                                   "stack":  3,
+                                   "kind":  "unique",
+                                   "item":  "Watcher\u0027s Eye"
+                               },
+    "The Scarred Meadow":  {
+                               "stack":  9,
+                               "kind":  "unique",
+                               "item":  "Wake of Destruction"
+                           },
+    "The Scavenger":  {
+                          "stack":  8,
+                          "kind":  "unique",
+                          "item":  "Carcass Jack"
+                      },
+    "The Scholar":  {
+                        "stack":  3,
+                        "kind":  "currency",
+                        "item":  "Scroll of Wisdom",
+                        "count":  40
+                    },
+    "The Scout":  {
+                      "stack":  8,
+                      "kind":  "currency",
+                      "item":  "Exalted Orb",
+                      "count":  7
+                  },
+    "The Seeker":  {
+                       "stack":  9,
+                       "kind":  "currency",
+                       "item":  "Orb of Annulment",
+                       "count":  3
+                   },
+    "The Sephirot":  {
+                         "stack":  11,
+                         "kind":  "currency",
+                         "item":  "Divine Orb",
+                         "count":  10
+                     },
+    "The Shepherd\u0027s Sandals":  {
+                                        "stack":  3,
+                                        "kind":  "unique",
+                                        "item":  "Boots",
+                                        "itemLevel":  100,
+                                        "twoImplicit":  true,
+                                        "corrupted":  true
+                                    },
+    "The Shieldbearer":  {
+                             "stack":  8,
+                             "kind":  "unique",
+                             "item":  "The Squire"
+                         },
+    "The Shortcut":  {
+                         "stack":  1,
+                         "kind":  "magic",
+                         "item":  "Quicksilver Flask of the Cheetah",
+                         "itemLevel":  100
+                     },
+    "The Side Quest":  {
+                           "stack":  5,
+                           "kind":  "normal",
+                           "item":  "Incarnation Echo"
+                       },
+    "The Sigil":  {
+                      "stack":  3,
+                      "kind":  "magic",
+                      "item":  "Unassailable Amulet"
+                  },
+    "The Silly Boy":  {
+                          "stack":  9,
+                          "kind":  "normal",
+                          "item":  "Horned Scarab",
+                          "count":  6
+                      },
+    "The Siren":  {
+                      "stack":  7,
+                      "kind":  "unique",
+                      "item":  "The Whispering Ice",
+                      "corrupted":  true
+                  },
+    "The Skeleton":  {
+                         "stack":  6,
+                         "kind":  "gem",
+                         "item":  "Summon Skeletons",
+                         "corrupted":  true,
+                         "quality":  23,
+                         "gemLevel":  1
+                     },
+    "The Slumbering Beast":  {
+                                 "stack":  5,
+                                 "kind":  "currency",
+                                 "item":  "Hinekora\u0027s Lock"
+                             },
+    "The Soul":  {
+                     "stack":  9,
+                     "kind":  "unique",
+                     "item":  "Soul Taker"
+                 },
+    "The Spark and the Flame":  {
+                                    "stack":  2,
+                                    "kind":  "unique",
+                                    "item":  "Berek\u0027s Respite"
+                                },
+    "The Spoiled Prince":  {
+                               "stack":  4,
+                               "kind":  "magic",
+                               "item":  "Dictator\u0027s Prophecy Wand",
+                               "itemLevel":  100
+                           },
+    "The Standoff":  {
+                         "stack":  3,
+                         "kind":  "unique",
+                         "item":  "Rustic Sash"
+                     },
+    "The Stormcaller":  {
+                            "stack":  4,
+                            "kind":  "unique",
+                            "item":  "Agnerod Staff"
+                        },
+    "The Strategist":  {
+                           "stack":  6,
+                           "kind":  "unique",
+                           "item":  "Inspired Learning",
+                           "corrupted":  true
+                       },
+    "The Summoner":  {
+                         "stack":  6,
+                         "kind":  "gem",
+                         "item":  "Minion Gem",
+                         "quality":  20
+                     },
+    "The Sun":  {
+                    "stack":  7,
+                    "kind":  "unique",
+                    "item":  "Rise of the Phoenix"
+                },
+    "The Surgeon":  {
+                        "stack":  4,
+                        "kind":  "magic",
+                        "item":  "Surgeon\u0027s Flask"
+                    },
+    "The Surveyor":  {
+                         "stack":  4,
+                         "kind":  "normal",
+                         "item":  "Map"
+                     },
+    "The Survivalist":  {
+                            "stack":  3,
+                            "kind":  "currency",
+                            "item":  "Orb of Alchemy",
+                            "count":  7
+                        },
+    "The Sword King\u0027s Salute":  {
+                                         "stack":  7,
+                                         "kind":  "unique",
+                                         "item":  "Daresso\u0027s Salute"
+                                     },
+    "The Thaumaturgist":  {
+                              "stack":  8,
+                              "kind":  "unique",
+                              "item":  "Shavronne\u0027s Revelation",
+                              "corrupted":  true
+                          },
+    "The Throne":  {
+                       "stack":  2,
+                       "kind":  "unique",
+                       "item":  "Kaom\u0027s Roots",
+                       "corrupted":  true
+                   },
+    "The Tinkerer\u0027s Table":  {
+                                      "stack":  5,
+                                      "kind":  "currency",
+                                      "item":  "Fossil",
+                                      "count":  5
+                                  },
+    "The Tireless Extractor":  {
+                                   "stack":  8,
+                                   "kind":  "currency",
+                                   "item":  "Oil",
+                                   "count":  10
+                               },
+    "The Tower":  {
+                      "stack":  6,
+                      "kind":  "unique",
+                      "item":  "Staff"
+                  },
+    "The Traitor":  {
+                        "stack":  4,
+                        "kind":  "unique",
+                        "item":  "Wand",
+                        "corrupted":  true
+                    },
+    "The Transformation":  {
+                               "stack":  5,
+                               "kind":  "currency",
+                               "item":  "Tainted Mythic Orb"
+                           },
+    "The Trial":  {
+                      "stack":  7,
+                      "kind":  "rare",
+                      "item":  "Map",
+                      "corrupted":  true
+                  },
+    "The Tumbleweed":  {
+                           "stack":  2,
+                           "kind":  "magic",
+                           "item":  "Diamond Ring of Redemption",
+                           "itemLevel":  100
+                       },
+    "The Twilight Moon":  {
+                              "stack":  6,
+                              "kind":  "unique",
+                              "item":  "The Twilight Temple"
+                          },
+    "The Twins":  {
+                      "stack":  8,
+                      "kind":  "magic",
+                      "item":  "Gemini Claw of Celebration",
+                      "itemLevel":  83
+                  },
+    "The Tyrant":  {
+                       "stack":  9,
+                       "kind":  "magic",
+                       "item":  "Merciless Weapon",
+                       "itemLevel":  100
+                   },
+    "The Undaunted":  {
+                          "stack":  5,
+                          "kind":  "unique",
+                          "item":  "Nemesis Item",
+                          "corrupted":  true
+                      },
+    "The Undisputed":  {
+                           "stack":  8,
+                           "kind":  "magic",
+                           "item":  "Merciless Vaal Axe",
+                           "itemLevel":  100
+                       },
+    "The Unexpected Prize":  {
+                                 "stack":  2,
+                                 "kind":  "unique",
+                                 "item":  "Attribute Transforming Jewel",
+                                 "corrupted":  true
+                             },
+    "The Union":  {
+                      "stack":  7,
+                      "kind":  "currency",
+                      "item":  "Gemcutter\u0027s Prism",
+                      "count":  10
+                  },
+    "The Valkyrie":  {
+                         "stack":  8,
+                         "kind":  "unique",
+                         "item":  "Nemesis Item"
+                     },
+    "The Vast":  {
+                     "stack":  7,
+                     "kind":  "unique",
+                     "item":  "Song of the Sirens"
+                 },
+    "The Visionary":  {
+                          "stack":  6,
+                          "kind":  "unique",
+                          "item":  "Lioneye\u0027s Vision"
+                      },
+    "The Void":  {
+                     "stack":  1,
+                     "kind":  "void"
+                 },
+    "The Warden":  {
+                       "stack":  4,
+                       "kind":  "rare",
+                       "item":  "Amulet",
+                       "corrupted":  true
+                   },
+    "The Warlord":  {
+                        "stack":  6,
+                        "kind":  "normal",
+                        "item":  "Coronal Maul",
+                        "sixLink":  true,
+                        "itemLevel":  83
+                    },
+    "The Watcher":  {
+                        "stack":  12,
+                        "kind":  "unique",
+                        "item":  "Crown of Eyes"
+                    },
+    "The Web":  {
+                    "stack":  8,
+                    "kind":  "magic",
+                    "item":  "Weapon of Crafting"
+                },
+    "The Wedding Gift":  {
+                             "stack":  2,
+                             "kind":  "unique",
+                             "item":  "Arakaali\u0027s Fang"
+                         },
+    "The White Knight":  {
+                             "stack":  8,
+                             "kind":  "normal",
+                             "item":  "Astral Plate",
+                             "sixLink":  true,
+                             "itemLevel":  100
+                         },
+    "The Whiteout":  {
+                         "stack":  8,
+                         "kind":  "unique",
+                         "item":  "Cospri\u0027s Malice"
+                     },
+    "The Wilted Rose":  {
+                            "stack":  7,
+                            "kind":  "gem",
+                            "item":  "Aura Gem",
+                            "corrupted":  true,
+                            "gemLevel":  21
+                        },
+    "The Wind":  {
+                     "stack":  7,
+                     "kind":  "unique",
+                     "item":  "Windripper"
+                 },
+    "The Witch":  {
+                      "stack":  8,
+                      "kind":  "unique",
+                      "item":  "Kiara\u0027s Determination"
+                  },
+    "The Wolf":  {
+                     "stack":  5,
+                     "kind":  "unique",
+                     "item":  "Rigwald Item"
+                 },
+    "The Wolf\u0027s Legacy":  {
+                                   "stack":  4,
+                                   "kind":  "unique",
+                                   "item":  "Vaults of Atziri"
+                               },
+    "The Wolf\u0027s Shadow":  {
+                                   "stack":  3,
+                                   "kind":  "unique",
+                                   "item":  "Hyaon\u0027s Fury"
+                               },
+    "The Wolven King\u0027s Bite":  {
+                                        "stack":  8,
+                                        "kind":  "unique",
+                                        "item":  "Rigwald\u0027s Quills"
+                                    },
+    "The Wolverine":  {
+                          "stack":  4,
+                          "kind":  "unique",
+                          "item":  "Claw",
+                          "corrupted":  true
+                      },
+    "The World Eater":  {
+                            "stack":  8,
+                            "kind":  "unique",
+                            "item":  "Starforge"
+                        },
+    "The Wrath":  {
+                      "stack":  8,
+                      "kind":  "currency",
+                      "item":  "Chaos Orb",
+                      "count":  10
+                  },
+    "The Wretched":  {
+                         "stack":  6,
+                         "kind":  "unique",
+                         "item":  "Belt"
+                     },
+    "Thirst for Knowledge":  {
+                                 "stack":  5,
+                                 "kind":  "unique",
+                                 "item":  "Gluttony"
+                             },
+    "Three Faces in the Dark":  {
+                                    "stack":  7,
+                                    "kind":  "currency",
+                                    "item":  "Chaos Orb",
+                                    "count":  3
+                                },
+    "Three Voices":  {
+                         "stack":  3,
+                         "kind":  "currency",
+                         "item":  "Essence",
+                         "count":  3
+                     },
+    "Thunderous Skies":  {
+                             "stack":  5,
+                             "kind":  "unique",
+                             "item":  "Storm Cloud"
+                         },
+    "Time-Lost Relic":  {
+                            "stack":  10,
+                            "kind":  "unique",
+                            "item":  "League-Specific Item"
+                        },
+    "Toxic Tidings":  {
+                          "stack":  5,
+                          "kind":  "unique",
+                          "item":  "Dendrobate",
+                          "twoImplicit":  true,
+                          "corrupted":  true
+                      },
+    "Tranquillity":  {
+                         "stack":  7,
+                         "kind":  "unique",
+                         "item":  "Voltaxic Rift"
+                     },
+    "Treasure Hunter":  {
+                            "stack":  7,
+                            "kind":  "unique",
+                            "item":  "Vaults of Atziri",
+                            "corrupted":  true
+                        },
+    "Triskaidekaphobia":  {
+                              "stack":  13,
+                              "kind":  "rare",
+                              "item":  "Map",
+                              "corrupted":  true
+                          },
+    "Turn the Other Cheek":  {
+                                 "stack":  3,
+                                 "kind":  "unique",
+                                 "item":  "Pacifism",
+                                 "corrupted":  true
+                             },
+    "Unchained":  {
+                      "stack":  4,
+                      "kind":  "unique",
+                      "item":  "Facebreaker",
+                      "twoImplicit":  true,
+                      "corrupted":  true
+                  },
+    "Underground Forest":  {
+                               "stack":  4,
+                               "kind":  "currency",
+                               "item":  "Grand Eldritch Ichor",
+                               "count":  10
+                           },
+    "Unrequited Love":  {
+                            "stack":  16,
+                            "kind":  "currency",
+                            "item":  "Mirror Shard",
+                            "count":  19
+                        },
+    "Vanity":  {
+                   "stack":  9,
+                   "kind":  "unique",
+                   "item":  "Tabula Rasa",
+                   "corrupted":  true
+               },
+    "Vile Power":  {
+                       "stack":  5,
+                       "kind":  "unique",
+                       "item":  "Doomfletch"
+                   },
+    "Vinia\u0027s Token":  {
+                               "stack":  5,
+                               "kind":  "currency",
+                               "item":  "Orb of Regret",
+                               "count":  10
+                           },
+    "Void of the Elements":  {
+                                 "stack":  3,
+                                 "kind":  "magic",
+                                 "item":  "Overpowering Opal Ring",
+                                 "itemLevel":  100
+                             },
+    "Volatile Power":  {
+                           "stack":  9,
+                           "kind":  "gem",
+                           "item":  "Vaal Gem",
+                           "corrupted":  true,
+                           "quality":  20
+                       },
+    "Wealth and Power":  {
+                             "stack":  11,
+                             "kind":  "gem",
+                             "item":  "Enlighten",
+                             "corrupted":  true,
+                             "gemLevel":  4
+                         },
+    "When Currents Blaze":  {
+                                "stack":  2,
+                                "kind":  "unique",
+                                "item":  "Stormfire",
+                                "corrupted":  true,
+                                "quality":  20
+                            },
+    "Who Asked":  {
+                      "stack":  9,
+                      "kind":  "magic",
+                      "item":  "Dictator\u0027s Weapon",
+                      "itemLevel":  83
+                  },
+    "Winter\u0027s Embrace":  {
+                                  "stack":  2,
+                                  "kind":  "unique",
+                                  "item":  "Circle of Fear"
+                              },
+    "Birth of the Three":  {
+                               "stack":  3,
+                               "kind":  "unique",
+                               "item":  "The Goddess Bound"
+                           },
+    "Blessing of God":  {
+                            "stack":  3,
+                            "kind":  "magic",
+                            "item":  "Elreon\u0027s Jewellery",
+                            "itemLevel":  85
+                        },
+    "Broken Promises":  {
+                            "stack":  2,
+                            "kind":  "normal",
+                            "item":  "Diamond Ring",
+                            "itemLevel":  87,
+                            "twoImplicit":  true,
+                            "corrupted":  true
+                        },
+    "Magnum Opus":  {
+                        "stack":  5,
+                        "kind":  "normal",
+                        "item":  "Item",
+                        "itemLevel":  100
+                    },
+    "Parasitic Passengers":  {
+                                 "stack":  8,
+                                 "kind":  "currency",
+                                 "item":  "Incubator",
+                                 "count":  10,
+                                 "itemLevel":  84
+                             },
+    "Soul Quenched":  {
+                          "stack":  5,
+                          "kind":  "unique",
+                          "item":  "Disabled"
+                      },
+    "The Bargain":  {
+                        "stack":  5,
+                        "kind":  "normal",
+                        "item":  "Flawless Breachstone"
+                    },
+    "The Cartographer":  {
+                             "stack":  1,
+                             "kind":  "currency",
+                             "item":  "Cartographer\u0027s Chisel",
+                             "count":  10
+                         },
+    "The Cheater":  {
+                        "stack":  3,
+                        "kind":  "gem",
+                        "item":  "Corrupted",
+                        "corrupted":  true,
+                        "quality":  20,
+                        "gemLevel":  6
+                    },
+    "The Emptiness":  {
+                          "stack":  6,
+                          "kind":  "gem",
+                          "item":  "Vaal Breach",
+                          "corrupted":  true,
+                          "quality":  6
+                      },
+    "The Landing":  {
+                        "stack":  5,
+                        "kind":  "unique",
+                        "item":  "The Beachhead",
+                        "corrupted":  true
+                    },
+    "The Master":  {
+                       "stack":  4,
+                       "kind":  "unique",
+                       "item":  "Disabled"
+                   },
+    "The Obscured":  {
+                         "stack":  7,
+                         "kind":  "normal",
+                         "item":  "Breachstone"
+                     },
+    "The Puzzle":  {
+                       "stack":  5,
+                       "kind":  "currency",
+                       "item":  "Breachstone Splinter",
+                       "count":  5
+                   },
+    "The Sustenance":  {
+                           "stack":  3,
+                           "kind":  "unique",
+                           "item":  "Disabled"
+                       },
+    "The Valley of Steel Boxes":  {
+                                      "stack":  9,
+                                      "kind":  "unique",
+                                      "item":  "Disabled"
+                                  }
+}

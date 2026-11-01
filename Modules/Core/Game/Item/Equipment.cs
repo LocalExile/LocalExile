@@ -201,7 +201,7 @@ static partial class Game
     }
 
     internal static PlayerInventories.Shape? ShapeOf(Item i) => Items.ByHash(i.TypeHash) is { } t
-        ? new PlayerInventories.Shape(t.Width, t.Height, t.Class, t.MaxStack,
+        ? new PlayerInventories.Shape(t.Width, t.Height, t.Class, DivinationCards.StackOf(t.Name) ?? t.MaxStack,
             t.BecomesWhenFull && Items.Row(t.FullStackRow) is { Supported: true } full ? () => ItemCatalog.Create(full) : null)
         : null;
 

@@ -24,6 +24,11 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused ({why})");
             return;
         }
+        // Cards have no Usable in the client's .it, so a right-click never sends 0x58. A complete set's left-click
+        // turns it in; an incomplete stack still picks up. Ctrl+click still goes to the stash.
+        if (items.Items(row).FirstOrDefault(i => i.Id == pick.ItemId) is { } clicked
+            && await TryTurnInCompleteCard(remote, stream, ciphers, conn, items, row, clicked, $"click {pick}"))
+            return;
         if (items.PickUp(row, pick.ItemId) is not { } held)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused");
@@ -873,6 +878,11 @@ static partial class Game
             return;
         }
         if (await GameEvents.AnyItemUse(conn, r, item, type)) return;
+        if (type.Class == "DivinationCard")
+        {
+            await UseDivinationCard(remote, stream, ciphers, conn, items, r, item, type, hex);
+            return;
+        }
         // A quest item with a use_flag (the quest books, Book of Regrets included): its flag, and QuestStaticRewards' points.
         if (type.Quest?.Use is not null)
         {
@@ -921,6 +931,79 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({use.ItemId}): {refunds} refund point(s)");
     }
 
+    // A complete set of a divination card (C→S 0x58, right-click): the set is consumed and its reward goes into the
+    // main inventory, as in 3.17+ with no Navali. An incomplete stack does nothing.
+    internal static async Task<bool> TryTurnInCompleteCard(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, PlayerInventories items, byte row, InventoryItem item, string why)
+    {
+        if (ItemsFor(conn).ByHash(item.Item.TypeHash) is not { Class: "DivinationCard" } type) return false;
+        if (DivinationCards.Of(type.Name) is not { } reward) return false;
+        if (item.Item.StackSize < Math.Max(1, reward.Stack)) return false;
+        await UseDivinationCard(remote, stream, ciphers, conn, items, row, item, type, why);
+        return true;
+    }
+
+    internal static async Task UseDivinationCard(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type, string hex)
+    {
+        if (DivinationCards.Of(type.Name) is not { } reward)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: no reward table: {hex}");
+            return;
+        }
+        int need = Math.Max(1, reward.Stack), have = item.Item.StackSize;
+        if (have < need)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: need {need}, stack has {have}");
+            return;
+        }
+        if (DivinationCards.Create(reward, ItemsFor(conn), UniquesFor(conn), RollsFor(conn), Random.Shared) is not { Count: > 0 } rewards)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: could not create the reward");
+            return;
+        }
+        if (!items.CanExchange(rewards, ShapeOf))
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: inventory is full");
+            return;
+        }
+        byte main = PlayerInventories.MainInventory;
+        var leftover = items.SetStackSize(row, item.Id, have - need);
+        var removed = new List<uint>();
+        var added = new List<InventoryItem>();
+        if (row == main)
+        {
+            removed.Add(item.Id);
+            if (leftover is { } left) added.Add(left);
+        }
+        foreach (var given in rewards)
+        {
+            var stacked = items.AddStacked(main, given, ShapeOf);
+            removed.AddRange(stacked.RemovedIds);
+            added.AddRange(stacked.AddedItems);
+            if (stacked.Left > 0)
+                Console.WriteLine($"[gateway] {remote} {type.Name}: {stacked.Left} reward item(s) did not fit");
+        }
+        await Send(remote, stream, ciphers,
+            InstanceItems.InventoryChange(PlayerInventories.InventoryId(main), items.NextRevision(main), removed, added),
+            $"0x00bf inventory {PlayerInventories.InventoryId(main)}: {type.Name} turned in");
+        if (row != main)
+            await Send(remote, stream, ciphers,
+                InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [item.Id],
+                    leftover is { } left ? [left] : []),
+                $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {type.Name} stack now {leftover?.Item.StackSize ?? 0}");
+        int n = reward.Count > 0 ? reward.Count : 1;
+        string label = reward.Kind is "void" or "random_card" or "random_unique" or "random_unique_map"
+            ? reward.Kind : (n > 1 ? $"{n}× {reward.Item ?? reward.Kind}" : reward.Item ?? reward.Kind);
+        await Send(remote, stream, ciphers,
+            InstanceItems.ItemUsed(type.Hash, PlayerInventories.InventoryId(row), item.Id),
+            $"0x0263 {type.Name} turned in");
+        var first = rewards[0];
+        int implicits = first.Mods.Count(m => m.Section == ModSection.Implicit);
+        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}): turned in {need}, {label}"
+            + (first.Corrupted ? $" corrupted twoImplicit={reward.TwoImplicit} implicits={implicits} q={first.Quality}" : ""));
+    }
+
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):
     // the book is used up and the character gets one more passive skill point, as /add_passive_points 1 (S→C 0x33).
     internal static async Task UseSkillBook(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
@@ -953,6 +1036,9 @@ static partial class Game
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var type = ItemsFor(conn).ByHash(currencyTypeHash);
         bool isEssence = type is not null && EssencesFor(conn).Contains(type.Hash);
+        if (type is not null && CurrencyEffects.TryAction(ItemsFor(conn), RollsFor(conn), target, type, random, out var fromAction,
+            UniquesFor(conn).RollsOf(target)))
+            return fromAction;
         return type?.Id switch
         {
             Wisdom => target.Identified || !target.Components.Contains("Mods") ? null : target with { Identified = true },
@@ -1062,7 +1148,7 @@ static partial class Game
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
             Console.WriteLine($"[gateway] {remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
-                (isEssence || type?.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
+                (type is not null && CurrencyEffects.Recognizes(ItemsFor(conn), type, isEssence)
                     ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links / fixed defence bases)" : $"not handled: {hex}"));
             return;
         }
@@ -1110,10 +1196,18 @@ static partial class Game
                 if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(remote, stream, ciphers, conn, items);
             }
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
-            : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
-            ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))
-            : $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"));
+        Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (
+            type.Id == CurrencyEffects.SacredOrb
+                ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
+            : identified.Item.AlternateQualityType is not null
+                || type.Id is CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone
+                    or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism
+                    or CurrencyEffects.CartographersChisel
+                || type.Id.Contains("Quality", StringComparison.Ordinal)
+                ? $"quality {identified.Item.Quality}% type {identified.Item.AlternateQualityType}"
+            : type.Id is CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing
+                ? $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"
+            : string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))));
     }
 
     // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked

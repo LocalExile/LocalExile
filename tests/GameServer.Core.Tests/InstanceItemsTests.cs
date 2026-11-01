@@ -35,6 +35,24 @@ public class InstanceItemsTests
     }
 
     [Fact]
+    public void A_map_chisel_sends_alternate_quality_on_the_mods_component()
+    {
+        var item = new Item(1, ["Mods"], 0) { AlternateQualityType = 13, Quality = 5 };
+        Assert.Equal(
+            "01000000" + "0000" + "01" + "00" + "0000" + "0802" + "00" + "0D" + "05" + "00" + "00",
+            Convert.ToHexString(item.Payload()));
+    }
+
+    [Fact]
+    public void A_shop_item_sends_an_empty_vendor_price_so_the_client_does_not_use_item_costs()
+    {
+        var item = new Item(1, ["Base"], 0) { HasVendorPrice = true };
+        Assert.Equal(
+            "01000000" + "0000" + "0000" + "00" + "00" + "8000" + "00" + "00",
+            Convert.ToHexString(item.Payload()));
+    }
+
+    [Fact]
     public void Mods_component_carries_rarity_and_mod_lists_in_the_readers_order()
     {
         var item = new Item(1, ["Mods"], 0)

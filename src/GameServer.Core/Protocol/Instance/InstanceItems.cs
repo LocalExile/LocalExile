@@ -116,8 +116,16 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public IReadOnlyList<uint> NameWords { get; init; } = [];
 
     /// <summary>A vendor price: (item type hash, amount) entries, Base flag bit 7 (17-npcs.md §5). Empty for items not
-    /// in a shop.</summary>
+    /// in a shop. Shop stock sets <see cref="HasVendorPrice"/> even when this list is empty, so the client does not fall
+    /// back to ItemCosts gold.</summary>
     public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init; } = [];
+
+    /// <summary>This item is on a vendor: send Base flag bit 7 (an empty list is free).</summary>
+    public bool HasVendorPrice { get; init; }
+
+    /// <summary>AlternateQualityTypes row for Maven / Cartographer map quality (ObjectMagicProperties bit 9). Null is
+    /// ordinary quality, or none.</summary>
+    public byte? AlternateQualityType { get; init; }
 
     /// <summary>The four item types whose data ends with an extra u16 (0x1421ebe90; the writer sends 1).</summary>
     static readonly uint[] TrailingU16 = [0x192c7aab, 0x365f206a, 0x503da850, 0x9aff2df6];
@@ -159,8 +167,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // Bit 7 (a vendor price): u8 n, then n × (u32 item type hash, compact uint amount; 0x141fa5290 looks the type
                 // up, 0x141e61010 reads the amount); stored in the Base's +0xb8 item list.
                 case "Base":
-                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0)).U16((ushort)(Price.Count > 0 ? 0x80 : 0)).U8((byte)Influences);
-                    if (Price.Count > 0)
+                    bool priced = HasVendorPrice || Price.Count > 0;
+                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0)).U16((ushort)(priced ? 0x80 : 0)).U8((byte)Influences);
+                    if (priced)
                     {
                         w.U8((byte)Price.Count);
                         foreach (var (type, amount) in Price)
@@ -232,7 +241,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// signed compact (0x141e490e0) per stat of the row.
     /// </summary>
     void MagicProperties(BlobWriter w) =>
-        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, NameWords, u7a: FracturedCount);
+        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, NameWords, u7a: FracturedCount,
+            alternateQualityType: AlternateQualityType, alternateQualityValue: Quality);
 
     /// <summary>The item as inventories and other messages carry it (0x1421ec1d0 / 0x1421ec2c0): u16 big-endian length,
     /// then <see cref="Payload"/>.</summary>
