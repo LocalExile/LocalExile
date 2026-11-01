@@ -1240,7 +1240,8 @@ static partial class Game
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
-        var at = conn.Walk.Position(now); conn.Walk.Teleport(at.X, at.Y, now);
+        // The client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when this ended it).
+        conn.Walk.Pause(now, seconds);
         return new(conn.ProjectileEpoch, action, conn.HitRecovery.Until, seconds);
     }
 

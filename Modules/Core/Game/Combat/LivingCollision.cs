@@ -17,6 +17,8 @@ static partial class Game
                 {
                     await CorrectMonsterCollisions(remote, stream, ciphers, conn);
                     await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
+                    await ShowFreeze(remote, stream, ciphers, conn);
+                    await ReleaseHeldMove(remote, stream, ciphers, conn);
                 }
                 PublishPlayerPose(conn);
                 if (ServerTrace.Sync) TraceSync(conn);
@@ -26,6 +28,50 @@ static partial class Game
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
         finally { conn.Instance.RemovePlayer(conn.PeerId); }
+    }
+
+    // The client does not stop for is_frozen (live 2026-11-01), and virtual_action_speed_+% at -100, which would stop it,
+    // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands and lets
+    // it go on with its walk after, as the server's walk does.
+    internal static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.FreezeShown == conn.FreezeGeneration) return;
+            conn.FreezeShown = conn.FreezeGeneration;
+        }
+        await Send(remote, stream, ciphers, [], "0x01d1 player frozen", atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds, left = conn.ElementalAilments.FreezeUntil(now) - now;
+                if (left <= 0 || conn.PlayerLife == 0 || conn.LeavingArea || conn.Paused) return null;
+                return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)left, PlayerHitRecovery.TakeHitAnimation),
+                    .. ResyncPacketLocked(conn, now)];
+            }
+        });
+    }
+
+    // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
+    internal static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        InstanceProtocol.UseSkillAtLocation use;
+        (int X, int Y) from;
+        int action;
+        using (ProjectileMutation(conn))
+        {
+            if (conn.HeldMove is not { } held) return;
+            double now = ProjectileWorldTime(conn);
+            if (PlayerActionBlocked(conn, now, now)) return;
+            conn.HeldMove = null;
+            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+            use = held;
+            action = Interlocked.Increment(ref conn.ActionCount);
+            from = conn.Walk.Order(use.X, use.Y, Math.Max(conn.HitRecovery.Until, now - MonsterAiCadence.StepSeconds));
+            conn.ChannelSkill = 0;
+        }
+        await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+            $"0x01ab held move to ({use.X}, {use.Y}) from ({from.X}, {from.Y})", still: () => PlayerActionCurrent(conn, action));
     }
 
     // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of

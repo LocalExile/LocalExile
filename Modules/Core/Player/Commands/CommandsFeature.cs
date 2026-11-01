@@ -1053,7 +1053,7 @@ static class CommandsFeature
                 $"Lightning {lightning}% (passives {p.LightningResistance}%, max {p.LightningMaxResistance}%, capped {DamageModel.Capped(lightning, p.LightningMaxResistance)}%), " +
                 $"Chaos {chaos}% (passives {p.ChaosResistance}%, max {p.ChaosMaxResistance}%, capped {DamageModel.Capped(chaos, p.ChaosMaxResistance)}%).");
         })
-        .Add("hit", "/hit <fire|cold|lightning|chaos|physical> <damage> (dev: incoming enemy test contact through resistances or armour)", async args =>
+        .Add("hit", "/hit <fire|cold|lightning|chaos|physical> <damage> [ranged] [freeze] (dev: incoming enemy test contact through resistances or armour)", async args =>
         {
             if (args.Length < 2) throw new ArgumentException("a damage type and an amount");
             if (ParseDamageType(args[0]) is not { } type) throw new ArgumentException("fire, cold, lightning, chaos or physical");
@@ -1064,6 +1064,15 @@ static class CommandsFeature
                 await conn.Commands!.Reply(conn.PlayerLife == 0 ? "You are already dead." : "Enemy test hit rejected while paused or leaving.");
                 return;
             }
+            if (args.Contains("freeze"))
+                lock (conn.Monsters)
+                {
+                    double now = conn.Clock.Elapsed.TotalSeconds, before = conn.ElementalAilments.ActionFactor(now);
+                    var stats = CharacterPlayerStats(conn);
+                    conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Freeze, 100, 1, now,
+                        name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom);
+                    PlayerAilmentsChangedLocked(conn, before, now);
+                }
             int dealt = hit.Damage; string mitigation = hit.Mitigation; uint life = hit.Life;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (life == 0)

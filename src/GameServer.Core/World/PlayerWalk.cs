@@ -89,6 +89,20 @@ public sealed class PlayerWalk
         _restSince = now;
     }
 
+    /// <summary>Holds the walker where it is for <paramref name="seconds"/>; then the walk goes on, as the client's does
+    /// after a hit's recovery.</summary>
+    public void Pause(double now, double seconds)
+    {
+        var here = At(now, out double fraction);
+        int i = _segments.FindIndex(s => now < s.End);
+        if (i < 0) return;
+        var left = _segments[i];
+        int done = Math.Max(0, (int)((now - left.T0) / left.Step));
+        var walk = new List<Segment> { new(here, left.Cells[done..], now + seconds - fraction * left.Step, left.Step) };
+        foreach (var next in _segments.Skip(i + 1)) walk.Add(next with { T0 = walk[^1].End });
+        _segments = walk;
+    }
+
     /// <summary>Paths the last order again from where the walker is (the client does when a walk is cut short).</summary>
     public void Repath((int X, int Y) target, double now)
     {

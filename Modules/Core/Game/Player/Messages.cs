@@ -31,7 +31,16 @@ static partial class Game
             // movement/cast timeline during that same recovery. Flasks and instant skills retain their own paths.
             if (id is InstanceProtocol.UseSkillAtLocationId or InstanceTransfer.UseSkillOnObjectId or InstanceProtocol.ChannelUpdateId)
                 lock (conn.Monsters)
-                    if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds)) continue;
+                {
+                    if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds))
+                    {
+                        // The client starts the newest click when it can again: the server walks it then (ReleaseHeldMove).
+                        conn.HeldMove = id == InstanceProtocol.UseSkillAtLocationId && InstanceProtocol.ReadUseSkillAtLocation(bytes) is var held
+                            && SkillsFor(conn).ActionName(held.SkillId) == "Move" ? held : null;
+                        continue;
+                    }
+                    conn.HeldMove = null;
+                }
             if (id == InstanceProtocol.UseSkillAtLocationId)
             {
                 // Echo the action so the client runs it (Move on a ground click); an attack gem is paced and may be movement

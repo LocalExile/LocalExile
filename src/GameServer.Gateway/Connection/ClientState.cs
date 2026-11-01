@@ -232,7 +232,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public Random IgniteRandom = Random.Shared;
     public int IncomingHitEpoch;
     public int DeathNotificationEpoch = -1;
-    public int FreezeGeneration;
+    public int FreezeGeneration, FreezeShown;
     public int ActionInterruptionGeneration => unchecked(HitRecovery.Generation + FreezeGeneration);
     public (int Count, int Chance)? PresentedRecentEnemyHits;
 
@@ -415,6 +415,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
     public int ActionCount;
+    // The newest Move click that came while the player could not act (Game.ReleaseHeldMove).
+    public InstanceProtocol.UseSkillAtLocation? HeldMove;
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
