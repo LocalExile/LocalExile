@@ -12,8 +12,12 @@ sealed class LeechSession
     public bool ConvertsLifeToEnergyShield => convertLifeToEnergyShield;
     double lifeInstant, manaInstant, shieldInstant, convertedLifeInstant;
     bool recoverLife = true, recoverEnergyShield = true;
+    public bool RecoversLife => recoverLife;
+    public bool RecoversEnergyShield => recoverEnergyShield;
     public bool InstantLifeChanged, InstantManaChanged;
     public double LifeInstantCarry, ManaInstantCarry;
+    // What a kill recovers (RecoverOnKill), from the same stat snapshot as this configuration.
+    public KillRecovery OnKill { get; set; }
 
     public void Configure(double now, LeechLimits.Snapshot value, Func<string, int> get, Func<string, int?> replacement,
         int equippedClaws = 0)

@@ -113,9 +113,15 @@ baseline without a rebuild. `projectile_distance_override` sets an exact distanc
 3.29.3b player tables do not currently assign that stat, so it is a safety net for future skill and support rows.
 
 Fork, chain and split start a **new movement instance** at the continuation point, so each leg gets a fresh range
-budget and the total path can exceed 15 m; `ProjectileEntity.Distance` keeps accumulating for Far Shot and the
-flight arc. The return leg keeps the measured 150-cell overshoot past the captured caster rather than taking a
+budget and the total path can exceed 15 m; `ProjectileEntity.Distance` keeps accumulating for Far Shot, Point Blank
+and the flight arc. The return leg keeps the measured 150-cell overshoot past the captured caster rather than taking a
 plain fresh budget.
+
+Far Shot (`player_far_shot`) and the Point Blank keystone (`keystone_point_blank`) scale an attack projectile's hit
+by that cumulative travel at the contact, with PoB `CalcOffence.lua`'s ramps (`AntiquarianEffects`): Far Shot from
+20% less up to 10 units to 60% more from 70, Point Blank from 30% more up to 10 units through none at 35 to 30% less
+from 120. Both multiply when both apply; spells and melee never read them. The map mod
+`map_players_have_point_blank` is not read.
 
 Action speed is not a projectile input. It changes attack, cast and movement pacing, while projectile speed only
 changes the time to the endpoint (and, for limited-duration projectiles, how far they get before expiring, up to

@@ -380,8 +380,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, exposure, damaging and alternative ailments on monsters (beyond the
-  player's ignites) and further added-damage/support effects remain open.
+  Special ES mechanics, conditional penetration, skill Exposure, damaging and alternative ailments on monsters
+  (beyond the player's ignites) and further added-damage/support effects remain open.
   The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
   default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
   ([20](../docs/protocol/20-damage.md) §3).
@@ -398,7 +398,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Production use during an active walk still needs measurement; native manual walk-stop experiments passed.
   Its departure/arrival damage, chilled ground, enemy-dependent recovery and shared Blink groups remain open.
   Extend terrain and movement restrictions from native evidence before accepting other instant movement skills.
-- **Start:** special ES mechanics, exposure, conditional penetration and the remaining critical strike stats
+- **Start:** special ES mechanics, skill Exposure, conditional penetration and the remaining critical strike stats
   from the stats both sides already carry; monster skills beyond the first granted effect (ranged, spells).
   Extend player stun rules to ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   Spell base critical chance now comes from each skill's level and shares its panel/combat calculation.
@@ -479,6 +479,14 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Vaal Ground Slam payment, shared attack admission and prevention now have a bounded implementation.
   Validate the [modular Behemoth candidate](../docs/game/behemoth.md) with current full suites and the native client.
   Other executors and official distribution/capacity parity remain separate; unsupported casts stay refused.
+
+### Shield Charge damage
+- **Known:** the charge is usable, ends, runs at its speed and hits along its path and at its end
+  ([11](../docs/protocol/11-skills.md) §10k); every hit is the ordinary weapon hit.
+- **Start:** the gem's shield damage (`off_hand_local_minimum/maximum_added_physical_damage`, the added damage per 15
+  shield armour and evasion) and `shield_charge_damage_+%_maximum` by distance travelled; the client's maximum range
+  comes from its setup `0x141a6bae0` (`shield_charge_range_+%`, `shield_charge_extra_distance`).
+- **Done when:** a level 20 Shield Charge's hits match its tooltip and grow with the distance charged.
 
 ### Death screen variants
 

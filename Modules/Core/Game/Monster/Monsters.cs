@@ -784,6 +784,8 @@ static partial class Game
         var onBlock = blocked ? BlockRecovery(conn, stats) : default;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
         int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
+        if (!blocked) RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
+            new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), now, stats);
         long lifeBefore = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats);
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, lifeBefore - lifeDamage + gainedLife));
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);

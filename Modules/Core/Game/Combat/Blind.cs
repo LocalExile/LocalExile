@@ -1,15 +1,17 @@
 
 
-// Blind on monsters, from either of the player's sources: the smoke cloud of their flask (FlaskGrounds) and a passive's
-// blind aura (PassiveBuffAuras). Both are the player's own, so both count as "Enemies Blinded by you". Each source keeps
-// its own set and its own blinded buff on the monster, so one ending never un-blinds the other.
+// Blind on monsters, from any of the player's sources: the smoke cloud of their flask (FlaskGrounds), a passive's blind
+// aura (PassiveBuffAuras) and his hits (HitDebuffs, SpawnedMonster.BlindedUntil). All are the player's own, so all count as
+// "Enemies Blinded by you". Each source keeps its own set and its own blinded buff on the monster, so one ending never
+// un-blinds another.
 static partial class Game
 {
     internal const string VsBlindedCriticalStat = "critical_strike_chance_+%_vs_blinded_enemies";
     internal const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";
 
     internal static bool Blinded(ClientState conn, uint monster) =>
-        conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster);
+        conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster)
+        || conn.Monsters.TryGetValue(monster, out var m) && m.BlindedUntil > ProjectileWorldTime(conn);
 
     // A monster's accuracy (its hits on the player) or evasion (against the player's attacks): 20% less while Blinded
     // (FlaskGrounds.BlindLessPct, PoB's Blind).

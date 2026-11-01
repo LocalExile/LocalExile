@@ -37,6 +37,7 @@ static partial class Game
             LeechOf(conn).Configure(ProjectileWorldTime(conn),
                 LeechLimits.Resolve(get, conn.Pools.Life, conn.Pools.Mana, conn.Pools.EnergyShield, Replacement, onLowLife),
                 get, Replacement, claws);
+            LeechOf(conn).OnKill = KillRecovery.From(get, conn.Pools.Level);
             TrimLeechLocked(conn);
         }
     }
@@ -74,12 +75,15 @@ static partial class Game
         double now = ProjectileWorldTime(conn);
         var instant = session.Hit(now, amounts, conn.PlayerLife >= conn.PlayerMaxLife,
             conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum, sources.Attack);
+        var gain = sources.GainOnHit;
         uint life = conn.PlayerLife, mana = conn.PlayerMana;
-        // Instant portions resolve in this hit transaction, so a later enemy hit sees the recovered resource.
-        // Keep sub-point recovery between hits, and discard overflow at a full pool.
-        conn.PlayerLife = RecoveryPool.Advance(life, conn.PlayerMaxLife, instant.Life, ref session.LifeInstantCarry, minimum: 1);
-        conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), instant.Mana, ref session.ManaInstantCarry);
-        conn.EnergyShield.Gain(instant.EnergyShield);
+        // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
+        // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool.
+        conn.PlayerLife = RecoveryPool.Advance(life, conn.PlayerMaxLife,
+            instant.Life + (session.RecoversLife ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
+        conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), instant.Mana + gain.Mana,
+            ref session.ManaInstantCarry);
+        conn.EnergyShield.Gain(instant.EnergyShield + (session.RecoversEnergyShield ? gain.EnergyShield : 0));
         session.InstantLifeChanged |= life != conn.PlayerLife;
         session.InstantManaChanged |= mana != conn.PlayerMana;
         session.ClearFull(now, conn.PlayerLife >= conn.PlayerMaxLife, conn.PlayerMana >= UnreservedMana(conn),

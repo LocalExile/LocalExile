@@ -25,6 +25,7 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public int AccuracyMoreClose { get; init; }
     public bool AlwaysHits { get; init; }
     public bool FarShot { get; init; }
+    public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
     public int? SecondFormCriticalChance { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>

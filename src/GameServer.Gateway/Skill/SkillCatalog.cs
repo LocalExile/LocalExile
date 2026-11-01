@@ -255,6 +255,24 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         effectRow >= 0 && level > 0 && _tables.Value is { } t
             && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.AttackSpeedMultipliers[row] : 0;
 
+    /// <summary>The gem's own base attack time at a GEPL level (GrantedEffectsPerLevel AttackTime, ms; Shield Charge
+    /// 500), or 0 where the skill uses its weapon's.</summary>
+    public int AttackTimeMs(int effectRow, int level) =>
+        effectRow >= 0 && level > 0 && _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
+            && row < _attackTimes.Value.Count ? _attackTimes.Value[row] : 0;
+
+    // GrantedEffectsPerLevel AttackTime by row, in the order Tables.PerLevel reads them.
+    private readonly Lazy<List<int>> _attackTimes = new(() =>
+    {
+        var times = new List<int>();
+        string path = Path.Combine(folder, "tables", "GrantedEffectsPerLevel.json");
+        if (!File.Exists(path)) return times;
+        using var doc = GameTables.Open(path);
+        foreach (var r in doc.RootElement.EnumerateArray())
+            times.Add(r.TryGetProperty("AttackTime", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int ms) ? Math.Max(0, ms) : 0);
+        return times;
+    });
+
     /// <summary>The effect's primary stat set's base spell critical chance at this gem level, in permyriad.
     /// Null means missing/invalid data, distinct from a known zero (a spell with no inherent critical chance).</summary>
     public int? SpellCritChance(int effectRow, int level)
@@ -396,6 +414,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsChannelled(int effectRow) => _skillTypes.Channel.Value.Contains(effectRow);
     public bool IsTravel(int effectRow) => _skillTypes.Travel.Value.Contains(effectRow);
     public bool IsGuard(int effectRow) => _skillTypes.Guard.Value.Contains(effectRow);
+    /// <summary>A skill that needs a shield (ActiveSkillType RequiresShield: Shield Charge, Shield Crush …).</summary>
+    public bool RequiresShield(int effectRow) => _skillTypes.RequiresShield.Value.Contains(effectRow);
 
     /// <summary>Whether a GrantedEffects row's skill is an attack (ActiveSkillType Attack: the default attack, Holy
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
@@ -504,7 +524,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
             Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
             Travel = Of("Travel"); Guard = Of("Guard"); Channel = Of("Channel");
-            Strike = Of("MeleeSingleTarget"); Vaal = Of("Vaal"); Nova = Of("Nova");
+            Strike = Of("MeleeSingleTarget"); Vaal = Of("Vaal"); Nova = Of("Nova"); RequiresShield = Of("RequiresShield");
             SelfTargeted = new(() =>
             {
                 var self = EffectsOfTargetType(folder, 4, 10);
@@ -530,6 +550,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public Lazy<HashSet<int>> Strike { get; }
         public Lazy<HashSet<int>> Vaal { get; }
         public Lazy<HashSet<int>> Nova { get; }
+        public Lazy<HashSet<int>> RequiresShield { get; }
         public Lazy<HashSet<int>> SelfTargeted { get; }
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));

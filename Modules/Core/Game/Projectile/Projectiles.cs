@@ -266,12 +266,16 @@ static partial class Game
             if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
+            if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = CharacterPlayerStats(Conn);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(player);
-            var rolled = GameEvents.WithOutgoingDamage(Conn, player, target, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(packet, random));
+            var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
+                GameEvents.WithOutgoingDamage(Conn, player, target, (gambler with { DamageMorePct = 0 })
+                    .ForSkill(name => Stats.Key(name) is uint k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell)
+                    .RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
                     shot.VsProfaneCriticalChance);
@@ -287,7 +291,8 @@ static partial class Game
             double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
             var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Mods.Effects["avoid_impale_%"]);
             damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
-            var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player);
+            var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
+                cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell));
             if (hit is null) return ProjectileHitResult.Miss;
             AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                 at, contact.Projectile.ReactionRandomSource);

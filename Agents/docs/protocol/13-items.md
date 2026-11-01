@@ -565,15 +565,44 @@ with a one-handed weapon; a shield or a one-handed weapon not with a two-handed 
 refused (the item stays held). Before, only the class per row was checked, so a bow could go next to a shield or a
 sword and a one-handed weapon next to a quiver.
 
-### Client quiver eligibility
+### Client weapon-type stats
 
-`FUN_1421eca50` checks that a quiver (ItemClasses row + 1 = 21) sees player stat 3,
-`main_hand_weapon_type`, equal to **9**. This is a separate native enum: Bow's ItemClasses row + 1 is 14,
-and its model stance is 8. Sending the visual alone leaves inventory quivers red and prevents placement
-requests. `FinalPlayerStats` supplies 9 for an active, usable bow in row 2 (a value /set_stat set wins); other
-weapons send nothing, and taking the bow off sends 0 through the cleared-stat list (`PlayerStatsWithCleared`).
-Weapon swaps physically exchange rows 2/3 with 14/15. Other weapon-stat enum values remain to be mapped.
-Automated coverage passes; in-client confirmation pending.
+Player stats 3 `main_hand_weapon_type` and 4 `off_hand_weapon_type` (Stats rows 2 and 3) hold a native weapon enum,
+neither the ItemClasses row + 1 of the equipment record (Bow 14) nor the model stance (Bow 8). Network stats run no
+calculators ([04](04-player-entity.md) §4.1a), so the client derives neither, nor `is_dual_wielding` (stat 0xf6, row
+245) from them: the server sends all three. A stat never sent reads 0, a One Hand Sword, so before 2026-11-01 every
+character held `is_dual_wielding` 1 and skills only the off hand fits were greyed out
+([11](11-skills.md) §10a: Shield Charge with a sceptre and a shield).
+
+The values, decoded from the 3.29.3b stat calculators that test them (`is_wielding_sword` 0x1428abac0, `_mace`
+0x1428ac240, `_axe` 0x1428abe80, `_dagger`, `_claw`, `attack_damage_is_wand_damage`, `virtual_total_quality_from_shield`
+and the off-hand "while holding a shield" calculators, `is_dual_wielding` 0x142521190):
+
+| Value | Weapon | Value | Weapon |
+|---|---|---|---|
+| 0 | One Hand Sword | 9 | Bow |
+| 1 | Thrusting One Hand Sword | 10 | Dagger |
+| 2 | Two Hand Sword | 11 | Staff |
+| 3 | One Hand Mace (inferred) | 12 | Claw |
+| 4 | Two Hand Mace | 13 | Shield |
+| 5 | Sceptre (inferred) | 14 | empty hand (unarmed) |
+| 6 | Wand | 15 | Fishing Rod |
+| 7 | One Hand Axe | 16 | Rune Dagger |
+| 8 | Two Hand Axe | 17 | Warstaff |
+
+`is_wielding_mace` takes 3 and 5 in either hand and 4 in the main hand only; no calculator tells 3 from 5, so which is
+the sceptre is inferred from the swords' order. A quiver's value is not decoded: the Gateway sends it as an empty hand.
+
+`is_dual_wielding` (calculator 0x142521190, inputs 3, 4, `unarmed_counts_as_dual_wielding` 0x2b33 and 1): 1 when the
+main hand is 14, the off hand is 14 and `unarmed_counts_as_dual_wielding` is set; otherwise 1 when the byte table
+0x142fdd728 is set for both hands' values and the off hand is not 14. The table is set for every weapon above and clear
+for 13 and 14.
+
+`FinalPlayerStats` sends all three from the active hands (`WeaponTypeStats`; an item whose requirements are not met is an
+empty hand; a value /set_stat set wins). The quiver check `FUN_1421eca50` reads stat 3 directly: a quiver (ItemClasses
+row + 1 = 21) needs **9**, a bow, in the main hand, or inventory quivers stay red and placement requests are never sent.
+Weapon swaps physically exchange rows 2/3 with 14/15. Verified live 2026-11-01 (Shield Charge, sceptre and shield):
+`is_dual_wielding` 0 reached the client and the skill became usable.
 
 ### Bow model records
 
@@ -1358,6 +1387,13 @@ The Silver Flask's buff has no stats, only the flag `silver_flask_display_onslau
 (row 215) on the player with the values of BuffTemplates `MapModPlayerOnslaught` (20, 20, 20). How each buff stat counts
 is `UtilityFlasks.SupportOf`: modelled (the pools, the walk, drops, damage), only the character panel (ailments, stun
 and unsupported curse/ailment effects), or Ward.
+The same buff comes from a kill (`OnslaughtOnKill.cs`): `chance_to_gain_onslaught_on_kill_%` for
+`onslaught_time_granted_on_kill_ms` (4 s when 0, as its stat description reads), the `_for_4_seconds_%` and
+`_for_10_seconds_%` chances, and `onslaught_buff_duration_on_kill_ms` always. Each rolls on its own and a gain never
+shortens one running. Its stats are this buff's (Ruthless' template has no movement speed) at the character's
+`onslaught_effect_+%`, as more sources of `buff 215` in `UtilityStats`, so with a Silver Flask's the stronger counts once.
+They apply only once the client has been sent the buff (0x1c1, the countdown at +0x68), then the pools, walk, stats and
+skills go out; a running flask's Onslaught hides the kill's icon, and expiry or death takes it off (0x1c2).
 Ward flat/increased bonuses feed the authoritative pool through `UtilityFlasks.Apply`.
 After a successful charge payment and effect start, `local_flask_restore_ward` restores broken Ward immediately.
 Stat projection, refused uses and ordinary effect refresh never restore Ward.

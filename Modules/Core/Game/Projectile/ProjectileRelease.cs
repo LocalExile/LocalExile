@@ -220,6 +220,7 @@ static partial class Game
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
+            PointBlank = Get("keystone_point_blank") != 0,
             ReturnMultiplier = ProjectileReturn.DamageMore(Get),
             // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
             // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.

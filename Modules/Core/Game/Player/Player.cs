@@ -444,6 +444,7 @@ static partial class Game
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
             }
             await SendAntiquarian(remote, stream, ciphers, conn);
+            await SendKillOnslaught(remote, stream, ciphers, conn);
             await SendTotems(remote, stream, ciphers, conn);
             await SendSpiritChieftain(remote, stream, ciphers, conn);
             await SendRecentEnemyHits(remote, stream, ciphers, conn);
@@ -588,6 +589,7 @@ static partial class Game
                     lifeCarry = manaCarry = burnCarry = 0;
                     FortificationOf(conn).Clear();
                     leech.Clear(now);
+                    conn.LifeRecoup.Clear();
                     conn.EnergyShield.Empty();
                     ClearAntiquarianOnDeath(conn);
                     lifeAfter = lifeBefore;
@@ -611,7 +613,8 @@ static partial class Game
                     if (convertLifeRegen) conn.EnergyShield.Gain(enduringCryLife);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(lifeBefore, conn.PlayerMaxLife,
                         life + (zealotsOath ? 0 : lifeRate * seconds) + (zealotsOath ? 0 : fortificationLife) + leeched.Life
-                            + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife) - lifeBurn,
+                            + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife) - lifeBurn
+                            + conn.LifeRecoup.Take(now),
                         ref lifeCarry, minimum: 1);
                     AdvancePlayerAilmentsLocked(conn, recoveryFrom, now, recoveryStats);
                     lifeAfter = conn.PlayerLife;
@@ -649,6 +652,7 @@ static partial class Game
         FortificationOf(conn).TakeRecovery(now);
         conn.Antiquarian.TakeRecovery(now);
         conn.EnduringCryRecovery.Take(now);
+        conn.LifeRecoup.Take(now);
     }
 
     // The ended flask effects' buffs come off the player (S→C 0x1c2).

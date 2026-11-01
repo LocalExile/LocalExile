@@ -680,7 +680,7 @@ static partial class Game
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct,
-            MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct
+            MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.

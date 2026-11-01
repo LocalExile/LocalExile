@@ -319,6 +319,8 @@ static partial class Game
                 var resistanceMods = HitResistMods(player, ownPenetration);
                 var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee,
                     ConversionFor(conn, attackEffect, 1, attack: true));
+                if (WeaponProfileFor(conn, activeSet: true).Melee)
+                    hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
@@ -339,7 +341,8 @@ static partial class Game
                 if (!fortified) fortified = FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
                     WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration);
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, WeaponProfileFor(conn, activeSet: true).Melee, player);
-                (m.Life, stageStarts) = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
+                (m.Life, stageStarts) = TakeOwnerHitLocked(conn, m, damage, Cull.Of(player, ownPenetration, critical, spell: false),
+                    rampageSource, player);
                 if (stageStarts)
                 {
                     CommitBossStage(remote, stream, ciphers, conn, targetId, m, ProjectileWorldTime(conn));
@@ -834,6 +837,8 @@ static partial class Game
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
+        // Shield Charge hits along its own walk and where it ends (RunShieldCharge), not once where it started.
+        if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
@@ -938,7 +943,7 @@ static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
-        uint targetId = 0, int repeat = 0)
+        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken))
@@ -958,13 +963,16 @@ static partial class Game
         var weapon = WeaponFor(conn);
         int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
         if (castDuration is null) return;
+        // Ruthless: whether this use is its skill's Ruthless Blow, counted as it starts.
+        double ruthless = spell ? 1 : RuthlessBlowMore(conn, skillId, Stat);
         double delay;
         // A spell lands at its area cast clip's contact keyframe (a repeat a whole cast later each), an attack at its
         // swing's; the player swings where it stands, so without the walk-in offset.
         lock (conn.Monsters) delay = spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject))
             : AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), approach: false);
-        int radius = SkillRadius(conn, skillStats, spell, gem.Effect);
+        // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
+        int radius = radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect);
         // A melee skill aimed far away still lands in front of the player; a self-targeted spell goes off around the caster.
         var centre = VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
             : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
@@ -1007,8 +1015,10 @@ static partial class Game
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
             var found = conn.Monsters.Select(e => (e.Key, e.Value, Distance: Dist(e.Value.Walk.Position(now), centre)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
-                    && e.Distance <= radius)
+                    && e.Distance <= radius && once?.Contains(e.Key) != true)
                 .ToList();
+            // Hits that may reach each monster only once across several sweeps record it here.
+            if (once is not null) foreach (var f in found) once.Add(f.Key);
             if (ring)
             {
                 found.Sort((a, b) => a.Distance.CompareTo(b.Distance));
@@ -1070,6 +1080,7 @@ static partial class Game
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
                     sweepHit = SupportedHit(conn, skillId);
+                    if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);
                     leech = HitLeechSources(player, !spell, skillStats, local);
@@ -1083,6 +1094,8 @@ static partial class Game
                     contactHit = contactHit.Scale(1 + Stat("groundslam_damage_to_close_targets_+%_final")
                         / 100.0 * Math.Max(0, 1 - distance / Math.Max(1, radius)));
                 }
+                if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
+                    contactHit = WithMeleeProximityLocked(conn, player, skillStats, m, contactHit, ProjectileWorldTime(conn));
                 int hitChance = spell ? 100 : AttackHitChanceAt(conn, id, m, ProjectileWorldTime(conn), accuracy);
                 if (!spell && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
                 if (MonsterBlocks(m, Random.Shared, spell))
@@ -1091,7 +1104,10 @@ static partial class Game
                     continue;
                 }
                 var gambler = GamblerFor(player);
-                var rolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(contactHit, Random.Shared));
+                var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
+                    GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).ForSkill(Stat, spell)
+                        .RollOutgoingHit(contactHit, Random.Shared)),
+                    ProjectileWorldTime(conn));
                 // The shared roll meets each target's current chance: a source can change between targets.
                 int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
                     SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
@@ -1114,7 +1130,8 @@ static partial class Game
                 // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                 var rampagePlayer = freshPlayer ? player : null;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
-                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer);
+                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
+                    cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
                     landed++;
@@ -1226,7 +1243,7 @@ static partial class Game
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
         var mitigated = rolled.Select((type, range) =>
         {
-            var value = MonsterHitResistance(m, type, pen);
+            var value = MonsterHitResistance(m, type, pen, now);
             if (rolled[type].Max > 0 && HitResistances.Describe(type, value, strike, mods) is { } note) described.Add(note);
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
@@ -1248,10 +1265,11 @@ static partial class Game
     // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where
     // it hits from) is not the player's hit for his hit-recently.
     internal static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
-        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null, (int X, int Y)? allyAt = null)
+        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null, (int X, int Y)? allyAt = null,
+        Cull cull = default)
     {
         if (m.Dead || m.Life == 0) return null;
-        (m.Life, bool starts) = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
+        (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         if (allyAt is null) conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
         if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
         TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
@@ -1447,7 +1465,9 @@ static partial class Game
         if (playerKill)
         {
             await Program.ServerHooks.MonsterKilled(new(killer, monster));
+            if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
+            RecoverOnKill(conn, m);
         }
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });

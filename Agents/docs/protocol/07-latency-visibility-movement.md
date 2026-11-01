@@ -175,7 +175,8 @@ between waypoints is a Bresenham line of cells; one step takes `(√(dx² + dy²
 and the grid cell (`+0x294`) only changes a step at a time. Each frame adds its time to the accumulator (`+0x244`, a
 whole number of milliseconds on the client's clock) and steps while it holds a whole step time (`+0x240`); before every
 step the next cell is checked again (terrain, objects) and a blocked step ends the walk: the walker stands, with no new
-path and no message (`0x141e7bc20`). A new segment, including the first one of a new order, rescales the accumulator to its own step time (`A × s_new / s_old`), so a re-order keeps the
+path and no message (`0x141e7bc20`). A new segment, including the first one of a new order, rescales the accumulator to
+its own step time (`A × s_new / s_old`), so a re-order keeps the
 elapsed fraction of the step in progress. A stop (`0x141e350e0`) takes effect in the next tick, after that tick's
 steps, and keeps the accumulator. Verified on a capture (2026-10-21): the per-tick rule held in 55,915 of 56,069 player
 ticks (the rest are counter resets), the rescale on 575 of 575 clicks. Speed (`0x141e7c0b0`) is the Pathfinding base
@@ -197,7 +198,8 @@ step is checked like the player's. A path that began on a blocked cell steps thr
 (`0x141e4d890`'s out flag → Positioned `+0x1e5 & 4`). A path the expansion limit cut short is walked to its end and then
 paths again from there at once (`0x141e7bec0` → `0x141e7b920`). Starting a non-pathing action ends the Move with
 `0x141e90740(…, 0)`, which leaves the pathing running, so a ranged monster shoots while it walks on to the Move's target.
-Monsters far from the player keep their walk but do not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8): the Actor's run-speed roll `+0x1a8`. Actor
+Monsters far from the player keep their walk but do not tick. Their speeds vary by a few percent (7.60–8.40 for a base of
+8): the Actor's run-speed roll `+0x1a8`. Actor
 setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
 u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns before `AilmentThreshold` (`__col75`,
 `__col76`) differ, draws a uniform integer in that range (`0x1404d03d0`); the roll multiplies the Pathfinding speed by
@@ -430,8 +432,6 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - Monster estimates still differ in the 5–50 ms until the client applies an order. The Gateway never sends 0x1aa (GGG does
   at about 171 cells).
 - The client's walk-up arguments for the map device (`Approach`).
-- Shield Charge never fired from the test input, so it is not checked live. The server lands it at once and the resync
-  settles the end.
 - Two monsters racing for one cell can swap places between client and server: the same cells are taken, by different ids.
   Routes through a tight crowd differ for the same reason; the once-a-second resync bounds it at 20 cells.
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

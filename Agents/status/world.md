@@ -105,6 +105,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ranged monsters and minions take rings around the player (`MonsterSurround`); the AI decides every 50 ms.
   Automated regressions cover player-body clearance for new and reused slots.
   Further automated checks cover short attack reach, stationary-blocked slots and queued channel/Rage refreshes.
+  A 50 ms pass steps the estimates as the client does (no packets): a step blocked by terrain or a body ends the walk, a
+  path cut short paths again from its end, and an attack does not stop the walk; death releases the occupied space and
+  the corpse stays in the area.
+  Chasers spread around the player on rings (`MonsterSurround`); the AI decides every 100 ms.
+  Automated regressions cover direct chases for negative footprints and player-body clearance for new and reused slots.
+  Further automated checks cover short attack reach, stationary-blocked slots, bounded crowd escape and queued
+  channel/Rage refreshes.
   Combined regressions cover silent channel updates, removed gems and projectile contacts before crowd movement.
   AI and correction passes share indexed body snapshots; surround reservations use spatial queries and cached rings.
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.

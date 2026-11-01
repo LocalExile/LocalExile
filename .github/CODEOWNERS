@@ -13,21 +13,7 @@ GEMINI.md @Wrathen
 # Guides with the commands and workflows agents follow
 /README.md @Wrathen
 /Agents/GettingStarted.md @Wrathen
-/Agents/Status.md @Wrathen
-/Agents/Roadmap.md @Wrathen
 /Agents/docs/README.md @Wrathen
-/Agents/docs/dev-server.md @Wrathen
-/Agents/docs/re/tooling.md @Wrathen
-/Agents/docs/dev/campaign-automation.md @Wrathen
-/Agents/docs/dev/client-control.md @Wrathen
-/Agents/docs/dev/debugging.md @Wrathen
-/Agents/docs/dev/headless-client.md @Wrathen
-/Agents/docs/dev/live-testing.md @Wrathen
-/Agents/docs/dev/modding.md @Wrathen
-/Agents/docs/dev/modules.md @Wrathen
-/Agents/docs/dev/performance.md @Wrathen
-/Agents/docs/dev/pr-checks.md @Wrathen
-/Agents/docs/dev/releases.md @Wrathen
 
 # The repository's own controls
 /.github/ @Wrathen
@@ -35,8 +21,6 @@ GEMINI.md @Wrathen
 /.gitignore @Wrathen
 
 # Scripts and tools people and agents run
-/scripts/ @Wrathen
-/Tools/ @Wrathen
 /src/LocalExileGui/build.ps1 @Wrathen
 
 # What runs during a build, or adds a dependency

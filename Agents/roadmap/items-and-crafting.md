@@ -30,8 +30,7 @@ features.
   (#60's follow-ups), and area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
-- **Start:** other currency through C→S 0x71 (13 §4: Alteration, Augmentation, Regal, Alchemy,
-  Chaos, Scouring can reuse `ItemRolls`); special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
+- **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), chancing, and
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other

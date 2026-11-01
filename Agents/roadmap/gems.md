@@ -81,7 +81,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
 
 ### Gems later: quality, getting gems, corruption, bonus levels
 
-- **Quality** from Gemcutter's Prism needs currency on items (C→S 0x4a, "Items" above).
+- **Quality:** check Gemcutter's Prism live, and that quality stats change the skill (`SkillCatalog.EffectStats`).
 - **Getting gems:** quest rewards, the town gem vendors and monster drops are in (every `QuestRewardOffers` row the
   server can build, by class; the vendors' completed-quest/class progression, Siosa and Lilly, and the 3.29
   cross-class supports; a 4% gem share of item drops by DropLevel;

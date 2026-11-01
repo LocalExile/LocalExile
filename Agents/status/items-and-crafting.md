@@ -277,8 +277,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   tab are covered.
   Uses the existing currency path for ordinary and Shift application.
   See [13](../docs/protocol/13-items.md).
-- Quiver eligibility fix (2026-10-25, awaiting client confirmation): active bows now publish `main_hand_weapon_type =
-  9`, required by the client's inventory gate; see [13](../docs/protocol/13-items.md).
+- Quiver eligibility fix (2026-10-25, awaiting client confirmation): active bows publish `main_hand_weapon_type = 9`,
+  required by the client's inventory gate; every hand now sends its weapon type (see "Client weapon-type stats" in
+  [13](../docs/protocol/13-items.md)).
 - **Jeweller's Orb: verified live (2026-10-21).** Normal use and Shift share the currency handler; rerolls counts
   1/2/3/4/6 and link groups, limited by class, dimensions and item level, and consumes one orb.
   3.29: sockets the reroll keeps retain their colours and only the added sockets are white.
@@ -354,6 +355,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [13](../docs/protocol/13-items.md), "Armourer's Scrap".
 - **Blacksmith's Whetstone (verified live, 2026-10-21):** +1% quality on weapons, up to 20%; Scouring resets it.
   See [13](../docs/protocol/13-items.md), "Blacksmith's Whetstone".
+- **Gemcutter's Prism (no test, not checked live):** +1% gem quality, up to 20% ([13](../docs/protocol/13-items.md)).
 - **Ancient Orb:** reforges an uncorrupted unique piece of equipment as another of its item class, by the uniques' drop
   weights, keeping item level, quality, sockets and links. Only uniques of the same inventory size; no corrupted or Replica
   results (`UniqueCatalog.Reforge`). Not checked in game yet.

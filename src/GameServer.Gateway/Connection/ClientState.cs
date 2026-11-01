@@ -147,6 +147,24 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // hits read.
     public double TauntedUntil = double.NegativeInfinity, TauntShownUntil;
     public ushort TauntBuff;
+    // Intimidated and unnerved by his hits (Game.HitDebuffsOnHitLocked) until when, shown the same way as the taunt.
+    public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
+        UnnerveShownUntil;
+    public ushort IntimidateBuff, UnnerveBuff;
+    // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
+    public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
+    public ushort BlindBuff;
+    // His Exposure on it (Game.ExposureOnHitLocked): until when, by element and magnitude, the highest running one lowering
+    // its resistance; per element (fire, cold, lightning) when the last of them ends and its shown buff.
+    public readonly Dictionary<(DamageType Type, int Magnitude), double> Exposures = [];
+    public readonly double[] ExposureUntil = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
+    public readonly double[] ExposureShownUntil = new double[3];
+    public readonly ushort[] ExposureBuff = new ushort[3];
+    // His Withered stacks on it (Game.WitherOnHitLocked): each one's end and chaos damage taken; the buff shown for them.
+    public readonly List<(double Until, double Pct)> Withered = [];
+    public int WitherShownStacks;
+    public double WitherShownUntil;
+    public ushort WitherBuff;
     public readonly Dictionary<ushort, ushort> PlayerAuras = [];
     public (int All, int Elemental) TakenFromPlayer;
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
@@ -449,6 +467,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
+    // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
+    public readonly RecoupRecovery LifeRecoup = new();
     public double SentEnduringCryUntil = double.NaN;
     public ushort EnduringCryBuff;
     public bool AppliedAdrenaline;

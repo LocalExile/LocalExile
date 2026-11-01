@@ -10,6 +10,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Elapsed Life regeneration, stopping at expiry, area carry, death and relog were also verified.
   The evidence uses a new unascended character with raw inputs; it does not establish Behemoth selection.
   See [Fortification](../docs/game/fortification.md) for the formula, source coverage and remaining extensions.
+- Shield-only skills beside a one-handed weapon (verified live 2026-11-01: Shield Charge with a sceptre and a shield).
+  The client greys out a skill when `is_dual_wielding` is set and the main hand does not fit it, and it never derives
+  that stat from network stats: unsent, it read 1 for every character.
+  The Gateway now sends `is_dual_wielding` with both hands' native weapon types (`WeaponTypeStats`), and the skill
+  became usable.
+  Shield Charge's charge (verified live 2026-11-01): it ends and plays its end effect (the shield's off-hand attack time
+  from the gem's `AttackTime`), runs at its own speed (`movement_velocity_+%` 22 → 112 → 22 while charging), and hits
+  along its path (within 8 cells about every 100 ms, each monster once) and where it ends (within 16 cells).
+  Its damage is still the ordinary weapon hit: the shield's added damage and the distance scaling are not applied.
+  Code: `WeaponTypeStats.cs`, `Skills.cs` (`FinalPlayerStatsFrom`, `GemSkills`), `ShieldCharge.cs`, `SkillCatalog.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md) "Client weapon-type stats".
 - Antiquarian's real selected nodes now drive Ward absorption/restoration and Runic Tablet's pausable Adrenaline.
   Goliath's zero Intelligence reaches requirements and pools; Whaletooth extends actual Enduring Cry recovery.
   Turtle Shell integrates 8% Life over one second after accepted melee stun, with native Life correction at expiry.
@@ -549,9 +560,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Claw mastery instant leech counts active usable claws, Weapon Master applies its claw condition once, and
   Gore Dancer's Life instant source survives Ghost Reaver conversion. Real-source contacts and split/override
   controls pass; exact native mixed Life/ES instant composition remains unverified (damage §5b records the policy).
+  Kills recover Life, Mana and ES on kill, also by ailment; not checked live ([20](../docs/protocol/20-damage.md) §5b).
   Highwayman's real modifier now doubles total Life-leech recovery once, independently of the explicit Life
   maximum-rate doubling flag. Source/removal, duplicate flags, caps, duration, instant and conversion controls pass;
   current Vaal Pact acquisition and native stacking/recovery parity are not implied by raw-flag support.
+  Attack gain on hit recovers Life, Mana and ES; not checked live ([20](../docs/protocol/20-damage.md) §5b).
   Code: `LeechLimits.cs`, `LeechSources.cs`, `LeechRecoveryState.cs`, `LeechSession.cs`, Gateway (`Program.Leech`, resource writer).
   Docs: [20](../docs/protocol/20-damage.md) §5b.
 - Ordinary Life/Mana regeneration: flat and maximum-pool percentage sources receive regeneration and recovery increases.
@@ -847,6 +860,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Gateway coverage; not yet checked with the real client.
   Code: `PlayerMinions.cs`, `MinionAttacks.cs`, `RunMonsterAi`.
   Docs: [11](../docs/protocol/11-skills.md) section 10h.
+- Life Recoup returns a share of each hit taken over the next 4 s ([20](../docs/protocol/20-damage.md) §5).
 - Ancestral Commander defences: `damage_reduction_rating_from_body_armour_doubled` doubles the body armour's armour
   (and, with Iron Reflexes, its converted evasion) before the increases.
   `missing_unreserved_life_%_gained_as_life_before_hit` gains that share of missing Life before every non-evaded
@@ -925,6 +939,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Blind from it or the smoke cloud lowers their accuracy and evasion by 20%, lets
   `critical_strike_chance_+%_vs_blinded_enemies` raise the player's critical chance against them (default attack, area
   sweeps, footstep skills, projectiles) and `damage_taken_+%_from_blinded_enemies` lower their hits and ignites.
+  Hits Blind by their on-hit and critical-strike chances for 4 s ([11](../docs/protocol/11-skills.md) §12).
   Other passive auras do nothing yet.
   Gateway coverage only (a Polytheist and an ordinary Saboteur), not checked with the real client.
   Code: Gateway (`PassiveBuffAuras`, `TickPassiveAuras`, `Game.Blinded`, `CriticalChanceOn`).
@@ -956,6 +971,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Action speed does not change projectile range: projectile speed only shortens the flight, and `action_speed_-%` is
   composed additively with chill/freeze for attack, cast and movement pacing; Tailwind/Harbinger sources remain #246.
   Direct and area snapshots keep area increases/supports scoped to their damage stages.
+  Point Blank scales attack projectile hits by travel ([projectiles](../docs/game/projectile-framework.md)).
   Area effects scale to the committed radius when the selected art exports a native radius; unknown art stays unscaled.
   Terrain-blocked area centers are omitted without resampling or reserving time; surviving areas keep consecutive intervals.
   Skill explosions, pulses, children, forms, native art and specialized resources belong to skill definitions.
@@ -1062,6 +1078,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Enemy and ally passive auras are not applied.
   Code: `PassiveBuffAuras.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §12.
+- Onslaught on kill grants the Onslaught buff and its speed ([13](../docs/protocol/13-items.md) §8a).
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
   The [357-stat ledger](../docs/dev/issue75-stat-ledger.md) tracks current individual review state and remaining
@@ -1377,8 +1394,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   The player's hits chill, freeze and shock monsters: threshold maximum life, strongest effect with its own duration,
   shock as increased damage taken (hits and Righteous Fire), chill and freeze in the monster AI and walk, the monster
   mods' ailment stats (of the Ice, of the Tempest, Unstoppable, Mirrored) and the chilled/frozen/shocked buffs.
+  Elemental Focus and the never-ailment stats stop those ailments ([20](../docs/protocol/20-damage.md) §3).
   Chill can raise damage taken and lessen the monster's swings (Glacial Wave), a freeze can have a minimum duration
   and a monster that hits the player can be frozen (Brine Bound).
+  "As though dealing more damage" raises the chill, shock or freeze it inflicts ([20](../docs/protocol/20-damage.md)).
   A corpse keeps its killing hit's ailments and a kill can shock it, unless the hit killed it frozen and it shatters.
   Each shock spreads to living enemies within its own `virtual_shock_proliferation_radius` of the shocked monster or
   corpse, like an aura.
@@ -1386,7 +1405,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   still rewards its kills.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.
   See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
-  Not yet: exposure, aura-dependent penetration, other added damage,
+  Hits inflict elemental Exposure by their chances, -10% for 4 s by default ([20](../docs/protocol/20-damage.md) §2).
+  Elemental Equilibrium removes the Exposure of a hit's elements and inflicts -25% Exposure of the others.
+  Not yet: Exposure from skills and auras, aura-dependent penetration, other added damage,
   increased/more support modifiers and outgoing ailment application/duration ([20](../docs/protocol/20-damage.md)),
   except the player's chill, freeze and shock on monsters and his ignites.
   Projectile hits ignite from the panel's ignite rows captured at release; Abberath's Fury's footstep hits work out
@@ -1409,10 +1430,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Alternative ailments and hostile spell adapters remain unimplemented; monster mortar shots land through the same
   contact pipeline ("Monster projectiles" below).
   See [Gambler](../docs/game/gambler.md) for the exact bounded scope.
+  Double damage chances double hits, and triple damage overrides them ([20](../docs/protocol/20-damage.md) §2).
   `unaffected_by_shock` keeps the shock and `is_shocked` without the damage-taken increase; `unaffected_by_ignite`
   keeps the ignite and `is_ignited` without its damage.
   "While moving" evasion and regeneration follow the server's walk, and more maximum attack damage scales every attack
   hit's maxima next to Rage; Gateway coverage only ([Polytheist](../docs/game/polytheist.md)).
+  Impact, Close Combat and Shield Crush scale melee hits by proximity ([20](../docs/protocol/20-damage.md) §2j).
   Unconditional penetration works on the player's outgoing hits (general per-element and elemental stats, the
   attack-only variants, the cannot-penetrate flag; DoT and physical take none).
   Player and skill contributions to the same raw penetration stat add without overwriting either source.
@@ -1438,6 +1461,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   (Light of Divinity's Augury of Penitence) sit on the hostile monsters near the living player.
   Their increased damage taken (taunted 20% from Bring the Battle, elemental 25%) adds to the monster's own in every
   player hit and in Righteous Fire's burn; `warcries_have_infinite_power` gives Enduring Cry the maximum charges.
+  Hits Intimidate and Unnerve: 10% increased hit damage taken for 4 s ([11](../docs/protocol/11-skills.md) §12).
+  Hits Wither: 6% increased chaos damage taken per stack, up to 15 stacks ([11](../docs/protocol/11-skills.md) §12).
   The other warcries' own buffs, exerts and summons, taunt immunity and other passive enemy auras are not done.
   Automated coverage only; not checked with the real client.
   See [11](../docs/protocol/11-skills.md) §12 and [Paladin](../docs/game/paladin.md).
