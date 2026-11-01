@@ -92,6 +92,7 @@ Detailed supplements keep the evidence reviewable without treating this summary 
 - [Captured recovery rates, later pool state and distinct Life/ES loss-rate read order](client-resource-read-order.md).
 - [Peer-established ordered World checkpoint composed through parsed resource assignment and recovery arithmetic](client-resource-checkpoint-composition.md).
 - [Parsed Stats rate updates through actual overrides, notifications and Life integration](client-network-rate-composition.md).
+- [Constructed network wrapper through native DoT records to Life/ES loss](client-network-native-dot-composition.md).
 - [Buff expiration/removal composed with independent explicit rates and Life loss](client-buff-rate-independence.md).
 - [Actual Buff insertion, owner timing notifications and retained network clock precedence](client-buff-clock-authority.md).
 - [Retained Buff replacement through actual construction, field transfer and subsequent clock/resource integration](client-buff-replacement-composition.md).
@@ -392,6 +393,11 @@ including live resistance/prohibition input changes, taken-as saturation and res
 It supplies eligibility and ready inputs; it does not create a source instance or bind ordinary actor publication.
 [The native-record continuation](client-native-dot-pool-composition.md) removes the previous-value getter hook
 then carries these outputs through real native getter/boolean slots into Life/ES numerical loss, with an explicit provider binding.
+[The network/native continuation](client-network-native-dot-composition.md) executes the original network-wrapper
+constructor and real override/fallback dispatch above those same records and resource bodies. Explicit final
+rates, including zero, win; network raw-key overrides do not themselves update the supplied native cache/queue.
+It replaces the earlier direct-native resource binding and scalar upstream fallback in 124 supplied-state pool
+steps, without claiming ordinary native eligibility, actual source publication or full subscriber consequences.
 Separately, an outgoing RF chain is now established: stat-set constants 883/1947/3399 feed
 14408, then area-skill intermediate 8198 and final outgoing area rate 5981. It uses skill-user
 Life/ES and mana providers, distinct modifier stages and rounding boundaries. Generic outgoing
@@ -721,6 +727,7 @@ damage-bearing paths. Keep missing source eligibility/selection, formulas and sy
 | R1 | Native dependency ordering and work-vector algorithm | Established for audited helpers and recovered declaration graph | [Cycle-checked traversal, rank rewriting, growing ordered dispatch, unchanged-output propagation stops and 24 actual duplicate-containing declarations](client-stat-dependency-order.md); declared edges do not guarantee all actual reads or arbitrary reentrant callbacks |
 | R1/R2 | Selected native DoT numerical composition | Established for supplied eligible/cache-ready states | [105 original registrations and actual dependency queue/callbacks](client-dot-native-composition.md); eight dynamic/cap/routing cases. Actual source publication, ordinary native eligibility and shared-cap reachability remain open. |
 | R2/R4 | Native DoT records to numerical pool loss | Established for supplied native-provider states | [Actual native previous-value/boolean getters and Life/ES loss bodies](client-native-dot-pool-composition.md); 1,995 record/cache comparisons and 24 pool steps. Provider selection/eligibility, instance publication and whole-actor execution remain separate. |
+| R1/R2/R4 | Constructed network wrapper → native records → pool loss | Established for supplied eligible/cache-ready states | [Real constructor, override/fallback, setter/notification and Life/ES integration](client-network-native-dot-composition.md); 124 pool steps. Explicit zero wins; network raw overrides preserve the supplied native cache/queue. Full actor construction/eligibility, actual subscribers and source publication remain open. |
 | R1 | Absolute pool update path | Established | Preserve decoded-field vs wire-offset distinction |
 | R1/R2 | Native contribution caller provenance | Established for the retained 103 direct calls in 13 owners | [Receiving-object map and graph-owned source tokens](client-native-contribution-callers.md); source replacement can remove before rebuilding. This finite inventory does not close target DoT publication or cover indirect/inlined mutation. |
 | R1/R4 | Maximum-stat notification and current-resource authority | Established for three pool keys and two client World tables | [Actual Life subscriber and pool refresh](client-pool-maximum-refresh.md) update maxima without proportional current changes on the two nonzero client getters; Life alone clears carry; conditional rescaling code and notification limits remain explicit |

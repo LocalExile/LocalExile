@@ -43031,7 +43031,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r67-network-native-pool"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -57333,7 +57334,8 @@
         "network-and-sources",
         "r15-firewall-clock-final",
         "r30-initial-stats-rate",
-        "source-and-authority"
+        "source-and-authority",
+        "r67-network-native-pool"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58038,7 +58040,8 @@
         "r49-buff-replacement",
         "r50-wire-source-composition",
         "r53-result-join",
-        "stat-and-formula-v2"
+        "stat-and-formula-v2",
+        "r67-network-native-pool"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58061,7 +58064,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r67-network-native-pool"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -58085,7 +58089,8 @@
         "r34-buff-clock-authority",
         "r49-buff-replacement",
         "r50-wire-source-composition",
-        "stat-and-formula-v2"
+        "stat-and-formula-v2",
+        "r67-network-native-pool"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58125,7 +58130,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r67-network-native-pool"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -76205,6 +76211,11 @@
       "name": "r66-max-resistance",
       "auditSha256": "ef2dd1906f8a54d3d1385a0241c9caa7e006e2a50ce26cadc94b8953ddb85646",
       "functionCount": 17
+    },
+    {
+      "name": "r67-network-native-pool",
+      "auditSha256": "eed2af69ca5ad7c8ce246188703d2b7c0d2b744b9fa16377243409c88a79771a",
+      "functionCount": 6
     }
   ],
   "pointerSlots": [
@@ -78642,7 +78653,7 @@
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R66 freshly rechecked all 4078 retained identities' 5086 original-byte ranges and 298 pointer slots, preserving 1145 prior sealed public supports and 111 R59-R65 private files. Eight maximum-resistance registrars/callbacks pass 2186 supplied-cache cases / 164952 interpreted instructions / 643 sites. Seventeen function records / 22 ranges / 3532 decoded records and 20 semantic anchors checked; four identities newly indexed. Cold/lightning conditionally read undeclared 18914. Declared-graph reachability is not actual actor invalidation or an official bug reproduction. Accepted-Hit numerical deduction, actual DoT instance publication/shared cap/withdrawal and original R2/R3/R4 remain open/Partial."
+    "additionalFreshValidation": "R67 freshly rechecked 4078 retained identities / 5086 original-byte ranges / 298 pointer slots, preserving 1154 sealed public supports and 147 prior snapshot records. Original network-wrapper constructor/getter/setter/notifier compose with native DoT records and Life/ES loss: 17 composition cases, 124 pool steps, ten sequential atomic controls, 1567280 interpreted instructions / 6893 sites. Six reused identities / ten ranges / 301 decoded records, 14 anchors and four virtual slots checked. Explicit zero suppresses native fallback; network raw updates preserve native cache/queue in the selected subscriber set. Actual source aggregation/publication, ordinary native eligibility, shared-cap reachability/withdrawal and concrete numerical Hit remain open; R2/R3/R4 Partial."
   },
   "supportingRecords": [
     {
@@ -85523,6 +85534,60 @@
       "bytes": 9521,
       "sha256": "e878c318094486dc1bbfc528cc091e6a616717927a6858bfd124ed071c9b6f09",
       "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool.py",
+      "bytes": 11665,
+      "sha256": "0be68d124056f30dbcf1756ec289270a6d5ce46538c3ecaf71205c0d19e07764",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool-verify.py",
+      "bytes": 5044,
+      "sha256": "5e8ef208036d476d697d87d06be8c0888043813373f29319343f5ec2cc56bc07",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-publish-prepare.py",
+      "bytes": 5274,
+      "sha256": "4ba45224ad9928d518b76617f312e401f88cc9ad886083fcca27ddef6536fa32",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool/audit.json",
+      "bytes": 44482,
+      "sha256": "eed2af69ca5ad7c8ce246188703d2b7c0d2b744b9fa16377243409c88a79771a",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool/verification.json",
+      "bytes": 251571,
+      "sha256": "253a0fc63e506b585300762373dc0391f7b2c60350f2bc77d8a426dfc3760733",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool/byte-verification.json",
+      "bytes": 2257,
+      "sha256": "915e84eb5acdad783a1954c3438987fdafe7ef1b74442be550368a36670132c0",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool/visited-instructions.json",
+      "bytes": 1270765,
+      "sha256": "ff8e0581be3baf00e0f550f90c94b5b86340ed27ebdb8eb96df41302f494b82c",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool/publication.json",
+      "bytes": 668,
+      "sha256": "d4c65f853b7e9d87a1eebb71dff38fc67a4775606f95f4939a04c6d947d52ca4",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r67-network-native-pool/findings.md",
+      "bytes": 10120,
+      "sha256": "4d473e9bfb840f7666e5e8e353fcc57399a500f15a40581d751b8cae134c2b1d",
+      "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
     }
   ],
   "auxiliaryDataTables": [
@@ -86581,5 +86646,16 @@
     },
     "newManifestIdentities": 4,
     "limitation": "Whole-manifest byte identity and new conditional equations only; original R2/R3/R4 Partial. No gameplay, source-publication, actual actor refresh or accepted-Hit damage claim."
+  },
+  "networkNativeDotCompositionVerification": {
+    "path": "Tools/re/out/client-damage-audit/r67-network-native-pool/byte-verification.json",
+    "sha256": "915e84eb5acdad783a1954c3438987fdafe7ef1b74442be550368a36670132c0",
+    "controlsPath": "Tools/re/out/client-damage-audit/r67-network-native-pool/verification.json",
+    "controlsSha256": "253a0fc63e506b585300762373dc0391f7b2c60350f2bc77d8a426dfc3760733",
+    "compositionCases": 17,
+    "poolSteps": 124,
+    "interpretedInstructions": 1567280,
+    "visitedSites": 6893,
+    "limitation": "Constructed-wrapper/native-record/resource composition for supplied states; actual source publication, ordinary eligibility, shared cap/withdrawal, numerical Hit deduction and original R2/R3/R4 remain open/Partial."
   }
 }

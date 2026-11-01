@@ -261,6 +261,10 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   sequential Life loss and preloaded ES loss differ. Reuse [the composed ordered resource route](../docs/re/client-resource-checkpoint-composition.md):
   peer-established World checkpoints/parsed dispatch now execute the actual setter and later recovery arithmetic.
   Wire parsing, queue production and official checkpoint choices remain separate; do not repeat the peer's World audit.
+  Reuse [constructed network/native DoT composition](../docs/re/client-network-native-dot-composition.md): real
+  wrapper fallback reaches native records and numerical Life/ES loss; an explicit zero suppresses fallback.
+  A network raw-key override is not an automatic native-cache write in the selected subscriber set.
+  Recover ordinary native eligibility and actual publication/subscriber orchestration rather than redoing these controls.
   Reuse [AddBuff magnitude transport](../docs/re/client-buff-wire-magnitudes.md): the writer and reader share a recovery
   gate but use different length sources. Keep their cardinalities aligned; do not place non-recovery DoT magnitude
   in this omitted vector or confuse the separate counted vector with a proven DPS carrier.

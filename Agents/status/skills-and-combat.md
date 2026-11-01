@@ -864,6 +864,10 @@ and can require explicit recipes.
   [Native record/getter-to-pool continuation](../docs/re/client-native-dot-pool-composition.md) removes the old-value hook,
   verifies 1,995 record/cache comparisons and runs original native/boolean getters into 24 Life/ES numerical loss steps.
   The native provider binding, resource state and remaining protection/notification fixtures are explicit.
+  [Constructed network/native continuation](../docs/re/client-network-native-dot-composition.md) replaces that
+  direct-native binding with the original wrapper constructor/getter/setter/notifier, across 124 Life/ES loss steps.
+  Explicit final rates, including zero, win over native records. Network raw-key overrides preserve the supplied
+  native cache/queue; ordinary actor eligibility, full subscribers and actual source publication remain open.
   Actual instance publication, ordinary actor eligibility and shared-cap reachability remain open.
   Native final ailment-duration formulas reciprocate faster factors, separately from expiration-speed clocks.
   [Six complete duration modifier equations](../docs/re/client-ailment-duration-inputs.md) preserve shared bow/focus/retaliation/recency gates,
