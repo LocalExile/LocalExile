@@ -516,12 +516,16 @@ static class LabyrinthTrials
         foreach (string c in Components[type])
             switch (c)
             {
-                // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown).
+                // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown). A door
+                // also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d88690)
+                // stamps its Hull whatever its TriggerableBlockage says and an opened door stays closed to walking, and
+                // 0x08 with 1 (+0x1e6 bit 0x40: blocks no walker), so only the blockage closes its cells.
                 case "Positioned":
-                    bool scaled = scale != 1;
-                    w.I32(x).I32(y).F32(angle).U16(0).U8((byte)(scaled ? 0x20 : 0)).U8(0x02);
+                    bool scaled = scale != 1, blockage = Components[type].Contains("TriggerableBlockage");
+                    w.I32(x).I32(y).F32(angle).U16(0).U8((byte)(scaled ? 0x20 : 0)).U8((byte)(blockage ? 0x2a : 0x02));
                     if (scaled) w.F32(scale).F32(1).F32(1);
                     w.U8(0).U8(1);
+                    if (blockage) w.U8(1);
                     break;
                 case "Animated": if (model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)) w.U8(1).WStr32(model); else w.U8(0); break;
                 case "InteractionAction": w.U8(0); break;

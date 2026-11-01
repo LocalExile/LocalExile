@@ -11,9 +11,11 @@ public sealed class LabyrinthTrialTests
         byte[] closed = LabyrinthTrials.Blob(LabyrinthTrials.IntroDoor, model, 160, 57, 0, 1, LabyrinthTrials.Closed);
         byte[] open = LabyrinthTrials.Blob(LabyrinthTrials.IntroDoor, model, 160, 57, 0, 1, LabyrinthTrials.Open);
 
-        // Positioned (18), Animated (1 + u32 count + UTF-16), InteractionAction, Transitionable, TriggerableBlockage, tasks.
-        int animated = 2 + 18, after = animated + 1 + 4 + model.Length * 2;
+        // Positioned (19: flags1 0x20 no static position, 0x08 blocks no walker with its u8), Animated (1 + u32 count +
+        // UTF-16), InteractionAction, Transitionable, TriggerableBlockage, tasks.
+        int animated = 2 + 19, after = animated + 1 + 4 + model.Length * 2;
         Assert.Equal(160, BitConverter.ToInt32(closed, 2));
+        Assert.Equal(new byte[] { 0, 0x2a, 0, 1, 1 }, closed[16..21]);
         Assert.Equal(1, closed[animated]);
         Assert.Equal(model.Length, BitConverter.ToInt32(closed, animated + 1));
         Assert.Equal(new byte[] { 0, LabyrinthTrials.Closed, 1, 0, 0 }, closed[after..]);

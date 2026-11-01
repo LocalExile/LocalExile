@@ -73,21 +73,24 @@ the type's `disable_save` (+0x11) is set; blocked calls +0xb0 with the sections.
 Of the `.ot` keys (`0x141e43200`) `start_blocked` is +0x10, `disable_save` +0x11, `shunt_objects_away` +0x12;
 `save_as_diff` is accepted and not kept.
 
-This opens the trial's door.
-The Locked Door (`doorbar_prison.ao`, whose Hull fills the gap between the two posts of the `PDwall_blocking01` doodad
-at the same spot) stayed closed to walking after 0x1c6, and also when created again open and unblocked; a movement
-skill still crossed it (live 2026-10-31).
-The client's object pass `0x141d88690` stamps an object's Hull (`0x141d876e0`) unconditionally for some types and only
-while their TriggerableBlockage is blocked for the others (type +0x158 → +0x19, type +0x1e7 bit 1); which flag puts the
-Locked Door in the first group is not found.
-So the Gateway removes an opened Locked Door (0x2bb) 1.5 s after its opening, when the bars have lifted, and does not
-create it again in that instance.
+Blocking (`0x141e43520`) saves the grid under the object, stamps its Hull (`0x141d876e0`) and keeps the difference;
+the unblock adds that difference back (nibbles, clamped at 5). Both do nothing while a byte of the world (entity +0x78
+→ +0x111, not identified) is set, and keep no cells in a hideout (the area's WorldAreas row, world +0xb0, byte +0x14e
+IsHideout).
 
-The trial's own door opened for walking in The Lower Prison, but in The Catacombs it kept its cells closed after 0x1c6
-(live 2026-10-31: a movement skill crossed). The unblock (`0x141e43b60`) merges the saved cells back into the walk grid
-(adding nibbles, clamped at 5) only while a flag of the object (owner +0x78 → +0x111) is clear; it is not known which
-objects set it. So the Gateway also removes an opened trial door 1.5 s after its opening and creates it again at once,
-open and unblocked (which stamps nothing).
+An object with a **static position** (the type's +0x158 → +0x19 set and Positioned +0x1e7 bit 1 clear; "Has Static
+Position" in the info dump `0x141e33310`) has its Hull stamped by the client's object pass `0x141d88690` (and the
+placement paths `0x141d84520`, `0x141d83fb0`) whatever its TriggerableBlockage says; for any other object the pass
+stamps it only while the blockage is blocked. A static door stamped so before it blocked keeps a zero difference, and
+its unblock frees nothing. Live 2026-10-31 the Locked Door (`doorbar_prison.ao`) stayed closed to walking after 0x1c6,
+and also when created again open and unblocked (a movement skill still crossed it), and so did the trial's door in The
+Catacombs, though The Lower Prison's opened. So the Gateway sends the trial doors' Positioned with flags1 0x20
+(+0x1e7 bit 1: no static position; the client's own Positioned writer `0x141e2fdc0` carries the bit too)
+and 0x08 with 1 (+0x1e6 bit 0x40: a dynamic object that blocks no walker; [04](../protocol/04-player-entity.md)), so
+only the blockage closes their cells.
+The Gateway still removes an opened Locked Door (0x2bb) 1.5 s after its opening, when the bars have lifted, and does
+not create it again in that instance.
+
 Where a door's line parts nothing on the server's walk map (the Catacombs: the arrival reached the plaque round some
 other way), the server closes the door's own walk Hull instead (`LabyrinthTrials.DoorHull`: `LabyrinthDoor.ao`
 ±14 × ±6 cells), or the walk up to the closed door stopped on its far side, where the client could not be.

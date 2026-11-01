@@ -152,35 +152,18 @@ static partial class QuestobjectsRules
             conn.UpdateBarrier();
         }
         if (o.Type == LabyrinthTrials.Door) _ = RemoveOpenedDoor(remote, stream, ciphers, conn, id);
-        else _ = RecreateOpenedDoor(remote, stream, ciphers, conn, id, o);
         return true;
     }
 
-    // Live (2026-10-31), an opened Locked Door kept its cells closed to the client's walking (a movement skill still
-    // crossed) after 0x1c6, and also when created again open and unblocked: the client's object pass (0x141d88690)
-    // stamps some types' Hull whatever their TriggerableBlockage says. Its opening lifts the bars out of the way, so once
-    // it has played the door goes (0x2bb), and a later entry does not create an opened one.
+    // An opened Locked Door's opening lifts the bars out of the way, so once it has played the door goes (0x2bb), and a
+    // later entry does not create an opened one. (Its cells once stayed closed after 0x1c6, live 2026-10-31, while its
+    // Positioned had a static position: LabyrinthTrials.Blob.)
     static async Task RemoveOpenedDoor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id)
     {
         await Task.Delay(TimeSpan.FromSeconds(DoorOpeningSeconds));
         if (conn.Closed) return;
         lock (conn.Monsters) conn.TrialObjects.Remove(id);
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb opened trial door 0x{id:x} removed");
-    }
-
-    // Live (2026-10-31), the Catacombs trial's door kept its cells closed to the client's walking after 0x1c6, though The
-    // Lower Prison's opened: the unblock (0x141e43b60) writes back the cells it saved only while a flag of the object
-    // (+0x78 → +0x111) is clear, and which objects set it is not found. Its opening played, the door goes (0x2bb) and comes
-    // back open and unblocked, which stamps nothing.
-    static async Task RecreateOpenedDoor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
-        AreaPopulation.RoomObject o)
-    {
-        await Task.Delay(TimeSpan.FromSeconds(DoorOpeningSeconds));
-        if (conn.Closed) return;
-        await Send(remote, stream, ciphers, [.. InstanceProtocol.RemoveObject(id),
-            .. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
-                LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, LabyrinthTrials.Open)),
-            .. InstanceProtocol.EnterWakeZone(id)], $"0x02bb/0x02b9 opened trial door 0x{id:x} created again open");
     }
 
     // How long a Locked Door's opening plays before it goes (our own number: the animation's length is not read).
