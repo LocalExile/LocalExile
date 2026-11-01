@@ -234,9 +234,17 @@ of its own length (`ShowFreeze`).
 
 **Movement skills.** The client limits the target itself before it sends the 0x25 (Flame Dash lands where the server
 does). A target past the walkable ground ends where the line to it does. Aimed at a monster it lands on the monster, by
-the 0x24 path. The client can still refuse a skill the server has landed (a Lightning Warp often), so a resync follows
-at the end of the action. Leap Slam, Flame Dash and Lightning Warp were checked live; the player's p90 is under 3 cells,
-with a brief spike while the client is in the air, since the server lands at once.
+the 0x24 path. Whirling Blades and Dash do not stop at the target: they travel 40 and 33 cells along the aimed line and
+stop at the first cell they cannot walk (no stat carries either number). The client can still refuse a skill the server
+has landed (a Lightning Warp often), so a resync follows at the end of the action. Leap Slam, Flame Dash, Lightning Warp,
+Whirling Blades and Dash were checked live; the player's p90 is under 3 cells after landing, with a brief spike while the
+client travels, since the server lands at once.
+
+**Ranged monsters** keep Move orders and `skill_is_non_pathing`. On the attack-aimed chase the client walks a Sand Spitter
+well inside its reach of 30 (median error 8 cells against 2 to 3), so its stand-off needs the server's slots.
+
+**Pickups.** The client's walk to a ground item has max range 20 and tolerance 1 (traced live with real clicks), so it
+ends on the first cell within 21 of the item.
 
 **Blockers.** Totems and the tutorial chest block paths as the client's other objects do.
 
@@ -400,10 +408,10 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
-- Monster estimates still differ in the 5–50 ms until the client applies an order, and in the monsters far from the
-  player that the client freezes.
-- The client's walk-up arguments for item pickups and the map device (`Approach`): the pickup's reach of 22 cells is not
-  traced, so the server may stop short of the client until the next walk.
-- Whirling Blades, Shield Charge, Dash and other travelling skills are not checked live. The server lands them at once
-  and the resync settles the end.
+- Monster estimates still differ in the 5–50 ms until the client applies an order. The Gateway never sends 0x1aa (GGG does
+  at about 171 cells); no measured error comes from it, since a chase gives up before that distance.
+- The client's walk-up arguments for the map device (`Approach`).
+- Shield Charge never fired from the test input, so it is not checked live. The server lands it at once and the resync
+  settles the end.
+- Two monsters racing for one cell can swap places between client and server: the same cells are taken, by different ids.
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

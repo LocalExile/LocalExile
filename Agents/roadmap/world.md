@@ -152,9 +152,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 4. Server design
 
-- **Predictive desync:** trace the client's reach for item pickups, check the travelling skills not yet played
-  (Whirling Blades, Shield Charge, Dash), and send far monsters out of the wake zone (0x1aa at about 171 cells) as GGG does
-  ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
+- **Predictive desync:** Shield Charge and the map device's walk are not traced, and two monsters racing for one cell can
+  swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server would decide every position and the client play it back by server frames,
   which makes client and server identical by construction.
   Found so far: the frame protocol (S→C 0x2b6 / 0x2b5, already sent), the client's lockstep messages (0x018e, 0x018f,
