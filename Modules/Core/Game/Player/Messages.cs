@@ -137,9 +137,13 @@ static partial class Game
                     (px, py) = cast ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
                     if (cast) conn.Walk.Order(px, py, at);
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway.
-                    if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
-                        && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
-                        conn.Walk.Teleport(use.X, use.Y, at);
+                    if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect))
+                    {
+                        // A target past the walkable ground ends where the line to it does on the client (live 2026-11-01).
+                        var landing = conn.Layout.Walkable is not { } canWalk ? (use.X, use.Y)
+                            : GameServer.Core.World.ClientPathfinder.Line((use.X, use.Y), (px, py)).FirstOrDefault(c => canWalk(c.Item1, c.Item2), (px, py));
+                        conn.Walk.Teleport(landing.Item1, landing.Item2, at);
+                    }
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
                     conn.ChannelSkillSequence = use.Slot;
                 }

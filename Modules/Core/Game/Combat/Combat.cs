@@ -450,6 +450,7 @@ static partial class Game
         double castAt = conn.Clock.Elapsed.TotalSeconds;
         int castAction = 0;
         (int X, int Y) aim = default, stand = default;
+        bool moves = gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect);
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -459,6 +460,8 @@ static partial class Game
                 aim = m.Walk.Position(castAt);
                 stand = conn.Walk.Position(castAt);
                 conn.Walk.Order(stand.X, stand.Y, castAt);
+                // A movement skill aimed at a monster lands on it, as one aimed at the ground does.
+                if (moves) conn.Walk.Teleport(aim.X, aim.Y, castAt);
             }, out var spellUse, requestedAt: requestedAt)) return;
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect);
@@ -469,6 +472,12 @@ static partial class Game
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4}",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
+        if (moves)
+        {
+            double settle = MovementResyncSeconds;
+            if (SkillsFor(conn).IsAttack(gem.Effect)) AttackReady(conn, gem.Effect, gem.Level, out settle);
+            ResyncAfter(remote, stream, ciphers, conn, settle, gem.Name!);
+        }
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim, use.TargetId, sequence: use.Sequence,
             actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
