@@ -342,8 +342,7 @@ static partial class QuestobjectsRules
     }
 
     // Whether the player cannot bleed (the character panel's cannot_gain_bleeding, virtual_immune_to_bleeding: a flask's
-    // immunity too): no spike trap bleed, and no roomba's cut either (live 2026-11-01, the original: a character immune to
-    // bleeding stands in a roomba unharmed).
+    // immunity too): no spike trap bleed. A roomba's cut is no bleed: it harms such a player too (live 2026-11-01).
     static bool CannotBleed(ClientState conn)
     {
         var stats = CharacterPlayerStats(conn);
@@ -764,8 +763,6 @@ static partial class QuestobjectsRules
                 lock (conn.Monsters) here = conn.Walk.Position(now);
                 double radius = LabyrinthTrials.RoombaRadius;
                 var inside = runs.FirstOrDefault(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
-                // A player who cannot bleed takes nothing, but still has the cut's sound and blood (live 2026-11-01).
-                bool spared = inside is not null && CannotBleed(conn);
                 ushort? row = inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type);
                 bool was, degen;
                 ushort instance = 0;
@@ -773,7 +770,7 @@ static partial class QuestobjectsRules
                 {
                     var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
                     was = conn.TrapDegenPerSecond > 0;
-                    conn.TrapDegenPerSecond = inside is null || spared || conn.PlayerLife == 0 ? 0
+                    conn.TrapDegenPerSecond = inside is null || conn.PlayerLife == 0 ? 0
                         : conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
                     degen = conn.TrapDegenPerSecond > 0;
                     if (conn.PlayerLife == 0) row = null;

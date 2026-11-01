@@ -224,9 +224,9 @@ the flying one's `flying_roomba_damage`) carries `base_physical_damage_%_of_maxi
 `…_of_maximum_energy_shield_…`, with no values in the client data (nor in the wiki or PoEDB). So a player within 10
 cells of a roomba's centre degenerates by 30% of maximum life plus 50% of maximum energy shield a second (our numbers,
 fitted live to the original's with `/trial_roomba_damage`, 2026-11-01), physical, energy shield first, and can die of
-it. A player who cannot bleed (the panel's `cannot_gain_bleeding` or `virtual_immune_to_bleeding`) takes nothing in
-one (live 2026-11-01, the original: a character immune to bleeding stands in a roomba unharmed, still with the cut's
-sound and blood, so the buff still goes on), as if the cut were a bleed. When the degeneration starts the Gateway logs it with the player's life regeneration. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
+it, energy shield and life alike, whether or not they can bleed (live 2026-11-01, the original: a character immune
+to bleeding stood in one only by out-regenerating it). When the degeneration starts the Gateway logs it with the
+player's life regeneration. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
 While they are in one the Gateway puts that buff on the player (0x1c1); its BuffVisuals `rhoomba_damage` plays
 `labyrinth/traps/roomba/roomba.epk` (the flying one's `flying_roomba.epk`) on them, and the buff goes when they leave
 or die. A roomba glides at 35 cells a second, so one that passes a player standing on its run cuts them for about
