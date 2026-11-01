@@ -41,9 +41,8 @@ static class PlayerDamageTaken
     ];
 
     const string Increased = "base_damage_taken_+%", ElementalIncreased = "elemental_damage_taken_+%",
-        FlatPhysical = "physical_damage_taken_+", FlatPhysicalFromAttacks = "physical_attack_damage_taken_+",
-        FlatFire = "fire_damage_taken_+", Blocked = "base_block_%_damage_taken",
-        ElementalBlocked = "block_%_damage_taken_from_elemental";
+        MeleeIncreased = "melee_damage_taken_+%", FlatPhysicalFromAttacks = "physical_attack_damage_taken_+",
+        Blocked = "base_block_%_damage_taken", ElementalBlocked = "block_%_damage_taken_from_elemental";
 
     // Mind Over Matter's and Glancing Blows' flags have no value: their 40% and 65% are the keystones' own text (3.29 tree,
     // wiki Mind Over Matter and Glancing Blows).
@@ -57,6 +56,8 @@ static class PlayerDamageTaken
     const int AvoidCap = 75;
 
     static string TypedIncreased(DamageType type) => $"{type.ToString().ToLowerInvariant()}_damage_taken_+%";
+
+    static string TypedFlat(DamageType type) => $"{type.ToString().ToLowerInvariant()}_damage_taken_+";
 
     static string TypedAvoid(DamageType type) => $"avoid_{type.ToString().ToLowerInvariant()}_damage_%";
 
@@ -72,7 +73,8 @@ static class PlayerDamageTaken
         .Concat(DamageTypes.ConversionOrder.Select(TypedIncreased))
         .Concat(DamageTypes.ConversionOrder.Select(TypedManaBeforeLife).OfType<string>())
         .Concat(DamageTypes.ConversionOrder.Select(TypedAvoid))
-        .Concat([Increased, ElementalIncreased, FlatPhysical, FlatPhysicalFromAttacks, FlatFire, Blocked, ElementalBlocked,
+        .Concat(DamageTypes.ConversionOrder.Select(TypedFlat))
+        .Concat([Increased, ElementalIncreased, MeleeIncreased, FlatPhysicalFromAttacks, Blocked, ElementalBlocked,
             ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach]);
 
     /// <summary>"X% chance to Avoid Fire Damage from Hits" and the other types', plus "... Damage of each Type": this
@@ -112,19 +114,17 @@ static class PlayerDamageTaken
         });
     }
 
-    /// <summary>"X% increased Damage taken", "X% increased Lightning Damage taken" and "X% increased Elemental Damage
-    /// taken": one increased value for this type, which adds to the shock's (PlayerElementalAilments.DamageTakenFactor).</summary>
-    public static int IncreasedPct(DamageType type, Func<string, int> get) =>
-        get(Increased) + get(TypedIncreased(type)) + (DamageTypes.IsElemental(type) ? get(ElementalIncreased) : 0);
+    /// <summary>"X% increased Damage taken", "X% increased Lightning Damage taken", "X% increased Elemental Damage taken"
+    /// and, for a melee hit, "X% increased Damage taken from Melee Attacks": one increased value for this type, which adds
+    /// to the shock's (PlayerElementalAilments.DamageTakenFactor), as PoB adds them to its takenInc.</summary>
+    public static int IncreasedPct(DamageType type, bool melee, Func<string, int> get) =>
+        get(Increased) + get(TypedIncreased(type)) + (DamageTypes.IsElemental(type) ? get(ElementalIncreased) : 0)
+        + (melee ? get(MeleeIncreased) : 0);
 
-    /// <summary>"+X Physical Damage taken from Hits", "... from Attack Hits" and "+X Fire Damage taken from Hits", added to
-    /// the type's damage after resistance and armour.</summary>
-    public static int Flat(DamageType type, bool attack, Func<string, int> get) => type switch
-    {
-        DamageType.Physical => get(FlatPhysical) + (attack ? get(FlatPhysicalFromAttacks) : 0),
-        DamageType.Fire => get(FlatFire),
-        _ => 0,
-    };
+    /// <summary>"+X Physical Damage taken from Hits" and the other types' (PoB's takenFlat), plus "... Physical Damage taken
+    /// from Attack Hits" for an attack, added to the type's damage after resistance and armour.</summary>
+    public static int Flat(DamageType type, bool attack, Func<string, int> get) =>
+        get(TypedFlat(type)) + (type == DamageType.Physical && attack ? get(FlatPhysicalFromAttacks) : 0);
 
     /// <summary>"You take X% of Damage from Blocked Hits" (Glancing Blows' 65% too, added as PoB adds its BlockEffect) and
     /// "... of Elemental Damage from Blocked Hits": the share of the type's damage a blocked hit still deals, 0 by default

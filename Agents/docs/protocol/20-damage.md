@@ -1392,10 +1392,11 @@ case. Dev hits roll it too, before block.
 
 After mitigation, each type of the hit takes:
 
-- the flat stats, "+X Physical Damage taken from Hits", "... from Attack Hits" (monster hits are attacks) and "+X Fire
-  Damage taken from Hits", only on a type the hit has;
-- "X% increased Damage taken", the type's own and, for an element, "Elemental Damage taken", added to the shock's
-  increase, as PoB adds them to its `takenInc`;
+- the flat stats, "+X Fire Damage taken from Hits" and the other types', and for physical "... from Attack Hits"
+  (monster hits are attacks), only on a type the hit has;
+- "X% increased Damage taken", the type's own, for an element "Elemental Damage taken", and on a melee hit "Damage
+  taken from Melee Attacks" (a monster attack that is not ranged), added to the shock's increase, as PoB adds them to
+  its `takenInc`;
 - on a blocked hit, its share: "You take X% of Damage from Blocked Hits" and Glancing Blows' 65%, plus "of Elemental
   Damage" for an element.
   It is 0 by default and may pass 100%. A blocked hit still applies no ailments (wiki Blocking); Life Recoup reads the

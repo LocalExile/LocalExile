@@ -954,12 +954,13 @@ static partial class Game
                 reduction.Physical, reduction.Elemental, armour.EffectiveArmour,
                 PlayerHitMitigation.ArmourPercent(conn.Pools, type, StatOf));
             // Flat damage taken after resistance and armour, then the multipliers: the increased damage taken adds to the
-            // shock's, and a blocked hit deals only its share (PlayerDamageTaken). Monster hits are attacks.
+            // shock's, and a blocked hit deals only its share (PlayerDamageTaken). Monster hits are attacks, and melee
+            // unless ranged.
             if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: true, StatOf));
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
-            value = (int)Math.Round(value
-                * conn.ElementalAilments.DamageTakenFactor(now, blindedPct + PlayerDamageTaken.IncreasedPct(type, StatOf))
+            value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
+                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged, StatOf))
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             ailmentTaken = ailmentTaken.Add(type, new(value, value));
             if (type == DamageType.Chaos) chaosDamage += value;

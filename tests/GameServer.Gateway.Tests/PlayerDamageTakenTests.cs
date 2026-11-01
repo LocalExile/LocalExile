@@ -82,17 +82,21 @@ public class PlayerDamageTakenTests
             [DamageType.Physical])[DamageType.Fire].Min, 6);
         Assert.Same(dealt, PlayerDamageTaken.Landed(dealt, With(), []));
 
-        // Generic, typed and elemental increases add; chaos is not elemental.
-        var increased = With(("base_damage_taken_+%", 10), ("lightning_damage_taken_+%", 6), ("elemental_damage_taken_+%", -5));
-        Assert.Equal(11, PlayerDamageTaken.IncreasedPct(DamageType.Lightning, increased));
-        Assert.Equal(5, PlayerDamageTaken.IncreasedPct(DamageType.Fire, increased));
-        Assert.Equal(10, PlayerDamageTaken.IncreasedPct(DamageType.Chaos, increased));
+        // Generic, typed and elemental increases add, and a melee hit's too; chaos is not elemental.
+        var increased = With(("base_damage_taken_+%", 10), ("lightning_damage_taken_+%", 6), ("elemental_damage_taken_+%", -5),
+            ("melee_damage_taken_+%", 60));
+        Assert.Equal(11, PlayerDamageTaken.IncreasedPct(DamageType.Lightning, melee: false, increased));
+        Assert.Equal(5, PlayerDamageTaken.IncreasedPct(DamageType.Fire, melee: false, increased));
+        Assert.Equal(10, PlayerDamageTaken.IncreasedPct(DamageType.Chaos, melee: false, increased));
+        Assert.Equal(70, PlayerDamageTaken.IncreasedPct(DamageType.Chaos, melee: true, increased));
 
-        // "-7 Physical Damage taken from Attack Hits" counts only for attacks; fire has its own flat stat.
-        var flat = With(("physical_attack_damage_taken_+", -7), ("physical_damage_taken_+", -3), ("fire_damage_taken_+", -15));
+        // "-7 Physical Damage taken from Attack Hits" counts only for attacks; each type has its own flat stat.
+        var flat = With(("physical_attack_damage_taken_+", -7), ("physical_damage_taken_+", -3), ("fire_damage_taken_+", -15),
+            ("chaos_damage_taken_+", 20));
         Assert.Equal(-10, PlayerDamageTaken.Flat(DamageType.Physical, attack: true, flat));
         Assert.Equal(-3, PlayerDamageTaken.Flat(DamageType.Physical, attack: false, flat));
         Assert.Equal(-15, PlayerDamageTaken.Flat(DamageType.Fire, attack: true, flat));
+        Assert.Equal(20, PlayerDamageTaken.Flat(DamageType.Chaos, attack: false, flat));
         Assert.Equal(0, PlayerDamageTaken.Flat(DamageType.Cold, attack: true, flat));
 
         // A blocked hit deals nothing by default, 10% with the Ritual gauntlets' implicit, all its elemental damage
