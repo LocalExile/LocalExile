@@ -5,7 +5,8 @@ The trials in the acts that open each Labyrinth tier (#450, roadmap "The Labyrin
 The Lower Prison's Normal trial is verified with the real client: its door, lever, Locked Door, plaque and the
 Trial Plaque window work.
 Its spike traps (the cascade ring and the plaque room's checkerboard) are matched against the original game by eye.
-The Imperial Gardens' dart traps fire; they are built from the original's description and not yet checked live.
+The Imperial Gardens' dart traps are checked live against the original; the Catacombs' roombas are built from its
+description and not yet checked live.
 The other traps, the trials' monsters and the other trials' puzzles are not built yet.
 
 ## Where a trial is
@@ -179,6 +180,37 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
   60% less, final: the pools apply it to the whole `movement_velocity_+%`, which the client walks with and the panel
   shows, and the walk estimate follows.
 
+## Roombas
+
+The Catacombs trial's trap room (`catacomb_intro`) has seven `Metadata/Terrain/Labyrinth/Traps/LabyrinthRoomba`
+(`roomba.ao`) and one `LabyrinthFlyingRoomba` (`flying_roomba.ao`), and 15 `Rail_Invisible` points (server objects with
+no `.ot` component but BaseEvents, their models only the editor's crossing, corner and end pieces) they run along.
+The `.ot`s' Movement: `FollowPath`, `reverse_when_path_ends`, a 100 ms pause at each waypoint, `base_speed` 35 (the
+flying one 25, `flying = 1`), turned to where they go; the ground one's Transitionable plays `walk_toinactive` (nothing
+in the trial turns it: live 2026-10-31, the lever only opens its door).
+
+**The blob.** LabyrinthRoomba reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement and Transitionable; the
+flying one Positioned, BaseEvents, Animated, Stats, Buffs and Movement. Movement's reader (`0x141e741e0`) takes u8
+(+0x30), i32 x, i32 y (a cell it sets Positioned to, `0x141e31200`), four u32 (+0x3c, +0x40, +0x4c, +0x50), u8 +0x76
+(non-zero starts its own movement, `0x141e74970`) and u8 +0x77; its 0x2ba slot is `ret`.
+The Gateway sends Movement idle at the roomba's cell and moves it itself with **S→C 0x1ba** (rail to rail, following the
+terrain) and 0x1b9 to turn it.
+
+**The paths** (`LabyrinthTrials.RoombaPaths`): a rail joins its nearest rail along each axis within 6° (one run is 5°
+off), when each is the other's nearest that way. A roomba faces along its run, the way it sets out (its room line's
+angle as a projectile object's rotation, (sin a, −cos a)); where two runs cross under it (the first ground roomba's
+and the flying one's), the one along its facing is its own. The Catacombs' rails make a square with four roombas and a
+92 × 69 rectangle with two, every roomba of each facing round it the same way (the original's square: clockwise on the
+screen, live 2026-10-31), a crooked U for one ground roomba and a run with a 90° corner for the flying one, which go to
+their ends and back.
+
+**What it does** (live 2026-10-31, the original): damage for as long as the player is in it, with no buff shown and
+no knockback, and it does not block the way. No skill: BuffDefinitions `labyrinth_trap_bleed` (invisible,
+`base_physical_damage_%_of_maximum_life_taken_per_minute` and `…_of_maximum_energy_shield_…`) is the likely carrier,
+with no values in the client data. So a player within 10 cells of a roomba's centre takes 40% of maximum life plus
+25% of maximum energy shield a second (our numbers), physical, energy shield first. `/trial_roomba_damage <life %>
+<energy shield %> [<radius>]` (dev) changes them.
+
 ## Monsters
 
 In the original there are no monsters among a trial's traps (live 2026-10-31); what stands in its rooms the room file
@@ -215,7 +247,7 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 
 ## Not built yet
 
-- The other traps (spinners, sawblades, roombas, lava) and the step-triggered spikes of Izaro's rooms.
+- The other traps (spinners, sawblades, lava) and the step-triggered spikes of Izaro's rooms.
 - The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
   the alternate arrow traps).
 - The other puzzle parts: `Switch` and `Door_Open` (toggling), `Switch_Multi`, `TimerGears` (timed levers).

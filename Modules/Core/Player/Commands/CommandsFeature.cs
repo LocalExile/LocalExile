@@ -1336,6 +1336,17 @@ static class CommandsFeature
                 LabyrinthTrials.SpikeAnimationSeconds = ms / 1000.0;
             await conn.Commands!.Reply($"Trial spike traps rise over a {LabyrinthTrials.SpikeAnimationSeconds * 1000:0} ms Emerge animation.");
         })
+        .Add("trial_roomba_damage", "/trial_roomba_damage [<life %> <energy shield %> [<radius>]] (dev: what a Trials of Ascendancy roomba deals a second of maximum life and energy shield while the player is in it, and how near its centre that is in cells, e.g. /trial_roomba_damage 40 25 10)", async args =>
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            if (args.Length >= 2 && double.TryParse(args[0], System.Globalization.NumberStyles.Float, inv, out double life)
+                && double.TryParse(args[1], System.Globalization.NumberStyles.Float, inv, out double shield) && life is >= 0 and <= 1000 && shield is >= 0 and <= 1000)
+                LabyrinthTrials.RoombaDamagePerSecond = (life / 100, shield / 100);
+            if (args.Length >= 3 && double.TryParse(args[2], System.Globalization.NumberStyles.Float, inv, out double radius) && radius is > 0 and <= 50)
+                LabyrinthTrials.RoombaRadius = radius;
+            var (l, e) = LabyrinthTrials.RoombaDamagePerSecond;
+            await conn.Commands!.Reply($"Trial roombas deal {l * 100:0.#}% of maximum life and {e * 100:0.#}% of maximum energy shield a second within {LabyrinthTrials.RoombaRadius:0.#} cells.");
+        })
         .Add("trial_dart_poison", "/trial_dart_poison [<percent>] (dev: how much of a Trials of Ascendancy dart's hit, its life share, a poison stack deals a second, from the next hit, e.g. /trial_dart_poison 10)", async args =>
         {
             if (args.Length >= 1 && double.TryParse(args[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double pct) && pct is > 0 and <= 100)

@@ -22,6 +22,127 @@ static class LabyrinthTrials
         // …Catacombs), placed as NPCs.
         GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph";
 
+    public const string Roomba = "Metadata/Terrain/Labyrinth/Traps/LabyrinthRoomba",
+        FlyingRoomba = "Metadata/Terrain/Labyrinth/Traps/LabyrinthFlyingRoomba",
+        Rail = "Metadata/Terrain/Labyrinth/Traps/Rail_Invisible";
+
+    /// <summary>A roomba's speed in cells a second: its .ot's Movement <c>base_speed</c> (the player's Pathfinding
+    /// base_speed 37 is 37 cells a second), and how long it waits at each rail (<c>pause_at_waypoint_duration</c> 100 ms).</summary>
+    public static double RoombaSpeed(string type) => type == FlyingRoomba ? 25 : 35;
+    public const double RoombaPauseSeconds = 0.1;
+
+    /// <summary>How near a roomba's centre the player is in it (our number, from its look: about two tiles across; the
+    /// model has no Hull, and it does not block: live 2026-10-31).</summary>
+    public static double RoombaRadius = 10;
+
+    /// <summary>What a roomba deals while the player is in it (live 2026-10-31, the original: damage all the time, no
+    /// buff shown, no knockback): BuffDefinitions <c>labyrinth_trap_bleed</c> (invisible) takes
+    /// <c>base_physical_damage_%_of_maximum_life_taken_per_minute</c> and <c>…_of_maximum_energy_shield_…</c>, whose values
+    /// the client data lacks: these shares a second are ours, physical, energy shield first.
+    /// <c>/trial_roomba_damage</c> (dev) changes them.</summary>
+    public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.40, 0.25);
+
+    /// <summary>A roomba's 0x2b9 blob: LabyrinthRoomba.ot reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement,
+    /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement. Movement
+    /// (<c>0x141e741e0</c>): u8 (+0x30), i32 x, i32 y (the cell it sets Positioned to), four u32 (+0x3c, +0x40, +0x4c,
+    /// +0x50), u8 +0x76 (non-zero starts its own movement, <c>0x141e74970</c>: not sent), u8 +0x77. The server moves it
+    /// with 0x1ba.</summary>
+    public static byte[] RoombaBlob(string type, int x, int y, float angle, string model)
+    {
+        var w = new BlobWriter().U8(0).U8(0);
+        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1);    // Positioned: the .ot's team 14
+        w.U8(1).WStr32(model);                                              // Animated (BaseEvents reads nothing)
+        w.Stats(null).U32(0).U32(0).U8(0);                                  // Stats
+        w.U16(0);                                                           // Buffs
+        w.U8(0).I32(x).I32(y).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0);      // Movement
+        if (type == Roomba) w.U8(1);                                        // Transitionable: active
+        return w.U8(0).ToArray();                                           // tasks
+    }
+
+    /// <summary>A roomba's way along the trial's invisible rails: its rails in order, and whether they close a ring.</summary>
+    public sealed record RoombaPath(IReadOnlyList<(int X, int Y)> Rails, bool Ring);
+
+    /// <summary>Each roomba's path (null when no rail runs under it), its rails in the order it goes. Rails join their
+    /// nearest rail along each axis, within 6° (one of the Catacombs' runs is 5° off), when each is the other's nearest
+    /// that way. A roomba stands on a run and faces along it, the way it sets out (its room line's angle, as a projectile
+    /// object's rotation: direction (sin a, −cos a)): where two runs cross under it (the Catacombs' first ground roomba
+    /// and the flying one's) the one along its facing is its own. Round a ring it keeps going that way (the Catacombs'
+    /// square of four all face round it; live 2026-10-31, the original: clockwise on the screen); a chain it follows to
+    /// its end and back (<c>path_following_method = "reverse_when_path_ends"</c>).</summary>
+    public static RoombaPath?[] RoombaPaths(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int X, int Y, float Angle)> roombas)
+    {
+        const double MaxDeviation = 6 * Math.PI / 180, OnRail = 4;
+        (int X, int Y)[] axes = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        int? Best(int i, (int X, int Y) d)
+        {
+            int? best = null;
+            (double Deviation, double Distance) bestKey = (double.MaxValue, double.MaxValue);
+            for (int j = 0; j < rails.Count; j++)
+            {
+                if (j == i) continue;
+                double vx = rails[j].X - rails[i].X, vy = rails[j].Y - rails[i].Y;
+                double along = vx * d.X + vy * d.Y, across = Math.Abs(vx * d.Y - vy * d.X);
+                if (along <= 0) continue;
+                double deviation = Math.Atan2(across, along);
+                if (deviation > MaxDeviation) continue;
+                var key = (deviation, along);
+                if (key.CompareTo(bestKey) < 0) (best, bestKey) = (j, key);
+            }
+            return best;
+        }
+        var joined = Enumerable.Range(0, rails.Count).Select(_ => new List<int>()).ToArray();
+        for (int i = 0; i < rails.Count; i++)
+            foreach (var d in axes)
+                if (Best(i, d) is int j && Best(j, (-d.X, -d.Y)) == i && !joined[i].Contains(j))
+                {
+                    joined[i].Add(j);
+                    joined[j].Add(i);
+                }
+        static double ToSegment((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
+        {
+            double dx = b.X - a.X, dy = b.Y - a.Y, len = dx * dx + dy * dy;
+            double t = len == 0 ? 0 : Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len, 0, 1);
+            return Math.Sqrt(Math.Pow(p.X - a.X - t * dx, 2) + Math.Pow(p.Y - a.Y - t * dy, 2));
+        }
+        var paths = new RoombaPath?[roombas.Count];
+        for (int r = 0; r < roombas.Count; r++)
+        {
+            var (x, y, angle) = roombas[r];
+            double fx = Math.Sin(angle), fy = -Math.Cos(angle);
+            // How far a run's way (A to B) lies along the facing: 1 straight ahead, -1 straight behind.
+            double Along(int a, int b)
+            {
+                double dx = rails[b].X - rails[a].X, dy = rails[b].Y - rails[a].Y, len = Math.Sqrt(dx * dx + dy * dy);
+                return len == 0 ? 0 : (dx * fx + dy * fy) / len;
+            }
+            var under = Enumerable.Range(0, rails.Count).SelectMany(i => joined[i].Where(j => j > i).Select(j => (A: i, B: j)))
+                .Select(e => (e.A, e.B, Distance: ToSegment((x, y), rails[e.A], rails[e.B]), Along: Along(e.A, e.B)))
+                .Where(e => e.Distance <= OnRail)
+                .OrderByDescending(e => Math.Abs(e.Along) >= Math.Cos(Math.PI / 6)).ThenBy(e => e.Distance).FirstOrDefault();
+            if (under == default) continue;
+            if (under.Along < 0) (under.A, under.B) = (under.B, under.A);
+            // The run's rails in order: from one end of a chain, or round a ring.
+            var seen = new HashSet<int> { under.A };
+            var order = new List<int> { under.A };
+            for (int at = under.A, next = under.B; next >= 0 && seen.Add(next); )
+            {
+                order.Add(next);
+                (at, next) = (next, joined[next].FirstOrDefault(j => j != at && !seen.Contains(j), -1));
+            }
+            for (int at = under.B, back = under.A; ; )
+            {
+                int prev = joined[back].FirstOrDefault(j => j != at && !seen.Contains(j), -1);
+                if (prev < 0) break;
+                seen.Add(prev);
+                order.Insert(0, prev);
+                (at, back) = (back, prev);
+            }
+            bool ring = order.Count > 2 && joined[order[0]].Contains(order[^1]);
+            paths[r] = new RoombaPath([.. order.Select(i => rails[i])], ring);
+        }
+        return paths;
+    }
+
     /// <summary>A trial room's server spawners (points of its room file, with no .ot to tell what they spawn) and the
     /// monster each places, rare: the Lower Prison trial's PrisonPoacherSpawner, on the plaque's platform, a Brittle
     /// Poacher (live 2026-10-31, the original: a rare skeleton archer beside the platform's pack).</summary>
@@ -30,9 +151,9 @@ static class LabyrinthTrials
         ["Metadata/QuestObjects/Labyrinth/PrisonPoacherSpawner"] = "Metadata/Monsters/Skeletons/SkeletonBowLightning",
     };
 
-    /// <summary>How far from a trial's traps the area's scattered packs keep their centres (our number: a pack's members
-    /// stand within 9 cells of it, a spike tile reaches 11 from its trap). Live 2026-10-31, the original: no monsters
-    /// among the traps.</summary>
+    /// <summary>How far from a trial's traps (the rails its roombas run on among them) the area's scattered packs keep
+    /// their centres (our number: a pack's members stand within 9 cells of it, a spike tile reaches 11 from its trap).
+    /// Live 2026-10-31, the original: no monsters among the traps.</summary>
     public const int TrapClearance = 25;
 
     /// <summary>A monograph's NPCTalk index (column 1): each has one row, 0 "Read" (NPCTalk 777–782).</summary>

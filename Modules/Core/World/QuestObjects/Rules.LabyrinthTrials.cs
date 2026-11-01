@@ -20,6 +20,8 @@ static partial class QuestobjectsRules
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))]);
         await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.ArrowTrap)]);
+        await SpawnRoombas(remote, stream, ciphers, conn, [.. all.Where(o => o.Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba)],
+            [.. all.Where(o => o.Type == LabyrinthTrials.Rail).Select(o => (o.X, o.Y))]);
         // The Bronze Monograph at the trial's door: an NPCs.dat row on StoryGlyphBase, read like any NPC (its NPCTalk
         // "Read" row), with the room line's StoryGlyph.ao.
         var glyphs = all.Where(o => o.Type.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal)).ToList();
@@ -643,6 +645,138 @@ static partial class QuestobjectsRules
                 : InstanceEntities.RemoveBuff(PlayerId, slow.Buff), null);
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
             $"0x01b3 player stats (trial dart slow {(on ? "starts" : "ends")}: movement {conn.Pools.MovementVelocityPct:+0;-0}%)");
+    }
+
+    // A trial's roombas (the Catacombs: seven on the ground, one flying), each on its run of invisible rails
+    // (LabyrinthTrials.RoombaPaths): created where the room puts them, then driven along their rails for as long as the
+    // player is in the area (RunRoombas).
+    static async Task SpawnRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<AreaPopulation.RoomObject> roombas, List<(int X, int Y)> rails)
+    {
+        if (roombas.Count == 0) return;
+        var paths = LabyrinthTrials.RoombaPaths(rails, [.. roombas.Select(r => (r.X, r.Y, r.Angle))]);
+        var runs = new List<RoombaRun>();
+        for (int i = 0; i < roombas.Count; i++)
+        {
+            var r = roombas[i];
+            uint id = conn.NextObjectId++;
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type),
+                LabyrinthTrials.RoombaBlob(r.Type, r.X, r.Y, r.Angle, r.Model)), null);
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            if (paths[i] is { } path) runs.Add(new RoombaRun(id, r, path));
+            else Console.WriteLine($"[gateway] {remote} trial roomba 0x{id:x} at ({r.X}, {r.Y}): no rail under it, it stays");
+        }
+        Console.WriteLine($"[gateway] {remote} trial roombas: {roombas.Count} placed, " +
+            string.Join(", ", runs.Select(r => $"0x{r.Id:x} {(r.Path.Ring ? "round" : "to and fro")} {r.Path.Rails.Count} rails")));
+        _ = RunRoombas(remote, stream, ciphers, conn, runs);
+    }
+
+    // A roomba on its rails: the leg it is on (from where, to which rail, when it set out and arrives) and which way it goes
+    // along a chain.
+    sealed class RoombaRun
+    {
+        public readonly uint Id;
+        public readonly AreaPopulation.RoomObject Roomba;
+        public readonly LabyrinthTrials.RoombaPath Path;
+        public int Target, Step = 1;
+        public (double X, double Y) From;
+        public double LegStart, LegEnd = double.NegativeInfinity;
+
+        public RoombaRun(uint id, AreaPopulation.RoomObject roomba, LabyrinthTrials.RoombaPath path)
+        {
+            (Id, Roomba, Path, From) = (id, roomba, path, (roomba.X, roomba.Y));
+            // It heads first for the far rail of the run it stands on: the path's order is the way it faces.
+            var rails = path.Rails;
+            int legs = path.Ring ? rails.Count : rails.Count - 1;
+            Target = (Enumerable.Range(0, legs).MinBy(i => Distance((roomba.X, roomba.Y), rails[i], rails[(i + 1) % rails.Count])) + 1) % rails.Count;
+        }
+
+        public (double X, double Y) To => Path.Rails[Target];
+
+        public (double X, double Y) Position(double now)
+        {
+            if (now >= LegEnd) return To;
+            double t = Math.Clamp((now - LegStart) / Math.Max(1e-6, LegEnd - LegStart), 0, 1);
+            return (From.X + (To.X - From.X) * t, From.Y + (To.Y - From.Y) * t);
+        }
+
+        // The next rail: round a ring, or on along a chain, turning at its ends.
+        public void Next()
+        {
+            if (Path.Ring) { Target = (Target + 1) % Path.Rails.Count; return; }
+            if (Target + Step < 0 || Target + Step >= Path.Rails.Count) Step = -Step;
+            Target += Step;
+        }
+
+        static double Distance((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
+        {
+            double dx = b.X - a.X, dy = b.Y - a.Y, len = dx * dx + dy * dy;
+            double t = len == 0 ? 0 : Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len, 0, 1);
+            return Math.Sqrt(Math.Pow(p.X - a.X - t * dx, 2) + Math.Pow(p.Y - a.Y - t * dy, 2));
+        }
+    }
+
+    // Each roomba glides rail to rail (0x1ba, turned to where it goes with 0x1b9) and waits LabyrinthTrials.RoombaPauseSeconds
+    // at each; a player within LabyrinthTrials.RoombaRadius of one takes its damage for as long as they stay (RoombaDamage).
+    static async Task RunRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<RoombaRun> runs)
+    {
+        double carried = 0, last = conn.Clock.Elapsed.TotalSeconds;
+        try
+        {
+            while (!conn.Closed)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                foreach (var r in runs)
+                {
+                    if (now < r.LegEnd + LabyrinthTrials.RoombaPauseSeconds) continue;
+                    if (double.IsFinite(r.LegEnd)) { r.From = r.To; r.Next(); }
+                    double dx = r.To.X - r.From.X, dy = r.To.Y - r.From.Y;
+                    double seconds = Math.Max(0.05, Math.Sqrt(dx * dx + dy * dy) / LabyrinthTrials.RoombaSpeed(r.Roomba.Type));
+                    (r.LegStart, r.LegEnd) = (now, now + seconds);
+                    await Send(remote, stream, ciphers, [.. InstanceProtocol.Orientation(r.Id, (float)Math.Atan2(dx, -dy)),
+                        .. InstanceProtocol.MoveTo(r.Id, (int)Math.Round(r.To.X), (int)Math.Round(r.To.Y), (float)seconds, InstanceProtocol.FollowTerrain)], null);
+                }
+                // In a roomba: its damage for the time since the last look.
+                (int X, int Y) here;
+                lock (conn.Monsters) here = conn.Walk.Position(now);
+                double radius = LabyrinthTrials.RoombaRadius;
+                bool inside = runs.Any(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
+                if (inside) carried = await RoombaDamage(remote, stream, ciphers, conn, now - last, carried);
+                last = now;
+                await Task.Delay(SpikeTickMilliseconds);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // A roomba's damage over this many seconds (LabyrinthTrials.RoombaDamagePerSecond of maximum life and energy shield),
+    // physical, energy shield first; whole points are dealt and the rest carried to the next look, which it returns.
+    static async Task<double> RoombaDamage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        double seconds, double carried)
+    {
+        uint life;
+        int dealt;
+        lock (conn.Monsters)
+        {
+            if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return 0;
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
+            carried += (conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare) * seconds;
+            dealt = (int)carried;
+            carried -= dealt;
+            if (dealt == 0) return carried;
+            long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
+            conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
+            if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+            RecordHardcoreDeath(conn);
+            life = conn.PlayerLife;
+        }
+        await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+            life == 0 ? $"0x01b1 player cut down by a trial roomba ({dealt}) and dies" : null);
+        if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
+        return carried;
     }
 
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on

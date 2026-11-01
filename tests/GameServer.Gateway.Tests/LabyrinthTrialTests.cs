@@ -70,6 +70,35 @@ public sealed class LabyrinthTrialTests
     }
 
     [Fact]
+    public void RoombasFollowTheRunOfRailsTheyStandOn()
+    {
+        // The Catacombs trial's rails and roombas (catacomb_intro.arm, room cells).
+        (int, int)[] rails = [(48, 54), (103, 59), (75, 79), (152, 80), (64, 117), (103, 118), (75, 122), (172, 149), (264, 149),
+            (172, 218), (264, 218), (119, 278), (181, 278), (119, 340), (181, 340)];
+        const float Half = MathF.PI / 2;
+        (int, int, float)[] roombas = [(124, 81, -Half), (104, 79, 0), (172, 181, MathF.PI), (264, 181, 0), (151, 278, -Half),
+            (121, 309, MathF.PI), (181, 310, 0), (151, 340, Half)];
+
+        var paths = LabyrinthTrials.RoombaPaths(rails, roombas);
+
+        // Where the flying one's run crosses the first ground one's, each keeps the run it faces along: the flying one
+        // turns a corner, the ground one runs a crooked U (one run is 5 degrees off), both to and fro, set out as they face.
+        void Run(LabyrinthTrials.RoombaPath? path, bool ring, params (int, int)[] rails)
+        {
+            Assert.Equal(ring, path!.Ring);
+            var order = path.Rails.Select(r => (r.X, r.Y)).ToList();
+            int first = ring ? order.IndexOf(rails[0]) : 0;
+            Assert.Equal(rails, order.Skip(first).Concat(order.Take(first)));
+        }
+        Run(paths[0], false, (152, 80), (75, 79), (75, 122));
+        Run(paths[1], false, (64, 117), (103, 118), (103, 59), (48, 54));
+        // The other two runs close a rectangle and a square, their roombas all facing round them the same way.
+        Run(paths[2], true, (172, 149), (172, 218), (264, 218), (264, 149));
+        Assert.Equal(paths[2]!.Rails.ToHashSet(), paths[3]!.Rails.ToHashSet());
+        foreach (var square in paths[4..]) Run(square, true, (181, 278), (119, 278), (119, 340), (181, 340));
+    }
+
+    [Fact]
     public void TrialsTakeTheirAreaAndCompletionFlag()
     {
         const string json = """
