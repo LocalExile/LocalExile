@@ -1364,6 +1364,27 @@ second (3.7 at 185 ES); that regeneration correctly continues while recharge is 
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and
 measurement limits. Recovery-cadence PR #159 is merged; this change extends its existing recovery loop.
 
+## Damage taken as
+
+A monster's hit on the player shifts its damage types before any mitigation (`DamageTakenAs.Shift`), after the enemy
+auras' conversion and Glacial Wave's less damage. The rules come from the wiki's "Damage taken as" page and PoB
+`CalcDefence`'s `damageShiftTable`:
+
+- Every shift reads the hit's original amounts at once, so damage shifts only once and in any direction: The Rat Cage's
+  fire taken as physical works next to physical taken as fire.
+- The source keeps max(100 - total, 0)%. A total over 100% is not scaled down, so it adds damage.
+- Each part is mitigated only as its final type: physical taken as fire skips armour.
+- Chill, freeze and shock read the shifted damage taken, so physical taken as cold can chill. Ignite reads the damage
+  dealt, the unshifted hit, so fire taken as physical still ignites on a critical strike.
+- The "from Hits" stats shift hits only. The `hit_and_dot` stats also shift damage over time, which is not read yet.
+- `base_fire_hit_damage_taken_%_as_physical_value_negated` is stored as -10 and shown as 10%.
+
+Not read: the conditional stats (while affected by a Purity, with four influenced items, during a flask), the ring-slot
+local stats, `physical_damage_from_hits_%_taken_as_random_element`, and the Divine Flesh and Tempered by War keystones,
+whose other effects (bypassing Energy Shield, less resistances) are not modelled. The dev `/hit` commands keep their one
+type.
+
+
 ## Incoming ordinary elemental ailments
 
 The Gateway's supported monster melee contact now calls `ApplyPlayerAilmentsLocked` after hit mitigation/block.

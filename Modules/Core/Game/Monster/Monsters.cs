@@ -928,7 +928,10 @@ static partial class Game
         // Glacial Wave: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
         double lessened = m.Ailments.ChillDamageDealtFactor(now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
-        var mitigated = gambler.MitigateIncomingHit(rolled, type =>
+        // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
+        // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
+        var taken = DamageTakenAs.Shift(rolled, StatOf);
+        var mitigated = gambler.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
         var immune = PlayerImmunities(conn);
         // This remains the original next RNG draw when the feature is absent. Blocking never
@@ -937,7 +940,7 @@ static partial class Game
         bool armourRelevant = mitigated.Components.Any(c => !immune.Contains(c.Type)
             && Math.Round(c.Range.Min) > 0 && PlayerHitMitigation.ArmourPercent(conn.Pools, c.Type, StatOf) > 0);
         var armour = IncomingArmourLocked(conn, !blocked && armourRelevant, priorContacts, stats);
-        int rawDamage = (int)Math.Round(rolled[DamageType.Physical].Min);
+        int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
         double shockFactor = conn.ElementalAilments.DamageTakenFactor(now, DamageTakenFromBlindedPct(conn, id, stats));

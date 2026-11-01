@@ -1,0 +1,77 @@
+using GameServer.Core.World;
+
+namespace GameServer.Gateway.Tests;
+
+public class DamageTakenAsTests
+{
+    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
+        name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
+
+    static DamagePacket Hit(params (DamageType Type, int Amount)[] parts) =>
+        parts.Aggregate(DamagePacket.Empty, (hit, p) => hit.Add(p.Type, new DamageRange(p.Amount, p.Amount)));
+
+    // Each type shifts its share of its original amount once, in any direction; the source keeps the rest, and a total
+    // over 100% adds damage instead of being scaled down.
+    [Fact]
+    public void A_hit_shifts_each_types_share_once_before_mitigation()
+    {
+        Assert.All(DamageTakenAs.StatNames, name => Assert.NotNull(Program.Stats.Key(name)));
+
+        var physical = Hit((DamageType.Physical, 100));
+        Assert.Same(physical, DamageTakenAs.Shift(physical, With()));
+
+        var shifted = DamageTakenAs.Shift(physical,
+            With(("physical_damage_taken_%_as_fire", 10), ("physical_damage_taken_%_as_cold", 15),
+                ("physical_hit_and_dot_damage_%_taken_as_fire", 5)));
+        Assert.Equal(70, shifted[DamageType.Physical].Min, 6);
+        Assert.Equal(15, shifted[DamageType.Fire].Min, 6);
+        Assert.Equal(15, shifted[DamageType.Cold].Min, 6);
+
+        var over = DamageTakenAs.Shift(physical,
+            With(("physical_damage_taken_%_as_lightning", 60), ("physical_damage_taken_%_as_chaos", 60)));
+        Assert.Equal(0, over[DamageType.Physical].Min, 6);
+        Assert.Equal(120, over.MinTotal, 6);
+
+        // The Rat Cage's 100% fire as physical and 50% physical as fire swap at once: nothing shifts back.
+        var swapped = DamageTakenAs.Shift(Hit((DamageType.Physical, 100), (DamageType.Fire, 100)),
+            With(("base_fire_hit_damage_taken_%_as_physical", 100), ("physical_damage_taken_%_as_fire", 50)));
+        Assert.Equal(150, swapped[DamageType.Physical].Min, 6);
+        Assert.Equal(50, swapped[DamageType.Fire].Min, 6);
+
+        // The negated stat is stored as -10; elemental and two-element stats shift each of their types.
+        var elemental = DamageTakenAs.Shift(Hit((DamageType.Fire, 100), (DamageType.Cold, 100), (DamageType.Lightning, 100)),
+            With(("base_fire_hit_damage_taken_%_as_physical_value_negated", -10), ("elemental_damage_taken_%_as_chaos", 20),
+                ("cold_and_lightning_damage_taken_%_as_fire", 50)));
+        Assert.Equal(10, elemental[DamageType.Physical].Min, 6);
+        Assert.Equal(70 + 50 + 50, elemental[DamageType.Fire].Min, 6);
+        Assert.Equal(30, elemental[DamageType.Cold].Min, 6);
+        Assert.Equal(30, elemental[DamageType.Lightning].Min, 6);
+        Assert.Equal(60, elemental[DamageType.Chaos].Min, 6);
+    }
+
+    // Chill reads the damage taken, so physical taken as cold chills; ignite reads the damage dealt, so fire taken as
+    // physical still ignites on a critical strike (wiki Damage taken as, "Ailments and damage over time").
+    [Fact]
+    public void Ailments_read_the_shifted_damage_taken_but_ignite_reads_the_damage_dealt()
+    {
+        var conn = new ClientState(new(1, "taken-as", 100, 100, 100, 100, null, []), 0, 1);
+        lock (conn.Monsters) { conn.Pools = conn.Pools with { Life = 1000 }; conn.PlayerLife = 1000; }
+        var stats = new Dictionary<uint, int>();
+        double now = conn.Clock.Elapsed.TotalSeconds;
+
+        var physical = Hit((DamageType.Physical, 100));
+        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, physical, physical, false, false, now, stats);
+        Assert.Equal(0, conn.ElementalAilments.Snapshot(now).Chill);
+        var asCold = Hit((DamageType.Physical, 50), (DamageType.Cold, 50));
+        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, physical, asCold, false, false, now, stats);
+        Assert.Equal(15, conn.ElementalAilments.Snapshot(now).Chill);   // floor(50 × 0.05^0.4)
+
+        conn.ElementalAilments.Clear();
+        var fire = Hit((DamageType.Fire, 100));
+        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, fire, Hit((DamageType.Physical, 100)), true, false, now, stats);
+        var ailments = conn.ElementalAilments.Snapshot(now);
+        Assert.True(ailments.Ignite);
+        Assert.Equal(0, ailments.Chill);
+        Assert.False(ailments.Freeze);
+    }
+}

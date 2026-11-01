@@ -9,9 +9,11 @@ static partial class Game
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped.
+        // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
+        // physical damage taken as an element (DamageTakenAs).
         if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
-            || !baseHit.Components.Any(c => DamageTypes.IsElemental(c.Type)) && Get("all_damage_taken_can_chill") == 0) return;
+            || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
+                && Get("all_damage_taken_can_chill") == 0) return;
         var previousAilments = conn.ElementalAilments.Snapshot(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
