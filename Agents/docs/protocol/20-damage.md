@@ -1400,7 +1400,10 @@ strike; the threshold is its maximum life (wiki: equal to it for most monsters).
 | Freeze | a critical strike or `chance_to_freeze_%`, with cold damage | the monster cannot act | 0.06 s per 1% of the threshold, at most 3 s; none under 0.3 s |
 
 The effect modifiers are the attacker's `virtual_chill_effect_+%`/`virtual_shock_effect_+%` and the monster's
-`chill_effectiveness_on_self_+%`/`shocked_effect_on_self_+%`, both counted before the cap and the 5% floor. Durations
+`chill_effectiveness_on_self_+%`/`shocked_effect_on_self_+%`, both counted before the cap and the 5% floor. The
+attacker's minimums (`chill_minimum_slow_%`, `shock_minimum_damage_taken_increase_%`: Beacon of Ruin, Shaper of
+Storms) raise the base before the modifiers (wiki Shock), so a hit too weak for 5% still applies one, but
+only with the ailment's damage. Durations
 take the attacker's `virtual_*_duration_+%` and the monster's `base_self_*_duration_-%` (positive reduces, as on the
 player's jewels) added together, × (1 + (attacker − target) / 100), as PoB `CalcOffence` sums `Enemy…Duration` INC
 and the enemy's `Self…Duration` INC: 50% increased against 50% reduced on itself leaves the base duration. Of the

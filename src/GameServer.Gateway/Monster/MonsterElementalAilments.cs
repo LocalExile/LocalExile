@@ -85,11 +85,13 @@ sealed class MonsterElementalAilments
         spread = shock is null || Immune(Kind.Shock, target) ? null : shock with { Spread = 0, OnKill = false };
 
     /// <summary>Chill and shock effect: floor(50 × (damage / threshold)^0.4 × effect modifiers), up to the cap, and none
-    /// below 5% (the modifiers count before both limits).</summary>
-    internal static int Effectiveness(double damage, double threshold, double modifiers, int cap)
+    /// below 5% (the modifiers count before both limits). A <paramref name="minimum"/> ("Shocks from your Hits always
+    /// increase Damage taken by at least X%") raises the base before the modifiers (wiki Shock), so a hit that deals the
+    /// ailment's damage gets at least it.</summary>
+    internal static int Effectiveness(double damage, double threshold, double modifiers, int cap, int minimum = 0)
     {
         if (damage <= 0 || threshold <= 0) return 0;
-        int effect = (int)Math.Min(cap, Math.Floor(50 * Math.Pow(damage / threshold, .4) * modifiers));
+        int effect = (int)Math.Min(cap, Math.Floor(Math.Max(50 * Math.Pow(damage / threshold, .4), minimum) * modifiers));
         return effect >= 5 ? effect : 0;
     }
 
@@ -120,7 +122,7 @@ sealed class MonsterElementalAilments
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
         if (!CannotInflict("chill", attacker))
             Add(new(Kind.Chill, now, now + 2, Effectiveness(cold * AsThough(Kind.Chill, attacker), threshold,
-                EffectModifier(Kind.Chill, attacker, target), 30))
+                EffectModifier(Kind.Chill, attacker, target), 30, attacker("chill_minimum_slow_%")))
             {
                 MoreTaken = attacker("enemies_chilled_by_hits_take_damage_increased_by_chill_effect") != 0,
                 LessDealt = attacker("enemies_chilled_by_hits_deal_damage_lessened_by_chill_effect") != 0,
@@ -133,7 +135,8 @@ sealed class MonsterElementalAilments
         if (shocking > 0 && (critical || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random))
             && !CannotInflict("shock", attacker))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
-                EffectModifier(Kind.Shock, attacker, target), 50)) { Spread = SpreadRadius(attacker, area) });
+                EffectModifier(Kind.Shock, attacker, target), 50, attacker("shock_minimum_damage_taken_increase_%")))
+                { Spread = SpreadRadius(attacker, area) });
         return added;
     }
 
