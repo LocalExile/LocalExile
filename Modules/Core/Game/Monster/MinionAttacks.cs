@@ -72,7 +72,8 @@ static partial class Game
         var a = m.Attack!;
         bool started = false;
         await Send(remote, stream, ciphers,
-            InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, targetObjectId: target.Id),
+            a.Ranged ? InstanceProtocol.ActionStarted(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, targetObjectId: target.Id)
+                : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, target.At.X, target.At.Y, a.SkillId, 0xffff, 0x0408, target.Id),
             $"0x01ab minion 0x{id:x} ({m.Label}) attacks monster 0x{target.Id:x}, attack time {a.Seconds:0.00} s", still: () =>
             {
                 lock (conn.Monsters)

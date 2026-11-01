@@ -235,6 +235,15 @@ public static class InstanceProtocol
         return w.U16(skillId).U16(sequence).ToArray();
     }
 
+    /// <summary>
+    /// A server-driven action that starts now: 0x1ab, then 0x1ac in the same tick, as GGG sends them. A server-created
+    /// action that paths waits at its target for that 0x1ac (0x141e94720, Actor flag 0x10); one still walking swings when
+    /// it gets there.
+    /// </summary>
+    public static byte[] ActionStartedNow(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence,
+        ushort flags, uint targetObjectId) =>
+        [.. ActionStarted(objectId, posX, posY, targetX, targetY, skillId, sequence, flags, targetObjectId), .. ActionEnded(objectId)];
+
     public const ushort ActionTargetId = 0x1ad;
 
     /// <summary>

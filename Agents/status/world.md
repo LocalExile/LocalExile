@@ -93,17 +93,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [league modes](../docs/game/league-modes.md).
 - **Predictive actor collision.** Player paths include living monsters and published players in the same instance.
   Monster paths use their `MonsterVarieties.ObjectSize` clearance and avoid other living bodies, including friendlies.
-  A 50 ms correction loop sweeps monster movement and separates overlaps in the server's estimate only (no packets:
-  the client paths around bodies itself); death releases the occupied space and the corpse stays in the area.
-  Chasers spread around the player on rings (`MonsterSurround`); the AI decides every 100 ms.
-  Automated regressions cover direct chases for negative footprints and player-body clearance for new and reused slots.
-  Further automated checks cover short attack reach, stationary-blocked slots, bounded crowd escape and queued
-  channel/Rage refreshes.
+  A 50 ms loop stops a walking monster's estimate at the first cell a body blocks, as the client does (no packets);
+  nothing is pushed out of a body. Death releases the occupied space and the corpse stays in the area.
+  Melee monsters chase with their attack aimed at the player, about every 200 ms, and the swing starts on S→C 0x1ac.
+  Ranged monsters and minions take rings around the player (`MonsterSurround`); the AI decides every 50 ms.
+  Automated regressions cover player-body clearance for new and reused slots.
+  Further automated checks cover short attack reach, stationary-blocked slots and queued channel/Rage refreshes.
   Combined regressions cover silent channel updates, removed gems and projectile contacts before crowd movement.
   AI and correction passes share indexed body snapshots; surround reservations use spatial queries and cached rings.
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
-  The extended crowd changes still need a real-client check.
-  A player boxed in by estimated bodies follows the client through them instead of being pulled back.
+  Live against the real client (2026-11-01), 16 extra zombies at The Coast: the player's median error is 0 cells and its
+  worst under 6 in eight runs, and up to 25 monsters around the player match cell for cell.
   Resync (S→C 0x128): sent on every stun, on the client's own request (C→S 0x16 command 8) and by `/oos`;
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.

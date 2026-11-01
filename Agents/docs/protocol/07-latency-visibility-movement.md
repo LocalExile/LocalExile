@@ -206,6 +206,18 @@ that the type word is the type hash, and so the exact value, is the research bra
 is not yet checked live: `scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier.
 Decompiled in the research branch's `re/server-gaps-3.29.3b.md` §3.
 
+**A melee monster's chase.** GGG repeats the monster's attack aimed at the player object about every 200 ms, near or
+far (flags 0x80, the position pair is where it has the monster and the player); Move is for everything that is not a
+chase. A server-created attack that paths is not played at once: the action walks the monster up to its target, as far
+as the attack's reach (MoveTo with max range reach − 1 and the target's size as the tolerance, so distance ≤ reach), and
+waits there until S→C 0x1ac sets the Actor's flag 0x10 (`0x141e94720`). The tick paths a waiting action again every
+0.25 s. So 0x1ac is what starts the swing, and when it arrives first the swing starts on arrival. GGG sends it when its
+own copy arrives, or with the 0x1ab in the same tick when the monster is already in reach (87 of 88), and that sets the
+swing's timing on both sides. `skill_is_non_pathing` on the skill skips all of this: the action plays where the monster
+stands, without a 0x1ac. The Gateway's melee skills no longer carry it, and its ranged skills and boss stages still do.
+It chases the same way (`PlanMonsterAi`, `InstanceProtocol.ActionStartedNow`), and its estimate walks the same walk-up
+with `PlayerWalk.Approach` at the search budget of §5.
+
 **Server side.** `PlayerWalk` runs `ClientPathfinder` from the player's cell on every order and steps the result at the
 client's step times; walk-ups to NPCs, stashes, waypoints and area transitions use the client's range
 (`PlayerWalk.WalkUpTo`, `InWalkUpRange`); the blockers are the NPCs and stashes the Gateway created (`ClientState.SetBlocker`), the living
@@ -218,7 +230,7 @@ around monsters (hence monsters as blockers). Held-mouse walks drift by a few ce
 at 370 cells/s one 16 ms frame is ~6 cells): the client applies a click from its previous frame, the server when the
 0x25 arrives, so the timing differences add up while the button is held and vanish when a walk ends on its target. With
 the walk-up arguments, all 246 town paths of a third capture match, NPC, stash and waypoint walks included. Monsters
-still use `WalkEstimator`. `Approach` (a melee target, an item pickup, the map device) keeps a reach in cells; the
+walk on `PlayerWalk` too. `Approach` (a melee target, an item pickup, the map device) keeps a reach in cells; the
 client's arguments for those walks are not traced yet.
 
 **Passive movement speed.** The passives' `base_movement_velocity_+%` are summed into `CharacterStats.Pools` and the
@@ -261,36 +273,35 @@ a 0x25, so the client predicts nothing.
 
 `LivingCollision` uses `MonsterVarieties.ObjectSize - 1` as the positioned footprint, including unique bosses.
 Negative footprints do not block; zero is a valid small body.
-Monsters with a negative footprint still chase directly without reserving surround slots or avoiding living bodies.
+Monsters with a negative footprint do not avoid living bodies.
 `AreaLayout.WalkableFor` retains the captured terrain clearance values instead of treating every actor as player-sized.
-Monster `WalkEstimator` orders use the bounded native pathfinder with the client's budget: 1000 expansions for a
+Monster orders use the bounded native pathfinder with the client's budget: 1000 expansions for a
 unique, 100 for any other monster (`0x141e4d890`).
 Their blockers include stationary objects, other living monsters, the local player and published instance players.
+Only chasers on Move orders use surround slots: ranged monsters and the player's minions.
 Surround candidates, including retained slots, must clear the player's Chebyshev footprint.
 The circular ring alone is insufficient: its diagonal cells can lie inside the player's blocker for larger monsters.
 Inner slots must also lie within the monster's attack reach when space permits.
 Stationary blockers and published players are excluded from candidate slots.
 The native path budget can end a valid route short; an arrived chaser retries at most twice a second.
 Each AI/collision pass owns one combat-locked body snapshot and indexed self-exclusion views for all mover paths.
-Collision corrections update both current and previous-position indexes before later movers use them.
+Moved bodies update the index before later movers use it.
 The indexes are discarded after the pass; normal/unique expansion budgets, stationary hulls and phasing remain intact.
 AI and correction passes advance prior projectile contacts before taking the body snapshot, using the shared
 projectile mutation scope and its experience-before-combat lock order.
-The 50 ms correction loop checks each traversed cell, stops movement through newly occupied cells and moves only the
-server's estimate (then paths it again to the same target, as the client does when a walk ends short). It used to send
-ActionEnded followed by Teleport: 1,608 corrections in one crowded session, each a visible stop and jump, although the
-client already paths every monster around the other bodies. The client never snaps a non-predicted monster to the
-0x1ab position pair by that check, which runs only for sequence ≥ 0. It does snap one that is 46 or more cells from
-the pair when the action starts (live 2026-10-31: a monster that stood still on the client for 4 s jumped 43 cells). The overlap test reads every body's cell once per frame, and `BlockerSet` buckets the blockers by cell so
-`ClientPathfinder.ObjectBlocks` reads only those that can reach the queried cell (same answers as the full scan).
-The player's own path treats estimated monster bodies as blockers too; when they leave no way to the clicked cell but
-the stationary blockers do (`PlayerWalk`'s fallback), the server follows the client through the crowd instead of
-pulling the player back on every click.
-This escape is allowed only when the original path cannot get beyond the immediate footprint and the alternate end
-cell is free of living bodies; clicking an occupied destination does not grant an escape.
-While that walk is in progress, player correction ignores estimated monster bodies but still enforces terrain,
-stationary blockers and peer arbitration.
-Arrival, a replacement order or a teleport ends the escape; a new stationary obstruction still cancels and corrects it.
+The client stops a walker at the first cell a body blocks (`0x141e32710`, `0x141e47a40`), whatever its path said, and a
+walker that started inside a body walks out of it. The 50 ms loop does the same to the server's estimate, cell by cell
+against the other bodies, and sends nothing; a chaser's next order paths it again. Nothing moves a monster or the player
+out of a monster: the client does not, and a server that did so walked its copy away from the client's (it used to send
+ActionEnded and Teleport, then to teleport only its estimate, and to walk the player out through a crowd that held the
+client). Live 2026-11-01, The Coast, 16 extra zombies, eight 20 s runs: the player's median error 0 cells, its worst 5.8
+(from a median of 3.4 and a worst of 22.8), the monsters' median 0, and up to 25 monsters around the player cell for cell.
+The client never snaps a non-predicted monster to the 0x1ab position pair by the 92-cell check, which runs only for
+sequence ≥ 0. It does snap one that is 46 or more cells from the pair when the action starts. The overlap test reads
+every body's cell once per frame, and `BlockerSet` buckets the blockers by cell so `ClientPathfinder.ObjectBlocks` reads
+only those that can reach the queried cell (same answers as the full scan).
+The player's own path treats estimated monster bodies as blockers too, so a player the client finds boxed in stays in
+on both sides.
 Alive friendly monsters also block; corpses and removed objects do not.
 S→C 0x2b0 tells the client the same about a corpse, about 165 ms after its life reached 0, as GGG does (seen on 15 of 15
 in captures). The client takes it live; what it changes in the client's own paths is not measured.
@@ -363,17 +374,9 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
-- An attack on a monster the estimated bodies cut off ends "out of reach": no swing and no echo, while the client walks
-  on, which is the largest player error measured in crowds (13 cells for most of a fight). Walking through the bodies
-  instead fails when the client really is boxed in, and retrying for 0.8 s stopped those lines but not the error.
-- GGG chases with the monster's attack aimed at the player object (flags 0x80, repeated about every 200 ms), and uses
-  Move only when not chasing, so the client walks each monster to where it has the player. The Gateway sends Move orders
-  to surround cells, about 9 a second for a chaser; on the client a chaser can fall behind or stand still while the
-  estimate walks on. Sending that attack with the estimate unchanged was worse in a live test (median error 7 cells
-  against 2 to 3): the estimate has to model the same walk.
-- Monsters on the server still walk on `WalkEstimator`. `ClientPathfinder` paths them as the client does (§5) and the
-  estimate walks at the client's rolled speed, but the client's monster controller (its own re-paths, frozen far
-  monsters) and the 5–50 ms until the client applies an order are not reproduced; their estimated positions are what
-  the player's path avoids.
-- The client's walk-up arguments for melee attacks, item pickups and the map device (`Approach`).
+- An attack on a monster that moved or that bodies cut off ends "out of reach": no swing and no echo. The positions are
+  right now, so the client mostly cannot reach it either, but it keeps trying and the server does not.
+- Monster estimates still differ in the 5–50 ms until the client applies an order, and in the monsters far from the
+  player that the client freezes.
+- The client's walk-up arguments for item pickups and the map device (`Approach`).
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

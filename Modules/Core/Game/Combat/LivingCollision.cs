@@ -120,11 +120,9 @@ static partial class Game
         using (ProjectileMutation(conn, phase: "collision"))
         {
             double now = ProjectileWorldTime(conn);
-            var player = conn.Walk.Position(now);
-            var peers = conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Life > 0).ToArray();
             // Every living body's cell and size once per frame (kept current as bodies are moved below), instead of
             // recomputing each other monster's position for every monster: the overlap test was O(n²) walk queries.
-            using var frame = conn.BeginMonsterBlockerFrame(now, includePrevious: true);
+            using var frame = conn.BeginMonsterBlockerFrame(now);
             var bodies = frame.Bodies;
             int index = 0;
             foreach (var (id, m) in conn.Monsters)
@@ -133,32 +131,22 @@ static partial class Game
                 int self = index++;
                 var current = (bodies[self].X, bodies[self].Y);
                 var previous = m.CollisionPosition ?? current;
+                if (current == previous) continue;
                 int size = bodies[self].Size;
-                bool playerOverlap = conn.PlayerLife > 0 && !conn.Phasing
-                    && Math.Max(Math.Abs(current.X - player.X), Math.Abs(current.Y - player.Y)) < size + 2;
-                bool peerOverlap = peers.Any(p => Math.Max(Math.Abs(current.X - p.X), Math.Abs(current.Y - p.Y)) < size + 2);
-                bool bodyOverlap = false;
-                foreach (var other in bodies)
-                    if (other.Id < id && Math.Max(Math.Abs(other.X - current.X), Math.Abs(other.Y - current.Y)) < other.Size + size + 1
-                        && ClientPathfinder.ObjectBlocks([new(other.X, other.Y, other.Size)],
-                        current.X, current.Y, size + 1, size + 4)) { bodyOverlap = true; break; }
-                if (current == previous && !playerOverlap && !peerOverlap && !bodyOverlap) continue;
-                var blockers = conn.MonsterBlockers(id, includePrevious: true);
+                var blockers = conn.MonsterBlockers(id);
                 bool Floor(int x, int y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y));
-                var stop = LivingCollision.Sweep(previous, current, size, Floor, blockers);
-                if (!CollisionEscape.Clear(stop, conn.Layout.GridW, conn.Layout.GridH, Floor, blockers, size))
-                    stop = CollisionEscape.Find(stop, conn.Layout.GridW, conn.Layout.GridH, Floor, blockers, moverSize: size) ?? stop;
+                // The client stops a walker at the first cell a body blocks (0x141e32710, 0x141e47a40) and nothing ever
+                // moves a monster that stands. One that started inside a body walks out of it.
+                var stop = ClientPathfinder.ObjectBlocks(blockers, previous.X, previous.Y, size + 1, size + 4) ? current
+                    : LivingCollision.Sweep(previous, current, size, Floor, blockers);
                 if (stop != current)
                 {
-                    // Only the server's estimate moves: the client paths every monster around the other bodies itself
-                    // and paths again when a walk ends short (07 §5), so an ActionEnded + Teleport here only made the
-                    // monster stop and jump on screen. Like the client, the estimate then paths again to the same target.
                     m.Walk.Teleport(stop.X, stop.Y, now);
                     frame.Move(id, stop.X, stop.Y);
-                    if (m.LastTarget is { } target) m.Walk.Order(target.X, target.Y, now);
+                    // A chaser's next order paths it again; a Move's client does so itself when its walk ends short.
+                    if (m.LastTarget is { } target && m is not { Hostile: true, Attack.Ranged: false }) m.Walk.Repath(target, now);
                 }
                 m.CollisionPosition = stop;
-                frame.CompleteCorrection(id, stop.X, stop.Y);
             }
         }
         return Task.CompletedTask;

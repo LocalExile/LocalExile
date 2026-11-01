@@ -23,7 +23,7 @@ static partial class Game
 
     internal static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
     {
-        var own = attack.SkillStats();
+        var own = attack.InPlaceSkillStats();
         var taken = own.Select(s => s.Item1).ToHashSet();
         foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
         return [.. SkillsFor(conn).EffectStats(effect, level).Where(s => !taken.Contains(s.Item1)), .. own];
@@ -107,7 +107,7 @@ static partial class Game
         // Its stats as the attack's (skill_is_non_pathing above all, and the stage's own time): without them the client sent
         // the action through its pathing step, played nothing and kept the monster in it (live 2026-10-21).
         var stageSkill = skill is not null && stage is not null
-            ? SkillsFor(conn).FindByRow(StageSkillId, stage.SkillEffect, level, (attack with { SkillId = StageSkillId, Seconds = stage.CastSeconds }).SkillStats())
+            ? SkillsFor(conn).FindByRow(StageSkillId, stage.SkillEffect, level, (attack with { SkillId = StageSkillId, Seconds = stage.CastSeconds }).InPlaceSkillStats())
             : null;
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
@@ -219,6 +219,7 @@ static partial class Game
     internal sealed class MonsterAiPlan
     {
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To, string Why)> Moves = [];
+        public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To)> Chases = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action)> Swings = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, uint Target, SpawnedMonster Weapon)> WeaponSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster)> BossBars = [];
@@ -341,6 +342,18 @@ static partial class Game
                     plan.Swings.Add((id, m, m.ActionGeneration));
                     continue;
                 }
+                // A melee monster chases as GGG's do: its attack aimed at the player, repeated, so the client walks it to
+                // where it really has the player. The estimate walks the same walk-up: until the distance is within the
+                // attack's reach (max range reach - 1, the player's size as the tolerance: 0x141e8eb60, 0x141e7b260).
+                if (m.Hostile && m.Attack is { Ranged: false } melee)
+                {
+                    if (!cadence.TryAttackChase(m, now)) continue;
+                    var walk = m.Walk.Approach(px, py, melee.Range - 1, now, LivingCollision.PlayerSize);
+                    m.LastTarget = (px, py);
+                    m.SwingGeneration = null;
+                    plan.Chases.Add((id, m, ++m.ActionGeneration, walk.Here, (px, py)));
+                    continue;
+                }
                 // Bodies take distinct surround slots. A negative footprint does not collide with living actors,
                 // but still chases: retain its direct approach without reserving space in the surround.
                 if (LivingCollision.Size(m) < 0)
@@ -401,6 +414,10 @@ static partial class Game
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, action,
                 () => InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, Move, 0xffff, 0x0408),
                 ServerTrace.Ai || why == "gives up" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null);
+        foreach (var (id, m, action, from, to) in plan.Chases)
+            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action,
+                () => InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, m.Attack!.SkillId, MonsterActionSequence, 0, targetObjectId: PlayerId),
+                ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases the player from {from} to {to}" : null);
         foreach (var (id, m) in plan.BossBars)
         {
             lock (conn.Monsters) if (!MonsterPresent(conn, id, m)) continue;
@@ -597,7 +614,8 @@ static partial class Game
             var player = conn.Walk.Position(startedAt);
             m.BusyUntil = startedAt + seconds;
             m.SwingGeneration = action;
-            return InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0x0408, targetObjectId: PlayerId);
+            return a.Ranged ? InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0x0408, targetObjectId: PlayerId)
+                : InstanceProtocol.ActionStartedNow(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0, PlayerId);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
         // The contact: the clip's keyframe for a projectile skill (the Spitter's attack1 spits at 37.5 % of the attack),
         // half the attack time for a melee swing (its clips' keyframes are not read yet).

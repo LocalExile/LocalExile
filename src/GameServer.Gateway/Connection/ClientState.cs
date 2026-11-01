@@ -51,11 +51,14 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
         ];
     }
 
-    /// <summary>The skill's stats: <see cref="Stats"/> plus skill_is_non_pathing. The server walks the monster into range
-    /// itself; without it the Melee action's begin (0x141938830) sends the attack through the client's own pathing step,
-    /// which drops a server-driven monster's attack (no swing). Only on the skill: on the monster's Stats component it
-    /// also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
-    public IReadOnlyList<(uint, int)> SkillStats() => [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
+    /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
+    /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
+    public IReadOnlyList<(uint, int)> SkillStats() => Ranged ? InPlaceSkillStats() : Stats();
+
+    /// <summary><see cref="Stats"/> plus skill_is_non_pathing: the action starts at once where the actor stands
+    /// (the Melee action's begin, 0x141938830). Only on the skill: on the monster's Stats component it also stops its Move
+    /// action from pathing (live 2026-10-17: the monsters stood still).</summary>
+    public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
 }
 
 sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y);
@@ -87,7 +90,7 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
     readonly Dictionary<uint, uint> _revisions = [];
 }
 
-sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, int stopRange, uint maxLife)
+sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
@@ -142,7 +145,7 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public bool Fleeing;
     public (int X, int Y)? FleeTo;
     public string Label => label;
-    public WalkEstimator Walk { get; set; } = walk;
+    public PlayerWalk Walk { get; set; } = walk;
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; } = maxLife;
@@ -362,7 +365,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers, stationary: CrowdEscapeBlockers);
+            () => Blockers);
     }
     public bool PlayerSent;
     // Server frames ended so far (0x2b5).

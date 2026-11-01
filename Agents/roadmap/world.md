@@ -152,8 +152,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 4. Server design
 
-- **Predictive desync:** chase with the monster's attack aimed at the player object as GGG does, with an estimate that
-  models that walk; clamp movement skills to their range and walls; register the remaining client blockers (totems, the
+- **Predictive desync:** clamp movement skills to their range and walls; register the remaining client blockers (totems, the
   tutorial chest) ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server would decide every position and the client play it back by server frames,
   which makes client and server identical by construction.
