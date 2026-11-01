@@ -45,7 +45,7 @@ The known thread-local state is at TLS `+0x170`; its transition is uint32
 | T1: local gate | Verify reached/skip conditions, TLS address and direct caller state access | Fresh original-byte and final-slot checks complete; inherited arithmetic reconfirmed |
 | T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Partial: D binds queue-worker startup; E joins initialization and submission through the same singleton pool field. Actual Fireball route and enclosing scope remain open |
 | T3: reproducibility | Check exact state transitions with declared inputs; classify which inputs are action-derived, external or unobserved | Open |
-| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | A/B scope review and D evidence review complete; E byte checks complete, independent review pending; closure and Ready validation pending |
+| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | A/B scope review and D/E evidence review complete; closure and Ready validation pending |
 
 A **local reconstruction closure** requires a proved scope entry/state source, actual selected control-flow
 ordering, draw/restore behavior and a finite comparison witness. Supplied state may verify arithmetic but
@@ -234,6 +234,9 @@ E removes D's unbound singleton-field connection. It does **not** remove the sel
 scope/order gaps: neither a specific Fireball gate invocation nor its nearest random boundary has been
 bound to one reached route. T2/T3 remain open. Further work needs a concrete connection to those gaps;
 the existence of more scheduler/configuration code is not a reason to extend this investigation.
+Independent read-only review verified E's original spans, anchors and RIP-derived same-field identity,
+including the setup guard and batch/queue predicates. It found no substantive findings and retained
+the unresolved scope/order classification.
 
 ## Scope review rules
 
