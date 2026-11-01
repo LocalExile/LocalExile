@@ -57,12 +57,13 @@ static class DamageStats
         get("maximum_life") is > 0 and var life
             ? life * (get("added_fire_damage_to_attacks_equal_to_%_maximum_life") / 100.0) : 0;
 
-    /// <summary>Global "Adds X to Y Damage to Attacks per N Attribute": the minimum and maximum stats, the final attribute
-    /// and the size of one group. The groups are read from the client's stat descriptions, not from the stat ids: the
-    /// Replica Alberon's Warpath pair is named <c>_per_50_strength</c>, but its description (and PoB's and RePoE's text,
-    /// "Adds 1 to 80 Chaos Damage to Attacks per 80 Strength") applies it per 80. Weapon-local "with this Weapon" and
-    /// spell per-attribute stats are not these.</summary>
-    internal static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[] AttackAddedPerAttribute =
+    /// <summary>Global "Adds X to Y Damage to Attacks per N Attribute": the minimum and maximum stats, the final
+    /// attribute and the size of one group. The groups are read from the client's stat descriptions, not from the stat
+    /// ids: the Replica Alberon's Warpath pair is named <c>_per_50_strength</c>, but its description (and PoB's and
+    /// RePoE's text, "Adds 1 to 80 Chaos Damage to Attacks per 80 Strength") applies it per 80. Weapon-local "with this
+    /// Weapon" and spell per-attribute stats are not these.</summary>
+    internal static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[]
+        AttackAddedPerAttribute =
     [
         (DamageType.Physical, "attack_minimum_added_physical_damage_per_25_strength",
             "attack_maximum_added_physical_damage_per_25_strength", "strength", 25),
@@ -95,14 +96,38 @@ static class DamageStats
         return new(min, max);
     }
 
-    /// <summary>Whether a portion of final damage type <paramref name="finalType"/> is prohibited ("Deal no Damage",
-    /// "Deal no Elemental Damage", "Deal no Chaos Damage", "Cannot deal non-Chaos Damage"). Prohibitions constrain the
-    /// damage dealt, not a type a converted portion used to have (PoB CalcOffence canDeal: hits, ailments and DoT).</summary>
-    public static bool Prohibited(DamageType finalType, Func<string, int> get) =>
-        get("base_deal_no_damage") != 0
-        || DamageTypes.IsElemental(finalType) && get("deal_no_elemental_damage") != 0
-        || finalType == DamageType.Chaos && get("base_deal_no_chaos_damage") != 0
-        || finalType != DamageType.Chaos && get("deal_no_non_chaos_damage") != 0;
+    // The 3.29 item prohibitions of whole damage types (RePoE mods.json; PoB ModParser "deal no <type> damage",
+    // "deal no non-<type> damage" through dealNoNonDamageType, "deal no non-elemental damage" and "deal no physical or
+    // elemental damage"), each with the final types it removes. Skill-, critical- and condition-scoped ones are not
+    // here.
+    static readonly (string Stat, DamageType[] Types)[] TypeProhibitions =
+    [
+        ("base_deal_no_physical_damage", [DamageType.Physical]),
+        ("base_deal_no_lightning_damage", [DamageType.Lightning]),
+        ("base_deal_no_cold_damage", [DamageType.Cold]),
+        ("base_deal_no_fire_damage", [DamageType.Fire]),
+        ("base_deal_no_chaos_damage", [DamageType.Chaos]),
+        ("deal_no_elemental_damage", [DamageType.Lightning, DamageType.Cold, DamageType.Fire]),
+        ("deal_no_elemental_physical_damage",
+            [DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire]),
+        ("deal_no_non_physical_damage", [DamageType.Lightning, DamageType.Cold, DamageType.Fire, DamageType.Chaos]),
+        ("deal_no_non_lightning_damage", [DamageType.Physical, DamageType.Cold, DamageType.Fire, DamageType.Chaos]),
+        ("deal_no_non_elemental_damage", [DamageType.Physical, DamageType.Chaos]),
+        ("deal_no_non_chaos_damage", [DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire]),
+    ];
+
+    /// <summary>Whether a portion of final damage type <paramref name="finalType"/> is prohibited: "Deal no Damage",
+    /// the whole-type prohibitions above and, for an <paramref name="attack"/>, "Attacks deal no Physical Damage".
+    /// Prohibitions constrain the damage dealt, not a type a converted portion used to have (PoB CalcOffence canDeal,
+    /// which gates hits, each ailment on its own type, and DoT).</summary>
+    public static bool Prohibited(DamageType finalType, Func<string, int> get, bool attack = false)
+    {
+        if (get("base_deal_no_damage") != 0) return true;
+        if (attack && finalType == DamageType.Physical && get("attacks_deal_no_physical_damage") != 0) return true;
+        foreach (var (stat, types) in TypeProhibitions)
+            if (Array.IndexOf(types, finalType) >= 0 && get(stat) != 0) return true;
+        return false;
+    }
 
     /// <summary>Raw added damage, with effectiveness but without increased/more modifiers or conversion.</summary>
     public static DamagePacket RawAdded(DamagePacket hit, Func<string, int> get, bool spell, double effectiveness = 1)

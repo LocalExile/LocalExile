@@ -70,11 +70,11 @@ public sealed class AttackAddedPerAttributeTests : IDisposable
         Set(conn, ("strength", 79));
         (panel, hit) = Attack(conn);
         Assert.Equal(0, Row(panel, "main_hand_maximum_chaos_damage"));
-        Assert.True(hit[DamageType.Chaos].Max == 0);
+        Assert.Equal(0, hit[DamageType.Chaos].Max);
     }
 
     [Fact]
-    public void Cannot_deal_non_chaos_damage_keeps_only_chaos_in_the_hit_its_ailments_and_damage_over_time()
+    public void Damage_type_prohibitions_apply_to_the_hit_its_ailments_and_damage_over_time()
     {
         var conn = Connection();
         Set(conn, ("strength", 800), ("minimum_added_chaos_damage_to_attacks_per_50_strength", 1),
@@ -104,5 +104,23 @@ public sealed class AttackAddedPerAttributeTests : IDisposable
         var context = new SkillDamageContext(SkillHitKind.Spell, panel);
         Assert.Equal(0, context.OverTime(new DamageOverTime(DamageType.Fire, 100, 1)).DamagePerSecond);
         Assert.Equal(100, context.OverTime(new DamageOverTime(DamageType.Chaos, 100, 1)).DamagePerSecond);
+
+        // Each damaging ailment is gated on its own type: "Deal no Chaos Damage" stops poison even from physical.
+        Set(conn, ("deal_no_non_chaos_damage", 0), ("base_deal_no_chaos_damage", 1));
+        (panel, hit) = Attack(conn);
+        Assert.Equal(0, hit[DamageType.Chaos].Max);
+        Assert.True(Row(panel, "maximum_bleeding_damage_to_deal_per_minute_from_non_critical_main_hand_damage") > 0);
+        Assert.Equal(0, Row(panel, "maximum_poison_damage_to_deal_per_minute_from_non_critical_main_hand_damage"));
+        // "Attacks deal no Physical Damage" needs the attack context: the attack loses physical and bleed,
+        // a spell's physical damage over time does not.
+        Set(conn, ("base_deal_no_chaos_damage", 0), ("attacks_deal_no_physical_damage", 1));
+        (panel, hit) = Attack(conn);
+        Assert.Equal(0, hit[DamageType.Physical].Max);
+        Assert.Equal(0, Row(panel, "maximum_bleeding_damage_to_deal_per_minute_from_non_critical_main_hand_damage"));
+        Assert.Equal(14_400, Row(panel, "maximum_poison_damage_to_deal_per_minute_from_non_critical_main_hand_damage"));
+        Assert.Equal(100, new SkillDamageContext(SkillHitKind.Spell, panel)
+            .OverTime(new DamageOverTime(DamageType.Physical, 100, 1)).DamagePerSecond);
+        Assert.Equal(0, new SkillDamageContext(SkillHitKind.Attack, panel)
+            .OverTime(new DamageOverTime(DamageType.Physical, 100, 1)).DamagePerSecond);
     }
 }

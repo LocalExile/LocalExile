@@ -62,7 +62,10 @@ static class AilmentPanelStats
     static (double Min, double Max) Range(List<DamageConversionPath> paths, DamageType[] sources, DamageType ailmentType,
         Context context, Func<string, int> get, bool critical)
     {
-        if (get("base_deal_no_damage") != 0 || get("never_damaging_ailments") != 0) return (0, 0);
+        // The ailment deals its own type: a prohibition of that type stops it whatever its base (PoB CalcOffence gates
+        // bleed on canDeal.Physical, poison on canDeal.Chaos and ignite on canDeal.Fire).
+        if (get("never_damaging_ailments") != 0 || DamageStats.Prohibited(ailmentType, get, context.Attack))
+            return (0, 0);
         double common = (double)get("damage_+%") + get("damage_over_time_+%")
             + (context.Attack ? get("attack_damage_+%") + DamageStats.SpellAttackIncrease(get) : 0)
             + (context.Spell ? get("spell_damage_+%") : 0)
@@ -86,7 +89,7 @@ static class AilmentPanelStats
         {
             if (!sources.Contains(path.Type)) continue;
             // The hit's prohibitions (PlayerHitDamage): a portion the hit cannot deal contributes no ailment base.
-            if (DamageStats.Prohibited(path.Type, get)) continue;
+            if (DamageStats.Prohibited(path.Type, get, context.Attack)) continue;
             double increased = common;
             // The types the portion visited count once each; the ailment's own type is already in the common bucket.
             foreach (var source in typed)

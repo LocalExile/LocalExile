@@ -273,30 +273,48 @@ so increases, effectiveness, conversion and support stages treat it like any oth
 
 | Stats (minimum / maximum) | Per | Source (3.29) |
 |---|---|---|
-| `attack_minimum/maximum_added_physical_damage_per_25_strength` | 25 Strength | Replica Iron Commander |
+| `attack_minimum/maximum_added_physical_damage_per_25_strength` | 25 Strength | Replica Iron Commander (`AddedDamagePerStrengthUnique__1`; `__2` adds 8–24) |
 | `attack_minimum/maximum_added_physical_damage_per_25_dexterity` | 25 Dexterity | Iron Commander |
 | `minimum/maximum_added_fire_damage_to_attacks_per_10_strength` | 10 Strength | Hyrri's Demise |
 | `minimum/maximum_added_cold_damage_to_attacks_per_10_dexterity` | 10 Dexterity | Hyrri's Demise |
 | `minimum/maximum_added_lightning_damage_to_attacks_per_10_intelligence` | 10 Intelligence | Hyrri's Demise |
-| `minimum/maximum_added_chaos_damage_to_attacks_per_50_strength` | **80** Strength | Replica Alberon's Warpath |
+| `minimum/maximum_added_chaos_damage_to_attacks_per_50_strength` | **80** Strength | Replica Alberon's Warpath (1–80; its Divergent mod 1–30) |
 
 Each grant is the stat value times the complete groups of the final attribute in the same stat dictionary
 (`floor(attribute / N)`, none for a negative attribute), as PoB's `PerStat` tag (`ModStore.lua`,
 `m_floor(base / div + 0.0001)`) computes it. The chaos pair's id says 50, but the group is 80: the client's own
 description (`Metadata/StatDescriptions/stat_descriptions.txt`, "Adds {0} to {1} Chaos Damage to Attacks per 80
-Strength", and every one of its translations), PoB's unique text and RePoE's mod text all say 80.
-At 11,833 Strength the max-rolled boots add 147–11,760 chaos.
-The weapon-local "to Attacks with this Weapon per 10 <attribute>" stats (`attack_minimum_added_fire_damage_per_10_strength`,
-`attack_minimum_added_lightning_damage_per_10_dex/int`, `attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity`)
-and the spell `spell_minimum_added_lightning_damage_per_10_intelligence` are not read yet.
+Strength", and every one of its translations), PoB's unique text and parsed mod cache (`ModCache.lua`: `div=80`) and
+RePoE's mod text all say 80.
+At 11,833 Strength the boots add 147–11,760 chaos.
+The weapon-local "to Attacks with this Weapon per 10 <attribute>" stats
+(`attack_minimum_added_fire_damage_per_10_strength`, `attack_minimum_added_lightning_damage_per_10_dex/int`,
+`attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity`) and the spell
+`spell_minimum_added_lightning_damage_per_10_intelligence` are not read yet.
 
-Damage-type prohibitions (`DamageStats.Prohibited`) remove a final-type portion after conversion: `base_deal_no_damage`
-everything, `deal_no_elemental_damage` fire/cold/lightning, `base_deal_no_chaos_damage` chaos and
-`deal_no_non_chaos_damage` ("Cannot deal non-Chaos Damage", Replica Alberon's Warpath) everything but chaos.
-The hit resolver (`PlayerHitDamage`), the damaging-ailment rows and their ignite settings (`AilmentPanelStats`: a removed
-portion gives no bleed, ignite or poison base, so only the chaos part poisons) and the caster's outgoing damage over time
-(`SkillDamageContext.OverTime`: Righteous Fire's enemy burn, a granted skill's ignite) apply the same list, as PoB's
-`canDeal` does for hits, ailments and DoT. Support gems' own prohibitions use it too (`GemSupportDamage.Prohibited`).
+Damage-type prohibitions (`DamageStats.Prohibited`) remove a final-type portion after conversion.
+`base_deal_no_damage` removes everything; the whole-type item prohibitions of 3.29 (RePoE `mods.json`, read as PoB's
+ModParser reads their text) remove these types:
+
+| Stat | Removes |
+|---|---|
+| `base_deal_no_physical/lightning/cold/fire/chaos_damage` | that type |
+| `deal_no_elemental_damage` | lightning, cold, fire |
+| `deal_no_elemental_physical_damage` ("Deal no Physical or Elemental Damage") | physical, lightning, cold, fire |
+| `deal_no_non_physical_damage`, `deal_no_non_lightning_damage` | every type but that one |
+| `deal_no_non_elemental_damage` | physical, chaos |
+| `deal_no_non_chaos_damage` ("Cannot deal non-Chaos Damage", Replica Alberon's Warpath) | physical, lightning, cold, fire |
+| `attacks_deal_no_physical_damage` | physical, in an attack's hit, ailments and DoT only |
+
+The hit resolver (`PlayerHitDamage`), the damaging-ailment rows and their ignite settings (`AilmentPanelStats`) and
+the caster's outgoing damage over time (`SkillDamageContext.OverTime`: Righteous Fire's enemy burn, a granted skill's
+ignite) apply them, as PoB's `canDeal` (CalcOffence) does for hits, ailments and DoT.
+An ailment is gated on its own type, as PoB gates bleed on `canDeal.Physical`, poison on `canDeal.Chaos` and ignite on
+`canDeal.Fire`: "Deal no Chaos Damage" stops poison even from physical. A removed portion also gives no ailment base,
+so under "Cannot deal non-Chaos Damage" there is no bleed or ignite and only the chaos part poisons.
+Support gems' own prohibitions use the same list (`GemSupportDamage.Prohibited`).
+Skill-, strike- and condition-scoped prohibitions (Blade Vortex, movement skills, the three mines, critical or
+non-critical strikes, low life, non-exerted attacks, `ignite_deal_no_damage`, minions) are not read by this list.
 
 ## 2c. Arcane Might: spell increases also apply to attacks
 
