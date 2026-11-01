@@ -10,7 +10,7 @@ Each row pairs one `0x01ab King in the Mists strafes/dashes backward` action wit
 `server start` is the boss cell carried by the action, `settle target` the 0x1ba cell, `client clip`
 the first/last non-settle cell (`total != 0.1`), `correction` the distance the settle moved the model.
 
-This is the extractor used for Agents/docs/dev/king-position-desync.md. It is read-only: the logs are
+This is the extractor used for the King's movement table in the encounter pull request. It is read-only: the logs are
 not modified. Rows without Frida cells are omitted (the trace can lose the actor's Positioned pointer
 when a handler passes a temporary message object; see the doc).
 """

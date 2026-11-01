@@ -503,6 +503,16 @@ captured lines for each pool.
 The two hex lines are icon-only debuffs in the gateway (the imprisonment/maim rule is not modelled). The treant lines
 after `0x4013` are recorded here but not wired yet; the phase-3 transform is still being verified.
 
+### Full 2026-11-01 capture (11:44–11:47)
+
+The same fight as the dialogue table has 30,966 messages. The humanoid (actor 15) makes 62 actions: 22 projectiles,
+7 cascades, 2 slams, 5 `TeleportFlee`, 6 `DashLeft`, 3 `DashBackward`/`DashRight`/`ReturnFromEdge`, 2 rituals, 1 each
+of effigy, Meditation, Dance, `MazePhase`, `BecomeATree` and Move, plus 3 unidentified `0x21a9` actions; `0x4008` never
+appears. The treant (actor 609) makes 42 actions. The client calls `StartChannelling` exactly twice, at the two
+`0x400e` actions (11:45:24.420 and 11:45:50.495): the raw channel needs a real action, which is the contract the
+gateway does not have yet. The trace also contains 1,293 `exception` records, all access violations inside
+`frida-agent.dll` from the hooks themselves; they do not interrupt the captured messages.
+
 ### Official phase 2 (maze)
 
 - It is the **same `AzmeriLeagueBoss` area**, not a separate map. The trace's `CreateObject` records contain the maze
