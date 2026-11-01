@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public class DamageTakenAsTests
+public class PlayerDamageTakenTests
 {
     static Func<string, int> With(params (string Stat, int Value)[] stats) =>
         name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
@@ -11,35 +11,36 @@ public class DamageTakenAsTests
         parts.Aggregate(DamagePacket.Empty, (hit, p) => hit.Add(p.Type, new DamageRange(p.Amount, p.Amount)));
 
     // Each type shifts its share of its original amount once, in any direction; the source keeps the rest, and a total
-    // over 100% adds damage instead of being scaled down.
+    // over 100% adds damage instead of being scaled down. After mitigation each type takes its flat damage, its increased
+    // damage taken and, when blocked, its share.
     [Fact]
-    public void A_hit_shifts_each_types_share_once_before_mitigation()
+    public void A_hit_shifts_once_then_takes_flat_increased_and_blocked_damage()
     {
-        Assert.All(DamageTakenAs.StatNames, name => Assert.NotNull(Program.Stats.Key(name)));
+        Assert.All(PlayerDamageTaken.StatNames, name => Assert.NotNull(Program.Stats.Key(name)));
 
         var physical = Hit((DamageType.Physical, 100));
-        Assert.Same(physical, DamageTakenAs.Shift(physical, With()));
+        Assert.Same(physical, PlayerDamageTaken.Shift(physical, With()));
 
-        var shifted = DamageTakenAs.Shift(physical,
+        var shifted = PlayerDamageTaken.Shift(physical,
             With(("physical_damage_taken_%_as_fire", 10), ("physical_damage_taken_%_as_cold", 15),
                 ("physical_hit_and_dot_damage_%_taken_as_fire", 5)));
         Assert.Equal(70, shifted[DamageType.Physical].Min, 6);
         Assert.Equal(15, shifted[DamageType.Fire].Min, 6);
         Assert.Equal(15, shifted[DamageType.Cold].Min, 6);
 
-        var over = DamageTakenAs.Shift(physical,
+        var over = PlayerDamageTaken.Shift(physical,
             With(("physical_damage_taken_%_as_lightning", 60), ("physical_damage_taken_%_as_chaos", 60)));
         Assert.Equal(0, over[DamageType.Physical].Min, 6);
         Assert.Equal(120, over.MinTotal, 6);
 
         // The Rat Cage's 100% fire as physical and 50% physical as fire swap at once: nothing shifts back.
-        var swapped = DamageTakenAs.Shift(Hit((DamageType.Physical, 100), (DamageType.Fire, 100)),
+        var swapped = PlayerDamageTaken.Shift(Hit((DamageType.Physical, 100), (DamageType.Fire, 100)),
             With(("base_fire_hit_damage_taken_%_as_physical", 100), ("physical_damage_taken_%_as_fire", 50)));
         Assert.Equal(150, swapped[DamageType.Physical].Min, 6);
         Assert.Equal(50, swapped[DamageType.Fire].Min, 6);
 
         // The negated stat is stored as -10; elemental and two-element stats shift each of their types.
-        var elemental = DamageTakenAs.Shift(Hit((DamageType.Fire, 100), (DamageType.Cold, 100), (DamageType.Lightning, 100)),
+        var elemental = PlayerDamageTaken.Shift(Hit((DamageType.Fire, 100), (DamageType.Cold, 100), (DamageType.Lightning, 100)),
             With(("base_fire_hit_damage_taken_%_as_physical_value_negated", -10), ("elemental_damage_taken_%_as_chaos", 20),
                 ("cold_and_lightning_damage_taken_%_as_fire", 50)));
         Assert.Equal(10, elemental[DamageType.Physical].Min, 6);
@@ -47,6 +48,27 @@ public class DamageTakenAsTests
         Assert.Equal(30, elemental[DamageType.Cold].Min, 6);
         Assert.Equal(30, elemental[DamageType.Lightning].Min, 6);
         Assert.Equal(60, elemental[DamageType.Chaos].Min, 6);
+
+        // Generic, typed and elemental increases add; chaos is not elemental.
+        var increased = With(("base_damage_taken_+%", 10), ("lightning_damage_taken_+%", 6), ("elemental_damage_taken_+%", -5));
+        Assert.Equal(11, PlayerDamageTaken.IncreasedPct(DamageType.Lightning, increased));
+        Assert.Equal(5, PlayerDamageTaken.IncreasedPct(DamageType.Fire, increased));
+        Assert.Equal(10, PlayerDamageTaken.IncreasedPct(DamageType.Chaos, increased));
+
+        // "-7 Physical Damage taken from Attack Hits" counts only for attacks; fire has its own flat stat.
+        var flat = With(("physical_attack_damage_taken_+", -7), ("physical_damage_taken_+", -3), ("fire_damage_taken_+", -15));
+        Assert.Equal(-10, PlayerDamageTaken.Flat(DamageType.Physical, attack: true, flat));
+        Assert.Equal(-3, PlayerDamageTaken.Flat(DamageType.Physical, attack: false, flat));
+        Assert.Equal(-15, PlayerDamageTaken.Flat(DamageType.Fire, attack: true, flat));
+        Assert.Equal(0, PlayerDamageTaken.Flat(DamageType.Cold, attack: true, flat));
+
+        // A blocked hit deals nothing by default, 10% with the Ritual gauntlets' implicit, all its elemental damage
+        // with The Flawed Refuge's, and never less than nothing.
+        Assert.Equal(0, PlayerDamageTaken.BlockedPct(DamageType.Physical, With()));
+        var blocked = With(("base_block_%_damage_taken", 10), ("block_%_damage_taken_from_elemental", 100));
+        Assert.Equal(10, PlayerDamageTaken.BlockedPct(DamageType.Physical, blocked));
+        Assert.Equal(110, PlayerDamageTaken.BlockedPct(DamageType.Cold, blocked));
+        Assert.Equal(0, PlayerDamageTaken.BlockedPct(DamageType.Chaos, With(("base_block_%_damage_taken", -20))));
     }
 
     // Chill reads the damage taken, so physical taken as cold chills; ignite reads the damage dealt, so fire taken as

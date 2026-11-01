@@ -10,7 +10,7 @@ static partial class Game
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
-        // physical damage taken as an element (DamageTakenAs).
+        // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
                 && Get("all_damage_taken_can_chill") == 0) return;

@@ -1364,11 +1364,13 @@ second (3.7 at 185 ES); that regeneration correctly continues while recharge is 
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and
 measurement limits. Recovery-cadence PR #159 is merged; this change extends its existing recovery loop.
 
-## Damage taken as
+## Damage taken from hits
 
-A monster's hit on the player shifts its damage types before any mitigation (`DamageTakenAs.Shift`), after the enemy
-auras' conversion and Glacial Wave's less damage. The rules come from the wiki's "Damage taken as" page and PoB
-`CalcDefence`'s `damageShiftTable`:
+The player's own stats change a monster's hit in two places (`PlayerDamageTaken`), in PoB `CalcDefence`'s order:
+before any mitigation the damage shift, and after resistance and armour max(damage + flat, 0) × the taken multipliers.
+
+The damage shift ("X% of Physical Damage from Hits taken as Fire Damage") comes after the enemy auras' conversion and
+Glacial Wave's less damage. The rules come from the wiki's "Damage taken as" page and PoB's `damageShiftTable`:
 
 - Every shift reads the hit's original amounts at once, so damage shifts only once and in any direction: The Rat Cage's
   fire taken as physical works next to physical taken as fire.
@@ -1379,11 +1381,23 @@ auras' conversion and Glacial Wave's less damage. The rules come from the wiki's
 - The "from Hits" stats shift hits only. The `hit_and_dot` stats also shift damage over time, which is not read yet.
 - `base_fire_hit_damage_taken_%_as_physical_value_negated` is stored as -10 and shown as 10%.
 
-Not read: the conditional stats (while affected by a Purity, with four influenced items, during a flask), the ring-slot
-local stats, `physical_damage_from_hits_%_taken_as_random_element`, and the Divine Flesh and Tempered by War keystones,
-whose other effects (bypassing Energy Shield, less resistances) are not modelled. The dev `/hit` commands keep their one
-type.
+After mitigation, each type of the hit takes:
 
+- the flat stats, "+X Physical Damage taken from Hits", "... from Attack Hits" (monster hits are attacks) and "+X Fire
+  Damage taken from Hits", only on a type the hit has;
+- "X% increased Damage taken", the type's own and, for an element, "Elemental Damage taken", added to the shock's
+  increase, as PoB adds them to its `takenInc`;
+- on a blocked hit, its share: "You take X% of Damage from Blocked Hits", plus "of Elemental Damage" for an element.
+  It is 0 by default and may pass 100%; a blocked hit still applies no ailments or recovery (wiki Blocking).
+
+The dev `/hit`, `/spellhit` and `/blockhit` commands apply the same after-mitigation steps to their one type, and a
+ranged `/hit` now also takes the shock's increase.
+
+Not read: the conditional shift stats (while affected by a Purity, with four influenced items, during a flask), the
+ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, the Divine Flesh and Tempered by War
+keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), Glancing Blows (it also
+doubles block chance), projectile and spell damage taken, and the increased damage taken on damage over time (ignite
+ticks, Righteous Fire).
 
 ## Incoming ordinary elemental ailments
 

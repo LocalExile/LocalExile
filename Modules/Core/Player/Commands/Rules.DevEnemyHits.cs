@@ -32,16 +32,11 @@ static partial class CommandsRules
                 : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
                     && DamageModel.Mitigate(amount, resistance, maximum) > 0;
             var armour = IncomingArmourLocked(conn, !blocked && !immune && armourRelevant, priorContacts, stats);
-            int dealt = blocked || immune ? 0
-                : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
-            if (type == DamageType.Physical && ranged && !spell && !blocked && !immune)
-            {
-                var reduction = PlayerDamageReduction(conn, stats);
-                dealt = FortificationDamageTaken(conn, AntiquarianEffects.RangedPhysical(
-                    PlayerHitMitigation.AfterResistance(conn.Pools, type, amount, reduction.Physical,
-                        reduction.Elemental, armour.EffectiveArmour), true,
-                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0));
-            }
+            int dealt = immune ? 0 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour,
+                stats, attack: !spell, ranged: ranged && !spell);
+            // A blocked hit deals only its share ("You take X% of Damage from Blocked Hits", 0 by default).
+            if (blocked) dealt = (int)Math.Round(dealt * PlayerDamageTaken.BlockedPct(type,
+                name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) / 100.0);
             string mitigation = immune ? "immunity"
                 : MitigationLabel(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(conn) : default;

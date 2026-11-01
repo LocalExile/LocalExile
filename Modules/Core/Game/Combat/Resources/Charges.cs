@@ -166,15 +166,20 @@ static partial class Game
         }
     }
 
+    // Then, as a monster's hit: the flat damage taken, a ranged attack's physical (Turtle Shell) and the increased damage
+    // taken with the shock's (PlayerDamageTaken).
     internal static int MitigateTakenWithArmour(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
-        int effectiveArmour, IReadOnlyDictionary<uint, int> stats)
+        int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack = true, bool ranged = false)
     {
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         var reduction = PlayerDamageReduction(conn, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
-        return FortificationDamageTaken(conn, (int)Math.Round(PlayerHitMitigation.AfterResistance(conn.Pools, type, resisted,
-            reduction.Physical, reduction.Elemental, effectiveArmour,
-            PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0))
-            * conn.ElementalAilments.DamageTakenFactor(conn.Clock.Elapsed.TotalSeconds)));
+        int value = Math.Max(0, PlayerHitMitigation.AfterResistance(conn.Pools, type, resisted,
+            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(conn.Pools, type, Get))
+            + PlayerDamageTaken.Flat(type, attack, Get));
+        if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
+        return FortificationDamageTaken(conn, (int)Math.Round(value
+            * conn.ElementalAilments.DamageTakenFactor(conn.Clock.Elapsed.TotalSeconds, PlayerDamageTaken.IncreasedPct(type, Get))));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every
