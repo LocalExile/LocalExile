@@ -258,7 +258,9 @@ network wrapper. Those execution/data-flow questions retain their separate compl
 adds class 0, making all 40 context bits permissible without activating them. Its native root is passed
 as upstream to the separate owner network wrapper. A supplied first-materialization slice can activate
 Object for incoming fire/ignite/poison keys; 103 of the selected 105 incoming outputs require Object.
-Full raw-record creation, ordinary Actor execution and actual damage-instance publication remain open.
+[Generic raw-record creation and source indexing](client-native-source-rate-composition.md) additionally run
+through full nested raw-add and an outer-close numerical prefix. Inherited-record creation, full configuration/
+ordinary Actor execution and actual damage-instance publication remain open.
 
 ## 4. A concrete native skill-data producer
 

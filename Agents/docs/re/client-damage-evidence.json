@@ -58296,7 +58296,8 @@
         "r35-contribution-callers",
         "stat-evaluation-dispatch",
         "stat-update-evaluation",
-        "r68-real-context-masks"
+        "r68-real-context-masks",
+        "r69-native-source-add"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58438,7 +58439,8 @@
       "sourceBatches": [
         "r11-defender-cache-final",
         "stat-evaluation-dispatch",
-        "stat-update-evaluation"
+        "stat-update-evaluation",
+        "r69-native-source-add"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -73514,7 +73516,8 @@
         "r32-buff-rate-independence",
         "r34-buff-clock-authority",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r69-native-source-add"
       ],
       "selectedDecompilationCompleted": false
     },
@@ -74824,6 +74827,271 @@
       ],
       "sourceBatches": [
         "r66-max-resistance"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424fe2e0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424fe2e0",
+          "endExclusive": "0x1424fe3b4",
+          "bytes": 212,
+          "fileOffset": 38786784,
+          "sha256": "df86dc471819cf2f2aaa81b0264639cf28abba63e91505baa3d89aa4ad74d7f3"
+        },
+        {
+          "start": "0x1424fe3b4",
+          "endExclusive": "0x1424fe44b",
+          "bytes": 151,
+          "fileOffset": 38786996,
+          "sha256": "3ece99b3f516ee26ac1bfb2569252acf0327bd17411a98abc4a88eae82bc307f"
+        },
+        {
+          "start": "0x1424fe44b",
+          "endExclusive": "0x1424fe46d",
+          "bytes": 34,
+          "fileOffset": 38787147,
+          "sha256": "e06f2179286424d0e7acf7f64065cd3c4830084138ecae363e4530066436dc1f"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424fe5d0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424fe5d0",
+          "endExclusive": "0x1424fe6c0",
+          "bytes": 240,
+          "fileOffset": 38787536,
+          "sha256": "646f7f89953da043a33a640da4cf9dc44d03ae2da2a734473513b03ac5a59f32"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1401eab20": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1401eab20",
+          "endExclusive": "0x1401eab99",
+          "bytes": 121,
+          "fileOffset": 2006816,
+          "sha256": "c74853bd216e07ac1f9cbc43a34437225e82840107c46d148b4a79c05715ca2d"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x140238ad0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x140238ad0",
+          "endExclusive": "0x140238b45",
+          "bytes": 117,
+          "fileOffset": 2326224,
+          "sha256": "5451b86311ee121f5eee0812a62622b43877df0106c6055a6689a18dedd5fee6"
+        },
+        {
+          "start": "0x140238b45",
+          "endExclusive": "0x140238b76",
+          "bytes": 49,
+          "fileOffset": 2326341,
+          "sha256": "83d1dae978b0918f316181877c8f7b126c0a7ba0601d32bac76aa17a690dce1f"
+        },
+        {
+          "start": "0x140238b76",
+          "endExclusive": "0x140238bc6",
+          "bytes": 80,
+          "fileOffset": 2326390,
+          "sha256": "aa4fee41e12cfd0c87daaa5048278f91c365c297fe9f29f7586d38b9f29ab39e"
+        },
+        {
+          "start": "0x140238bc6",
+          "endExclusive": "0x140238bdf",
+          "bytes": 25,
+          "fileOffset": 2326470,
+          "sha256": "790dfc17801135d679d8c8e4a1126b134e04322fde3b19780ac41b6818afd19f"
+        },
+        {
+          "start": "0x140238bdf",
+          "endExclusive": "0x140238c91",
+          "bytes": 178,
+          "fileOffset": 2326495,
+          "sha256": "77031b4e12f576f0a283387bb5fc6e8100305044ca5cc523baba8ac99c95ecba"
+        },
+        {
+          "start": "0x140238c91",
+          "endExclusive": "0x140238c97",
+          "bytes": 6,
+          "fileOffset": 2326673,
+          "sha256": "d6ac96ac05a6f44e32f45c4b30c1f9d202c5e4aec4ff7270b51ce5a4f3ced896"
+        },
+        {
+          "start": "0x140238c97",
+          "endExclusive": "0x140238c9d",
+          "bytes": 6,
+          "fileOffset": 2326679,
+          "sha256": "e2de62b38ae266804bca338c76ec00a98dc679c8e85c6b72818ddbee14772c3f"
+        },
+        {
+          "start": "0x140238c9d",
+          "endExclusive": "0x140238ca3",
+          "bytes": 6,
+          "fileOffset": 2326685,
+          "sha256": "ce4f1341705fe26459ca2b61b670a82ad2d2b8d0790b91eeb31e7f964a8324d6"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x14014cdd0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x14014cdd0",
+          "endExclusive": "0x14014ce16",
+          "bytes": 70,
+          "fileOffset": 1360336,
+          "sha256": "95a1b1359461283eaeddb70e5b737d8ca4ed5ec862943d010253f31d35f1ef68"
+        },
+        {
+          "start": "0x14014ce16",
+          "endExclusive": "0x14014ce3c",
+          "bytes": 38,
+          "fileOffset": 1360406,
+          "sha256": "38e18b5db5a2c1f776270446b5ebb086885f70b8023b918450c66e2cc8b039ac"
+        },
+        {
+          "start": "0x14014ce3c",
+          "endExclusive": "0x14014ce75",
+          "bytes": 57,
+          "fileOffset": 1360444,
+          "sha256": "674db6500d01006f7a4083549998f6876370c835cf3a9ccb0ba48bedbab05ba9"
+        },
+        {
+          "start": "0x14014ce75",
+          "endExclusive": "0x14014ce8a",
+          "bytes": 21,
+          "fileOffset": 1360501,
+          "sha256": "a8cbf07fed9dfb9bb0ebb6b5c4e1733a3741a46618a7dd7c502404bac160781c"
+        },
+        {
+          "start": "0x14014ce8a",
+          "endExclusive": "0x14014cedb",
+          "bytes": 81,
+          "fileOffset": 1360522,
+          "sha256": "db75a00177873cd7f604033cccf3e7b660d086b9975ddc4da44e23385adb51cd"
+        },
+        {
+          "start": "0x14014cedb",
+          "endExclusive": "0x14014cee1",
+          "bytes": 6,
+          "fileOffset": 1360603,
+          "sha256": "612289a1c179d3ae82c4cae5f7929a603a21765e6c305edc582034bc6069e6f8"
+        },
+        {
+          "start": "0x14014cee1",
+          "endExclusive": "0x14014cee7",
+          "bytes": 6,
+          "fileOffset": 1360609,
+          "sha256": "7d91fa12bf2c01f5d9b3b3282bda21e93a5d947b95ee5a15f237fcc2e0d832e8"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424fdad0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424fdad0",
+          "endExclusive": "0x1424fdcd3",
+          "bytes": 515,
+          "fileOffset": 38784720,
+          "sha256": "ba953cd6c9526ee3614fd6fb0fa1744be6e3e71f5e2eef91da79a01cb5fc691d"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424fe520": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424fe520",
+          "endExclusive": "0x1424fe5cf",
+          "bytes": 175,
+          "fileOffset": 38787360,
+          "sha256": "8fdad27fc2b41c4cf9c5dc5e90d1e9fd541aef3a338558ac989556d064a35f20"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424ef910": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424ef910",
+          "endExclusive": "0x1424efacf",
+          "bytes": 447,
+          "fileOffset": 38726928,
+          "sha256": "a9b6bab29707f790212bf8ab5593f01b0eb1720b954be97c593522f5517e9dc2"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x14020ea40": {
+      "boundary": "explicit-analyst-leaf-range",
+      "ranges": [
+        {
+          "start": "0x14020ea40",
+          "endExclusive": "0x14020eaac",
+          "bytes": 108,
+          "fileOffset": 2154048,
+          "sha256": "9221a74c883e8ce96c57252e79e1bf0fb4f56e82b970e6be4a162c62e7b2524a"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x140147b80": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x140147b80",
+          "endExclusive": "0x140147c07",
+          "bytes": 135,
+          "fileOffset": 1339264,
+          "sha256": "dc16f3092816899736b8a3c261bce4f3fb393154cffbad75044446897c23e268"
+        }
+      ],
+      "sourceBatches": [
+        "r69-native-source-add"
       ],
       "selectedDecompilationCompleted": null
     }
@@ -76228,6 +76496,11 @@
       "name": "r68-real-context-masks",
       "auditSha256": "bf831052490fb6ce1ec2eee4e0a690c061d4f90f84941c05a8c7ceace0e7d11b",
       "functionCount": 7
+    },
+    {
+      "name": "r69-native-source-add",
+      "auditSha256": "949a50173608bb958983869871eb69db11fb94d90e12669528727c78c77b262a",
+      "functionCount": 13
     }
   ],
   "pointerSlots": [
@@ -78689,7 +78962,7 @@
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R68 freshly rechecked 4078 retained identities / 5086 original-byte ranges / 301 pointer slots, preserving 1163 sealed public supports and 162 prior snapshot records. Original metadata loops reproduce 23346 actual masks using 40 context rows, 2539 registered callbacks and 20384 dependency entries. Bare native root permits classes 1/2; Stats type configuration adds class 0 and is the separate network wrapper upstream. 18 first-materialization/zero-add controls and 105-output incoming graph use actual masks: 2565173 interpreted instructions / 6249 original sites. Seven reused function records / seven ranges / 1183 decoded records, 22 anchors, five RIP targets, three added slots and retained finite navigation checked. Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    "additionalFreshValidation": "R69 freshly rechecked 4088 retained identities / 5111 original-byte ranges / 301 pointer slots, preserving 1182 sealed public supports and 183 prior snapshot records. Full nested raw-add creates selected raw records/contribution lists, inverse source keys, raw cache/validity and pending deltas; original outer-close prefix drives incoming DoT numerical callbacks. Six compositions / 469060 interpreted instructions / 6956 sites, 13 function records / 32 ranges / 1103 decoded records, 28 anchors and 80 narrow instruction controls pass. Ten newly indexed helper identities include an actual-call-anchored two-return leaf. Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
   },
   "supportingRecords": [
     {
@@ -85738,6 +86011,132 @@
       "bytes": 1153169,
       "sha256": "5b10c198a3bcb890148544e129d2604b12c90f64552e7e2cc7227adc059427f6",
       "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add.py",
+      "bytes": 10200,
+      "sha256": "fb3b7dc5f7c4fb1bb8c240ca398e74df6292310958509d038df711953f8711cc",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add-verify.py",
+      "bytes": 5261,
+      "sha256": "b43bc569282ef1ca661c8560ef5c180dd3c3ec407636322a811d2166da7d1ea2",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-publish-prepare.py",
+      "bytes": 4947,
+      "sha256": "ac6688808b15dd3866fb2285aab42a957c8c86bb0e02284f159625202f3c2818",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1401327b0.asm",
+      "bytes": 838,
+      "sha256": "5e1ef8baa8e4336df1d53fc7a9122d0cc0deec247b808d89bcca25daf438a7df",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x14014cdd0.asm",
+      "bytes": 2397,
+      "sha256": "aa7d7b0cffe2d264a2579aca4273573d535f956bd440e121d905af2fcbf3e6f1",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1401eab20.asm",
+      "bytes": 1026,
+      "sha256": "c6cf605e79339cb244f94fc20cf671ad53feba31a8507859c48c3e57890946c3",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x140238ad0.asm",
+      "bytes": 3888,
+      "sha256": "dad90a600808bd9eb777b7a6b49a7106b8157513412a77f0f467cd056f2d2260",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1424ef910.asm",
+      "bytes": 3967,
+      "sha256": "6651de4522b12fa3848cd5d7d54cda8b30c0f7cb6812ca9f747c04469b21256b",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1424fd240.asm",
+      "bytes": 2773,
+      "sha256": "51c373d35a73fc0efda09442079f26afdaf7d0cbc12908aa8dd48f8c408b0752",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1424fd390.asm",
+      "bytes": 15569,
+      "sha256": "db1b80604536b56472360ebf799d52fe2805ad8068d57c865d985ebeee138608",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1424fdad0.asm",
+      "bytes": 4973,
+      "sha256": "e2618b138fae38a02e273273a102d887d89a7597840df49e060c69a6fc93399c",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1424fe2e0.asm",
+      "bytes": 3885,
+      "sha256": "e5cb7ac0e3c742a133326729f42c307961dc0d140b85147e41572693dc13bfde",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1424fe520.asm",
+      "bytes": 1700,
+      "sha256": "c2222d835c16f9301f5d98930ac2c49dca3e222f3ce27609e3e1f1eac40309df",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x1424fe5d0.asm",
+      "bytes": 2246,
+      "sha256": "340fe016b077e04a70b2189300221a644a009afbd2df6e063dbb568090f162d7",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/0x142513630.asm",
+      "bytes": 2616,
+      "sha256": "baae1d7aca51d415e1627d33aa97ffb0b3cc3e31c83088f14ed9bed1ffbc7d47",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/audit.json",
+      "bytes": 152074,
+      "sha256": "949a50173608bb958983869871eb69db11fb94d90e12669528727c78c77b262a",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/byte-verification.json",
+      "bytes": 942,
+      "sha256": "293e24ef45e0512e6d52b4f50e07a5730159ff630919f00d60d3a143284689f0",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/findings.md",
+      "bytes": 7436,
+      "sha256": "b8b8db0b62014b0acc386d79df34e420ff925f040b89b2cf18969ae4db115ac8",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/publication.json",
+      "bytes": 784,
+      "sha256": "e6df747166f0e14ed5f4c3d521da299f909038f58fda7b41101c8cf71c7d048d",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/verification.json",
+      "bytes": 165234,
+      "sha256": "fb97c8f21e8dfe2f89b7fd7d0710c1bc93ad3dc805fd48bbcbbca81f5b7692df",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r69-native-source-add/visited-instructions.json",
+      "bytes": 1282125,
+      "sha256": "3d6301e124b53010b2642e6db703d5ed4f210bfb5aabd0eafa333c044448aa98",
+      "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
     }
   ],
   "auxiliaryDataTables": [
@@ -86817,5 +87216,15 @@
     "interpretedInstructions": 2565173,
     "visitedSites": 6249,
     "limitation": "Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+  },
+  "nativeSourceRateCompositionVerification": {
+    "path": "Tools/re/out/client-damage-audit/r69-native-source-add/byte-verification.json",
+    "sha256": "293e24ef45e0512e6d52b4f50e07a5730159ff630919f00d60d3a143284689f0",
+    "controlsPath": "Tools/re/out/client-damage-audit/r69-native-source-add/verification.json",
+    "controlsSha256": "fb97c8f21e8dfe2f89b7fd7d0710c1bc93ad3dc805fd48bbcbbca81f5b7692df",
+    "compositionCases": 6,
+    "interpretedInstructions": 469060,
+    "visitedSites": 6956,
+    "limitation": "Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
   }
 }

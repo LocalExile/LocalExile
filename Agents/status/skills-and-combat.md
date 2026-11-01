@@ -871,8 +871,13 @@ and can require explicit recipes.
   [Actual context eligibility](../docs/re/client-native-context-eligibility.md) reproduces all 23,346 metadata masks:
   the bare root permits classes 1/2, while Stats type configuration adds class 0, including Object.
   Its native root is the separate owner network wrapper's upstream. First-materialization mask slices activate
-  Object for supplied incoming keys; 103 of 105 selected outputs require it. Full record creation, ordinary Actor
+  Object for supplied incoming keys; 103 of 105 selected outputs require it. Inherited-record creation, ordinary Actor
   execution, actual instance publication and shared-cap reachability remain open.
+  [Generic source-to-rate composition](../docs/re/client-native-source-rate-composition.md) now executes full nested
+  raw-add, including first record/list creation, repeated source entries, inverse indexing and cache/validity writes.
+  The original outer-close prefix then drives the DoT queue: supplied 75,000 fire/minute becomes 18,750 at 75%
+  resistance, zero under prohibition and 18,750 after clearing. Actual effect-source selection/publication/removal,
+  full transaction exit and ordinary Actor execution remain separate from these supplied-token controls.
   Native final ailment-duration formulas reciprocate faster factors, separately from expiration-speed clocks.
   [Six complete duration modifier equations](../docs/re/client-ailment-duration-inputs.md) preserve shared bow/focus/retaliation/recency gates,
   ignite bearer/tincture terms, bleed divide-before-multiply, poison's inclusive 150-Int test and upper-only bonus cap.

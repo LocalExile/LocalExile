@@ -268,6 +268,10 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   metadata masks, class-0 permission and the separate owner-wrapper upstream are now bound. First-materialization
   eligibility is a slice, not full raw-record creation or ordinary Actor execution. Seek the active-instance
   contribution/target-rate publisher and actual subscriber orchestration rather than repeating these controls.
+  Reuse [full nested raw-add and outer-close numerical prefix](../docs/re/client-native-source-rate-composition.md):
+  raw source records/lists, inverse source index, valid cache writes and deferred numerical scheduling now execute
+  original code. Generic supplied tokens do not recover effect-instance selection or actual withdrawal; seek those
+  concrete callers rather than interpreting repeated-token accumulation as an ailment stacking policy.
   Reuse [AddBuff magnitude transport](../docs/re/client-buff-wire-magnitudes.md): the writer and reader share a recovery
   gate but use different length sources. Keep their cardinalities aligned; do not place non-recovery DoT magnitude
   in this omitted vector or confuse the separate counted vector with a proven DPS carrier.
