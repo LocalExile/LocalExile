@@ -22,18 +22,20 @@ static partial class Game
         return InstanceProtocol.Resync(objects);
     }
 
-    /// <summary>How far Whirling Blades travels along the aimed line (40 cells whatever the target's distance, live
-    /// 2026-11-01); no stat carries it.</summary>
-    const int WhirlingBladesCells = 40;
+    /// <summary>How far a skill that travels a set distance along the aimed line goes, whatever the target's distance
+    /// (live 2026-11-01; no stat carries it); 0 for one that goes to the aimed cell.</summary>
+    static int TravelCells(string? effect) =>
+        effect is null ? 0 : effect.StartsWith("WhirlingBlades", StringComparison.Ordinal) ? 40
+            : effect is "Dash" or "DashHardMode" ? 33 : 0;
 
-    /// <summary>Where a movement skill ends: the aimed cell, or the last walkable cell of the line to it. Whirling Blades
-    /// goes on past the target and stops at the first cell it cannot walk.</summary>
+    /// <summary>Where a movement skill ends: the aimed cell, or the last walkable cell of the line to it. One that travels a
+    /// set distance goes on past the target and stops at the first cell it cannot walk.</summary>
     internal static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim)
     {
         if (conn.Layout.Walkable is not { } walkable) return aim;
-        if (SkillsFor(conn).EffectId(effect)?.StartsWith("WhirlingBlades", StringComparison.Ordinal) == true && aim != from)
+        if (TravelCells(SkillsFor(conn).EffectId(effect)) is > 0 and var cells && aim != from)
         {
-            double f = WhirlingBladesCells / Math.Sqrt((double)(aim.X - from.X) * (aim.X - from.X) + (double)(aim.Y - from.Y) * (aim.Y - from.Y));
+            double f = cells / Math.Sqrt((double)(aim.X - from.X) * (aim.X - from.X) + (double)(aim.Y - from.Y) * (aim.Y - from.Y));
             var end = ((int)Math.Round(from.X + (aim.X - from.X) * f), (int)Math.Round(from.Y + (aim.Y - from.Y) * f));
             var last = from;
             foreach (var cell in ClientPathfinder.Line(from, end).Skip(1))
