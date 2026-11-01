@@ -126,6 +126,7 @@ Detailed supplements keep the evidence reviewable without treating this summary 
 - [Bleeding/poison skill-duration coupling and duration-consumer literal classification](client-ailment-skill-duration.md).
 - [Physical-defence estimates using reference damage, including Ward substitution](client-defence-estimates.md).
 - [Concrete Fireball/Melee contact production, avoidance and entropy](client-hit-production.md).
+- [Adopted complete stable-input attack chance, finite native power and target-entropy handoff](client-attack-chance-evidence.md).
 - [Default ranged-action selector, equipment inputs and startup registry winners](client-ranged-action-selection.md).
 - [Winning action extensions: attached effects and zero-time projectile updates](client-action-extensions.md).
 - [Conditional DefaultArrow receivers, component updates and Entity task container](client-projectile-extension-receivers.md).
@@ -153,7 +154,11 @@ The shared snapshot's 51 files, including 38 exact Git sources, were verified; i
 This is reuse of the other investigation's result, not a new discovery or closure of numerical Hit resolution.
 Projectile action/RNG/contact/World/result ingress stays with that owner; this investigation follows the
 post-result numerical/resource boundary, Buff/DoT sources and calculation formulas.
-That snapshot leaves full accuracy/evasion composition and its native power helper open with that owner.
+That older snapshot left full accuracy/evasion composition and its native power helper open.
+The later fixed R32 numerical evidence now [closes the selected stable-input expression and finite power
+contract](client-attack-chance-evidence.md). Its unchanged report was already present in the R60 source copy;
+the numerical audit is adopted separately, without claiming a new discovery. Actual selected input publication,
+entropy corrections and numerical damage remain separate.
 
 The later fixed object-type binding report (`Agents/docs/re/projectiles/object-type-binding.md`,
 peer revision `fbb751a0caed81c6b43b1331884a1917a833098b`, locally retained and not yet available on GitHub)
@@ -226,6 +231,9 @@ flowchart TD
   SETTER --> POOL
   SETTER --> NOTIFY[Guarded pool notifications / recharge-delay changes]
   HIT[Fireball / Melee / Sand Spitter contacts] --> AVOID[Concrete target dodge / evasion / projectile avoidance]
+  CHANCEINPUT[Supplied selected attacker / target inputs and owned marks] --> CHANCE[Complete ordered attack chance / finite native power]
+  CHANCE --> ENTROPY[Original target entropy callback / integer threshold]
+  ENTROPY --> AVOID
   EQUIP[Decoded equipment-visible records] --> WEAPON[Subscribed Actor refresh / weapon-state provider]
   WEAPON --> SELECT[Default Bow/Wand action variant]
   STARTUP[Ordered registry replacement] --> SELECT
@@ -799,6 +807,7 @@ damage-bearing paths. Keep missing source eligibility/selection, formulas and sy
 | R3 | Stat-driven resource preload candidate | Established for selected installed callable | [PreloadFromStats mode provenance and .epk handle collection](client-stat-preload-epk-collector.md) positively classify this boundary as resource dependency collection; numerical Hit application remains open |
 | R3 | Physical-defence estimates | Established locally | [Three reference-damage formulas](client-defence-estimates.md), Ward substitution, cap/floor/rounding and category reader; concrete-hit mitigation remains separate |
 | R3 | Concrete contact → defender avoidance decision | Established locally | Inherited Fireball gates, Melee and data-bound Sand Spitter MonsterMortarAttack paths audited; [details and Fireball final-factory correction](client-hit-production.md); shared gates remain bound while base clone/terminal differ from final client slots; numerical damage remains separate |
+| R3 | Stable-input attack chance → target entropy | Established for adopted peer R32 contract | [Complete ordered accuracy/evasion expression, finite native power and actual entropy handoff](client-attack-chance-evidence.md); hand order, owned marks, Ward substitution and rounding retained. Actual selected input publication/correction, numerical damage and critical/mitigation-to-pool remain open. |
 | R3 | Default ranged-action selection | Established locally | [Bow/Wand enum test, selected equipment-to-provider updates and startup registry winners](client-ranged-action-selection.md) bound; selected continuation reaches mode/kind-filtered result processing, without guaranteeing ordinary queued-record consumption; numerical damage remains separate |
 | R3 | Winning ranged extension receivers (supporting boundary) | Established for selected contracts | [Conditional DefaultArrow Entity/action/component path](client-projectile-extension-receivers.md), [task ownership/timers](client-entity-task-boundaries.md), [animation listener](client-entity-task-listener.md) and [Ruin count listener](client-entity-task-ruin-listener.md) bound; this is not numerical hit damage or a claim about every task |
 | R3 | Accepted hit → numerical pre-deduction | Open | Connect established contact/avoidance to amount, critical, mitigation and typed pool receivers; inspected continuations consume existing feedback or have empty slots |

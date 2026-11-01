@@ -177,6 +177,9 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   Keep effective critical probability distinct from per-event trials, confirmation and defender critical modifiers.
   Aura source metadata and versioned stack rules constrain authority without supplying the native rate publisher.
   Concrete Fireball/Melee contact and avoidance decisions are bound separately from panel formulas and feedback.
+  Reuse the [complete stable-input attack chance and finite power](../docs/re/client-attack-chance-evidence.md)
+  adopted from the projectile owner's fixed R32 evidence; do not repeat that expression as an open formula task.
+  Its actual selected input publication/correction stays with that owner; post-acceptance damage remains open.
   Preserve Fireball base-versus-client factory scope and mode/kind filters; reuse parallel projectile research.
   Reuse received-result control admission and mask/duration rewrites; selected critical feedback is not a roll.
   Reuse [release/result/checkpoint composition](../docs/re/client-hit-checkpoint-resource-composition.md):

@@ -42139,7 +42139,8 @@
         "r9-ground-ownership",
         "r9-poison-family",
         "source-and-authority",
-        "r70-native-source-withdrawal"
+        "r70-native-source-withdrawal",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -43051,7 +43052,8 @@
         }
       ],
       "sourceBatches": [
-        "r5-critical-math-final"
+        "r5-critical-math-final",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -54656,7 +54658,8 @@
         }
       ],
       "sourceBatches": [
-        "r3-contact-sites"
+        "r3-contact-sites",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -54688,7 +54691,8 @@
         }
       ],
       "sourceBatches": [
-        "r3-contact-accuracy"
+        "r3-contact-accuracy",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -54917,7 +54921,8 @@
       ],
       "sourceBatches": [
         "r3-contact-accuracy",
-        "r4-contact-leaf-coverage"
+        "r4-contact-leaf-coverage",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -58536,7 +58541,8 @@
       "sourceBatches": [
         "r3-contact-accuracy",
         "type-binding-discovery",
-        "type-upstream-v2"
+        "type-upstream-v2",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -72344,7 +72350,8 @@
         }
       ],
       "sourceBatches": [
-        "r5-critical-math-final"
+        "r5-critical-math-final",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72981,7 +72988,8 @@
         "r42-dot-native-composition",
         "r43-dot-original-old-value",
         "r45-native-pool-composition",
-        "r70-native-source-withdrawal"
+        "r70-native-source-withdrawal",
+        "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -75171,6 +75179,38 @@
         "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
+    },
+    "0x14013d550": {
+      "boundary": "explicit-analyst-leaf-range",
+      "ranges": [
+        {
+          "start": "0x14013d550",
+          "endExclusive": "0x14013d56c",
+          "bytes": 28,
+          "fileOffset": 1296720,
+          "sha256": "cdc0eebe349e3cf29cd02c5eb7285a7f243c97783a569a52372b008acfcf45bc"
+        }
+      ],
+      "sourceBatches": [
+        "r71-adopted-attack-chance"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x140664f10": {
+      "boundary": "explicit-analyst-leaf-range",
+      "ranges": [
+        {
+          "start": "0x140664f10",
+          "endExclusive": "0x140664f47",
+          "bytes": 55,
+          "fileOffset": 6701840,
+          "sha256": "796f8809524f3319bd19374b915c6d840263b7140585bb944fc3e1de788f0d8c"
+        }
+      ],
+      "sourceBatches": [
+        "r71-adopted-attack-chance"
+      ],
+      "selectedDecompilationCompleted": null
     }
   },
   "batches": [
@@ -76583,6 +76623,11 @@
       "name": "r70-native-source-withdrawal",
       "auditSha256": "9248cc5c39e7fa9df599e4a90315375cbb71ad6872729ef5b61d8457c8989310",
       "functionCount": 34
+    },
+    {
+      "name": "r71-adopted-attack-chance",
+      "auditSha256": "15c3d7c28104e8b965b9cd3b73744fa0fe8b2fc92af11200117e09528ce30cd2",
+      "functionCount": 10
     }
   ],
   "pointerSlots": [
@@ -78992,6 +79037,14 @@
       "fileOffset": 56477792,
       "sha256": "de98d1144cf31eb4e659e0ccc32380041ee728be2d7aa537346d8e2182fcd68a",
       "role": "Stats type-configuration parser / client network-wrapper constructor"
+    },
+    {
+      "table": "0x1435abdd8",
+      "offset": "0x20",
+      "target": "0x140262ed0",
+      "fileOffset": 56275448,
+      "sha256": "210eb2d92f37e2db8174597de360409cb0af30f74963cd8a960ffc109b4e6c83",
+      "role": "Adopted peer R32 attack probability callable / disposal"
     }
   ],
   "scanCoverage": {
@@ -79036,15 +79089,15 @@
     }
   ],
   "verification": {
-    "entryCount": 4078,
-    "originalByteRangeCount": 5086,
+    "entryCount": 4091,
+    "originalByteRangeCount": 5118,
     "historicalBoundedThunkEntries": 4,
-    "pointerSlotCount": 298,
+    "pointerSlotCount": 302,
     "selectedDecompilationRecords": 877,
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R70 freshly rechecked 4089 retained identities / 5116 original-byte ranges / 301 pointer slots, preserving 1203 sealed public supports and 206 prior snapshot records. Full nested whole-source/per-key removal, inverse cleanup and pending deltas compose through original outer-close numerical prefix and native getters into Life/ES loss: five compositions / 22 pool steps / 482544 interpreted instructions / 7818 sites. 34 function records / 54 ranges / 2538 decoded records, 31 anchors and 16 MOVSD controls pass. One newly indexed inverse-key cleanup helper; duplicate affected keys and zero-difference direct invalidation retained. Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    "additionalFreshValidation": "R71 freshly rechecked 4091 identities / 5118 ranges / 302 pointer slots, preserving 1215 prior public supports and 220 prior snapshot files. Adopted peer R32 original-byte evidence: 55 immutable files / 39 exact Git sources, 10 functions / 10 ranges / 1386 decoded records, 2 bindings, 31 constant operands / 594 data reads / 32 Stats names / 13 fresh anchors. 22 receiving controls / 8497 interpreted instructions / 635 sites. Two newly indexed anchored explicit leaves. Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
   },
   "supportingRecords": [
     {
@@ -86291,6 +86344,156 @@
       "bytes": 1438647,
       "sha256": "0bce8918b378dc08c8be376c92cda0c998f14db09b59fd255dd217956597e3b6",
       "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-adopt-hit-chance.py",
+      "bytes": 13620,
+      "sha256": "860e52444a4ab34cb069b368afd287c5babc1e52667c560445469810e0b6533d",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-publish-prepare.py",
+      "bytes": 6149,
+      "sha256": "016aba3c5d727fd1164e5ea5f4b720a09ec99bff6abb2d3c2f56fa7cc2ab2486",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/audit.json",
+      "bytes": 198103,
+      "sha256": "15c3d7c28104e8b965b9cd3b73744fa0fe8b2fc92af11200117e09528ce30cd2",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/controls.json",
+      "bytes": 17903,
+      "sha256": "a6305ebc1cb6b6af6c49b5adefd898efd5d181233f08d1e2d2b2c21aa06f181d",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/findings.md",
+      "bytes": 7452,
+      "sha256": "c2423844a00570e67d2c803b1c8bd1b11f67c2dc921341245db695e29ca2ed8e",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/publication.json",
+      "bytes": 821,
+      "sha256": "d91904bbb84b1e2ac03ffa44765f7afaf7d35deb168e1e424d79f9788aa24853",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/verification.json",
+      "bytes": 1607,
+      "sha256": "e6f22ca1b7df88204464e476c3ae1708937a7cc76347ba0c78feee57ba4d8f09",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/manifest.json",
+      "bytes": 23671,
+      "sha256": "38de91369daf55a11ef6ffea4ce9403a0ada509a842db938feb65b83b03df24e",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/Agents/docs/re/projectiles/attack-hit-chance.md",
+      "bytes": 10869,
+      "sha256": "b69f5dcf961615d601c41e7ba1b3ebbe075034941e8447d225f52a275b53c6ba",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/audit_chance.py",
+      "bytes": 3291,
+      "sha256": "d21b1617887699a1a219c1e56a46e866caa44c980762490cf21c7fe78427f9a0",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/chance_machine.py",
+      "bytes": 12755,
+      "sha256": "32d1ed86c4a23a789acbef19449b60d619e1f448b73d4ebb22a177c8a91f6884",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/chance_model.py",
+      "bytes": 2793,
+      "sha256": "a11802fb2eacf013b6f58071f35ae120149f9372f6d5cbc4df73683f7cc49aa7",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/check_chance.py",
+      "bytes": 8223,
+      "sha256": "cea875dac9c029636dca2e48ffc9d1a9ea74c53e2a3f65e06d32311a98a61aa0",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/review_chance.py",
+      "bytes": 5459,
+      "sha256": "70cf16c87b287d9218e845ac01244b7f0c01b4c09041285bdd1321ef45e5bbcf",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/verify_round32.py",
+      "bytes": 5603,
+      "sha256": "95e6915ab63f127e4aa25b7d01f8097af14d1c811a7be22789744e68ae9d2d0a",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/publish_round32.py",
+      "bytes": 9473,
+      "sha256": "19b52ac7b990e76126419ff5ef3f544ecd7c9377f7e440ae42df5a4cbb4622d5",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/chance-original.asm",
+      "bytes": 61009,
+      "sha256": "aabdcfe63b36cb6f2d4698e04d9109eceda7218e2578195e00a89fe5834f27c5",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/chance-audit.json",
+      "bytes": 7754,
+      "sha256": "39d52a74fcb234037d118d6ce1c29cb4f6e622bbfa6b6147ada44518ffe07917",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/chance-paths.json",
+      "bytes": 79723,
+      "sha256": "c0329ddbe65933b67276a9a0ba21ff9efeeca89eef2c56a9761f2f00f5cb897b",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/chance-review.json",
+      "bytes": 5825,
+      "sha256": "6a52fef1ac74ff5b412bb398d2e53beb05879e8e9e58f9ae52a6d3e54ef007df",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/validation-summary.json",
+      "bytes": 2122,
+      "sha256": "752cec3bb17f45bc91b3b6172ee0f47646ee16d5e3fb3a43d44d8190eee12469",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/findings.zh-CN.md",
+      "bytes": 5323,
+      "sha256": "a81501d8e485d09ef5034051c8ed87ec691383fee6a8f17562f7de26b94ba771",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round32/peer-r16-reuse.json",
+      "bytes": 201,
+      "sha256": "5411dec83aba98e8f0b95497422570fc7b8f576a95a96c43820d214d70d20bf2",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/logs/projectile-execution-model/round28/check_ingress_paths.py",
+      "bytes": 12889,
+      "sha256": "e19b93393051bf39fa42592da6e5fa232be5ccad0d0a4c3aa7925d87200110c5",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/peer-r32/dependencies/client-damage/scripts/re/damage_audit.py",
+      "bytes": 17242,
+      "sha256": "48086a57e5c4899d0e5d77b7179368b0b1fe772c7204cb8ff8025647e2a8b1fe",
+      "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
     }
   ],
   "auxiliaryDataTables": [
@@ -87391,5 +87594,15 @@
     "interpretedInstructions": 482544,
     "visitedSites": 7818,
     "limitation": "Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+  },
+  "adoptedAttackChanceVerification": {
+    "peerCommit": "53b29759f3ae9cf87095ae148f284b8c182bc134",
+    "peerManifestSha256": "38de91369daf55a11ef6ffea4ce9403a0ada509a842db938feb65b83b03df24e",
+    "path": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/verification.json",
+    "sha256": "e6f22ca1b7df88204464e476c3ae1708937a7cc76347ba0c78feee57ba4d8f09",
+    "controlsPath": "Tools/re/out/client-damage-audit/r71-attack-chance-adoption/controls.json",
+    "controlsSha256": "a6305ebc1cb6b6af6c49b5adefd898efd5d181233f08d1e2d2b2c21aa06f181d",
+    "freshReceivingControls": 22,
+    "limitation": "Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
   }
 }

@@ -251,7 +251,9 @@ These are client addresses; their presence is not proof of official-server imple
 | `0x142543a80` / `0x1425733e0` | Fn | Main-hand minimum total / physical damage evaluators |
 | `0x142594860` / `0x1425988a0` | Fn | Main-hand physical minimum base / added inputs |
 | `0x1426fb060` / `0x142756600` | Fn | Main-hand accuracy / final critical-chance evaluators |
-| `0x1427854b0` / `0x1424ff510` | Fn | Sheet-reference hit chance / numeric chance helper; not a defender roll |
+| `0x1427854b0` / `0x1424ff510` | Fn | Sheet-reference hit chance / base numeric chance helper, also consumed by the adopted stable-input attack builder; neither helper alone is a defender roll |
+| `0x141ebc990` / `0x141ee4920` | Fn / Leaf | Ordered selected-hand attack chance / callable handoff to target entropy; [adopted peer R32 evidence](../re/client-attack-chance-evidence.md), separate from numerical Hit damage |
+| `0x140664f10` / `0x14013d550` | Leaf | Anchored finite accuracy-rounding / three-input float clamp helpers in the adopted attack-chance contract |
 | `0x141e90f50` / `0x141e91580` | Fn | `0x1af` Actor feedback consumer / virtual result dispatcher |
 | `0x141939f40` / `0x14193a170` / `0x141e91330` | Fn | Retrieve queued action result / phase range processing / filter and dispatch |
 | `0x141e96630` / `0x141e95e60` / `0x141e96790` | Fn | Target control/listeners / timed interruption request / knockback displacement |

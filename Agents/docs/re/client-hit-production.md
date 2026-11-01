@@ -9,6 +9,11 @@ ordinary startup disables the audited action-local native context builder in
 They do **not** establish a local numerical damage roll, critical roll,
 mitigation calculation, or Hit-to-resource-loss chain.
 
+The parallel investigation's complete stable-input attack chance and finite native power contract is now
+[adopted with original-byte checks](client-attack-chance-evidence.md). It includes selected-hand inputs,
+owned-mark qualification, Ward substitution and the actual entropy handoff. Actual input publication,
+corrections and post-acceptance numerical damage remain separate from that recovered expression.
+
 The concrete continuation matters: Melee's tested-contact dispatch slot is empty
 on the selected variant-0 factory object. The inspected Fireball base continuation
 enters a queued-feedback range processor; actual consumption is mode/kind-dependent.

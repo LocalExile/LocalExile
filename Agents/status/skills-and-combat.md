@@ -785,6 +785,10 @@ and can require explicit recipes.
   Critical-only inputs and resistance prohibitions still require an actual event consumer.
   Accuracy, critical chance and sheet-reference hit chance formulas remain distinct from a concrete defender roll.
   Named Fireball spatial contacts/dodge/projectile avoidance and Melee accuracy/entropy decisions are now bound.
+  [Adopted attack-chance evidence](../docs/re/client-attack-chance-evidence.md) additionally closes the complete
+  selected stable-input accuracy/evasion expression, finite native power and original target-entropy handoff.
+  Hand order, owned-mark qualification, Ward substitution and rounding are retained; actual input publication,
+  corrections and accepted numerical Hit damage remain open. This reuses the projectile owner's fixed R32 result.
   Sand Spitter MonsterMortarAttack has a factory/accuracy/radius-feedback binding and empty source Actor callbacks.
   Its selected effect continuation reaches attachment/render/animation; generic downstream consequences stay open.
   Bow/Wand selection, equipment-to-provider notifications and ordered startup registration winners are bound.
