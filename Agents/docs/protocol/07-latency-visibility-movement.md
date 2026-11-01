@@ -123,9 +123,10 @@ action itself (prediction) but will not send another until the server echoes it.
 +0x122; bit 0x80 adds a `u32 target object id`), compact ints **actor position** (+0x2c/+0x30 → action +0x158) and
 **target** (+0x24/+0x28 → action +0x130), `u16 skill id`, `u16 sequence` (+0x36 → action +0x11a). For the local,
 predicted player (sequence ≥ 0) the handler compares the position pair with where the client thinks the player is and
-**teleports** the player there when they are ≥ ~92 units apart (`|Δ|² ≥ 0x2110`); otherwise the echo is just a
-confirmation (`InstanceProtocol.ActionStarted`). With the echo the client walks at its own speed and accepts the next
-click. 0x1ac ends an action, but is ignored for predicted local actions.
+**teleports** the player there when they are ≥ 92 grid cells apart (`|Δ|² ≥ 0x2110`); otherwise the echo is just a
+confirmation (`InstanceProtocol.ActionStarted`), so any smaller error stays until a walk ends on its target. Live
+2026-10-31: an echo 13 cells off moved nothing. Clicks do not wait for the echo: the client sends them as they come.
+0x1ac ends an action, but is ignored for predicted local actions; it still counts for the resync request below.
 
 The first version sent the target in the position pair: long clicks teleported the player, sometimes onto unwalkable
 cells past the town edge (toward The Coast), where the client could no longer path anywhere. The server therefore keeps
@@ -237,6 +238,24 @@ Positioned handler calls `0x141e34120` with duration = distance / speed. With sp
 and crawled (~1 cell per 1.5 s), so it is not sent for the local player (`Game_MOVE_MODE=move` to test).
 **S→C 0x1b7** teleport: header, `i32 x, i32 y, u32 → +0x290, u32 → +0x2b4`; works (`Game_MOVE_MODE=teleport`).
 
+**Resync: S→C 0x128** (`InstanceProtocol.Resync`, `Resync.cs`): compact count, then u32 object, u32 x, u32 y in grid
+cells, big-endian, with the player first. Ignored in lockstep. When the player is 20 or more cells from the first
+record the client puts it there, and then every listed object on its record; otherwise only the objects 20 or more
+cells from theirs. Under 20 cells nothing moves, so sending one costs nothing. Live 2026-10-31: the player jumped 30
+and 25 cells onto the records and went on playing. In GGG's captures it came with every stun of the player (13 of 13)
+and with no other hit (0 of 79), listing the player and the monsters within 23.4 cells; the Gateway does the same.
+
+**The client asks for it.** Each commenced action other than Move adds one to a counter, each 0x1ac takes one off and
+5 s take one off; above 3 it sends C→S 0x16 command 8 (`InstanceItems.ForceResyncCommand`) and starts again. The
+Gateway answers with a 0x128, and `/oos` does the same by hand. GGG ends non-Move actions with a 0x1ac in the same tick
+(87 of 88), so its clients rarely ask. The Gateway sends no 0x1ac for them, so its clients ask every few skills in
+combat, and that is wanted while its estimates are worse than GGG's: the request is the only way a 20-cell error ends.
+
+**Measuring it.** `Game_TRACE=sync` logs the server's estimates every 50 ms, `scripts/dev/sync_drive.py` plays a session
+client with real mouse input through `scripts/re/frida/drive-input.js` and records where the client has every object
+(`trace-sync.js`), and `scripts/re/sync_report.py` compares them. The bridge's `move` is no use for this: it only writes
+a 0x25, so the client predicts nothing.
+
 
 ### Living actor clearance
 
@@ -261,8 +280,8 @@ The 50 ms correction loop checks each traversed cell, stops movement through new
 server's estimate (then paths it again to the same target, as the client does when a walk ends short). It used to send
 ActionEnded followed by Teleport: 1,608 corrections in one crowded session, each a visible stop and jump, although the
 client already paths every monster around the other bodies. The client never snaps a non-predicted monster to the
-0x1ab position pair (the ≥ ~92 unit check in `0x1421940a0` runs only for sequence ≥ 0), so the AI's new orders do not
-jump either. The overlap test reads every body's cell once per frame, and `BlockerSet` buckets the blockers by cell so
+0x1ab position pair by that check, which runs only for sequence ≥ 0. It does snap one that is 46 or more cells from
+the pair when the action starts (live 2026-10-31: a monster that stood still on the client for 4 s jumped 43 cells). The overlap test reads every body's cell once per frame, and `BlockerSet` buckets the blockers by cell so
 `ClientPathfinder.ObjectBlocks` reads only those that can reach the queried cell (same answers as the full scan).
 The player's own path treats estimated monster bodies as blockers too; when they leave no way to the clicked cell but
 the stationary blockers do (`PlayerWalk`'s fallback), the server follows the client through the crowd instead of
@@ -342,6 +361,14 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
+- An attack on a monster the estimated bodies cut off ends "out of reach": no swing and no echo, while the client walks
+  on, which is the largest player error measured in crowds (13 cells for most of a fight). Walking through the bodies
+  instead fails when the client really is boxed in, and retrying for 0.8 s stopped those lines but not the error.
+- GGG chases with the monster's attack aimed at the player object (flags 0x80, repeated about every 200 ms), and uses
+  Move only when not chasing, so the client walks each monster to where it has the player. The Gateway sends Move orders
+  to surround cells, about 9 a second for a chaser; on the client a chaser can fall behind or stand still while the
+  estimate walks on. Sending that attack with the estimate unchanged was worse in a live test (median error 7 cells
+  against 2 to 3): the estimate has to model the same walk.
 - Monsters on the server still walk on `WalkEstimator`. `ClientPathfinder` paths them as the client does (§5) and the
   estimate walks at the client's rolled speed, but the client's monster controller (its own re-paths, frozen far
   monsters) and the 5–50 ms until the client applies an order are not reproduced; their estimated positions are what

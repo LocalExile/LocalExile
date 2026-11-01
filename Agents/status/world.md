@@ -104,6 +104,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
   The extended crowd changes still need a real-client check.
   A player boxed in by estimated bodies follows the client through them instead of being pulled back.
+  Resync (S→C 0x128): sent on every stun, on the client's own request (C→S 0x16 command 8) and by `/oos`;
+  it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Two authenticated clients in the same instance still need an end-to-end check.
   Remote player creation, movement, life and departure are replicated; party formation and shared combat remain open.

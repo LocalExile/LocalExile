@@ -1482,6 +1482,11 @@ static class CommandsFeature
             lock (conn.Npcs) list = string.Join(", ", conn.Npcs.Select(n => $"0x{n.Key:x} {n.Value.Npc.Name} ({n.Value.X}, {n.Value.Y})"));
             await conn.Commands!.Reply(list.Length == 0 ? "No NPCs." : list);
         })
+        .Add("oos", "/oos (puts you and the monsters around you back where the server has them when you are out of sync)", async _ =>
+        {
+            await SendResync(remote, stream, ciphers, conn, "/oos");
+            await conn.Commands!.Reply("Resynced.");
+        })
         .Add("pos", "/pos (your cell)", async _ =>
         {
             var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);

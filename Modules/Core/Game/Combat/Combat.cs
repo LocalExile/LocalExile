@@ -1252,7 +1252,9 @@ static partial class Game
                 double remaining = recovery.Until - conn.Clock.Elapsed.TotalSeconds;
                 if (!conn.ProjectileActive(recovery.Epoch) || conn.PlayerLife == 0 || conn.Paused
                     || conn.ActionCount != recovery.Action || remaining <= 0) return null;
-                return InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation);
+                // The stun pins the player where the server has it: GGG sends the resync in the same tick as every stun.
+                return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation),
+                    .. ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds)];
             }
         });
 
