@@ -272,6 +272,10 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   raw source records/lists, inverse source index, valid cache writes and deferred numerical scheduling now execute
   original code. Generic supplied tokens do not recover effect-instance selection or actual withdrawal; seek those
   concrete callers rather than interpreting repeated-token accumulation as an ailment stacking policy.
+  Reuse [generic withdrawal through Life/ES loss](../docs/re/client-native-source-withdrawal.md): complete nested
+  source/per-key removal and the original numerical/pool chain now compose. Preserve duplicate key visits,
+  zero-difference direct invalidation, surviving source contributions and empty inverse entries. The missing
+  link is an applicable gameplay instance invoking publication/withdrawal, not another generic-store replay.
   Reuse [AddBuff magnitude transport](../docs/re/client-buff-wire-magnitudes.md): the writer and reader share a recovery
   gate but use different length sources. Keep their cardinalities aligned; do not place non-recovery DoT magnitude
   in this omitted vector or confuse the separate counted vector with a proven DPS carrier.

@@ -41758,7 +41758,8 @@
         "r49-buff-replacement",
         "r50-wire-source-composition",
         "r53-result-join",
-        "r9-ground-ownership"
+        "r9-ground-ownership",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -42137,7 +42138,8 @@
         "r6-critical-inputs",
         "r9-ground-ownership",
         "r9-poison-family",
-        "source-and-authority"
+        "source-and-authority",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -42543,7 +42545,8 @@
         "r49-buff-replacement",
         "r50-wire-source-composition",
         "r8-ground-effect-boundary",
-        "r9-ground-ownership"
+        "r9-ground-ownership",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -52959,7 +52962,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r4-buff-guard-revive",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53010,7 +53014,8 @@
         "r4-buff-guard-revive",
         "r45-native-pool-composition",
         "r57-arakaali-heal",
-        "r58-resource-sources"
+        "r58-resource-sources",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53037,7 +53042,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r4-buff-clock-producers-transition-search",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -53066,7 +53072,8 @@
         "r45-native-pool-composition",
         "r49-buff-replacement",
         "r50-wire-source-composition",
-        "r53-result-join"
+        "r53-result-join",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53259,7 +53266,8 @@
         "r34-buff-clock-authority",
         "r4-buff-guard-revive",
         "r45-native-pool-composition",
-        "r53-result-join"
+        "r53-result-join",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53332,7 +53340,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r45-native-pool-composition",
-        "source-and-authority"
+        "source-and-authority",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53389,7 +53398,8 @@
         "r34-buff-clock-authority",
         "r45-native-pool-composition",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53428,7 +53438,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53471,7 +53482,8 @@
         "r4-buff-clock-producers-transition-search",
         "r45-native-pool-composition",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53496,7 +53508,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53525,7 +53538,8 @@
         "r45-native-pool-composition",
         "r49-buff-replacement",
         "r50-wire-source-composition",
-        "source-and-authority"
+        "source-and-authority",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53552,7 +53566,8 @@
         "r34-buff-clock-authority",
         "r45-native-pool-composition",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53578,7 +53593,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r45-native-pool-composition",
-        "source-and-authority"
+        "source-and-authority",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53692,7 +53708,8 @@
         "r4-pool-assignment-effects",
         "r45-native-pool-composition",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53716,7 +53733,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r4-pool-assignment-effects",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53743,7 +53761,8 @@
         "r4-pool-assignment-effects",
         "r45-native-pool-composition",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53770,7 +53789,8 @@
         "r4-pool-recharge-notify",
         "r45-native-pool-composition",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -53852,7 +53872,8 @@
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
         "r45-native-pool-composition",
-        "source-and-authority"
+        "source-and-authority",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58314,7 +58335,8 @@
       ],
       "sourceBatches": [
         "r1-skill-producers",
-        "r2-native-source-tokens"
+        "r2-native-source-tokens",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58332,7 +58354,8 @@
       "sourceBatches": [
         "r1-skill-producers",
         "r11-type-stat-prefix-final",
-        "r2-native-source-tokens"
+        "r2-native-source-tokens",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -72731,7 +72754,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72790,7 +72814,8 @@
         "r34-buff-clock-authority",
         "r45-native-pool-composition",
         "r47-action-present-result",
-        "r53-result-join"
+        "r53-result-join",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72814,7 +72839,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72838,7 +72864,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72862,7 +72889,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72900,7 +72928,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72924,7 +72953,8 @@
         "r32-buff-rate-independence",
         "r33-result-resource-composition",
         "r34-buff-clock-authority",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72950,7 +72980,8 @@
         "r34-buff-clock-authority",
         "r42-dot-native-composition",
         "r43-dot-original-old-value",
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -72989,7 +73020,8 @@
         "r34-buff-clock-authority",
         "r45-native-pool-composition",
         "r49-buff-replacement",
-        "r50-wire-source-composition"
+        "r50-wire-source-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -73851,7 +73883,8 @@
         }
       ],
       "sourceBatches": [
-        "r45-native-pool-composition"
+        "r45-native-pool-composition",
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": false
     },
@@ -75092,6 +75125,50 @@
       ],
       "sourceBatches": [
         "r69-native-source-add"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1424fc8f0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1424fc8f0",
+          "endExclusive": "0x1424fc8fe",
+          "bytes": 14,
+          "fileOffset": 38780144,
+          "sha256": "84ca829f28e43e83b22ade53f3850012a7ebccf8abbd4b6aa0104197a6035f04"
+        },
+        {
+          "start": "0x1424fc8fe",
+          "endExclusive": "0x1424fc91b",
+          "bytes": 29,
+          "fileOffset": 38780158,
+          "sha256": "71b3937769ba1e9e34b1945b8461c8b7f7bdda3a3d6cdb8b64855e3d4c61697c"
+        },
+        {
+          "start": "0x1424fc91b",
+          "endExclusive": "0x1424fc96d",
+          "bytes": 82,
+          "fileOffset": 38780187,
+          "sha256": "671332a280a55f349cba991b404bfb01d525d576df0052d4379f764a77e7954d"
+        },
+        {
+          "start": "0x1424fc96d",
+          "endExclusive": "0x1424fc976",
+          "bytes": 9,
+          "fileOffset": 38780269,
+          "sha256": "164e2d6f3d86f89baef8e4c486dffe218cab0ff2419e7aca1c80a3fb010cac01"
+        },
+        {
+          "start": "0x1424fc976",
+          "endExclusive": "0x1424fc9d6",
+          "bytes": 96,
+          "fileOffset": 38780278,
+          "sha256": "4fbad0c38d973b949e24e468ed80b353aea556bc99c82ce446700f0dfdbba389"
+        }
+      ],
+      "sourceBatches": [
+        "r70-native-source-withdrawal"
       ],
       "selectedDecompilationCompleted": null
     }
@@ -76501,6 +76578,11 @@
       "name": "r69-native-source-add",
       "auditSha256": "949a50173608bb958983869871eb69db11fb94d90e12669528727c78c77b262a",
       "functionCount": 13
+    },
+    {
+      "name": "r70-native-source-withdrawal",
+      "auditSha256": "9248cc5c39e7fa9df599e4a90315375cbb71ad6872729ef5b61d8457c8989310",
+      "functionCount": 34
     }
   ],
   "pointerSlots": [
@@ -78962,7 +79044,7 @@
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R69 freshly rechecked 4088 retained identities / 5111 original-byte ranges / 301 pointer slots, preserving 1182 sealed public supports and 183 prior snapshot records. Full nested raw-add creates selected raw records/contribution lists, inverse source keys, raw cache/validity and pending deltas; original outer-close prefix drives incoming DoT numerical callbacks. Six compositions / 469060 interpreted instructions / 6956 sites, 13 function records / 32 ranges / 1103 decoded records, 28 anchors and 80 narrow instruction controls pass. Ten newly indexed helper identities include an actual-call-anchored two-return leaf. Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    "additionalFreshValidation": "R70 freshly rechecked 4089 retained identities / 5116 original-byte ranges / 301 pointer slots, preserving 1203 sealed public supports and 206 prior snapshot records. Full nested whole-source/per-key removal, inverse cleanup and pending deltas compose through original outer-close numerical prefix and native getters into Life/ES loss: five compositions / 22 pool steps / 482544 interpreted instructions / 7818 sites. 34 function records / 54 ranges / 2538 decoded records, 31 anchors and 16 MOVSD controls pass. One newly indexed inverse-key cleanup helper; duplicate affected keys and zero-difference direct invalidation retained. Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
   },
   "supportingRecords": [
     {
@@ -86137,6 +86219,78 @@
       "bytes": 1282125,
       "sha256": "3d6301e124b53010b2642e6db703d5ed4f210bfb5aabd0eafa333c044448aa98",
       "role": "R69 generic native source contribution-to-DoT-rate composition; Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal.py",
+      "bytes": 10103,
+      "sha256": "629771df1343c8c25b471879e9dc2d2caab334144d8457689baefe23dc6284b1",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal-verify.py",
+      "bytes": 5504,
+      "sha256": "765b3ebb701be29002b811b622c31139bf38c8e5e90c2b06fb5dd360a4102a92",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-publish-prepare.py",
+      "bytes": 5039,
+      "sha256": "fac9d102627ecdd6cb2dfddd6494dc656ace979f217f298ae0397fb266d5f6c0",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/0x1424fc770.asm",
+      "bytes": 3295,
+      "sha256": "e2659f8af3813a4a8a79f089f152d8ad5ec7b21053c1ae0a34c08ac83f4494b0",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/0x1424fc8f0.asm",
+      "bytes": 2217,
+      "sha256": "f5a300827666e58c210c966365c7423974cc91649f470648bd10c3c2ffec4e84",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/0x1424fc9e0.asm",
+      "bytes": 5767,
+      "sha256": "b0002deccf171b37310b7f5d16a311cfd4deb45a2fc65b524d8dbb73091a682e",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/audit.json",
+      "bytes": 352977,
+      "sha256": "9248cc5c39e7fa9df599e4a90315375cbb71ad6872729ef5b61d8457c8989310",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/byte-verification.json",
+      "bytes": 1318,
+      "sha256": "db3dde78fce56bb419099f005ba3380403d4d1c2fd90f070622de03b25088bbc",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/findings.md",
+      "bytes": 8000,
+      "sha256": "f2c8cd431c3e49134d410175f3111a6f5c89b6d8611eefdce2b4632b0cde2b90",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/publication.json",
+      "bytes": 838,
+      "sha256": "f756f8743ce8c01a4678feaa00b1650ddc9983b2b9a602286c65462f40fbab0b",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/verification.json",
+      "bytes": 270901,
+      "sha256": "6cfcf29ccc0ead7d794737abaa6180afd8ef0f3330b505de22b671e41bab35b9",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/visited-instructions.json",
+      "bytes": 1438647,
+      "sha256": "0bce8918b378dc08c8be376c92cda0c998f14db09b59fd255dd217956597e3b6",
+      "role": "R70 generic source withdrawal to native DoT rates and Life/ES loss; Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
     }
   ],
   "auxiliaryDataTables": [
@@ -87226,5 +87380,16 @@
     "interpretedInstructions": 469060,
     "visitedSites": 6956,
     "limitation": "Full nested raw-add and original outer-close numerical prefix for supplied tokens/states; inherited-parent path, top-level capacity growth, full transaction exit, actual source-instance selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+  },
+  "nativeSourceWithdrawalVerification": {
+    "path": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/byte-verification.json",
+    "sha256": "db3dde78fce56bb419099f005ba3380403d4d1c2fd90f070622de03b25088bbc",
+    "controlsPath": "Tools/re/out/client-damage-audit/r70-native-source-withdrawal/verification.json",
+    "controlsSha256": "6cfcf29ccc0ead7d794737abaa6180afd8ef0f3330b505de22b671e41bab35b9",
+    "compositionCases": 5,
+    "poolSteps": 22,
+    "interpretedInstructions": 482544,
+    "visitedSites": 7818,
+    "limitation": "Complete nested generic source/per-key removal, original outer-close numerical prefix and native Life/ES integration for supplied states. Actual effect-instance selection/publication/expiry/withdrawal/shared-cap reachability, inherited-parent path, full outer transaction exit, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
   }
 }

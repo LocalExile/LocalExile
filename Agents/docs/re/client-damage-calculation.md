@@ -64,6 +64,7 @@ Detailed supplements keep the evidence reviewable without treating this summary 
 - [Native declared-dependency order, transaction queues and actual duplicate declarations](client-stat-dependency-order.md).
 - [Actual context masks, type-configured activation permission and separate owner network wrapper](client-native-context-eligibility.md).
 - [Original nested raw contributions, source index and outer-close prefix into numerical DoT rates](client-native-source-rate-composition.md).
+- [Generic source/per-key withdrawal through numerical DoT rates into Life/ES loss](client-native-source-withdrawal.md).
 - [Typed DoT formulas, resource routes and arithmetic boundaries](client-dot-routing.md).
 - [Complete incoming fire self-rate composition, signed64 percentages and state gates](client-fire-self-rate.md).
 - [Complete incoming physical/chaos self-rates, transfer gates and arithmetic order](client-physical-chaos-self-rates.md).
@@ -182,6 +183,8 @@ flowchart TD
   SOURCES[DoT sources / effect instances] -. producer unresolved .-> RAW[Base rates per minute]
   TOKENS[Supplied generic source tokens / signed amounts] --> RAWADD[Original nested raw-add / records / source index]
   RAWADD --> OUTERCLOSE[Original outer-close prefix / numerical queue]
+  TOKENS --> REMOVE[Original whole-source / per-key removal]
+  REMOVE --> OUTERCLOSE
   OUTERCLOSE --> NATIVEQUEUE
   TYPECONFIG[Stats type configuration: permits all 40 context bits] --> ACTIVATE[First nonzero record: permitted activation bits]
   ACTIVATE --> NATIVEQUEUE[Original dependency queue: 105 DoT outputs]
@@ -735,6 +738,7 @@ damage-bearing paths. Keep missing source eligibility/selection, formulas and sy
 | R1 | Native dependency ordering and work-vector algorithm | Established for audited helpers and recovered declaration graph | [Cycle-checked traversal, rank rewriting, growing ordered dispatch, unchanged-output propagation stops and 24 actual duplicate-containing declarations](client-stat-dependency-order.md); declared edges do not guarantee all actual reads or arbitrary reentrant callbacks |
 | R1/R2 | Actual context masks and type-configured activation | Established for metadata loops, constructor/activation slices and supplied-state composition | [All 23,346 mask rows, class-0 permission in Stats type configuration and its separate owner network wrapper](client-native-context-eligibility.md); 103 of 105 selected incoming outputs require Object. Full configuration/ordinary Actor execution and active-instance publication remain open; generic raw record creation is covered by the following conditional composition. |
 | R1/R2/R4 | Generic native source contributions → numerical DoT rates | Established for full nested raw-add and outer-close numerical prefix with supplied states | [Original raw record insertion, source-list allocation/indexing, cache/validity publication and deferred changes](client-native-source-rate-composition.md); repeated tokens append, zero-net batches skip scheduling. Actual instance selection/publication/shared cap/withdrawal, inherited records, full transaction exit and ordinary Actor execution remain open. |
+| R1/R2/R4 | Generic source withdrawal → numerical rates → Life/ES loss | Established for supplied-state nested removal, outer-close numerical prefix and pool integration | [Complete whole-source/per-key removal, repeated affected keys, inverse cleanup, zero-difference invalidation and 22 original pool steps](client-native-source-withdrawal.md); actual effect-instance expiry/publication/shared cap/withdrawal, full transaction exit and ordinary Actor execution remain open. |
 | R1/R2 | Selected native DoT numerical composition | Established for supplied eligible/cache-ready states | [105 original registrations and actual dependency queue/callbacks](client-dot-native-composition.md); eight dynamic/cap/routing cases. Actual source publication, ordinary native eligibility and shared-cap reachability remain open. |
 | R2/R4 | Native DoT records to numerical pool loss | Established for supplied native-provider states | [Actual native previous-value/boolean getters and Life/ES loss bodies](client-native-dot-pool-composition.md); 1,995 record/cache comparisons and 24 pool steps. Provider selection/eligibility, instance publication and whole-actor execution remain separate. |
 | R1/R2/R4 | Constructed network wrapper → native records → pool loss | Established for supplied eligible/cache-ready states | [Real constructor, override/fallback, setter/notification and Life/ES integration](client-network-native-dot-composition.md); 124 pool steps. Explicit zero wins; network raw overrides preserve the supplied native cache/queue. Full actor construction/eligibility, actual subscribers and source publication remain open. |

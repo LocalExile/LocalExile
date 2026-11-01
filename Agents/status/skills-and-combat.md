@@ -878,6 +878,11 @@ and can require explicit recipes.
   The original outer-close prefix then drives the DoT queue: supplied 75,000 fire/minute becomes 18,750 at 75%
   resistance, zero under prohibition and 18,750 after clearing. Actual effect-source selection/publication/removal,
   full transaction exit and ordinary Actor execution remain separate from these supplied-token controls.
+  [Generic source withdrawal through pool loss](../docs/re/client-native-source-withdrawal.md) adds full nested
+  whole-source/per-key removal, preserving other tokens, and runs the same records through native getters and
+  22 Life/ES integration steps. Repeated inverse keys cause repeated removals; an existing-record zero difference
+  still queues dependencies, unlike a net-zero pending entry. Actual effect-instance calls/expiry, target
+  publication/shared cap and the full outer-transaction tail remain open.
   Native final ailment-duration formulas reciprocate faster factors, separately from expiration-speed clocks.
   [Six complete duration modifier equations](../docs/re/client-ailment-duration-inputs.md) preserve shared bow/focus/retaliation/recency gates,
   ignite bearer/tincture terms, bleed divide-before-multiply, poison's inclusive 150-Int test and upper-only bonus cap.

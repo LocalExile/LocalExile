@@ -187,6 +187,12 @@ algorithm. A caller would still have to choose the applicable instances and publ
 The network override vector is a different store, and no Buff-to-these-functions binding follows from
 the token layout. The three original-byte bodies are retained in `r2-native-source-tokens`.
 
+[Source withdrawal and numerical resource composition](client-native-source-withdrawal.md) now executes
+whole-source/per-key removal, inverse-index cleanup, the outer-close numerical prefix and Life/ES loss in
+the same interpreted memory. Repeated affected keys are visited repeatedly; an existing raw record with
+zero removal difference still queues dependencies. Actual effect-instance invocation/expiry and full
+transaction exit remain separate from these supplied-token controls.
+
 ### Native child inheritance is actively propagated
 
 Native child constructor `0x1424fbb80` installs the native table, copies the parent's resource/data
