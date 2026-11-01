@@ -127,6 +127,10 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
 
     public IReadOnlyList<Character> Characters(Guid accountId) => store.CharactersOf(accountId);
 
+    /// <summary>Every account with its characters (the dev protocol's "accounts").</summary>
+    public IReadOnlyList<(Account Account, IReadOnlyList<Character> Characters)> AccountsWithCharacters() =>
+        [.. store.Accounts().Select(a => (a, store.CharactersOf(a.Id)))];
+
     public Character? FindCharacter(string name) => store.FindCharacter(name);
 
     /// <summary>Creates a level 1 character in <paramref name="inLeague"/> (default: the service's league).</summary>
@@ -178,6 +182,20 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
             if (c is null) return Result<Character>.Fail(AuthError.NotFound);
             if (c.Portrait == portrait) return Result<Character>.Success(c);
             var u = c with { Portrait = portrait };
+            store.UpdateCharacter(u);
+            return Result<Character>.Success(u);
+        }
+    }
+
+    /// <summary>Records the character's worn portrait frame (0 = the default), found by name.</summary>
+    public Result<Character> SetPortraitFrame(string characterName, ushort frame)
+    {
+        lock (_gate)
+        {
+            var c = store.FindCharacter(characterName);
+            if (c is null) return Result<Character>.Fail(AuthError.NotFound);
+            if (c.PortraitFrame == frame) return Result<Character>.Success(c);
+            var u = c with { PortraitFrame = frame };
             store.UpdateCharacter(u);
             return Result<Character>.Success(u);
         }

@@ -19,7 +19,9 @@ Passive graph node 38080 (`AscendancyCustomBerserker11`, Mental Conditioning) su
 `display_mode_is_behemoth_ascendancy` (key 21159) alone has no effect.
 
 Let B include class base mana, six per level, final Intelligence / 2 and flat mana.
-It also includes `StrengthMana.Flat(final Strength, X_mana_per_4_strength)` once.
+It also includes signed `mana_per_level` and `StrengthMana.Flat(final Strength, X_mana_per_4_strength)` once.
+The broad/narrow inherent Intelligence prohibitions remove its half-Mana contribution, while the independent
+Strength-based item grant remains active.
 Both attributes come from main's `AttributeModifiers`, after all flat sources and increased attributes combine.
 The conversion never reads an unscaled class-plus-bonus attribute or a final native display replacement.
 The existing Strength consumer counts complete nonnegative four-Strength groups and retains the signed raw value.
@@ -39,11 +41,18 @@ For example, B=102.5 leaves 20.5 mana, rounded to 21.
 Ordinary armour, Iron Reflexes armour and mana-derived armour combine before rounding.
 Final mana and armour round to nearest, with positive ties upward, and clamp to `0..int.MaxValue`.
 Signed flat contributions and percentage sums remain signed until that final clamp.
-`PowerOfPurpose` uses exact `BigInteger` numerators over 1,000,000 to avoid decimal overflow and cancellation loss.
-The pure `ConvertFlatMana` helper accepts twice B so half mana remains exact and returns numerators at that scale.
-The inactive path retains main's decimal arithmetic, integer Intelligence / 2 and intermediate truncations.
-Main's `Rating` clamp still bounds ordinary Armour, unconverted Evasion and the Iron Reflexes sum.
-Active conversion bypasses ordinary Armour evaluation and combines the exact signed contributions once.
+`PowerOfPurpose.Pools` uses exact `BigInteger` fractions to preserve signed cancellation, fractional Ward conversion
+and the branch's independently combined MORE groups. The pure `ConvertFlatMana` helper retains its numerator-over-
+1,000,000 interface and accepts twice B. Ordinary shield/body subsets keep their own increases, exclusions and body
+doubling before the final combined armour round. Iron Reflexes keeps item Evasion-per-Intelligence and excludes the
+inherent Dexterity grant. The mana-derived contribution is not a shield/body source and gets no slot-only modifier.
+
+Decision: preserve the issue #75 branch's single half-up final defence rounding when conversion is inactive, instead
+of restoring upstream's older intermediate truncations. Ordinary Mana retains integer Intelligence / 2 and its existing
+pool floor. Active conversion retains the upstream signed final clamp, rather than saturating each armour contribution
+before cancellation. Fractional slot values and exact MORE factors require arbitrary denominators rather than silently
+truncating them into the former fixed scale. Combined tests and alternatives are in the
+[merge review](../dev/issue75-review.md#upstream-merge-resolution).
 
 ## Sources, consumers and integration boundary
 

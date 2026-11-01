@@ -67,8 +67,14 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
 - **Implemented:** linked native compatibility, complete support references, duplicate resolution and ordinary
   damage, area, speed, critical, cost and reservation calculations ([25](../docs/protocol/25-gem-supports.md)).
   Cyclone with Increased Area of Effect was checked with the real client.
+  Item-granted support references and local socketed-gem level/quality bonuses now share the resolver and calculations.
+  Item-support records, duplicate resolution, rolled levels and Delve more damage have automated coverage.
 - **Next:** implement special execution mechanics separately: triggers, repeats, projectile branching,
-  totems, mines, minions, leech and conditional effects; verify each against native data and live behaviour.
+  totems that use their skill (only Rejuvenation Totem's aura has an executor, and monsters do not attack totems;
+  [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
+  native data and live behaviour.
+  Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
+  Verify native refresh after mod changes and controlled before/after local level/quality changes.
 - **Done when:** Fireball linked with Arcane Surge shows the support's letter and pays the multiplied cost, a modelled
   support such as Faster Casting changes the skill, and the support crash is gone.
 
@@ -85,8 +91,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   variant), the Lapidary Lens's double corruption, and supported Vaal skill executors.
   Soul collection/budget payloads are implemented; native acceptance remains in skills-and-combat.
   Goes with item corruption (#60).
-- **Bonus levels:** "+1 to Level of Socketed Gems" and other item mods (#59), Empower Support and the awakened
-  exceptional supports.
-  Never past level 40, and they don't raise the gem's requirements.
+- **Bonus levels:** local all-gem, active/support and GemTags family level/quality bonuses now feed the effective gem
+  calculation, including Empower; stored experience and intrinsic requirements are unchanged.
+  Verify the item-bonus path with the real client and cover remaining special cross-item and conditional modifiers.
 - **Awakened supports:** their effects override their regular versions instead of stacking;
   their level requirements start at 72.

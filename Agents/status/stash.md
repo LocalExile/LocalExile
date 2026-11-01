@@ -44,12 +44,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   adds up to `count` more, at most 1000 per command, of every item type that has its own slot, as far as each slot holds.
   Divination cards are filled to complete sets, which is what that tab shows.
   On a gem tab it adds one of every creatable gem variant not already there, as far as its 500 cells go.
-  Tabs without a slot per type are refused with the reason.
+  The flask tab adds one missing standard flask or tincture base and each creatable unique flask/tincture identity.
+  Ordinary flasks include 12 life, 12 mana, 6 hybrid and 18 utility bases; Royale duplicates are excluded.
+  Existing normal or magic items count by base; uniques count by base, name and visual identity, independently.
+  Repeat filling adds no duplicates and preserves existing items, including different uniques on the same base.
+  Other tabs without a supported fill mode are refused with the reason.
   Blight, Delirium, Divination, Ultimatum and Breach tabs now publish their StashType sizes; the 12 × 12 default made the
   oils draw over the blight tab.
   Verified in the real client (2026-10-28): blight oils, all divination cards in both rows of the tab, and the gem tab's
   colour sub-tabs. Automated tests cover caps, in-place growth, reloads, refused tabs, tab lookup, cell fill and every
-  real layout against its published size. Map and unique tabs remain open (roadmap).
+  real layout against its published size. The regular map tab remains open (roadmap).
+  Unique collections use 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
+  each available collection cell once, preserving existing items. Verified in the real client: 1309 items, including
+  unique maps and inactive tinctures. Repeat filling does not duplicate occupied cells. Seven old catalogue names
+  have no matching client collection cell and are reported as unavailable; unique Heist contracts are not generated.
+  Legacy items can make the native collected count exceed its current-league denominator.
 
 ## Partly working
 

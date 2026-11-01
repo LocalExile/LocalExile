@@ -49,9 +49,13 @@ to 0.5–4 s. Measured afterwards: no 0x1c later than 50 ms in a crowded Coast s
 
 Tick latency does not measure queued gameplay work.
 `ConnectionPerformance` separately records socket-read-to-handler queue age, handler duration, send-gate wait/hold,
-wire-gate wait/hold, socket writes, hot combat-lock wait/hold, channel lateness, surround time and blocker-index builds.
+wire-gate wait/hold, socket writes, hot combat-lock wait/hold, channel lateness, surround time, blocker-index builds and
+each client message's handling (`Message`, the message id as the operation, such as `0x0025`).
 The `LocalExile.Gateway` meter exports duration histograms in milliseconds, surround allocations in bytes and pending
 input batches; tags contain operation names, never character or account identifiers.
+The duration histogram also carries `LevelGen`, one sample per generated area with its area id, outside any connection.
+An outside tool reads the meter without changing the server, for example
+`dotnet-counters monitor -p <Gateway pid> --counters LocalExile.Gateway` or the launcher's Performance tab.
 Closed connections discard their abandoned backlog so its depth does not remain in the process total.
 At most one `[latency]` log summary is emitted per connection every ten seconds when an interval sample reaches 50 ms.
 Set `$env:Game_TRACE = 'latency'` (or the older `$env:Game_LATENCY_METRICS = '1'`) in the PowerShell session before
@@ -189,8 +193,17 @@ still differ by one cell.
 server sent it (median 17 ms), and the client paths it at once (1,235 of 1,235 recorded monster paths match
 `ClientPathfinder` with `SearchLimit.Expansions100`, all other objects as blockers and the size's walk threshold). When a
 walk ends short of the target the client paths again on its own, and monsters far from the player keep their walk but do
-not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8); the Actor roll is 1 for these, so the source
-is still open.
+not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8): the Actor's run-speed roll `+0x1a8`. Actor
+setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
+u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns before `AilmentThreshold` (`__col75`,
+`__col76`) differ, draws a uniform integer in that range (`0x1404d03d0`); the roll multiplies the Pathfinding speed by
+1 + roll / 100. Of the 10 691 rows, 8 694 have (0, 0), 875 (−10, 10) and 855 (−5, 5) (every plain Goatman: 8 × 0.95
+to 1.05 is the band measured), then (−5, 10), (0, 10), (−30, 15), (−5, 8), (−15, 15). The server draws the same roll
+(`MonsterSpeedRoll.cs`, `AnimationVariantSelector.NativeRandom`) with the monster's 0x2b9 type hash as the type word
+and walks its estimate at that speed (the Gateway's create log prints the speed and the roll). The range is certain;
+that the type word is the type hash, and so the exact value, is the research branch's reading of the type loader and
+is not yet checked live: `scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier.
+Decompiled in the research branch's `re/server-gaps-3.29.3b.md` §3.
 
 **Server side.** `PlayerWalk` runs `ClientPathfinder` from the player's cell on every order and steps the result at the
 client's step times; walk-ups to NPCs, stashes, waypoints and area transitions use the client's range
@@ -213,6 +226,8 @@ client and server walk at the same speed. `ApplyMovementSpeed` runs on login, le
 `/set_speed` adds its percentage on top of the passive total.
 Only unconditional `increased Movement Speed` passives are modelled: action speed, more multipliers, gear/buff
 `movement_velocity_+%`, conditional nodes and the `movement_velocity_cap` constant are not applied yet.
+`movement_speed_cannot_be_reduced_below_base` bounds the total below by 0 (PoB `max(MovementSpeedMod, 1)`).
+The client's lower bound for `movement_velocity_+%` is 0 instead of -100 from the same raw flag (`0x14251cbd0`).
 
 **Compact int** (writer `0x141fa3c50`): signed, 1 byte for −0x40..0x3f (value & 0x7f), else 2/3/4 bytes with first-byte
 prefixes 0x80/0xc0/0xe0 carrying the top 6/5/4 bits, else 0xf0 + 4 bytes; big-endian (`InstanceProtocol.CompactInt`).
@@ -329,8 +344,9 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
-- Monsters on the server still walk on `WalkEstimator`. `ClientPathfinder` paths them as the client does (§5), but the
-  client's monster controller (its own re-paths, frozen far monsters), the speed variance and the 5–50 ms until the
-  client applies an order are not reproduced; their estimated positions are what the player's path avoids.
+- Monsters on the server still walk on `WalkEstimator`. `ClientPathfinder` paths them as the client does (§5) and the
+  estimate walks at the client's rolled speed, but the client's monster controller (its own re-paths, frozen far
+  monsters) and the 5–50 ms until the client applies an order are not reproduced; their estimated positions are what
+  the player's path avoids.
 - The client's walk-up arguments for melee attacks, item pickups and the map device (`Approach`).
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

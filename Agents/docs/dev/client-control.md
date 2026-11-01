@@ -23,9 +23,20 @@ already has it). Run from the repository root:
 
 `game:open` attaches to an existing client, or calls `live.ps1 -ClientOnly`. That switch starts only the copied client
 with the local patching-server argument and requires the local servers already running; it does not restart services,
-rebuild, extract data, or close an existing client. It waits up to 60 seconds for a native menu, so login can immediately
-follow its successful result. Before opening a closed client, it resets the cached GGPK gateway list to local Auth,
-as a normal startup does; an existing client returns before that write. Startup asset loading still takes the
+rebuild, extract data, or close an existing client. With `-Walkmaps` (default ports and client only) it also starts
+the walk-map recorder beside the client unless this checkout's recorder already runs. It waits up to 60 seconds for a native menu, so login can immediately
+follow its successful result. Before opening a closed client on the default ports, it points the cached GGPK gateway
+list at the local Auth when the list does not already (a stack on its own ports never writes the shared GGPK: the
+bridge's login connects to its Auth by port); an existing client returns before that.
+
+Several clients: `--session NAME` (`control.ps1 -Session NAME`, or `Game_CLIENT_SESSION`) drives one of several clients
+of this checkout's stack, each opened by `game:open` with that session as `live.ps1 -ClientOnly -Session NAME` does
+([live testing](live-testing.md#several-stacks-and-clients)). The bridge attaches to the PID `live.ps1` recorded for the
+session in `data/clients/NAME.json` (checked with the process's start time and this checkout's client path), never to
+another checkout's or session's client; without a session it takes this checkout's one unrecorded or default-recorded
+client, as before. A client counts as this checkout's by the path it was started by (its command line: the image name
+Windows reports resolves the `Client` junction to the shared folder, the same for every checkout). Logins go to this
+stack's Auth: the ports `live.ps1 -PortBase` wrote to `data/stack.json`, else `Game_LOGIN_PORT`, else 20493. Startup asset loading still takes the
 client's normal time. After merging upstream's gateway reset, a fresh client opened against the already-running
 Patch/Auth/Gateway services in 9.5 seconds, then logged in, listed characters and entered an area successfully
 (2026-10-25, isolated validation database). Mocked startup checks also cover existing clients and failed preflights.
@@ -39,8 +50,23 @@ line (the client's own 0x15, as typed in the chat box), and `tp` the `/tp` dev c
 `id`, `target` (+ `index`) or `list`. For slash commands the result also has `replies`: the chat lines the Gateway
 answered with, read from `logs/live-gateway.log` (its `=> 0x0017 chat line` entries) until 0.25 s pass without a new
 one or `wait` seconds (default 1.5) in total. `replies` is null when the servers were not started by this checkout's
-`live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Replies of commands
-sent from the chat box meanwhile are mixed in; the bridge does not capture the HUD.
+`live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Only the lines sent
+to this client's own connection count (the log names each connection by the client's local port, which the bridge
+reads from the TCP table for the client's PID; none while it has no connection to the Gateway), so other sessions on
+the same Gateway do not mix in; replies of
+commands typed in this client's chat box meanwhile still do. The bridge does not capture the HUD.
+
+Explicit password login replaces both the outgoing account/digest and the native message's saved-credential flag.
+The ordinary handshake can submit a remembered form before the explicit login RPC runs.
+`AccountLogin +0x95` must therefore be cleared when replacing that form with a password digest.
+The Remember Password preference at `+0x94` is retained; `login:saved` has no pending replacement and stays unchanged.
+The server still validates saved credentials and password digests through their separate normal paths.
+Native verification used a new synthetic account and the unchanged strict Auth server on `bbb658a9`.
+A remembered form first produced result 6 with `Flag95=true`; the corrected script reached selection with result 0.
+The tested combined source was `9736945d`, whose controller script is identical to this standalone correction.
+Saved-login preservation is covered by the offline hook control, not claimed as new native acceptance.
+Offline checks run with `python scripts/dev/test_client_control.py` and
+`node scripts/dev/test-client-login-writer.cjs`.
 
 ## Persistent integration
 
@@ -80,6 +106,10 @@ The bridge refuses a different executable path or code signatures. Addresses bel
 | `0x1421406f0` | Play with the chosen name view and list index. Set in-game state `+0xa48` to its class; push **state 11 (loading)**, which installs the assignment listener. Directly pushing state 4 skips that listener. |
 | `0x140d0f740` | Existing root login state's logout routine; preserves the correct login form lifecycle. |
 | `0x140dfb760` / `0x140dfb8c0` | Existing buffered socket writer/flush, for `0x153` return to selection and `0x15` slash commands. Encryption remains the client's. |
+| `0x14216e940` | Signature-checked reference for socket write coordination: mark writing, acquire the socket lock while threaded, write, release and unmark before flushing. |
+
+The bridge coordinates buffered writes with the network thread's flush through the socket's own lock.
+An unsynchronized write could desynchronize encryption permanently; author-reported native quest runs verified the fix.
 
 Live verified 2026-10-25: fresh `game:open`, login, actual level-100 OfflineWitch list, Play, return to selection, logout,
 wrong-password rejection, successful retry, Play again, and `/hit physical 1` received by the Gateway. In one persistent
@@ -117,7 +147,7 @@ Get-FileHash src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll -Al
 ## Targeted development interactions
 
 JSON RPC also accepts `game:resources` (read-only Life component pools and recent 0x1b1 corrections),
-`object:interact` with an object `id`, `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
+`object:interact` with an object `id` (and an optional `skill`, e.g. `258` = 0x0102, the default attack, to attack it), `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
 `reward:claim` with choice `id` and main-inventory `x`/`y`, and `inventory:pickup`/`inventory:place` with `inventoryId`
 and item `id` or destination `x`/`y`, and `flask:use` with a flask-bar `slot` (0-4) or `key` (1-5; CLI
 `flask:use 1`). `flask:use` sends the flask key's own C→S 0x70 (u32 cell, [13](../protocol/13-items.md) §8), so a flask
@@ -125,6 +155,13 @@ is used without keyboard input or window focus. These use the existing C?S inter
 submission; wait for the resulting state or logs. Movement uses the client's Move action (0x2909). Interaction from
 far away can fail to find a path; `tp` next to the object first (`{"command":"tp","target":"GlyphWall"}`), then interact. Resource updates are bounded to 128 entries and drained on
 read, so persistent RPC is needed to observe a recovery interval. This measures client state, not HUD pixels.
+
+`waypoint:travel` with an `area` (a WorldAreas HASH16, number or `"0x7ad2"` string) sends the World panel pin's C→S
+0x4d ([16](../protocol/16-waypoints.md) §3): the Gateway changes area when that waypoint is activated
+(`/waypoints all` activates every one). Live 2026-10-31 to The Coast and back with `/goto 1_1_town`.
+`game:frames` returns the main-loop frames counted at the bridge's own frame point since it attached, and the frames
+per second since the previous call (a session client with the cheap preset runs at about 9.2;
+[headless client](headless-client.md)).
 
 Live interaction checks included Tarkleigh's reward claim, starter weapon pickup/equip, the biting zombie's death and
 gem pickup, walking to the support chest and opening it. The client stayed attached through these tests. RPC completion

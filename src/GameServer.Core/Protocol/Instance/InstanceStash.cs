@@ -62,7 +62,7 @@ public static class InstanceStash
     /// Loaded (flag bit 9, +0x3e bit 1): the contents are known; S→C 0xc8 sets it.</summary>
     public sealed record Tab(ushort Index, string Name, uint Inventory, byte Type, byte R, byte G, byte B,
         TabFlags Flags = TabFlags.None, ushort Position = 0, ushort Parent = 0xffff, uint Affinities = 0, bool Loaded = false,
-        string Id = "", uint U2c = 0);
+        string Id = "", uint U2c = 0, ulong HiddenKey = 0);
 
     /// <summary>A tab record (0x141d4d1f0): u32 BE inventory id (+0x28), u32 BE (+0x2c, copied to the panel tab's +0x30),
     /// wstr name (+0x08), str id (+0x48), u16 BE position (+0x38), two flag bytes (+0x3d, +0x3e), u16 BE parent (+0x3a),
@@ -71,9 +71,11 @@ public static class InstanceStash
     {
         var flags = t.Flags & ~(TabFlags.Hidden | TabFlags.HasByte | TabFlags.Affinities);
         if (t.Affinities != 0) flags |= TabFlags.Affinities;
+        if (t.HiddenKey != 0) flags |= TabFlags.Hidden;
         w.U32(t.Inventory).U32(t.U2c).WStr(t.Name);
         StrNarrow(w, t.Id);
         w.U16(t.Position).U8((byte)flags).U8((byte)(t.Loaded ? 0x02 : 0)).U16(t.Parent).U8(t.R).U8(t.G).U8(t.B).U8(t.Type);
+        if (t.HiddenKey != 0) w.Bytes(BitConverter.GetBytes(t.HiddenKey));
         // The affinity bitset is copied raw (memcpy to +0x3f), so it goes little-endian.
         if (t.Affinities != 0) w.U8((byte)t.Affinities).U8((byte)(t.Affinities >> 8)).U8((byte)(t.Affinities >> 16)).U8((byte)(t.Affinities >> 24));
         return w;

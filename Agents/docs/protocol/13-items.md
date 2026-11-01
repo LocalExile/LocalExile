@@ -32,6 +32,11 @@ python -I scripts/re/ot_components.py --items --json data/item-types.json
 
 ## 2. The item data
 
+**Issue #75 evidence scope:** the defence, requirement and flask native captures and earlier test counts below
+belong to the original LocalExile revisions. Standard/Ruthless comparisons describe that source checkout, not
+game-mode support or a fresh client run on this branch. See [the port record](../dev/issue75-port.md) for current
+automated validation and exclusions; source `artifacts/issue75-completion/` evidence remains in LocalExile.
+
 Write `0x1421ec1d0` → `0x1421ec010`, read `0x1421ec2c0` → `0x1421ec390`. Wrapped in a **u16 big-endian length**; inside,
 everything is little-endian (memcpy):
 
@@ -46,26 +51,96 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 
 | Component | Vtable | Read | Data |
 |---|---|---|---|
-| Base | `0x1435e0168` | `0x1421e69c0` | u16 ItemVisualIdentity **HASH16** (unknown → "Attempt to set visual identity to NULL"), u8 +0xc0, u8 +0xc7 flags, u16 flags (low bit0 → u8, bit1 flavour text u16, bit2 wide string, bit3 u32, bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact); high bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 |
-| Mods | `0x1435df838` | `0x1421df6e0` | u8 +0x2b8 (item level), u8 +0x2bc (the level requirement, kept as sent: §2d), u16 flags (bit6 incubator u16 u16 u8, bit4 → u8, bit15 → 0x1c8 record `0x1424b70c0`), base magic properties `0x142201d70` (rarity, identified, mod lists: §2a), u8, u8 |
+| Base | `0x1435e0168` | `0x1421e69c0` | u16 ItemVisualIdentity **HASH16** (unknown → "Attempt to set visual identity to NULL"), u8 +0xc0, u8 +0xc7 flags, u16 flags (low bit0 → u8, bit1 flavour text u16, bit2 wide string, bit3 u32, bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact); high bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 the influences (§2f) |
+| Mods | `0x1435df838` | `0x1421df6e0` | u8 +0x2b8 (item level), u8 +0x2bc (the level requirement, kept as sent: §2d), u16 flags (§2f: bit1 mirrored, bit2 split, bit4 relic, bit5 synthesised, bit6 incubator u16 u16 u8 and then bit4's u8, bit7 → 0x1c8 record `0x1424b70c0`), base magic properties `0x142201d70` (rarity, identified, mod lists: §2a), u8, u8 |
 | Quality | `0x14363acd8` | `0x1424aec50` | u8 |
 | Charges | `0x143639a48` | `0x14249d4b0` | signed compact (`0x141e490e0`) |
 | Stack | `0x143634b10` | `0x1423f4b30` | u16 stack size (§4a) |
 | SkillGem | `0x143637298` | `0x14246eb00` | i32 experience (-1: one level over the cap), u32 +0x3c the variant, u8 +0x10 flags (bit 2: level locked), u16 +0x40 |
 | Sockets | `0x1435df9a0` | `0x1421e2e20` | u8 = bit0/bit1 (special: nothing more) \| socket count << 2 \| link group count << 5; per socket u8 colour << 1 \| has gem, then the gem's item data **without** the length prefix; then a u8 per link group (its socket count). Colours: 1 red, 2 green, 3 blue, 4 white (all seen live 2026-10-26) |
-| Armour | `0x14363ad40` | `0x1424affc0` | u8 0..0x20 (stored at +0x28; 0x20 also sets +0x2a) |
+| Armour | `0x14363ad40` | `0x1424affc0` | u8 shared roll 0..31 (stored at +0x28); 32 (0x20) is a special minimum-base flag, which also sets +0x2a |
 | MapKey | `0x14363abd8` | `0x1424ae7c0` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
 | LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x14363ab88`, `0x1435dfb80` … | `ret` | nothing |
 
 Minimal item the server sends: flags 0, Base with only the visual identity, Mods identified and normal with no mods.
 
 **Base defences:** an `ArmourTypes.dat` row is keyed by `BaseItemTypesKey` (the BaseItemTypes row) and gives
-`ArmourMin`/`ArmourMax` and `EvasionMin`/`EvasionMax`. The client interpolates between them with the item's base
-percentile; our items send the Armour component's default `0`, so the server uses the minimum. The equipped body
-armour, helmet, gloves, boots and shield count, and each piece adds its own local flat/increased defence mods and item
-quality (`ItemDefences`: `local_base_physical_damage_reduction_rating`, `local_base_evasion_rating`,
-`local_energy_shield`, `local_evasion_rating_and_energy_shield`, their `+%` forms and the combined ones; +1% per
-quality on armour, evasion and energy shield).
+`ArmourMin`/`ArmourMax`, `EvasionMin`/`EvasionMax` and `EnergyShieldMin`/`EnergyShieldMax`.
+`Item.DefenceBaseRoll` stores the Armour component's raw byte, shared by all three defences.
+Ordinary values 0 through 31 select `round(minimum + (maximum - minimum) * roll / 31)`.
+The interpolated base rounds halfway up before local modifiers, separately from the final item rounding.
+Raw wire value 32 sets the native special flag and uses minimum bases; it is not a maximum roll.
+The flag hides tooltip defences (`0x1416d8c67`, `ItemViewDefencesNotShown`) but does not prevent Sacred Orb use.
+It survives wire/save round trips but is never generated for ordinary new items.
+Values above 32 are refused by the server model instead of silently aliasing another roll.
+The native derived byte at Armour `+0x29` is a display percentile, not an independent saved roll.
+Reader/writer: `0x1424affc0` / `0x1424aff60`; base getters: `0x1424af890`, `0x1424af910`, `0x1424af990`.
+
+Fresh armour items from `ItemCatalog.Create` sample a uniform ordinary roll once.
+This is the local server's generation policy; the official server's distribution has not been measured.
+Drops, rewards, vendor stock and development items share that factory.
+Saving, loading, moving, socketing and affix changes preserve the existing roll.
+Sacred Orbs deliberately reroll it through the normal currency path described below.
+Legacy saved items missing the field keep their original zero/minimum base; loading never draws a fresh base roll.
+`/base_defence [0 to 31]` shows or sets the held armour item's roll for development checks.
+`EquippedBaseDefences` counts active body armour, helmets, gloves, boots and the active offhand shield.
+An item disabled by requirements contributes nothing; the inactive weapon set and backpack contribute nothing.
+
+For armour, evasion and ES, each item contributes
+`round((rolled base + local flat) * (1 + local increases / 100) * (1 + effective quality / 100))`.
+The final item value rounds halfway up once, before summing equipment or applying character-wide increases.
+The reference is Path of Building commit `16de4b82d57f1c0de6eb40f37143c32d4da36a02`,
+[Item.lua](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b8/src/Classes/Item.lua#L2345)
+and [Common.lua](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b8/src/Modules/Common.lua#L709).
+Flat local stats are `local_base_physical_damage_reduction_rating` and `local_base_evasion_rating`.
+Evasion also counts `local_evasion_rating_and_energy_shield`.
+Typed local increases add to the applicable armour/evasion, armour/ES, evasion/ES and triple-defence increases once.
+Effective quality is the saved Quality byte plus `local_item_quality_+`.
+`local_quality_does_not_increase_defences` suppresses this multiplier; maximum-quality modifiers do not add quality.
+Global item/passive/aura modifiers and Iron Reflexes continue through the shared character-pool calculation afterward.
+Equipment changes and quality currency on worn items refresh those pools and send the resulting panel stats.
+ES uses that same final half-up rounding instead of truncating between local increases and quality.
+`ItemDefences.Calculate` supplies the shared local item values to equipment.
+`local_no_energy_shield` and `local_unique_tabula_rasa_no_requirement_or_energy_shield` force this item's ES to zero,
+overriding its base, flat/increased mods and quality without removing armour, evasion or another item's ES.
+The native ES getter `0x1424af430` tests these flags before the base, flat modifiers, increases or quality.
+Supported equipment ES-to-Life conversion and conditional ES increases are described in §2c.
+Sacred Orbs reroll the saved shared base roll through the currency handler (see "Sacred Orb" in §4).
+
+**Shield-specific character increases:** retain the active shield's final local AR/EV/ES as separate inputs.
+`shield_armour_+%` (24) increases all three shield defences despite its name.
+Typed shield increases are `shield_physical_damage_reduction_rating_+%` (495),
+`shield_evasion_rating_+%` (496) and `shield_maximum_energy_shield_+%` (492).
+These add to the applicable global increase bucket on the shield contribution only, before global more multipliers.
+They do not change item tooltips, other equipment, independent flat defences or ES converted into Life.
+`combined_shield_defences_+%` (9865) is a derived stat, not a second additive source for stat 24.
+The native combined calculators are `0x142724c50`, `0x14272f680`, `0x142727dd0` and `0x14252f6a0`.
+Iron Reflexes applies both typed shield armour/evasion increases to converted shield evasion, counting stat 24 once.
+`minions_get_shield_stats_instead_of_you` and `gain_no_defences_from_equipped_shield` remove the shield's local
+contribution from player pools as well as ES-to-Life conversion.
+Full minion redirection of other shield modifiers and Devotion-dependent shield scaling remain separate mechanics.
+Fractional contributions survive slot scaling and Iron Reflexes until one final half-up round for each rating.
+Native final rounding is at `0x142732ee7` (AR), `0x14272a59b` (EV) and `0x14252c6e7` (ES).
+The ES path calls signed rounding helper `0x142513810`; it no longer truncates an ordinary final pool.
+
+Variable-base native checks verified Plate Vest rolls 0, 8, 16 and 31 as 19, 21, 23 and 27 armour.
+Raw 32 arrived as stored roll zero with special flag one and minimum armour 19, including after relog.
+Changing back to an ordinary roll cleared that native flag; ordinary roll 31 also survived relog unchanged.
+With roll 16, 50% local increase and 20 quality, native tooltips showed Plate Vest armour 41,
+Rawhide Gloves evasion 29 and Simple Robe ES 31.
+The character received those contributions through the same pools, including after quality crafting and relog.
+Newly created items had different ordinary rolls, while moving and crafting retained their saved rolls.
+
+Native checks used an isolated level-20 Duelist with 23 Dexterity and no other equipment or passives.
+A Scale Vest with +10 local armour/evasion and 26% local increased armour/evasion showed 47/47 before quality.
+Twenty Armourer's Scraps on the worn vest raised its saved quality to 20 and its native tooltip to 56/56.
+The Defence panel and server pools updated to 56 armour and 73 evasion, including the character's base and Dexterity.
+Adding `local_item_quality_+` 10 kept the saved byte at 20 and showed 30% quality and 61/61 in the native tooltip.
+The alternate-quality prohibition removed only quality's defence multiplier; removing mods and unequipping cleared
+their respective contributions.
+A modified shield contributed 18 armour only in the active set; the native weapon-swap key restored it from zero.
+With 56 armour, a 100-point physical test hit dealt 90 damage after the existing 10% armour reduction.
+Automated tests also cover global modifiers, disabled equipment, Iron Reflexes, per-item rounding and large totals.
 
 ## 2a. Mods: rarity and mod lists
 
@@ -76,7 +151,7 @@ Gateway's `ModCatalog.cs`.
 ```
 u16  flags   bits 0-2 rarity (0 normal, 1 magic, 2 rare, 3 unique), bit 3 identified,
              one bit per mod list (below), bit 7 custom name, bit 8 Words.dat name, bit 9 alternate quality
-u8           (+0x7a, unknown; 0)
+u8           (+0x7a, the fractured explicit count; 0 on monsters)
 bit 9:  u8 AlternateQualityTypes row, u8
 bit 4:  implicit list      bit 6: enchant list      bit 10: scourge list      bit 11: hidden list
 identified only:
@@ -90,7 +165,7 @@ empty one; no Mods.dat row has a gap), so the count must match. An unknown hash 
 recognise". After reading, `0x1421ff3c0` adds the "magic" / "rare" tag and gives each list to `0x1421ff8f0` with its
 kind (implicit 1, explicit 2, enchant 3, scourge and hidden without one).
 
-What the tooltip shows (live, 2026-10-20, an Iron Ring with `/mod <list> IncreasedLife1`): implicit under the
+What the tooltip shows (live, 2026-10-20, an Iron Ring with `/item_mod <list> IncreasedLife1`): implicit under the
 properties, enchant above the implicits, explicit below a separator, scourge as orange lines among the explicits
 (Hellscape), hidden not at all. Magic items get their name from the affixes (Healthy Iron Ring); a rare item shows its
 two Words.dat words above the base name (Corruption Gyre / Iron Ring; verified 2026-10-20 that the key is HASH32), or the
@@ -98,8 +173,9 @@ base name without them. Unidentified items show "Unidentified" and their implici
 
 New items roll their BaseItemTypes `Implicit_ModsKeys` (Driftwood Wand: `SpellDamageOnWeaponImplicitWand1`, 8-12%).
 Saves keep rarity, identified and each mod by Mods.dat Id, list and values; an item saved before mods gets its type's
-implicits again. Dev commands on the held item: `/mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part>
-[values…]` (missing values rolled, the list defaults from GenerationType), `/mod clear [list]`, `/mods`,
+implicits again. Dev commands on the held item: `/item_mod [implicit|explicit|enchant|scourge|hidden] <Mods row, Id or part>
+[values…]` (missing values rolled, the list defaults from GenerationType), `/item_mod set [list] <mod> [values…]` (replaces
+an existing mod's roll and keeps the item's other mods), `/item_mod clear [list]`, `/item_mods`,
 `/rarity <normal|magic|rare|unique> [unid]`.
 
 ## 2b. Rolling magic and rare items
@@ -159,6 +235,8 @@ Each affix is drawn by weight from all allowed mods (prefixes and suffixes compe
 ModFamily with one already chosen. Magic: 1-2 affixes, at most one prefix and one suffix. Rare: 4 (7/12), 5 (4/12) or
 6 (1/12) affixes, at most three of each, and a name: one word from Words.dat list 1 (prefixes) and one from list 2
 (suffixes, with a leading space), drawn by the same tag weights. Values are rolled uniformly in each stat's range.
+The rare caps are `system_settings` (`rare_max_prefixes`/`rare_max_suffixes`, and the jewel pair): lowering a cap
+reduces the count to the caps' sum, and raising the sum above six adds the excess to the count (4/4 gives 6-8).
 These counts and chances are our own; the game's are not known.
 
 Drops: equipment from a normal / magic / rare / unique monster is magic 25 / 35 / 40 / 30% and rare 5 / 10 / 25 / 50%
@@ -179,7 +257,8 @@ passives' stats (`CharacterStatSources`), so it reaches the pools (`PassiveBonus
 attributes, resistances, block, suppression, speeds, crit, accuracy …) and the stats the client shows (0x1b3), the same
 way a passive's would. They are sent again when equipment changes (`SendEquipment`).
 
-Local mods on the main hand (row 2, else 14) change the weapon profile (`ItemWeapons`): `local_physical_damage_+%`,
+Local mods on the active main hand (row 2 after weapon-set swapping) change the weapon profile through the shared
+`ItemWeaponStats` calculator (also used by `ItemWeapons`): `local_physical_damage_+%`,
 `local_minimum/maximum_added_physical_damage` and item quality on the weapon's physical damage (quality is a separate
 × (1 + quality/100) multiplier after the local increases, the post-3.25 rule; it does not touch the elemental/chaos
 added damage), `local_attack_speed_+%` on the attack rate (like a more, before the global increases),
@@ -189,6 +268,29 @@ elemental ones raised by `local_elemental_damage_+%` and `local_attacks_with_thi
 hit the weapon makes. The armour, evasion and energy shield side is in "Base defences" above. Verified live 2026-10-20:
 +20 maximum Life, +30% fire resistance and +25 strength on a ring, a local attack speed mod on the wand, and spell
 damage on the wand raising Fireball's damage (11-skills.md §9).
+
+**Supported special defence rules:** `Program.Equipment.ConvertEquipmentEnergyShield` converts active armour items'
+final local ES into base Life before character-wide Life increases.
+`gain_maximum_life_instead_of_maximum_es_from_armour` selects 100% and takes precedence over
+`gain_maximum_life_instead_of_maximum_es_from_armour_at_x%_of_the_value`.
+Each item's percentage contribution truncates separately before summing (native consumer `0x142523ab0`).
+Conversion removes all equipment ES even when the Life gained is only a percentage of its value.
+Independent global and aura ES remains ES; global ES increases do not scale the converted Life.
+Shields excluded from the player's defences also contribute no converted Life.
+Inactive equipment and backpack items contribute neither ES nor converted Life.
+
+`local_maximum_energy_shield_+%_if_item_corrupted` adds to the character-wide ES increase bucket only while its active
+source item is corrupted (`ItemModStats.Global`, matching PoB's item-condition modifier handling).
+It does not change the local tooltip value or increase converted Life.
+The hidden zero-ES modifier above also removes attribute requirements during equipment activation, as does
+`local_no_attribute_requirements`; both retain the level requirement (§2d).
+Automated tests cover these rules, source clearing, active shields and inactive equipment.
+Historical native controls recorded at `0bae37a` verified 49 + 13 + 7 local ES becoming 69 base Life at 100% and 33
+at 50%, together with independent ES, global Life scaling and shield swaps.
+Controls recorded at `c9060e4` kept the corrupted robe's tooltip at 49 ES and converted Life at 1,314 while independent
+ES increased from 206 to 216.
+These are historical feature checks; the merged branch still needs fresh real-client validation.
+Other unique and conditional defence mechanics remain separate work (#60).
 
 ## 2d. Requirements and inactive items
 
@@ -230,19 +332,27 @@ Native all-zero requirement values, source clearing and relog are also verified.
 Own-item percentage retention, cascading equipment and weapon-set combinations retain automated coverage.
 See [attribute calculation and rounding model](11-skills.md#4-the-default-attack).
 
-A gem socketed in a worn item whose level or attribute requirement the character no longer meets makes that item
-inactive as well (`CharacterStatSources`: the gem's requirements are checked per socket with `GemRequirementsUnmet`),
-so the item counts for nothing and the Actor skill list leaves its gems out: with no skill, there is nothing for the
-client to cast ([19](19-gems.md) §2 "Requirements"). An inactive main-hand weapon is not there for the attack or for
-the weapon shape either: the default attack falls back to the class's unarmed hit (`WeaponFor`) and the shape passives
-read as unarmed (`WeaponProfileFor`).
+Each recount resolves the whole class/passive/active-item flat bucket with the matching typed and all-attribute
+percentage increases. Pools and equipment qualification call the same `CharacterStats.ResolveAttributes`; rounding
+an individual item's contribution first would change activation thresholds. The old tuple-based solver overload
+remains available, while production uses a pure whole-active-set callback. The existing bounded reactivation then
+one-at-a-time deactivation phases are retained. Signed circular dependencies can oscillate between evaluations;
+their official policy remains unverified, and no fixed-point or stabilization rule is invented here.
+
+A socketed gem's unmet requirement raises its item's requirements (`EquipmentStatSources`, `SocketedGemRequirements`,
+[19](19-gems.md)): the item goes inactive with every gem in it, as a worn item the character is too low for does, and
+a use that still arrives is refused (`GemRequirementsUnmet`/`GemDisabled`). Gem admission reads the completed pool
+attributes and explicit `virtual_*_for_requirements` overrides. An inactive host contributes no mods or usable gem skills.
+An inactive main-hand weapon is absent for attacks and weapon-shape conditions: the default attack uses the class's
+unarmed hit (`WeaponFor`) and the shape passives read as unarmed (`WeaponProfileFor`).
 
 Open: the client still draws an inactive item on the character (a red wand stays in hand), and the server leaves it
-where it is. The state is reachable in the real game — a ring's +intelligence makes a gem's requirement met, the gem
-goes in, the ring comes off — the server now reproduces it (attributes included, checked live 2026-10-23 with
-`/set_stat intelligence` above and below a gem's requirement: the client reds the gem and the wand's mods stop
-counting, [19](19-gems.md) §2 "Requirements"). What the official client draws then is still to check there (the gem
-red, the wand still in hand). Moving the item out of its row is the only way to take its visual away (Roadmap "Gems 1").
+where it is. Historical gem-requirement checks also disabled the host; that behavior is superseded by the individual
+gem gate. Seventeen isolated controls in each of Standard and Ruthless verify percentage-driven item activation,
+deactivation/recovery and active weapon-set persistence after relog. Normal Fireball input succeeds at Intelligence
+68, is refused at 62 against its 67 requirement, and succeeds after recovery, while the qualified Plate Vest retains
+19 Armour. These controls use actual native mod identities on isolated supplied items; unique acquisition and
+signed circular-dependency policy remain unverified. See [19](19-gems.md), Requirements.
 
 **Stale stats:** S→C 0x1b3 only sets the stats it lists, so every full player stats send also sends 0 for each stat
 sent before that is gone now (`PlayerStatsWithCleared`).
@@ -251,16 +361,62 @@ sent before that is gone now (`PlayerStatsWithCleared`).
 
 The client data has a unique's name (`Words` wordlist 6) and its artwork (`ItemVisualIdentity`, linked to the word by
 `UniqueStashLayout`), but **no table maps a unique name to its mods**: unique mods are ordinary Mods.dat rows with
-GenerationType 3 and an empty Name. The server therefore curates each unique's mod list (`UniqueCatalog`): base type,
-the mod rows and their value ranges, from the game's data (poedb for 3.29). `/item <unique name>` creates it with the
-name words and artwork, unique rarity and the fixed explicit mods; the base type's implicits are rolled as usual (for
-Mageblood the Heavy Belt's +25-35 Strength). Checked live 2026-10-26: the client shows the Mageblood name, unique art
-and full tooltip. Only Mageblood is defined so far; unique drops, chancing and the other uniques remain open (#60).
+GenerationType 3 and an empty Name. The server therefore keeps each unique's mod list (`UniqueCatalog`): base type,
+the mod rows and their value ranges. Mageblood and Crown of Eyes are curated from poedb for 3.29; the others are
+generated by `python scripts/re/unique_items.py --pob <Path of Building folder>` from `src/Export/Uniques/*.lua`.
+The generator takes the variants PoB shows by default: `Selected Variant` and each alternate slot's `Selected Alt
+Variant`, else the last variant, the current one when the variants are eras (Tombfist is Current plus one choice per
+slot). The base is that variant's line, else the newest line, as a unique's base can differ per variant (Tulfall's is
+an Opal Wand now). Same-name bases (Two-Stone Ring, the quivers) are told apart by their implicits, then by DropLevel.
+The export ties an implicit to any row with that text, often an old base's, so a unique keeps its base's implicits
+unless a line names a unique's own row, the base has none, or the implicit is Eldritch; `Definition.Implicits` replaces
+them on 9 uniques. `Definition.Ranges` holds a roll that differs from the Mods.dat row, per list since a mod can be in
+both, and the generator's `STALE_ROLLS` drops the export's rolls where the row and poedb agree against it.
+Divine and Blessed Orbs reroll in these ranges (`UniqueCatalog.RollsOf`), and an admin's `/game_data mod` range wins over
+them. `Definition.Fractured` counts the fractured explicits, which come first (6 uniques).
+It writes no item level: a definition uses 86, and drops use their own. Item text the export has instead of a mod id
+resolves through `ModTextMap.lua` when a unique mod's roll fits; the rest is left out and listed by the run (the
+timeless jewels and Pure Talent, which have their own code, and about 25 lines of other uniques).
+The seed was compared with poedb's item cards on 2026-10-31. What is left is on the roadmap.
+Uniques without a `Words` wordlist 6 row are left out, since nothing could name them on the client, and so is
+Disintegrator, whose Maelstrom Staff the client does not have.
+The name match goes through `UniqueCatalog.NameKey`: Words writes some apostrophes otherwise and spells three names its
+own way, and drop weights use the same key.
+`/item <unique name>` creates it with the
+name words and artwork, unique rarity and the fixed mods; a base type's implicits are rolled as usual unless the
+unique has its own (for Mageblood the Heavy Belt's +25-35 Strength). A unique's alternate-art row in `UniqueStashLayout` is not its art. Checked live 2026-10-26: the client shows the Mageblood name, unique art
+and full tooltip. Chancing and most uniques' own mechanics remain open (#60).
+
+**Utility flask orb enchantments** (`FlaskEnchantments`, Game's flask handlers): Enkindling and Instilling
+use native generation types 21/22, first-match tag weights and effective mod ranges from Mods.dat.
+There are 5 Enkindling and 15 enabled Instilling choices; the guard-expired row has zero spawn weight.
+They apply to uncorrupted, unmirrored utility flasks, including uniques; life/mana/hybrid flasks and tinctures refuse.
+The ordinary 0x71 transaction consumes one sphere only after a valid result, preserving item identity and affixes.
+The enchant list and matching old Harvest enchant family are replaced, so the two orb kinds do not stack.
+
+Enkindling's local effect, duration, charges used, maximum charges and charge recovery feed the existing calculations.
+Its cannot-gain flag is checked before Standard/Ruthless charge-gain rules, across all existing gain paths.
+Instilling queues authoritative events and uses the ordinary paid utility-flask path, including Mageblood/death checks.
+Events cover charges reaching full, natural effect expiry, neighbouring flask use, life-flask use, rare/unique hits,
+blocks, savage hits losing at least 15% maximum Life, paid Guard/Travel skills and new elemental ailments.
+Bleed/Poison condition matching is present, but incoming Bleed/Poison source mechanics do not yet exist.
+Guard-expired is excluded from the random pool. There is no fabricated ailment or guard effect implementation.
+The existing 250 ms pause-aware flask ticker drains coalesced events outside combat locks; each flask can use once per
+event chain, so adjacent-flask loops terminate. Refresh replaces that flask's previous timed effect and buffs.
+Natural expiry can reuse the same flask; removing it, death, towns and grace-period suppression cannot start a chain.
+Automated checks cover all 20 choices, admission, replacement, roll ranges, charge lock/coefficient inputs and triggers.
+Native verification (2026-10-31): both orbs consumed one currency and replaced the enchantment on a Quicksilver Flask.
+Removing increased maximum charges clamps stored charges to the new maximum. Enkindling blocked periodic charge gain
+throughout the active effect and allowed it after expiry. Hitting a spawned rare monster automatically used the
+Instilling-enchanted flask through the normal charge/buff path. Other trigger conditions have automated coverage.
+Official mechanic reference: https://www.pathofexile.com/forum/view-thread/3147479 (Major New Content).
 
 **Mageblood's mechanic** (`Program.Mageblood`): while the belt is worn (and its requirements met), the leftmost N (2-4,
 from `num_magic_utility_flasks_always_apply`) magic utility flasks in the flask bar constantly apply their effects. The
 stats are added where a running utility flask's stats are added (pools, the client's stats, phasing), scaled like a use
-(the flask's own mods and the character's flask effect/duration), with no charges, timer or buff packets. Magic utility
+(the flask's own mods and the character's flask effect/duration), with no charges or timer. Each such flask keeps its
+buff on the client with no duration (0x1c1 with the flask-bar cell and without bit 1), put on and taken off by a ticker
+(`RunUniqueBeltEffects`, about 4 a second) when the belt or the bar changes, on entering an area and on death. Magic utility
 flasks cannot be used while it is worn: the client enforces the item mod and the server refuses the use as a backstop.
 The character's stats are re-sent when the flask bar changes while it is worn (`PlaceItem`, `HeldOntoItem`, `PickUpItem`)
 and on equipment changes. Live 2026-10-26: placed flasks applied at once, and a flask key did nothing.
@@ -268,8 +424,85 @@ The running effects and the permanent ones are combined before the strongest-per
 already used when the belt went on counts once, not twice, while different effects still stack; the running effects keep
 their own duration and stay after the belt is removed.
 
-Not modelled yet: the flask buff icons/permanent durations, the "Magic Utility Flask Effects cannot be removed" backstop
-(the client enforces it), the Foulborn rightmost variant, and Enkindling/instilling.
+Not modelled yet: the "Magic Utility Flask Effects cannot be removed" backstop (nothing in the server removes a flask's
+effect), the Foulborn rightmost variant. Enkindling/Instilling server logic is described above. How the client draws a flask buff without a duration
+has not been seen live.
+
+**Headhunter's mechanic** (`StolenMods`, `Program.UniqueBelts`): killing a rare monster with
+`gain_rare_monster_mods_on_kill_ms` on the character adds the stats of the rare's rolled affixes (not its rarity's
+`MonsterRare` mods) to the character's stat sources, so pools, speed, damage and the panel read them as they read gear.
+By the project's rule, not the mod's 20 s: each different modifier is one stack lasting 60 s, and getting it again resets its
+time without counting twice. One `stolen_mods_buff` (BuffDefinitions 269) shows them, with the stack count and the longest
+time left, replaced at each change by the same ticker. Death and an area change end them. A stat with no consumer on the
+character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of melee, area and projectile contacts
+(`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
+the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
+
+## 2f. Item states
+
+What an item is besides its mods, and where each state travels.
+Fields come from the client's readers and its debug dumps of the two components, Base `0x1421e7570` and Mods
+`0x1421e1190`, which print each field's name.
+A refusal code near a check names it too: the code is a ClientStrings row + 1 (`0x1762` is
+`ItemErrorFailedRerollVariableDefence`, row `0x1761`).
+
+| State | Where | Server |
+|---|---|---|
+| Corrupted | Base `+0xc7` bit 0 | `Item.Corrupted` |
+| Influences | Base `+0xc6`, one bit per influence | `Item.Influences` |
+| Mirrored | Mods flags bit 1, `+0x2df` (`duplicated`) | `Item.Mirrored` |
+| Split | Mods flags bit 2, `+0x2e0` (`split`) | `Item.Split` |
+| Synthesised | Mods flags bit 5, `+0x2e5` (`synthetic`) | `Item.Synthesised` |
+| Fractured | magic properties u8 `+0x7a` (`+0xb2` of Mods): the count of fractured explicits, which come first | `Item.FracturedCount` |
+| Eater / Exarch | the implicit list: mods of GenerationType 29 / 28, no state of their own | an ordinary implicit |
+| Crafted | the explicit list: mods of Mods.dat Domain 9 (`BenchCrafting.IsCrafted`) | an ordinary explicit |
+| Enchanted | the enchant list (§2a): GenerationType 10 and other enchantment rows | `ModSection.Enchant` |
+
+**Influence bits.** Bit n is Influence n of `InfluenceTags.dat` and `InfluenceExalts.dat`: 0 Shaper, 1 Elder, 2 Crusader,
+3 Redeemer, 4 Hunter, 5 Warlord.
+Each bit was sent alone and the client's Ctrl+C text named that influence (live 2026-10-30; below).
+The client tests `+0xc6` for zero in its crafting checks (`0x141d57ea0` "Item has influence", `0x141f85860` "Item has no
+influence") and reads each bit when it draws the item (`0x1415703a0`).
+
+**Influence mods** are ordinary prefixes and suffixes behind a tag per item class: `InfluenceTags.dat` gives 24 classes a
+tag per influence (boots_shaper, ring_eyrie, body_armour_adjudicator …), and 1,446 Mods.dat rows spawn only with one.
+`ItemRolls.Pool` adds those tags for an influenced item, so every roll, bench reroll and affix currency can reach them.
+`shaper_item` and `elder_item` exist in Tags.dat, but no mod's spawn weights use them.
+
+**Other Mods flags.** Bit 3 `disable_mirrored_visuals` (`+0x2e1`), bit 4 relic (`+0x2e3`, a foil look) with a
+RelicItemEffectVariations row as a u8 after the incubator data, bit 6 incubator, bit 7 the 0x1c8 record `0x1424b70c0`, bit 10
+vestigial (`+0x2e7`, `ItemErrorCannotApplyToVestigialItem`).
+Bits 0, 8 and 9 are unnamed.
+`+0x2e2` is no wire field: it marks the client's lazily built caches (`0x1421e1930`).
+
+**Other Base `+0xc7` bits.** Bit 2 locked to character, bit 3 locked to account (`0x1421e7570`); bit 5 changes what the
+writer `0x1421e64a0` sends.
+
+Display kinds of a mod line (`0x1424df5c0`): 2 crafted, 3 fractured, 4 mutated (Foulborn), 7 divergent.
+
+`/item_state [state …]` switches corrupted, mirrored, split, synthesised and each influence on the held item, and `clear`
+removes them all (`ItemStates`).
+They are saved with the item in characters and stash tabs; a save from before reads as none of them.
+Uniques that PoB marks Shaper or Elder Item carry it in their definition (25 of them).
+`ItemRolls.Fracture` refuses influenced and synthesised items (`ItemErrorCannotFractureSpecialItems`, "Cannot Fracture
+Influenced or Fractured Items", and poewiki for synthesised); a split item stays eligible.
+Tests pin the bytes, the saves, the tags and the refusals.
+
+Live 2026-10-30, on a rare Iron Ring with `/item_state`, read from the client's Ctrl+C text and tooltip:
+
+- Influences show as icons in the tooltip header and an overlay on the item's art; the tooltip has no line for them, and
+  the copied text says "Shaper Item", "Elder Item", "Crusader Item", "Redeemer Item", "Hunter Item", "Warlord Item".
+- Split and Corrupted are tooltip lines (Corrupted in red), and Mirrored too.
+- Synthesised renames the base ("Synthesised Iron Ring") and copies as "Synthesised Item".
+- A Domain 9 mod copies as `Master Crafted Prefix Modifier` with its own tooltip colour, and an enchant as `(enchant)`.
+- A Fracturing Orb on a Shaper ring was refused, leaving 3 orbs; the same ring without the influence fractured, leaving 2.
+- The ring's copied text was the same after a relog and after a Gateway restart, and a fractured ring kept its mod.
+
+Tooltips only show while the client has focus, and Alt pins one; a check by screenshot has to keep both in mind.
+
+Nothing in play creates these states yet: Conqueror's Orbs, Awakener's Orb, Beastcrafting and synthesis are follow-ups, and
+so are the mechanics that read influence (Spirit Charges, Elder/Shaper conditions, `PanelStats`), influenced vendor sets,
+foil, Foulborn and vestigial items.
 
 ## 3. Inventories with items (S→C 0xc0) and changes (S→C 0xbf)
 
@@ -503,6 +736,24 @@ tier, as the Divine Orb does for explicits; explicit, enchant and other mods, ra
 implicit mod is refused (nothing spent), and like every currency here but the Scroll of Wisdom it does nothing to a
 corrupted or mirrored item.
 
+### Sacred Orb
+
+`CurrencyRerollDefences` uses the ordinary 0x71 and repeat 0x72 currency routes (`CurrencyEffects.Sacred`).
+The target must have Armour and Mods components, a known variable native defence range, and be neither corrupted
+nor mirrored; rarity does not prevent an otherwise eligible reroll.
+One orb selects a shared ordinary base roll from 0 through 31, replacing raw special state 32 when present.
+This uses the local uniform roll policy; the official server's distribution has not been measured.
+A successful reroll may repeat the old value and still spends one orb; it need not improve the defences.
+Affixes, fractures, quality, sockets, gems and other item properties stay unchanged.
+Inventory/stash saves and currency consumption commit together; a failed save rolls both back.
+Worn-item changes feed the shared pools and the next character-panel update.
+Native range eligibility includes Ward, but Ward character calculations and recovery remain unimplemented.
+`SacredOrbTests` covers eligibility, endpoints, preservation, persistence, rollback and pool refresh.
+Fourteen historical native captures recorded at `63c1039` cover ordinary/repeat use, defence updates, refusals,
+raw-32 replacement, Ward-only targets and inventory/stash pairings.
+A native 9-to-9 reroll consumed one orb, and a Gateway restart preserved the rolls and currency counts.
+Fresh real-client checks of the merged branch remain open.
+
 ### Orb of Scouring (2026-10-21, verified live)
 
 `CurrencyConvertToNormal`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Scouring` makes a magic, rare or
@@ -588,6 +839,40 @@ Quality component's u8) to an item with an Armour component, any rarity, up to 2
 defences from the quality. On this server the Orb of Scouring also sets an armour piece's quality back to 0 (and so
 accepts a normal armour piece with quality). Other items, or 20%, are refused and nothing is spent.
 
+### Sacred Orb
+
+`CurrencyRerollDefences` (`reroll_variable_defences` in CurrencyItems.dat) uses the same 0x71 / Shift 0x72 handler.
+`CurrencyEffects.Sacred` changes only the saved shared `DefenceBaseRoll` to an ordinary value from 0 through 31.
+The local server samples uniformly, as it does for newly created armour; the official distribution is unmeasured.
+One orb is spent even when the new roll equals the old roll.
+Mods, quality, rarity, identification, sockets, gems, links, names and fractured state stay unchanged.
+The existing atomic inventory/stash mutation saves the stack and target together and sends their 0xbf replacements.
+Rerolling worn equipment refreshes the character's shared defence pools and panel.
+
+The native target validator `0x141f83050` requires Armour and Mods components and rejects mirrored items.
+The ordinary crafting protection also refuses corrupted targets.
+At least one native base-defence range must vary; otherwise it returns `0x1762`,
+`ItemErrorFailedRerollVariableDefence`: "Target item has no modifiable base defence."
+The comparisons include armour, evasion, ES, Ward and the fifth unnamed native range.
+`ItemCatalog.BaseDefences.HasAdditionalVariableRange` records the Ward/fifth-range eligibility without adding their
+mechanics to the server's character pools.
+The current extracted fifth range (`__col10` / `__col11`) is zero in every row.
+Fixed bases such as Kaom's Plate and Kaom's Greaves, and all-zero bases such as Golden Wreath, are refused.
+Ward-only Runic equipment has a variable range and remains eligible.
+The validator has no rarity, identification or current-roll restriction.
+Raw 32 is eligible: a successful reroll replaces it with an ordinary roll and clears the native hidden-defences flag.
+
+Native application verified raw 32 to 26 and a worn Plate Vest from 16 to 12, with tooltip and panel armour both 40.
+Shift 0x72 rerolled worn gloves from 16 to 23.
+A worn robe changed from 16 to 20, then 20 to 28 using currency from the stash.
+Every inventory/stash source/target pairing passed, including a same-value stash reroll from 9 to 9 consuming one orb.
+Corrupted, mirrored, ring and fixed-base boots targets were refused without spending an orb.
+The native validator refused fixed Kaom's Plate and zero-defence Golden Wreath, while accepting Ward-only Runic Helm.
+UI application changed the helm's roll from 16 to 25 and its Ward tooltip from 44 to 46.
+Shield and unique-rarity targets also rerolled successfully.
+After a Gateway restart, both characters' inventories and the stash retained every roll and currency count.
+The reloaded stash vest kept roll 9, quality 20 and its 50% local increase, displaying 54 armour and 54 evasion.
+
 ### Blacksmith's Whetstone (2026-10-21, verified live)
 
 `CurrencyWeaponQuality`, the same as Armourer's Scrap for items with a Weapon component (`CurrencyEffects.Whetstone`):
@@ -614,31 +899,37 @@ quality back to 0, as for armour and weapons.
 `CurrencyGemQuality`, same handler (0x71, 0x72 with Shift). `CurrencyEffects.Gemcutter`: +1% quality on an item with a
 SkillGem component (active or support) that is not corrupted, up to 20%. Anything else is refused and nothing is spent.
 
-### Fracturing Orb (2026-10-21, verified live)
+### Fracturing Orb (2026-10-21, verified live; rules rechecked 2026-10-30)
 
 `CurrencyFractureRare`, same handler (0x71, 0x72 with Shift). As the official orb: a rare item with at least four explicit
-mods, not corrupted and not fractured yet, has one random explicit mod fractured (`CurrencyEffects.Fracture`). The mod
-moves to the front of the explicits and `Item.FracturedCount` (saved) counts it. Every other currency keeps fractured
-mods: Chaos, Vaal and the other rerolls roll around them (they count towards the affix limits), Annulment and Divine
-skip them, Augmentation / Exalted insert after them, and Scouring removes everything else (the item stays magic so the
-mod still shows).
+mods, not corrupted, mirrored or already fractured, on a supported non-`Unmodifiable` base whose
+`ItemClasses.CanBeFractured` is set, has one random explicit mod fractured (`ItemRolls.Fracture`). Metamod-protected
+mods are eligible: the orb does not respect metamods. The mod moves to the front of the explicits and
+`Item.FracturedCount` (saved) counts it. Every other currency keeps fractured mods: Chaos, Vaal and the other rerolls
+roll around them (they count towards the affix limits), Annulment and Divine skip them, Augmentation / Exalted insert
+after them, and Scouring removes everything else (the item stays magic so the mod still shows).
 
 The client is told through the magic properties' u8 `+0x7a` (the byte right after their u16 flags, sent 0 before):
 the fractured explicit count, the first explicits being the fractured ones. Verified live: those mods show fractured.
 Tried first and wrong: the Mods component's flag bit 4 with a u8 after the flags shifted the item (it showed magic).
 
-### Mirror of Kalandra (2026-10-21, verified live)
+Influenced and synthesised items are refused (§2f). Veiled modifiers are not modelled.
+See [the game rules](../re/fracturing-mirror-mechanics.md).
 
-`CurrencyDuplicate`, same 0x71 / 0x72 messages (`MirrorItem`). As the official mirror: an item that is neither
-corrupted nor mirrored is copied with every property (mods and values, fractured mods, quality, sockets, links,
-socketed gems, name); the copy is **mirrored** and goes onto the cursor (S→C 0xbf on the cursor inventory) for the
-player to place, the original stays unchanged. A held item,
-a corrupted or mirrored target, or an item without mods is refused and nothing is spent. A mirrored item takes no
-currency but a Scroll of Wisdom.
+### Mirror of Kalandra (2026-10-21, verified live; rules rechecked 2026-10-30)
+
+`CurrencyDuplicate`, same 0x71 / 0x72 messages (`MirrorItem`). As the official mirror: a non-unique equipment item
+that is neither corrupted nor mirrored, on a supported non-`Unmodifiable` base whose `ItemClasses` equipment flag is
+set, is copied with every property (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity,
+identification and name); the copy is **mirrored** and goes onto the cursor (S→C 0xbf on the cursor inventory) for
+the player to place, the original stays unchanged. A held item, a corrupted or mirrored target, a unique item, a
+non-equipment item (flask, jewel, map, currency), an unmodifiable base, or an item without mods is refused and
+nothing is spent. A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil is not
+modelled. Using a Mirror from a stash tab is a local limitation, not a game rule.
 
 `Item.Mirrored` (saved) is sent as the Mods component's u16 flags bit 1 (`+0x2df`, a plain bool with no data after
 it): the client's crafting check refuses an item with it (`0x141d68f9b`); the tooltip shows
-"Mirrored".
+"Mirrored". See [the game rules](../re/fracturing-mirror-mechanics.md).
 
 ### Vaal Orb and corruption (2026-10-21, verified live)
 
@@ -803,25 +1094,28 @@ The refusal result was captured from the official 3.29.3b client; the native UI 
 Otherwise:
 
 1. The charges are spent and saved, and the flask goes to the client again (S→C 0xbf: the item removed and added with
-   its new Charges, same id). S→C `0x263` then confirms the successful use and triggers the native drinking
+   its new Charges, same id). S→C `0x263` then confirms successful use and triggers the native drinking
    sound (details below).
-2. Its recovery (`FlaskRecovery.For`, as Path of Building's Item.lua and CalcPerform calcFlaskRecovery and poewiki's
-   "Recovery from flasks"): base × (1 + quality) × (1 + increased amount recovered: `local_flask_amount_to_recover_+%`
-   and the life / mana ones) × (1 + the character's `flask_life_to_recover_+%` / `flask_mana_to_recover_+%` and
-   `flask_life_and_mana_to_recover_+%`) × (1 + increased flask effect duration, which recovers for longer at the same
-   rate) × (increased flask effect + the low-life more multiplier − 1: `…_when_on_low_life`, at half life or less, is
-   not scaled by flask effect, PoB CalcPerform "verified ingame"). Its
-   time: base × (1 + increased duration) / (1 + increased recovery rate), the character's flask recovery rates dividing
-   it again. The partial-instant mods (50%), "Instant Recovery" and "Instant Recovery when on Low Life" give that part
-   at once; the mods that "remove #% of … recovered from …" take it from the other pool on use (never below 1 life);
-   "Mana Recovery occurs instantly at the end of Effect" gives the mana when the effect runs out; "Effect is not removed
-   when Unreserved Mana is Filled" (and the character's "Life / Mana Flask Effects are not removed when … is Filled")
-   keeps it at a full pool and out of the queue; the life suffix "Recover an additional #% of Flask's Life Recovery
-   Amount over 10 seconds if used while not on Full Life" adds that share of the flask's own life (instant and over
-   time) as its own effect. A flask used while a monster's hit kills the player (during the charges' send) recovers
-   nothing (`FlaskRecovery.Instant`): it must not bring the player back to 1 life.
-3. The flask's buff goes on the player (S→C 0x1c1): BuffDefinitions row 5 `flask_effect_life` ("Healing") or row 9
-   `flask_effect_mana` ("Regenerating Mana"). Both are invisible, cancelled on death and removed once the pool is full.
+2. Its recovery (`FlaskRecovery.For`, as the pinned Path of Building `Item.lua` and `CalcPerform` do) starts with
+   base amount times quality, local amount modifiers, the matching character amount modifiers and flask effect.
+   The low-life more factor is separate from flask effect: their contribution is the effect factor plus the low-life
+   factor minus one, at half life or less. The instant fraction is applied to that amount before global duration.
+   Only the remaining over-time amount receives the character duration factor described below; longer global
+   duration recovers for longer at the same rate and does not increase the instant part.
+   Life and Mana periods are calculated independently: base seconds times the local duration factor times the
+   global duration factor, divided by the local recovery-speed factor, generic character
+   `flask_recovery_speed_+%` factor and matching `flask_life_recovery_rate_+%` / `flask_mana_recovery_rate_+%` factor.
+   Those rate factors multiply. A hybrid retains both amounts and separate durations; accelerating Mana does not
+   accelerate Life. Recovery quality affects amount; utility quality affects duration (§8a).
+   The partial-instant mods (50%), "Instant Recovery" and "Instant Recovery when on Low Life" give that part
+   at once. Mods that remove a percentage of recovery from the other pool apply on use, never reducing Life below 1.
+   "Mana Recovery occurs instantly at the end of Effect" gives the Mana when its effect ends; effects not removed at
+   a full pool stay out of the queue. The extra-Life suffix adds its own ten-second effect based on the flask's total
+   Life recovery. A flask whose asynchronous charge send ends with the player dead recovers nothing
+   (`FlaskRecovery.Instant`); it must not restore the player to 1 Life.
+3. Each recovery component's buff goes on the player (S→C 0x1c1): BuffDefinitions row 5 `flask_effect_life` ("Healing")
+   and/or row 9 `flask_effect_mana` ("Regenerating Mana"). A hybrid installs both with their independent rates,
+   durations, queues and end/full-pool lifetimes. Both are invisible, cancelled on death and removed once their pool is full.
    Both rows are `IsRecovery` (+0x7c), so 0x1c1 carries one u32 per GrantedStats entry: the recovery per minute
    (`base_life_recovery_per_minute_from_flask`, 70 × 60 / 3 = 1400 for the Small Life Flask). Live 2026-10-20: without
    that value the client misread the message and showed no life change from then on, although the server sent every
@@ -839,14 +1133,128 @@ Otherwise:
    character's "… Flask Effects do not Queue" for its kind of flask, and the suffix's extra life run on their own. The
    buff comes off (S→C 0x1c2) when the time is up, the pool is full (unless it stays), or the player dies.
 
+Character duration is resolved once from raw inputs by `PanelStats.FlaskDurationIncrease`:
+`G = flask_duration_+% + flask_duration_+%_per_level * actual player level`, with global factor `1 + G / 100`.
+Both actual use handlers capture the character stats and level together before the asynchronous charge-spend send.
+They use the actual character level, not a gem level or an arbitrary `level` stat. The displayed
+`virtual_flask_duration_+%` seed or developer replacement does not feed back into recovery or utility duration.
+The panel's signed coefficient uses the same raw sum; its source rules are in
+[11-skills.md](11-skills.md#14-character-panel-sums). Existing nonpositive-duration policy is unchanged and unproved;
+the earlier controls cover positive runtime factors.
+
+Actual recovery and utility uses now resolve global effect separately through `FlaskEffectScaling`:
+`E = flask_effect_+% + actual player level * flask_effect_+%_per_level`. Captured level is clamped to 1–100; the two
+raw inputs are read once with wide intermediates. Local effect and applicable magic-utility effect join this additive
+bucket. The existing multiplier is `max(0, 100 + E + local + applicable magic) / 100`; no upper balance cap is added.
+Recovery flasks ignore the magic-utility-only source, and normal utility flasks ignore it too. The raw character
+keys 1784/20244 remain raw; the resolved amount is not written back into publication or mistaken for a new panel row.
+
+Native Nevalius source rows 4969/36939 provide -60 plus +1 per player level, without Hardmode overrides: the global
+coefficient is -50/-40/+40 at levels 10/20/100. The next use consumes the new level/source snapshot; an active utility
+keeps its captured stats. Recovery quality, amount, rate, instant fraction and low-life more stages keep their
+existing order. Duration remains separate. Utility flags and independent Onslaught values are not effect-scaled.
+Individual utility stat projection keeps round-to-two-decimals then truncate and saturates only the native integer
+representation; strongest-effect magnitude comparison uses a wide signed value. This does not harden every
+later stat/pool sum against arbitrary extreme developer inputs. Existing fractional-duration conventions, including
+unrounded local-duration intermediates, are not an official rounding claim.
+
+All 39 new pure/real-handler cases pass, including native source removal, raw zero overrides, instant/partial/
+low-life recovery and local/magic composition in both modes. Combined with self-duration tests, the focused batch
+passes 53/53 and full Gateway 3710/3710 with no skips. Prior unchanged Core 648/Data 37 runs remain applicable
+(4395 applicable cases, not all newly rerun). Full-run diagnostics retain five actual unobserved disposed-stream
+task faults: four `MonsterKilled` and one `NotifyMonsterHit` → `AreaSkillHit` → `LaunchProjectile`; none mentions the
+new calculation paths. Test passes are not a fault-free background-execution claim. That automated checkpoint did not
+establish native coverage, legal named-unique acquisition or native item-tooltip treatment of per-level effect.
+
+Subsequent live controls (2026-10-27, source `6bbae87`) verify eight positive per-level-effect uses at actual levels
+10/100 in Standard/Ruthless. Fresh owned Default Attack records and natural DPS getter frames bind raw keys
+1784 = -60 and 20244 = 1, attributes 114/114/132, and Life/Mana maxima 215/160 or 1295/700 before each use.
+The native modifier vectors use controlled carriers; the new qualifier is an in-range +100 all-attributes vector.
+This does not establish legal acquisition of the named uniques or validate the preserved historical +200 qualifier.
+
+| Mode | Level | Small Life: rate per minute / seconds | Observed Life gain / fixed amount | White utility: final stat / seconds |
+|---|---|---|---|---|
+| Standard | 10 | 700 / 3 | 34 / 35 | movement speed +20% / 6 |
+| Standard | 100 | 1960 / 3 | 97 / 98 | armour +2100 / 6 |
+| Ruthless | 10 | 700 / 3 | 34 / 35 | movement speed +20% / 2 |
+| Ruthless | 100 | 1960 / 3 | 97 / 98 | armour +2100 / 4 |
+
+Each Life use spends 7 of 21 charges; each utility use spends 30 of 60. Life endpoints remain uncapped and satisfy
+the original one-integer publication boundary; they do not establish official fractional rounding. Recovery strength
+is present in the installed recovery-buff vector. Non-recovery utilities instead publish strength through final
+character stats: movement key 245 or armour key 243. Their decoded buff vector `[0]` accompanies the timer and is
+not strength evidence. Same-owned, explicit-present character samples show 0 -> the fixed strength -> 0, with no
+contradictory value or positive recurrence. Native install/removal, row, slot and exact float32 duration are checked
+separately; relative clocks from different observer scripts are not compared.
+
+The first launch incorrectly used `Game_PLAYER_ATTACK=0`, which selects an invalid default effect rather than
+disabling attacks; it was restored and retained as unproved. The fresh run selects `PlayerMelee`. Original verifier
+failures are also retained: the stage acknowledgment has two documented advisory fields absent from its captured
+identity, and the original utility expectation used the recovery-value channel. Separately reviewed verifier
+revisions bind every canonical stage field/journal acknowledgment and check the proper final-stat channel without
+changing the fixed strengths. The utility channel correction was declared after the Standard captures and before
+the Ruthless uses; verifier code/review was completed after capture. Earlier 18 whole-zero controls remain UNPROVED.
+All test stock, cells and charges were restored, representative level100 relogs passed in both modes, and the
+post-run audit preserved all eight identities, both original probes, both stash banks/40 tabs and untouched level20
+saves. Only normal participant last-played timestamps changed. Source/build/input hashes held, observers detached,
+the client closed, and the normal `data/saves.db` services were restored. Source removal/zero next-use controls,
+active-use source changes, local/magic composition, named-unique acquisition and tooltip parity remain separate.
+Local receipts are under `artifacts/issue75-completion/flask-effect2-native/` (captures, operation journal, verdicts
+and cleanup), `flask-effect2-native-assessment/` (frozen policy and reviewed verifier revisions), and
+`flask-effect2-native-preservation/post-run-audit.json` (the independent preservation audit). These are separate
+from the earlier native panel/duration batch below.
+
+The preceding integrated panel/duration batch passed 55 new and 80 existing focused cases and full Gateway 3657/3657.
+Prior Core 648/Data 37 runs remain applicable because those sources are unchanged (4342 applicable cases).
+The combined native assessment has 40 completed controls: 22 complete PASS (12 positive source cases, six utility
+uses and four Life uses), while 18 complete zero controls remain UNPROVED. The six panel fields total 138 VERIFIED
+and 42 UNPROVED verdicts, including retained observations and clearing/restoration/relog transitions. Missing or
+contradictory zero witnesses remain failures of proof; they are not counted as hidden-zero rendering.
+
+Six actual utility uses match their fixed duration fields, including the native +30% local-duration modifier at 100:
+
+| Mode | Level 10 white Quicksilver | Level 100 white Granite | Level 100 local-duration Granite |
+|---|---|---|---|
+| Standard | 13.8 seconds | 3 seconds | 3.9 seconds |
+| Ruthless | 4.6 seconds | 2 seconds | 2.6 seconds |
+
+Four actual Life uses also match their original prospective observation bounds. At level 10 the fixed amount is
+161 over 6.9 seconds: Standard observed +160 and Ruthless +161. At level 100 it is 35 over 1.5 seconds: both modes
+observed +34. These satisfy the original one-integer publication boundary; the discrepancy is retained and is not
+an official rounding claim. The separate ordinary heal/hit/use bootstrap was captured once per control.
+
+The final recovery3 session logged out/detached cleanly with 769 frozen inputs unchanged, preserved original saves
+and all six canonical full inventories, and was followed by parent-verified client closure and normal
+`data/saves.db` restoration. Earlier recovery1 binding failures, recovery2 Life-readiness failure and its vendor
+response failure remain recorded separately. These results do not prove every zero row, legal acquisition of the
+controlled modifier carriers, a complete on-kill engine or the full native matrix.
+
+Raw `charges_gained_+%` sources resolve into `flask_charges_gained_+%` once before charge awards.
+An explicit developer virtual replacement, including zero, keeps precedence. The resolved character factor then
+multiplies the flask's local charge-recovery factor, preserving fractional carry and saturating extreme whole awards.
+The source LocalExile revision also tested Ruthless active-utility prevention and its exception; those private
+game-mode mechanics are not part of this branch. Current ordinary-mode charge awards keep the same source formula.
+Formula evidence comes from the reference library's pinned PoB `16de4b82` `CalcPerform`/`Item.lua` and the saved Flask
+page, with native Stats/Mods/BuffDefinitions identities checked locally. Automated real-handler controls cover both
+modes, hybrid queues, full/end/death, instant and delayed Mana recovery. All 24 native controls pass across Standard
+and Ruthless: actual installed Life/Mana buff components, rates/durations, independent expiry, resource curves and
+charge awards. The native handler exposes its bounded installed-pointer vector at +0x160/+0x168; read-only
+observation checks instance +0x9c and inactive flag +0xd0 bit 0x10 after natural add/remove handling.
+The hybrid control installed 1200 Life/minute for 5 seconds and 1680 Mana/minute for 2.5 seconds; Mana ended first.
+Ruthless preserved spent charges in town and the ordinary Nessa interaction refilled them before further controls.
+Source/runtime hashes, original saves and inventory contents held, allowing flask charges and native move IDs.
+Evidence: `artifacts/issue75-completion/flask-native/verified-matrix.json`, including preserved setup failures.
+Queued native timer/predictor presentation and exact official-server arithmetic/rounding remain unmeasured.
+
 ## 8a. Utility flasks
 
 A flask key (0x70) on a utility flask goes to `UseUtilityFlask` (`Program.UtilityFlasks.cs`, `UtilityFlasks.cs`).
 Everything comes from the tables (`ItemCatalog.UtilityFlaskOf`): the Flasks.dat row names the flask's BuffDefinitions
 row, its BuffStatValues (one value per StatsKeys entry of that row) and its duration (RecoveryTime, tenths of a second);
-ComponentCharges gives its charges. The second duration column, RecoveryTime2, is shorter for every utility flask
-(Quicksilver 20 against 60; life flasks have both equal) and is not the one the game uses: Path of Building's bases and
-RePoE 3.29.3.3 `base_items.json` give Quicksilver 6 s (duration 60), Ruby 8 s, Iron 4 s, the RecoveryTime values.
+ComponentCharges gives its charges. This branch uses RecoveryTime, matching the pinned ordinary-mode bases:
+Quicksilver and Granite both last 6 seconds. The historical LocalExile Ruthless checks used RecoveryTime2 (2 and 4
+seconds respectively); mode-specific catalog selection is outside this port. Duration modifiers apply to the ordinary
+bases listed below.
 
 | Flask | Buff (row) | What it does here | Duration, charges |
 |---|---|---|---|
@@ -911,12 +1319,18 @@ A use:
    (poewiki, the Fandom mirror, Path of Building and the forum don't say): `UtilityFlasks.EndsWhenFlaskLeavesItsCell`;
    flip it if the real game keeps the effect running.
 
-Duration and effect follow Path of Building (`Item.lua`, `CalcPerform.lua`): duration = base × (1 + increased) × (1 +
-quality) × (1 + `local_flask_duration_+%_final`), where increased is the flask's `local_flask_duration_+%` plus the
-character's `flask_duration_+%` (passives and gear: "increased Flask Effect Duration") and quality multiplies it (20%
-quality: Quicksilver 7.2 s); the stats are scaled by 1 + the flask's `local_flask_effect_+%`, the character's
-`flask_effect_+%` and, on a magic flask, `magic_utility_flask_effect_+%` (not Onslaught's, which has its own effect
-stat), each value rounded down (PoB ModStore.ScaleAddMod: to two decimals, then the fraction dropped).
+Duration and effect follow the pinned Path of Building `Item.lua`/`CalcPerform` model. Utility duration is base
+seconds times the item-local duration factor, the character global duration factor from §8, quality, and the
+`local_flask_duration_+%_final` factor. Item-local and global increases multiply; they are not one additive bucket.
+For example, a 6-second base with 30% local and 20% global duration lasts `6 * 1.3 * 1.2 = 9.36` seconds before
+quality or local more modifiers. Quicksilver with only 20% quality remains 7.2 seconds in ordinary mode.
+The raw global sum includes the per-player-level source once and ignores the virtual display seed.
+Effect uses §8's raw flat-plus-player-level resolver, adding local effect and `magic_utility_flask_effect_+%` only
+on a magic utility flask. A flask's Onslaught takes that effect too, added to the character's `onslaught_effect_+%`
+(wiki Silver Flask and Onslaught: flask effect applies to Onslaught a flask grants since 3.20). Values use the existing PoB `ScaleAddMod`
+rounding projection with final integer saturation; that representational guard is not an upper balance cap.
+Global duration, local duration and effect are distinct operations. The new per-level effect source does not establish
+all unique acquisition/conditional mechanics, native tooltip behavior or official fractional duration rounding.
 
 The "during effect" suffixes (`UtilityFlasks.DuringEffect`) count while the flask runs, scaled by its effect: increased
 armour (`local_flask_armour_+%_while_healing` → `physical_damage_reduction_rating_+%`), increased evasion, movement
@@ -925,16 +1339,35 @@ ailment, stun and curse ones (avoid, reduced effect or duration on you, immuniti
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not
 modelled).
 
+With `flasks_apply_to_your_linked_targets` (Paladin's Field Medicine), a non-unique utility flask also puts its buff
+and the Silver Flask's Onslaught (0x1c1, the player as source, the flask's duration) on each of the player's linked
+targets, and takes them off (0x1c2) when the effect ends or the target goes (`FlaskToLinkedTargets`,
+`LinkSkillsTick`). There its stats are scaled by the flask's own increased effect only, not by the player's "applied
+to you" `flask_effect_+%` and `magic_utility_flask_effect_+%` (Path of Building's `effectIncNonPlayer`). A minion
+target's walk takes their `base_movement_velocity_+%`: the server's speed and the client's `movement_velocity_+%`
+(0x1b3 on the minion) change together (`MinionFlaskSpeedLocked`). Their other stats have nothing to act on or are
+not applied ([Paladin](../game/paladin.md#link-skills)).
+
 **What some flasks make on use** (`FlaskGrounds.cs`, `Program.FlaskGrounds.cs`), from their implicit mods, where the
 player stands (radii in cells):
-- Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Monsters standing in it are blinded (buff 179
-  `blinded`): 20% less accuracy against the player (`MonsterSwing`) and 20% less evasion against the player's attacks
+- Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Hostile monsters standing in it (not the
+  player's minions) are blinded (buff 179 `blinded`): 20% less accuracy against the player (`MonsterSwing`) and 20% less evasion against the player's attacks
   (Path of Building's Blind; the tables have no default value for it). Live: Hillock's accuracy 14 → 11.
+  The same Blind as a passive's blind aura (`Game.Blinded`, [11](11-skills.md) §12); each keeps its own buff.
 - Sulphur (`local_consecrate_ground_on_flask_use_radius` 18): consecrated ground. Standing on it the player regenerates
   5% of maximum life per second (`life_regeneration_rate_per_minute_%` 300) and curses are 50% less effective (Path of
   Building; the stat's reminder text), with the `ground_consecration` buff (208) and the stats sent again.
-- Basalt (`local_flask_taunt_enemies_on_use_radius` 30): `taunted` (408) on the hostile monsters around for 3 s (the
-  reminder text); with one player that changes nothing else.
+  `consecrated_ground_effect_+%` raises both (PoB CalcPerform: 50% gives 450 and -75), and
+  `your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area` keeps the buff and stats for that long after
+  the last moment any of the player's grounds covered him (left, or the ground ended); a death ends it.
+- A stationary player with `consecrated_ground_while_stationary_radius` (or its Strength or Crusader variant, the
+  largest as the client's 0x1428d43a0) has one consecrated ground of that radius where he stands: made when his walk
+  ends, removed (0x2bb) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
+- Basalt (`local_flask_taunt_enemies_on_use_radius` 30): taunts the hostile monsters around for 3 s (the reminder
+  text), through the player's shared taunt (`TauntLocked`, [11](11-skills.md) §12), which shows `taunted` (408).
+  Row 408 is IsRecovery, so its 0x1c1 carries `taunt_target_id` and `is_taunted`; the flask used to send it without
+  them, which the 0x1c1 reader (0x141fdf870) reads past the end of the message.
+  With one player, the taunt matters only for `taunted_enemies_damage_taken_+%` (Paladin's Bring the Battle).
 - Aquamarine's chilled ground (`local_flask_chilled_ground_on_flask_use_radius` 28) is not made: chilling monsters needs
   their slower walks and attacks to match on the client, which is not done. The ground shows the GroundEffects art
   (`ground_effects_v2/consecrated/consecrated_01.ao`, `smoke_blind/smoke_blind.ao`) as an effect object (`EffectObject`)
@@ -1076,19 +1509,24 @@ Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`); test
 ## Open
 
 - Flasks: fewer kill charges in acts 6 to 10 and maps (the amount is not in the tables), single monsters' own flask
-  charge stats, partial charges across connections (not saved), hybrid flasks' buffs (a hybrid flask recovers both pools
-  but shows only the life buff), the effects across an area change (they end), the "during any flask effect" passives.
+  charge stats, partial charges across connections (not saved), queued native timer/predictor presentation,
+  the effects across an area change (they end), the "during any flask effect" passives, remaining conditional effect
+  operators and nonpositive-duration policy. Flat/per-level global effect has eight positive runtime controls (§8);
+  source-removal/zero next-use behavior and whole-unique native acquisition/tooltip parity remain unproved.
+  Hybrid Life/Mana buffs are implemented; see §8.
   Utility flasks: unsupported ailments, stun modifiers and curses on the player
   (Aquamarine's freeze effect, Corundum, the ailment suffixes: panel only); Aquamarine's chilled ground; the smoke
   cloud's art; which objects phasing lets the player through besides monsters; how long the grounds last; whether taking
   a flask off the bar ends its effect (it does here, `UtilityFlasks.EndsWhenFlaskLeavesItsCell`); leech suffixes.
 - Gem levels and experience, support gems and links.
-- The game's own affix counts, rarity chances and drop rates; other currency on items (0x71); local weapon damage and
-  armour / evasion / energy shield mods (items have no base defences or damage on the server yet), unique / corrupted / crafted / influenced items (#60), ObjectMagicProperties +0x7a and bit 9; quality
-  effects; the meaning of Base +0xc0 / +0xc6 / +0xc7.
+- The game's own affix counts, rarity chances and drop rates; unsupported currency and individual local/unique /
+  corrupted / crafted / influenced item mechanics (#60), beyond the implemented weapon and defence rules in §2;
+  unexplained ObjectMagicProperties bit 9, unsupported quality effects and remaining meanings of
+  Base +0xc0, Base +0xc7 bits 1, 4, 6, 7 and Mods flags bits 0, 8, 9 (§2f).
 - C→S 0x2d and 0x12 (5 bytes, seen once); 0x4a's flag bit 1, its u16 and its other callers (`0x140b34140`,
   `0x14031c0a0`: probably currency use on an item).
-- Currency use other than the Orb of Regret. Ctrl + click of a stack between inventories; a ground stack that only partly fits stays
+- Unsupported currencies beyond those implemented in §4.
+  Ctrl + click of a stack between inventories; a ground stack that only partly fits stays
   on the ground whole (the real game takes what fits).
 - Another connection in the same instance sees items dropped meanwhile only when it re-enters (no broadcast; the
   Gateway shows each client only its own player).

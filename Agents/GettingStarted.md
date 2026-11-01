@@ -2,6 +2,8 @@
 
 This guide takes a fresh clone to "in game in Lioneye's Watch, able to walk and take The Coast exit". Each step says
 what success looks like and what to do when it fails. It is written to be followed by a person or by an AI agent.
+To play without developing, a [release](https://github.com/LocalExile/LocalExile/releases) needs none of this: run its
+`LocalExile.exe` ([releases](docs/dev/releases.md)).
 
 ## Rules (read first, especially if you are an AI agent)
 
@@ -9,8 +11,9 @@ what success looks like and what to do when it fails. It is written to be follow
    `--patching-server 127.0.0.1:12995`. Started any other way (double-click, Steam, launcher, a second instance), the
    client contacts the official patch servers. It may then update itself, which overwrites the patched executable and
    the game data.
-2. **Run only one client at a time.** To bring a running client to the front, restore its window; do not launch it
-   again.
+2. **Run only the clients `live.ps1` starts: one, or more as named sessions.** To bring a running client to the
+   front, restore its window; do not launch it again. Several clients (or several checkouts' servers) at once need
+   `live.ps1 -Session` and `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)).
 3. **Run every command from the repository root.** The tools read and write `data/` and `Client/` relative to the
    current directory.
 4. **Never commit `data/` or `Client/`.** They hold your keys, accounts and the game. Both are git-ignored; keep it
@@ -104,6 +107,8 @@ dotnet test tests/GameServer.Gateway.Tests
 Success: `Build succeeded` with 0 warnings, and every test run ends with `Passed!`. The tests that need the real client
 quietly pass when there is no `Client/` yet.
 
+New tests go in `tests/GameServer.Gateway.Tests` only: modules have no tests, a PR adds at most 2, and a test never sleeps or waits on real time.
+
 ## 2. Allow the scripts to run
 
 ```powershell
@@ -194,7 +199,15 @@ A second run prints `game data up to date`.
 | `data\area-transitions.json` | the area transitions of fixed layouts |
 | `data\room-points.json` | unique bosses |
 | `data\hideouts.json` | hideouts |
-| `data\animation-contacts.json` | each class's spell timing (the Witch's is used) |
+| `data\animation-contacts.json` | each class's spell timing and where its arrows and wand bolts leave |
+| `data\monster-contacts.json` | when and from where monster projectiles leave (the Sand Spitter's mortar) |
+| `data\projectile-clips.json` | the flight and impact clips of projectile objects (monster mortars are invisible without them) |
+| `data\game-files.zip` (about 126 MB) | the levels the Gateway generates itself, the Phrecia classes' passive graph check |
+| `data\client-constants.json` | the Gateway does not start; the Patch server closes each client's connection |
+
+After extraction the servers never open `Client\` or need Node: `data\` is enough to run them (`live.ps1 -NoClient`).
+Only the client, its setup steps and this extraction use `Client\`. To run servers on another machine, copy `data\`
+(`data\saves.db` holds the accounts and characters). The capture tour's debug tooling also reads the client's log.
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
@@ -209,6 +222,34 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 | `setup incomplete: Python 3.9+ ...` | install Python from python.org (see step 9 for the Store alias) |
 | `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3b |
 | `extract-data: building <project> failed` | read `logs\extract-build-<project>.log`; a build error there is a code problem in that tool, not in the game data |
+
+### Game data in the save database
+
+`extract-data.ps1` writes JSON under `data\`; it does not create the SQLite file. The first Gateway start (step 10, or
+`live.ps1 -Only Gateway`) creates `data\saves.db` (or `Game_SAVES_DB`) and seeds the game-data overlay from those tables:
+
+| Table | Rows on 3.29.3b | From |
+|---|---:|---|
+| `catalog_entries` | 1,299 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
+| `system_settings` | 51 | the code defaults |
+| `stats` / `mods` / `mod_stats` | 23,346 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
+| `unique_weights` | 1,527 | `data\tables\VillageUniqueDisenchantValues.json` and `Words.json` |
+| `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
+
+The same file holds characters, accounts and stashes; deleting it resets them too. The Gateway log shows
+`[gateway] game data reference: 23346 stat(s), 40355 mod(s), 60695 default mod stat row(s)`; if that line says `empty`,
+the extraction is missing `Stats.json`/`Mods.json`: run `extract-data.ps1` and restart, or use `/game_data reference`
+while connected. `/game_data list` prints the row counts.
+
+To fill the database without starting the servers (for an editor, or to check a fresh setup), run:
+
+```powershell
+dotnet run --project src/GameServer.Gateway -- seed-game-data
+```
+
+It creates the overlay tables in `data\saves.db` (or `Game_SAVES_DB`), prints the counts and exits. Run it while the
+Gateway is stopped; a running Gateway needs `/game_data reload` to see a change made by another process. See
+[editable game data](docs/dev/editable-game-data.md) for the overlay, its reload rules and the `/game_data` commands.
 
 ## 8. Create an account and a character
 
@@ -305,13 +346,11 @@ client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
 Selected modes change server rules; Hardcore Ruthless death is permanent.
-Ruthless balance can be edited in `config/ruthless.json` without rebuilding or restarting the server.
-That active file is local and git-ignored; `config/ruthless.example.json` holds the tracked defaults.
+Ruthless balance can be edited in `Modules/Ruthless/ruthless.json` without rebuilding or restarting the server.
 To create a missing local copy and edit it, run from the repository root:
 
 ```powershell
-if (!(Test-Path .\config\ruthless.json)) { Copy-Item .\config\ruthless.example.json .\config\ruthless.json }
-notepad .\config\ruthless.json
+notepad .\Modules\Ruthless\ruthless.json
 ```
 
 See [league modes](docs/game/league-modes.md) for exact behavior, limitations and editing instructions.
@@ -330,6 +369,8 @@ In game:
 - **The Coast:** click "The Coast" on the east side of town. Ctrl+click it to open the Instance Manager instead (pick
   an instance or create a new one).
 - **Commands:** type in chat with Enter, for example `/commands` (or `/com`), `/set_speed 200`.
+- **Mods:** `/mod` lists the mods the Gateway found in `Mods\Binaries\` (`live.ps1` builds the ones in `Mods\Source\` there), `/mod_enable <id>` and `/mod_disable <id>` turn one on or off;
+  a mod rebuilt while you play reloads by itself ([modding](docs/dev/modding.md)).
 
 Logs are in `logs\` (`live-auth.log`, `live-gateway.log`, `live-patch.log`, and `walkmaps.log`), plus the client's own
 `Client\logs\Client.txt`. Every line starts with the time; the previous run's logs are in `logs\archive\`, and each
@@ -337,10 +378,37 @@ connection's last packets in `logs\packets\`. `Game_TRACE` adds dev traces, and 
 all for an issue ([debugging](docs/dev/debugging.md)).
 
 `live.ps1` options:
+- `-Stop` stops this checkout's clients, walk-map recorder and servers, a watched Gateway included, then waits until
+  their ports are free (with `-Only Gateway` only that server, with `-NoClient` everything but the clients, with
+  `-ClientOnly -Session S` only that session's client). Another checkout's processes are never stopped
+  ([live testing](docs/dev/live-testing.md), "Several stacks and clients").
 - `-NoClient` restarts the servers but keeps the running client.
+- `-ClientOnly` starts only the client, against servers that already run: nothing is built, extracted or restarted, and
+  a running client stays. With `-Walkmaps` (default ports and client) it also starts this checkout's walk-map recorder
+  unless it runs (the recorder ends with its client, so each new client needs one); the Gateway announces area loads
+  to it only if it was started with `-Walkmaps` too.
 - `-Only Gateway` (or `Auth`, `Patch`, comma-separated) rebuilds and restarts only those servers; the client and the
-  other servers keep running. After a Gateway change this is all you need: the client drops to the login screen, log in
-  and Play again.
+  other servers keep running. After a Gateway change hot reload cannot apply this is all you need: the client drops to
+  the login screen, log in and Play again.
+- Hot reload is on by default: the Gateway runs under `dotnet watch`, and a saved edit to its code (or to Core, Data
+  and Storage) applies to the running Gateway with the client still in game (`[gateway] hot reload #n applied` in the
+  log).
+  Players in game read "Starting Hot-Reload" in chat when a file under `src\` is saved, and "Hot-reload is applied in
+  x.yz seconds." when it is (about 15 s for a Gateway file). A save that does not compile changes nothing; they read
+  "Hot-reload failed" with the compile errors instead.
+  A method's new body runs from its next call; per-connection setup (the chat command table) runs again at the next
+  area change; a loop already running keeps the old body until it returns; and static fields (the catalogs) keep the
+  values they were built with.
+  An edit hot reload cannot apply (a changed signature, a removed member) rebuilds and restarts the Gateway on its own,
+  which drops the client to the login screen as `-Only Gateway` does.
+  Auth and Patch are not watched.
+- `-NoHotReload` starts the built Gateway without `dotnet watch`; `-Only Gateway -NoHotReload` switches a running
+  setup over, and a later `-Only Gateway` switches back.
+- `-Release` builds and runs the servers' Release builds, without `dotnet watch`: the monster AI runs 1.6-2.3x faster
+  and no watcher (~220 MB) runs beside the Gateway, for a stack that needs no hot reload
+  ([performance](docs/dev/performance.md)). `-Debug` goes back to the default. A run without either uses the
+  configuration of the last full run (`data\live-configuration.txt`), so `-Only`, `-ClientOnly` and `-NoBuild` keep to
+  the builds that are running.
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
 
@@ -357,7 +425,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | "The password is not correct for this account" | wrong password, or an account created after the login server started | check the password; restart with `live.ps1` (it reloads accounts) |
 | "Account does not exist" | the name in the Email field does not match `register name=` | use the registered name |
 | Login hangs, no "Connected to login server" | gateway list not patched (step 6), or the login server is not running | redo step 6; check `logs\live-auth.log` |
-| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved | extract them (see "Third-party tools"), stop the Gateway, move `data\saves\<character>.json` away, run `live.ps1` again |
+| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\saves.db` | extract them, stop the Gateway, delete that character's row from `data\saves.db` (or move the whole DB aside to start over), run `live.ps1` again |
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
 | In town, but your character is invisible and clicks do nothing | Network Mode is lockstep ("auto" picks it on localhost); the Gateway log says `lockstep movement` | Options → Game → Network Mode → Predictive, then log out to the character screen and Play again |
@@ -379,15 +447,16 @@ Environment variables, read when each server starts:
 | `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on |
 | `Game_LOGIN_PORT` | 20493 | login server port (must match step 6) |
 | `Game_GATEWAY_PORT` | 6112 | instance server port |
-| `Game_GATEWAY_HOST` | 127.0.0.1 | address sent to the client for area changes |
+| `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port (localhost only) |
-| `Game_CLIENT_EXE` | `Client/Game.exe` | client executable the Gateway reads protocol constants from |
-| `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere |
+| `Game_PORT_BASE` | unset | `live.ps1`: this checkout's servers on ports base..base+4 (Patch, Patch web, Auth login, Auth control, Gateway); remembered in `data/stack.json` like `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)) |
+| `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly` and `client_control.py`: the named client session, like `-Session` / `--session` |
+| `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere; an area the client cannot build at seed 1 gets a seed it built instead |
 | `Game_WALKMAPS` | unset | set by `live.ps1 -Walkmaps`: the Gateway announces each area load to the walk-map recorder and runs capture tours (`/tour`); unset, it records nothing |
 | `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |
 | `Game_LEAGUE` | `standard` | `hardcore` shows the hardcore death screen (a single Exit button) |
-| `Game_LEAGUES` | `Standard,Allflame` | base leagues; each offers its Hardcore/SSF/Ruthless combinations |
-| `Game_RUTHLESS_RULES` | `config/ruthless.json` | Ruthless tuning file; valid edits apply during play |
+| `Game_LEAGUES_FOLDER` | `Leagues` | where the leagues are: one folder per league |
+| `Game_RUTHLESS_RULES` | `Modules/Ruthless/ruthless.json` | Ruthless tuning file; valid edits apply during play |
 | `Game_START_WEAPON` | unset | `ground` = a new character's class weapon waits on the ground near the spawn instead of being worn |
 | `Game_FLASK_BUFFS` | unset | `0` = flasks recover without putting their flask_effect buff on the player |
 | `Game_FLASK_CHARGES` | unset | unset = the game's flask charge rules (kills by rarity, charge mods, a flask put on the bar in a hostile area starts empty); `full` = every kill fills all flasks and equipped flasks keep their charges |
@@ -401,6 +470,8 @@ Environment variables, read when each server starts:
 | `Game_TRACE` | unset | dev traces, a comma list: `move`, `latency`, `ticks`, `ai`, `packets`, or `all` ([debugging](docs/dev/debugging.md)) |
 | `Game_PACKET_DUMPS` | `logs\packets` (given by `live.ps1` to the servers it starts) | folder for each connection's last packets, written when it closes; `0` = none |
 | `Game_LOG_TIMESTAMPS` | unset | `0` = no time at the start of each log line |
+| `Game_MODS` | unset | `0` = the Gateway loads no mods ([modding](docs/dev/modding.md)) |
+| `Game_MODS_FOLDER` | `mods` | the folder the Gateway loads mods from and watches |
 
 ## Files you will have afterwards
 
@@ -410,11 +481,12 @@ Environment variables, read when each server starts:
 | `data\login-keys.json` | your login server keys | never |
 | `data\instance-secret.bin` | instance key secret | never |
 | `data\accounts.json.imported` | the account store from before the save database, kept after its import | never |
-| `data\saves.db` (with `-wal`, `-shm` while the servers run) | accounts, characters, their saves and stashes ([saves](docs/saves.md)) | never |
+| `data\saves.db` (with `-wal`, `-shm` while the servers run) | accounts, characters, their saves and stashes, and the game-data overlay (catalogues, settings, `stats`/`mods`/`mod_stats`) ([saves](docs/saves.md)) | never |
 | `data\gateway_list.original.txt` | backup for `gateway --restore` | no need |
 | `data\tables\`, `data\*-types.json`, `data\hideouts.json` … | extracted game data (step 7) and their stamps, `data\extract-stamps.json` | no (game data) |
 | `data\walkability\` | captured walk maps | no (derived from game data) |
 | `logs\` | server logs | only when reporting a bug, and read them first |
+| `Mods\Binaries\` | built mods: `Mods\Source\`'s, and any you add ([modding](docs/dev/modding.md)) | yours, if you like |
 
 ## Start over
 

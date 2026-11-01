@@ -39,6 +39,13 @@ few ControlZone, Functions, Stats or Brackets (not written yet).
 The NPC component's debug dump (`0x141e751d0`) prints the NPC and the NPCTalk row the client picks for the player
 (`0x141e76d40`): the client chooses the dialogue itself.
 
+Bosses that speak have an NPC component too, after their Transitionable (Captain Fairgraves' `SkeletonBossEmerge`,
+Merveil, the Siren's `seawitchillusion/Merveil`; Piety, General Gravicius and the Sceptre of God's three lieutenants,
+Kaom, Daresso, Utula, Malachai and the three in The Harvest): the monster blob writes it as `00 ff` (no dialogue, no
+component that must be alive). Without it these monsters could not be created at all ([12](12-quests.md) §9–10).
+Act 2's bandit lords (Kraityn, Alira, Oak) add InteractionAction before their NPC, written `00` as for an NPC: they
+are created as hostile unique bosses; their dialogue (help or kill, the bandit choice) is not offered this way.
+
 NPC collision uses the same inherited Positioned metadata as the client, including NPCs.dat Id aliases whose
 OT is the row's Metadata. Server routing and overlap escape register every spawned NPC with its own footprint,
 in both towns and hideouts; moving an NPC replaces its registered footprint rather than adding a second one.
@@ -63,7 +70,16 @@ of the room stood at exactly its line's placed cell (40 of 40 in Lioneye's Watch
 angle, so the server's lines go through the same placement. In Lioneye's Watch that gives Tarkleigh (389, 183), Nessa
 (346, 270), Bestel (362, 247), within one cell of the cells measured earlier on the real game's minimap ((388, 182),
 (346, 271), (361, 246)). `TownNpcs` copies the NPC lines of every town with its room's code and origin;
-`/npc_face <name> <degrees>` still turns one live.
+`/npc_face <name> <degrees>` still turns one live, and `/npc_place <name> <x> <y> <degrees>` moves and turns one (the
+NPC is removed and created again there).
+
+The league hubs have NPCs of their own (`NpcCatalog.Towns`): Niko in the Mine Encampment, Einhar in the Menagerie
+(495, 485, 290°; the hideout row `EinharHideout`, because `EinharMenagerie` has no `.ot` in the GGPK and the client
+drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, Johan, Tujen, Gwennen, Rog, Dannig,
+Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour,
+Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
+been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
+Every hideout also gets Einhar (`EinharHideout`).
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off
@@ -205,8 +221,13 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
   These are catalogue identities; complete unique modifier sets and unique-area device routing remain unimplemented.
   No MapAtlas, MapTier or generic MapKey entries are mixed into this stock.
   Goods2, Goods3 and later pages are created automatically when needed.
-  Tabs fill row by row. With more than one tab 0x8c's u8 is sent as 1 (the window at UI
-  +0x7b8; 0 opens +0x7b0, which drew 8 tabs over its title, live 2026-10-21; being tested).
+  Tabs fill row by row. 0x8c's u16 is the window kind (`0x14073ee60`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
+  deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the
+  NPC's DialogueStyle (`0x14072b160`: not LEGACY → UI +0x7b8), not by the u8. The u8 is the async trade mode (title
+  "Merchant", 78 more height, a report popup on the tabs; `0x14073d570`, `0x14073fdd0`); the Gateway sends 0. A tab's
+  compact value is its colour, not an index (+0x24: ARGB, 0 the default brown; a small number has alpha 0, which drew no
+  tab background). Tabs have 11 rows: 12 pushed the tab bar over the "Purchase" title (live 2026-10-31). The window's own
+  "Select Items To Buy" (`0x14073bee0`) stays visible behind the first tabs; no server value removes it.
 - **Sell**: S→C 0xb8 (write `0x141d6acc0`): u32 BE other party (0 = NPC sale → VendorSell, UI +0x7c8), u32 BE your offer,
   u32 BE their offer (both manager-1 inventories, grids `0x140317440` / `0x140c605f0`), u8 flags, wstr name, u32 BE
   NPCs row, u16, u32 BE TradeWindowVisuals row, u16 (+0x54, shown as an error text when set), u16. The offer grids

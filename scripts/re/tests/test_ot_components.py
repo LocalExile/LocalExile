@@ -114,5 +114,42 @@ class LifeMetadataTests(unittest.TestCase):
             self.assertFalse(result["life"]["corpse_usable"], path)
 
 
+class AnimationEventTests(unittest.TestCase):
+    """The .ao chain's animation events merged over the rig's (rig_clips), as the client plays them."""
+
+    AMD = '"1"\n2\n"attack1"\nonce\n1000\n1\n"contact"\n416\n0.89871 24.6111 -57.8849\n\n\n"idle"\nloop\n1000\n0\n\n\n'
+
+    def with_files(self, files, body):
+        saved = ot.read_text, ot.fetch
+        ot.read_text, ot.fetch = (lambda path: files.get(path)), (lambda paths: None)
+        try:
+            return body()
+        finally:
+            ot.read_text, ot.fetch = saved
+
+    def test_block_keeps_braces_inside_quoted_lists(self):
+        text = 'AnimationController\n{\n\tanimations = \'[{"a": {}}]\'\n}\nclient\n{\n}\n'
+        self.assertEqual('\n\tanimations = \'[{"a": {}}]\'\n', ot._block(text, "AnimationController"))
+        self.assertIsNone(ot._block(text, "Missing"))
+
+    def test_block_skips_comments_and_escaped_quotes(self):
+        text = "AnimationController\n{\n\t// it's a comment\n\tmetadata = \"a\\\"b\"\n}\nclient\n{\n}\n"
+        self.assertEqual("\n\t// it's a comment\n\tmetadata = \"a\\\"b\"\n", ot._block(text, "AnimationController"))
+
+    def test_exclude_metadata_events_replaces_the_rig_events(self):
+        files = {"m.ao": 'version 3\nextends "Metadata/Parent"\n\nAnimationController\n{\n\texclude_metadata_events = true\n\tmetadata = "rig.amd"\n\tanimations = \'[{"name": "attack1", "events": [{"type": "StandardEventType", "time": 0.3745180070400238, "name": "contact", "position": [1.33, 45.89, -71.56]}]}]\'\n}\n', "Metadata/Parent.ao": 'version 2\nextends "nothing"\n', "rig.amd": self.AMD}
+        clips = self.with_files(files, lambda: ot.rig_clips("rig.amd", "m.ao", fetch_missing=False))
+        self.assertEqual([("contact", 375, [1.33, 45.89, -71.56])], clips[0]["events"])
+        self.assertEqual((375, [1.33, 45.89, -71.56]), ot.first_contact(clips[0]["events"]))
+        self.assertEqual([], clips[1]["events"])
+
+    def test_without_the_flag_the_ao_events_are_added_in_time_order(self):
+        files = {"m.ao": 'AnimationController\n{\n\tmetadata = "rig.amd"\n\tanimations = \'[{"name": "attack1", "events": [{"type": "StandardEventType", "time": 0.1, "name": "melee_trail"}]}]\'\n}\n', "rig.amd": self.AMD}
+        clips = self.with_files(files, lambda: ot.rig_clips("rig.amd", "m.ao", fetch_missing=False))
+        self.assertEqual([("melee_trail", 100, None), ("contact", 416, [0.89871, 24.6111, -57.8849])], clips[0]["events"])
+        self.assertEqual((416, [0.89871, 24.6111, -57.8849]), ot.first_contact(clips[0]["events"]))
+        self.assertIsNone(ot.first_contact(clips[1]["events"]))
+
+
 if __name__ == "__main__":
     unittest.main()

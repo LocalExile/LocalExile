@@ -17,8 +17,32 @@ Everything is in one SQLite file, `data/saves.db` (`Game_SAVES_DB` to put it els
 | Deleted characters' saves, for recovery by hand | `deleted_characters` | `SqliteAccountStore.DeleteCharacter` |
 
 Each row holds its record as JSON, readable with any SQLite browser. A save field this build doesn't know (a newer
-build wrote it) is kept as it is by the next write. Nothing is cached across processes: Auth and the host read and write
+build wrote it) is kept as it is by the next write, at the top level of a record: an older build drops an item field it
+doesn't know, such as `Influences`, when it saves that item. Nothing is cached across processes: Auth and the host read and write
 the database directly, and a write waits for another process's transaction to end.
+
+The same file also holds the server's game-data overlay (`game_data_meta`, `mod_stat_overrides`, `limit_overrides`,
+`system_settings`, `catalog_entries`, `catalog_seed_keys`, `catalog_seed_defaults`, the `stats`/`mods`/`mod_stats`
+reference tables, `unique_weights`/`unique_weight_overrides`, the `effective_mod_stats` view and the future
+`item_templates`), which is not player progress: the Gateway loads it into
+an in-memory snapshot at startup and republishes the snapshot after a `/game_data` edit. See
+[editable game data](dev/editable-game-data.md) for the client-compatibility boundary and the cache rules.
+
+The first Gateway start after `scripts/dev/extract-data.ps1` creates the overlay tables and fills them once:
+`catalog_entries` with the 1,299-row unique catalogue and the jewel/tattoo rows, `system_settings` with its 51 defaults,
+`stats`/`mods`/`mod_stats` with 23,346 / 40,355 / 60,695 rows from `data/tables/Stats.json` and `Mods.json`, and
+`unique_weights` with 1,527 unique drop weights from `VillageUniqueDisenchantValues.json`.
+Later starts add only seed keys new to the build, and a new unique seed revision corrects the rows nobody edited; edited
+rows and rows deleted by an admin stay as they are. The Gateway
+log reports the reference counts (`[gateway] game data reference: ...`); `/game_data reference` rebuilds the reference
+tables without a restart. `dotnet run --project src/GameServer.Gateway -- seed-game-data` fills the overlay without
+starting the server (stop the Gateway first, or run `/game_data reload` after it).
+
+Saved items include their raw `DefenceBaseRoll`, shared by armour, evasion and Energy Shield.
+Ordinary rolls are 0 through 31; raw 32 preserves the native special minimum-base state.
+Character inventories, socketed items, deferred starter items and shared stash tabs use the same conversion.
+Old items without the field load as zero, retaining their previous minimum bases without a migration or reroll.
+Loading passes the saved value explicitly to the item factory instead of drawing a new base roll.
 
 Not saved, on purpose, as in the real game: monsters, dead monsters, items on the ground and an opened map's portals
 belong to their area instance, in memory. They last while the instance does (across logouts and disconnects) and are gone
@@ -145,3 +169,8 @@ unknown fields and items), `UnsavedProgressTests` (experience and flask charges 
 each tab holds, slots, the repair at load), `CtrlClickTests` (Ctrl + click to and from the stash and a shop) and, in the
 Core tests,
 `SqliteAccountStoreTests` (accounts, deletion with its save, the import).
+
+`ExperienceLevelEventTests` also checks an extra-point grant while level publication is in flight. Its grant and
+publication run independently from the coordinator that releases the deliberately held save. A loopback connect
+may complete synchronously, so invoking publication on the coordinator can block on that save before release.
+Keep the independent scheduling rather than increasing the timeout; the production transaction is unchanged.

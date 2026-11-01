@@ -5,11 +5,13 @@ namespace GameServer.Core.Tests;
 public class InstanceEntitiesTests
 {
     [Fact]
-    public void Projectile_impact_teleport_carries_height_and_preserves_the_legacy_default()
+    public void A_teleport_follows_the_terrain_unless_given_a_fixed_height()
     {
+        // Marker 0 is a fixed height (world z 0), not "none": a player teleported with it stood under raised ground.
         const string header = "01B700003001000000000000000000280000001E";
-        Assert.Equal(header + "7FFFFFFF00000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, 0x7fffffff)));
-        Assert.Equal(header + "0000000000000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30)));
+        Assert.Equal(header + "7FFFFFFF00000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30)));
+        Assert.Equal(header + "7FFFFFFF00000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, InstanceProtocol.FollowTerrain)));
+        Assert.Equal(header + "0000000000000000", Convert.ToHexString(InstanceProtocol.Teleport(0x3001, 40, 30, 0)));
     }
 
     [Theory]
@@ -313,6 +315,42 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void A_speaking_boss_writes_its_npc_component_without_dialogue()
+    {
+        // Captain Fairgraves (SkeletonBossEmerge) and Merveil, the Siren read ... StateMachine, Transitionable, NPC: they were
+        // unsupported, so neither could be created.
+        string[] list = [.. MonsterObject.BaseComponents, "StateMachine", "Transitionable", "NPC"];
+        Assert.True(MonsterObject.CanSerialize(list, haveStateMachine: true));
+        byte[] b = new MonsterObject(1, 2, 100, list, StateMachine: new([0, 0, 0], 0), TransitionState: 4).Blob();
+        // ... Transitionable 4, NPC 00 ff, tasks 00.
+        Assert.Equal("04" + "00FF" + "00", Convert.ToHexString(b.AsSpan(b.Length - 4)));
+    }
+
+    [Fact]
+    public void A_bandit_lord_writes_its_interaction_action_and_npc_components()
+    {
+        // Oak, Skullbreaker (BanditLeaderOak): ... Monster, InteractionAction, NPC, Transitionable, MinimapIcon; Kraityn and
+        // Alira order them differently. They were unsupported, so the Act 2 bandit lords could never be created.
+        string[] list = [.. MonsterObject.BaseComponents, "InteractionAction", "NPC", "Transitionable", "MinimapIcon"];
+        Assert.True(MonsterObject.CanSerialize(list));
+        byte[] b = new MonsterObject(1, 2, 100, list, TransitionState: 2).Blob();
+        // ... InteractionAction 00, NPC 00 ff, Transitionable 2, MinimapIcon 00, tasks 00.
+        Assert.Equal("00" + "00FF" + "02" + "00" + "00", Convert.ToHexString(b.AsSpan(b.Length - 6)));
+    }
+
+    [Fact]
+    public void Solaris_and_lunaris_timer_writes_nothing()
+    {
+        // Solaris, Eternal Sun / Lunaris, Eternal Moon: ... Monster, StateMachine, Transitionable, Timer.
+        string[] list = [.. MonsterObject.BaseComponents, "StateMachine", "Transitionable", "Timer"];
+        Assert.True(MonsterObject.CanSerialize(list, haveStateMachine: true));
+        byte[] with = new MonsterObject(1, 2, 100, list, StateMachine: new([0], 0), TransitionState: 3).Blob();
+        byte[] without = new MonsterObject(1, 2, 100, list[..^1], StateMachine: new([0], 0), TransitionState: 3).Blob();
+        Assert.Equal(Convert.ToHexString(without), Convert.ToHexString(with));
+        Assert.Equal("03" + "00", Convert.ToHexString(with.AsSpan(with.Length - 2)));
+    }
+
+    [Fact]
     public void Monster_blob_refuses_components_it_cannot_write()
     {
         Assert.False(MonsterObject.CanSerialize([.. MonsterObject.BaseComponents, "StateMachine"]));
@@ -334,6 +372,22 @@ public class InstanceEntitiesTests
     public void Passive_slots_create_all_three()
     {
         Assert.Equal("003D" + "0000" + "0000" + "1C" + "0000", Convert.ToHexString(InstanceEntities.PassiveSlots()));
+    }
+
+    [Fact]
+    public void Atlas_passive_slots_carry_the_preset_nodes_little_endian()
+    {
+        Assert.Equal("003D" + "0002" + "000A" + "04" + "0002" + "3412" + "7856",
+            Convert.ToHexString(InstanceEntities.PassiveSlots(2, 10, 0x04, [0x1234, 0x5678])));
+    }
+
+    [Fact]
+    public void Atlas_allocate_and_refund_read_the_preset_and_node()
+    {
+        Assert.Equal(7, InstanceProtocol.KnownClientLength(InstanceEntities.AtlasAllocateId));
+        Assert.Equal(((byte)0, (uint)0x1234), InstanceEntities.ReadAtlasAllocate(Convert.FromHexString("003E0000001234")));
+        Assert.Equal(8, InstanceProtocol.KnownClientLength(InstanceEntities.AtlasRefundId));
+        Assert.Equal(((byte)1, (uint)0x5678, (byte)0), InstanceEntities.ReadAtlasRefund(Convert.FromHexString("003F010000567800")));
     }
 
     [Fact]
@@ -383,6 +437,9 @@ public class InstanceEntitiesTests
         // Flags bit1 (u32 +0x68) and bit7 (f32 +0x6c) come right after the flags, before the stat values.
         Assert.Equal("01C1" + "00001000" + "00000000" + "0000" + "0002" + "0005" + "00001000" + "0000" + "82" + "00000BB8" + "40400000" + "00000578" + "00000000",
             Convert.ToHexString(InstanceEntities.AddBuff(0x1000, 2, 5, 0x1000, values: [1400], u68: 3000, f6c: 3f)));
+        // chilled (row 1, +0xff and IsRecovery): the +0x82 u16 sits between the flag fields and the stat value.
+        Assert.Equal("01C1" + "00000101" + "00000000" + "0000" + "0003" + "0001" + "00001000" + "0000" + "00" + "001E" + "0000001E" + "00000000",
+            Convert.ToHexString(InstanceEntities.AddBuff(0x101, 3, 1, 0x1000, values: [30], u82: 30)));
     }
 
     [Fact]
@@ -502,17 +559,28 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Character_passives_carry_tattoos_in_the_fifth_list()
+    {
+        // The fifth u32 list is node | PassiveSkillOverrides.dat HASH16 << 16 (RawU32 is little-endian): node
+        // 0x5335, Firewalker override Ngamahu1 HASH16 0x5C2A.
+        Assert.Equal("0033" + "0000" + "0000" + "0000" + "05" + "03" + "00" + "00" + "0001" + "3412"
+                + "0000" + "0000" + "0000" + "0001" + "35532A5C",
+            Convert.ToHexString(InstanceEntities.CharacterPassives(5, 3, [0x1234],
+                tattoos: new Dictionary<ushort, ushort> { [0x5335] = 0x5C2A })));
+    }
+
+    [Fact]
     public void Area_transition_blob_layout_and_type()
     {
         // Traced live 2026-10-16: the client consumed all 41 bytes (Positioned 16, Animated 1, AreaTransition 5, Stats 10,
         // ObjectMagicProperties 4, MinimapIcon 1, InteractionAction 1, + flags, base data, tasks).
-        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2).Blob();
+        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2) { InTown = true }.Blob();
         Assert.Equal(41, b.Length);
         Assert.Equal(
             "00" + "00" +                                                    // flags, base data
             "80010000" + "D9000000" + "00000000" + "0000" + "0000" +         // Positioned (384, 217)
             "00" +                                                           // Animated
-            "00" + "02" + "D27A" + "00" +                                    // AreaTransition: state 0, variant 2 = HASH16 0x7ad2, compact int
+            "00" + "02" + "D27A" + "00" +                                    // AreaTransition: state 0, variant 2 = HASH16 0x7ad2, compact int (town)
             "00" + "00000000" + "00000000" + "00" +                          // Stats
             "0000" + "00" + "00" +                                           // ObjectMagicProperties
             "00" + "00" +                                                    // MinimapIcon, InteractionAction
@@ -529,7 +597,7 @@ public class InstanceEntitiesTests
         // Positioned rotation float, flags0 bit2 = fixed height (u32 steps of 7.8125, float z), Animated bit0 + .ao path.
         const string model = "Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_area_transition2.ao";
         byte[] b = new AreaTransitionObject(GridX: 388, GridY: 230, DestinationHash16: 0x7ad2, Model: model,
-            Rotation: MathF.PI / 2, Height: -351.04f).Blob();
+            Rotation: MathF.PI / 2, Height: -351.04f) { InTown = true }.Blob();
         string hex = Convert.ToHexString(b);
         Assert.StartsWith(
             "00" + "00" +
@@ -538,6 +606,30 @@ public class InstanceEntitiesTests
             "01" + "49000000" + Convert.ToHexString(System.Text.Encoding.Unicode.GetBytes(model)) +
             "00" + "02" + "D27A" + "00", hex);                               // AreaTransition as before
         Assert.Equal(41 + 8 + 4 + model.Length * 2, b.Length);
+    }
+
+    [Fact]
+    public void Outside_a_town_the_area_transition_has_no_compact_int()
+    {
+        // 0x141e5b870 reads the int only when the current area is a town (WorldAreas +0x14): The Coast's exit to The Mud
+        // Flats is the town exit's 41 bytes less that one.
+        var town = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2) { InTown = true }.Blob();
+        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x7ad2).Blob();
+        Assert.Equal(40, b.Length);
+        Assert.Equal(Convert.ToHexString(town).Remove(2 * 23, 2), Convert.ToHexString(b));
+    }
+
+    [Fact]
+    public void A_gate_within_the_area_is_a_teleport_with_its_label()
+    {
+        // The Upper Prison's stairs, "teleport1-BrutusAreaName": type 1 (Teleport), variant 1 = ClientStrings HASH32
+        // 0x169BA21A ("The Warden's Quarters"), no compact int (read for type 0 only), even in a town.
+        byte[] b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x40ce) { Kind = 1, Label = 0x169BA21A, InTown = true }.Blob();
+        Assert.Equal("01" + "01" + "1AA29B16" + "00", Convert.ToHexString(b, 19, 7));
+        Assert.Equal(42, b.Length);
+        // "%areaname%": the area's own name, variant 2.
+        b = new AreaTransitionObject(GridX: 384, GridY: 217, DestinationHash16: 0x40ce) { Kind = 1 }.Blob();
+        Assert.Equal("01" + "02" + "CE40" + "00", Convert.ToHexString(b, 19, 5));
     }
 
     [Fact]

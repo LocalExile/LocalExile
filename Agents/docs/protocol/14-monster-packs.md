@@ -2,7 +2,7 @@
 
 State of 2026-10-18, verified live in The Coast (seed 1): on entering, the Gateway fills the area with monster packs
 from the game tables: normal, magic and rare packs scattered over the walk map; cannibal packs at the bonfires; the
-unique boss **Fire Fury** and her guards at the cannibal camp, next to its campfire. Code: `src/GameServer.Gateway/MonsterPacks.cs`
+unique boss **Fire Fury** and her guards at the cannibal camp, next to its campfire. Code: `src/GameServer.Gateway/Monster/MonsterPacks.cs`
 (`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Program.Monsters.cs`.
 
 ## 1. The data
@@ -36,7 +36,13 @@ around them; members stand within 9 cells. The roll is seeded by (area hash, see
 
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2b9 with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
-attack). Its mods (§5) set its life, hit, speed and defences. Monsters are created after the player (0x7d →
+attack). Its mods (§5) set its life, hit, speed and defences.
+A magic or rare monster then gets its glow, a 0x1c1 buff with no optional fields (`MonsterRarityBuffs`):
+BuffDefinitions 66 `monster_magic_effect_buff` (BuffVisuals 58, `StatusAilments/monsters/champions/blue/blue.epk`)
+or 67 `monster_rare_effect_buff` (BuffVisuals 59, `champions/gold/gold.epk` and `gold_large.epk`). Both are
+invisible and cancel on death. No Mods.dat row grants them, and the rarity in ObjectMagicProperties alone drew no
+glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (parser 0x1421dda20) set a
+per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d →
 `SendPlayer` → skill bar → `PopulateArea`); towns and areas without a walk map get none.
 
 **An instance keeps its monsters** (#12), as in the real game. When a connection closes, the instance
@@ -75,22 +81,94 @@ and the bonfire rooms (`bonfire1`–`6.arm`, scattered by the master's `FillTile
 So:
 
 1. `scripts/re/atlas` with `room-points` writes `data/room-points.json`: per area, the rooms of its RoomSet and
-   FillTiles that have `mapboss` or `%area%-…` points, with the points and the room's doodads (room cells).
+   FillTiles that have boss points (below) or `%area%-…` points, with the points and the room's doodads (room
+   cells). The room sets of the sub-graphs a graph embeds (nodes tagged `graph`, a graph file or a FileGroups group)
+   count too: The Upper Prison's graph is only two sub-graphs, "Prison" and "Warden" (Brutus), and The Cavern of
+   Anger embeds Merveil's arena (`_cave_river_boss1.dgr`). Before manifest version 5 these areas had no boss rooms.
+   The boss points the room files write (`AreaPopulation.BossPoint`; version 6 keeps them all): `mapboss<n>` is the
+   n-th of WorldAreas `Bosses_MonsterVarietiesKeys` (The Upper Prison: the Necromancer at `mapboss1`, Brutus at
+   `mapboss2` in the `boss_cells_*` rooms before his arena; The Cavern of Anger: the sea witch and Merveil; The Grain
+   Gate: `mapboss1` … `mapboss7`, the seven Gemling Legionnaires; The Harvest: Malachai `mapboss1`, his second form
+   `mapboss2` in the inner room, Doedre/Maligaro/Shavronne `mapboss3`-`5` at the organs), `mapboss<n>&<m>` two of them
+   (maps), with or without a `WG` suffix (Prisoner's Gate's `bossphase1/2` rooms: `mapboss1WG` Abberath, `mapboss2WG`
+   his second form; The Oasis: `mapboss1WG` Shakari in the Sand Pit, `mapboss2` her second form in the Swallowing
+   Sands). `mapboss`, `force:mapboss` (Kitava's arenas, The Cathedral Rooftop and The Feeding Trough), `mapbosspack`
+   (The Toxic Conduits) and `mapbossWG` take the area's bosses no other point took. Not used: `mapboss-<variety>`
+   (Shaper guardian maps) and the league points `mapbosswarband…`, `mapbossexilepack`. Before version 6 only `mapboss`
+   and `mapboss<n>` were kept, and neither Kitava, Shakari, Abberath nor the Lingering Aberrations had a point.
+   **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
+   whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
+   (`BossMonster_MonsterVarietiesKeys`, at its `BossMonsterSpawnChance`) comes with it, unique when it is one of the
+   area's bosses (The Mines Level 1's `%area%-minerhammerbosspack`: Pikerivet; The Crystal Veins'
+   `minerlanternbosspack`: The Burning Man); before, named packs never brought their boss. Last, one of the plain points
+   (picked at random when several rooms with one are placed) takes every boss still left, side by side: The Den (Act 7)
+   has The Great White Bones with The Bone Sculptor, The Solaris Temple Level 1 both seals, The Toxic Conduits its five
+   Lingering Aberrations. Before, a plain point took one boss at random (The Ashen Fields: Greust one time in four)
+   and every placed plain room took one more. A boss whose point is off the walk map (Kitava in his pit, Arakaali in
+   her web, Doedre the Vile at her cauldron) stands on the nearest free walkable cell within 60 cells; before, it was
+   silently left out. A boss's **later form** is not placed with the area (`AreaPopulation.LaterForms`, marked
+   `AreaPacks.Absent`): a later Bosses row with an earlier row's name whose Id is that row's Id + "2" (Prisoner's
+   Gate's Abberath2 at `mapboss2WG`, The Oasis's Shakari2 at `mapboss2`, The Harvest's MalachaiBoss2 at `mapboss2`: the
+   official fight brings it when the first form flees or falls; bosses that only share a name, The Mud Flats' Forgotten
+   Warriors or The Grain Gate's Gemling Legionnaires, are separate), and The Rotting Core's Depraved Trinity, which forms in
+   the Black Heart once Doedre, Darksoul, Maligaro, The Broken and Shavronne, Unbound are dead. A quest or the fight
+   creates them; before, they stood from the start beside the first form. The area's `bosspack` stands once: at its own
+   `%area%-bosspack` points when the layout has them, else at the first boss point; before, every boss point added one
+   (The Cavern of Anger, The Dried Lake, The Lunaris Temple Level 2 up to three times).
+   **Spawner objects** (`AreaPopulation.BossSpawners`): a room's server-side spawner that stands for one of the area's
+   bosses becomes that boss's point. The Quay's `boss.arm` (kept for Clarissa, a quest NPC): `TolmanBossSpawner`, Tolman
+   in the stocks, who breaks out in the official game (its `spawning` states), is created as Tolman at the spawner.
+   **Map boss override** (`MapBossOverride`): an area with a `MapBossOverride…` mod (stat `map_boss_override`) lists
+   every candidate boss and meets one. The Ashen Fields (`MapBossOverrideAshenFields`; Greust, Oak, Alira, Kraityn of
+   `Metadata/Monsters/Ralakesh/`): the bandit lord the character spared in Act 2 (the other two
+   `a2b-Killed{Str,Int,Dex}Bandit` flags set) is Ralakesh's avatar, Greust when all three died or no bandit quest was
+   done. The client's own lines say so: Eramir's `EramirRalakeshQuestOak`/`…Alira`/`…Kraityn`/`…Greust` and Helena's
+   `HelenaOn…Quest` ("He truly believed that if he stood against Oak…").
+   Nothing on the server sets the `a2b-Killed…Bandit` flags yet but `/quest_flag` (the campaign's quest engine sets
+   them on the bandit lords' kills; their help-or-kill dialogue is not offered), and an instance's boss follows the first
+   character to enter it: others who join that instance meet the same boss.
+   **Not placed** (the check below lists them with the reason): Marceus the Defaced (The Marketplace) is a tile's
+   statue spawner (`Spawner_StoneStatueLargeMaleBoss`) that wakes as the player comes near, and tile spawners are not
+   among the generated quest objects (`AreaObjects.QuestTypes`); The Solaris Temple Level 2's three Banners have their
+   point only in `tencent_lunaris_boss_1.arm`, a room the layouts never place (the area's unique is The Goddess of
+   Purity, a gold statue spawner); Thistlesage's pack `1_3_15-bosspack` is named by no room or tile of The Imperial
+   Gardens' room set. The areas the Gateway does not generate (The Crossroads, The Twilight Strand, The Karui Fortress,
+   The Southern Forest of Act 6) have their boss points only with a recorder capture.
+   Rooms with a quest server object (an NPC, a `Metadata/QuestObjects/` object or a quest chest; lore objects under
+   `Metadata/NPC/Info/` excepted, `RoomFile.IsQuestObject`) are kept too, without any point (version 4): Fairgraves'
+   ship, Piety's room in The Upper Prison, the blocked road at Prisoner's Gate, so quests find their objects
+   ([12](12-quests.md) §5).
 2. `scripts/walkmaps` (`live.ps1 -Walkmaps`) hooks `0x142042360` and writes `data/walkability/<area>_seed<seed>.doodads.json`.
 3. `AreaPopulation.LoadPoints` fits each candidate room: anchored on the room doodad whose model is rarest in the
    capture, it tries each captured doodad of that model × the 8 turns/flips, and keeps a placement when ≥ 70% of the
    room's doodads land within 2 cells of a captured doodad of the same model. The points go through the same placement.
-   The Tidal Island's `medicine_boat` rooms have only two snowfall emitters around Hailrake's `mapboss`, too few for
-   that: when no placement fits, they (and only they, `MercyMission.BoatRooms`) take their actual placement from
-   `<area>_seed<seed>.rooms.json` (12-quests.md, opening encounter). Doing so for every sparse room would change other
-   areas: on the captures it adds The Mud Flats' `miniboss5` mapboss (Oozeback Bloom) and twelve nest packs around
-   a1q4's Rhoa Nests, and moves the start points of The Coast's `to_coast` and The Tidal Island's `toislandcliff`.
+   A room with a unique boss point (and The Tidal Island's `medicine_boat` rooms, `MercyMission.BoatRooms`) takes its
+   actual placement instead, from `<area>_seed<seed>.rooms.json` (12-quests.md, opening encounter) or the Gateway's
+   own generation of the area (`ServerLevels`), whenever there is one: the fit misses sparse rooms (the boat rooms have
+   only two snowfall emitters around Hailrake's `mapboss`, Brutus's `boss_cells` rooms are bare) and matched a repeated
+   room several times (four Necromancers in The Upper Prison seed 1, three goatmen on The Ledge), each match one more
+   unique boss. When the placements are known (a generated area, or a capture with its `rooms.json`), a boss or quest
+   room the layout did not place has no points or objects even if its doodads fit: sibling rooms share their doodads
+   (The Broken Bridge's `broken_bridge` and `broken_bridge_left`, The Wetlands' four `bandit_boss_*` rooms) and the
+   unplaced sibling's fit on the placed one was a second Kraityn, a third Oak.
+   `CampaignBossPlacementTests` (`$env:Game_BOSS_CHECK='1'`, needs the game files; skipped otherwise) generates every
+   act 1–10 area with Bosses at seeds 1, 2, 3 and 7 (`Game_BOSS_CHECK_SEEDS`) and fails when a boss is missing without
+   a listed reason, a unique stands twice or beyond the area's bosses, or the monster blob cannot write one.
+   Doing so for every room would change
+   other areas: it adds twelve nest packs around a1q4's Rhoa Nests and moves the start points of The Coast's
+   `to_coast` and The Tidal Island's `toislandcliff`, so other rooms keep the fit.
+   A room with a quest server object takes its actual placement for its objects (its points keep the fit), from
+   `rooms.json` or the Gateway's own generation (`ServerLevels`), whenever there is one: the fit misses sparse rooms and
+   matches a repeated one more than once. Seed 1 places Fairgraves on his ship in The Ship Graveyard at (742, 374), the
+   Allflame's slave girl in The Ship Graveyard Cave at (666, 233), Piety in The Upper Prison at (1486, 553) and her
+   blockage at Prisoner's Gate at (1275, 390), The Twilight Strand's force wall at (1403, 679) as before.
 
 The Coast seed 1 (live): `scavenger_camp_2a` at (1241, 598) turned [0 −1; 1 0], 32/33 doodads; `mapboss` (1135, 630),
 its `cannibalfire` (1173, 679); 8 bonfire rooms (12/12 or 21/21 doodads). The doodad angles agree (room angle + π/2).
 Fire Fury stands at `mapboss`, about 30 cells from the campfire, with `1_1_2-bosspack` around her.
 The Tidal Island seed 1 (live 2026-10-25): `medicine_boat_1` captured at (138, 345), code 3; Hailrake stands at its
-`mapboss` (265, 437) on the shipwreck, with `1_1_2a-bosspack` there and at `%area%-bosspack` (292, 420).
+`mapboss` (265, 437) on the shipwreck, with `1_1_2a-bosspack` at the room's `%area%-bosspack` (292, 420) (until the
+boss pack stood once per area, a second one stood at `mapboss`).
 
 ## 4. Open
 
@@ -114,7 +192,8 @@ The Tidal Island seed 1 (live 2026-10-25): `medicine_boat_1` captured at (138, 3
   / MonsterRare2 "148% / 390% more maximum Life", and "Additionally magic / rare monsters receive a life multiplier
   based on their level", whose tables match these two for all 100 levels. A rare Hungry Corpse at level 70 has
   4.9 × 2 × its base life.
-- **Hits:** DefaultMonsterStats `Damage` × DamageMultiplier × the attack time in seconds (unless MonsterTypes
+- **Hits:** DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion MonsterTypes row, PoB's
+  `monsterAllyDamageTable`) × DamageMultiplier × the attack time in seconds (unless MonsterTypes
   `BaseDamageIgnoresAttackSpeed`), spread ± MonsterTypes `DamageSpread`; then the rarity's monster mods:
   `monster_rarity_damage_+%_final` (magic 30, rare 50, unique 70) and
   `monster_rarity_attack_cast_speed_+%_and_damage_-%_final` (20, 33, 33: that much faster, that much less damage per
@@ -172,20 +251,27 @@ cells/s, a normal one every 0.125–0.133 s; the server walks it at the same spe
 | `physical_damage_%_to_add_as_fire` / `_cold` / `_lightning`, `non_chaos_damage_to_add_as_chaos_damage_%` | extra damage of that type in its hit, through the player's resistances |
 | `attack_speed_+%` (`base_cast_speed_+%` is the same on every mod) | its attack time |
 | `base_movement_velocity_+%` | its walk, on the client and in the server's estimate |
-| `base_*_damage_resistance_%`, `base_resist_all_elements_%` | the player's hits and Righteous Fire's burn, per type, capped at 75% |
+| `base_*_damage_resistance_%`, `base_resist_all_elements_%` | the player's hits, Righteous Fire's burn and the player's ignites, per type, capped at 75% |
+| `base_self_ignite_duration_-%` | the player's ignites on it last that much less (Fire and Ignite Resistant: 80%; [20](20-damage.md) §3) |
 | `base_additional_physical_damage_reduction_%` | the physical part of the player's hits (capped at 75%) |
 | `base_damage_taken_+%`, `rare_monster_mod_spell_damage_taken_+%_final` | the player's hits (the second only spell hits: the stat has no description, so it is not taken to cover Righteous Fire's burn) |
 | `monster_base_block_%` | blocks the player's attacks: rolled before the hit, a blocked one has no damage, impale, flinch or 0x1af (the client has no block result we know); the log says "blocked" |
 | `evasion_rating_+%`, `accuracy_rating_+%` | the player's chance to hit it, its chance to hit the player |
-| `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%) |
+| `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%). An override: the client's effective chance (`FUN_14275c050`) is 10000 under `virtual_always_crit` before any increase, so reduced critical strike chance (Devout of Solaris) does not lower it |
 | `hit_damage_+%_per_10%_missing_enemy_life` | its hit on a wounded player |
 | `self_take_no_extra_damage_from_critical_strikes` | the player's critical hits deal their normal damage |
-| `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1) |
+| `cannot_have_life_leeched_from` | prevents Life-source leech from accepted player hits; does not prevent Mana/native ES leech (damage §5b) |
+| `cannot_have_energy_shield_leeched_from` | prevents native and Ghost Reaver converted ES leech; leaves Mana available (damage §5b) |
+| `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1); the player's `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` scales it for 4 s after each player hit ([Polytheist](../game/polytheist.md)) |
 | `base_cannot_be_stunned` | no hit reaction (the flinch is the hit's stun) |
+| `chill_effectiveness_on_self_+%`, `base_self_freeze_duration_-%` (of the Ice), `shocked_effect_on_self_+%` (of the Tempest) | the player's chill and shock effect and freeze duration on it ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)) |
+| `action_speed_cannot_be_reduced_below_base`, `movement_speed_cannot_be_reduced_below_base` (Unstoppable) | the player's chill and freeze do not slow or stop it |
+| `reflect_non_damaging_ailments_%_chance` (Mirrored) | the chill, freeze and shock a player hit inflicts on it act on the player too |
+| `monster_chance_to_not_flee_%` (the rarity's MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100) | its chance to ignore a player hit's flee ([11](11-skills.md) §6) |
 
 **Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the
-server never does to monsters: Hexproof, of Congealment, Unstoppable, Mirrored, Reflector's, the ailment parts of the
-resistance mods) and 6 in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
+server never does to monsters: Hexproof, of Congealment, Reflector's, the wither parts of the resistance mods) and 6
+in part (of Flames / of Rime / of Electricity: the extra damage without the exposure on hit; of
 Haste / of Damaging: the aura reaches only the monster itself; of Precision: its accuracy, not its increased critical
 strike chance, which raises a base of 0). The other 74 need a system the server does not have: an aura or buff without
 stats of its own, a granted or retaliation skill, a monster or ground on death, ailments, curses, blind or stun on the

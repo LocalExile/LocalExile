@@ -19,6 +19,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `mapboss` point with its boss pack (Fire Fury beside the campfire, verified live 2026-10-18);
   room points are found by fitting rooms to the doodads `-Walkmaps` captures.
   The Tidal Island's boat rooms are too sparse to fit and use their captured placement: Hailrake stands on the wreck.
+  Rooms with a boss point take their actual placement (captured or generated); an unplaced sibling room adds none.
+  `mapboss<n>[WG]` is the n-th of the area's bosses, sub-graph rooms included (Brutus, Merveil).
+  `mapboss`, `force:mapboss` (Kitava) and `mapbosspack` take every boss left, once (The Den's two, both seals).
+  Named packs bring their boss (Pikerivet, The Burning Man); The Quay's Tolman stands at his spawner.
+  The Ashen Fields' boss is the bandit lord the character spared in Act 2, or Greust (`MapBossOverride`).
+  A boss whose point is off the walk map stands on the nearest walkable cell; the boss pack stands once per area.
+  `CampaignBossPlacementTests` (`Game_BOSS_CHECK=1`) checks every boss of the act 1–10 areas the Gateway generates.
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
 - Emerge monsters (Gravel Eaters, Dripping Dead, the Twilight Strand's Drowned …) are created buried, cannot be hit
@@ -32,20 +39,30 @@ Part of [Status](../Status.md); what to build next in this area is in
   lurking Tide Striders on Tidal Island).
   Code: `MonsterEmerge.cs`, `Program.Emerge.cs`, Gateway.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §5.
-- Monster hit reaction: a hit that leaves a monster alive and takes at least a tenth of its max life plays one of its
-  rig's TakeHit clips with the clip's own sound (S→C 0x1b2 kind 0;
-  a pool picks one at random), and not again until that clip has played (at least 0.4 s);
-  a killing blow gets no flinch.
-  Verified live 2026-10-25 on the Sanctum zombie and the Goatman (melee and Holy Strike);
-  the damage and clip-length gates are not yet checked live.
+- Monster hit reaction: a positive hit that leaves a monster alive and takes at least a tenth of its maximum life
+  requests native Actor TakeHit recovery (S→C 0x1d1, animation type 5).
+  Stun immunity, an absent TakeHit profile or an existing recovery prevents it; a killing blow gets no flinch.
+  A randomly chosen extracted clip length supplies the duration profile, with a 0.4 s minimum.
+  The actor's native ACT selects and fits the presented clip; the server does not force a rig index.
+  Recovery stops server and client movement, holds AI and invalidates old ordinary swing echoes and contacts.
+  Historical LocalExile moving-Drowned samples held one cell through recovery, then resumed a fresh AI walk.
+  This standalone port has fresh automated coverage; native integration remains pending in the
+  [port record](../docs/dev/ranged-monster-actions-port.md).
+  Rig-only 0x1b2 did not stop locomotion; it is no longer used as the enemy's recovery packet.
+  Thresholds and duration profiles remain a bounded local policy rather than a complete official stun formula.
   The weapon impact sound and the target's blood come from S→C 0x1af "action hit", sent on melee and attack-gem hits
   and on monster hits on the player (2026-10-25; not yet checked live after the timing cap).
-  Code: `HitReaction.cs`, `MonsterCatalog.TakeHit`, Gateway (`SendFlinch`), `scripts/re/monster_takehit.py` →
+  GGG's server sends it too, but with the monster action's own sequence and skill index 2, where we send 0xffff and 0
+  (Sand Spitters, live capture 2026-10-30; [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
+  A level 1 Sand Spitter hits for 5–7 here and a constant 4 on live (5 on a crit); the cause is not known.
+  Code: `HitReaction.cs`, `MonsterCatalog.TakeHit`, Gateway (`SendMonsterFlinch`), `scripts/re/monster_takehit.py` →
   `data/monster-takehit.json`.
   Docs: [11](../docs/protocol/11-skills.md).
 - Magic and rare monsters roll their mods from Mods.dat (monster domain, spawn weights by the monster's tags, level,
   one per family): magic one affix shared by the monsters of one name in an instance, rare two to four (poewiki
   "Rarity"), with a rare name from the Words.dat monster lists.
+  Magic monsters glow blue and rare ones gold: the server puts the hidden champion buff on them
+  (`MonsterRarityBuffs`, BuffDefinitions 66 / 67; [14](../docs/protocol/14-monster-packs.md) §2).
   The client shows them on hover (verified live 2026-10-25: "Gorewalker" / "Extra Life", "Quick Hungry Corpse" /
   "Hasted").
   Their life, hit, attack time, walk (sent as movement_velocity_+%, the client walks at the same speed), resistances,
@@ -55,6 +72,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   §5.
   Code: `MonsterMods.cs`, `Program.MonsterMods.cs`, `MagicProperties.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
+- Monster decisions use 50 ms of elapsed game time, with no catch-up burst after pauses or slow steps.
+  Chase repaths use a separate 100 ms budget and require at least three cells of Manhattan target change.
+  A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
+  30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
+  live 2026-10-29: Spitters came in close). `MinimumAttackDistance` is not read yet.
+  Attack busy time covers the full attack duration; pending swing and stage generations prevent duplicate work.
+  Three native AI-enable controls issued one chase each after 43, 38 and 50 ms.
+  Four deliberate turns produced four chase orders at 249 ms intervals without duplicate orders between turns.
+  Drowned attack starts remained 2432 and 2428 ms apart for a 2.4 s attack.
+  Actual Escape-menu pause held 30 samples at one cell without actions; resume continued the existing path.
+  Automated cadence, pause, interruption and stage-completion checks pass; quoted native controls are historical
+  LocalExile evidence, not a fresh run of this standalone port.
+  Code: `MonsterAiCadence.cs`, `Program.Monsters.cs`.
+  Evidence: `artifacts/wand-ai-validation/ai-native-response-*.json`, `ai-native-turns.json`,
+  `ai-native-attack-pacing.json` and `ai-native-menu-{paused,resumed}.json`.
+  Docs: [11](../docs/protocol/11-skills.md) §6.
 - Monsters fight back: their first granted effect as a non-pathing skill with MonsterVarieties attack time, reach and
   level damage; they swing (animated) when in reach and the player's life goes down after evasion, armour and block;
   only monsters with a critical strike chance from their data or mods crit (none from their data yet; of Deadliness);
@@ -73,13 +106,43 @@ Part of [Status](../Status.md); what to build next in this area is in
   Six integrated native cases at source `dbfe717`, recorded by `53edc77`, cover ordinary alive/dead, Raised Zombie
   false, Hillock life 1, sinking and an owned Spectral Wolf forced false by that source's separate summon runtime.
   This branch preserves the ordinary flag math and fields; it has no independent native pass or owned-actor runtime.
-  The Core helper retains an optional owned guard; corpse identity, final-death registration and consumption remain open.
+  The Core helper retains an optional owned guard; corpse identity and final-death registration remain open.
+  Deathrattle's warcry explosion is the first consumer: a dead zero-Life eligible monster explodes once and is marked
+  `SpawnedMonster.CorpseConsumed` and removed ([11](../docs/protocol/11-skills.md) section 10i).
   Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Program.Monsters.cs`, `ot_components.py`.
   Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+- Player hits on monsters: each one records the time on the monster (`PlayerHitAt`), and the player's death clears it.
+  `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` (Devout of Ryslatha) scales a monster's regeneration for 4 s
+  after a hit.
+  Gateway coverage only; not checked with the real client.
+  Code: `Program.MonsterMods.cs`, `Program.Combat.cs`.
+  Docs: [14](../docs/protocol/14-monster-packs.md) §5, [Polytheist](../docs/game/polytheist.md).
+- Monster hits on the player: an attack that is neither evaded nor blocked records the time on the monster
+  (`HitPlayerAt`), and the player's death clears it.
+  For 4 s after it, the player's `enemies_that_hit_you_with_attack_recently_attack_speed_+%` (Devout of Gruthkul)
+  lengthens the monster's swings, and its attack stats are sent again on its Stats component.
+  Gateway coverage only; whether the client's swing animation follows those stats is not checked with the real client.
+  Code: `Program.Monsters.cs` (`MonsterSwingSeconds`, `SendAttackerSlows`), `MonsterMods.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) §6, [Polytheist](../docs/game/polytheist.md).
+- Monster walk speed on the server includes the client's per-monster speed roll: Actor setup draws a uniform percent
+  in the MonsterVarieties row's range (the Goatmen ±5 %, the 7.60–8.40 band measured live for a base of 8; most rows
+  none) from a TinyMT32 state keyed by the object id and its type, and the walk estimate, swing range and contact
+  checks use that speed.
+  The range, the generator and the key order come from the decompile and pass the tests; whether the key's type word
+  is the 0x2b9 type hash, and so whether the exact value matches the client's, is not checked live yet
+  (`scripts/re/frida/trace-movement.js` prints each monster's seed words, range and multiplier).
+  Code: `MonsterSpeedRoll.cs`, `AnimationVariantSelector.cs`, `MonsterCatalog.cs`, Gateway (`SpawnMonster`).
+  Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5 ("Monsters on the client").
 - Monster mods' accuracy (of the Marksman, of Precision): the monster's accuracy is raised in its swing, but only the
   tests check it; live, the player was never evaded.
   Code: `MonsterMods.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
+- Monster flee: a player hit with a chance to cause monsters to flee (Surfcaster's small nodes, Chance to Flee Support)
+  makes a living monster walk to a floor cell 5 m away from the player and not attack until that walk ends.
+  Magic monsters avoid half of the flees and rare and unique ones all, through their rarity's own mods.
+  Only the Gateway tests check it; the distance and the action the real server walks it with are not verified.
+  Code: `MonsterFlee.cs`, `MonsterAilments.cs`, `Program.Monsters.cs`.
+  Docs: [11](../docs/protocol/11-skills.md) §6, [Surfcaster](../docs/game/surfcaster.md).
 
 ## Not working yet
 
@@ -90,3 +153,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
   other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
   a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
+  Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
+  ([17](../docs/protocol/17-npcs.md)).
+  Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
+  layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
+  A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) is left to a fight or quest
+  that does not create it yet.

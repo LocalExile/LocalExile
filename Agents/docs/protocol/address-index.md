@@ -359,6 +359,7 @@ These are client addresses; their presence is not proof of official-server imple
 | `0x141eed000` | Fn | Atlas passive tree check |
 | `0x1435ddb78` (write `0x141fdf430`, read `0x141fdf870`), `0x1435dd918` (read `0x141fdfdd0`) | Cls | S→C 0x1c1 add buff, 0x1c2 remove buff; [granted-value gate and cardinality](../re/client-buff-wire-magnitudes.md) |
 | `0x141e11720` | Fn | Buffs component: 0x1c1/0x1c2 handler (world handler cases 0x1c1, 0x1c2) |
+| `0x141e11fb0` | Fn | Removes an installed Buffs pointer and marks instance +0xd0 bit 0x10 inactive; instance ID is +0x9c. Native hybrid flask removal verified ([13](13-items.md) §8). |
 | `0x142087910` | Fn | effect script: plays a MiscAnimated as a `Metadata/Effects/*Effect` object |
 | `0x1400bac70` | Fn | registers the derived stat active_skill_area_of_effect_radius (from the base radius and area %) |
 | `0x142155bf0` | Fn | create passive slot 0/1/2 (`instance+0xc2f8`) |
@@ -372,6 +373,9 @@ These are client addresses; their presence is not proof of official-server imple
 | `0x141fa5290` | Fn | ItemTypeRegister lookup by HASH32 |
 | `0x1421ebe90` | Fn | the four type hashes with a trailing u16 |
 | `0x1421e69c0`, `0x1421df6e0`, `0x1421e2e20`, `0x1424aec50`, `0x14249d4b0`, `0x1423f4b30`, `0x14246eb00` | Fn | item component reads: Base, Mods, Sockets, Quality, Charges, Stack, SkillGem |
+| `0x1421e7570`, `0x1421e1190` | Fn | debug dumps of the Base and Mods components: each field's name ([13](13-items.md) §2f) |
+| `0x1415703a0` | Fn | an item's render flags: Base +0xc6 influences, Mods relic, synthetic, fractured ([13](13-items.md) §2f) |
+| `0x1424df5c0` | Fn | a mod line's display kind: crafted, fractured, mutated, divergent |
 | `0x142201d70` | Fn | ObjectMagicProperties read: rarity, identified, mod lists, name ([13](13-items.md) §2a) |
 | `0x142430380` / `0x142430710` | Fn | one mod read (u16 Mods.dat HASH16 + a compact per stat) / the mod's n-th stat |
 | `0x1421ff3c0` → `0x1421ff8f0` | Fn | after the read: rarity tag, apply each mod list with its kind |
@@ -397,6 +401,25 @@ These are client addresses; their presence is not proof of official-server imple
 | `0x1421e03d0` | Fn | an item's level requirement → Mods +0x2bc (type level, mod level × 4 / 5, override, +); not run for network items, which keep the sent byte ([13](13-items.md) §2d) |
 | `0x1421eca50` | Fn | can the player use this item: level (Mods +0x2bc vs Player +0x1ac), gem levels, attributes |
 | `0x141e80340`, `0x141e802d0` | Fn | Player caches: requirement attributes; UI attributes |
+| `0x1424affc0` / `0x1424aff60` | Fn | Armour component raw base-roll byte reader / writer; 32 is a minimum flag |
+| `0x1424afc90` | Fn | Armour roll setter: ordinary 0..31 at +0x28; special flag at +0x2a |
+| `0x1424af890`, `0x1424af910`, `0x1424af990` | Fn | Base armour/evasion/ES: interpolate over 31, then round |
+| `0x1424af310`, `0x1424af1a0`, `0x1424af430` | Fn | Final armour/evasion/ES: rounded base, locals, quality, round |
+| `0x1424afb10`, `0x1424afb90`, `0x1424afc10` | Fn | Local increased ES/evasion/armour helpers |
+| `0x142523ab0` | Fn | ES-to-Life: full flag wins; truncate final local ES per active armour slot |
+| `0x1428b4e30` | Fn | Effective shield ES: suppressed for ES-to-Life conversion or shield transfer/prohibition |
+| `0x142724c50` | Fn | Combined shield defence increase: generic stat 24 plus the Devotion-dependent term |
+| `0x14272f680` | Fn | Shield armour increase: global armour plus shield-only armour and combined shield defences |
+| `0x142727dd0` | Fn | Shield evasion increase: global evasion plus shield-only evasion and combined shield defences |
+| `0x14252f6a0` | Fn | Shield ES increase: global ES plus shield-only ES and combined shield defences |
+| `0x142731bfc` | Code | IR shield evasion uses shield armour-only plus shield evasion/shared increases once |
+| `0x142732ee7` / `0x14272a59b` | Code | Final AR/EV: truncate after adding 0.5 to the summed positive contributions |
+| `0x14252c6e7` / `0x142513810` | Code / Fn | Final ES calls signed half-away rounding after summing sources |
+| `0x14252c730` / `0x14252d478` / `0x14252d533` | Fn / Code | Flat ES getter reads key 135 and adds global flat ES |
+| `0x1405bdd70` / `0x140664f10` | Fn | Linear interpolation / half-up rounding used by item defences |
+| `0x140e1a230` | Fn | Item's Armour component getter |
+| `0x140030c10` / `0x14345c550` | Fn/Cls | Register Sacred Orb action / validator vtable |
+| `0x141f83050` | Fn | Sacred Orb target gate: Armour, Mods, no mirror, at least one variable native range |
 | `0x1402f36c0` | Fn | item's AttributeRequirements component getter |
 | `0x141e1dce0` | Fn | InteractionAction type parser (`interaction_distance_override` → +0x1bb) |
 
@@ -602,16 +625,31 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x141ee73d0` | Fn | ActiveSkillInstance ctor (action id from GEPL → GrantedEffect → ActiveSkill → ActionType) |
 | `0x1435b9728` | VT | ActiveSkillInstance |
 | `0x1424cfa40` | Fn | stat getter (stats, key); stored pairs at stats +0xf0 |
+| `0x1424c9920` | Fn | Character-panel formatter: ordered stat keys at +0xd8/+0xe0; returns UTF-16 text. Natural leech-row calls verified ([20](20-damage.md) §5b). |
+| `0x1424c6020` | Fn | Panel argument converter: leech limits use NoFunction, DivideByOneHundred, PerMinuteToPerSecond2dpIfRequired and PermyriadPerMinuteToPercentPerSecond. |
 | `0x141e6a190` | Fn | Life tick: notifies listeners only while life > 0 |
 | `0x140220ab0` | Fn | mini life bar entry: flags from the Life pools (0x20 = dead) |
 | `0x140220c30` | Fn | mini life bar entry: stat listener (`hide_mini_life_bar` 0x2a8b, `virtual_is_hidden_monster` 0x59d0) |
 | `0x140221fd0` | Fn | mini life bar: visible? |
 | `0x141e8cf10` | Fn | Actor: start (queue) an action |
 | `0x141e8e060` | Fn | Actor: per-frame runner of the queued action |
+| `0x141e8d3d0` | Fn | Fresh local action sequence from Actor `+0x21a + 1` |
+| `0x141e8e92b..0x141e8e932` | Code | Action start: copy u16 sequence `+0x11a` to Actor RNG seed `+0x21c` |
+| `0x141ba3104..0x141ba3115` | Code | Animation seed: zero-extended action sequence plus intrinsic repeat count |
+| `0x141b6eb70` | Fn | Melee ctor: `attack_repeat_count` (stat 0x4eb) becomes action `+0x2d0` |
+| `0x1419e3960` | Fn | Melee completion: decrement intrinsic repeat count; previous zero ends action |
+| `0x140e0bec0` | Fn | Animation RNG initializer: literal uint32 recurrence and eight warm-up steps |
+| `0x140484fe0` | Fn | Native animation RNG next word: state transition and tempering |
+| `0x140484fa0` | Fn | Native bounded RNG draw: rejection sampling; bound one consumes no word |
+| `0x141e98c40` | Fn | Speed-based ACT animation eligibility and weighted reservoir selection |
+| `0x141e991e0` | Fn | Duration-based ACT animation eligibility and weighted reservoir selection |
 | `0x141fde9d0` | Fn | 0x1d1/0x1d2 reader: duration float, Animation.dat type byte, boolean |
 | `0x141e95e60` | Fn | 0x1d1 Actor animation: cancel prediction, select stance ACT, lock input during recovery |
+| `0x1421949c3` | Code | Actor 0x1d1 dispatch to virtual `+0xe0` recovery handler |
+| `0x141e8d900` | Fn | Action-start gate: Actor `+0x219` bit 2 blocks input during recovery |
 | `0x141e90740` | Fn | End local predicted action (Actor +0x1b8) |
 | `0x141e934b0` | Fn | End Actor animation recovery; clear +0x219 bit 2 and resume queued/idle actions |
+| `0x141e58ef0` | Fn | Generic Animated message handler: 0x1b2 kind zero plays a rig clip |
 | `0x141dba530` | Fn | Play(controller, resource pair, index in r8d, speed); main state at controller +0x180 |
 | `0x141938830` | Fn | Melee action begin = skill_is_non_pathing |
 | `0x14219f820` | Fn | S→C 0x55 death screen read |

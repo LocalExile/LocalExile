@@ -31,11 +31,14 @@ was dropped silently: S→C **0xa7** adds an entry, S→C 0xa8 (case 0x29) remov
 
 - wstr account (the key; entry `+0x30`), wstr (`+0x50`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
   u16 pair (`+0xb0`, `+0xb2`), bit 2 (`+0xba`) the character section, bits 3–6 `+0xbb` / `+0xbc` / `+0xbd` / `+0xbe`;
-- with bit 2 (or bit 5): wstr character (`+0x70`), u8 (`+0xb9`), u8 (`+0xb8`); with bit 2 also u16 BE (`+0xa8`, sent as
-  the level), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
+- with bit 2 (or bit 5): wstr character (`+0x70`), u8 (`+0xb9`), u8 (`+0xb8`, the packed class); with bit 2 also u16 BE
+  (`+0xa8`, sent as the level), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
 - without bit 2: u64 (`+0xa0`).
 
-The Gateway sends `InstanceSocial.KnownPlayer` (flags 0x04) for each side before the request.
+The bit 1 pair is the portrait frame (`+0xb0`) and the portrait (`+0xb2`); the client's writer leaves it out when both are
+0 ([23](23-microtransactions.md) §3).
+
+The Gateway sends `InstanceSocial.KnownPlayer` (flags 0x04, with the pair 0x06) for each side before the request.
 
 ## 3. The request and the window: S→C 0xb8 flags
 

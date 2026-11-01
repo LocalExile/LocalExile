@@ -39,6 +39,33 @@ public class HostTests
     }
 
     [Fact]
+    public async Task Accounts_lists_every_account_and_its_characters_without_secrets()
+    {
+        await using var host = NewHost();
+        using var a = new Conn(host.Port);
+        Assert.Empty(a.Call("""{"op":"accounts"}""")["accounts"]!.AsArray());
+
+        a.Call("""{"op":"register","name":"zed","password":"pw1234"}""");
+        a.Call("""{"op":"register","name":"alice","password":"pw1234"}""");
+        a.Call("""{"op":"login","name":"alice","password":"pw1234"}""");
+        a.Call("""{"op":"create_character","name":"Exile","class":"templar"}""");
+
+        // Without a login of its own: a second connection sees the same list.
+        using var b = new Conn(host.Port);
+        var list = b.Call("""{"op":"accounts"}""")["accounts"]!.AsArray();
+        Assert.Equal(["alice", "zed"], list.Select(x => (string)x!["name"]!));
+        var exile = list[0]!["characters"]!.AsArray().Single()!;
+        Assert.Equal("Exile", (string)exile["name"]!);
+        Assert.Equal("Templar", (string)exile["class"]!);
+        Assert.Null(exile["last_town"]);
+        Assert.Null(exile["dead"]);
+        Assert.Empty(list[1]!["characters"]!.AsArray());
+        string raw = b.Call("""{"op":"accounts"}""").ToJsonString();
+        Assert.DoesNotContain("pw1234", raw);
+        Assert.DoesNotContain("hash", raw, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task FullFlow_Register_Login_Character_World_Instances()
     {
         await using var host = NewHost();

@@ -524,8 +524,9 @@ copies (50% + 50% = 100%), and a notable is suppressed even if another radius je
 modifiers for 20 seconds. Needs a count of allocated notables in radius, the rare monster's mod list, a timed buff and a
 way to apply the stolen mod to the player. The server has monster mods and buffs, but not this steal-and-apply flow.
 
-**Warrior's Tale** (Crimson, Medium, limit 1): `100% increased effect of Tattoos in Radius`. Tattoos are a later
-mechanic; the server has no tattoo model yet. Keep this jewel out of scope until tattoos exist.
+**Warrior's Tale** (Crimson, Medium, limit 1): `100% increased effect of Tattoos in Radius`. Tattoos are a separate
+mechanic; the 100-item catalogue, target/limit rules and implementation plan are in [tattoos.md](tattoos.md). The
+server has no tattoo model yet, so keep this jewel out of scope until the tattoo apply/remove flow exists.
 
 **Might in All Forms** (Crimson, Medium): implemented. The item carries
 `DexterityAndIntelligenceGiveStrengthMeleeBonusInRadiusUniqueJewel55`; `ReadConversion` sets `StrengthMeleeBonus`, and

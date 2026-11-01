@@ -49,8 +49,27 @@ public static class InstanceEntities
     /// allocated but only allowed"). The presets at instance+0xc2f8 (active index +0xc2f0) are read when the area UI is
     /// built (0x140785160), so all three are created, empty.
     /// </summary>
-    public static byte[] PassiveSlots(ushort u28 = 0, ushort u2a = 0) =>
-        new LoginWriter().U16(PassiveSlotsId).U16(u28).U16(u2a).U8(0x1c).U16(0).ToArray();
+    public static byte[] PassiveSlots(ushort u28 = 0, ushort u2a = 0, byte presetMask = 0x1c,
+        IReadOnlyList<ushort>? nodes = null)
+    {
+        var w = new LoginWriter().U16(PassiveSlotsId).U16(u28).U16(u2a).U8(presetMask).U16((ushort)(nodes?.Count ?? 0));
+        foreach (ushort node in nodes ?? []) w.U8((byte)node).U8((byte)(node >> 8));   // raw little-endian u16
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// C→S 0x3e (7 bytes): the Atlas tree's allocate click. u8 preset index (0..2), u32 BE PassiveSkillGraphId. The
+    /// client's active preset is at Atlas tree +0xc2f0 (sender 0x1403cc410).
+    /// </summary>
+    public static (byte Preset, uint Node) ReadAtlasAllocate(ReadOnlySpan<byte> m) =>
+        (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]));
+
+    public const ushort AtlasAllocateId = 0x03e, AtlasRefundId = 0x03f;
+    public const int AtlasAllocateLength = 7, AtlasRefundLength = 8;
+
+    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 flag (0 seen).</summary>
+    public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
+        (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
 
@@ -61,15 +80,18 @@ public static class InstanceEntities
     /// u8 u16, bit1 +0x68: an f32 duration in seconds, default +infinity, so <paramref name="u68"/> takes its bits, bit2
     /// u16 stacks +0x70 (default 1), bit3 u16 ActionTypes HASH16 +0x74 then u16 skill id +0x72 (the active icon),
     /// bit4 u16 BuffVisuals override (default the row's), bit5 u8 +0x80
-    /// (default 2), bit6 → +0x81, bit7 f32 +0x6c (default 1.0)), then a u16 when the row's bool at +0xff is set, one u32
+    /// (default 2), bit6 → +0x81, bit7 f32 +0x6c (default 1.0)), then a u16 +0x82 when the row's bool at +0xff
+    /// (<c>__col44</c>) is set (<paramref name="u82"/>: the caller must give it exactly for those rows), one u32
     /// per GrantedStats value when its IsRecovery (+0x7c) is set (<paramref name="values"/>: the caller must give exactly
-    /// that many, or the client misreads the message), and a u32-counted list of u32. The buff's visual (BuffVisuals)
+    /// that many, or the client misreads the message), and a u32-counted list of u32 (<paramref name="list"/>, buff +0x80: a
+    /// RecordSkillUseLocations buff's first entry, which its behaviour reads unchecked). The buff's visual (BuffVisuals)
     /// plays while it lasts. u68 is the raw IEEE-754 f32 duration in seconds (not integer milliseconds);
     /// f6c is the countdown rate (default 1.0).
     /// </summary>
     public static byte[] AddBuff(uint objectId, ushort buffInstance, ushort buffRow, uint sourceId = 0, ushort sourceSkill = 0,
         IReadOnlyList<uint>? values = null, uint? u68 = null, float? f6c = null, ushort? visual = null,
-        (ushort Id, ushort Action)? activeSkill = null, bool auraSource = false, byte? displayState = null, ushort? stacks = null)
+        (ushort Id, ushort Action)? activeSkill = null, bool auraSource = false, byte? displayState = null, ushort? stacks = null,
+        ushort? u82 = null, IReadOnlyList<uint>? list = null)
     {
         // flags bit1: u32 +0x68; bit7: f32 +0x6c (read right after bit1's field); bit4: u16 BE a BuffVisuals row in place
         // of the BuffDefinitions row's (+0x38; read after bits 2 and 3, a row past the table keeps none): a skill
@@ -89,7 +111,9 @@ public static class InstanceEntities
         if (activeSkill is { } skill) w.U16(skill.Action).U16(skill.Id);
         if (visual is { } v) w.U16(v);
         if (displayState is { } state) w.U8(state);
-        return w.Bytes([.. (values ?? []).SelectMany(v => new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v })]).U32(0).ToArray();
+        if (u82 is { } row) w.U16(row);
+        static byte[] Be(IReadOnlyList<uint>? u) => [.. (u ?? []).SelectMany(v => new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v })];
+        return w.Bytes(Be(values)).U32((uint)(list?.Count ?? 0)).Bytes(Be(list)).ToArray();
     }
 
     /// <summary>S→C 0x1c2 (class 0x1435dd918, read 0x141fdfdd0): object header, u16 buff instance: the buff ends.</summary>
@@ -146,13 +170,13 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
             .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
-        // The second list stays empty: the cluster jewel nodes of the expansion cells (the client's own small ids, not
-        // PassiveSkillGraphIds) go in the third, which is where the client looks for them.
+        // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
+        // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
         w.U16(0);
         var cluster = (clusterNodes ?? []).Order().ToList();
         w.U16(checked((ushort)cluster.Count));
@@ -161,7 +185,13 @@ public static class InstanceEntities
             .Where(kv => nodes?.Contains(kv.Key) == true).OrderBy(kv => kv.Key).ToList();
         w.U16(checked((ushort)effects.Count));
         foreach (var (node, effect) in effects) w.RawU32(node | ((uint)effect << 16));
-        return w.U16(0).ToArray();
+        // The fifth list is the applied tattoos: node | PassiveSkillOverrides.HASH16 << 16. The client stores it at
+        // tree +0x1f8 and looks the override up in PassiveSkillOverrides.dat for the replacement passive's name,
+        // icon and stats.
+        var applied = (tattoos ?? new Dictionary<ushort, ushort>()).OrderBy(kv => kv.Key).ToList();
+        w.U16(checked((ushort)applied.Count));
+        foreach (var (node, row) in applied) w.RawU32(node | ((uint)row << 16));
+        return w.ToArray();
     }
 
     /// <summary>S→C 0x22 (u32, dispatcher case 0xb): the local player's entity id (world+0x980, setter 0x142186fa0).</summary>
@@ -449,6 +479,21 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// Server side only; the blob names the area itself as the destination.</summary>
     public (int X, int Y)? TeleportTo { get; init; }
 
+    /// <summary>Whether the exit stands in a town. Only then does the client read the compact int (<see cref="Index"/>)
+    /// after the destination: 0x141e5b870 reads it when the state is 0 and the byte at +0x14 of the current area's
+    /// WorldAreas row (entity +8 → world +0x78 → +0xb0) is set, which is IsTown; the server-side writer 0x141e5b7a0
+    /// has the same condition. Elsewhere the byte was left over at the blob's end.</summary>
+    public bool InTown { get; init; }
+
+    /// <summary>The transition type, the low nibble of the component's flags (+0xb2; names in table 0x1435a5460): 0
+    /// Normal, 1 Teleport (a gate within the area), 2 SideArea, 3 SideAreaReturn, 4 LastTownReturn, 5 Labyrinth, 6
+    /// Menagerie, 7 SynthesisVoid, 8 Respawn.</summary>
+    public byte Kind { get; init; }
+
+    /// <summary>A ClientStrings HASH32 to show as the label instead of the destination area's name (destination variant 1,
+    /// resolved by 0x1424f7de0): a gate's "teleportN-&lt;key&gt;", e.g. BrutusAreaName "The Warden's Quarters".</summary>
+    public uint? Label { get; init; }
+
     /// <summary>Components that read data, in the order the client deserializes them for this type (traced live
     /// 2026-10-16: Positioned, BaseEvents (no data), Animated, AreaTransition (live vtable 0x14346de00), Stats,
     /// ObjectMagicProperties, MinimapIcon, InteractionAction, then two components the loop does not reach).</summary>
@@ -482,9 +527,14 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
                 // end with .ao"): the area transition's model, the white surface highlighted on hover. For a tile object it is the
                 // client's virtual "<.tdt folder>/<.tmd record name>.ao" around the record's fixed mesh.
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
-                // state 0, variant 2 = HASH16, then a compact int (+0xa4) that is read when the type's flag
-                // (type+0x78 → +0xb0 → +0x14) is set and the state is 0: true for AreaTransition (traced live).
-                case "AreaTransition": w.U8(0).U8(2).U16(DestinationHash16).CompactI(Index); break;
+                // the type (0 normal, 1 teleport), the destination (variant 2 = HASH16, or variant 1 = a ClientStrings
+                // HASH32 label), then for type 0 in a town (InTown) the compact int +0xa4, which nothing but the
+                // component's debug dump reads (Agents/docs/protocol/08-area-transitions.md §2, §8).
+                case "AreaTransition":
+                    w.U8((byte)(Kind & 0xf));
+                    if (Label is uint label) w.U8(1).U32(label); else w.U8(2).U16(DestinationHash16);
+                    if (InTown && Kind == 0) w.CompactI(Index);
+                    break;
                 case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
                 // base magic properties first (0x142201d70: u16 flags, rarity = low 3 bits; u8 +0x7a; sections behind
                 // flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's u8 flags.
@@ -500,7 +550,8 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
 
 /// <summary>
 /// A monster: a 0x2b9 object whose type is a MonsterVarieties row. The client's object-type register files every
-/// MonsterVarieties row (0x31a bytes) under its Id with the row's BaseMonsterTypeIndex (+0x48) as the .ot, but a monster
+/// MonsterVarieties row (0x31a bytes) under its Id with the row's BaseMonsterTypeIndex (+0x48) as the .ot (an .ot file
+/// under the Id itself wins: KitavaFinal is built from kitavafinal.ot, not its base Kitava1; Gateway MonsterCatalog), but a monster
 /// also needs a level: the server registers "&lt;Id&gt;@&lt;level&gt;" with S→C 0x20 (<see cref="InstanceEntities.MonsterTypes"/>)
 /// and the 0x2b9 type is <c>ObjectTypeHash(TypePath(Id, level))</c>. The components come from the .ot chain
 /// (`Metadata/Monsters/Monster`: Positioned, Stats, ObjectMagicProperties, BaseEvents, Pathfinding, Buffs, Life,
@@ -523,9 +574,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
          "Inventories", "Actor", "Monster"];
 
     /// <summary>Components a type may add after the base list that this blob can write. StateMachine (per-type state
-    /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x14359f478 has a
-    /// bare `ret` slot 17, so it reads nothing.</summary>
-    static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime"];
+    /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x14359f478 and Timer's
+    /// only vtable 0x1435a10a0 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
+    /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e1e240), as on an NPC.</summary>
+    static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
+        "NPC", "InteractionAction", "Timer"];
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec2540; the Monster type parses the number after the last '@').</summary>
@@ -580,11 +633,18 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // event interpreter (0x141ded7b9).
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
                 case "MinimapIcon": w.U8(0); break;      // slot 20 0x141e6f5d0: u8 flags
+                // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
+                // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
+                // no component that must be alive (+0x21 0xff), 17-npcs.md.
+                case "NPC": w.U8(0).U8(0xff); break;
+                // 0x141e1e240: u8 flags (bit 2 adds a u8 and a u16); 0, as NpcObject and AreaTransitionObject write it.
+                case "InteractionAction": w.U8(0); break;
+                // Timer (0x1435a10a0): slot 17 is `ret`, nothing to write.
                 // 0x141e3ee40: u8 shared-state count, u8 shared-timer count (the client throws unless they match the
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
-                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass: no data.
+                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }
         }
         w.U8(0);            // tasks
@@ -697,6 +757,9 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
 public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 {
     public const string TypePath = "Metadata/Effects/PermanentServerEffect";
+    const string RootBone = "<root>";
+    // The attachment's kind byte, a mask on its transform (0x142900da0): 1 drops the scale, 2 the translation, 4 the rotation.
+    const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
     /// a glide turns it to face the move (live 2026-10-21, Righteous Fire's ring). The only flags0 bits taken here are
@@ -712,6 +775,11 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// Righteous Fire's ring is scaled to the skill's radius.</summary>
     public float Scale { get; init; } = 1;
 
+    /// <summary>The object this effect rides on (0: none): Animated bit 2, the native attachment record (0x141e5adb0), to
+    /// the parent's "&lt;root&gt;" bone. The client carries it along with the parent's own predicted position, so no packet
+    /// moves it, and it does not turn with the parent.</summary>
+    public uint Parent { get; init; }
+
     public byte[] Blob()
     {
         var w = new BlobWriter();
@@ -720,7 +788,10 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
         w.I32(GridX).I32(GridY).F32(0).U16(0).U8((byte)((Flags0 & 0x81) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
         if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
         w.U8(0).U8(1);
-        w.U8(1).WStr32(AnimatedObject);                             // Animated: bit0 + the .ao path
+        w.U8(Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated: bit0 + the .ao path, bit2 the attachment
+        if (Parent != 0)
+            w.U32(Parent).F32(0).F32(0).U32((uint)RootBone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(RootBone))
+                .U8(AttachWithoutRotation).U8(0).F32(0).F32(0).F32(0);
         w.U8(0);                                                    // tasks
         return w.ToArray();
     }
@@ -860,7 +931,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null)
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
@@ -917,7 +988,8 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         w.WStr32(Name)
          .U8(ClassIndex)     // Characters.dat row; bit5 and bits6-7 are the ascendancy (0x142156d80)
          .U32(Experience)    // 0x141e7f6b0 → +0x18c; the level is derived from it (+0x1ac)
-         .U32(0).U16(0)
+         .U32(0)
+         .U16(PortraitFrame) // +0x1a8: the portrait frame (MicrotransactionSocialFrameVariations Index, 0 = the default)
          .U16(Portrait)      // +0x1aa: the portrait variation (MicrotransactionCharacterPortraitVariations __col1, 0 = the class's)
          ;
         WriteFlagSet(w, QuestFlags);   // the quest flags (+0x1b8, 0x141e83340)

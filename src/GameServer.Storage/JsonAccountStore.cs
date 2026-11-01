@@ -31,6 +31,7 @@ public sealed class JsonAccountStore : IAccountStore
 
     public Account? FindAccount(string name) { lock (_gate) return _s.Accounts.FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)); }
     public Account? GetAccount(Guid id) { lock (_gate) return _s.Accounts.FirstOrDefault(a => a.Id == id); }
+    public IReadOnlyList<Account> Accounts() { lock (_gate) return [.. _s.Accounts.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)]; }
     public void AddAccount(Account a) { lock (_gate) { _s.Accounts.Add(a); Save(); } }
     public void UpdateAccount(Account a) { lock (_gate) { var i = _s.Accounts.FindIndex(x => x.Id == a.Id); if (i >= 0) { _s.Accounts[i] = a; Save(); } } }
     public IReadOnlyList<Character> CharactersOf(Guid id) { lock (_gate) return _s.Characters.Where(c => c.AccountId == id).OrderBy(c => c.CreatedUtc).ToList(); }

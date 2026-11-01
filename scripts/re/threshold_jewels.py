@@ -1,4 +1,4 @@
-"""Generate src/GameServer.Gateway/ThresholdJewelCatalogue.cs from Path of Building's threshold jewels.
+"""Generate src/GameServer.Gateway/Item/ThresholdJewelCatalogue.cs from Path of Building's threshold jewels.
 
 Path of Building is a read-only third-party reference under Tools/PathOfBuilding (gitignored). Its
 src/Export/Uniques/jewel.lua has the mod HASH16 names for every threshold jewel. The generated C# file is
@@ -17,7 +17,7 @@ import re
 
 EXPORT = "Tools/PathOfBuilding/src/Export/Uniques/jewel.lua"
 MODS = "data/tables/Mods.json"
-OUT = "src/GameServer.Gateway/ThresholdJewelCatalogue.cs"
+OUT = "src/GameServer.Gateway/Item/ThresholdJewelCatalogue.cs"
 
 META = re.compile(
     r"^(Source|League|Radius|Limited to|Variant|Requires Level|Upgrade|DropLevel|Level|Crafted|"

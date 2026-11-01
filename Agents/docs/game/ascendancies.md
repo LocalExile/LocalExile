@@ -14,11 +14,17 @@ Only one main ascendancy is selected at a time, and it must belong to the charac
 **Phrecia play is explicitly gated by default.**
 Gambler has an explicit read-only installed-graph opt-in; see [its checklist and scope](gambler.md).
 Aristocrat has the same check behind `Game_VERIFIED_ARISTOCRAT=1`; see [its checklist](aristocrat.md).
+Ancestral Commander has it behind `Game_VERIFIED_ANCESTRAL_COMMANDER=1`; see [its checklist](ancestral-commander.md).
+Paladin has it behind `Game_VERIFIED_PALADIN=1`; [its checklist](paladin.md) lists what the engine does not apply yet.
+Polytheist has it behind `Game_VERIFIED_POLYTHEIST=1`; see [its checklist](polytheist.md).
+Surfcaster has it behind `Game_VERIFIED_SURFCASTER=1`; see [its checklist](surfcaster.md).
 Each opt-in is limited to its identity and the exact pinned graph bytes.
 The shipped alternate graph contains older ordinary-tree topology.
 A separately agreed client-compatible graph is required before Phrecia can be enabled in an actual game connection.
 Antiquarian has an explicit `Game_VERIFIED_ANTIQUARIAN=1` opt-in which verifies exact installed archive bytes read-only.
 Its [whole-class audit](antiquarian.md) records the hashes, all node consumers, legal builds and native acceptance.
+Behemoth is supplied by the optional Phrecia module behind `Game_VERIFIED_BEHEMOTH=1` and the same graph check.
+Its shared Rampage/Vaal engines and pending modular acceptance are described in [Behemoth](behemoth.md).
 Other Phrecia choices are refused before saving, and their existing saves refuse admission before inventory loading
 or passive normalization, retaining their data.
 There is no automatic graph installation, recovery, archive rewrite, or memory-hook workaround in this slice.

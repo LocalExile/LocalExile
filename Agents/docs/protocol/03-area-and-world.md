@@ -27,7 +27,7 @@ Dispatcher case 6. Class `0x1435da180` (0x168 bytes, ctor `0x14219d940`), write 
 | 13 | u16 | +0x16 | **only if** flag 0x21 bit 3: second area hash |
 | 14 | vec16⟨u32⟩ | +0x68 | `0x141fa3a70` |
 | 15 | vec16⟨u8⟩ | +0x80 | stored as 4-byte elements, sent as 1 byte each |
-| 16 | vec8⟨u8⟩ | +0x50 | → `0x140400ac0(+0xc410)` |
+| 16 | vec8⟨u8⟩ | +0x50 | visible AchievementSetsDisplay ids → instance +0xc418 (dispatcher r13 +0xc410); Delve sends permanent set 2 to enable the shared upgrade window |
 | 17 | vec16⟨u16⟩ | +0xe0 | |
 | 18 | vec8⟨u8⟩ | +0x98 | only if flag 0x21 bit 7 |
 | 19 | vec8⟨u8⟩ | +0xb0 | only if flag 0x22 bit 0 |
@@ -38,8 +38,11 @@ Dispatcher case 6. Class `0x1435da180` (0x168 bytes, ctor `0x14219d940`), write 
 Flag bits read by the handler (from the 3 bytes at +0x21): 0, 1, 2, 4, 5 (inverted) → `+0xc3e5..` bytes; 0xc, 0xd, 0xe →
 world setters; 3 = second area hash; 2 → `0x142142d30`; 0xa → `0x142142c90(+0x150)`; 0xf → with the area's own flag.
 
-`AreaInstance.Encode()` sends the minimal form (all optional parts off, every vector empty, the ctor defaults). We send
-`AreaInstance(InstanceId: 1, AreaHash: 0x235c, Seed: 1, Level: 0)`.
+`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists and extra terrain data.
+`TerrainData` sets flag 0x22 bit 2 and appends a big-endian u16 byte count followed by the extra-data bytes.
+The extra-data decoder (`0x141ec7220`) has its own two-byte flags and little-endian nested records.
+Its first flag byte's bit 5 selects the Delve terrain block (`0x141ec5f20`).
+See [Delve](21-hideouts.md#delve-sulphite-and-the-crawler-live-2026-10-29) for the initial mine control.
 
 ### What the client does
 

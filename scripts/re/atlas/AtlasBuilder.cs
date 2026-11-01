@@ -119,7 +119,7 @@ static partial class AtlasBuilder
         return rsPath;
     }
 
-    static IEnumerable<string> SubGraphs(GameFiles files, string master, string name, List<string> problems)
+    internal static IEnumerable<string> SubGraphs(GameFiles files, string master, string name, List<string> problems)
     {
         if (name.EndsWith(".dgr", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".tgr", StringComparison.OrdinalIgnoreCase))
             return [TerrainText.Resolve(master, name)];

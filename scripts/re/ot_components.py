@@ -43,7 +43,8 @@ GROUND_TRUTH_READ = {"Metadata/Characters/Int/Int": 10, "Metadata/MiscellaneousO
 
 
 def cache_name(path):
-    return os.path.join(CACHE, path.replace("/", "_"))
+    # \\?\: these names are long, and a release's install folder can take them past Windows' 260 characters.
+    return "\\\\?\\" + os.path.join(CACHE, path.replace("/", "_"))
 
 
 def fetch(paths):
@@ -61,7 +62,9 @@ def fetch(paths):
         batches.append(cur)
     n = 0
     for batch in batches:
-        cmd = ["dotnet", "run", "--project", proj] + (["--no-build"] if built else []) + ["--", GGPK, CACHE] + batch
+        # A release has no SDK: its launcher names the published tool.
+        tool = [os.environ["Game_GGDUMP_EXE"]] if "Game_GGDUMP_EXE" in os.environ else ["dotnet", "run", "--project", proj] + (["--no-build"] if built else []) + ["--"]
+        cmd = tool + [GGPK, CACHE] + batch
         out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
         built = True
         for line in out.splitlines():
@@ -161,6 +164,112 @@ def amd_animations(amd, fetch_missing=True):
         print(f"warning: {amd}: read {len(out)} animations, the count line says {count}; skipped", file=sys.stderr, flush=True)
         return None
     return out
+
+
+
+def _block(text, name):
+    """The body of the first top-level `name { ... }` block of an .ao/.ot text, with quoted strings (the JSON
+    animation lists in single quotes) kept whole, or None."""
+    m = re.search(r'^\s*' + re.escape(name) + r'\s*\{', text or "", re.M)
+    if not m:
+        return None
+    i, depth, quote = m.end(), 1, None
+    while i < len(text) and depth:
+        c = text[i]
+        if quote:
+            if c == "\\":
+                i += 1          # an escaped character cannot close the string
+            elif c == quote:
+                quote = None
+        elif text.startswith("//", i):
+            i = text.find("\n", i)   # a comment runs to its line's end (PaleWalker01.ao has a quote in one)
+            if i < 0:
+                break
+        elif c in "'\"":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        i += 1
+    return text[m.end():i - 1] if depth == 0 else None
+
+
+def _position(value):
+    """An event position as [x, y, z] floats, or None (the .amd writes "0 -0 -0" for events without one; a zero
+    vector is kept, since a ground-level contact is a position too)."""
+    try:
+        parts = [float(v) for v in (value.split() if isinstance(value, str) else value)]
+    except (TypeError, ValueError):
+        return None
+    return parts if len(parts) == 3 else None
+
+
+def ao_animation_events(ao, fetch_missing=True):
+    """What the .ao chain says about its rig's animation events: (exclude, {animation: [(event, ms, [x, y, z] or
+    None), ...]}).
+
+    An .ao's AnimationController may carry `animations = '[json]'`, a list of animations with their events
+    (StandardEventType: "time" in seconds, "name", optional "position"), which the client adds to the rig .amd's
+    events; with `exclude_metadata_events = true` the .amd's events are dropped and this list is the whole event set
+    (the Sand Spitter's attack1 contact: 416 ms in the rig, 374.5 ms at [1.33, 45.89, -71.56] in its .ao). The chain
+    is walked child first, as amd_of does; a child's entries come first.
+    """
+    exclude, events, seen, todo = False, {}, set(), [ao]
+    while todo:
+        path = todo.pop(0)
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        if fetch_missing:
+            fetch([path])
+        text = read_text(path)
+        if text is None:
+            continue
+        body = _block(text, "AnimationController")
+        if body:
+            if re.search(r'\bexclude_metadata_events\s*=\s*true\b', body):
+                exclude = True
+            m = re.search(r"\banimations\s*=\s*'(.*?)'", body, re.S)
+            if m:
+                try:
+                    listed = json.loads(m.group(1))
+                except ValueError:
+                    print(f"warning: {path}: unreadable animations list; ignored", file=sys.stderr, flush=True)
+                    listed = []
+                for a in listed if isinstance(listed, list) else []:
+                    name = a.get("name") if isinstance(a, dict) else None
+                    if not name:
+                        continue
+                    for e in a.get("events") or []:
+                        if not isinstance(e, dict) or not e.get("name") or not isinstance(e.get("time"), (int, float)):
+                            continue
+                        events.setdefault(name, []).append((e["name"], int(round(e["time"] * 1000)), _position(e.get("position"))))
+        todo.extend(p if p.endswith(".ao") else p + ".ao" for p in extends_of(text))
+    return exclude, events
+
+
+def rig_clips(amd, ao, fetch_missing=True):
+    """The rig's animations (amd_animations) with the events the client ends up with for this .ao: the .amd's,
+    unless the .ao chain excludes them, plus the .ao chain's own, in time order. Each event is (name, ms, position
+    or None). None when the rig is unreadable."""
+    animations = amd_animations(amd, fetch_missing)
+    if animations is None:
+        return None
+    exclude, added = ao_animation_events(ao, fetch_missing)
+    out = []
+    for a in animations:
+        events = [] if exclude else [(e, int(t), _position(p)) for e, t, p in a["events"] if t.lstrip("-").isdigit()]
+        events += added.get(a["name"], [])
+        events.sort(key=lambda e: e[1])
+        out.append({**a, "events": events})
+    return out
+
+
+def first_contact(events):
+    """The earliest "contact" event of a clip as (ms, position or None), or None."""
+    hits = [(ms, pos) for name, ms, pos in events if name == "contact"]
+    return min(hits, key=lambda h: h[0]) if hits else None
 
 
 TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|[{}=]|[^\s{}=]+')

@@ -7,7 +7,7 @@ The Coast (the client plays the activation), pins and connection lines on the Ac
 
 Code: `InstanceWaypoints`, `WaypointObject` (`src/GameServer.Core/Protocol/Instance/InstanceWaypoints.cs`),
 `WorldAreaWaypoints`, `AreaVisitFlags` (`src/GameServer.Core/World/`), `PlayerObject.WriteFlagSet` and
-`InstanceEntities.PlayerQuestFlagsUpdate`, `WaypointCatalog` and the handlers in `src/GameServer.Gateway/Program.Travel.cs`
+`InstanceEntities.PlayerQuestFlagsUpdate`, `WaypointCatalog` and the handlers in `Modules/Core/Game/World/Travel.cs`
 (`UseWaypoint`, `ActivateWaypoint`, `SendWaypoints`, `TravelByWaypoint`). Tests: `tests/GameServer.Core.Tests/WaypointTests.cs`.
 
 ## 1. Flow
@@ -95,7 +95,50 @@ Pins are MapPins.dat rows (140); each pin widget computes two states every frame
   (`0x140797750`): every QuestFlags row in its WorldAreas list at +0x54 (`EndQuestFlags` in the extracted table) is set,
   e.g. `a1q1-KilledHillock` for Lioneye's Watch and The Coast, `a1q4-PlacedGlyphs` for The Submerged Passage.
 
-A pin with neither is hidden. A connection line (`0x140a9a7d0` → `0x140a9aa90`) is drawn only between two shown pins
+A pin with neither is hidden.
+
+**Special pins** (the column on the right and the Hideout/Guild buttons) are SpecialMapPins.dat rows; `0x140a9bd50`
+decides each one (row bytes: +0x10 i32, +0x14 QuestFlag, +0x24 WorldArea, +0x34 i32, +0x39 bool, +0x3a bool):
+
+- the i32 at +0x10 (`__col2`) is a league quest flag id (Player +0x1d0, tested as bit id − 1); above 0x776 (1911) means
+  none. The Gateway gives every character the ten in use (`Quests.League.WorldPanelPins`): 1033 HaveGuildHideout,
+  409 MenagerieUnlocked, 9 NikoHaveMinedSulphite (the Mine Encampment), 414 SanctumIntroNewGivenTexts,
+  608 VillageKingsmarchUnlocked, 736 HeistVisitedHub, 636 ChayulaLeagueAreaUnlocked, 677 AncestralHallsOfDeadUnlocked,
+  419 NecropolisAreaUnlocked, 1834 DeepwaterBoatUnlocked;
+- a WorldArea (+0x24) needs that area's waypoint bit (0x4c): the Labyrinth pin's Labyrinth_Airlock, which the Gateway
+  always sends as activated (and accepts as a 0x4d destination);
+- the i32 at +0x34 (`__col5`), when 1-59, must equal the current area's value at `(+0xc278)+0xd0`;
+- +0x3a set hides the pin (SynthesisHub); +0x39 needs the Hideouts key (Player +0x1f8);
+- the DelveHub row (index 4) also compares a level (`0x140a9c080`), which the tested character passed.
+
+Live 2026-10-30, all pins were shown. Each league pin's click sends a message of its own, carrying the waypoint object
+the panel was opened from; the Gateway moves the player to the hub (arriving at its spawn):
+
+| C→S | Bytes (live) | Pin | Hub (WorldAreas) |
+|---|---|---|---|
+| 0x17a | u16 n + name, u32 BE object, u8 | Hideout | the player's hideout (21 §3) |
+| 0x17b | as 0x17a: `017B 0005 DedOK 00002F00 00` | Menagerie | Menagerie_Hub |
+| 0x17d | `017D 00002F00` (u32 BE object) | Mine Encampment | Delve_Hub, as Niko's Visit Mine Encampment |
+| 0x17e | `017E 00002F00 00` (u32 BE object, u8) | Forbidden Sanctum | SanctumFoyer_Fellshrine |
+| 0x181 | `0181 00002F00 00` | Kingsmarch | KalguuranSettlersLeague |
+| 0x182 | `0182 00002F00 00` | Monastery of the Keepers | ChayulaLeague |
+| 0x184 | `0184 00002F00` | Rogue Harbour | HeistHub |
+
+The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in); the
+Guild Hideout, Halls of the Dead, Necropolis and Deepwater pins are not mapped yet. The Deepwater pin (`__col5` 59)
+sends nothing when clicked: the client refuses it outside its own area type, and `/goto DeepwaterHub` builds no layout
+(its graph nests `hub_interior.dgr` as a sub-graph node, which the level generator does not place yet).
+
+**Hub waypoints.** The hubs have no waypoint bit of their own, so the Gateway sends their tile's waypoint object anyway
+(`WaypointCatalog.For`) and the player can click it to travel back; where the tiles place none (HeistHub,
+ChayulaLeague) it creates one 12 cells from the spawn. The client draws them unlit: without a bit it lights a
+waypoint only for its own list of area types (`0x141fdd130`, mask `0x3e602108080008`: 3, 19, 27, 32, 37, 41, 45, 46,
+49-53), and both the object's creation (`0x142165ed0`) and every 0x4c (`0x14214ba58` → `0x1421449f0`) take the
+state from it (0 idle, 1 `waypointeffect_prestartidle`, 2 activation). Delve_Hub is type 15: none of the StateMachine
+"active" value, the 0x4c bits, the hideout's `waypointcore.ao` model or a `waypoint_idle.ao` effect object over it lit
+it (live 2026-10-30).
+
+A connection line (`0x140a9a7d0` → `0x140a9aa90`) is drawn only between two shown pins
 of the act, so an unrevealed area in the middle (The Mud Flats) cut the line between The Coast and The Submerged Passage.
 
 A visit flag is the area's MapPins `QuestFlagVisit` (the same as its WorldAreas `StartQuestFlags` where both exist).

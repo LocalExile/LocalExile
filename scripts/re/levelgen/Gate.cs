@@ -8,10 +8,11 @@ namespace LevelGenTool;
 
 /// <summary>`levelgen gate`: the regression check to run before every commit. Every seed-1 trace
 /// (data/walkability/&lt;area&gt;_seed1.gen.json: tile hash, matching draws through the doodad stage, the walk and
-/// projectile grids, the doodads against the capture) and every (area, seed) the client logged (the oracle), run by
-/// worker processes that each open the game once. The results go to gate-latest.json beside this file and are compared
-/// with gate-baseline.json (committed): what was gained, what was lost, and the first-difference clusters to work on
-/// next. `--save` makes the results the new baseline; the exit code is 1 when anything was lost.
+/// projectile grids, the doodads against the capture), the traced loads of areas without a seed-1 trace checked the
+/// same way, and every (area, seed) the client logged (the oracle), run by worker processes that each open the game
+/// once. The results go to gate-latest.json beside this file and are compared with gate-baseline.json (committed):
+/// what was gained, what was lost, and the first-difference clusters to work on next. `--save` makes the results the
+/// new baseline; the exit code is 1 when anything was lost.
 /// Options: --jobs N, --only &lt;area regex&gt;, --no-oracle, --save.</summary>
 static class Gate
 {
@@ -67,6 +68,14 @@ static class Gate
         if (oracle)
             foreach (var ((area, seed), (level, hash)) in Shared.LoggedHashes())
                 if (System.Text.RegularExpressions.Regex.IsMatch(area, only)) tasks.Add($"oracle\t{area}\t{seed}\t{level}\t{hash}");
+        // An area with no seed-1 trace (its seed 1 the client cannot generate either): each of its traced loads at another
+        // seed, checked as fully as a seed-1 capture ("load <area> <seed>"; ServerLevelAreas supports the area on it).
+        if (oracle)
+            foreach (var ((area, seed), (_, hash)) in Shared.LoggedHashes())
+                if (seed != 1 && System.Text.RegularExpressions.Regex.IsMatch(area, only)
+                    && !File.Exists(Path.Combine(root, "data", "walkability", $"{area}_seed1.gen.json"))
+                    && File.Exists(Path.Combine(root, "data", "walkability", $"{area}_seed{seed}.gen.json")))
+                    tasks.Add($"load\t{area}\t{seed}\t{hash}");
         if (oracle)
             foreach (var ((area, seed), (level, message)) in Shared.LoggedFailures())
                 if (System.Text.RegularExpressions.Regex.IsMatch(area, only))

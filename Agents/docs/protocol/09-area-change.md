@@ -80,6 +80,12 @@ Class vtable `0x1435dc280` (ctor `0x14219dd90`, write `0x14219ddf0`, read `0x142
 
 The client keeps the old connection until the new one is up, then the Gateway sees it disconnect.
 
+The old connection is retired by the successful transfer before its socket closes.
+Retired, closed or temporarily leaving connections cannot publish character-global equipment qualification.
+Their recovery/stat workers stop on retirement; a failed transfer can resume a temporarily leaving connection.
+Queued ES publication checks lifecycle inside the send gate before reading character sources.
+See [character stat lifecycle](../dev/character-stat-lifecycle.md) for the regression and native evidence.
+
 ### S→C 0xae — instance list
 
 Class `0x1435dca40`, write `0x1421a2300`, dispatcher case 0x2e → listeners at +0x6cf0. This opens the
@@ -143,10 +149,12 @@ keeps the ids of the last list it sent (`ChooserList`).
   Issue #4.
 - Auth gives a new instance of an area the Gateway generates itself (`ServerLevelAreas`, [re/011](../re/011-level-generation.md))
   a random seed; any other area keeps seed 1, because its layout must be dumped from the client (`live.ps1 -Walkmaps`).
-  `Game_RANDOM_SEEDS=0` pins every area to 1. The Coast at seed 1 is 1725×1725. The seed the client generates is the
-  one the Gateway sends in 0x1d: when the port cannot generate Auth's seed, the Gateway sends the first of 8
-  replacements derived from it that it can (`ServerLevels.PlayableSeed`; the same for everyone in the instance, not
-  done with `Game_SEED` or `live.ps1 -Walkmaps`).
+  `Game_RANDOM_SEEDS=0` pins every area to 1. The Coast at seed 1 is 1725×1725.
+  An area the client cannot generate at seed 1 (The Crossroads, Act 6's Twilight Strand, …) gets a seed it built
+  instead wherever seed 1 would be used (`ServerLevelAreas.SeedsInPlaceOfOne`, re/011 §7).
+  The seed the client generates is the one the Gateway sends in 0x1d: when the port cannot generate Auth's seed, the
+  Gateway sends the first of 8 replacements derived from it that it can (`ServerLevels.PlayableSeed`; the same for
+  everyone in the instance, not done with `Game_SEED` or `live.ps1 -Walkmaps`).
 
 ## 5. Open
 

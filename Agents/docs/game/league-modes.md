@@ -2,7 +2,8 @@
 
 The creation screen's mode choices select server rules as well as league names.
 The full selected league is saved with the character and resolved by Auth on every Play request.
-Auth passes explicit Hardcore, SSF and Ruthless flags to the Gateway; gameplay does not infer modes from name fragments.
+Auth passes explicit Hardcore and SSF flags and the league form to the Gateway; gameplay does not infer modes from name fragments.
+Ruthless and Allflame are leagues in `Leagues/` ([modules](../dev/modules.md)); this page is what those modules and the framework do together.
 The same rules apply to the existing Standard/Allflame families and any base leagues configured by the server.
 All eight combinations remain separate personal-stash and gold namespaces.
 
@@ -14,7 +15,7 @@ All eight combinations remain separate personal-stash and gold namespaces.
 | SSF Hardcore | SSF Standard |
 | Hardcore Allflame | Allflame |
 | HC SSF Allflame | SSF Allflame |
-| Any Hardcore Ruthless combination | Permanently dead in Void; cannot enter the game |
+| Any Hardcore Ruthless combination | The same variant without Hardcore (`parent` in its `league.json`) |
 
 Ordinary challenge Hardcore deaths keep their challenge base and SSF choice.
 This follows the changed challenge-parent behavior documented in the
@@ -83,8 +84,15 @@ Code: `InstanceRegistry`, `InstanceManager`, `InstanceStore`, `AccountStash`, `P
 
 ## Ruthless rules and native data
 
-The server chooses separate item, mod, skill and passive catalogs for each Ruthless connection.
+The server chooses separate item, mod, skill and passive catalogs for each connection whose league asks for the HardMode data.
 Ordinary characters continue to use their ordinary catalogs in the same running server.
+The issue #75 integration retains saved defence-base rolls, typed local weapon damage and critical modifiers,
+active-hand qualification, fractional body-to-Ward conversion and the branch's raw character/selected-stat scopes.
+Those calculations read the connection's selected item/skill catalog, including charge and critical source reads.
+The alternative minimum-base equipment calculation or ordinary-only catalog lookup would lose one side's rules.
+Current gem requirement snapshots share the equipment resolver without publishing its inactive-item result;
+the normal character-stat entry point remains responsible for that cache publication.
+See the [integration report](../dev/issue75-review.md#main-merge-league-modes-gambler-and-vaal-souls).
 The copied 3.29.3b tables supply these differences:
 
 - Passive alternate names, stat keys, values and granted points through `HasHardmodeAlternate`.
@@ -138,8 +146,7 @@ Native table values and implemented campaign rules are used where available; unk
 
 ## Change Ruthless balance without rebuilding
 
-The local file `config/ruthless.json` controls eight numeric settings and stays git-ignored.
-The tracked `config/ruthless.example.json` supplies the repository's default values.
+The tracked file `Modules/Ruthless/ruthless.json` controls eight numeric settings.
 These are server settings, separate from the private client's graphics and input settings.
 GGG does not publish the exact server drop and XP formulas, so these defaults are LocalExile approximations.
 They are not claimed to reproduce retail probabilities.
@@ -147,8 +154,7 @@ They are not claimed to reproduce retail probabilities.
 Run these commands in PowerShell from the repository root (the folder containing `AGENTS.md`):
 
 ```powershell
-if (!(Test-Path .\config\ruthless.json)) { Copy-Item .\config\ruthless.example.json .\config\ruthless.json }
-notepad .\config\ruthless.json
+notepad .\Modules\Ruthless\ruthless.json
 ```
 
 The file contains:
@@ -223,6 +229,10 @@ mode and owner eligibility, active flasks, terminal progress and both-inventory 
 The solution builds without warnings; Core, Data and Gateway suites pass with 688, 18 and 3850 tests respectively.
 This merge received automated validation only: this checkout has no `Client/Game.exe` or `Client/Game.patched.exe`.
 Automated validation uses isolated extracted data and temporary test saves.
+If a local setup keeps generated data in a separate runtime directory, tests still use the checkout's ordinary
+`data/` contract. The issue #75 merge temporarily copied only extracted inputs, then retained them with its ignored
+validation artifacts. This preserves shared saves/keys and avoids changing production catalog paths or restarting
+the shared runtime to prepare automated tests. Native evidence remains specific to the build actually exercised.
 The existing league selection and default families are unchanged.
 Native checks against the integrated build used one copied 3.29.3b client and disposable saves:
 

@@ -93,7 +93,8 @@ C#: `LoginWire.cs` (`LoginWriter`, `LoginReader`), `LoginMessages.cs` (records +
 
 **Entry15** (0x50 bytes, wire order): wstr name `+0x00`, wstr text `+0x20` (the character's league), u8
 `+0x49` (red marker), u8 `+0x4d`, u8 `+0x48` **level**, u32 `+0x40`, u8 `+0x4a` **class** (3 = Witch in this enum, Scion = 0
-in ours), u16 `+0x44` and u16 `+0x46` (portrait), u8 `+0x4b`, u8 `+0x4c`. Mapped live by setting one probe field to 3.
+in ours), u16 `+0x44` (portrait frame), u16 `+0x46` (portrait), u8 `+0x4b`, u8 `+0x4c`. Mapped live by setting one probe
+field to 3.
 
 **0x14 in detail** (handler: dispatch `0x14213f190` case 0x14):
 
@@ -175,8 +176,8 @@ button (0x140cf97a0) needs a non-empty list, a name and a class. A league entry 
 The create screen (0x140ccc4a0) draws a card for each main league (flags0 bit7, flags1 bit1 clear). Its Hardcore,
 Solo Self-Found and Ruthless check boxes switch to the variants that name the card in a parent field; combinations
 chain (SSF Hardcore's SSF parent is Hardcore; SSF Hardcore Ruthless's Ruthless parent is SSF Hardcore).
-`LeagueCatalog` builds Standard and Allflame (3.29, "Curse of the Allflame") with their seven variants each, named
-like the official ones; `Game_LEAGUES` sets the base leagues. Any league name works without a client change.
+`LeagueCatalog` reads `Leagues/<Name>/league.json` ([modules](../dev/modules.md)), a league with a card or a check box on another's.
+Any league name works without a client change.
 
 Play resolves the selected character's full league and passes authoritative Hardcore, SSF and Ruthless flags to
 the Gateway together with its stable character ID.

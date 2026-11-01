@@ -17,6 +17,11 @@ string output = args.Length > 1 ? args[1] : Path.Combine(root, "data", "area-tra
 using var oodle = new NodeOodleDecoder("node", Path.Combine(root, @"Tools\ooz\ooz_worker.mjs"));
 using var fs = GameFileSystem.Open(ggpk, oodle);
 var files = new GameFiles(fs);
+if (output == "delve-paths")
+{
+    DelvePaths.Run(fs, args.Length > 2 ? args[2] : Path.Combine(root, "data", "delve-paths.json"));
+    return;
+}
 var (areas, topologies, problems) = WorldAreas.Load(files, root);
 foreach (var p in problems) Console.WriteLine("worldareas: " + p);
 

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The offline area transition audit: generates every campaign area the Gateway generates itself (ServerLevels) at
+       a few seeds and checks the exits AreaTransitionCatalog creates against the area's WorldAreas connections and its
+       layout's graph node descriptions. Agents/docs/protocol/08-area-transitions.md §8. Needs the game files
+       (Client/Content.ggpk, Node for Oodle) and data/ (extract-data.ps1). Run from the repository root. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
+  </ItemGroup>
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>exits</AssemblyName>
+    <RootNamespace>Exits</RootNamespace>
+  </PropertyGroup>
+</Project>

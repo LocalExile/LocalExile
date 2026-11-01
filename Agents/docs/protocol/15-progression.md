@@ -46,10 +46,10 @@ yet confirmed on screen).
   | u8 | +0x269 | |
   | u8 flags | | bit0 → +0x91, bit1 → no lists (then `0x141ef73e0` sets only the numbers) |
   | vec16 u16 | +0x180 | **allocated nodes**: PassiveSkills.dat `PassiveSkillGraphId`, raw (little-endian), **sorted** (§2 Gold respec) |
-  | vec16 u16 | +0x180 | **the cluster jewel nodes** of the tree's expansion cells: the client's own small layout ids (202, 206 live for a Voices), not PassiveSkillGraphIds; sorted |
-| vec16 u16 | | (sent empty) |
+  | vec16 u16 | | (sent empty) |
+  | vec16 u16 | +0x1b0 | **the cluster jewel nodes** of the tree's expansion cells: the client's own small layout ids (202, 206 live for a Voices), not PassiveSkillGraphIds; sorted |
   | vec16 u32 | | mastery effects: node \| effect << 16, raw little-endian; effect is the `PassiveSkillMasteryEffects.dat` HASH16 |
-  | vec16 u32 | | (sent empty) |
+  | vec16 u32 | +0x1f8 | **applied tattoos**: node \| `PassiveSkillOverrides.dat` HASH16 << 16, raw little-endian; empty when no tattoo |
 
   The client's check `0x141ef3e60` logs "character passive skills allocated but only allowed {}.
   points_from_level={}, skill_points_from_passives={}, extra_skill_points={}" and drops unconnected nodes itself.
@@ -64,14 +64,22 @@ yet confirmed on screen).
   It saves the change
   and answers with 0x33; a refused click gets the old tree back. With `expansion` 1 the node is a cluster jewel node
   (its own small layout id, e.g. 202 and 206 for a Voices): the Gateway keeps it in the character's cluster list, saves
-  it and sends it back in 0x33's second list, and 0x36 with the flag refunds it. 32-bit ids are still refused intact.
+  it and sends it back in 0x33's third list, and 0x36 with the flag refunds it. 32-bit ids are still refused intact.
+- **C->S 0x77** (12 bytes): an item used on a passive. u32 inventory id, u32 item id, u16 `PassiveSkillGraphId`,
+  all big-endian. The item type decides: `apply_passive_tattoo` applies a tattoo, `CurrencyConvertToNormal`
+  (Orb of Scouring) removes it. Captured `0077000000010000049C5335` = inventory 1, item 1180, node 21301.
+  The Gateway answers with 0xbf, 0x1b3 and 0x33; the tattoo is carried in 0x33's fifth list as
+  `node | PassiveSkillOverrides.dat HASH16 << 16`. It validates the target set, the 50-tattoo cap and the
+  `PassiveSkillOverrides.Limit` group (one per character; same-node replacement is allowed). Journey Tattoo of
+  Makanui sends the HASH16 of the keystone it saved in `TattooKeystones`, not the tattoo's own override row.
 - **C→S 0x123** (3 bytes, u8 1 / 0): a panel opened or closed (sent when the tree opens and closes).
 - **C->S 0x35** (6 bytes): u16 node (big-endian, PassiveSkillGraphId), u16 effect (big-endian,
   PassiveSkillMasteryEffects.dat HASH16). Captured `003598091194` = node 38921 (Block Mastery), effect 4500
   (+1% spell block per 5% attack block). The Gateway allocates the mastery node and records the effect, then answers
   with 0x33 and the updated stats.
 - **S→C 0x3d is the Atlas tree**, not the character's: its three presets ([05](05-inventories-and-ui.md) §4; the check
-  `0x141eed000` logs "atlas passive skills allocated but only allowed").
+  `0x141eed000` logs "atlas passive skills allocated but only allowed"). The server populates them from the saved presets,
+  and handles Atlas allocation/refund as C→S 0x3e/0x3f. The point budget is saved but completion does not award it yet.
 - **Masteries**: `PassiveSkillMasteryGroups.dat` maps a mastery node's `MasteryGroup` to its effects and
   `PassiveSkillMasteryEffects.dat` holds their stats. The selected effect is stored per node and its stats are summed
   with the node's (`Passives.Stats`). Block Mastery's four effects are max attack block +2, max spell block +2, 20
@@ -203,11 +211,15 @@ Regret's way but gives two refund points (ClientStrings `ItemFunction2RespecPoin
 
 ## 3. Loot
 
-`ItemDrops.Roll` (our own table): normal monsters drop 1 item at 35%, magic 1–2, rare 2–4, unique 4–6. Each item is
-currency (45%: Scroll of Wisdom and Portal Scroll most, then the basic orbs, Chaos rarest), a gem (4%: an obtainable gem
-whose DropLevel is at most the monster's level, from `GemSources`, at gem level 1 like a vendor's), a life or mana flask (10%)
-or equipment (41%: any weapon, armour or jewellery base with DropLevel ≤ the monster's level, minus event and league
-bases), item level = the monster's level (gems keep 1), normal, with the type's default sockets. `DropLoot` puts each as a WorldItem
+`ItemDrops.Roll` (our own table): normal monsters drop 1 item at 35%, magic 1–2, rare 2–4, unique 4–6, times the item
+quantity. Each item is currency (35%: Scroll of Wisdom most, down to the Mirror), a gem (4%: an obtainable gem
+whose DropLevel is at most the monster's level, from `GemSources`, at gem level 1 like a vendor's), a life or mana flask (8%)
+or equipment (53%: a weighted slot, then any of its bases with DropLevel ≤ the monster's level, minus unique-only, event
+and league bases), item level = the monster's level, +1 magic, +2 rare, +3 unique (gems keep 1), with the type's default sockets. Equipment then rolls
+unique, rare or magic, raised by item rarity. A unique is chosen among its base's by the inverse of its
+`VillageUniqueDisenchantValues` value (the client's measure of a unique's rarity; `RuthlessValue` in Ruthless); where a
+base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.
+`DropLoot` puts each as a WorldItem
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
 it off.
 
