@@ -106,7 +106,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   worst under 6 in eight runs, and up to 25 monsters around the player match cell for cell.
   Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
   an attack follows its target to the swing; totems and the tutorial chest block paths.
-  Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
+  Melee hits land at the swing clip's contact keyframe.
+  Resync (S→C 0x128): sent every second, on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Two authenticated clients in the same instance still need an end-to-end check.

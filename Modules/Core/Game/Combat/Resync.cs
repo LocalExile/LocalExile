@@ -11,7 +11,7 @@ static partial class Game
     // send a monster round the other side, and nothing tells the server. The list only moves what is 20 or more cells off,
     // so sending it costs nothing when all is well; between stuns it is what ends such a drift.
     const double KeepInSyncSeconds = 1;
-    const int KeepInSyncRadius = 64;
+    const int KeepInSyncRadius = 171;   // the wake zone GGG keeps (0x1a9 and 0x1aa, captures)
 
     // S→C 0x128 with the player first, then the monsters around it, where the server has them. Called under conn.Monsters.
     internal static async Task KeepInSync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

@@ -100,8 +100,10 @@ def walk_clicks(d, seconds):
 def walk_held(d, seconds):
     """The button held, the cursor turning slowly: the case that drifts most in 07 §5."""
     angle = random.uniform(0, math.tau)
+    # The client must have taken the attach's messages and seen the cursor before a press counts.
+    time.sleep(.5)
     d.input.cursor(*d.at(angle, 240))
-    time.sleep(.03)
+    time.sleep(.2)
     d.input.down()
     end = time.time() + seconds
     while time.time() < end:

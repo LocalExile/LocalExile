@@ -221,6 +221,10 @@ A monster told to swing while the player is out of its reach does not stand: on 
 until it can swing. So the Gateway calls a swing off when the player is out of reach in its first 150 ms, and swings at a
 walking player only from 2 cells inside the reach, since the client's player is already farther on.
 
+Each melee order has its own rising sequence with the top bit set, as GGG's do. The client picks the swing's clip by it,
+and the hit lands at that clip's contact keyframe (`monster-contacts.json`; 26 to 60 % of the attack in captures), not at
+half the attack.
+
 **The player's own walk-up.** The client's action goes on until the target is in reach, paths again every 0.05 s for a
 player (0.25 s for a monster, `0x141e8eb60`), and needs no word from the server to swing. The Gateway follows it: it
 paths again every 100 ms, for up to 3 s (`FollowMonsterToSwing`), instead of giving up after one walk with no swing and
@@ -289,6 +293,13 @@ record the client puts it there, and then every listed object on its record; oth
 cells from theirs. Under 20 cells nothing moves, so sending one costs nothing. Live 2026-10-31: the player jumped 30
 and 25 cells onto the records and went on playing. In GGG's captures it came with every stun of the player (13 of 13)
 and with no other hit (0 of 79), listing the player and the monsters within 23.4 cells; the Gateway does the same.
+
+**Once a second.** In a tight crowd a body's cell differs by one for a few milliseconds between client and server, which is
+enough to send a monster round the other side of the pack, and nothing tells the server. So the Gateway sends a 0x128
+every second for the player and the monsters within 171 cells (`KeepInSync`, the wake zone GGG keeps). It moves only what
+is 20 or more cells off, so it costs nothing when all is well. Live at real attack speed and with the mouse held, the
+monsters' p90 stays at 10 to 15 cells (20 to 33 without it), and the swings the client never starts fall from 30 % to
+under 20 %.
 
 **The client asks for it.** Each commenced action other than Move adds one to a counter, each 0x1ac takes one off and
 5 s take one off; above 3 it sends C→S 0x16 command 8 (`InstanceItems.ForceResyncCommand`) and starts again. The
@@ -414,4 +425,5 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - Shield Charge never fired from the test input, so it is not checked live. The server lands it at once and the resync
   settles the end.
 - Two monsters racing for one cell can swap places between client and server: the same cells are taken, by different ids.
+  Routes through a tight crowd differ for the same reason; the once-a-second resync bounds it at 20 cells.
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.
