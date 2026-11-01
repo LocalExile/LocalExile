@@ -197,18 +197,30 @@ static partial class Game
         var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
-        // A Trial of Ascendancy's rooms hold none of the area's packs, only their traps and the monsters the room itself
-        // places (live 2026-10-31, the original: no monsters among the traps, the Imperial Gardens trial's Devourers).
+        // A Trial of Ascendancy's rooms (live 2026-10-31, the original): no monsters among the traps, so the area's
+        // scattered packs keep away from them (LabyrinthTrials.TrapClearance); what the room file places stands there:
+        // its normal / magic / rare pack points (the Lower Prison trial's plaque platform), its monsters (the Imperial
+        // Gardens trial's four Devourers) and its spawners' monsters (LabyrinthTrials.Spawners), rare.
         var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
-        Func<int, int, bool> packCells = trialRooms.Count == 0 ? walkable : (x, y) => walkable(x, y) && !trialRooms.Any(r => r.Contains(x, y));
-        var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, packCells, (layout.SpawnX, layout.SpawnY),
+        var trapClear = new HashSet<(int X, int Y)>();
+        foreach (var trap in trialRooms.SelectMany(r => r.Objects).Where(o => o.Type.StartsWith("Metadata/Terrain/Labyrinth/Traps/", StringComparison.Ordinal)))
+            for (int dy = -LabyrinthTrials.TrapClearance; dy <= LabyrinthTrials.TrapClearance; dy++)
+                for (int dx = -LabyrinthTrials.TrapClearance; dx <= LabyrinthTrials.TrapClearance; dx++)
+                    trapClear.Add((trap.X + dx, trap.Y + dy));
+        var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
-            HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes);
+            HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes,
+            roomPacks: [.. trialRooms.SelectMany(r => r.Points)], scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)));
         foreach (var room in trialRooms)
-            foreach (var p in room.Points.Where(p => p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal)))
-                if (Monsters.Find(p.Name) is { } v && v.Id.Equals(p.Name, StringComparison.OrdinalIgnoreCase) && Spawnable(v.Row))
-                    spawns.Add(new AreaPopulation.Spawn(v.Row, p.X, p.Y, MonsterRarity.Normal, "trial room"));
+            foreach (var p in room.Points)
+            {
+                bool spawner = LabyrinthTrials.Spawners.TryGetValue(p.Name, out var spawned);
+                string? id = spawner ? spawned : p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal) ? p.Name : null;
+                if (id is null) continue;
+                if (Monsters.Find(id) is { } v && v.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && Spawnable(v.Row))
+                    spawns.Add(new AreaPopulation.Spawn(v.Row, p.X, p.Y, spawner ? MonsterRarity.Rare : MonsterRarity.Normal, "trial room"));
                 else notes.Add($"trial room {room.Path.Split('/')[^1]}: {p.Name} at ({p.X}, {p.Y}) cannot be created");
+            }
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
         int areaLevel = area.AreaLevel;
         if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == layout.Hash && openMap.Area.Level > 0)

@@ -22,6 +22,19 @@ static class LabyrinthTrials
         // …Catacombs), placed as NPCs.
         GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph";
 
+    /// <summary>A trial room's server spawners (points of its room file, with no .ot to tell what they spawn) and the
+    /// monster each places, rare: the Lower Prison trial's PrisonPoacherSpawner, on the plaque's platform, a Brittle
+    /// Poacher (live 2026-10-31, the original: a rare skeleton archer beside the platform's pack).</summary>
+    public static readonly IReadOnlyDictionary<string, string> Spawners = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Metadata/QuestObjects/Labyrinth/PrisonPoacherSpawner"] = "Metadata/Monsters/Skeletons/SkeletonBowLightning",
+    };
+
+    /// <summary>How far from a trial's traps the area's scattered packs keep their centres (our number: a pack's members
+    /// stand within 9 cells of it, a spike tile reaches 11 from its trap). Live 2026-10-31, the original: no monsters
+    /// among the traps.</summary>
+    public const int TrapClearance = 25;
+
     /// <summary>A monograph's NPCTalk index (column 1): each has one row, 0 "Read" (NPCTalk 777–782).</summary>
     public const byte GlyphTalk = 0;
 

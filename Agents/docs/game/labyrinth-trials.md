@@ -181,12 +181,20 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
 
 ## Monsters
 
-In the original a trial's rooms have none of the area's monster packs (live 2026-10-31: no monsters among the traps).
-The Gateway keeps the scattered packs out of the cells a trial room's doodads span (a room with the plaque or the
-trial's door, `AreaPopulation.PlacedRoom`), and places the monsters the room file itself names among its points: the
-Imperial Gardens trial's four `Metadata/Monsters/RootSpiders/RootSpiderHidden` (Devourers, which rise from the ground
-as the player comes near), normal rarity, at the area's level.
-The other Normal trials' rooms name none; their monsters come from spawner objects (below).
+In the original there are no monsters among a trial's traps (live 2026-10-31); what stands in its rooms the room file
+places among its points (`data/room-points.json` v8):
+- a monster by its MonsterVarieties Id: the Imperial Gardens trial's four `Metadata/Monsters/RootSpiders/RootSpiderHidden`
+  (Devourers, which rise as the player comes near), normal;
+- a pack point `normal`, `magic` or `rare`: one of the area's scattered packs of that rarity, with its boss monster
+  (the Lower Prison trial's plaque platform: a Diabolist, `NecromancerEnfeebleCurse`, with skeletons);
+- a server spawner (`Metadata/QuestObjects/Labyrinth/…Spawner`, no `.ot` to tell what it spawns): the Lower Prison's
+  `PrisonPoacherSpawner`, beside that pack, is a rare Brittle Poacher (`SkeletonBowLightning`), as the original shows a
+  rare skeleton archer there (`LabyrinthTrials.Spawners`). `CryptFrostPriestSpawner` and `CremPyroSpawner` are not
+  mapped yet.
+
+The Gateway places these for a trial's rooms (a room with the plaque or the trial's door, `AreaPopulation.PlacedRoom`)
+and keeps the area's scattered packs' centres `LabyrinthTrials.TrapClearance` (25) cells from every trap, so a trap-free
+passage of a trial can still have one (the original: a Diabolist with a few skeletons in the Lower Prison trial's).
 
 ## A completed trial
 
@@ -211,6 +219,6 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 - The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
   the alternate arrow traps).
 - The other puzzle parts: `Switch` and `Door_Open` (toggling), `Switch_Multi`, `TimerGears` (timed levers).
-- The trials' monster spawners (`PrisonPoacherSpawner`, `CryptFrostPriestSpawner`, `CremPyroSpawner`).
+- The other trials' spawners (`CryptFrostPriestSpawner`, `CremPyroSpawner`).
 - Saving league quest flags, so that trials are shared across a league's characters.
 - The Eternal trials' plaques drop an Offering to the Goddess.

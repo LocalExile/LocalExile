@@ -23,9 +23,12 @@ static class RoomPoints
     static bool IsKeptPoint(string name) => IsMonsterPoint(name) || name.Equals("default", StringComparison.OrdinalIgnoreCase)
         || name == "Metadata/Chests/TutorialSupportGemChest";
 
-    // A monster the room itself places, named by its MonsterVarieties Id (the Imperial Gardens trial's four
-    // RootSpiderHidden). Kept with the room's other points, but no reason to keep a room.
-    static bool IsRoomMonster(string name) => name.StartsWith("Metadata/Monsters/", StringComparison.OrdinalIgnoreCase);
+    // What the room itself places: a monster by its MonsterVarieties Id (the Imperial Gardens trial's four
+    // RootSpiderHidden), a server spawner (the Lower Prison trial's PrisonPoacherSpawner), or one of the area's packs of
+    // a rarity ("normal", "magic", "rare"). Kept with the room's other points, but no reason to keep a room.
+    static bool IsRoomMonster(string name) => name.StartsWith("Metadata/Monsters/", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("Metadata/QuestObjects/", StringComparison.OrdinalIgnoreCase) && name.EndsWith("Spawner", StringComparison.OrdinalIgnoreCase)
+        || name is "normal" or "magic" or "rare";
 
     /// <summary>The master files (.tsi) whose room sets an area's graph uses: its own, and those of the sub-graphs its
     /// "graph" nodes embed (The Upper Prison's dummy graph is two sub-graphs, "Prison" and "Warden" with Brutus's rooms;
@@ -81,7 +84,7 @@ static class RoomPoints
         }
         File.WriteAllText(output, JsonSerializer.Serialize(new
         {
-            note = "Rooms with monster points (mapboss, mapboss<n>[&<m>][WG], force:mapboss, mapbosspack, %area%-<pack>), default start or tutorial chest spawn points, or quest server objects (NPCs, quest objects and chests): points (with the monsters the room places, by MonsterVarieties Id) and doodads in room cells. scripts/re/atlas room-points.",
+            note = "Rooms with monster points (mapboss, mapboss<n>[&<m>][WG], force:mapboss, mapbosspack, %area%-<pack>), default start or tutorial chest spawn points, or quest server objects (NPCs, quest objects and chests): points (with the monsters the room places: MonsterVarieties Ids, spawners and normal/magic/rare pack points) and doodads in room cells. scripts/re/atlas room-points.",
             areas = areaRooms,
             rooms,
         }, new JsonSerializerOptions { WriteIndented = false }));

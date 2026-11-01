@@ -127,12 +127,8 @@ static class AreaPopulation
     public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale);
 
     /// <summary>A quest room placed where the client placed it (<see cref="FitRooms"/>): its points and server objects
-    /// in grid cells, and the cells its doodads span (a Trial of Ascendancy's room keeps the area's packs out).</summary>
-    public sealed record PlacedRoom(string Path, IReadOnlyList<RoomPoint> Points, IReadOnlyList<RoomObject> Objects,
-        int MinX, int MinY, int MaxX, int MaxY)
-    {
-        public bool Contains(int x, int y) => x >= MinX && x <= MaxX && y >= MinY && y <= MaxY;
-    }
+    /// in grid cells (a Trial of Ascendancy's room: its traps, its pack points and monsters).</summary>
+    public sealed record PlacedRoom(string Path, IReadOnlyList<RoomPoint> Points, IReadOnlyList<RoomObject> Objects);
 
     static bool IsMonsterPoint(string name) => BossPoint(name) is not null || name.StartsWith("%area%-", StringComparison.Ordinal);
 
@@ -204,8 +200,13 @@ static class AreaPopulation
     // A pack centre needs this many walkable cells to the nearest blocked cell; members stand within MemberRadius of it.
     const int CentreDepth = 5, MemberRadius = 9, MemberSpacing = 3;
 
+    /// <param name="roomPacks">Points of rooms whose "normal", "magic" and "rare" points place one of the area's scattered
+    /// packs of that rarity (a Trial of Ascendancy's rooms: the Lower Prison trial's plaque platform).</param>
+    /// <param name="scatterable">Where a scattered pack may have its centre, besides the walk map (not among a trial's
+    /// traps); null: anywhere.</param>
     public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
-        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes)
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
+        IReadOnlyList<RoomPoint>? roomPacks = null, Func<int, int, bool>? scatterable = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -282,6 +283,15 @@ static class AreaPopulation
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
         if (packs.Count == 0) return spawns;
+        foreach (var p in roomPacks ?? [])
+            if (p.Name switch { "normal" => MonsterRarity.Normal, "magic" => MonsterRarity.Magic, "rare" => MonsterRarity.Rare, _ => (MonsterRarity?)null }
+                is { } rarity)
+            {
+                var pack = PickPack(packs, rng);
+                AddPack(spawns, taken, walkable, (p.X, p.Y), pack, rarity, true, rng, spawnable);
+                centres.Add((p.X, p.Y));
+                notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
+            }
         var depth = Depth(w, h, walkable);
         var candidates = new List<(int X, int Y)>();
         for (int y = 0; y < h; y += 3)
@@ -296,7 +306,8 @@ static class AreaPopulation
         foreach (var c in candidates)
         {
             if (plans.Count >= wanted) break;
-            if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance)) || centres.Any(o => Near(c, o, PackSpacing))) continue;
+            if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance)) || centres.Any(o => Near(c, o, PackSpacing))
+                || scatterable is not null && !scatterable(c.X, c.Y)) continue;
             centres.Add(c);
             plans.Add((c, PickPack(packs, rng)));
         }
@@ -564,12 +575,7 @@ static class AreaPopulation
                         var g = placement.Place(new RoomPoint(d.Type!, (int)MathF.Round(d.X), (int)MathF.Round(d.Y), d.Angle));
                         objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, g.Angle, d.Scale));
                     }
-                    if (placedRooms is not null && room.Doodads.Count > 0)
-                    {
-                        var cells = room.Doodads.Select(d => placement.Place(new RoomPoint("", (int)MathF.Round(d.X), (int)MathF.Round(d.Y)))).ToList();
-                        placedRooms.Add(new PlacedRoom(path, [.. room.Points.Select(placement.Place)], objects.GetRange(first, objects.Count - first),
-                            cells.Min(c => c.X), cells.Min(c => c.Y), cells.Max(c => c.X), cells.Max(c => c.Y)));
-                    }
+                    placedRooms?.Add(new PlacedRoom(path, [.. room.Points.Select(placement.Place)], objects.GetRange(first, objects.Count - first)));
                     if (!capturedRooms.Contains(path)) capturedRooms.Add(path);
                     notes.Add($"room {path.Split('/')[^1]} at its captured placement ({placement.X}, {placement.Y}) code {placement.Code}: quest objects " +
                         string.Join(", ", objects.Skip(fittedObjects).Where(o => RoomFile.IsQuestObject(o.Type)).Select(o => $"{o.Type} at ({o.X}, {o.Y})")));
