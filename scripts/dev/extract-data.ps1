@@ -40,21 +40,21 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/anim_contacts.py'); Version = 3; Needs = @('tables')
+       Args = @('scripts/re/anim_contacts.py'); Version = 4; Needs = @('tables')
        UsedBy = 'class spell contacts, ACT-selected ordinary wand release timing and the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md)' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector).
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 2; Needs = @('tables')
+       Args = @('scripts/re/monster_contacts.py'); Version = 3; Needs = @('tables')
        UsedBy = 'monster projectile release timing and points (Program.ProjectileHostile.cs, 11-skills.md section 6)' }
     # monster-takehit also gives each variety's Emerge clip and its length: how long an emerge monster takes to rise.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'
-       Args = @('scripts/re/monster_takehit.py'); Version = 3; Needs = @('tables')
+       Args = @('scripts/re/monster_takehit.py'); Version = 4; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     # projectile-clips: a server-created projectile object plays nothing by itself; the Gateway starts its rig's flight
     # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise).
     @{ Name = 'projectile-clips'; Outputs = @('data\projectile-clips.json'); Runner = 'python'
-       Args = @('scripts/re/projectile_clips.py'); Version = 1; Needs = @('tables')
+       Args = @('scripts/re/projectile_clips.py'); Version = 2; Needs = @('tables')
        UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, and its .ao default animation (11-skills.md)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 5; Needs = @('tables')
