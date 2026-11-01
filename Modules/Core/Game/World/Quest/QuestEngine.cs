@@ -89,6 +89,21 @@ static partial class Game
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
     }
 
+    internal static async Task DropGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
+    {
+        if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
+        {
+            Console.WriteLine($"[gateway] {remote} drop {itemId} from {source}: not in the item data");
+            return;
+        }
+        var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
+        var ground = new WorldItemObject(x, y, ItemCatalog.Create(type));
+        uint id = conn.Instance.Ground.Add(ground);
+        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+            $"0x02b9 {type.Name} 0x{id:x} from {source} at ({x}, {y})");
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+    }
+
     // C→S 0x82 on a dialogue row that sets a quest item's remove_flag (QuestItems.HandedIn: Nessa's "The Medicine Chest",
     // Fairgraves' "Thank You"): the item is handed in with the flag, in one save. Without one carried the talk does not
     // happen: the option list comes back. True when the talk may go on.
@@ -214,6 +229,44 @@ static partial class Game
             if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
             Console.WriteLine($"[gateway] {remote} {m.Label} died, the last of {rule.Varieties.Length}: {boss.Name} forms at ({where.X}, {where.Y})");
             await SpawnMonster(remote, stream, ciphers, conn, boss, m.Level, MonsterRarity.Unique, where.X, where.Y);
+        }
+        // Device-recipe phases (Maven's Nucleus, Sirus after the throne, Atziri): not quest flags, same spawn path.
+        if (MapBossFights.Current.FormsAfter(area, variety.Id, id =>
+            {
+                lock (conn.Monsters)
+                    return conn.Monsters.Values.Any(o => o.Variety?.Id == id && !o.Dead && o.Life > 0);
+            }) is { } formedId)
+        {
+            bool formed;
+            (int X, int Y) where;
+            lock (conn.Monsters)
+            {
+                formed = conn.Monsters.Values.Any(o => o.Variety?.Id == formedId);
+                // Nucleus forms where The Maven fell, not at mapboss2 36 cells east (that looked like the fight had ended).
+                where = formedId == MavenNucleus.Nucleus ? at : conn.LaterFormPoints.GetValueOrDefault(formedId, at);
+            }
+            if (!formed && Monsters.Find(formedId) is { Supported: true } phaseBoss && phaseBoss.Id == formedId)
+            {
+                Console.WriteLine($"[gateway] {remote} {m.Label} died: {phaseBoss.Name} forms at ({where.X}, {where.Y})");
+                await SpawnMonster(remote, stream, ciphers, conn, phaseBoss, m.Level, MonsterRarity.Unique, where.X, where.Y,
+                    owned: formedId == MavenNucleus.Nucleus ? (_, spawned) => spawned.Aggro = true : null);
+                if (formedId == MavenNucleus.Nucleus)
+                    await SpawnMavenRing(remote, stream, ciphers, conn, MavenNucleus.Phase2Cores, where,
+                        MavenNucleus.Phase2Radius, m.Level);
+                if (MapBossFights.StormsWith(formedId) && Monsters.Find(MapBossFights.StormVariety) is { Supported: true } storm
+                    && storm.Id == MapBossFights.StormVariety)
+                    for (int i = 0; i < MapBossFights.StormCount; i++)
+                        await SpawnMonster(remote, stream, ciphers, conn, storm, m.Level, MonsterRarity.Unique,
+                            where.X + (i + 1) * 6, where.Y, log: true, alone: false);
+            }
+        }
+        if (MapBossFights.Current.Unlock(CharacterName(conn), variety.Id) is { } stone)
+        {
+            if (stone.Flag.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, [stone.Flag]);
+            await DropGroundItem(remote, stream, ciphers, conn, stone.ItemId, at, m.Label);
+            string name = ItemsFor(conn).Find(stone.ItemId)?.Name ?? stone.ItemId.Split('/')[^1];
+            await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Atlas: {name} unlocked."),
+                $"0x0017 Voidstone slot {stone.Slot} from {m.Label}");
         }
         if (QuestsOf(conn).AppearOnKill(area, variety.Id).Count > 0) await QuestNpcsAppear(remote, stream, ciphers, conn, variety, at);
         if (QuestsOf(conn).SecondForm(area, variety.Id) is { } next && Monsters.Find(next) is { Supported: true } form && form.Id == next)
