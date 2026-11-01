@@ -1308,7 +1308,10 @@ and can require explicit recipes.
   Ascendancy allocation remains in its separate lifecycle change.
   Code: `HitResistances.cs`, `HitMitigation.cs`, Gateway (`MonsterDamage`).
   Docs: [20](../docs/protocol/20-damage.md) §4.
-- **Client damage research (static, partial).** The client integrates per-minute continuous resource rates.
+- **Client damage research (static, partial).** PR #371 now has separate
+  [first-delivery gates](../docs/re/client-damage-delivery.md): two receiving paths, evidence packaging and final review.
+  These gates are pending; the scope change does not promote original R2/R3/R4 or certify readiness.
+  The client integrates per-minute continuous resource rates.
   [Mod-derived Buff descriptors](../docs/re/client-mod-buff-descriptors.md) now connect seven actual rate-bearing
   templates to original numerical preparation: defaults are copied, matching Mod values overwrite descriptor
   slots, and unmatched values enter a separate ordinary aggregate. Thirty-two supplied-state controls pass;

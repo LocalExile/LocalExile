@@ -308,7 +308,10 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 ### Damage model (foundation done, deeper defence next)
 
-- **Client damage research:** recover Hit and DoT calculations before proposing further server mechanics.
+- **Client damage research:** finish the [first delivery gates](../docs/re/client-damage-delivery.md)
+  for PR #371: DoT rate-to-Life first, then one Fireball result/resource path, evidence packaging and final review.
+  The broader questions below are parked follow-ups, not parallel tasks or additional readiness gates.
+  Original R2/R3/R4 remain Partial; do not expand research to make every row Established in this PR.
   Network Actor/skill input freshness and the distinct native transaction/startup boundary are established.
   Typed routing, cap/overflow boundaries, mode-dependent ticks and absolute assignment have static evidence.
   Reuse the [complete maximum-resistance equations](../docs/re/client-maximum-resistance-inputs.md);

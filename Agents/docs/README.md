@@ -57,6 +57,7 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 | [../GettingStarted.md](../GettingStarted.md) | setup from a fresh clone, third-party tools, troubleshooting |
 | [re/tooling.md](re/tooling.md) | Ghidra headless scripts, Python helpers, GGPK dump tool, Frida through REA, recipes |
 | [re/client-damage-calculation.md](re/client-damage-calculation.md) | client Hit/DoT research: Stats overrides, formulas, resource integration, incoming assignment and unresolved prediction edges |
+| [re/client-damage-delivery.md](re/client-damage-delivery.md) | current PR readiness gates, two selected paths, bounded investigation rules and deferred research queue |
 | [re/client-stat-evaluation.md](re/client-stat-evaluation.md) | actual network Actor/skill provider chain, update freshness, native transactions and startup guards |
 | [re/client-native-contribution-callers.md](re/client-native-contribution-callers.md) | 103 retained direct contribution callsites, receiving-object provenance, graph-owned tokens and remove-then-rebuild policy; target DoT publication remains open |
 | [re/client-stat-dependency-order.md](re/client-stat-dependency-order.md) | native declared-dependency ordering, cycle diagnostics, growing transaction queues and actual duplicate declarations |

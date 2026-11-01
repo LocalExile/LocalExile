@@ -7,6 +7,11 @@ Treat those as three separate questions, for both **hits** and **damage over tim
 "Pre-resolution" is a research name, not an established description of every client combat path.
 The goal is to recover useful calculations and their execution boundaries before choosing a server implementation.
 
+The current delivery is [PR #371's first research baseline](client-damage-delivery.md).
+Its D0–D4 gates prioritize two receiving paths in depth and a reviewable evidence package.
+The original R0–R4 matrix remains the long-term evidence ledger; making this PR ready no longer
+requires every original row to become Established. R2/R3/R4 remain Partial.
+
 Research sufficiency means recovering calculations, rules and original client/server responsibilities that can
 support a corresponding server implementation. It does not require reconstructing the complete client renderer
 or obtaining the official server executable. Verified static dataflow is positive evidence within its stated
@@ -733,7 +738,9 @@ amount or classifying every listener program as presentation-only.
 Tracking issue: [#370](https://github.com/LocalExile/LocalExile/issues/370).
 
 Research milestones measure evidence closure, not implementation coverage.
-An agent should choose an open row, record the exact artifact and search boundary, and update this page and manifest.
+For the current PR, select work only from the ordered [delivery gates](client-damage-delivery.md#delivery-gates-in-execution-order).
+The rows below retain original evidence states and follow-up questions; they are not an unrestricted task queue.
+Record the exact artifact and search boundary when advancing a selected delivery gate.
 Do not mark a row complete based on a matching stat name or a decompiler-only call signature.
 No client execution is authorized by this task list.
 
