@@ -164,8 +164,10 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
 - `LbArrowTrap`'s stat set (GrantedEffectStatSets 5469) deals 15% of maximum life plus 9% of maximum energy shield,
   33% more against players, as the spike trap's share does; the dart is an arrow (`skill_can_fire_arrows`), so the
   hit is physical and the player's armour reduces it (our reading; evasion and block are not rolled);
-- it poisons (`global_poison_on_hit`): 30% of the hit a second for 2 s (the wiki's poison), with the `.ot`'s
-  `monster_poison_damage_+%_final` −50. Every hit adds a stack with its own BuffDefinitions `poison` ("Poisoned",
+- it poisons (`global_poison_on_hit`) for 2 s, 10% of the hit's life share a second, fitted by eye: the wiki's 30%
+  with the `.ot`'s `monster_poison_damage_+%_final` −50 made 111 a second for a 3 707 life character, against about
+  70 in the original (live 2026-10-31); `/trial_dart_poison <percent>` (dev) changes it.
+  Every hit adds a stack with its own BuffDefinitions `poison` ("Poisoned",
   whose count the client shows; the client keeps a buff until it is removed, through a death and the resurrection,
   so a death ends every stack and the spike traps' bleed with their buffs). Poison is chaos damage: past energy
   shield, less the player's chaos resistance.

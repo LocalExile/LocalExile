@@ -270,11 +270,13 @@ static class LabyrinthTrials
     /// about 100 000 energy shield took a 13 135 hit, whose poison, 3 940 over 2 s, killed 3 707 life; our reading).</summary>
     public static int? ArrowPoisonBase(uint maxLife) => ArrowDamage(maxLife, 0);
 
-    /// <summary>A dart's hit poisons (<c>global_poison_on_hit</c>): the wiki's poison is 30% of the hit's physical and
-    /// chaos damage a second for 2 s, here with the .ot's <c>monster_poison_damage_+%_final</c> −50; every hit adds a
-    /// stack of its own. Chaos damage: past energy shield, less the player's chaos resistance. Its base is the hit's life
-    /// share only (<see cref="ArrowPoisonBase"/>).</summary>
-    public const double ArrowPoisonPerSecond = 0.30 * (1 - 0.50), ArrowPoisonSeconds = 2;
+    /// <summary>A dart's hit poisons (<c>global_poison_on_hit</c>) for 2 s; every hit adds a stack of its own. Chaos
+    /// damage: past energy shield, less the player's chaos resistance. Its base is the hit's life share only
+    /// (<see cref="ArrowPoisonBase"/>), and a stack deals this much of it a second, fitted by eye: the wiki's 30% with
+    /// the .ot's <c>monster_poison_damage_+%_final</c> −50 made 111 a second for a 3 707 life character, too much
+    /// against the original, which looked about 70 (live 2026-10-31). <c>/trial_dart_poison</c> (dev) changes it.</summary>
+    public static double ArrowPoisonPerSecond = 0.10;
+    public const double ArrowPoisonSeconds = 2;
 
     /// <summary>A dart's slow: BuffDefinitions <c>labyrinth_arrow_slow</c> (invisible), whose stat is this, for the skill's
     /// <c>base_skill_effect_duration</c> (2 s) from the latest hit. Its value is not in the client data: live

@@ -1336,6 +1336,12 @@ static class CommandsFeature
                 LabyrinthTrials.SpikeAnimationSeconds = ms / 1000.0;
             await conn.Commands!.Reply($"Trial spike traps rise over a {LabyrinthTrials.SpikeAnimationSeconds * 1000:0} ms Emerge animation.");
         })
+        .Add("trial_dart_poison", "/trial_dart_poison [<percent>] (dev: how much of a Trials of Ascendancy dart's hit, its life share, a poison stack deals a second, from the next hit, e.g. /trial_dart_poison 10)", async args =>
+        {
+            if (args.Length >= 1 && double.TryParse(args[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double pct) && pct is > 0 and <= 100)
+                LabyrinthTrials.ArrowPoisonPerSecond = pct / 100;
+            await conn.Commands!.Reply($"Trial dart poison: {LabyrinthTrials.ArrowPoisonPerSecond * 100:0.#}% of the hit's life share a second, per stack.");
+        })
         .Add("atlas", "/atlas [layout] (dev: show or choose the fallback layout generic maps open)", async args =>
         {
             var atlas = MapDevices.Value.Atlas;
