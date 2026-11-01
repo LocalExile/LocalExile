@@ -56,6 +56,7 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 | [../GettingStarted.md](../GettingStarted.md) | setup from a fresh clone, third-party tools, troubleshooting |
 | [re/tooling.md](re/tooling.md) | Ghidra headless scripts, Python helpers, GGPK dump tool, Frida through REA, recipes |
 | [re/client-hit-authority-contract.md](re/client-hit-authority-contract.md) | Draft research workbench: one monster hit, client/server responsibilities, event identity and authoritative resource application |
+| [re/client-hit-authority-probe.md](re/client-hit-authority-probe.md) | Prepared bounded observation probe: decoded combat messages, nested result processing and separate resource writes; offline validation only |
 | [re/011-level-generation.md](re/011-level-generation.md) | the client's level generator: stages, RNG, topology pick, tile hash, generation traces; the server port in progress |
 | [dev/releases.md](dev/releases.md) | making a release, versions and commit subjects, what a package holds, `LocalExile.exe` and its `--json` events |
 | [dev/debugging.md](dev/debugging.md) | log timestamps and archives, error stack traces, the packet history and dumps, `Game_TRACE`, client crashes, `bugreport.ps1` |

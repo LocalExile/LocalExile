@@ -8,6 +8,9 @@ independently inspectable single-hit record or explicit client networking mode
 has been recovered.
 Public sniffer source establishes tooling capabilities, not an observed hit.
 This ledger supports the [contract workbench](client-hit-authority-contract.md).
+The user confirmed that capture inputs are unavailable for the current phase.
+Continue static analysis and prepare the [bounded probe](client-hit-authority-probe.md);
+no runtime collection has been performed.
 
 ## Evidence and provenance
 
@@ -90,4 +93,7 @@ those fixed audits and retains mode-dependent guards.
 It remains a partial contract, distinct from demonstrating a recorded event in Q0/Q2.
 Do not expand into formula discovery or port the historical sniffer as a substitute
 for the missing record.
-New collection, client attachment and game operation are outside this research authorization.
+The observation probe reuses the existing Python/Frida runner and needs no historical sniffer or key extraction.
+It records selected decoded messages, pool writes and common-sender IDs with explicit coverage limits.
+Its two offline fixtures pass; no actual attachment or collected hit is claimed.
+New collection, client attachment and game operation are deferred to the operator.

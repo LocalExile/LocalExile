@@ -19,6 +19,7 @@ SHA256 `78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5`.
 | S3 | [Timing](https://github.com/LocalExile/LocalExile/blob/801358d732adbc558d657d8773e273a02bc891b1/Agents/docs/re/client-damage-timing.md): mode-dependent ordering, assignment, fractional state and notifications |
 | S4 | [Received-result qualifiers](https://github.com/LocalExile/LocalExile/blob/801358d732adbc558d657d8773e273a02bc891b1/Agents/docs/re/client-hit-result-qualifiers.md): target admission and mutable feedback fields, not damage deduction |
 | S5 | [Resource boundary](https://github.com/LocalExile/LocalExile/blob/801358d732adbc558d657d8773e273a02bc891b1/Agents/docs/re/client-hit-resource-boundary.md): numerical receiver bindings and selected player/Sand Spitter source chains; no established accepted-hit deduction edge |
+| S6 | [Contact production](https://github.com/LocalExile/LocalExile/blob/801358d732adbc558d657d8773e273a02bc891b1/Agents/docs/re/client-hit-production.md): concrete Sand Spitter action/factory/ordinary table binding, reused for the narrow callback check below |
 | H1 | [PR #373 report](https://github.com/LocalExile/LocalExile/blob/b0afa90ea5c58e9082099d887180df8299dcdaf3/Agents/docs/dev/ranged-monster-actions-port.md#live-reference-official-servers): author-reported historical traffic; raw records unavailable |
 
 Ten selected inherited audit functions, 21 ranges and 3,020 instruction byte strings
@@ -101,6 +102,35 @@ The last row reuses the disclosed offline
 Its supplied records and numerical fixtures are not official recordings.
 This batch does not repeat the projectile owner's scheduling analysis.
 
+## Selected Sand Spitter callback edge
+
+For static analysis, choose the reported Sand Spitter action under **Predictive** as an explicit
+analysis condition; this does not recover the networking mode of H1's historical capture.
+S6 binds `MMASandSpitterProjectile` (GrantedEffects 617, ActiveSkills 537) to
+`MonsterMortarAttack`, registration `0x141266030`, factory `0x1412b0260` and ordinary
+final table `0x143359808` stored at `0x1412b0352`.
+The selected clone `0x1414005b0` restores the same table.
+
+The result consumer has two guarded calls: `0x141e92053` to action `+0x2d0`, then
+`0x141e920ae` to action `+0x2d8`, with the source signal dispatch between them.
+Both require a non-null action and decoded record `+0x49 != 0`.
+Fresh original-file checks close these two callbacks for that concrete ordinary table:
+
+| Table slot VA | Original file offset | Pointer bytes (little-endian) | Target |
+|---|---|---|---|
+| `0x143359ad8` (`+0x2d0`) | `53841624` | `00 0f 0f 40 01 00 00 00` | `0x1400f0f00` |
+| `0x143359ae0` (`+0x2d8`) | `53841632` | `00 0f 0f 40 01 00 00 00` | `0x1400f0f00` |
+
+At file offset `983808`, that target's complete leaf is `c2 00 00` (`ret 0`).
+These two callbacks therefore do not perform numerical deduction for an instance using this table.
+This is not a whole-result no-deduction proof: target controls, signal subscribers, event programs,
+other action tables and independent resource paths remain distinct.
+The check reused 31 sealed constructor/clone/contact instructions and verified their bytes against
+the pinned executable, without rebuilding or mutating an analysis database.
+
+The [prepared probe](client-hit-authority-probe.md) observes the shared result boundary and pool changes
+for a future operator-run session; offline fixture success does not establish that any path executed.
+
 ## Mandatory edges still open
 
 1. Freeze an attributable ordinary Sand Spitter hit, its actual action/result fields,
@@ -113,5 +143,6 @@ This batch does not repeat the projectile owner's scheduling analysis.
 
 These gaps block Q2 acceptance and Ready.
 They cannot be moved to optional Known issues while retaining the current objective.
-The smallest existing-record request is in the evidence ledger; additional formulas
+The missing record requirements are in the evidence ledger.
+Collection is deferred in the current static-only phase; additional formulas
 or more synthetic replays of these known consumers would not supply the missing witness.

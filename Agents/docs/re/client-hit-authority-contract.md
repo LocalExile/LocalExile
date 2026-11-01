@@ -15,6 +15,9 @@ research for any contact boundary rather than reopening motion or RNG internals.
 Do not catalogue every monster, damage formula or defence.
 
 This is active Draft research under issue #370 and PR #478.
+The current user-directed phase is static analysis without capture inputs.
+Prepare the [bounded observation probe](client-hit-authority-probe.md) and continue one static edge at a time;
+leave runtime collection to a later operator-run session.
 Q0 has a bounded evidence-availability audit; the single-hit witness and client
 mode remain unverified, so Q0 is Partial.
 Q1 has a static responsibility/identity matrix and Q2 a conditional-path diagram;
@@ -99,9 +102,9 @@ edge, stop that route and review the evidence/method or scope instead of
 starting another broad scan. Keep Draft while a mandatory edge is unproven;
 any changed acceptance needs an explicit scope revision.
 
-A later implementation can consume this contract. This PR performs research
-and documentation only: no server changes, CI/deployment, client launch/UI,
-new capture/attach, shared-analysis mutation, peer-file edits or new subagents.
+A later implementation can consume this contract. This PR performs static research,
+documentation and offline observation-tool preparation only: no server changes,
+CI/deployment, client launch/UI, new capture/attach, shared-analysis mutation, peer-file edits or new subagents.
 Do not reopen descriptor consumers, DoT aggregation/caps, every defence, panel
 formula coverage or the projectile thread's geometry/TLS work.
 Use the owned coordination ledger and fixed peer references. Preserve sealed

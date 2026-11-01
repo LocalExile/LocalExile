@@ -310,7 +310,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Reuse fixed #371/#373 findings and peer contact boundaries; do not assume predict-then-correct or per-hit reports.
   The [workbench](../docs/re/client-hit-authority-contract.md) defines Q0-Q3 and the evidence needed before Ready.
   A mandatory association gap needs a bounded observation plan; author-reported or synthetic data cannot close it.
-  No server implementation or new runtime collection is included in the Draft bootstrap.
+  The current static-only phase prepares a [bounded probe](../docs/re/client-hit-authority-probe.md)
+  and closes the selected ordinary Sand Spitter action's two empty result callbacks.
+  No server implementation or new runtime collection is included.
 
 - **Done:** hits are per-type `DamagePacket`s; conversion follows physical, lightning, cold, fire, chaos, including
   chained conversion, the 100% cap and gain-as-extra.
