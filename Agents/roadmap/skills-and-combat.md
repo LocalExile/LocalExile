@@ -329,9 +329,11 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   ordinary player ES absorption, regeneration and interrupted recharge are implemented and live-checked.
   Current ES/prediction publication now samples at the send gate with encrypted-wire regressions;
   verify queued capacity changes and predictor clearing in the native client.
-  Added damage has its first stat: the attack's added lightning gets
+  Added damage reads its first derived stats: the attack's added lightning gets
   `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` percent of the maximum mana pool
-  (Whisperer "we know all", [20](../docs/protocol/20-damage.md) §2b).
+  (Whisperer "we know all"), and global added attack damage per final attribute is read
+  ([20](../docs/protocol/20-damage.md) §2b).
+  Weapon-local "with this Weapon per 10 <attribute>" and spell per-Intelligence added damage remain unread.
   Arcane Might's six modern contracts share attack/panel consumers, maximum independent grants and skill quality.
   Normal Crown and mastery lifecycle have automated coverage; their native acceptance remains pending.
   Earlier Whisperer raw-stat native checks do not establish this expanded composition's native behavior.

@@ -1317,6 +1317,11 @@ and can require explicit recipes.
   Righteous Fire's burn uses the DoT tick model.
   A damage-type immunity (`*_immunity`, `elemental_damage_immunity`) zeroes that type on the player's hits, from the
   same sources the panel's Immune rows use (`DamageImmunities.cs`).
+  Global added attack damage per complete group of final Strength, Dexterity or Intelligence joins the raw attack
+  range for the panel rows and the hit (Hyrri's Demise, (Replica) Iron Commander, Replica Alberon's Warpath per 80
+  Strength despite its `_per_50_strength` id; [20](../docs/protocol/20-damage.md) §2b).
+  "Cannot deal non-Chaos Damage" (`deal_no_non_chaos_damage`) joins the shared prohibitions: hits, their bleed, ignite
+  and poison rows, and the caster's outgoing DoT keep only chaos; automated tests only, the native check is pending.
   Ordinary player energy shield derives from equipment, intelligence and passives.
   Equipment ES uses the saved variable base roll and native rounding before and after local modifiers and quality.
   It absorbs non-chaos hits before life and recovers through regeneration and delayed, damage-interrupted recharge.

@@ -48,9 +48,7 @@ static class GemSupportDamage
     }
 
     public static bool Prohibited(DamageType finalType, IEnumerable<(string Name, int Value)> stats) =>
-        stats.Any(s => s.Value != 0 && (s.Name == "base_deal_no_damage"
-            || DamageTypes.IsElemental(finalType) && s.Name == "deal_no_elemental_damage"
-            || finalType == DamageType.Chaos && s.Name == "base_deal_no_chaos_damage"));
+        DamageStats.Prohibited(finalType, name => stats.Any(s => s.Value != 0 && s.Name == name) ? 1 : 0);
 
     static bool Applies(string name, DamageTypeHistory history, IReadOnlySet<int> types)
     {

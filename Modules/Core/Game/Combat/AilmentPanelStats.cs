@@ -85,8 +85,8 @@ static class AilmentPanelStats
         foreach (var path in paths)
         {
             if (!sources.Contains(path.Type)) continue;
-            if (DamageTypes.IsElemental(path.Type) && get("deal_no_elemental_damage") != 0
-                || path.Type == DamageType.Chaos && get("base_deal_no_chaos_damage") != 0) continue;
+            // The hit's prohibitions (PlayerHitDamage): a portion the hit cannot deal contributes no ailment base.
+            if (DamageStats.Prohibited(path.Type, get)) continue;
             double increased = common;
             // The types the portion visited count once each; the ailment's own type is already in the common bucket.
             foreach (var source in typed)

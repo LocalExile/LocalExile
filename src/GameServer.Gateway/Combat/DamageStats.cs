@@ -57,6 +57,53 @@ static class DamageStats
         get("maximum_life") is > 0 and var life
             ? life * (get("added_fire_damage_to_attacks_equal_to_%_maximum_life") / 100.0) : 0;
 
+    /// <summary>Global "Adds X to Y Damage to Attacks per N Attribute": the minimum and maximum stats, the final attribute
+    /// and the size of one group. The groups are read from the client's stat descriptions, not from the stat ids: the
+    /// Replica Alberon's Warpath pair is named <c>_per_50_strength</c>, but its description (and PoB's and RePoE's text,
+    /// "Adds 1 to 80 Chaos Damage to Attacks per 80 Strength") applies it per 80. Weapon-local "with this Weapon" and
+    /// spell per-attribute stats are not these.</summary>
+    internal static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[] AttackAddedPerAttribute =
+    [
+        (DamageType.Physical, "attack_minimum_added_physical_damage_per_25_strength",
+            "attack_maximum_added_physical_damage_per_25_strength", "strength", 25),
+        (DamageType.Physical, "attack_minimum_added_physical_damage_per_25_dexterity",
+            "attack_maximum_added_physical_damage_per_25_dexterity", "dexterity", 25),
+        (DamageType.Fire, "minimum_added_fire_damage_to_attacks_per_10_strength",
+            "maximum_added_fire_damage_to_attacks_per_10_strength", "strength", 10),
+        (DamageType.Cold, "minimum_added_cold_damage_to_attacks_per_10_dexterity",
+            "maximum_added_cold_damage_to_attacks_per_10_dexterity", "dexterity", 10),
+        (DamageType.Lightning, "minimum_added_lightning_damage_to_attacks_per_10_intelligence",
+            "maximum_added_lightning_damage_to_attacks_per_10_intelligence", "intelligence", 10),
+        (DamageType.Chaos, "minimum_added_chaos_damage_to_attacks_per_50_strength",
+            "maximum_added_chaos_damage_to_attacks_per_50_strength", "strength", 80),
+    ];
+
+    // Raw attack added damage of one type from the final attributes, per complete group (PoB ModStore PerStat:
+    // floor(attribute / N)); a negative attribute grants nothing. Joins the added range before increases, as above.
+    public static DamageRange AttributeAdded(Func<string, int> get, DamageType type)
+    {
+        double min = 0, max = 0;
+        foreach (var (rowType, minimum, maximum, attribute, per) in AttackAddedPerAttribute)
+        {
+            if (rowType != type) continue;
+            int low = get(minimum), high = get(maximum);
+            if (low == 0 && high == 0) continue;
+            long groups = Math.Max(0, get(attribute)) / per;
+            min += groups * (double)low;
+            max += groups * (double)high;
+        }
+        return new(min, max);
+    }
+
+    /// <summary>Whether a portion of final damage type <paramref name="finalType"/> is prohibited ("Deal no Damage",
+    /// "Deal no Elemental Damage", "Deal no Chaos Damage", "Cannot deal non-Chaos Damage"). Prohibitions constrain the
+    /// damage dealt, not a type a converted portion used to have (PoB CalcOffence canDeal: hits, ailments and DoT).</summary>
+    public static bool Prohibited(DamageType finalType, Func<string, int> get) =>
+        get("base_deal_no_damage") != 0
+        || DamageTypes.IsElemental(finalType) && get("deal_no_elemental_damage") != 0
+        || finalType == DamageType.Chaos && get("base_deal_no_chaos_damage") != 0
+        || finalType != DamageType.Chaos && get("deal_no_non_chaos_damage") != 0;
+
     /// <summary>Raw added damage, with effectiveness but without increased/more modifiers or conversion.</summary>
     public static DamagePacket RawAdded(DamagePacket hit, Func<string, int> get, bool spell, double effectiveness = 1)
     {
@@ -64,6 +111,7 @@ static class DamageStats
         {
             string slug = Slug(type), prefix = spell ? "spell" : "attack";
             var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"));
+            if (!spell) range = range.Add(AttributeAdded(get, type));
             if (!spell && type == DamageType.Lightning)
             {
                 // PoB ModParser 16de4b82 lines 5636–5639 grants both attack LightningMin and LightningMax.

@@ -45,10 +45,7 @@ static class PlayerHitDamage
         foreach (var path in conversion.Trace(raw))
         {
             // Prohibitions constrain the final damage dealt, not a type the portion used to have.
-            if (get("base_deal_no_damage") != 0
-                || DamageTypes.IsElemental(path.Type) && get("deal_no_elemental_damage") != 0
-                || path.Type == DamageType.Chaos && get("base_deal_no_chaos_damage") != 0
-                || GemSupportDamage.Prohibited(path.Type, modifiers)) continue;
+            if (DamageStats.Prohibited(path.Type, get) || GemSupportDamage.Prohibited(path.Type, modifiers)) continue;
             double increased = common;
             foreach (var source in typed)
                 if ((path.History & source.History) != 0) increased += source.Increased;
