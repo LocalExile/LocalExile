@@ -2,7 +2,8 @@ using GameServer.Core.World;
 
 /// <summary>The player's own stats that change an incoming hit: the damage shift before mitigation, then after resistance
 /// and armour the flat damage taken, the increased damage taken and the share of a blocked hit (PoB CalcDefence's
-/// TakenHit: max(damage after mitigation + flat, 0) × the taken multiplier).</summary>
+/// TakenHit: max(damage after mitigation + flat, 0) × the taken multiplier), and last the share of its Life damage that
+/// mana takes.</summary>
 static class PlayerDamageTaken
 {
     const DamageType P = DamageType.Physical, F = DamageType.Fire, C = DamageType.Cold, L = DamageType.Lightning,
@@ -44,11 +45,25 @@ static class PlayerDamageTaken
         FlatFire = "fire_damage_taken_+", Blocked = "base_block_%_damage_taken",
         ElementalBlocked = "block_%_damage_taken_from_elemental";
 
+    // Mind Over Matter's flag has no value: its 40% is the keystone's own text (3.29 tree, wiki Mind Over Matter).
+    const string ManaShield = "keystone_mana_shield", ManaBeforeLife = "base_damage_removed_from_mana_before_life_%";
+    const int ManaShieldPct = 40;
+
     static string TypedIncreased(DamageType type) => $"{type.ToString().ToLowerInvariant()}_damage_taken_+%";
+
+    static string? TypedManaBeforeLife(DamageType type) => type switch
+    {
+        DamageType.Physical => "physical_damage_%_taken_from_mana_before_life",
+        DamageType.Lightning => "lightning_damage_%_taken_from_mana_before_life",
+        DamageType.Chaos => "chaos_damage_%_taken_from_mana_before_life",
+        _ => null,
+    };
 
     public static IEnumerable<string> StatNames => Shifts.Select(s => s.Stat)
         .Concat(DamageTypes.ConversionOrder.Select(TypedIncreased))
-        .Concat([Increased, ElementalIncreased, FlatPhysical, FlatPhysicalFromAttacks, FlatFire, Blocked, ElementalBlocked]);
+        .Concat(DamageTypes.ConversionOrder.Select(TypedManaBeforeLife).OfType<string>())
+        .Concat([Increased, ElementalIncreased, FlatPhysical, FlatPhysicalFromAttacks, FlatFire, Blocked, ElementalBlocked,
+            ManaShield, ManaBeforeLife]);
 
     /// <summary>"X% increased Damage taken", "X% increased Lightning Damage taken" and "X% increased Elemental Damage
     /// taken": one increased value for this type, which adds to the shock's (PlayerElementalAilments.DamageTakenFactor).</summary>
@@ -69,6 +84,27 @@ static class PlayerDamageTaken
     /// applies no ailments or other on-hit effects.</summary>
     public static int BlockedPct(DamageType type, Func<string, int> get) =>
         Math.Max(0, get(Blocked) + (DamageTypes.IsElemental(type) ? get(ElementalBlocked) : 0));
+
+    static int SharedManaBeforeLife(Func<string, int> get) => (get(ManaShield) != 0 ? ManaShieldPct : 0) + get(ManaBeforeLife);
+
+    /// <summary>"X% of Damage is taken from Mana before Life", Mind Over Matter's 40% and the typed forms ("30% of
+    /// Lightning Damage is taken from Mana before Life"): the share of this type's Life damage that mana takes first, at
+    /// most 100% (wiki Mana before Life; PoB CalcDefence adds the typed share to the shared one).</summary>
+    public static int ManaBeforeLifePct(DamageType type, Func<string, int> get) =>
+        Math.Clamp(SharedManaBeforeLife(get) + (TypedManaBeforeLife(type) is string typed ? get(typed) : 0), 0, 100);
+
+    /// <summary>The mana a hit takes from what reaches Life (after ward and energy shield), rounded up as PoB does; what
+    /// mana cannot pay stays on Life. <paramref name="types"/>: the hit's damage by type, whose proportions weigh the typed
+    /// shares of the non-chaos part.</summary>
+    public static int FromMana(int nonChaosLife, int chaosLife, DamagePacket types, int mana, Func<string, int> get)
+    {
+        var nonChaos = types.Components.Where(c => c.Type != DamageType.Chaos && c.Range.Min > 0).ToList();
+        double total = nonChaos.Sum(c => c.Range.Min);
+        double nonChaosPct = total > 0 ? nonChaos.Sum(c => c.Range.Min * ManaBeforeLifePct(c.Type, get)) / total
+            : Math.Clamp(SharedManaBeforeLife(get), 0, 100);
+        double share = (nonChaosLife * nonChaosPct + chaosLife * ManaBeforeLifePct(DamageType.Chaos, get)) / 100;
+        return (int)Math.Clamp(Math.Ceiling(share - 1e-9), 0, Math.Max(0, mana));
+    }
 
     /// <summary>"X% of Physical Damage from Hits taken as Fire Damage" and the other damage shifts (wiki Damage taken as):
     /// before any mitigation, each type moves each destination's percentage of its original amount at once, so damage

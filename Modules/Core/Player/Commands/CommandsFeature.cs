@@ -1080,9 +1080,12 @@ static class CommandsFeature
                     "0x01b3 player hide_mini_life_bar = 1 (dev hit)");
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
                 $"0x01b1 player dev {type} hit for {dealt} ({amount} before {mitigation}), life {life}/{conn.PlayerMaxLife}");
+            if (hit.Mana != hit.ManaBefore)
+                await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
             if (life == 0)
                 await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev hit)");
-            await conn.Commands!.Reply($"{type}: {amount} → {dealt} after {mitigation}; life {life}/{conn.PlayerMaxLife}.");
+            await conn.Commands!.Reply($"{type}: {amount} → {dealt} after {mitigation}; life {life}/{conn.PlayerMaxLife}" +
+                $"{(hit.Mana != hit.ManaBefore ? $", mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})" : "")}.");
         })
         .Add("suppression", "/suppression (Spell Suppression chance, roll and damage reduction)", async _ =>
         {
@@ -1184,6 +1187,8 @@ static class CommandsFeature
                     "0x01b3 player hide_mini_life_bar = 1 (dev spell hit)");
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
                 $"0x01b1 player dev spell {type} hit for {dealt} ({amount} before {mitigation}, suppression {(suppressed ? "yes" : "no")}), life {life}/{conn.PlayerMaxLife}");
+            if (hit.Mana != hit.ManaBefore)
+                await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0})");
             if (life == 0)
                 await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev spell hit)");
             double effective = DamageModel.EffectiveSuppressionChance(chance, lucky, unlucky);
@@ -1244,7 +1249,7 @@ static class CommandsFeature
                 $"0x01b1 player dev {(spell ? "spell" : "attack")} hit for {dealt} ({(blocked ? "blocked" : mitigation)}), life {life}/{conn.PlayerMaxLife}");
             if (mana != manaBefore)
                 await SendPlayerMana(remote, stream, ciphers, conn,
-                    $"0x01b1 player mana {mana} ({(blocked ? $"+{conn.Pools.ManaGainedOnBlock} on block" : "no block gain")})");
+                    $"0x01b1 player mana {mana} ({(long)mana - manaBefore:+0;-0}{(blocked ? ", blocked" : "")})");
             if (life == 0)
                 await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev block hit)");
             await conn.Commands!.Reply($"{(spell ? "Spell" : "Attack")} hit: {amount} → {dealt}; {(blocked ? "blocked" : "not blocked")} ({chance}% chance); life {life}/{conn.PlayerMaxLife}.");

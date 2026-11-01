@@ -972,7 +972,8 @@ static partial class Game
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), now, stats);
-        long lifeBefore = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats);
+        long lifeBefore = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats,
+            ailmentTaken);
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, lifeBefore - lifeDamage + gainedLife));
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
         conn.EnergyShield.Recover(onBlock.EnergyShield);
@@ -1027,7 +1028,7 @@ static partial class Game
             $"{(hit.Blocked ? " (blocked)" : "")}, life {hit.Life}/{conn.PlayerMaxLife}{(hit.Life == 0 ? " (dies)" : "")}");
         if (hit.Mana != hit.ManaBefore)
             await SendPlayerMana(remote, stream, ciphers, conn,
-                $"0x01b1 player mana {hit.Mana} ({(hit.Blocked ? $"+{(long)hit.Mana - hit.ManaBefore} on block" : "no block gain")})");
+                $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0}{(hit.Blocked ? ", blocked" : "")})");
         if (hit.Life == 0)
             await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
         else

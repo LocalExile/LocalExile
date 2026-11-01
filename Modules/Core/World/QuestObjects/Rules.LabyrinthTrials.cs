@@ -284,8 +284,9 @@ static partial class QuestobjectsRules
     static async Task SpikeTrapHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpikeTrap spike)
     {
         var (id, trap) = (spike.Id, spike.Trap);
-        uint life;
+        uint life, mana, manaBefore;
         int damage;
+        GameServer.Core.World.DamagePacket taken;
         lock (conn.Monsters)
         {
             if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return;
@@ -293,13 +294,14 @@ static partial class QuestobjectsRules
             if (!spike.Holds(conn.Walk.Position(now))
                 || LabyrinthTrials.SpikeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int dealt) return;
             damage = dealt;
-            long before = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage, 0, now, CharacterPlayerStats(conn));
+            taken = GameServer.Core.World.DamagePacket.Empty.Add(GameServer.Core.World.DamageType.Physical, new(damage, damage));
+            manaBefore = conn.PlayerMana;
+            long before = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage, 0, now, CharacterPlayerStats(conn), taken);
             conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
             RecordHardcoreDeath(conn);
-            life = conn.PlayerLife;
+            (life, mana) = (conn.PlayerLife, conn.PlayerMana);
         }
-        var taken = GameServer.Core.World.DamagePacket.Empty.Add(GameServer.Core.World.DamageType.Physical, new(damage, damage));
         await Send(remote, stream, ciphers, InstanceProtocol.ActionHit(id, 0xffff, PlayerId, flags: MonsterHitFlags(false, false),
             kind: 0x03, code: HitCode(taken)), null);
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
@@ -308,6 +310,8 @@ static partial class QuestobjectsRules
                 "0x01b3 player hide_mini_life_bar = 1");
         await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
             $"0x01b1 player hit by trial spike trap 0x{id:x} at ({trap.X}, {trap.Y}) for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
+        if (mana != manaBefore)
+            await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {mana} ({(long)mana - manaBefore})");
         if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
         else await SpikeBleed(remote, stream, ciphers, conn, damage);
     }

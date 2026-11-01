@@ -1366,8 +1366,9 @@ measurement limits. Recovery-cadence PR #159 is merged; this change extends its 
 
 ## Damage taken from hits
 
-The player's own stats change a monster's hit in two places (`PlayerDamageTaken`), in PoB `CalcDefence`'s order:
-before any mitigation the damage shift, and after resistance and armour max(damage + flat, 0) × the taken multipliers.
+The player's own stats change a monster's hit in three places (`PlayerDamageTaken`), in PoB `CalcDefence`'s order:
+before any mitigation the damage shift, after resistance and armour max(damage + flat, 0) × the taken multipliers, and
+after ward and energy shield the share mana takes.
 
 The damage shift ("X% of Physical Damage from Hits taken as Fire Damage") comes after the enemy auras' conversion and
 Glacial Wave's less damage. The rules come from the wiki's "Damage taken as" page and PoB's `damageShiftTable`:
@@ -1388,7 +1389,14 @@ After mitigation, each type of the hit takes:
 - "X% increased Damage taken", the type's own and, for an element, "Elemental Damage taken", added to the shock's
   increase, as PoB adds them to its `takenInc`;
 - on a blocked hit, its share: "You take X% of Damage from Blocked Hits", plus "of Elemental Damage" for an element.
-  It is 0 by default and may pass 100%; a blocked hit still applies no ailments or recovery (wiki Blocking).
+  It is 0 by default and may pass 100%. A blocked hit still applies no ailments (wiki Blocking); Life Recoup reads the
+  share it deals.
+
+Of what is left after ward and energy shield, mana takes its share before Life (wiki "Mana before Life"): Mind Over
+Matter's `keystone_mana_shield`, which has no value (its 40% is the keystone's text), plus
+`base_damage_removed_from_mana_before_life_%` and the type's own share (physical, lightning, chaos), at most 100% for
+each type. Ward and energy shield take the hit as a whole, so the hit's types weigh the non-chaos part's share. Mana
+pays at most what it has, rounded up as PoB does, and the rest stays on Life. Trial spikes and dev hits take it too.
 
 The dev `/hit`, `/spellhit` and `/blockhit` commands apply the same after-mitigation steps to their one type, and a
 ranged `/hit` now also takes the shock's increase.
@@ -1396,8 +1404,9 @@ ranged `/hit` now also takes the shock's increase.
 Not read: the conditional shift stats (while affected by a Purity, with four influenced items, during a flask), the
 ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, the Divine Flesh and Tempered by War
 keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), Glancing Blows (it also
-doubles block chance), projectile and spell damage taken, and the increased damage taken on damage over time (ignite
-ticks, Righteous Fire).
+doubles block chance), projectile and spell damage taken, the increased damage taken on damage over time (ignite
+ticks, Righteous Fire), and for Mana before Life: damage over time, Eldritch Battery's energy shield before it, the
+Focus and Clarity forms, and Mind Over Matter at maximum Power Charges.
 
 ## Incoming ordinary elemental ailments
 

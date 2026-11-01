@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using DamagePacket = GameServer.Core.World.DamagePacket;
 
 static partial class Game
 {
@@ -38,9 +39,10 @@ static partial class Game
         }
     }
 
-    // Called under the combat lock after block/mitigation. Ward absorbs once, before ES, and never absorbs DoT.
+    // Called under the combat lock after block/mitigation. Ward absorbs once, before ES, and never absorbs DoT; mana takes
+    // its share of what is left before Life. types: the hit's damage by type (only its proportions count).
     internal static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
-        IReadOnlyDictionary<uint, int> stats)
+        IReadOnlyDictionary<uint, int> stats, DamagePacket types)
     {
         // /god immune: nothing reaches the ward, energy shield or life.
         if (conn.Immune) return 0;
@@ -54,8 +56,11 @@ static partial class Game
         // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
         int nonChaosEligible = nonChaos - (int)((long)nonChaos * Math.Clamp(Get("base_damage_bypass_ward_%"), 0, 100) / 100);
         int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
-        int lifeDamage = conn.EnergyShield.Damage(nonChaos - nonChaosAbsorbed, false, now)
-            + conn.EnergyShield.Damage(Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)), true, now);
+        int nonChaosLife = conn.EnergyShield.Damage(nonChaos - nonChaosAbsorbed, false, now);
+        int chaosLife = conn.EnergyShield.Damage(Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)), true, now);
+        int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, types, (int)conn.PlayerMana, Get);
+        conn.PlayerMana -= (uint)fromMana;
+        int lifeDamage = nonChaosLife + chaosLife - fromMana;
         if (!wasBroken && conn.Ward.Broken
             && conn.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
         {

@@ -12,9 +12,9 @@ public class PlayerDamageTakenTests
 
     // Each type shifts its share of its original amount once, in any direction; the source keeps the rest, and a total
     // over 100% adds damage instead of being scaled down. After mitigation each type takes its flat damage, its increased
-    // damage taken and, when blocked, its share.
+    // damage taken and, when blocked, its share; mana takes its share of what reaches Life.
     [Fact]
-    public void A_hit_shifts_once_then_takes_flat_increased_and_blocked_damage()
+    public void A_hit_shifts_once_then_takes_flat_increased_blocked_and_mana_before_life_damage()
     {
         Assert.All(PlayerDamageTaken.StatNames, name => Assert.NotNull(Program.Stats.Key(name)));
 
@@ -69,6 +69,30 @@ public class PlayerDamageTakenTests
         Assert.Equal(10, PlayerDamageTaken.BlockedPct(DamageType.Physical, blocked));
         Assert.Equal(110, PlayerDamageTaken.BlockedPct(DamageType.Cold, blocked));
         Assert.Equal(0, PlayerDamageTaken.BlockedPct(DamageType.Chaos, With(("base_block_%_damage_taken", -20))));
+
+        // Mind Over Matter's 40% adds to the other shares, a typed share to its type, and each caps at 100%. Mana takes the
+        // non-chaos part's share by the hit's proportions, rounded up, and never more mana than there is.
+        var mom = With(("keystone_mana_shield", 1), ("base_damage_removed_from_mana_before_life_%", 10),
+            ("lightning_damage_%_taken_from_mana_before_life", 30), ("chaos_damage_%_taken_from_mana_before_life", 100));
+        Assert.Equal(50, PlayerDamageTaken.ManaBeforeLifePct(DamageType.Fire, mom));
+        Assert.Equal(80, PlayerDamageTaken.ManaBeforeLifePct(DamageType.Lightning, mom));
+        Assert.Equal(100, PlayerDamageTaken.ManaBeforeLifePct(DamageType.Chaos, mom));
+        Assert.Equal(65, PlayerDamageTaken.FromMana(100, 0, Hit((DamageType.Fire, 50), (DamageType.Lightning, 50)), 1000, mom));
+        Assert.Equal(50 + 20, PlayerDamageTaken.FromMana(100, 20, Hit((DamageType.Fire, 100), (DamageType.Chaos, 20)), 1000, mom));
+        Assert.Equal(30, PlayerDamageTaken.FromMana(100, 0, Hit((DamageType.Fire, 100)), 30, mom));
+        Assert.Equal(14, PlayerDamageTaken.FromMana(33, 0, Hit((DamageType.Physical, 33)), 1000, With(("keystone_mana_shield", 1))));
+        Assert.Equal(0, PlayerDamageTaken.FromMana(100, 0, Hit((DamageType.Fire, 100)), 1000, With()));
+
+        // With no ward or energy shield, the hit pool takes Mind Over Matter's 40 of a 100 hit from mana.
+        var conn = new ClientState(new(1, "mana-before-life", 100, 100, 100, 100, null, []), 0, 1);
+        var stats = new Dictionary<uint, int> { [Program.Stats.Key("keystone_mana_shield")!.Value] = 1 };
+        lock (conn.Monsters)
+        {
+            conn.PlayerMana = 100;
+            Assert.Equal(60, global::Game.DamagePlayerHit(conn, 100, 0, conn.Clock.Elapsed.TotalSeconds, stats,
+                Hit((DamageType.Physical, 100))));
+            Assert.Equal(60u, conn.PlayerMana);
+        }
     }
 
     // Chill reads the damage taken, so physical taken as cold chills; ignite reads the damage dealt, so fire taken as
