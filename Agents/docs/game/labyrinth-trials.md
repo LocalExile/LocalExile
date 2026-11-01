@@ -7,7 +7,8 @@ Trial Plaque window work.
 Its spike traps (the cascade ring and the plaque room's checkerboard) are matched against the original game by eye.
 The Imperial Gardens' dart traps, the Catacombs' roombas, the Chamber of Sins' sawblades and toggling levers and the
 Crypt's spinners, rail switches, levers and door are checked live against the original.
-The other traps, the trials' monsters and the other trials' puzzles are not built yet.
+The Crematorium's hot plates, levers and gears are built from the user's description of the original.
+The trials' monsters are fitted to it as well; Izaro's rooms' traps are not built yet.
 
 ## Where a trial is
 
@@ -28,7 +29,7 @@ scale, and `AreaPopulation.LoadObjects` places them through the room's placement
 | `labyrinth_intro` (Imperial Gardens, `RuinedCity/Garden`) | the door, 14 `LabyrinthArrowTrap`, the plaque, the portal, the Bronze Monograph: one room, no puzzle |
 | `catacomb_intro` / `_end` | the door, one `Door_Closed` and `Switch_Once`, roombas; the plaque and the portal |
 | `crypt_intro` | the door, `Door_Closed`, `Switch`, `Switch_Multi`, `Switch_Once`, 12 `LabyrinthSpinner` on `Rail_Visible` and three `Rail_Visible_Swap_Anims01`, a plain `Door`, the Bronze Monograph, the plaque, the portal, `CryptFrostPriestSpawner` |
-| `crematorium_intro` | the door, three `Door_Closed` and `Switch_Once`, five `TimerGears`, lava, the plaque, the portal, `CremPyroSpawner` |
+| `crematorium_intro` | the door, three `Door_Closed` and three `Switch_Once`, five `TimerGears`, nine hot plates, 17 in the walls with their 17 half lines, the Bronze Monograph, the plaque, the portal, `CremPyroSpawner` |
 | `intro` / `intro_end` (Chamber of Sins, `RuinedTemple`) | the door, two `Door_Open` and `Switch`, nine `LabyrinthSawblade` on 45 `Rail_Visible`, the Bronze Monograph; the plaque and the portal |
 
 The objects are `server_only` (BaseEvents): the client creates none of them, so the server places every one.
@@ -50,6 +51,9 @@ but counts for the 0x2ba component index.
 | `Puzzle_Parts/Door_Open` (cage) | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, TriggerableBlockage, MinimapIcon | 4 |
 | `QuestObjects/Labyrinth/LabyrinthTrialPlaque` | Positioned, BaseEvents, Animated, Transitionable, MinimapIcon, InteractionAction | 3 |
 | `Labyrinth/Objects/LabyrinthTrialReturnPortal` | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, MinimapIcon | 4 |
+| `Puzzle_Parts/TimerGears` (gears) | Positioned, BaseEvents, Animated, Transitionable | 3 |
+| `Traps/LabyrinthLavaAura`, `_3x3`, `_1x3` (hot plates) | Positioned, Animated, BaseEvents, Transitionable, Buffs | 3 |
+| `Traps/LabyrinthLavaAura_inert` (wall plate) | Positioned, Animated, BaseEvents, Transitionable | 3 |
 
 Animated carries the room line's model (`LabyrinthDoor.ao`, `doorbar_prison.ao`, `lever_v01_04.ao`,
 `labyrinth_plaque.ao`, `LabyrinthAirlockPortal.ao`).
@@ -335,6 +339,51 @@ without it the plaque room's monsters came through to the player in the spinner 
 centre (its mesh's bounding box, about ±100 units) the player degenerates by the roomba's shares with `roomba_damage`
 on them.
 
+## Hot plates
+
+The Crematorium trial's room (`Prison/Rooms/Unique/crematorium_intro.arm`) is one room from the trial's door to the
+plaque: a first room, a hall, a last room and the plaque's, three `Door_Closed` between them, each with its
+`Switch_Once` and one or two `TimerGears` beside it.
+Its floor has hot plates: `Metadata/Terrain/Labyrinth/Traps/LabyrinthLavaAura` (`hotplate.ao`, a tile),
+`LabyrinthLavaAura_3x3` (`hotplate3_3.ao`, three tiles a side) and `LabyrinthLavaAura_1x3` (`hotplate1_3.ao`, three
+tiles along its angle by one: the room's plates and walls meet them so, edge to edge). Seventeen
+`LabyrinthLavaAura_inert` plates (`hotplate.ao`, no Buffs) stand half in the walls, an invisible
+`LabyrinthLavaAura_half` line (`invisible_halftile.ao`, no client model, Buffs, `num_states = 3`) a quarter tile off
+each one's centre on the floor side: half a tile along its angle by a tile. In the original the lava glows under the floor's grates all
+round the walls and the stairs' feet, and burns there but not on the stairs (live 2026-11-01): the wall plates heat
+with the others, and their half lines (server objects only) burn with them.
+
+Every plate line has a fixed height, 125 (world z, down): the plates lie under the floor's grates and glow through
+them. The Gateway sends it in Positioned (f0 0x04; `room-points.json` v9 keeps a server object's `z`); standing on the
+terrain instead, a hot plate showed above the grates with its lava heaped on it, and a wall plate as a raised box
+by the wall (live 2026-11-01). Other trial lines have heights too (the doors' between −125 and 157, some levers' and
+plaques'), not sent: those objects were checked live on the terrain, and whether a line's height is the tile's or
+the world's is not known.
+
+A plate's blob reads Positioned, Animated (the room line's model; the `.ot` has `serialise_animation_progress`, not
+sent), BaseEvents, Transitionable and Buffs (none), in that order. Its Transitionable: `create_untransitioned` holds
+clip 2 paused at its start (cold); 2 plays clip 2, `hotplate_start` (5958 ms, its rig `hot_plates.amd`), then loops
+clip 1, `hotplate_idle` (958 ms, aflame); back to 1 plays clip 0, `hotplate_end` (6833 ms, cooling).
+
+**What it does** (live 2026-11-01, the original): the room's plates heat and cool together, about 5 s at their peak
+and 6 s cold once cooled, and a plate burns the player standing on it while its lava lies on it, from when the lava
+spills over it in the heating until it has drained in the cooling. The clips carry no events; the plate's sounds
+(`hotplate.ao`) mark it: its burning from 2812 ms into `hotplate_start` to its `End` at 3269 ms into `hotplate_end`.
+BuffDefinitions `labyrinth_lava_aura` ("Lava", invisible, BuffVisuals `lava_aura_ignited`: the player burning) carries
+`base_fire_damage_%_of_maximum_life_taken_per_minute_in_normal` and `…_of_maximum_es_…` (and Cruel and Merciless
+ones), with no values in the client data; the wiki: fire damage over time, less fire resistance, no burning ground.
+So the Gateway heats the room's plates together, keeps them at their peak 5 s after the heating clip, cools them and
+rests them 6 s cold, over and over; while the lava lies a player on a hot plate or a wall plate's half line degenerates by 40% of maximum life plus
+50% of maximum energy shield a second (our numbers, the roomba's: it felt the same in the original) less their fire
+resistance, energy shield first, with that buff on them, as a roomba's cut is dealt (`ClientState.TrapDegenPerSecond`).
+`/trial_lava <life %> <energy shield %> [<peak s> [<cold s>]]` (dev) changes them.
+
+**Levers and gears.** Each lever opens the nearest Locked Door still closed (the room's way meets them in that order,
+so each opens its own: live 2026-11-01, the original) and sets the gears beside it turning: TimerGears
+(`Cogs04_Quiet.ao`, `num_states = 3`) holds clip 1 (`start`) paused in state 1; to 2 it plays `start` (1000 ms), then
+loops clip 0, `idle` (3333 ms); clip 2, `stop`, is for the way back (not used). Each gear goes with its nearest lever
+(`LabyrinthTrials.TurnedGears`). Despite their name they turn on: the doors stay open.
+
 ## Monsters
 
 In the original there are no monsters among a trial's traps (live 2026-10-31); what stands in its rooms the room file
@@ -351,8 +400,23 @@ places among its points (`data/room-points.json` v8):
 - a server spawner (`Metadata/QuestObjects/Labyrinth/…Spawner`, no `.ot` to tell what it spawns): the Lower Prison's
   `PrisonPoacherSpawner`, beside that pack, is a rare Brittle Poacher (`SkeletonBowLightning`), as the original shows a
   rare skeleton archer there (`LabyrinthTrials.Spawners`); the Crypt's `CryptFrostPriestSpawner`, by the plaque, a rare
-  Frost Priest (`SkeletonCasterCold4`, by its name; the original shows rare skeletons there). `CremPyroSpawner` is not
-  mapped yet.
+  Frost Priest (`SkeletonCasterCold4`, by its name; the original shows rare skeletons there); the Crematorium's
+  `CremPyroSpawner`, by the plaque beside the room's normal pack point, a rare Cinder Elemental (`MossMonster/FireMonster`,
+  the area's burning rock monster: the original shows a rare pack of what look like stone golems there); the
+  Crematorium's packs are `RoomPacks`: one in the first room and one past the second Locked Door, on open floor clear
+  of the plates (the original: skeletons at the way in, monsters past the second door, none in the hall's plates).
+  Its four `Metadata/Monsters/LavaTrap/LabyrinthElementalSpawner` points are monsters, the **Immolator** (wiki: an
+  iron maiden that brings Ember Claimant skeletons; only on the plates, live 2026-11-01): an immobile monster whose
+  `.act` plays `spawn` for Melee, whose one skill `SummonLabyrinthFireSkeleton` (2170 ms cast, 3 s cooldown) has
+  `alternate_minion` 73 (SummonedSpecificMonsters → `SkeletonMeleeFireLabyrinthSummoned`, Ember Claimant),
+  `number_of_monsters_to_summon` 1, `summon_specific_monsters_in_front_offset` 114 and
+  `summoned_monsters_no_drops_or_experience`. The Gateway's monsters use a summoning skill so
+  (`MonsterAttack.Summon`): within their aggro range, off cooldown, with fewer than five of their monsters alive (our
+  cap), it opens the oven and at half its cast brings the monster that far ahead towards the player; it gives no
+  experience or items and is not kept in the instance. The skill's action (0x1ab, ActionTypes
+  `SummonSpecificMonstersInFront`) plays nothing on the client (live 2026-11-01: the oven stayed shut), so the Gateway
+  plays the actor's clip instead: 0x1d1 with Animation.dat `SpellAreaOfEffect` (22), the `.act`'s `spawn`, over the
+  cast time.
 
 The Gateway places these for a trial's rooms (a room with the plaque or the trial's door, `AreaPopulation.PlacedRoom`)
 and keeps the area's scattered packs' centres `LabyrinthTrials.TrapClearance` (25) cells from every trap, so a trap-free
@@ -377,10 +441,8 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 
 ## Not built yet
 
-- The other traps (lava) and the step-triggered spikes of Izaro's rooms.
+- The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
 - The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
   the alternate arrow traps).
-- The other puzzle parts: `TimerGears` (timed levers).
-- The other trials' spawners (`CremPyroSpawner`).
 - Saving league quest flags, so that trials are shared across a league's characters.
 - The Eternal trials' plaques drop an Offering to the Goddess.

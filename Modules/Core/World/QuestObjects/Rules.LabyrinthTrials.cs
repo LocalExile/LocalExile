@@ -64,7 +64,7 @@ static partial class QuestobjectsRules
             lock (conn.Monsters) conn.TrialObjects[id] = o;
             byte state = open ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
-                    LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state)),
+                    LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state, LabyrinthTrials.IsHotPlate(o.Type) ? o.Height : null)),
                 $"0x02b9 trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             if (o.Type == LabyrinthTrials.OpenDoor)
@@ -92,6 +92,67 @@ static partial class QuestobjectsRules
                 conn.UpdateBarrier();
             }
         }
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> plates;
+        lock (conn.Monsters) plates = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsHotPlate(t.Value.Type))];
+        if (plates.Count > 0)
+        {
+            // What burns: the hot plates and the half lines by the plates in the walls (server objects only, as those).
+            List<AreaPopulation.RoomObject> burning = [.. all.Where(o => LabyrinthTrials.Burns(o.Type))];
+            Console.WriteLine($"[gateway] {remote} trial hot plates: {plates.Count} placed " +
+                $"({plates.Count(p => p.Value.Type == LabyrinthTrials.InertLava)} in the walls), {burning.Count} burning areas");
+            _ = RunHotPlates(remote, stream, ciphers, conn, plates, burning);
+        }
+    }
+
+    // The Crematorium trial's hot plates, all together, over and over (LabyrinthTrials.LavaHeatSeconds and the rest): each
+    // heats (Transitionable 2), stays at its peak LavaBurnSeconds, cools (1) and rests cold. A player in a burning area
+    // (LabyrinthTrials.Burns) while the lava lies (LavaSpillSeconds into the heating to LavaDrainSeconds into the cooling) burns
+    // (LabyrinthTrials.LavaDamagePerSecond less their fire resistance, ClientState.TrapDegenPerSecond) with its
+    // labyrinth_lava_aura buff.
+    static async Task RunHotPlates(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> plates, List<AreaPopulation.RoomObject> burning)
+    {
+        var degen = new TrapDegen();
+        try
+        {
+            double next = conn.Clock.Elapsed.TotalSeconds + 1, spills = double.PositiveInfinity, drains = double.PositiveInfinity,
+                cools = double.PositiveInfinity;
+            while (!conn.Closed)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                if (now >= next)
+                {
+                    foreach (var (id, plate) in plates)
+                        await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open), null);
+                    (spills, cools) = (next + LabyrinthTrials.LavaSpillSeconds, next + LabyrinthTrials.LavaHeatSeconds + LabyrinthTrials.LavaBurnSeconds);
+                    drains = cools + LabyrinthTrials.LavaDrainSeconds;
+                    next = cools + LabyrinthTrials.LavaCoolSeconds + LabyrinthTrials.LavaRestSeconds;
+                }
+                if (now >= cools)
+                {
+                    foreach (var (id, plate) in plates)
+                        await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Closed), null);
+                    cools = double.PositiveInfinity;
+                }
+                (int X, int Y) here;
+                lock (conn.Monsters) here = conn.Walk.Position(now);
+                bool burns = now >= spills && now < drains && burning.Any(p => LabyrinthTrials.OnPlate(p.Type, p.X, p.Y, p.Angle, here));
+                double perSecond = 0;
+                if (burns)
+                {
+                    var fire = GameServer.Core.World.DamageType.Fire;
+                    var (lifeShare, shieldShare) = LabyrinthTrials.LavaDamagePerSecond;
+                    lock (conn.Monsters)
+                        perSecond = GameServer.Core.World.DamageModel.Mitigate(conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare,
+                            Resistance(conn, fire), MaxResistance(conn, fire));
+                }
+                await degen.Set(remote, stream, ciphers, conn, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate");
+                await Task.Delay(SpikeTickMilliseconds);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial hot plates stopped: {ServerLog.Describe(ex)}"); }
+        finally { lock (conn.Monsters) conn.TrapDegenPerSecond = 0; }
     }
 
     // A trial object used: the player walks up to it, then the trial's door (or a plain door) opens, a lever opens the nearest locked door,
@@ -122,6 +183,16 @@ static partial class QuestobjectsRules
                 if (!await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o)) break;
                 if (NearestTrialObject(conn, LabyrinthTrials.Door, (o.X, o.Y), closed: true) is { } door)
                     await OpenTrialObject(remote, stream, ciphers, conn, door.Id, door.Object);
+                // The Crematorium's gears beside the lever start turning (Transitionable 2: start, then idle looped).
+                List<KeyValuePair<uint, AreaPopulation.RoomObject>> gears, pulls;
+                lock (conn.Monsters)
+                {
+                    gears = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.Gears)];
+                    pulls = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.Lever)];
+                }
+                foreach (int i in LabyrinthTrials.TurnedGears([.. gears.Select(g => (g.Value.X, g.Value.Y))],
+                             [.. pulls.Select(l => (l.Value.X, l.Value.Y))], pulls.FindIndex(l => l.Key == use.TargetId)))
+                    await OpenTrialObject(remote, stream, ciphers, conn, gears[i].Key, gears[i].Value);
                 break;
             case LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch:
                 await ToggleTrialSwitch(remote, stream, ciphers, conn, use.TargetId, o);
@@ -865,8 +936,7 @@ static partial class QuestobjectsRules
     // back to state 1), and goes on to the rail it was heading for.
     static async Task RunRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<RoombaRun> runs)
     {
-        // The roomba buff shown on the player: its instance and row, while they are in one.
-        (ushort Instance, ushort Row)? shown = null;
+        var degen = new TrapDegen();
         try
         {
             while (!conn.Closed)
@@ -907,47 +977,63 @@ static partial class QuestobjectsRules
                     await Send(remote, stream, ciphers, !LabyrinthTrials.TurnsToMovement(r.Roomba.Type) ? move
                         : [.. InstanceProtocol.Orientation(r.Id, (float)Math.Atan2(dx, -dy)), .. move], null);
                 }
-                // In a roomba: its degeneration on the player (RunResourceRecovery deals it) and its buff, whose visual
-                // plays the roomba's cut on them.
+                // In a roomba: its degeneration on the player and its buff, whose visual plays the roomba's cut on them.
                 (int X, int Y) here;
                 lock (conn.Monsters) here = conn.Walk.Position(now);
                 var inside = runs.FirstOrDefault(r => !r.Stopped && r.Position(now) is var p && LabyrinthTrials.TrapRadius(r.Roomba.Type) is var radius
                     && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
-                ushort? row = inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type);
-                bool was, degen;
-                ushort instance = 0;
-                lock (conn.Monsters)
+                double perSecond = 0;
+                if (inside is not null)
                 {
-                    var (lifeShare, shieldShare) = inside is null ? default : LabyrinthTrials.TrapDegenShares(inside.Roomba.Type);
-                    was = conn.TrapDegenPerSecond > 0;
-                    conn.TrapDegenPerSecond = inside is null || conn.PlayerLife == 0 ? 0
-                        : conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
-                    degen = conn.TrapDegenPerSecond > 0;
-                    if (conn.PlayerLife == 0) row = null;
-                    if (row is not null && shown?.Row != row) instance = conn.NextBuff++;
+                    var (lifeShare, shieldShare) = LabyrinthTrials.TrapDegenShares(inside.Roomba.Type);
+                    lock (conn.Monsters) perSecond = conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
                 }
-                if (shown is { } old && old.Row != row)
-                {
-                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old.Instance), null);
-                    shown = null;
-                }
-                if (row is ushort buffRow && shown is null)
-                {
-                    await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
-                    shown = (instance, buffRow);
-                }
-                if (degen && !was)
-                    Console.WriteLine($"[gateway] {remote} trial roomba: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
-                        $"energy shield {conn.EnergyShield.Maximum}), life regeneration {LifeRegenPerSecond(conn):0.#}/s, life {conn.PlayerLife}, " +
-                        $"energy shield {conn.EnergyShield.Current}");
-                // Entering and leaving change the recovery rates the client is sent (PlayerStatsUpdateAtGate).
-                if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? "in a trial roomba" : "out of the trial roombas");
+                await degen.Set(remote, stream, ciphers, conn, perSecond, inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type), "in a trial roomba");
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
         finally { lock (conn.Monsters) conn.TrapDegenPerSecond = 0; }
+    }
+
+    // A trap's degeneration on the player while they are in it (RunResourceRecovery deals ClientState.TrapDegenPerSecond)
+    // and the trap's buff shown on them (its instance and row).
+    sealed class TrapDegen
+    {
+        (ushort Instance, ushort Row)? shown;
+
+        // This tick's degeneration (0 out of the trap) and buff row: the buff swapped as the row changes, and the client's
+        // recovery rates sent again on entering and leaving (PlayerStatsUpdateAtGate).
+        public async Task Set(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double perSecond, ushort? row,
+            string where)
+        {
+            bool was, degen;
+            ushort instance = 0;
+            lock (conn.Monsters)
+            {
+                was = conn.TrapDegenPerSecond > 0;
+                conn.TrapDegenPerSecond = conn.PlayerLife == 0 ? 0 : perSecond;
+                degen = conn.TrapDegenPerSecond > 0;
+                if (!degen) row = null;
+                if (row is not null && shown?.Row != row) instance = conn.NextBuff++;
+            }
+            if (shown is { } old && old.Row != row)
+            {
+                await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old.Instance), null);
+                shown = null;
+            }
+            if (row is ushort buffRow && shown is null)
+            {
+                await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
+                shown = (instance, buffRow);
+            }
+            if (degen && !was)
+                Console.WriteLine($"[gateway] {remote} {where}: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
+                    $"energy shield {conn.EnergyShield.Maximum}), life regeneration {LifeRegenPerSecond(conn):0.#}/s, life {conn.PlayerLife}, " +
+                    $"energy shield {conn.EnergyShield.Current}");
+            if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? where : "out of the trial's traps");
+        }
     }
 
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on

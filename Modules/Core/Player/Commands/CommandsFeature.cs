@@ -1364,6 +1364,20 @@ static class CommandsFeature
                 LabyrinthTrials.ArrowPoisonPerSecond = pct / 100;
             await conn.Commands!.Reply($"Trial dart poison: {LabyrinthTrials.ArrowPoisonPerSecond * 100:0.#}% of the hit's life share a second, per stack.");
         })
+        .Add("trial_lava", "/trial_lava [<life %> <energy shield %> [<peak s> [<cold s>]]] (dev: what a Trials of Ascendancy hot plate deals a second of maximum life and energy shield, before fire resistance, while its lava lies on it, and how long it stays at its peak and rests cold between its 6 s heating and 7 s cooling, from its next cycle, e.g. /trial_lava 40 50 5 6)", async args =>
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            if (args.Length >= 2 && double.TryParse(args[0], System.Globalization.NumberStyles.Float, inv, out double life)
+                && double.TryParse(args[1], System.Globalization.NumberStyles.Float, inv, out double shield) && life is >= 0 and <= 1000 && shield is >= 0 and <= 1000)
+                LabyrinthTrials.LavaDamagePerSecond = (life / 100, shield / 100);
+            if (args.Length >= 3 && double.TryParse(args[2], System.Globalization.NumberStyles.Float, inv, out double burn) && burn is > 0 and <= 60)
+                LabyrinthTrials.LavaBurnSeconds = burn;
+            if (args.Length >= 4 && double.TryParse(args[3], System.Globalization.NumberStyles.Float, inv, out double rest) && rest is >= 0 and <= 60)
+                LabyrinthTrials.LavaRestSeconds = rest;
+            var (l, e) = LabyrinthTrials.LavaDamagePerSecond;
+            await conn.Commands!.Reply($"Trial hot plates deal {l * 100:0.#}% of maximum life and {e * 100:0.#}% of maximum energy shield a second (before fire resistance), " +
+                $"at the peak {LabyrinthTrials.LavaBurnSeconds:0.#} s, cold {LabyrinthTrials.LavaRestSeconds:0.#} s.");
+        })
         .Add("atlas", "/atlas [layout] (dev: show or choose the fallback layout generic maps open)", async args =>
         {
             var atlas = MapDevices.Value.Atlas;

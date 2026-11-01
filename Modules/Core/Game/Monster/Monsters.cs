@@ -92,11 +92,17 @@ static partial class Game
         // instant contact until their projectile is known (SkillCatalog.MonsterProjectile). Its release time and point
         // come from the clip the client plays for it (MonsterReleaseFor).
         var projectile = rangedAttack && variety.GrantedEffects is [int rangedEffect, ..] ? SkillsFor(conn).MonsterProjectile(rangedEffect) : null;
-        var attack = new MonsterAttack(SkillCatalog.FirstSkillId, mods.Effects.AttackSeconds(variety.AttackMs / 1000.0), variety.AttackRange,
+        // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
+        // own cast time; it deals no hit.
+        var summon = variety.GrantedEffects is [int summonEffect, ..] ? SkillsFor(conn).MonsterSummon(summonEffect, level) : null;
+        var attack = new MonsterAttack(SkillCatalog.FirstSkillId,
+            summon is { CastSeconds: > 0 } ? summon.CastSeconds : mods.Effects.AttackSeconds(variety.AttackMs / 1000.0),
+            summon is null ? variety.AttackRange : Math.Max(variety.AttackRange, variety.AggroRange),
             mods.Effects.Hit(DamagePacket.Of(DamageType.Physical, baseMin, baseMax)))
         {
             Ranged = rangedAttack,
             Projectile = projectile,
+            Summon = summon,
             Release = projectile is null ? null : MonsterReleaseFor(conn, variety, variety.GrantedEffects![0], level, projectile),
         };
         var skill = variety.GrantedEffects is [int effect, ..]
@@ -353,7 +359,7 @@ static partial class Game
                 // Attack cadence remains the attack's own duration; faster AI only reduces the delay after expiry.
                 // A pending echo/contact keeps its original generation instead of reserving repeated swings at the gate.
                 // A chill slows the swing by its action speed, as the native clip does.
-                if (m.Hostile && m.Attack is { } a && d <= a.Range)
+                if (m.Hostile && m.Attack is { } a && d <= a.Range && SummonReadyLocked(conn, id, m, a, now))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
                     m.LastTarget = null;
@@ -618,12 +624,22 @@ static partial class Game
             var from = m.Walk.Position(startedAt);
             var player = conn.Walk.Position(startedAt);
             m.BusyUntil = startedAt + seconds;
+            if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
             m.SwingGeneration = action;
+            // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
+            // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
+            if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, MonsterActionSequence, 0x0408, targetObjectId: PlayerId);
-        }, $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
+        }, a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
+            : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
         // The contact: the clip's keyframe for a projectile skill (the Spitter's attack1 spits at 37.5 % of the attack),
         // half the attack time for a melee swing (its clips' keyframes are not read yet).
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * (a.Release?.Fraction ?? 0.5))) return;
+        if (a.Summon is { } summon)
+        {
+            await MonsterSummon(remote, stream, ciphers, conn, id, m, summon);
+            return;
+        }
         if (a.Projectile is { } projectile)
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
@@ -631,6 +647,44 @@ static partial class Game
             return;
         }
         await MonsterContact(remote, stream, ciphers, conn, id, m, action);
+    }
+
+    /// <summary>Animation.dat <c>SpellAreaOfEffect</c>, which a summoner's actor plays as it summons (the Immolator's
+    /// <c>.act</c>: <c>spawn</c>, its doors opening and shutting).</summary>
+    internal const byte SummonAnimation = 22;
+
+    /// <summary>How many of its monsters a summoner keeps alive at once (our number: the data has no cap; the original's
+    /// Immolators keep bringing skeletons while the player is near).</summary>
+    internal const int MaxSummoned = 5;
+
+    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than MaxSummoned
+    // of its monsters alive); any other attack may.
+    internal static bool SummonReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned;
+
+    // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
+    // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
+    // and giving no experience or items when the skill says so.
+    internal static async Task MonsterSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster m, SkillCatalog.MonsterSummonInfo summon)
+    {
+        if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
+        {
+            Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons MonsterVarieties row {summon.Variety}: it cannot be created");
+            return;
+        }
+        (int X, int Y) at;
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var (from, player) = (m.Walk.Position(now), conn.Walk.Position(now));
+            double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
+            at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
+        }
+        for (int k = 0; k < summon.Count; k++)
+            await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
+                owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; });
+        Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
 
     // A melee contact at the attack's halfway point: committed at the actual send gate under the monster's action, so a

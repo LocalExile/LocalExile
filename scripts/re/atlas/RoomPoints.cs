@@ -73,9 +73,13 @@ static class RoomPoints
                     {
                         tag = room.Tag,
                         points = room.Points.Where(p => IsKeptPoint(p.Name) || IsRoomMonster(p.Name)).Select(p => new { name = p.Name, x = p.X, y = p.Y, angle = p.Angle }),
+                        // A server object's fixed height (world z, down), when its line has one: the Crematorium trial's
+                        // hot plates lie 125 units below the floor's grates.
                         doodads = room.Doodads.Select(d => d.Type.Equals(PlainDoodad, StringComparison.OrdinalIgnoreCase)
                             ? (object)new { model = d.Model, x = d.X, y = d.Y }
-                            : new { model = d.Model, x = d.X, y = d.Y, type = d.Type, angle = d.Angle, scale = d.Scale }),
+                            : d.FixedHeight is float z
+                                ? new { model = d.Model, x = d.X, y = d.Y, type = d.Type, angle = d.Angle, scale = d.Scale, z }
+                                : new { model = d.Model, x = d.X, y = d.Y, type = d.Type, angle = d.Angle, scale = d.Scale }),
                     });
                 }
                 }

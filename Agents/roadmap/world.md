@@ -125,12 +125,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   A trial is done for the client by its quest flag or its league quest flag
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. The rest of the Normal trials: the `TimerGears` puzzle parts of The Crematorium, its monster spawner
-     (`CremPyroSpawner`), and saving league
-     quest flags so a trial counts for every character of the league.
-  2. The other trial traps: each trial teaches one kind (furnaces; darts, roombas, sawblades and spinners are done), the same
-     objects as the Labyrinth's; their timing and damage, as the spike traps do
-     ([labyrinth-trials](../docs/game/labyrinth-trials.md), "Spike traps").
+  1. Saving league quest flags so a trial counts for every character of the league.
+  2. The trial traps in the Labyrinth's own rooms: each trial teaches one kind (spikes, darts, roombas, sawblades,
+     spinners and furnaces are done in the trials), the same objects; their timing and damage as the trials'
+     ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
   3. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra
      data (`0x141ec7220`: seed, node, difficulty; [03](../docs/protocol/03-area-and-world.md)).
      The node's LabyrinthNodeOverrides and secrets then apply in `LabyrinthPass`; the levelgen gate stays green.

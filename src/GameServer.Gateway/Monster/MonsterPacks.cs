@@ -124,7 +124,9 @@ static class AreaPopulation
 
     /// <summary>A server object of a room the client placed (an NPC, a quest blocker): its type and model, grid cell,
     /// angle (radians) and scale, through the room's placement.</summary>
-    public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale);
+    /// <summary>A room's server object in grid cells; <paramref name="Height"/> is its line's fixed height (world z, down),
+    /// null to stand on the terrain.</summary>
+    public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale, float? Height = null);
 
     /// <summary>A quest room placed where the client placed it (<see cref="FitRooms"/>): its points and server objects
     /// in grid cells (a Trial of Ascendancy's room: its traps, its pack points and monsters).</summary>
@@ -529,7 +531,7 @@ static class AreaPopulation
                     foreach (var d in room.Doodads.Where(d => d.Type is not null))
                     {
                         var g = At(d.X, d.Y);
-                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, TurnAngle(a, b, cc, dd, d.Angle), d.Scale));
+                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, TurnAngle(a, b, cc, dd, d.Angle), d.Scale, d.Height));
                     }
                     notes.Add($"room {path.Split('/')[^1]} at ({ox}, {oy}) turn [{a} {b}; {cc} {dd}]: {hits}/{plain.Count} doodads match; " +
                         string.Join(", ", room.Points.Select(p => $"{p.Name} at {At(p.X, p.Y)}")));
@@ -573,7 +575,7 @@ static class AreaPopulation
                     foreach (var d in room.Doodads.Where(d => d.Type is not null))
                     {
                         var g = placement.Place(new RoomPoint(d.Type!, (int)MathF.Round(d.X), (int)MathF.Round(d.Y), d.Angle));
-                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, g.Angle, d.Scale));
+                        objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, g.Angle, d.Scale, d.Height));
                     }
                     placedRooms?.Add(new PlacedRoom(path, [.. room.Points.Select(placement.Place)], objects.GetRange(first, objects.Count - first)));
                     if (!capturedRooms.Contains(path)) capturedRooms.Add(path);
@@ -605,7 +607,7 @@ static class AreaPopulation
     static readonly (int, int, int, int)[] Turns =
         [(1, 0, 0, 1), (0, -1, 1, 0), (-1, 0, 0, -1), (0, 1, -1, 0), (-1, 0, 0, 1), (0, 1, 1, 0), (1, 0, 0, -1), (0, -1, -1, 0)];
 
-    sealed record RoomData(IReadOnlyList<RoomPoint> Points, IReadOnlyList<(string Model, float X, float Y, string? Type, float Angle, float Scale)> Doodads);
+    sealed record RoomData(IReadOnlyList<RoomPoint> Points, IReadOnlyList<(string Model, float X, float Y, string? Type, float Angle, float Scale, float? Height)> Doodads);
     sealed record RoomIndex(Dictionary<string, List<string>> Areas, Dictionary<string, RoomData> Rooms);
 
     // data/room-points.json (scripts/re/atlas room-points): the rooms with monster or start points per area. Game data: stays in data/.
@@ -626,7 +628,8 @@ static class AreaPopulation
                 (float)d.GetProperty("x").GetDouble(), (float)d.GetProperty("y").GetDouble(),
                 d.TryGetProperty("type", out var t) ? t.GetString() : null,
                 d.TryGetProperty("angle", out var an) ? (float)an.GetDouble() : 0f,
-                d.TryGetProperty("scale", out var sc) ? (float)sc.GetDouble() : 1f))]), StringComparer.OrdinalIgnoreCase);
+                d.TryGetProperty("scale", out var sc) ? (float)sc.GetDouble() : 1f,
+                d.TryGetProperty("z", out var z) ? (float?)z.GetDouble() : null))]), StringComparer.OrdinalIgnoreCase);
         return new RoomIndex(areas, rooms);
     }
 }

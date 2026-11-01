@@ -34,6 +34,9 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
     public SkillCatalog.MonsterProjectileInfo? Projectile { get; init; }
+    /// <summary>A summoning skill (SkillCatalog.MonsterSummon, the Labyrinth's Immolator): its action brings monsters
+    /// ahead of the summoner instead of a hit (Program.MonsterSwing). Null for an attack.</summary>
+    public SkillCatalog.MonsterSummonInfo? Summon { get; init; }
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
     public IReadOnlyList<(uint, int)> Stats()
@@ -92,6 +95,11 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
     public uint? OwnerId { get; init; }
+    // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
+    // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
+    public uint? SummonerId;
+    public bool NoRewards;
+    public double SummonReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).

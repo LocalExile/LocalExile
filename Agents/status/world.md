@@ -179,12 +179,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   the upper room's TriCorner straight so its two spinners leave their small rings for the square, both going both
   ways; the plain door between its upper spinner room and the plaque room stays shut until clicked, keeping the
   plaque room's monsters in. Checked live against the original (2026-11-01).
+  The Crematorium's hot plates, those under the grates by its walls too, lie at their lines' fixed height under the
+  floor's grates and heat together on a timer (5 s at the peak, 6 s cold) and
+  burn a player while their lava lies (a share of life and energy shield a second, less fire resistance, with the lava
+  buff's burning look); each of its three levers opens its Locked Door and sets its gears turning; its Immolators
+  bring Ember Claimants. Timings, damage and the Immolators' skeletons checked live against the original (2026-11-01);
+  the plates' height under the grates is being checked.
   The area's packs keep away from a trial's traps; its rooms get what their room file places: the Gardens' four
   Devourers, the Lower Prison plaque platform's pack and its spawner's rare Brittle Poacher, the Crypt spawner's rare
-  Frost Priest, and the packs the original has where the room file has none (two before the Chamber of Sins' upper
-  cage, one past the Crypt trial's door and one by its plaque).
-  Not built: the other traps, the trials' monsters, the timed levers of The Crematorium, and
-  league-wide trials (league quest flags are not saved).
+  Frost Priest, the Crematorium spawner's rare Cinder Elemental and its four Immolators, and the packs the original has where the room file
+  has none (two before the Chamber of Sins' upper cage, one past the Crypt trial's door and one by its plaque, one in
+  the Crematorium trial's first room and one past its second Locked Door).
+  Not built: the traps of Izaro's rooms, the hot plates' Cruel and Merciless rooms, and league-wide trials (league
+  quest flags are not saved).
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
 

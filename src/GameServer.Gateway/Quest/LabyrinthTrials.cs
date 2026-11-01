@@ -42,6 +42,61 @@ static class LabyrinthTrials
         Spinner = "Metadata/Terrain/Labyrinth/Traps/LabyrinthSpinner",
         RailSwitch = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible_Swap_Anims01";
 
+    /// <summary>The Crematorium trial's hot plates (one tile, three by three, one by three) and the gears a lever sets
+    /// turning (TimerGears, <c>Cogs04_Quiet.ao</c>). The plates half in the walls (<c>_inert</c>: no Buffs) heat with the
+    /// others but burn nothing themselves: an invisible <c>LabyrinthLavaAura_half</c> beside each (no model) burns their
+    /// floor side (live 2026-11-01, the original: the lava glows under the grates all round the walls and the stairs'
+    /// feet, and burns there, not on the stairs).</summary>
+    public const string Lava = "Metadata/Terrain/Labyrinth/Traps/LabyrinthLavaAura",
+        Lava3x3 = "Metadata/Terrain/Labyrinth/Traps/LabyrinthLavaAura_3x3",
+        Lava1x3 = "Metadata/Terrain/Labyrinth/Traps/LabyrinthLavaAura_1x3",
+        InertLava = "Metadata/Terrain/Labyrinth/Traps/LabyrinthLavaAura_inert",
+        HalfLava = "Metadata/Terrain/Labyrinth/Traps/LabyrinthLavaAura_half",
+        Gears = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/TimerGears";
+
+    /// <summary>Whether this plate heats and cools (the client shows it).</summary>
+    public static bool IsHotPlate(string type) => type is Lava or Lava3x3 or Lava1x3 or InertLava;
+
+    /// <summary>Whether its lava burns a player on it.</summary>
+    public static bool Burns(string type) => type is Lava or Lava3x3 or Lava1x3 or HalfLava;
+
+    /// <summary>A plate's half sizes in cells, along its angle and across: a tile (23 cells) a side, the 3x3 three tiles,
+    /// the 1x3 three tiles along its angle by one (the room's plates and walls meet them so, edge to edge); a half line
+    /// (<c>invisible_halftile.ao</c>) half a tile along its angle, standing a quarter tile off its wall plate's centre.</summary>
+    public static (double X, double Y) LavaHalf(string type) =>
+        type switch { Lava3x3 => (34.5, 34.5), Lava1x3 => (34.5, 11.5), HalfLava => (5.75, 11.5), _ => (11.5, 11.5) };
+
+    /// <summary>Whether a cell lies on this hot plate.</summary>
+    public static bool OnPlate(string type, int x, int y, float angle, (int X, int Y) at)
+    {
+        var (halfX, halfY) = LavaHalf(type);
+        double dx = at.X - x, dy = at.Y - y, cos = Math.Cos(angle), sin = Math.Sin(angle);
+        return Math.Abs(dx * cos + dy * sin) <= halfX && Math.Abs(-dx * sin + dy * cos) <= halfY;
+    }
+
+    /// <summary>How a hot plate cycles. Transitionable 2 plays <c>hotplate_start</c> (its rig's clip 2, 5958 ms) and then
+    /// <c>hotplate_idle</c> (958 ms, looped: at its peak); 1 plays <c>hotplate_end</c> (6833 ms, cooling). How long it
+    /// stays at its peak and cold is the server's timer: live (2026-11-01, the original) the room's plates go together,
+    /// about 5 s at the peak and 6 s cold once cooled. <c>/trial_lava</c> (dev) changes them.</summary>
+    public const double LavaHeatSeconds = 5.958, LavaCoolSeconds = 6.833;
+    public static double LavaBurnSeconds = 5, LavaRestSeconds = 6;
+
+    /// <summary>When the lava lies on a plate, which burns while it does (live 2026-11-01, the original: from when it
+    /// spills over the plate until it has drained, the peak and part of the heating and cooling): the plate's sounds
+    /// (<c>hotplate.ao</c>), its burning from 2812 ms into <c>hotplate_start</c> to its <c>End</c> at 3269 ms into
+    /// <c>hotplate_end</c>.</summary>
+    public const double LavaSpillSeconds = 2.812, LavaDrainSeconds = 3.269;
+
+    /// <summary>What a plate deals a second while the player stands in its lava: BuffDefinitions
+    /// <c>labyrinth_lava_aura</c> ("Lava", invisible, BuffVisuals <c>lava_aura_ignited</c>: the burning look) takes
+    /// <c>base_fire_damage_%_of_maximum_life_taken_per_minute_in_normal</c> and <c>…_of_maximum_es_…</c>, whose values
+    /// the client data lacks: these shares are ours, the roomba's, as fire damage (wiki: less the player's fire
+    /// resistance), energy shield first.</summary>
+    public static (double Life, double EnergyShield) LavaDamagePerSecond = (0.40, 0.50);
+
+    /// <summary>The <c>labyrinth_lava_aura</c> BuffDefinitions row, or null without the table.</summary>
+    public static ushort? LavaBuffRow => BuffRows.Value.TryGetValue("labyrinth_lava_aura", out ushort row) ? row : null;
+
     public static bool IsSawblade(string type) => type is Sawblade or SlowSawblade;
 
     /// <summary>A roomba's, sawblade's or spinner's speed in cells a second: its .ot's Movement <c>base_speed</c> (the
@@ -379,15 +434,25 @@ static class LabyrinthTrials
             && Enumerable.Range(0, levers.Count).MinBy(k => Distance(rails[i], levers[k])) == lever)];
     }
 
+    /// <summary>The gears a Crematorium lever (Switch_Once) sets turning, as a rail switch goes with its lever: each with
+    /// its nearest lever (live 2026-11-01, the original: every lever's own gears beside it start turning as its door
+    /// opens).</summary>
+    public static List<int> TurnedGears(IReadOnlyList<(int X, int Y)> gears, IReadOnlyList<(int X, int Y)> levers, int lever) =>
+        SwitchedRails(gears, levers, lever);
+
     /// <summary>A trial room's server spawners (points of its room file, with no .ot to tell what they spawn) and the
     /// monster each places, rare: the Lower Prison trial's PrisonPoacherSpawner, on the plaque's platform, a Brittle
     /// Poacher (live 2026-10-31, the original: a rare skeleton archer beside the platform's pack); the Crypt trial's
     /// CryptFrostPriestSpawner, by the plaque, a Frost Priest (its name; live 2026-11-01, the original: rare skeletons
-    /// there).</summary>
+    /// there); the Crematorium trial's CremPyroSpawner, by the plaque, a Cinder Elemental (live 2026-11-01, the original:
+    /// a rare pack of what looked like stone golems there; the area's burning rock monster). Its four
+    /// <c>Metadata/Monsters/LavaTrap/LabyrinthElementalSpawner</c> points are monsters themselves, the Immolators that
+    /// bring Ember Claimants (MonsterAttack.Summon).</summary>
     public static readonly IReadOnlyDictionary<string, string> Spawners = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["Metadata/QuestObjects/Labyrinth/PrisonPoacherSpawner"] = "Metadata/Monsters/Skeletons/SkeletonBowLightning",
         ["Metadata/QuestObjects/Labyrinth/CryptFrostPriestSpawner"] = "Metadata/Monsters/Skeletons/SkeletonCasterCold4",
+        ["Metadata/QuestObjects/Labyrinth/CremPyroSpawner"] = "Metadata/Monsters/MossMonster/FireMonster",
     };
 
     /// <summary>Pack points a trial room has in the original that its room file lacks (room cells, as the file's points;
@@ -395,12 +460,16 @@ static class LabyrinthTrials
     /// upper lever room's cage, where the way comes down the one-lane track (live 2026-11-01, the original: two packs
     /// there; the area's scattered packs keep <see cref="TrapClearance"/> from its tracks, so none came); the Crypt
     /// trial's pack just past its door and a second in the plaque room (live 2026-11-01, the original: skeletons and
-    /// spiders at the way in, spider packs beside the rare skeletons by the plaque).</summary>
+    /// spiders at the way in, spider packs beside the rare skeletons by the plaque); the Crematorium trial's pack in the
+    /// first room, before its first Locked Door, and one past its second (live 2026-11-01, the original: skeletons at the
+    /// way in, monsters in the rooms past the second door; none among the hall's plates), on open floor clear of the
+    /// plates.</summary>
     public static readonly IReadOnlyDictionary<string, AreaPopulation.RoomPoint[]> RoomPacks =
         new Dictionary<string, AreaPopulation.RoomPoint[]>(StringComparer.OrdinalIgnoreCase)
         {
             ["Metadata/Terrain/Labyrinth/RoomSets/RuinedTemple/Rooms/Unique/intro.arm"] = [new("normal", 67, 260), new("normal", 62, 293)],
             ["Metadata/Terrain/Labyrinth/RoomSets/Crypt/Rooms/Unique/crypt_intro.arm"] = [new("normal", 95, 338), new("normal", 120, 75)],
+            ["Metadata/Terrain/Labyrinth/RoomSets/Prison/Rooms/Unique/crematorium_intro.arm"] = [new("normal", 60, 206), new("normal", 163, 111)],
         };
 
     /// <summary>How far from a trial's traps (the rails its roombas run on among them) the area's scattered packs keep
@@ -547,7 +616,7 @@ static class LabyrinthTrials
         foreach (var buff in table.RootElement.EnumerateArray())
         {
             if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage"
-                    or "flying_roomba_damage" or "sawblade_damage")) rows.TryAdd(id, (ushort)row);
+                    or "flying_roomba_damage" or "sawblade_damage" or "labyrinth_lava_aura")) rows.TryAdd(id, (ushort)row);
             row++;
         }
         return rows;
@@ -727,6 +796,11 @@ static class LabyrinthTrials
         [OpenDoor] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [Plaque] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "MinimapIcon", "InteractionAction"],
         [Portal] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "MinimapIcon"],
+        [Gears] = ["Positioned", "BaseEvents", "Animated", "Transitionable"],
+        [Lava] = ["Positioned", "Animated", "BaseEvents", "Transitionable", "Buffs"],
+        [Lava3x3] = ["Positioned", "Animated", "BaseEvents", "Transitionable", "Buffs"],
+        [Lava1x3] = ["Positioned", "Animated", "BaseEvents", "Transitionable", "Buffs"],
+        [InertLava] = ["Positioned", "Animated", "BaseEvents", "Transitionable"],
     };
 
     /// <summary>Transitionable states: 1 runs create_untransitioned (closed, unpulled, dark), 2 the transition (num_states 2).
@@ -780,8 +854,11 @@ static class LabyrinthTrials
     }
 
     /// <summary>A trial object's 0x2b9 blob: its type's components (<see cref="Components"/>) with the room line's model,
-    /// angle and scale. TriggerableBlockage (0x141e44290) is blocked with no sections while closed.</summary>
-    public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state)
+    /// angle, scale and fixed height (world z, down: the Crematorium's hot plates 125 below the floor's grates, which
+    /// they glow through; on the terrain they stood above it). Only the plates are sent theirs: the doors and levers,
+    /// checked live on the terrain, keep standing on it. TriggerableBlockage (0x141e44290) is blocked with no
+    /// sections while closed.</summary>
+    public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
         foreach (string c in Components[type])
@@ -791,10 +868,13 @@ static class LabyrinthTrials
                 // also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d88690)
                 // stamps its Hull whatever its TriggerableBlockage says and an opened door stays closed to walking, and
                 // 0x08 with 1 (+0x1e6 bit 0x40: blocks no walker), so only the blockage closes its cells.
+                // f0 0x04: the fixed height, i32 whole steps of 7.8125 and the f32 z the client uses (as an area
+                // transition's record height).
                 case "Positioned":
                     bool scaled = scale != 1, blockage = Components[type].Contains("TriggerableBlockage");
-                    w.I32(x).I32(y).F32(angle).U16(0).U8((byte)(scaled ? 0x20 : 0)).U8((byte)(blockage ? 0x2a : 0x02));
+                    w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
                     if (scaled) w.F32(scale).F32(1).F32(1);
+                    if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
                     w.U8(0).U8(1);
                     if (blockage) w.U8(1);
                     break;
@@ -803,6 +883,7 @@ static class LabyrinthTrials
                 case "Transitionable": w.U8(state); break;
                 case "TriggerableBlockage": if (Blocks(type, state)) w.U8(1).U8(0); else w.U8(0); break;
                 case "MinimapIcon": w.U8(0); break;
+                case "Buffs": w.U16(0); break;
             }
         return w.U8(0).ToArray();   // tasks
     }

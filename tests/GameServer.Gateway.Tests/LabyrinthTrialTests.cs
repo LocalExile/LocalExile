@@ -25,6 +25,23 @@ public sealed class LabyrinthTrialTests
 
         // 0x1c6: id, world header, u8 0 (unblocked: no sections follow).
         Assert.Equal(new byte[] { 0x01, 0xc6, 0, 0, 0x30, 0x05, 0, 0, 0, 0, 0, 0, 0 }, InstanceEntities.BlockageUpdate(0x3005, false));
+
+        // The Crematorium's hot plate: Positioned (f0 0x04: its fixed height, 125 below, after flags1; 26), Animated,
+        // Transitionable, Buffs (u16 count), tasks. A 1x3 lies three tiles along its angle.
+        const string plate = "Metadata/Terrain/Doodads/Traps/hotplate1_3.ao";
+        byte[] lava = LabyrinthTrials.Blob(LabyrinthTrials.Lava1x3, plate, 57, 103, 0, 1, LabyrinthTrials.Open, 125);
+        Assert.Equal(new byte[] { 0x04, 0x02, 16, 0, 0, 0 }, lava[16..22]);
+        Assert.Equal(125f, BitConverter.ToSingle(lava, 22));
+        Assert.Equal(new byte[] { LabyrinthTrials.Open, 0, 0, 0 }, lava[(2 + 26 + 1 + 4 + plate.Length * 2)..]);
+        Assert.Equal(3, LabyrinthTrials.TransitionableIndex(LabyrinthTrials.Lava1x3));
+        Assert.True(LabyrinthTrials.OnPlate(LabyrinthTrials.Lava1x3, 57, 103, 0, (90, 110)));
+        Assert.False(LabyrinthTrials.OnPlate(LabyrinthTrials.Lava1x3, 57, 103, 0, (57, 120)));
+        Assert.True(LabyrinthTrials.OnPlate(LabyrinthTrials.Lava1x3, 57, 103, MathF.PI / 2, (60, 136)));
+        // Its levers' gears (crematorium_intro.arm, seed 1's cells): each turns the ones beside it (live 2026-11-01).
+        (int, int)[] gears = [(788, 208), (717, 274), (717, 300), (832, 186), (832, 158)], levers = [(826, 171), (711, 286), (781, 181)];
+        Assert.Equal([3, 4], LabyrinthTrials.TurnedGears(gears, levers, 0));
+        Assert.Equal([1, 2], LabyrinthTrials.TurnedGears(gears, levers, 1));
+        Assert.Equal([0], LabyrinthTrials.TurnedGears(gears, levers, 2));
     }
 
     [Fact]
