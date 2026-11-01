@@ -868,7 +868,11 @@ and can require explicit recipes.
   direct-native binding with the original wrapper constructor/getter/setter/notifier, across 124 Life/ES loss steps.
   Explicit final rates, including zero, win over native records. Network raw-key overrides preserve the supplied
   native cache/queue; ordinary actor eligibility, full subscribers and actual source publication remain open.
-  Actual instance publication, ordinary actor eligibility and shared-cap reachability remain open.
+  [Actual context eligibility](../docs/re/client-native-context-eligibility.md) reproduces all 23,346 metadata masks:
+  the bare root permits classes 1/2, while Stats type configuration adds class 0, including Object.
+  Its native root is the separate owner network wrapper's upstream. First-materialization mask slices activate
+  Object for supplied incoming keys; 103 of 105 selected outputs require it. Full record creation, ordinary Actor
+  execution, actual instance publication and shared-cap reachability remain open.
   Native final ailment-duration formulas reciprocate faster factors, separately from expiration-speed clocks.
   [Six complete duration modifier equations](../docs/re/client-ailment-duration-inputs.md) preserve shared bow/focus/retaliation/recency gates,
   ignite bearer/tincture terms, bleed divide-before-multiply, poison's inclusive 150-Int test and upper-only bonus cap.

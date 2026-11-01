@@ -52443,7 +52443,8 @@
         }
       ],
       "sourceBatches": [
-        "type-upstream-v2"
+        "type-upstream-v2",
+        "r68-real-context-masks"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -52618,7 +52619,8 @@
       "sourceBatches": [
         "stat-evaluation-dispatch",
         "stat-update-evaluation",
-        "type-raw-construction"
+        "type-raw-construction",
+        "r68-real-context-masks"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -56647,7 +56649,8 @@
         }
       ],
       "sourceBatches": [
-        "type-upstream-v2"
+        "type-upstream-v2",
+        "r68-real-context-masks"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -57226,7 +57229,8 @@
         "r15-firewall-clock-final",
         "r3-contact-entropy-lifecycle",
         "r30-initial-stats-rate",
-        "source-and-authority"
+        "source-and-authority",
+        "r68-real-context-masks"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58202,7 +58206,8 @@
         "r35-contribution-callers",
         "stat-evaluation-dispatch",
         "stat-update-evaluation",
-        "type-getter-binding"
+        "type-getter-binding",
+        "r68-real-context-masks"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -58290,7 +58295,8 @@
         "r2-native-source-tokens",
         "r35-contribution-callers",
         "stat-evaluation-dispatch",
-        "stat-update-evaluation"
+        "stat-update-evaluation",
+        "r68-real-context-masks"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -72200,7 +72206,8 @@
         "r42-dot-native-composition",
         "r43-dot-original-old-value",
         "r45-native-pool-composition",
-        "r51-bleeding-policy"
+        "r51-bleeding-policy",
+        "r68-real-context-masks"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -76216,6 +76223,11 @@
       "name": "r67-network-native-pool",
       "auditSha256": "eed2af69ca5ad7c8ce246188703d2b7c0d2b744b9fa16377243409c88a79771a",
       "functionCount": 6
+    },
+    {
+      "name": "r68-real-context-masks",
+      "auditSha256": "bf831052490fb6ce1ec2eee4e0a690c061d4f90f84941c05a8c7ceace0e7d11b",
+      "functionCount": 7
     }
   ],
   "pointerSlots": [
@@ -78601,6 +78613,30 @@
       "fileOffset": 56250888,
       "sha256": "cc920570b00d55f60cb1dbeaafec19173a8a7b30fe63279909c015646ee161e5",
       "role": "Actual Life minimum-threshold callback; transitive script/event consequences not interpreted"
+    },
+    {
+      "table": "0x14359fd78",
+      "offset": "0x38",
+      "target": "0x141e406e0",
+      "fileOffset": 56226224,
+      "sha256": "1cdc7e64283c88dde5a050fb2e75566bc82e173f78be217808e31bc8fec2bfac",
+      "role": "Stats type-configuration parser / client network-wrapper constructor"
+    },
+    {
+      "table": "0x1435dd458",
+      "offset": "0x38",
+      "target": "0x141e406e0",
+      "fileOffset": 56477840,
+      "sha256": "1cdc7e64283c88dde5a050fb2e75566bc82e173f78be217808e31bc8fec2bfac",
+      "role": "Stats type-configuration parser / client network-wrapper constructor"
+    },
+    {
+      "table": "0x1435dd458",
+      "offset": "0x8",
+      "target": "0x1421c2ad0",
+      "fileOffset": 56477792,
+      "sha256": "de98d1144cf31eb4e659e0ccc32380041ee728be2d7aa537346d8e2182fcd68a",
+      "role": "Stats type-configuration parser / client network-wrapper constructor"
     }
   ],
   "scanCoverage": {
@@ -78653,7 +78689,7 @@
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R67 freshly rechecked 4078 retained identities / 5086 original-byte ranges / 298 pointer slots, preserving 1154 sealed public supports and 147 prior snapshot records. Original network-wrapper constructor/getter/setter/notifier compose with native DoT records and Life/ES loss: 17 composition cases, 124 pool steps, ten sequential atomic controls, 1567280 interpreted instructions / 6893 sites. Six reused identities / ten ranges / 301 decoded records, 14 anchors and four virtual slots checked. Explicit zero suppresses native fallback; network raw updates preserve native cache/queue in the selected subscriber set. Actual source aggregation/publication, ordinary native eligibility, shared-cap reachability/withdrawal and concrete numerical Hit remain open; R2/R3/R4 Partial."
+    "additionalFreshValidation": "R68 freshly rechecked 4078 retained identities / 5086 original-byte ranges / 301 pointer slots, preserving 1163 sealed public supports and 162 prior snapshot records. Original metadata loops reproduce 23346 actual masks using 40 context rows, 2539 registered callbacks and 20384 dependency entries. Bare native root permits classes 1/2; Stats type configuration adds class 0 and is the separate network wrapper upstream. 18 first-materialization/zero-add controls and 105-output incoming graph use actual masks: 2565173 interpreted instructions / 6249 original sites. Seven reused function records / seven ranges / 1183 decoded records, 22 anchors, five RIP targets, three added slots and retained finite navigation checked. Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
   },
   "supportingRecords": [
     {
@@ -85588,6 +85624,120 @@
       "bytes": 10120,
       "sha256": "4d473e9bfb840f7666e5e8e353fcc57399a500f15a40581d751b8cae134c2b1d",
       "role": "R67 real network-wrapper construction, override/fallback and original native DoT-to-Life/ES integration for supplied states; explicit zero, raw-cache isolation, separate stores and sequential ownership arithmetic. No actual source publication or full-actor execution claim."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks.py",
+      "bytes": 11666,
+      "sha256": "489ae9f50c1f41731477e36f35d00b21c24b964fd6e0b1ba956829e9dfa25092",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks-verify.py",
+      "bytes": 7581,
+      "sha256": "8674f7e69537c513120a7fc1c11dc3ab383d985b985bacee1c06e92998788153",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-publish-prepare.py",
+      "bytes": 5055,
+      "sha256": "cff45d3807970a44d8aae2e9391d2b65efa07e984d7acd1593ef3f70de019fde",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/0x141e24a20.asm",
+      "bytes": 1196,
+      "sha256": "972460c180b0813e07d5722c1cae8782e7a4b24549b913d381e37cc738c72b03",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/0x141e40560.asm",
+      "bytes": 1175,
+      "sha256": "a646adb9f3012880ead0920bdf9070769c235325e9b4fd3a0ed78cb464a5a158",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/0x141e496c0.asm",
+      "bytes": 3035,
+      "sha256": "7f3372f6568806caa7767a1d0e3f1c0ee2bdb9d29c4d1b6328e788ba7f71f06e",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/0x142182790.asm",
+      "bytes": 1294,
+      "sha256": "e5255adc18d5ee75329f95d63c72b0f251a156694c3e7860f56443fdb16876fd",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/0x1424fb790.asm",
+      "bytes": 6824,
+      "sha256": "ed63d8fa3dcecb595c3ecbf911581dd2d5f01dc568253ff844a964a2117aa37d",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/0x1424fc480.asm",
+      "bytes": 6210,
+      "sha256": "f26050c40bb39256b8e94aab6954e6dd0d07b8dfd6198ed6d00eba76ffa87aaa",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/0x1428e68b0.asm",
+      "bytes": 18685,
+      "sha256": "7366a24c37d044ea19c28787dbddf2fcdd871751d4fb32c51c64f40e8630d944",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/audit.json",
+      "bytes": 168086,
+      "sha256": "bf831052490fb6ce1ec2eee4e0a690c061d4f90f84941c05a8c7ceace0e7d11b",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/byte-verification.json",
+      "bytes": 2498,
+      "sha256": "9e1b07425b9bd2ba716bb49130cb1d08be1ec5563735da95e142ddb7e5a59e4d",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/findings.md",
+      "bytes": 11057,
+      "sha256": "61edd2c60fd4e305b678d2bf4e6e7d6580fbe03ceda237cc024e5965b00ddf88",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/mask-write-navigation.json",
+      "bytes": 54026,
+      "sha256": "a82e588237cb484a37b23149512fc66f450ae22ce2106f8f99fb0d11a6a72101",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/masks.json",
+      "bytes": 5095298,
+      "sha256": "9429fad6bfcbfa6d129bede0ab079ac2183f56b5cdc9f3216eee97323063d1fe",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/publication.json",
+      "bytes": 870,
+      "sha256": "fadda45dd7c690e5588274db02bd14014dbf9dfb0e2611a37fb523950bfa7983",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/stats-config-constructor-refs.json",
+      "bytes": 307,
+      "sha256": "f57c53cdf459003642e18690179e20bc1b87bd628e26e78d059246eb45b358f6",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/verification.json",
+      "bytes": 132381,
+      "sha256": "41b981dea16f1d14146ae9edd03c682bbcb5e274389fc6a40714433c378921ab",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/visited-instructions.json",
+      "bytes": 1153169,
+      "sha256": "5b10c198a3bcb890148544e129d2604b12c90f64552e7e2cc7227adc059427f6",
+      "role": "R68 actual context eligibility and Stats type/native upstream; Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
     }
   ],
   "auxiliaryDataTables": [
@@ -86657,5 +86807,15 @@
     "interpretedInstructions": 1567280,
     "visitedSites": 6893,
     "limitation": "Constructed-wrapper/native-record/resource composition for supplied states; actual source publication, ordinary eligibility, shared cap/withdrawal, numerical Hit deduction and original R2/R3/R4 remain open/Partial."
+  },
+  "nativeContextEligibilityVerification": {
+    "path": "Tools/re/out/client-damage-audit/r68-real-context-masks/byte-verification.json",
+    "sha256": "9e1b07425b9bd2ba716bb49130cb1d08be1ec5563735da95e142ddb7e5a59e4d",
+    "controlsPath": "Tools/re/out/client-damage-audit/r68-real-context-masks/verification.json",
+    "controlsSha256": "41b981dea16f1d14146ae9edd03c682bbcb5e274389fc6a40714433c378921ab",
+    "statRows": 23346,
+    "interpretedInstructions": 2565173,
+    "visitedSites": 6249,
+    "limitation": "Actual metadata masks and type-configuration/first-materialization slices; supplied native records/cache/initial queue. Full raw-record creation, ordinary Actor execution, actual source selection/aggregation/publication/shared cap/withdrawal, numerical Hit deduction and generic Buff refresh remain open; R2/R3/R4 Partial."
   }
 }

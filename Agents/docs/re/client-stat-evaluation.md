@@ -253,6 +253,13 @@ These are native formula-context categories. A named AttackHit/FireDot row does 
 establish a concrete hit roll, source instance, resource deduction, or native recomputation by a
 network wrapper. Those execution/data-flow questions retain their separate completion criteria.
 
+[Actual mask and type-configuration controls](client-native-context-eligibility.md) now reproduce all
+23,346 rows using the original loops. The bare root permits classes 1/2; the Stats type configuration
+adds class 0, making all 40 context bits permissible without activating them. Its native root is passed
+as upstream to the separate owner network wrapper. A supplied first-materialization slice can activate
+Object for incoming fire/ignite/poison keys; 103 of the selected 105 incoming outputs require Object.
+Full raw-record creation, ordinary Actor execution and actual damage-instance publication remain open.
+
 ## 4. A concrete native skill-data producer
 
 `0x141ee9090 → 0x141ee8ef0` is a verified native contribution producer: it actually calls
