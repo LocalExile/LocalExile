@@ -14,9 +14,12 @@ update; freeze that choice in Q0 before new investigation. Reuse projectile
 research for any contact boundary rather than reopening motion or RNG internals.
 Do not catalogue every monster, damage formula or defence.
 
-This is a Draft research plan under issue #370. Q0-Q3 are pending; creating this
-workbench establishes no new runtime observation, per-hit attribution or official
-server algorithm. No new goal or runtime experiment is started by this bootstrap.
+This is active Draft research under issue #370 and PR #478.
+Q0 has a bounded evidence-availability audit; the single-hit witness and client
+mode remain unverified, so Q0 is Partial and Q1-Q3 remain Pending.
+See the [evidence ledger](client-hit-authority-evidence.md) for the historical
+capture candidate, public sniffer investigation and exact remaining inputs.
+No new runtime observation, per-hit attribution or official server algorithm is claimed.
 
 ## Fixed inputs to reuse
 
@@ -57,9 +60,9 @@ Its unresolved consumers do not block or become the subject of this batch.
 
 ## Work gates
 
-| Gate | Deliverable and acceptance | Initial state |
+| Gate | Deliverable and acceptance | Current state |
 |---|---|---|
-| Q0: evidence and witness | Freeze one scenario and client mode; inventory relevant records by exact revision/hash, availability and provenance; identify the smallest missing observation | Pending |
+| Q0: evidence and witness | Freeze one scenario and client mode; inventory relevant records by exact revision/hash, availability and provenance; identify the smallest missing observation | Partial: sources inventoried; witness/mode open |
 | Q1: responsibilities and data | Bind required messages/fields, action/entity identity and receiver/state-write paths; distinguish prediction, report, feedback/control and resource authority | Pending |
 | Q2: minimal authority contract | One evidence-annotated sequence/state diagram and field/obligation table sufficient to describe the selected server interaction; establish mandatory associations and application conditions | Pending |
 | Q3: delivery audit | Separate established obligations, inference and Known issues; preserve source identities and old findings, update related docs/#370, verify current main/exact head and appropriate checks before Ready | Pending |
