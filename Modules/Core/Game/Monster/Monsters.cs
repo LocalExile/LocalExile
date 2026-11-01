@@ -286,11 +286,12 @@ static partial class Game
                     plan.Moves.Add((id, m, ++m.ActionGeneration, m.Walk.Order(mx, my, now), (mx, my), "gives up"));
                     continue;
                 }
-                // Frozen: it stands where it is and does nothing until the freeze ends.
+                // Frozen: it stands where it is and does nothing until the freeze ends. A chase order stays open on the client
+                // even when the estimate has stopped: the action goes on after the player until something replaces it.
                 double action = MonsterActionFactor(m, now);
                 if (action == 0)
                 {
-                    if (now < m.Walk.ArrivesAt) plan.Moves.Add((id, m, ++m.ActionGeneration, m.Walk.Order(mx, my, now), (mx, my), "is frozen"));
+                    if (now < m.Walk.ArrivesAt || m.LastTarget is not null) plan.Moves.Add((id, m, ++m.ActionGeneration, m.Walk.Order(mx, my, now), (mx, my), "is frozen"));
                     m.LastTarget = null;
                     continue;
                 }

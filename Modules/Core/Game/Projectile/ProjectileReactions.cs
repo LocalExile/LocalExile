@@ -85,6 +85,7 @@ static partial class Game
         bool playerKill = true)
     {
         var conn = session.Conn;
+        StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;

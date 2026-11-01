@@ -45,7 +45,7 @@ public sealed class PlayerWalk
     public double Speed => _speed;
 
     /// <summary>Changes the walking speed. As in the client, the segment in progress starts again from the walker's cell
-    /// at the new pace, at once, and the following segments are set up at the new speed.</summary>
+    /// at the new pace, at once (a held walk when its hold ends), and the following segments are set up at the new speed.</summary>
     public void SetSpeed(double speed, double now)
     {
         if (speed <= 0) throw new ArgumentOutOfRangeException(nameof(speed));
@@ -53,9 +53,11 @@ public sealed class PlayerWalk
         var here = At(now, out double fraction);
         int i = _segments.FindIndex(s => now < s.End);
         if (i < 0) return;
-        var end = _segments[i].Cells[^1];
+        var left = _segments[i];
+        var end = left.Cells[^1];
         float step = StepTime(here, end);
-        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], now - fraction * step, step) };
+        double start = now < left.T0 ? left.T0 : now - fraction * step;
+        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
         foreach (var next in _segments.Skip(i + 1))
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
         _segments = walk;
@@ -92,7 +94,7 @@ public sealed class PlayerWalk
     }
 
     /// <summary>Holds the walker where it is for <paramref name="seconds"/>; then the walk goes on, as the client's does
-    /// after a hit's recovery.</summary>
+    /// after a hit's recovery. A hold already running that lasts longer keeps its end.</summary>
     public void Pause(double now, double seconds)
     {
         var here = At(now, out double fraction);
@@ -100,7 +102,7 @@ public sealed class PlayerWalk
         if (i < 0) return;
         var left = _segments[i];
         int done = Math.Max(0, (int)((now - left.T0) / left.Step));
-        var walk = new List<Segment> { new(here, left.Cells[done..], now + seconds - fraction * left.Step, left.Step) };
+        var walk = new List<Segment> { new(here, left.Cells[done..], Math.Max(left.T0, now + seconds - fraction * left.Step), left.Step) };
         foreach (var next in _segments.Skip(i + 1)) walk.Add(next with { T0 = walk[^1].End });
         _segments = walk;
     }

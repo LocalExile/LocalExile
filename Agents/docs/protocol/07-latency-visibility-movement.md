@@ -240,7 +240,8 @@ of its own length (`ShowFreeze`).
 does). A target past the walkable ground ends where the line to it does. Aimed at a monster it lands on the monster, by
 the 0x24 path. Whirling Blades and Dash do not stop at the target: they travel 40 and 33 cells along the aimed line and
 stop at the first cell they cannot walk (no stat carries either number). The client can still refuse a skill the server
-has landed (a Lightning Warp often), so a resync follows at the end of the action. Leap Slam, Flame Dash, Lightning Warp,
+has landed (a Lightning Warp often), so a resync follows at the end of the action, and the once-a-second one waits for
+it: until then the server has the player landed and the client has it on its way. Leap Slam, Flame Dash, Lightning Warp,
 Whirling Blades and Dash were checked live; the player's p90 is under 3 cells after landing, with a brief spike while the
 client travels, since the server lands at once.
 

@@ -13,7 +13,6 @@ static partial class Game
     const double KeepInSyncSeconds = 1;
     const int KeepInSyncRadius = 171;   // the wake zone GGG keeps (0x1a9 and 0x1aa, captures)
 
-    // S→C 0x128 with the player first, then the monsters around it, where the server has them. Called under conn.Monsters.
     internal static async Task KeepInSync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -27,6 +26,7 @@ static partial class Game
         });
     }
 
+    // S→C 0x128 with the player first, then the monsters around it, where the server has them. Called under conn.Monsters.
     internal static byte[] ResyncPacketLocked(ClientState conn, double now, int radius = ResyncRadius)
     {
         var player = conn.Walk.Position(now);
@@ -50,7 +50,8 @@ static partial class Game
     /// set distance goes on past the target and stops at the first cell it cannot walk.</summary>
     internal static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim)
     {
-        if (conn.Layout.Walkable is not { } walkable) return aim;
+        if (conn.Layout.Walkable is not { } floor) return aim;
+        bool walkable(int x, int y) => floor(x, y) && !conn.Barrier.Contains((x, y));
         if (TravelCells(SkillsFor(conn).EffectId(effect)) is > 0 and var cells && aim != from)
         {
             double f = cells / Math.Sqrt((double)(aim.X - from.X) * (aim.X - from.X) + (double)(aim.Y - from.Y) * (aim.Y - from.Y));
@@ -68,14 +69,27 @@ static partial class Game
         return from;
     }
 
-    /// <summary>How long after a movement spell the resync goes out.</summary>
-    internal const double MovementResyncSeconds = .5;
+    /// <summary>The least time after a movement spell before the resync goes out.</summary>
+    const double MovementResyncSeconds = .5;
 
-    internal static void ResyncAfter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double seconds, string why) =>
+    /// <summary>How long a movement skill's action lasts on the client: its attack time, or its cast time.</summary>
+    internal static double MovementSeconds(ClientState conn, int effect, int level) =>
+        SkillsFor(conn).IsAttack(effect) ? SkillAttackSeconds(conn, effect, level)
+            : Math.Max(MovementResyncSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / PlayerActionFactor(conn));
+
+    // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.
+    internal static void ResyncAfter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double seconds, string why)
+    {
+        conn.NextKeepInSyncAt = Math.Max(conn.NextKeepInSyncAt, conn.Clock.Elapsed.TotalSeconds + seconds);
+        SendAfter(seconds, () => SendResync(remote, stream, ciphers, conn, why));
+    }
+
+    // Something to send later, on its own: the connection may be gone by then.
+    internal static void SendAfter(double seconds, Func<Task> send) =>
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(seconds));
-            try { await SendResync(remote, stream, ciphers, conn, why); }
+            try { await send(); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });
 

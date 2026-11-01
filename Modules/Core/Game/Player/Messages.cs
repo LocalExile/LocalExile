@@ -121,8 +121,7 @@ static partial class Game
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
-                double attackSeconds = 0;
-                if (attack && !AttackReady(conn, gem.Effect, gem.Level, out attackSeconds))
+                if (attack && !AttackReady(conn, gem.Effect, gem.Level, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
@@ -177,7 +176,7 @@ static partial class Game
                 // The server lands a movement skill at once, and the client can refuse it or take its time (a Lightning Warp
                 // often does neither, live 2026-11-01): the resync settles which, once the action is over.
                 if (cast && gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect))
-                    ResyncAfter(remote, stream, ciphers, conn, attack ? attackSeconds : MovementResyncSeconds, gem.Name);
+                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
                 if (mode == "teleport")
