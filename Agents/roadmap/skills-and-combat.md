@@ -310,8 +310,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 - **Client damage research:** PR #371's [first baseline](../docs/re/client-damage-baseline.md)
   now documents both selected receiving paths with [audited evidence](../docs/re/client-damage-delivery-audit.md).
-  Finish exact-head publication/Ready verification in the [delivery gates](../docs/re/client-damage-delivery.md),
-  then stop; later research needs a separately scoped batch.
+  The [first-delivery gates](../docs/re/client-damage-delivery.md) pass; stop after the matching head becomes Ready.
+  Later research needs a separately scoped batch rather than extending this PR.
   The broader questions below are parked follow-ups, not parallel tasks or additional readiness gates.
   Original R2/R3/R4 remain Partial; do not expand research to make every row Established in this PR.
   Network Actor/skill input freshness and the distinct native transaction/startup boundary are established.

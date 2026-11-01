@@ -1311,7 +1311,7 @@ and can require explicit recipes.
 - **Client damage research (static, partial).** PR #371's [first baseline](../docs/re/client-damage-baseline.md)
   explains received DoT rate-to-Life and one Fireball result/resource path with diagrams and audited examples.
   [Delivery acceptance](../docs/re/client-damage-delivery-audit.md) checks the evidence and review package.
-  Final published-head readiness is tracked in the [delivery gates](../docs/re/client-damage-delivery.md).
+  The [first-delivery gates](../docs/re/client-damage-delivery.md) pass; the PR records its validated published head.
   This first delivery does not promote original R2/R3/R4 or establish final numerical Hit resolution.
   The client integrates per-minute continuous resource rates.
   [Mod-derived Buff descriptors](../docs/re/client-mod-buff-descriptors.md) now connect seven actual rate-bearing
