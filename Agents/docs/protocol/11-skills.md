@@ -107,6 +107,42 @@ ActionType → `HASH16`); the default attack's is `Melee` 45448 = 0xb188.
 **Skill ids** are the server's choice, but they share the manager with the basic actions, whose ids are `HASH16 &
 0x3fff`. 0x0101 collided with a Monster.ot basic action (monsters showed a skill 0x101 / 0x4101). The Gateway uses
 **0x0102**, which no ActionType masks to in 3.29.3b (`SkillCatalog.FirstSkillId`).
+Granted-skill construction `0x141ee7439`, insertion `0x142198280/0x1421982b1` and action lookup
+`0x141ee9850/0x141ee987e` preserve and compare the full u16 ID, as do the checked S2C 0x1ab/0x1b4 paths.
+The basic-action mask is not a general rule for network-granted skills.
+The external official-server report's `0x4000/0x8002` IDs are a comparison input, not proof of an emission gate;
+their high-bit allocation convention has not been reconstructed.
+
+### 3.1 S2C 0x1b4: update one skill's stat set
+
+Static 3.29.3b evidence: class `0x1435c21c0`, reader `0x141fdeb10`, writer `0x141fdea50`.
+After the common object/action header (`0x141f92000`), the reader consumes:
+
+```text
+u16 BE skill id                      → packet +0x20
+u8 stat-set selector                 → packet +0x22
+unsigned compact pair count
+pair count × (unsigned compact stat key, signed compact stat value)
+                                     → packet +0x28/+0x30, eight bytes per decoded pair
+```
+
+Actor dispatcher case `0x142194482` binary-searches the full u16 skill ID against the registered skills' `+0x40`.
+Selector 0 uses that skill's primary network-stat object at `+0xf8`.
+Selector `n>0` uses additional stat-set entry `n-1` in the `+0x108/+0x110` vector, after a bounds check.
+At `0x142194640..0x142194659`, each decoded pair calls `0x1424cfaf0(stats, key, value)`:
+the low DWORD is the key, the high DWORD is its value.
+This is the same raw network-stat setter used elsewhere, not a position/path insertion.
+The handler compares values for `0x190c/0x4806` and nonzero states for `0x2532/0x2644` before/after.
+It conditionally calls `0x141eeb550` on the skill manager, then continues its notifications.
+The [selected action-stat getter](../re/projectiles/actions-and-emission.md#61-selected-stat-views-and-cached-values-have-different-lifetimes)
+uses skill `+0x138` for its primary fallback, initially aliased to the updated `+0xf8` object by skill construction.
+Overrides and explicit action caches prevent treating this as an unconditional update of every in-flight outcome.
+Later slot replacement and complete invalidation remain unresolved.
+
+[PR 373's official-server report](../re/projectiles/external-ranged-evidence.md) observed this message carrying
+skill IDs and integer pairs and tentatively called it a possible path.
+The receiver establishes a skill-stat update instead; the private payload values have not been reviewed here.
+Include these updates when reconstructing effective release inputs, without assuming they explain the first missing arrow.
 
 ## 4. The default attack
 
@@ -444,6 +480,9 @@ rounded per item before the character-wide modifiers and conversion.
 The saved Armour component roll selects a rounded base from the item's native minimum/maximum range before local mods.
 All three defences share that roll; legacy items without it retain minimum bases.
 See [13](13-items.md), Base defences, for the formula and stat sources.
+`damage_reduction_rating_from_body_armour_doubled` is PoB's `Armour MORE 100` for the Body Armour slot: the body
+armour's local armour after the Ward conversion counts twice, and so does its evasion under Iron Reflexes.
+The client's own `physical_damage_reduction_rating` calculator (`0x142731060`) applies the same `(1 + flag)` factor.
 The final `physical_damage_reduction_rating` and `evasion_rating` (with their `_+%`) go to the client. Armour uses
 PoB's `armour / (armour + damage × 5) × 100`, rounded and capped at 90% (`DamageModel.ArmourReduction`); evasion uses
 the same hit-chance formula as accuracy, so the chance to evade is `100 - AccuracyHitChance(evasion, attacker accuracy)`
@@ -477,25 +516,30 @@ rate separately from the player's increased/more speed: Burning Arrow -30%, Heav
 The level-aware catalog accessor follows the same selected-level rule as other GEPL values.
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/1afbc4cdcc4fe83273ce8e06a51c5cf986999250/src/Modules/CalcOffence.lua#L2299)
 multiplies `source.AttackRate` by `1 + attackSpeedMultiplier / 100` before ordinary speed modifiers.
-For the supported ordinary weapon-based path, `SkillAttackTiming` sends total base weapon ms as
-`round(weapon base ms / (1 + inherent percent / 100))`, midpoint away from zero, with a minimum of one ms.
-It retains the original weapon base ms (0x142/0x143) and final player speed percent (0x126/0x127).
-The native total base fields (0x221a/0x221b) are integer ms, so the server uses that same rounded base, then player
-speed, then its existing 30 Hz attack-duration floor; rounding the base changes the uncapped time by at most
-0.5 ms divided by the player-speed factor.
-Native action code `0x141c06c2a..0x141c06c8e` reads 0x221a and divides by 1000 and `1 + stat(0x126) / 100`.
-The explicit 0x221a getter (`0x142706568..0x14270658f`) returns the stored value without another GEPL multiplier.
-Gem pacing, attack contact/projectile release and channel intervals share that duration; selected APS is `100 / seconds`.
+For the supported ordinary weapon-based path, the server's own attack time (`SkillAttackTiming.Seconds`) uses
+`round(weapon base ms / (1 + inherent percent / 100))`, midpoint away from zero, with a minimum of one ms, then player
+speed, then its existing 30 Hz attack-duration floor.
+The client applies the inherent speed itself, so the total base fields (0x221a/0x221b) stay the weapon's base ms and only
+selected APS (`100 / seconds`) carries the multiplier. Frida 2026-10-31 at the clip's speed setup (`0x141b0a9b0`), Witch
+with a 714 ms bow: Burning Arrow with 0x221a 1020 played for 1.457 s; with 714 it plays for 1.02 s, and Tornado Shot for
+0.892 s. The ordinary attack stays 0.714 s. Dual wield and melee attack gems were not traced.
+Gem pacing, attack contact/projectile release and channel intervals share the server's duration.
 Ordinary attacks and non-attack skills retain their previous paths.
-Native baseline before this fix: a 714 ms bow had stored speed 0%, base/total base 714 ms and APS 140 for both
-ordinary attacks and Burning Arrow, with actual native clip duration 0.714 seconds in each case.
-After the fix, actual native input verified Burning Arrow total base 1020 ms, clip duration 1.019999959 seconds
-and stored APS 98; its original base stayed 714 ms and player speed stayed 0%.
-The ordinary bow attack retained total base 714 ms, clip duration 0.7140000038 seconds and stored APS 140.
-These checks verify native duration and stored APS, not a separate measurement of release/contact timing.
-Local before/after captures are `logs/skill-timing-{before,after}-default-bow-real.json` and
-`logs/skill-timing-{before,after}-burning-arrow-real.json` in the integration checkout.
-Catalog, native-field, modifier-order, pacing/contact and spell-exclusion tests pass.
+
+A clip longer than its attack plays linearly. When the attack outlasts the clip, `0x141b0a9b0` (events found by
+`0x141b0a620`) plays the outside of the clip's `slow_begin`..`slow_end` span at normal speed and stretches the span
+instead, so the contact keyframe is no longer a plain fraction of the attack; the server's `AttackContactDelay` assumes it
+is. The 1.457 s attack above did this (span 223..394 ms, speed 0.305, contact at about 785 ms, measured). A slower weapon
+or a negative player speed would still reach it, for ordinary attacks too.
+
+Burning Arrow's muzzle flash is `Projectiles.MiscAnimatedFlash` (row 3657), which `DefaultArrow` does not have. The client
+creates an effect object at the clip's contact, without a server message: in the same trace at about 375 ms after the
+action starts (contact 399 ms at speed 1.045 is 382 ms), and the server's arrow arrived at about 450 ms. That the object
+is this flash is inferred from its time and what the user saw, not read from its path.
+Attack projectiles the server creates are therefore released 60 ms before the contact (`AttackReleaseDelay`,
+`Game_RELEASE_LEAD_MS`). Measured on localhost after it: flash 373-375 ms, arrow 400-401 ms in the typical shots; the
+default arrow 264-267 ms or 319-320 ms against a 267 ms contact. Arrival barely varied despite the 30 Hz release tick,
+which suggests the client takes packets on its own cadence (not established); a larger lead may not close the rest.
 This excludes support/conditional/per-charge speed, skill-specific attack-time overrides and off-hand alternation rules.
 Selected supported attacks publish their completed typed packet, clearing removed damage types and sharing the
 weapon-local packet with contact/release calculations. Pre-critical average/DPS remains the existing local convention;
@@ -520,7 +564,7 @@ No generator output changes are needed: the multiplier is already extracted.
    rounded and clamped to 5..100, with the monster's `DefaultMonsterStats.Evasion` at its level. The player's accuracy
    for this roll is the pools' rating raised by the Accuracy Mastery's target conditions under
    `TargetAccuracy.AgainstTarget` at the target's own rarity and position at that moment (§4). Ordinary attacks now
-   use the defender's entropy and independent critical confirmation ([20 §2g](20-damage.md#2g-ordinary-attack-evasion-and-critical-confirmation)). A miss is logged and
+   use the defender's entropy and independent critical confirmation ([20 §2h](20-damage.md#2h-ordinary-attack-evasion-and-critical-confirmation)). A miss is logged and
    sends no life update; spells do not roll accuracy and always hit.
 4. Any later player action (0x25 move, another 0x24) cancels pending contact/release (`ClientState.ActionCount`).
    A ranged projectile already created keeps its own area lifetime and can still collide after the player moves.
@@ -763,7 +807,13 @@ Pool construction still reads passives/items and adds `AuraCatalog.Bonus` once; 
 The result rounds to integer permyriad, halves away from zero, then caps at 0–10000, matching
 [PoB CalcOffence](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L3022-L3027).
 `global_cannot_crit` and `virtual_global_cannot_crit` disable the supported spell roll.
-Ordinary increased chance alone cannot make a known zero-base spell crit.
+Ordinary increased chance cannot make a known zero-base spell crit.
+Always-crit is separate: while `always_crit_while_holding_fishing_rod` is set (Surfcaster Baited Breath) and the
+active main hand holds a usable Fishing Rod, `RollCriticalStrike` makes every attack and spell hit critical without a
+draw, a 0% base included; a cannot-crit flag still wins.
+The attack, pooled spell and per-skill chances then show 10000 where they were above 0 (wiki: a 0% base still shows
+no chance). Native `virtual_always_crit` (0x2549, calculator `0x14275ba00`) reads the stat only for
+`main_hand_weapon_type` 15; [surfcaster.md](../game/surfcaster.md) has the details.
 `SkillHitPlan.CanHit` still rejects hitless or missing selected skills before added BASE is evaluated.
 The selected skill's spell rows also require `casting_spell = 1` (CharacterPanelStats `Spell_CritChance`);
 the main-hand rows exclude that flag.
@@ -823,7 +873,8 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `SkillCatalog.FindByRow` takes the highest GEPL / GESSPL level at or below the monster's (Melee: level 1, GEPL 4394).
   Id 0x0102, like the player's (no ActionType masks to it).
 - **Stats.** The final attack stats (`MonsterAttack.Stats`): attack time = MonsterVarieties `AttackSpeed` (2400 ms),
-  reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` at the level × `DamageMultiplier` / 100
+  reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion
+  type) at the level × `DamageMultiplier` / 100
   with a ±20% spread (the spread is assumed), then the monster's mods (its rarity's, its affixes: damage, attack time,
   extra fire / cold / lightning / chaos; [14](14-monster-packs.md) §5). They go in the monster's Stats component and
   in the skill.
@@ -906,6 +957,18 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `ai-native-attack-pacing.json` and `ai-native-menu-{paused,resumed}.json`.
   Those controls predate the surround cells and the merge onto the shared projectile runtime; the combined AI still
   needs a native recheck.
+- **Fleeing** (`MonsterFlee`, wiki Fleeing). A player hit that leaves the monster alive rolls the hit's chance to
+  cause monsters to flee (`AilmentsOnHitLocked`: an attack's `main_hand_hit_causes_monster_flee_%`, a spell's
+  `global_hit_causes_monster_flee_%`, plus the skill's own), then the monster's `monster_chance_to_not_flee_%`
+  ([14](14-monster-packs.md) §5: magic 50, rare and unique 100).
+  The monster picks a floor cell 50 cells away within 60° of straight away from the player (eight tries, then eight at
+  25 cells, else no flee).
+  After a swing in progress, the AI orders the walk there (0x1ab Move, logged "flees").
+  It does not chase, swing or give up its aggro until that walk ends, at the point or short of it.
+  A freeze stops the walk and ends the flee.
+  The distance is ours (the real server picks the point).
+  Monster.ot also lists a `Flee` basic action (§2; ActionTypes `HASH16` 0xe1a9, factory `0x14199aba0` on the same
+  move-action base `0x141937cc0` as Move); whether the real server uses it for this walk is not verified.
 - **Defence.** The monster's accuracy is `DefaultMonsterStats.Accuracy` at its level (raised by its mods); the server
   rolls the player's
   evasion with the same `AccuracyHitChance` formula and sends no life update on a miss. The roll uses PoE's shared
@@ -916,6 +979,17 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `base_self_critical_strike_multiplier_-%` (at least 100%; [14](14-monster-packs.md) §5). Live 2026-10-26: a normal
   Hungry Corpse never crit, one with of Deadliness every time. The hit then goes through the player's armour
   (`MitigatePhysical`) and block. `/defences` prints the reference values.
+  During a walk the roll uses the evasion rating with `evasion_rating_+%_while_moving` (`PlayerEvasion`;
+  [Polytheist](../game/polytheist.md)).
+- **Slowed by the player.** An attack that hits the player (not evaded, not blocked) records `HitPlayerAt` on the
+  monster. For 4 s after it, the player's `enemies_that_hit_you_with_attack_recently_attack_speed_+%` (Devout of
+  Gruthkul's -10) joins the monster's own increased attack speed (`MonsterModEffects.AttackSeconds`), so its next swings
+  take longer: the AI's busy time, the contact at half the attack time and the 0x1ab log use `MonsterSwingSeconds`.
+  The player's death ends it. The player tick (and the hit itself) sends the changed attack stats on the monster's Stats
+  component again (0x1b3 on the monster, `SendAttackerSlows`), and the plain ones when it ends.
+  Whether the client's swing animation follows them is unverified: the swing time is read through the action's stat
+  provider (`FUN_141c06ad0`: 0x221a over 1 + 0x126 / 100, via `FUN_14193b350`), which may be the skill's own stats in
+  the Actor component; those keep the unslowed time.
 - **Player life** (`ClientState.PlayerLife`, from the level/class/passive pools). At 0 the client plays the death
   animation and blocks moving. `/heal` sends full life: 0x1b1 from 0 runs the client's revive. The overhead life bar is
   hidden at 0 (`hide_mini_life_bar`, as for monsters) and shown again on revive.
@@ -1168,7 +1242,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Base chances at or below 20% are discarded before applying unconditional stun avoidance.
   The life threshold includes unconditional `stun_threshold_+%`; known stun immunity is respected.
   Duration uses PoB's 350 ms base, the extracted Monster.ot's 20% more melee stun duration, self duration modifiers,
-  and the player's final stun recovery, rounded upward to a 33 ms frame (normally 429 ms).
+  the player's final stun recovery and the current action-speed factor, rounded upward to a 33 ms frame (normally
+  429 ms at 0% action speed).
   Invalid stats yielding a nonpositive duration or more than 60 s disable recovery rather than locking input.
   `SendPlayerHitRecovery` commits cancellation inside the send gate after rechecking survival and active recovery.
   It increments `ActionCount`, clears channel hits, and stops `PlayerWalk` at its current cell.
@@ -1188,8 +1263,10 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Its precise active action phase is not tracked, so even an inactive equipped skill is conservatively excluded.
 - **Hit effects (2026-10-25).** The target's blood and the weapon impact sound come from S→C **0x1af** "action hit"
   (`InstanceProtocol.ActionHit`; class `0x1435ddb38`, read `0x141fddba0` → `0x1419bd6f0`, Actor handler `0x1421940a0`
-  → `0x141e90f50`): object header (the attacker), u16 action sequence (must match the action's), u8, u8 skill index
-  (0 = the current action), u32 target id, u16 flags, u8 kind (bit 0: belongs to an action, bit 1: hit data follows).
+  → `0x141e90f50`): object header (the attacker), u16 action sequence, u8 result stage, u8 derived action byte,
+  u32 target id, u16 flags, u8 kind (bit 0: immediate processing rather than queueing, bit 1: hit data follows).
+  Derived zero selects the current root action; nonzero selects a retained derived action, both with matching sequence.
+  Local consumption matches `(sequence, derived, stage, target)`; kind bit 0 clear inserts without requiring an action.
   With bit 1: a u16 if `flags & 0x400` (`flags >> 10 & 1` in the reader), u8 code, u8 hit angle (0..255 a full turn,
   `atan2(dx, −dy)` from attacker to target), then a u16 for kind bit 2 and one for bit 3. The handler calls the
   attacker's `ProcessDamagePackageInternal` (vtable +0x230), which plays the effects; 0x1b1 stays authoritative on
@@ -1211,6 +1288,17 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   index 0 searches the current action).
   A Sand Spitter's hit on the player (live 2026-10-30) is kind 3, flags 0x4201 (0x4221 on a crit), code 0, skill
   index 2, with the sequence of the monster's own action (0x80c0…, from its 0x1ab), not 0xffff.
+
+  KB/Rain target callbacks consume queued results; stage/end processing is mode/kind-filtered and retains ordinary
+  queued records in the checked Predictive/Lockstep client bindings.
+  S→C 0x1b0 carries the same handle and a process byte: remove the first match, optionally process; absent is a no-op.
+  Its actual reader `0x141fddc20` normalizes every nonzero process byte to one. All multibyte result/handle fields
+  above are big-endian. Including the common 12-byte header, 0x1af is 23..31 bytes and 0x1b0 is 21 bytes on these
+  selected reader paths. Kind bits 2/3 add no fields unless bit 1 is also set. Optional fields default to zero in
+  the fresh 0x1af factory; the payload reader itself preserves omitted fields on direct reread. See the
+  [actual decoder contract](../re/projectiles/results-and-protocol.md#31-actual-payload-decoding-fresh-defaults-and-dispatch).
+  See [RE 012: results and lifecycle](../re/projectiles/results-and-protocol.md) for duplicate handling,
+  late-result limits, exact VAs and the distinction between local prediction and authoritative hit presentation.
 - **Release.** A spell leaves at its cast animation's **contact** keyframe, which the client plays stretched to the cast
   time: the Witch's `spell_projectile_wand` in `Art/Models/CHARACTERS/Witch/rig.amd` is 1066 ms long with `contact` at
   599 ms, so Fireball leaves after 56% of the cast. `python -I scripts/re/anim_contacts.py` writes every class's
@@ -1233,6 +1321,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Captures: `logs/skill-timing-after-fireball-{minus80,plus100,default}-real.json` in the integration checkout.
   These checks establish native clip duration; projectile release/contact alignment was not separately measured.
   Server projectile release, area-spell delay and the Portal spell's cast wait use the adjusted duration once.
+  More cast speed: the native `cast_speed_+%` calculator `0x142709610` is
+  `round((combined_cast_speed_+% + 100) × combined final − 100)`, at least −99; `0x142708190` multiplies the
+  `_final` stats into that combined final. The stat getter `0x1424fc1e0` runs no calculator, so the server sends the
+  result. `FinalCastSpeedPct` applies Screaming Reels' `cast_speed_+%_final_while_holding_fishing_rod` this way (the
+  only `_final` cast speed modelled), and a genuine spell's record carries that total, a support's
+  `base_cast_speed_+%` included, as its `cast_speed_+%`.
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
   A channelled spell's native base is also preserved; this does not implement beam damage or change the existing
   server channel-hit cadence. Attack and non-spell timing paths are unchanged.
@@ -1258,8 +1352,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `skill_cooldown_time_override_ms` / `skill_cooldown_is_4_seconds`. With 0 there the client kept no cooldown and the
   bar showed none (Frida: no records, +0xc8 = 0; live 2026-10-21); `GrantedSkill.CooldownMs` now carries GEPL Cooldown.
   +0xd0 (the cooldown group) comes from the GEPL row's CooldownGroup (+0x30).
-  For ordinary one-use spells/attacks, the native base remains GEPL Cooldown; the final recovery percentage is
-  player-computed `virtual_cooldown_speed_+%` (3398) + the skill's own base (3397) and virtual (3398) inputs once.
+  For ordinary one-use spells, attacks and warcries, the native base remains GEPL Cooldown; the final recovery
+  percentage is player-computed `virtual_cooldown_speed_+%` (3398) + the skill's own base (3397) and virtual (3398)
+  inputs once.
+  A warcry adds the player's and the skill's `warcry_cooldown_speed_+%` (3640): PoB counts it as cooldown recovery
+  for the Warcry skill type, and the client's own virtual (`0x14281dfa0`, checked against the disassembly) adds
+  client stat 0xe38 when the skill has `is_warcry` (0xd7e), so the record's 3398 and the client's value agree.
   Dash quality 20 adds 10%; the player's base input is already included in its computed virtual value.
   `SingleUseCooldown` shares this resolution between granted skill stats and server readiness.
   The server retains remaining **base milliseconds**, subtracting elapsed game-clock time times the recovery rate;
@@ -1367,7 +1465,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `MergeSkillStats`, retaining its existing base-field replacements and quality inputs. Panel and actual supported
   combat both finish with that same final supported packet.
   The final packet still applies the actual caster's spell-damage restriction and clears inherited hand rows.
-  See [20](20-damage.md) section 2f for key 5341, zero-hit callbacks, RF and native verification boundaries.
+  See [20](20-damage.md) section 2g for key 5341, zero-hit callbacks, RF and native verification boundaries.
   Damage ranges are floored only for display/rolls; the packet keeps fractions through conversion.
   The displayed per-use average and DPS retain the unrounded packet average, before critical strikes and target
   mitigation. DPS uses the skill's emitted casts-per-second value, not the weapon's attacks per second.
@@ -1421,8 +1519,26 @@ critical confirmation, damage and impale inside the admitted target lock, before
 Decision: move contact rolls inside the existing admission gate rather than rolling before `HitMonster` and
 discarding their result after cancellation. This keeps cancelled/paused/dead-owner actions from consuming RNG
 or target state. Explicit blocked/evaded results reject the contact; treating them as zero-damage hits would
-incorrectly update hit timestamps and callbacks. The roll policy and primary evidence are in [damage §2g](20-damage.md).
+incorrectly update hit timestamps and callbacks. The roll policy and primary evidence are in [damage §2h](20-damage.md).
 Current-branch native validation remains pending.
+
+**Self-targeted spells** (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Shock Nova;
+`SkillCatalog.IsSelfTargeted`) go off around the caster wherever they are aimed (`SpellCentre`). Until 2026-10-29
+every area spell was centred on the aimed point, so an Ice Nova cast on a monster went off around the monster while
+the client drew it around the player. The client's own
+action does the same: for a self-targeted skill (target types 4 and 10) it replaces the aimed point with the caster
+unless `virtual_self_targeted_skills_target_location_instead` (0x2a6e) or `virtual_nova_spells_cast_at_marked_target`
+(0x5361) is set (`FUN_14193e290`).
+Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed, and so do
+Novas without a self target (Dark Pact, Ice Nova of Frostbolts).
+0x2a6e is `casting_spell` AND `skill_is_nova_skill` (0x2a6c) AND the caster's `nova_spells_cast_at_target_location`
+(0x2a6d) (`FUN_142896650`, registered by `FUN_1400dc5f0`), and the skill input handler `FUN_1401216d0` reads it for the
+skill it builds a use for.
+The Gateway therefore publishes `skill_is_nova_skill` = 1 in every Nova skill's record (ActiveSkillType Nova,
+`SkillCatalog.IsNova`, `SkillCatalog.EffectStats`), and a caster with `nova_spells_cast_at_target_location` (Devout of
+Lunaris) has its self-targeted Novas centred on the aimed point
+([Polytheist](../game/polytheist.md)). Which point the client sends for a Nova (a ground use at the cursor, or a self
+use) with and without the stat is not checked live yet; the Gateway log's 0x01ab line shows it.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
@@ -1459,6 +1575,9 @@ The old callback flight, observed-motion estimator, fixed-gap spread and named r
 The older native evidence below records packet discoveries and the replaced implementation: its 16 ms polling,
 send-gate damage commits, return overshoot/debug flags and fixed-gap controls are not current runtime behavior.
 Revalidate native gameplay against the current runtime; packet-layout evidence remains applicable.
+The client's shared execution model is documented separately in [RE 012](../re/012-projectile-execution.md):
+animation/contact-based emission, fan/Volley layouts, integer motion, local contacts, history/continuations and results.
+Those static paths do not establish an official global 30 Hz cadence or a C→S per-projectile result-report contract.
 
 **The client predicts its own spell gem projectiles (Frida 2026-10-29, 2026-10-31).** One Fireball cast built two Projectile
 components: one from the 0x2b9 handler (`0x142187c8a` → `0x141ebe190`), one from the player's action
@@ -1468,12 +1587,11 @@ client built three before the server's three, so it predicts every primary proje
 position. The server therefore sends no object for a spell gem use's primary projectiles (`ProjectileOffense.ClientPredicted`,
 `ProjectileSession.Publish`) and still simulates them; continuation children and area effects still go out. The
 client made no explosion object of its own.
-An attack gem is not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
+In these local inputs an attack gem was not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
 by `0x141e8cf10`) and created no projectile at all until the server's `0x2b9`, as the default attack's arrow; with
 no server object nothing was drawn. `ClientPredicted` is therefore set for spells only (`CaptureGemProjectile`). Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
 and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw no client-created projectile at all
-(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). The
-default attack is not predicted the way a gem's volley is. Trace: `scripts/re/frida/trace-projectile-create.js`
+(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). These observations describe those supplied ordinary-attack inputs. Trace: `scripts/re/frida/trace-projectile-create.js`
 (load `common.js` and the trace in one script: `run.py` gives each file its own scope).
 
 **Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
@@ -1489,8 +1607,18 @@ The life is set once, at `0x141b35b7a`: `skill_effect_duration` (0x168) / 1000 s
 `base_skill_effect_duration`: before the Gateway sent it (`GemSkills`, `SkillDurationModifiers.Seconds`) every client
 spark died on its first tick and none was drawn. Not checked live yet.
 
-The server creates and moves the projectile. The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does
-nothing by itself: its slot 17 reads nothing and almost every other slot is a bare `ret`.
+The captures above are bounded runtime observations, not a universal attack-versus-spell rule.
+The pinned executable has shared emission and final client bindings for ordinary ranged attacks and TS;
+release eligibility, effective count aliases, selected resources and lifecycle determine whether emission occurs.
+The earlier TS research branch enabled native mothers after publishing arrow aliases and reported duplicated
+wind/children when server-created stages remained. That branch behavior is not a current-main implementation claim.
+See [the client/server contract](../re/projectiles/client-server-contract.md) and
+[external evidence](../re/projectiles/external-ranged-evidence.md) before changing prediction ownership.
+
+The following object/move notes describe the historical server-created path.
+The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does little by itself:
+slot 17 reads nothing and almost every other slot is a bare `ret`.
+Native flight/contact logic resides in action/Positioned paths, not this small component.
 
 - **Object.** A 0x2b9 of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
@@ -1577,6 +1705,22 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads
   carried durations 1.212375/0.606187/2.424749 seconds. Before the patch, both 0 and +100% used 95.7 cells per second.
   These checks cover travel timing, not moving-target collision or pixel-level matching with the official game.
+- **Maximum range and action speed (2026-10-31).** One movement instance is capped at 150 client units = 15 m
+  (10 units per metre; 1 Gateway cell is 0.1 m). The Gateway baseline is now 150 cells through
+  `system_settings.projectile_maximum_range_cells`; `projectile_distance_override` sets an exact shorter distance and
+  `projectile_maximum_range_override` caps it. Fork, chain and split are new movement instances, so each continuation
+  leg gets a fresh 15 m budget and total travel can exceed 15 m; return keeps its measured 150-cell overshoot.
+  Action speed is not a projectile input: it changes attack/cast/movement pacing, not projectile speed or the cap.
+  Projectile speed only changes the time to the endpoint (and how far a limited-duration projectile gets before it
+  expires, up to the cap). `action_speed_-%` is composed additively with chill/freeze and then multiplies the final
+  attack, cast, movement and stun-recovery paces; it does not change the attack/cast/movement stats themselves. New
+  actions are limited to one per server frame (30/s); channelling repeats use their speed-only interval and are exempt
+  from that cap. Trap/mine throwing, warcries, totem summoning, monster action-speed floors and the buff/debuff sources
+  (Tailwind, Harbinger, Temporal Chains) remain outside this slice; the full contract is
+  [#246](https://github.com/LocalExile/LocalExile/issues/246). Evidence: the client's Stats rows and PoE Wiki
+  [Action speed](https://www.poewiki.net/wiki/Action_speed),
+  [Projectile](https://www.poewiki.net/wiki/Projectile) and [Range](https://www.poewiki.net/wiki/Range); no live
+  native flight or stun-animation capture yet.
 - **Hit (reworked 2026-10-25).** `ProjectileFlight` advances from the
   connection's elapsed game clock, polled about every 16 ms. For each interval it solves the earliest intersection
   of the projectile segment and each living monster's observed movement segment in relative coordinates, with the
@@ -1860,7 +2004,7 @@ Instant aliases retain their existing supported subset; this does not add instan
 The existing `CastGemSkill` check remains the cast admission boundary.
 A queued action echo can pass preflight and then fail that check before payment.
 After cast admission, a source change behind a queued paid mana packet does not add a late cancellation or refund.
-An accepted Enduring Cry still schedules its existing non-cancellable charge release in `UseChargeSkill`.
+An accepted warcry schedules its non-cancellable release in `UseWarcry` (the taunt, §12; Enduring Cry's charges, §15).
 Later source or action changes do not cancel that release.
 Enduring Cry remains partial: this change adds no healing engine or other warcry mechanics.
 
@@ -1950,6 +2094,292 @@ Native grey-icon prediction, persistent restricting equipment and another client
 general reservations, banners, enemy auras and Vaal systems remain separate work.
 A foreign-source packet non-removal control establishes no party aura executor or gameplay behavior.
 
+## 10d. Strike skills: spirit strikes and the previous location
+
+A Strike is an ActiveSkills row typed `MeleeSingleTarget` (`SkillCatalog.IsStrike`).
+The default attack (`Melee`) is one.
+The client picks a Strike's extra targets itself when its melee action starts (`0x141c9c070` → `0x141c9ad30`) and
+draws their hits.
+The server makes the same choice as the swing starts (`StrikeExtrasLocked`, `StrikeTargets.cs`), so its damage lands
+on the monsters the client strikes.
+
+- Spirit strikes: the count is the client's `virtual_number_of_spirit_strikes` (`0x1428b12d0`).
+  It is 0 with `no_spirit_strikes`, for a non-melee attack, a non-Strike or a Vaal skill, else
+  `melee_attack_number_of_spirit_strikes`.
+  The scan radius is (100 + `extra_target_targeting_distance_+%`) / 100 × 30 cells in f32, truncated: 30, or 45 with
+  Ancestral Reach.
+  A candidate is a living hostile monster within that radius plus its own size of the player's cell, more than
+  9.95 cells away (squared distance over 99), and not the action's target.
+  The list holds at most 20 (`0x141ca3f30`).
+  The client sorts it by object id (`0x141a300b0`) and shuffles it front to back with TinyMT32 `init_by_array`, seeded
+  with the action's sequence and the player's object id (`0x1413cbe50`; one uniform draw per place, `0x140484fa0`).
+  The first N are struck.
+- Previous location: `melee_strike_skill_number_of_previous_locations_to_strike` (`0x142896310`) needs a melee main
+  hand, a Strike and `melee_strike_skill_strike_previous_location`.
+  The client keeps each Strike skill's locations in the `skill_location_memory` buff (BuffDefinitions 1451, invisible,
+  CancelOnDeath), which its melee action finds by skill id and the ActionTypes hash of the skill's bit-3 association.
+  The buff's behaviour (`Id2` RecordSkillUseLocations, made by `0x141e09ec0` → `0x14205a100`) is a ring of 6 entries:
+  u16 action sequence (action `+0x11a`), the player's cell and the target cell (i32 pairs; `0x80000000` is empty).
+  At its creation it takes its first entry from the 0x1c1 message's u32 list (buff `+0x80`) without checking its
+  length: sequence, player x, y, target x, y.
+  It then records each use of the skill as it starts (`0x14205a350`: the action's skill and ActionTypes hash match
+  the buff's; the target object's cell, else the aimed cell).
+  The melee action walks back from the current use's entry and strikes the earlier ones' target cells.
+  A location is skipped while the player stands within 5 cells of where it stood then (squared distance under 25,
+  `0x141ca6eb0`).
+  The server keeps the last player cell and hit centre per skill (`StrikeTargets.Memory`) and clears them at death.
+  At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill, its
+  active-skill hash and that use as the first entry).
+- Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
+  living hostile monster within the skill's radius of the old centre.
+  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their transfigured
+  gems except Frost Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes
+  through the projectile runtime (`ScheduleGemProjectile`), which launches only its
+  projectiles: the server has no melee hit for these gems, so it has no spirit strikes or previous location for them
+  either and sends them no `skill_location_memory`.
+  The client still picks and draws their spirit strikes (its virtual needs only melee and Strike), which deal no
+  damage on the server.
+  The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
+  nearest the old centre within the weapon's reach.
+  Every extra hit rolls accuracy, block, crit and on-hit effects as the main one does.
+  A use grants at most one Fortification and one Rage gain, and each monster takes at most one hit of a use.
+
+Not mirrored: the client's line-of-sight test (`0x141d87160`), which 20 candidates it keeps when more qualify (the
+server keeps the 20 lowest ids), and the unarmed term (`unarmed_attack_number_of_spirit_strikes`).
+Unverified: the client's strike at the previous location (a live check).
+The previous-location target rules (the radius for gem Strikes, the nearest monster for the default attack) and the
+one-hit-per-monster limit are the server's own and unverified.
+
+## 10e. Passive skills' buffs and auras
+
+One table serves every class (`PassiveBuffAuras.cs`). A passive's `PassiveSkillBuffs` (in Ruthless `BuffsHardmode`,
+only for a row with `HasHardmodeAlternate`, as `PassiveTree` reads the stats) lists BuffTemplates rows.
+A template names its BuffDefinitions row (`BuffDefinitionsKey`), the values of that row's `GrantedStats` in order
+(`Buff_StatValues`; Stats row + 1 is the key; a template whose counts differ is left out), its `AuraRadius` in cells
+(0: a buff on the player himself) and whom it affects (`__col4`: 1 self, 2 allies, 3 enemies).
+Column 4 holds 3 on every enemy debuff aura (Born under Fire, Overwhelm, Augury of Penitence, the Occultist's, Saboteur's
+blind), `[1, 2]` on the ally ones; that reading comes from comparing the rows, not from the client code.
+Only templates whose stats have a consumer are applied, through three views:
+
+- **Enemy auras** (`EnemyAurasFor`, `Program.EnemyAuraActs`): Light of Divinity (672, Augury of Penitence 2551:
+  `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
+  BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50) and `SaboteurBlind` (below).
+  The others, such as Overwhelm's crit multiplier, the Occultist's resistances and Kaom's Binding's
+  `base_from_enemy_physical_damage_%_to_convert_to_fire`, wait for consumers: their buff would show an effect that
+  does not happen. The player tick shows them on monsters (`TickPassiveAuras` → `EnemyDebuffsTick`, §12 "The
+  player's debuffs on monsters"). The stats act on the monster's hits at contact, by the radius at that moment:
+  `MonsterSwing` converts the rolled hit and the ailment base with the auras' conversion stats
+  (`EnemyAuraConversionLocked`, `DamageStats.Conversion`), and the elemental damage taken joins the monster's
+  increased damage taken ([20](20-damage.md) §4).
+- **Player-and-ally auras** (`AllyAurasFor`, targets `[1, 2]`): Elemental Valiance's and Unwavering Crusade's relic
+  trigger (546, `GuardianAlliesSpawnRelicsForYouOnKill`; §12, Passive-granted skills).
+- **Self buffs** (`SelfBuffsFor`, radius 0): Ghost of the Deep (671 → Torment Touched 2550); §12, Passive self buffs.
+
+## 10f. Skills that passives grant or trigger
+
+One table serves every class (`PassiveGrantedSkills.cs`): the granted self auras (§12), Summon Elemental Relic, the
+Spirit chieftains and Abberath's Fury's footsteps (§12, Passive-granted skills) read it.
+A passive's `GrantedEffectsPerLevel` (`GrantedEffectsPerLevelHardmode` in Ruthless) names the skill it grants and its
+level (`PassiveGrantedSkills.cs`).
+A triggered one names its trigger twice: a `has_trigger_on_*` stat on the node and the same `trigger_on_*` flag in its
+GrantedEffectStatSetsPerLevel row's AdditionalFlags; the server reads the node's stat (`TriggeredGrantsLocked`).
+Ancestral Commander's Spirit chieftain skills are the ones with a consumer so far (`SpiritChieftains.cs`): a Unique
+monster's crit, Savage Hit or blocked hit triggers its option's skill, whose shared cooldown, Leadership buff and
+fighting chieftain (section 10h) [Ancestral Commander](../game/ancestral-commander.md) describes.
+A blocked crit counts as taken (the wiki's Blocking page: a block does not prevent the defender's when-hit effects).
+Server monsters crit only with a forced `always_crit` mod, so the crit trigger waits for monster critical strikes.
+Their summon's buff is the BuffTemplates row whose `StatsKey` (the stats that give its values) the skill's own stats
+hold; each of the row's BuffDefinitions `StatsKeys` takes the matching value.
+The server sends no skill record for them: they have no bar use, and the client shows only the buff.
+The client's cooldown virtual for a skill record (`0x14281dfa0`, checked against the disassembly at `0x14281e084`)
+returns no recovery when the record's stats hold `skill_cooldown_does_not_tick`, the per-skill form of the Leadership
+buff's `ancestral_buff_cooldown_does_not_tick`.
+
+## 10g. Totems
+
+A totem skill's ActiveSkills row names its totem (`SkillTotemId`); SkillTotemVariations maps that id and a skin to a
+MonsterVarieties row, and skin 0 is the default (Rejuvenation Totem: 4 → `Metadata/Monsters/Totems/LifeRegenTotem`).
+The totem base type (`Metadata/Monsters/Totems/Totem`) reads only components the monster blob writer already has.
+Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement and give
+it `monster_inherent_damage_taken_+%_final` -80.
+
+The server (`Totems.Rules.cs`) keeps the player's totems in `ClientState.Totems`, never in `Monsters`: area hits,
+monster AI, loot, experience and the instance save read only `Monsters`, so none of them sees a totem.
+- Placement: the gem's use pays its mana, then waits the GrantedEffects CastTime (0.6 s) over
+  `1 + summon_totem_cast_speed_+% / 100` and the action speed (the wiki's Totem page: cast speed does not apply).
+  If the use is still current and the player lives, the totem appears at the aimed cell, moved out of walls and
+  monsters as a spawn is.
+  The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2b9) and enters it
+  in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it.
+- Level and Life: the totem's level is the gem level's `PlayerLevelReq`, as PoB's totem level.
+  Its base Life is the variety's minion Life at that level (MonsterTypes `IsPlayerMinion`, `LifeMultiplier` 120:
+  24 at gem level 1), times `1 + totem_life_+% / 100`; the maximum goes on the object's stats when it differs.
+- Duration: `base_totem_duration` with `totem_duration_+%` only (the wiki: skill effect duration does not apply).
+- Limit: Character.ot's `base_number_of_totems_allowed` 1 plus `number_of_additional_totems_allowed`.
+  A summon past it kills the oldest living totem first.
+  The client computes the same limit itself (`FUN_1427b0a10` builds `number_of_totems_allowed` 0x3be) and refuses
+  a totem skill below one (`FUN_14195e420`).
+- Death: at Life 0, at the end of its duration, when replaced past the limit, or when the player dies (wiki Totem and
+  Soul Mantle).
+  The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bb) a second after.
+  An area change starts a new connection without totems.
+- Rejuvenation Totem: its aura (BuffDefinitions 172 `totem_aura_life_regen`, base radius 10 with aura and spell area)
+  gives the living player within the radius the skill's `base_life_regeneration_rate_per_minute` and the row's other
+  stats the skill holds, scaled by the player's aura effect.
+  The strongest covering totem counts; the player gets buff 172 (0x1c1, source the player) and his stats while it does.
+- Damage taken from the nearest totem: `damage_removed_from_your_nearest_totem_before_life_or_es_%` (Forest of
+  Ancestors, Kaom's Leadership) moves that share of each part of a monster or `/hit` hit, after mitigation and before
+  Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
+  The client never reads that stat, nor `base_presence_radius` (0x3ee0): both are server-side.
+
+Not modelled: the other totem skills (their gem use stays as before: a totem that does not use its skill is not
+placed), monsters attacking totems, placement range (`base_totem_range`), the totem's collision on the server's paths,
+and the totem as the aura buff's source.
+
+## 10h. Player minions that fight
+
+A player minion is a monster on the player's team kept in `ClientState.Monsters` and listed in `ClientState.Minions`
+(`PlayerMinions.cs`).
+The Spirit chieftains are the first (section 10f).
+- Spawn: `SpawnMonster` with `friendly: true` (Positioned team 0) and the stats `is_player_minion` and
+  `is_semantic_minion` 1 on its Stats component, which the client reads to treat it as the player's minion
+  (`0x141bf8490`).
+  The player's `minion_damage_+%`, minion attack speed (`minion_attack_speed_+%`, `minion_attack_and_cast_speed_+%`)
+  and `minion_movement_speed_+%` become its own damage, attack speed and movement mods at the summon.
+- Kept apart: the instance save (`InstanceMonsters`), the player's area hits and default attack, and the on-kill
+  charges skip it; an area change or logout drops it with the connection.
+- AI (`RunMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
+  A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
+  not one lurking unrisen.
+  In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
+  target's edge, re-ordered when the target moves 3 cells or, once there, every 0.5 s.
+- Swing (`MinionSwing`): S→C 0x1ab with its first skill aimed at the target (flags 0x0408 | 0x80), the contact at half
+  its attack time.
+  There the hit needs both alive and within reach + 2; it rolls the minion's accuracy (DefaultMonsterStats at its
+  level) against the target's evasion, then the target's block, then the target's mitigation (`MonsterTakesRolled`).
+  S→C 0x1af shows the hit (the minion as source, flags 0x4601), the target's Life follows, and a kill gives the
+  player experience and loot through `MonsterKilled` (no on-kill charges: the player did not kill it).
+  A minion's hit does not count as the player hitting.
+- End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
+  removed a second later (0x2bb).
+
+Not modelled: a minion's other skills (it uses its first granted effect, as every server monster), monsters
+attacking minions (only immortal minions exist so far), the minion's stats following the player's after the summon,
+minions crossing an area change, and minion commands.
+
+## 10i. Warcry release: timing and release effects
+
+A warcry's use time is its GrantedEffects CastTime over `1 + warcry_speed_+% / 100` (the player's and the gem's)
+and over action speed, at least one server tick (`WarcryCastSeconds`; PoB CalcOffence `calcWarcryCastTime`, whose
+0.8 s base is Enduring Cry's CastTime).
+The client's warcry action (`0x141abcaa0`) divides the same CastTime (GrantedEffects row offset `+0x5f`) by
+`1 + (warcry_speed_+% + warcry_speed_+%_if_not_warcried_recently + retaliation speed) / 100`; its animation runs at
+the actor's action speed.
+The two conditional terms are not modelled on the server.
+
+At the release, after its own effect, every warcry runs `WarcryReleased` within its own radius around the player.
+The client's action (`0x141abd120`) takes its wide scan (`0x141abff60` → `0x141abd490`) over that same radius
+(vtable +0x498) when `warcry_gain_mp_from_corpses` (0x2fe9), Deathrattle's corpse explosion (0x46b6), the corpse
+loot chance (0x4b75) or `open_nearby_chests_on_warcry` (0x4b74) is set.
+That scan lists Chest objects and eligible corpses with a delay of distance / radius × 0.22 s and counts living
+hostiles' power; which code consumes the list was not traced, so the server's removals and life updates stand.
+- Corpse explosion (`nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry`): every corpse in the
+  radius explodes once.
+  A corpse is a dead monster at zero Life whose Life type allows corpse use (`MonsterLifeData.IsUsableAsCorpse`) and
+  that no explosion has consumed (`SpawnedMonster.CorpseConsumed`).
+  The corpse is removed (S→C 0x2bb) and leaves `ClientState.Monsters`, so no later removal sends it again.
+  The explosion hits living hostile monsters within 22 cells of it (PoB `EnemyExplode`, grown by area of effect) for
+  the percentage of the corpse's maximum Life as physical damage, scaled by the player's `damage_+%`,
+  `physical_damage_+%`, `area_damage_+%` and Frenzy Charge more damage (poewiki Explode).
+  Then the player's global conversion and gain as extra apply (`DamageStats.Conversion` without the attack- and
+  spell-only lines), after the increases as in every server hit.
+  It is neither an attack nor a spell: no block or evasion, and its base critical strike chance is 0%.
+  Kills go through `MonsterKilled`.
+  Each consumed corpse gets an effect object with the generic gore burst
+  (`Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao`) for 2 s; the art the native
+  warcry wave plays is not traced, so this choice is unverified.
+  Not modelled: global flat added damage and flat critical strike chance, which the wiki's Explode page says apply to
+  non-skill explosions; on-hit effects and the 0.22 s wave delay.
+- Chests (`open_nearby_chests_on_warcry`): the quest chests the server has (the Twilight Strand support gem chest and
+  the Mud Flats Rhoa Nests) open through the same core as walking up to them, which saves first.
+
+Only Enduring Cry has a warcry executor; the hook sits in its release so later executors inherit it.
+
+## 10j. Actor restriction: spells disabled
+
+`your_spells_are_disabled` (0x1520; Devout of Gruthkul) disables every spell: the client's `skill_disabled_by_stat`
+(0x3db6, `FUN_1428cf770`, registered by `FUN_1400e4fc0`) is set when the caster has 0x1520 and the skill has
+`casting_spell` (0x1b6), the flag `SkillCatalog` publishes for Spell skills that are not attacks. Auras, Heralds,
+Righteous Fire, Portal and movement spells are spells too; warcries and attacks are not (wiki: they "cannot be cast or
+triggered").
+`ActorSkillDisabledCore` refuses such a use with "spells are disabled", read from the caster's raw sources
+(`SpellsDisabled`, as for the own-aura restriction, so pool builds cannot recurse). Every route that checks the warcry
+and own-aura restrictions checks it: ground 0x25, object/self 0x24, instant uses and `TryBeginCooldownUse`, the
+`CastGemSkill` backstop, channels, the aura activation commit and remembered-aura restoration. The skill record also
+carries 0x3db6 = 1, never written as 0 over another reason.
+Running spell auras are suspended like restricted own auras (§10c), keeping their saved intent; they come back once the
+node is refunded. This is the same LocalExile policy, not proven GGG behaviour.
+A Righteous Fire already burning keeps burning: it deals the enemies no damage (`spell_skills_deal_no_damage`, 20-damage
+§2g) and still burns the player, as the wiki describes for spells cast before Gruthkul's Pelt was equipped. Real-game
+handling of an aura that is running when the restriction starts is unverified.
+Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
+
+## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
+
+These are action instructions, distinct from per-target hit results or C→S collision reports.
+Actor dispatcher `0x1421940a0` sends both to executor `0x142195880`.
+It creates/configures an action, registers derived byte one, then invokes synthetic start/contact.
+See [RE 012's execution contract](../re/projectiles/synthetic-start-and-server-commands.md)
+for flags, actual final predicates, identity, cleanup and the separate Actor finalization receiver.
+This is bounded static evidence for client 3.29.3b; it does not establish official route choice for every skill.
+
+The event-bearing `0x1cf` factory is `0x1421c6150`, selected branch `0x1421c64a9`.
+Table `0x1435c20e8` binds writer `0x141fde370`, reader `0x141fde530` and copy `0x141fdd6a0`.
+The reader starts after message ID selection; the ID is not repeated inside this payload.
+Successful reads consume the following in order (BE = big-endian):
+
+```text
+u32 BE, u32 BE, u16 BE          common object/action header → +10,+14,+18
+u16 BE skill, sequence, flags   → +2a,+2c,+50
+if flags & 0x20: u32 BE target  → +30; strip 0x20; absent target = 0
+u32 BE animation context       → +20
+u32 BE float bit pattern       → +24
+u16 BE event hash              → +28
+3 × u32 BE event vector bits   → +44,+48,+4c
+if flags & 0x2000:
+    2 × signed compact int     extra aim → +3c,+40; retain this flag
+if flags & 0x10:
+    action configuration       → +58; initialize defaults then decode; strip 0x10
+2 × signed compact int         ground aim → +34,+38
+```
+
+The configuration's presence byte is message `+d0` (configuration `+78`).
+Absent configuration clears presence and releases old containers; stale scalar bytes need not be erased.
+Absent extra aim can retain old storage in a reused message; fresh factory defaults are zero.
+Use presence/flags to decide whether those bytes apply.
+The shared configuration reader `0x1419e54d0` uses one mask byte.
+Its inner bit `0x10` reads a BE u32 into configuration `+1c`, independently of the outer packet presence bit.
+Both instructions copy that value through action `+80 → 0x141bae280` into action `+434` as a signed speed percentage.
+A present default configuration with inner bit clear writes zero; an absent configuration skips this callback.
+Inner bit `0x80` reads an unsigned compact count and count times four raw bytes without per-element swapping.
+The other configuration fields and complete receiver chain are tabulated in RE 012.
+
+Compact integers here use a prefix-length format, not LEB128 or zigzag.
+Prefixes `00..7f / 80..bf / c0..df / e0..ef / f0..ff` select 1/2/3/4/5 total bytes.
+Signed reader `0x141fa3d60` sign-extends 7/14/21/28 payload bits in the first four forms;
+the final form consumes raw BE32. Unsigned count reader `0x14089cad0` omits sign extension.
+Signed writer `0x141fa3c50` uses the four-byte form only for `[-67108864,67108864)`,
+although that decoder form can represent more values; outside the writer's range it emits `f0` and BE32.
+
+The event handler passes `+20/+28` to animation lookup `0x141db3870`.
+It advances matching records while message float `+24` is greater than current event time `+0c`.
+Equality keeps the current event. Original `COMISS/JBE` also selects current on unordered comparisons;
+this does not establish NaN as a valid official input.
+The chosen event is copied, its vector replaced by `+44..+4f`, then passed to the executor.
+Missing matching events take the existing failure path.
+Original-instruction offline controls cover successful decoding/transfer and separate event comparisons;
+failed I/O, allocation limits, actual official values and every skill's successful emission remain unverified.
+
 ## 11. The skill bar
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.
@@ -1988,9 +2418,22 @@ A foreign-source packet non-removal control establishes no party aura executor o
   bit7: f32 +0x6c, default 1.0), a u16 when the row's bool at +0xff is set (`__col44` in the vendored schema), one u32
   per GrantedStats entry when the row's `IsRecovery` (+0x7c) is set, then a u32-counted list of u32. A row with either
   flag needs those fields, or the client misreads the message and the ones after it (the flask buffs, rows 5 and 9:
-  [13](13-items.md) §8). The client reads the BuffDefinitions row in memory as the
+  [13](13-items.md) §8). `InstanceEntities.AddBuff` writes that u16 as `u82`: the chilled, frozen and shocked rows 1-3
+  have the bool ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)); what the client does with +0x82 is
+  not known. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+  The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
+  Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
+  cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
+  supplies 1, not preservation. See [the exact repeat state/input contract](../re/projectiles/repeat-source-state.md).
+  This identifies a supported input route, not official server values or timing for those definitions.
+- **Passive self buffs** (`PassiveBuffAuras.SelfBuffsFor`, §10e). A row without `IsRecovery` carries no values in
+  0x1c1, so the client cannot apply them: the server adds the values to the allocated passives' stat sum and sends the
+  buff for its icon and visual only. The buff goes out with 0x1c1 at area entry (each area's connection starts without
+  buffs) and after an allocation, and comes off with 0x1c2 on the refund; one instance per template, however many
+  nodes grant it. The other radius-0 templates have their own timing or condition (Trickster's alternation,
+  Occultist's wither pulse, Chieftain's while stationary); those stay unhandled.
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2
@@ -2004,6 +2447,41 @@ A foreign-source packet non-removal control establishes no party aura executor o
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then
   × (1 + `active_skill_area_of_effect_radius_+%_final`), from the player's stats under the skill's (`SkillArea`).
   Conditional area stats (per charge, per attribute, "recently") are not modelled.
+- **Passive blind aura** (`PassiveBuffAuras.BlindTemplate`, §10e). `SaboteurBlind` (Devout of Solaris, Born in the
+  Shadows) is `generic_buff_aura` (1521: invisible, no stats, CancelOnDeath) with radius 35 (3.5 m in the wiki's
+  distance table). Its effect is not in the definition: unnamed column `__col5` of the generic templates starts with an
+  effect code that matches their Ids (1 chilled, 2 shocked, 9 blinded, 12 malediction, 19 taunted), not checked in the
+  client; the server keys on the template Id. The player tick's `EnemyDebuffsTick` puts the `blinded` buff (179) on
+  each living hostile monster within the radius of the living player with 0x1c1 and takes it off with 0x1c2 when it
+  leaves, the player dies or the node is refunded; a vanished monster is forgotten without a message
+  (`PassiveBuffAuras.BlindState`). The invisible aura buff on the player is not sent: nothing on the client reads it
+  that we know of. `Game.Blinded` (smoke cloud or aura) is the one Blind condition the hits read: 20% less monster
+  accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's increased critical chance
+  against the target, `damage_taken_+%_from_blinded_enemies` on its hits ([Polytheist](../game/polytheist.md)).
+- **Passive-granted skills** (`PassiveGrantedSkills.cs`, §10f): a passive's PassiveSkills `GrantedEffectsPerLevel`
+  (`GrantedEffectsPerLevelHardmode` in Ruthless; for Devout of Abberath both name the same row) is a
+  GrantedEffectsPerLevel row, which names the GrantedEffects row and its level. Only effects whose trigger runs on the server act; the others do nothing, and none
+  joins the client's skill list. `RepeatingShockwave` (Abberath's Fury, Devout of Abberath's 45556: level 20, no cost,
+  no cooldown) is triggered by footsteps: `RunFootstepSkills` (a 50 ms poll per connection, stopped while paused) runs
+  a run-animation clock while the walk lasts (`Walk.ArrivesAt`), at `Walk.Speed` over the base walking speed, and
+  restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
+  footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
+  steps (the wiki: movement skills do not trigger it). The wiki's exception, Shield Charge (the player still walks,
+  faster), is a known gap: it is a Movement skill here and blinks too, so it triggers nothing. `TriggerFootstepSkill`
+  sends the explosion where the player
+  stands: an `EffectObject` with SkillArtVariations `repeating_shockwave`'s default (MiscAnimated 1173
+  `AbberathsHoovesImpact`, `Abberaths_Hooves_fireimpact.ao`, whose own SoundEvent is the step sound), its wake zone, and
+  a RemoveObject 700 ms later (the mesh's one 666 ms clip). It then hits every living hostile monster within the radius
+  as an area spell sweep without a gem (`AreaSkillHit`'s per-monster block, crit, damage, Rage, flask charges and
+  on-hit charges; deaths after every hit), and a landed hit can ignite the monster (its 25% chance or a critical
+  strike; [20](20-damage.md) §3). No stat gives the radius, so it is the explosion mesh's 7 cells (`disjunction.sm`
+  BoundingBox ±73.553 units, 6.8 cells), grown by spell area (`SkillArea`); unverified. The footprints are the
+  client's: `FUN_141ebd630` returns footprint variation 0x19 (Footprints row 24, `FootprintsGoat`) when the player
+  stats carry `goat_footprints_from_item` (0x1526) and no `footstep_effect_variation` (0x55f), and `FUN_14166a840`
+  draws it on the rig's footstep events. The client has its own `RepeatingShockwave` action, built by the generic
+  action factory (`FUN_141265460`, `FUN_14196d550`), but nothing here sends it one. The
+  `abberaths_hooves_display_buff` (BuffDefinitions 838, visible) is not sent: when the real game shows it is
+  unverified ([Polytheist](../game/polytheist.md)).
 - **A worn Righteous Fire effect** (its `skill_art_variation`, [23](23-microtransactions.md) §3) swaps both buffs'
   visuals through 0x1c1's BuffVisuals override and the ring's AO (`SkillArt`), also on the enemies' aura; NoRing
   draws no ring. A pick while the fire burns lights it again with the new art (casting again while it burns does
@@ -2012,12 +2490,10 @@ A foreign-source packet non-removal control establishes no party aura executor o
   (`Metadata/Effects/Spells/ri_fire/rifire.ao`), an effect object of its own. The client's effect script
   (`0x142087910`) makes MiscAnimated effects as `Metadata/Effects/Effect`, `ServerEffect`, `PermanentServerEffect` …
   objects; `PermanentServerEffect` is Positioned, BaseEvents, Animated (Render client-only), so the Gateway creates one
-  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) under the player and glides it with 0x1ba
-  every 100 ms to where the player will be 100 ms later along its path (`FollowRighteousFire`, `RunRingFollow`;
-  before 2026-10-23 it glided once per ground click to that walk's end, so a walk to a stash or an item, which comes as
-  C→S 0x24, left it behind, and the straight glide cut the path's corners). It is created with Positioned flags0 0x80
-  (`EffectObject.FixedRotation`): without it each glide turned the ring to face the move, so it spun as the player
-  turned (live 2026-10-21). It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
+  (`EffectObject`: the projectile's Positioned, Animated bit0 + the .ao path) attached to the player: Animated bit2's
+  record (`0x141e5adb0` → `0x141e5a440`, [04](04-player-entity.md) §4.5) with the player as parent, bone `<root>` and kind 4 (no rotation).
+  The client carries it with its own predicted player position, so no packet moves it and latency cannot leave it
+  behind; the 0x1ba glides it had before lagged a round trip behind the client's walk. It is also scaled to the radius: Positioned flags0 0x20's uniform scale (+0x2b0, the
   x / y stretches left at 1, [04](04-player-entity.md) §4.0). The art is drawn for the radius in its MiscAnimated row's
   `__col4`, in world units (RighteousFireRing 400, RighteousFireRingWhite 200, the league avatars' blue ring 380, the
   Vaal rings 500; 0 for art not scaled to an area); the meshes agree (`rifire.sm` ±463 with its flames at 380,
@@ -2039,7 +2515,8 @@ A foreign-source packet non-removal control establishes no party aura executor o
 - **Resistances** (`CharacterStats`, `DamageModel`): the passives' `base_resist_all_elements_%` and
   `base_fire/cold/lightning/chaos_damage_resistance_%` are summed from the character's 0% base into `Pools`; the client
   applies the two permanent Kitava quest penalties itself, and the Gateway mirrors them from the same flags
-  (`a5q6-CompletedBoss`, `a10q3-SeenBoss`/`a10q3-UsedRewardBook`: -30% each, not an aura). The final value is
+  (`a5q6-CompletedBoss`/`SinOnKitavaDefeat`; `EndGameAvailable` once earned, QuestStaticRewards 39, or
+  `a10q3-UsedRewardBook`: -30% each, not an aura). The final value is
   `clamp(resistance, -200, min(75 + max-resistance modifiers, 90))`, taken from Path of Building commit `16de4b8`:
   `src/Modules/Data.lua` (`ResistFloor = -200`, `MaxResistCap = 90`), `src/Data/Misc.lua`
   (`base_maximum_all_resistances_% = 75`) and `src/Modules/CalcDefence.lua` (the clamp). The project is cloned locally
@@ -2125,6 +2602,22 @@ A foreign-source packet non-removal control establishes no party aura executor o
   (`base_block_luck`, `attack_block_luck`, `spell_block_luck`) uses `1 - (1 - p)²` (PoB CalcDefence); Svalinn's unique
   item modifiers themselves are not supported yet.
 
+### The player's debuffs on monsters: passive enemy auras and taunt
+
+- **Passive enemy auras** (`PassiveBuffAuras.EnemyAurasFor`, §10e). Each applied enemy aura's buff goes on every
+  hostile living monster within its radius of the living player (0x1c1, the player as source) and comes off (0x1c2)
+  when it leaves, dies, the node goes or the player dies; the blind aura shows the `blinded` buff instead (§12,
+  Passive blind aura).
+- **Taunt** (`TauntLocked`). Every warcry taunts the hostile monsters within its radius when its cast ends (wiki
+  Warcry: base radius 6 m, 60 cells, grown by area of effect), the Basalt Flask within its 30 cells. 3 s (wiki
+  Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
+  player ends it. BuffDefinitions 408 `taunted` shows it with its time left (flags bit1). The row is IsRecovery
+  (+0x7c), so its 0x1c1 carries its two GrantedStats values: `taunt_target_id` (the player) and `is_taunted` 1.
+- **Where it runs.** The player tick (`RunPlayerTick`, 250 ms, not while paused) calls `TickPassiveAuras`, which
+  does `EnemyDebuffsTick`; the step works at the send gate, so a removed monster gets no buff. The auras come from
+  the allocated nodes at each step, `taunted_enemies_damage_taken_+%` from the stats last sent
+  (`PlayerStatsWithCleared`). Each monster keeps the increased damage taken they give ([20](20-damage.md) §4).
+
 ### Cyclone area updates (2026-10-25)
 
 `/set_aoe` sends the increased-area input, but Cyclone's visual also needs the final
@@ -2138,6 +2631,8 @@ matching [Path of Building's skill definitions](https://github.com/PathOfBuildin
 an explicit positive base stat takes precedence. Other skills keep their existing data/fallback base.
 Client evidence: `0x1414b13c0` reads final radius stat 0x4876 to scale its cyclone effect; the shared
 cyclone path `0x141d434c0` also reads 0x4876 (or the base 0x4875 in its conditional-radius path).
+Other area skills' effects read 0x4876 as well: every skill whose record has a base radius (0x4875) also gets its final
+radius, the one its hit uses (`SkillRadius`). Without it Ice Nova's nova drew nothing (live 2026-10-30).
 Increased area is not increased radius: +300% area changes radius 16 → 32, +0% restores 16 without
 other modifiers. Tests cover this calculation, spell-area exclusion, explicit bases and the fallback.
 Additional melee-range/stage modifiers specific to Cyclone remain outside this initial area model.
@@ -2199,6 +2694,61 @@ that field via `0x141e07220` and `0x141e06290`. `auraSource: true` sends the com
 activation and restoration; recipients and other buffs retain their existing default. These aura
 rows have no MiscAnimated3 ring, so the nonzero marker only selects their EPK art; a radius-scaled
 ring will require its actual radius rather than this marker. The skill-bar association is independent.
+
+**Passive-granted skills.** A passive's PassiveSkills.dat `GrantedEffectsPerLevel` (the Hardmode column in Ruthless)
+grants its skill at that row's level (`PassiveGrantedSkills`, ordinary and ascendancy nodes alike). The Gateway lists it
+after the socketed gems in `GemSkillEffects` and `SupportedSkill`, keyed in `GemSkillIds` by a synthetic host
+(`0xFFFF0000 | node`, socket 0), so its id is as stable as a gem's. It has the row's level, quality 0, no supports and
+no requirements (gem-level and gem-quality bonuses raise gems only), and it casts, reserves, saves and ends through the
+gem paths above. The skill record carries no item, so the client gets the same record as for a gem of that level.
+Only self auras with an `AuraCatalog` effect are listed for now: a granted minion or other skill has no executor yet,
+and listing it would offer the player a skill that does nothing. The Paladin's Paladin Aura options use it
+([Paladin](../game/paladin.md)).
+
+**Triggered passive skills.** A granted triggered skill has no bar use and is never listed, since it runs from its trigger.
+The one with an executor is Summon Elemental Relic, from Paladin's Elemental Valiance and the ordinary Guardian's
+Unwavering Crusade (19641), which have the same buff and grant.
+Its trigger is the node's ally buff template (`PassiveBuffAuras.AllyAurasFor`, targets `[1, 2]`) carrying
+`can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique`.
+Ruthless reads `BuffsHardmode` only for a row with `HasHardmodeAlternate`, as for the stats; other rows keep
+`PassiveSkillBuffs` (their `BuffsHardmode` is a copy or empty).
+The hit and kill paths (`ApplyMonsterHitLocked`, the default attack, Righteous Fire's burn) call
+`TriggerElementalRelicLocked` under the Monsters lock. It rolls the skill's chance stat, spends the skill's cooldown
+through `SingleUseCooldown` (with cooldown recovery) and queues the summon for the minion step.
+Tests replace `PlayerMinions.Random`.
+
+**Owned minions** (`PlayerMinions`, `PlayerMinions.cs`). A minion is a monster made by `SpawnMonster` with
+`friendly: true` (Positioned team 0) and the stats `is_player_minion` and `is_semantic_minion` 1 on its Stats component.
+The client reads these two to know the player's minion (the link-target filter 0x141bf8490).
+`ClientState.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
+lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
+
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bb) a second later.
+- The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
+  living owner's links to it end without killing him.
+- The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his
+  `base_minion_duration_+%` added to the skill's increased duration (Path of Building: CreatesMinion skills).
+- A minion with a teleport (RelicTeleport) beyond its aggro range (MaxAgroRange) jumps next to the owner (0x1b7, as
+  `/mob_tp`): the monster AI follows only within that range.
+- Each minion's aura goes on the owner (0x1c1, the minion as source) while he is within its radius, and comes off
+  (0x1c2) when he leaves it or the minion ends. Its raw stats join the owner's stats (`MinionAuraStats`, unscaled by
+  his aura effect; his own aura of the same family wins when it is at least as strong), and the stats are sent again.
+
+The explosion hits the hostile monsters as the minion's hit (`ApplyMonsterHitLocked` with `allyAt`): the player's
+hit-recently and on-kill charges do not count it, while experience and items do (`MonsterKilled`, `byMinion`).
+The player's area skills and default attack skip friendly monsters. The instance save leaves minions out, so they never
+come back; an area change or a logout ends them with the connection. Monsters do not attack minions.
+
+**Link skills** (`LinkSkills`, `LinkSkills.cs`). A link gem's cast (`CastLink` from `CastGemSkill`, on any cast
+route) links one target at the end of its cast time: the aimed object when it qualifies, else the nearest one. The
+target must pass the client's filter (0x141bf8490): within (100 + `link_skill_range_+%`) × 80 / 100 cells and, with
+`link_skills_can_target_minions`, one of the player's living minions; there are no party allies. The link sends the
+gem's source buff on the player and its target buff on the target (0x1c1), and `number_of_active_links` in 0x1b3, which
+the client's aura effect (0x142822db0) and `PassiveBonus` read for `non_curse_aura_effect_+%_while_linked`.
+`LinkSkillsTick` runs after `PlayerMinionsTick` in every minion step. It pays the links' `mana_cost_per_minute` (GEPL
+CostTypes 7) and breaks every link when that cannot be paid. It ends a link with its duration or after 4 s out of range,
+and kills the player through `PlayerDied` when a linked target died or ended. The beam effect is not sent. Rules,
+evidence and limits: [Paladin](../game/paladin.md#link-skills).
 
 - **Reservation is in the data.** `GrantedEffectsPerLevel` has `ManaReservationFlat` and
   `ManaReservationPercent` (permyriad: `5000` = 50%); `SkillCatalog.Reservation` reads them. Standard
@@ -2609,7 +3159,7 @@ to the old critical mean or applying critical luck to the confirmation check. Ke
 reference enemy and full-precision formatter instead of guessing target conditions or rounding intermediate
 percentages. Selected gem attacks consume their own profile for both gameplay and these estimates;
 per-use critical rolls are shared as documented above. Remaining source conditions and special repeats still require review.
-[Damage §2g](20-damage.md#2g-ordinary-attack-evasion-and-critical-confirmation) records the source evidence,
+[Damage §2h](20-damage.md#2h-ordinary-attack-evasion-and-critical-confirmation) records the source evidence,
 snapshot/admission decisions, alternatives, parsed-contact controls and remaining native work.
 
 **Selected attack-gem hit rows (#196)** (`AttackSkillHit`, `AttackPanelStats`): main-hand total and per-type
@@ -2772,8 +3322,10 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   killing hit a Power Charge, Flicker Strike's and Power Siphon's own on-hit chances count, and Enduring Cry grants an
   Endurance Charge per 5 power (`endurance_charge_granted_per_X_monster_power_during_endurance_warcry`) of the hostile
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
-  its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%`; a later action does not
-  cancel it (`cannot_cancel_skill_before_contact_point`).
+  its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%` and slowed by action speed
+  (§10i); a later action does not cancel it (`cannot_cancel_skill_before_contact_point`).
+  `warcries_have_infinite_power` makes the power 999999 (PoB's override): the grant reaches the maximum, and the
+  regeneration stays at its 25-power cap.
   The combat code only enqueues events (`ChargesOnHit` at the default attack, area and projectile hits, `ChargesOnKill`
   in `MonsterKilled`, `ChargesWhenHit` in `MonsterSwing` and `/blockhit`); `RunCharges` rolls them every 50 ms, with
   the character's stats worked out outside the Monsters lock and only while events wait.
@@ -2882,8 +3434,8 @@ hit time and ends immediately on movement/deadline even before the recovery loop
 It cannot reactivate by returning to the starting cell. No state is persisted across connections.
 
 While protected, the server grants immunity to every damage type, suppresses RF self-burning and outgoing
-RF pulses, and prevents hostile AI targeting and pending monster hits. Functional summoned-minion combat
-is not implemented; cosmetic pets have no incoming/outgoing damage to protect.
+RF pulses, and prevents hostile AI targeting and pending monster hits. The only fighting minions (section 10h) need a monster's
+hit to appear; cosmetic pets have no incoming/outgoing damage to protect.
 GGG's [3.25.0 patch notes](https://www.pathofexile.com/forum/view-thread/3531661) explicitly identify the
 Grace Period buff and protection from enemy targeting. The native buff metadata supplies the icon/name/stats;
 the requested 60-second duration and town/hideout exclusions are server policy. See also the

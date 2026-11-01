@@ -40,8 +40,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   In a layout the Gateway generates, each exit leads where the graph node of its room says: "entranceN" to
   Connections[N − 1], "teleportN" to the "telepadN" slot as a gate within the area (the Upper Prison's way to the
   Warden's Quarters, boss arenas).
+  An exit the layout disables ("entranceNdisabled") is created when a quest gates it (`Quests.FlagToEnter`), and shown
+  once the character has the flag, as for any gated exit (Act 3: The Upper Sceptre of God's way to The Aqueduct, The
+  Library's into The Archives; Acts 7–10: The Ashen Fields' way north, The Harbour Bridge's into Act 9, Sin's portal
+  home from The Feeding Trough; checked offline, not yet with the client on the modules).
   Other areas use the walk-map recorder's capture and the atlas.
-  The offline audit `scripts/re/exits` checks every generated area at several seeds;
+  The offline audit `scripts/re/exits` checks every generated area at several seeds (`--quests`: with the act tables,
+  so the gated disabled exits too);
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.

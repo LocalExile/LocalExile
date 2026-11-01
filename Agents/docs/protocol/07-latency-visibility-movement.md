@@ -226,6 +226,8 @@ client and server walk at the same speed. `ApplyMovementSpeed` runs on login, le
 `/set_speed` adds its percentage on top of the passive total.
 Only unconditional `increased Movement Speed` passives are modelled: action speed, more multipliers, gear/buff
 `movement_velocity_+%`, conditional nodes and the `movement_velocity_cap` constant are not applied yet.
+`movement_speed_cannot_be_reduced_below_base` bounds the total below by 0 (PoB `max(MovementSpeedMod, 1)`).
+The client's lower bound for `movement_velocity_+%` is 0 instead of -100 from the same raw flag (`0x14251cbd0`).
 
 **Compact int** (writer `0x141fa3c50`): signed, 1 byte for −0x40..0x3f (value & 0x7f), else 2/3/4 bytes with first-byte
 prefixes 0x80/0xc0/0xe0 carrying the top 6/5/4 bits, else 0xf0 + 4 bytes; big-endian (`InstanceProtocol.CompactInt`).
@@ -292,11 +294,17 @@ predictive over 90 ms (`0x142148880`), so it picks lockstep on localhost. The Ga
 message box asking for Predictive (once per connection).
 
 **Server frames.** In lockstep the client's world does not run on its own clock: it runs **server frames**. S→C
-**0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores it at world `+0x11c`); S→C **0x2b5** (id only) ends a
-frame: the world's message intake (`0x1421872b0`) queues one frame of that length (deque at world `+0x9c0`, count
-`+0x9d8`) behind the world messages received so far (`+0x9e0`). Each client update adds its time to world `+0x988` and
-runs every queued frame it covers (`0x142183930` → world vtable `+0x360` = `0x142183ce0`): the frame's messages first,
-then the objects tick by exactly the frame's length. Behind by 1, 2, 30 or 60 frames, it speeds up × 1.01, 1.5, 2 or 5;
+**0x2b6** (u8) sets the frame length in ms (`0x141645fa0` stores the zero-extended byte as u32 at world `+0x11c`);
+S→C **0x2b5** (id only) ends a frame. In nonzero mode, after activation sets world `+0xa00`, the embedded message
+intake (`0x1421872b0`, this=world `+0x1c8`) appends a null delimiter to the record vector (`+0x9e0`) and queues
+the current frame length (deque map at world `+0x9c0`, count `+0x9d8`). Before activation it adds neither.
+Each client update adds its time to world `+0x988` and runs every queued frame it covers
+(`0x142183930` → world vtable `+0x360` = `0x142183ce0`). Nonzero-mode core updates apply initial ordering-key-zero
+messages, then interleave eligible messages with object/component checkpoints; objects use the frame's delta.
+The common header's ordering object/checkpoint fields control those insertion points, independently of the update
+target. See [World message inputs](../re/projectiles/world-message-inputs.md) and
+[component checkpoints](../re/projectiles/world-scheduling.md#10-component-checkpoints-can-consume-ordered-incoming-records).
+Behind by 1, 2, 30 or 60 frames, it speeds up × 1.01, 1.5, 2 or 5;
 the most frames it was behind since the last tick goes out as the u8 of C→S 0x1b (world `+0xb98`,
 "lockstep_lag_frames"). Without 0x2b5 nothing runs: the player is created but never drawn. A predictive client ignores
 0x2b5, and 0x2b6 only stores its byte, so the Gateway always sends them (`RunServerFrames`, 33 ms, `Game_FRAME_MS`):

@@ -5,5 +5,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The commit in AssemblyInfo.cs changes it at the first build after a commit, and `dotnet watch` restarts the Gateway for it. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- The commit in the source link file is a compiler input: without this, each commit recompiles every project. -->
+    <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 </Project>

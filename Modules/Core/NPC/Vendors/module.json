@@ -1,0 +1,9 @@
+{
+  "id": "Vendors",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [
+    "Game"
+  ],
+  "assembly": "bin/vendors.dll"
+}

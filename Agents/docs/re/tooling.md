@@ -6,6 +6,10 @@ apart from the login key blobs, so addresses are the same in both.
 
 ## 1. Ghidra (headless, read-only)
 
+For the frozen projectile study, start with [RE 012](012-projectile-execution.md) and the
+[offline delivery checks](../../../scripts/re/projectiles/README.md).
+Those checks need neither the client nor Ghidra; historical instruction-audit receipts are not public native replays.
+
 A fully analyzed project already exists: `Tools/ghidra-projects`, project `poe3293`, program `PathOfExile.exe` (the
 same binary as `Client/Game.exe`). Do not rename the project or program, because the scripts use those names. REA's
 own Ghidra import of the 79 MB file exceeds its 1-hour limit, so use this project instead of re-analyzing.

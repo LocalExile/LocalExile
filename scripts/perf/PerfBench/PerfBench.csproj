@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Gateway's in-process measurements (Program.cs; Agents/docs/dev/performance.md). Not a test project: it waits
+       on real time and measures this machine. Its assembly name is the one the Gateway and the modules open their
+       internals to. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>perfbench</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
+    <ProjectReference Include="..\..\..\Modules\Core\Game\Game.csproj" />
+  </ItemGroup>
+
+</Project>

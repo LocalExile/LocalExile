@@ -19,6 +19,15 @@ public enum ItemRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
 /// </summary>
 public enum ModSection : byte { Implicit = 4, Explicit = 5, Enchant = 6, Scourge = 10, Hidden = 11 }
 
+/// <summary>An item's influences, the Base component's u8 +0xc6: one bit per InfluenceTags/InfluenceExalts Influence row, in
+/// that order (the conqueror names follow InfluenceExalts). The client refuses crafting on it (0x141d57ea0 tests it for
+/// zero) and draws it (0x1415703a0 reads each bit). Agents/docs/protocol/13-items.md §2.</summary>
+[Flags]
+public enum ItemInfluence : byte
+{
+    None = 0, Shaper = 1 << 0, Elder = 1 << 1, Crusader = 1 << 2, Redeemer = 1 << 3, Hunter = 1 << 4, Warlord = 1 << 5,
+}
+
 /// <summary>A mod on an item: a Mods.dat row by its HASH16 and one value per stat of that row (StatsKey1..8 in order,
 /// as many as the row has). The client counts the row's stats itself, so the count must match.</summary>
 public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int> Values);
@@ -78,6 +87,23 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// Mods component's flag bit 1 (+0x2df, a plain bool: the client refuses crafting on it, 0x141d68f9b).</summary>
     public bool Mirrored { get; init; }
 
+    /// <summary>Influences, the Base component's u8 +0xc6. Their mods are ordinary affixes, which these open by tag.</summary>
+    public ItemInfluence Influences { get; init; }
+
+    /// <summary>Split: the Mods component's flag bit 2 (+0x2e0, "split" in its debug dump 0x1421e1190).</summary>
+    public bool Split { get; init; }
+
+    /// <summary>Synthesised: the Mods component's flag bit 5 (+0x2e5, "synthetic" in its debug dump 0x1421e1190).</summary>
+    public bool Synthesised { get; init; }
+
+    /// <summary>Hinekora's Lock: the item is in the foreseeing state. Sent as the Mods component's flag bit 8
+    /// (0x0100); the client reads it at item +0x2c0 and shows the purple glow and the Lock tooltip text.</summary>
+    public bool Foreseeing { get; init; }
+
+    /// <summary>The seed the preview and the committed result are both computed from. 0 when not foreseeing; kept in
+    /// the save so the preview survives a reload and the committed result is identical to it.</summary>
+    public uint ForeseeSeed { get; init; }
+
     /// <summary>The indexes in <see cref="Mods"/> of the fractured explicit mods.</summary>
     public IReadOnlySet<int> FracturedIndexes() => Mods.Select((m, i) => (m, i)).Where(p => p.m.Section == ModSection.Explicit)
         .Take(FracturedCount).Select(p => p.i).ToHashSet();
@@ -111,7 +137,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>This item's level requirement, instead of <see cref="LevelRequirementOf"/>.</summary>
     public int? RequiredLevel { get; init; }
 
-    public static bool CanSerialize(IEnumerable<string> components) => components.All(Supported.Contains);
+    public static bool CanSerialize(IEnumerable<string> components) => components.All(c => c == "Tincture" || Supported.Contains(c));
 
     /// <summary>
     /// The item data the reader 0x1421ec390 takes (all little-endian: it reads with memcpy): u32 type hash, u16 flags
@@ -129,11 +155,11 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // 0x1421e69c0: u16 ItemVisualIdentity HASH16 (null → "Attempt to set visual identity to NULL"), u8 +0xc0,
                 // u8 +0xc7 flags, u16 flags (low: bit0 → u8 +0xc5, bit1 flavour text u16, bit2 wide string, bit3 u32,
                 // bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact);
-                // high: bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6.
+                // high: bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 the influences.
                 // Bit 7 (a vendor price): u8 n, then n × (u32 item type hash, compact uint amount; 0x141fa5290 looks the type
                 // up, 0x141e61010 reads the amount); stored in the Base's +0xb8 item list.
                 case "Base":
-                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0)).U16((ushort)(Price.Count > 0 ? 0x80 : 0)).U8(0);
+                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0)).U16((ushort)(Price.Count > 0 ? 0x80 : 0)).U8((byte)Influences);
                     if (Price.Count > 0)
                     {
                         w.U8((byte)Price.Count);
@@ -151,14 +177,19 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "Armour":
                     w.U8(DefenceBaseRoll);
                     break;
-                // 0x1421df6e0: u8 +0x2b8 (item level), u8 +0x2bc (level requirement, kept as sent), u16 flags (bit 6
-                // incubator, bit 4 → u8, bit 15 a 0x1c8 record), the base magic properties 0x142201d70 (MagicProperties), u8, u8.
+                // 0x1421df6e0: u8 +0x2b8 (item level), u8 +0x2bc (level requirement, kept as sent), u16 flags (bit 1
+                // duplicated, the mirrored state; bit 2 split; bit 3 disable_mirrored_visuals; bit 4 relic → a u8 after the
+                // incubator; bit 5 synthetic; bit 6 incubator; bit 7 a 0x1c8 record; bit 10 vestigial), the base magic
+                // properties 0x142201d70 (MagicProperties), u8, u8.
                 case "Mods":
-                    w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255)).U16((ushort)(Mirrored ? 0x2 : 0));
+                    w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
+                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)));
                     MagicProperties(w); w.U8(0).U8(0);
                     break;
                 case "Quality": w.U8(Quality); break;                 // 0x1424aec50
                 case "Charges": w.CompactI(Charges); break;           // 0x14249d4b0: signed compact (0x141e490e0)
+                // Tincture slot 5 (0x14249ce20) consumes one boolean at +0x20. Stored tinctures are inactive.
+                case "Tincture": w.U8(0); break;
                 case "Stack": w.U16(StackSize); break;                // 0x1423f4b30
                 // 0x1423f3f10 (write 0x1423f3e60): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.
@@ -343,6 +374,26 @@ public static class InstanceItems
     // C→S 0x29 (class 0x14316c930, id only, sender 0x140117b80): drop the held item into the world. Outside town the
     // client sends it at once; in town (and for quest items) it shows the Keep / Destroy popup instead and sends nothing
     // unless Destroy is chosen (0x16, DestroyCursorItemCommand).
+
+    public const ushort CurrencyApplicationForesightResultId = 0x29f;
+
+    /// <summary>The 0x29f result code that plays the client's Hinekora fail animation (0 shows the preview).</summary>
+    public const ushort CurrencyApplicationForesightFailure = 0x04FA;
+
+    /// <summary>
+    /// S→C 0x29f CurrencyApplicationForesightResult (dispatcher case 223, handler 0x1421544c1, reader 0x141fa1c50):
+    /// u16 id, u16 BE keyA (the C→S 0x29c request key), u16 raw status (0: preview, non-zero: failure; the client's
+    /// own fail path uses <see cref="CurrencyApplicationForesightFailure"/>), u64 raw count, then count × item
+    /// (u16 BE length + <see cref="Item.Payload"/>). The handler builds {keyA, status, vector&lt;Item&gt;} and dispatches
+    /// it to the instance-client event bus at +0x48f0, where the open item popup shows the preview.
+    /// </summary>
+    public static byte[] CurrencyApplicationForesightResult(ushort keyA, ushort status, IReadOnlyList<Item> items)
+    {
+        var w = new LoginWriter().U16(CurrencyApplicationForesightResultId).U16(keyA)
+            .Bytes([(byte)status, (byte)(status >> 8)]).RawU64((ulong)items.Count);
+        foreach (var item in items) w.Bytes(item.Wire());
+        return w.ToArray();
+    }
 
     /// <summary>
     /// S→C 0xbf (dispatcher case 0x34, class 0x1435dbd28, write 0x1421a37f0 → 0x1425079a0; handler 0x141d62550 →

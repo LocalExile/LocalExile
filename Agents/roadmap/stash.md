@@ -17,9 +17,10 @@ verify the corrected fossil/resonator presentation in the real client (18-stash.
   Currency stack limits follow the extracted table; lifeforce merging to 50 000 is verified in the real client.
   Switching to a loaded tab sends nothing to the server.
 - **Start:** check live that the affinity window closes on S→C 0x136;
-  tab rename / colour (0xd2), order (0xcc) and folders (0xd1); the unique and map tabs (their layouts:
-  UniqueStashLayout / UniqueStashTypes, MapStashSpecialSubStashGroup / MapStashUniqueMapInfo), which `/item_tab`
-  also needs. The divination and gem tabs show items (18 §7).
+  tab rename / colour (0xd2), order (0xcc) and folders (0xd1); the regular map tab
+  (MapStashSpecialSubStashGroup / MapStashUniqueMapInfo). Unique collection categories and `/item_tab` filling
+  are implemented; unique Heist contract generation and catalogue entries absent from the native collection remain
+  unsupported. The divination and gem tabs show items (18 §7).
 - **Done when:** tab settings are kept and every special tab takes its items as the real one does.
 
 ### Special-tab crafting follow-up

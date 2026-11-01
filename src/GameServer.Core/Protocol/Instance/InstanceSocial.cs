@@ -36,12 +36,26 @@ public static class InstanceSocial
     /// <summary>C→S 0x93: "Invite to Party": wstr the character's name.</summary>
     public static string ReadPartyInvite(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
-    /// <summary>C→S 0x80: "Add Friend": wstr the character's name, u16 (0 from the context menu).</summary>
+    /// <summary>C→S 0x80: wstr name, two independent bytes (0x141f94db0).
+    /// First byte selects friends (0) or ignore (1); second is add (0), remove/decline (1), accept (2).
+    /// Returned U16 packs the native low/high bytes: friend add 0, remove/decline 0x100, accept 0x200.</summary>
     public static (string Name, ushort U16) ReadFriendAdd(ReadOnlySpan<byte> m)
     {
         var r = new LoginReader(m[2..]);
-        return (r.WStr(), r.U16());
+        string name = r.WStr();
+        byte operation = r.U8(), kind = r.U8();
+        return (name, (ushort)(operation | kind << 8));
     }
+
+    /// <summary>S→C 0xc9: account relation and note. Dispatcher 0x14214e3da: bit 0 accepted,
+    /// bit 2 remove. The Friends panel (0x140a3bd70) separates incoming invitations from accepted friends using bit 0;
+    /// online character metadata comes from 0xa7, not 0xa3 (hideout invitation).</summary>
+    public static byte[] FriendRelation(string account, bool accepted, bool remove = false) =>
+        new LoginWriter().U16(0xc9).U8((byte)(remove ? 4 : accepted ? 1 : 0)).WStr(account).WStr("").ToArray();
+
+    /// <summary>A known account without an active character: flags zero followed by its offline timestamp.</summary>
+    public static byte[] OfflinePlayer(string account) =>
+        new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8(0).RawU64(0).ToArray();
 
     /// <summary>Bytes of a 0x93 at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
     public static int? PartyInviteLength(ReadOnlySpan<byte> m)
@@ -90,10 +104,17 @@ public static class InstanceSocial
     /// and the party list (0xa9) look players up in; without an entry the request is dropped silently (live 2026-10-28).
     /// Wire: wstr account (key, entry +0x30), wstr (+0x50), u8 flags (bit 0: u16 pair +0xaa/+0xae follows, bit 1: u16
     /// pair +0xb0/+0xb2 follows, bit 2 +0xba: character data, bits 3..6 +0xbb/+0xbc/+0xbd/+0xbe); with bit 2: wstr character
-    /// (+0x70), u8 (+0xb9), u8 (+0xb8), u16 BE (+0xa8, taken as the level), u16 BE (+0xac), wstr (+0x90), u8 (+0xb4), then
-    /// the pairs; without bit 2 a u64 (+0xa0).
+    /// (+0x70), u8 (+0xb9), u8 (+0xb8, the packed class), u16 BE (+0xa8, taken as the level), u16 BE (+0xac), wstr (+0x90),
+    /// u8 (+0xb4), then the pairs; without bit 2 a u64 (+0xa0). Read back by 0x141f8f850. The bit 1 pair is the portrait
+    /// frame (+0xb0) and the portrait (+0xb2), which the party portraits (0x14020b230) and social rows (0x140af6c20) draw;
+    /// the client's own writer leaves the pair out when both are 0.
     /// </summary>
-    public static byte[] KnownPlayer(string account, string character, int level) =>
-        new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8(0x04)
-            .WStr(character).U8(0).U8(0).U16((ushort)Math.Clamp(level, 0, ushort.MaxValue)).U16(0).WStr("").U8(0).ToArray();
+    public static byte[] KnownPlayer(string account, string character, int level, byte packedClass = 0, ushort frame = 0, ushort portrait = 0)
+    {
+        bool look = frame != 0 || portrait != 0;
+        var w = new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8((byte)(look ? 0x06 : 0x04))
+            .WStr(character).U8(0).U8(packedClass).U16((ushort)Math.Clamp(level, 0, ushort.MaxValue)).U16(0).WStr("").U8(0);
+        if (look) w.U16(frame).U16(portrait);
+        return w.ToArray();
+    }
 }

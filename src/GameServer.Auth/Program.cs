@@ -9,12 +9,15 @@ using GameServer.Storage;
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
 //   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
+//   accounts                               print how many accounts there are
+//   register <account>                     create an account; its password is the first line of standard input
 //   [serve] [keys.json]                    accept logins: 0x0002 key exchange, then answer account login 0x03 with 0x04
 //                                          and log every decoded message (Agents/docs/re/009)
 // Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: the save database
 // (Game_SAVES_DB, default data/saves.db, shared with GameServer.Host and the Gateway; register through the Host), with an
 // older data/accounts.json (Game_DEV_DB) imported once. Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET),
-// shared with GameServer.Gateway. Instance control for the Gateway: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495).
+// shared with GameServer.Gateway. Instance control for the Gateway: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495). Play sends
+// the client to the Gateway at Game_GATEWAY_HOST:Game_GATEWAY_PORT (127.0.0.1:6112, GatewayEndpoint).
 
 const string DefaultKeys = "data/login-keys.json";
 string cmd = args.Length > 0 ? args[0] : "serve";
@@ -29,6 +32,15 @@ switch (cmd)
         var r = service.SetPassword(args[1], args[2]);
         Console.WriteLine(r.Ok ? $"[auth] password of {args[1]} changed; restart Auth (live.ps1 -Only Auth) to use it"
             : $"[auth] {args[1]}: {r.Error}");
+        return r.Ok ? 0 : 1;
+    }
+    case "accounts":
+        Console.WriteLine(SqliteAccountStore.Open().Accounts().Count);
+        return 0;
+    case "register" when args.Length >= 2:
+    {
+        var r = new AccountService(SqliteAccountStore.Open()).Register(args[1], Console.ReadLine() ?? "");
+        Console.WriteLine(r.Ok ? $"[auth] account {args[1]} created" : $"[auth] {args[1]}: {r.Error}");
         return r.Ok ? 0 : 1;
     }
     case "keygen" when args.Length >= 2:
@@ -84,7 +96,6 @@ static async Task Serve(LoginServerKeys keys)
     listener.Start();
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
     // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
-    var towns = GameServer.Core.World.WorldAreaTowns.Load(Path.Combine("data", "tables", "WorldAreas.json"));
     // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
     // keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it cannot build seed 1
     // (ServerLevelAreas.SeedsInPlaceOfOne). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
@@ -93,18 +104,27 @@ static async Task Serve(LoginServerKeys keys)
     string baseline = GameServer.Core.World.ServerLevelAreas.BaselineFile;
     // Game_SEED=<n> (dev) gives every new non-hideout instance that seed instead, for generation traces of one seed.
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
-    var hideoutAreas = GameServer.Core.World.WorldAreaHideouts.LoadAreas(worldAreas);
-    var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
-        ? new HashSet<ushort>()
-        : GameServer.Core.World.ServerLevelAreas.Hashes(worldAreas,
-            GameServer.Core.World.ServerLevelAreas.Load(baseline, m => Console.WriteLine($"[auth] {m}")));
-    var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
-        GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(baseline, m => Console.WriteLine($"[auth] {m}")));
+    // The WorldAreas loads run on a thread of their own: the parse buffers ArrayPool keeps for a thread go with it (they
+    // were ~20 MB of the idle Auth's 33), then one collection gives their memory back (performance.md).
+    var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne) = Isolated(() =>
+    {
+        var towns = GameServer.Core.World.WorldAreaTowns.Load(worldAreas);
+        var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(worldAreas);
+        var hideoutAreas = GameServer.Core.World.WorldAreaHideouts.LoadAreas(worldAreas);
+        var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
+            ? new HashSet<ushort>()
+            : GameServer.Core.World.ServerLevelAreas.Hashes(worldAreas,
+                GameServer.Core.World.ServerLevelAreas.Load(baseline, m => Console.WriteLine($"[auth] {m}")));
+        var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
+            GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(baseline, m => Console.WriteLine($"[auth] {m}")));
+        return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne);
+    });
+    GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s); " +
         $"{inPlaceOfOne.Count} area(s) the client cannot build at seed 1 get another seed in its place");
     var seeds = new GameServer.Core.World.AreaSeeds
     {
-        Hideouts = GameServer.Core.World.WorldAreaHideouts.Load(worldAreas),
+        Hideouts = hideouts,
         Random = randomAreas,
         InPlaceOfOne = inPlaceOfOne,
         Fixed = fixedSeed,
@@ -120,13 +140,37 @@ static async Task Serve(LoginServerKeys keys)
         CharacterHome.SelectedHideout(progress, character) is { } area && hideoutAreas.TryGetValue(area, out ushort hash) ? hash : null);
     _ = directory.ServeControlAsync(InstanceControl.Port);
     Console.WriteLine($"[auth] login server on tcp/{port}");
-    // Game_LEAGUES: comma-separated base leagues (default Standard, Allflame), each with its Hardcore / SSF / Ruthless variants.
-    Console.WriteLine($"[auth] leagues: {string.Join(", ", LeagueCatalog.FromEnvironment().All.Select(l => l.Name))}");
+    // Game_LEAGUES: comma-separated base leagues (default Standard and those the league modules declare), each with its variants.
+    Console.WriteLine($"[auth] leagues: {string.Join(", ", LeagueCatalog.Startup.All.Select(l => l.Name))}");
     while (true)
     {
         var tcp = await listener.AcceptTcpClientAsync();
         _ = Task.Run(() => HandleConnection(tcp, keys, accounts, keyring, directory));
     }
+}
+
+// A load on a thread of its own (the Gateway's GameTables.Isolated); on the calling thread when none can start.
+static T Isolated<T>(Func<T> load)
+{
+    T result = default!;
+    System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
+    Thread thread;
+    try
+    {
+        thread = new Thread(() =>
+        {
+            try { result = load(); }
+            catch (Exception ex) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
+        }) { Name = "game data load", IsBackground = true };
+        thread.Start();
+    }
+    catch (Exception ex) when (ex is OutOfMemoryException or ThreadStartException)
+    {
+        return load();
+    }
+    thread.Join();
+    failure?.Throw();
+    return result;
 }
 
 static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountService accounts, InstanceKeyring keyring, InstanceDirectory directory)
@@ -157,7 +201,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { Keyring = keyring, Leagues = LeagueCatalog.FromEnvironment(), CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
+            var session = new LoginServerSession(accounts) { InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
             byte[] rest = buf[used..have];
             try

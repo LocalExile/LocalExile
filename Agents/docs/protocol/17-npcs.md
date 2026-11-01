@@ -180,6 +180,23 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 C→S 0x85 during a talk = Continue → 0x84 0xff (back to the options); otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).
 
+### NPCTalk scripts
+
+A row's `Script` / `Script2` (NPCTalk columns) can do more than set flags. The Game module runs these calls
+(`NpcCatalog.Talk`, Game `World/Quest/NpcScripts.cs`; [campaign quests](../game/campaign-quests.md) E5):
+
+| Call | When | What the Gateway does |
+|---|---|---|
+| `SetQuestFlag(f)`, `ClearQuestFlag(f)`, `SetSessionQuestFlag(f)` | on choosing | the flags ([12](12-quests.md) §5); a session flag (SessionQuestFlags.dat) is never saved and is gone on the next area |
+| `DirtyTransition();` (top level) | on choosing | the NPC's own Transitionable steps one state on (S→C 0x2ba; Dialla at the Rapture Device withers, 534) |
+| `ForEachOfType("<type>", { DirtyTransition(); })`, `ForEachInRange(r, { IfType("<type>", { Transition(); }) })` | on choosing | every object of the type steps on: NPCs, the quest objects the engine created, and area transitions of that tile type its quest flag still hides are shown on this instance (Dialla's 521 opens `AscentTransition`; the row's own flag keeps it open, `On.Exit`) |
+| `DoNPCChat(n)` | when the talk ends (0x85 Continue) | the NPC's option `n` plays next (0x84 with its index), with its own flags and script: talks in pages (Sin's "Kitava" 882 → 883 → 884) |
+| `FinishNPCChat()` | when the talk ends (at once for a row without text) | the dialogue closes (0x84 object 0) instead of listing the options again |
+| `SendOpenScreen(PantheonScreen)` | with FinishNPCChat | S→C 0x7b kind 0x14 (the Pantheon panel) |
+| `AreaTransitionTo(<area>, <index>, <delay>)` + Script2 `FadeToBlack(…)` | with FinishNPCChat | after the delay (seconds) the player moves to the area's arrival point, as `/goto`; the fade is the client's own. The index (0/1) is probably the arrival point (not decoded); every arrival is the area's default point |
+
+Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRulesetEvent`, `EnableScion`.
+
 ## 5. Shops
 
 - **S→C 0x8c** (read `0x1421a1f60`): u32 BE NPC, u16 BE (NPCShop row), u8, u16 n + n × u32 BE inventory ids (one tab
@@ -221,8 +238,13 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
   These are catalogue identities; complete unique modifier sets and unique-area device routing remain unimplemented.
   No MapAtlas, MapTier or generic MapKey entries are mixed into this stock.
   Goods2, Goods3 and later pages are created automatically when needed.
-  Tabs fill row by row. With more than one tab 0x8c's u8 is sent as 1 (the window at UI
-  +0x7b8; 0 opens +0x7b0, which drew 8 tabs over its title, live 2026-10-21; being tested).
+  Tabs fill row by row. 0x8c's u16 is the window kind (`0x14073ee60`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
+  deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the
+  NPC's DialogueStyle (`0x14072b160`: not LEGACY → UI +0x7b8), not by the u8. The u8 is the async trade mode (title
+  "Merchant", 78 more height, a report popup on the tabs; `0x14073d570`, `0x14073fdd0`); the Gateway sends 0. A tab's
+  compact value is its colour, not an index (+0x24: ARGB, 0 the default brown; a small number has alpha 0, which drew no
+  tab background). Tabs have 11 rows: 12 pushed the tab bar over the "Purchase" title (live 2026-10-31). The window's own
+  "Select Items To Buy" (`0x14073bee0`) stays visible behind the first tabs; no server value removes it.
 - **Sell**: S→C 0xb8 (write `0x141d6acc0`): u32 BE other party (0 = NPC sale → VendorSell, UI +0x7c8), u32 BE your offer,
   u32 BE their offer (both manager-1 inventories, grids `0x140317440` / `0x140c605f0`), u8 flags, wstr name, u32 BE
   NPCs row, u16, u32 BE TradeWindowVisuals row, u16 (+0x54, shown as an error text when set), u16. The offer grids
@@ -267,7 +289,7 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
 
 ## Open
 
-- Selling: real sell prices; remaining quest reward offers/scripts; Respecialisation with refund points;
+- Selling: real sell prices; remaining quest reward offers and scripts (above); Respecialisation with refund points;
   real buy prices.
 - The NPC component's two bytes, and 0x84's other mode values.
 - NPCs outside towns, league NPCs in towns, and quest-stage variants of town NPCs (§2).

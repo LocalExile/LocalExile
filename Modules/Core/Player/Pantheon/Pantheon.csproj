@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Pantheon: choosing a major and a minor god (C->S 0x1ee), their powers, /pantheon and /state's "pantheon"
+       (Agents/docs/game/campaign/pantheon.md, Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+</Project>

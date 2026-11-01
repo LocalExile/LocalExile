@@ -1,0 +1,9 @@
+{
+  "id": "Cosmetics",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [
+    "Game"
+  ],
+  "assembly": "bin/cosmetics.dll"
+}

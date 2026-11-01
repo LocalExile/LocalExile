@@ -104,6 +104,12 @@ public sealed class GameDataStore : IDisposable
                     key TEXT NOT NULL,
                     PRIMARY KEY (kind, key)
                 ) STRICT;
+                CREATE TABLE IF NOT EXISTS catalog_seed_defaults (
+                    kind TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (kind, key)
+                ) STRICT;
                 CREATE TABLE IF NOT EXISTS unique_weights (
                     name TEXT PRIMARY KEY,
                     weight REAL NOT NULL,
@@ -467,6 +473,21 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>The keys of a kind's rows last written no later than <paramref name="since"/> (a round-trip UTC time).
+    /// A write through this store rewrites a row's time; an edit by hand might not.</summary>
+    public IReadOnlySet<string> CatalogKeysWrittenBy(string kind, string since)
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT key FROM catalog_entries WHERE kind = $kind AND updated_utc <= $since",
+                ("$kind", kind), ("$since", since));
+            using var reader = command.ExecuteReader();
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            while (reader.Read()) keys.Add(reader.GetString(0));
+            return keys;
+        }
+    }
+
     public void PutCatalogRow(string kind, string key, string payload, bool enabled = true)
     {
         if (string.IsNullOrWhiteSpace(kind)) throw new ArgumentException("catalog kind is empty", nameof(kind));
@@ -528,6 +549,38 @@ public sealed class GameDataStore : IDisposable
         });
     }
 
+    /// <summary>The payload the seed last gave each key of a kind. A row that still holds it was not edited.</summary>
+    public IReadOnlyDictionary<string, string> LoadSeedDefaults(string kind)
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT key, payload FROM catalog_seed_defaults WHERE kind = $kind", ("$kind", kind));
+            using var reader = command.ExecuteReader();
+            var defaults = new Dictionary<string, string>(StringComparer.Ordinal);
+            while (reader.Read()) defaults[reader.GetString(0)] = reader.GetString(1);
+            return defaults;
+        }
+    }
+
+    public void ReplaceSeedDefaults(string kind, IEnumerable<KeyValuePair<string, string>> defaults)
+    {
+        if (string.IsNullOrWhiteSpace(kind)) throw new ArgumentException("catalog kind is empty", nameof(kind));
+        Atomically(() =>
+        {
+            using (var delete = Command("DELETE FROM catalog_seed_defaults WHERE kind = $kind", ("$kind", kind)))
+                delete.ExecuteNonQuery();
+            using var insert = Command("INSERT INTO catalog_seed_defaults (kind, key, payload) VALUES ($kind, $key, $payload)",
+                ("$kind", kind), ("$key", ""), ("$payload", ""));
+            insert.Prepare();
+            foreach (var (key, payload) in defaults)
+            {
+                insert.Parameters["$key"].Value = key;
+                insert.Parameters["$payload"].Value = payload;
+                insert.ExecuteNonQuery();
+            }
+        });
+    }
+
     public bool CatalogSeeded(string kind) => Meta("catalog_seeded:" + kind) is not null;
 
     public void MarkCatalogSeeded(string kind) => SetMeta("catalog_seeded:" + kind, DateTime.UtcNow.ToString("O"));
@@ -553,10 +606,18 @@ public sealed class GameDataStore : IDisposable
         });
     }
 
+    /// <summary>Runs several of this store's writes as one transaction.</summary>
+    public void InTransaction(Action work) => Atomically(work);
+
     private void Atomically(Action work)
     {
         lock (_gate)
         {
+            if (_tx is not null)
+            {
+                work();
+                return;
+            }
             using var transaction = _db.BeginTransaction();
             _tx = transaction;
             try

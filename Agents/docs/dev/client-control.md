@@ -23,10 +23,20 @@ already has it). Run from the repository root:
 
 `game:open` attaches to an existing client, or calls `live.ps1 -ClientOnly`. That switch starts only the copied client
 with the local patching-server argument and requires the local servers already running; it does not restart services,
-rebuild, extract data, or close an existing client. With `-Walkmaps` it also starts the walk-map recorder beside the
-client unless one already runs. It waits up to 60 seconds for a native menu, so login can immediately
-follow its successful result. Before opening a closed client, it resets the cached GGPK gateway list to local Auth,
-as a normal startup does; an existing client returns before that write. Startup asset loading still takes the
+rebuild, extract data, or close an existing client. With `-Walkmaps` (default ports and client only) it also starts
+the walk-map recorder beside the client unless this checkout's recorder already runs. It waits up to 60 seconds for a native menu, so login can immediately
+follow its successful result. Before opening a closed client on the default ports, it points the cached GGPK gateway
+list at the local Auth when the list does not already (a stack on its own ports never writes the shared GGPK: the
+bridge's login connects to its Auth by port); an existing client returns before that.
+
+Several clients: `--session NAME` (`control.ps1 -Session NAME`, or `Game_CLIENT_SESSION`) drives one of several clients
+of this checkout's stack, each opened by `game:open` with that session as `live.ps1 -ClientOnly -Session NAME` does
+([live testing](live-testing.md#several-stacks-and-clients)). The bridge attaches to the PID `live.ps1` recorded for the
+session in `data/clients/NAME.json` (checked with the process's start time and this checkout's client path), never to
+another checkout's or session's client; without a session it takes this checkout's one unrecorded or default-recorded
+client, as before. A client counts as this checkout's by the path it was started by (its command line: the image name
+Windows reports resolves the `Client` junction to the shared folder, the same for every checkout). Logins go to this
+stack's Auth: the ports `live.ps1 -PortBase` wrote to `data/stack.json`, else `Game_LOGIN_PORT`, else 20493. Startup asset loading still takes the
 client's normal time. After merging upstream's gateway reset, a fresh client opened against the already-running
 Patch/Auth/Gateway services in 9.5 seconds, then logged in, listed characters and entered an area successfully
 (2026-10-25, isolated validation database). Mocked startup checks also cover existing clients and failed preflights.
@@ -40,8 +50,11 @@ line (the client's own 0x15, as typed in the chat box), and `tp` the `/tp` dev c
 `id`, `target` (+ `index`) or `list`. For slash commands the result also has `replies`: the chat lines the Gateway
 answered with, read from `logs/live-gateway.log` (its `=> 0x0017 chat line` entries) until 0.25 s pass without a new
 one or `wait` seconds (default 1.5) in total. `replies` is null when the servers were not started by this checkout's
-`live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Replies of commands
-sent from the chat box meanwhile are mixed in; the bridge does not capture the HUD.
+`live.ps1` (no log); a command without an answer (e.g. `/goto`) returns an empty list after `wait`. Only the lines sent
+to this client's own connection count (the log names each connection by the client's local port, which the bridge
+reads from the TCP table for the client's PID; none while it has no connection to the Gateway), so other sessions on
+the same Gateway do not mix in; replies of
+commands typed in this client's chat box meanwhile still do. The bridge does not capture the HUD.
 
 Explicit password login replaces both the outgoing account/digest and the native message's saved-credential flag.
 The ordinary handshake can submit a remembered form before the explicit login RPC runs.
@@ -88,7 +101,10 @@ The bridge refuses a different executable path or code signatures. Addresses bel
 | `0x14213d9f0` | Connect using UTF-16 host/port strings; bridge forces `127.0.0.1`. |
 | `0x14213c660` | Native account-login writer. The handshake listener can auto-submit its saved form before a second RPC arrives; supply the requested account/digest to this **one** submission. The native string assignment owns its allocation; the digest is cleared from bridge memory after copying. |
 | `0x14213ea10` | Login sender, used only if the handshake listener has not already submitted. |
-| `0x14213f190` | Capture the actual login result (`0x04`, result at `+0x10`). |
+| `0x14213f190` | Capture the actual login result (`0x04`, result at `+0x10`), the delete result (`0x0d`, `+0x10`) and the create result (`0x13`: reader `0x14219b8d0` stores the u16 at `+0x12`, the bool at `+0x10`). |
+| `0x142140490` | Native C→S 0x12 create-character sender: (login, name view, league view, unused r9, password view, start-state view). Its caller in 009, the create screen's `0x140cf5ef0`, pushes state 11 and sets the class first; the bridge does neither, so no Play follows. An empty password view sends 32 zero bytes. |
+| `0x141f950c0` | C→S 0x0c message writer, slot 1 of class `0x1435bfcd8`: (message, socket) writes u16 `+8`, wstr `+0x10`, u8 `+0x30`; the bridge flushes after it like the delete screen's sender `0x140cfafa0`, which itself needs that screen. |
+| instance `+0xc278` → `+0xb0` | Current WorldAreas row: Id string pointer at `+0`, HASH16 at `+0x2a`. The map overlay `0x1406b2030` titles the area with this row's `+0x8` (Name) and tests `+0x14`/`+0x1e4`; the delve gauge (`0x1404301f0`) tests `+0x1e4`. |
 | login `+0xe68` | Received character vector, 0x50-byte entries. |
 | `0x1421406f0` | Play with the chosen name view and list index. Set in-game state `+0xa48` to its class; push **state 11 (loading)**, which installs the assignment listener. Directly pushing state 4 skips that listener. |
 | `0x140d0f740` | Existing root login state's logout routine; preserves the correct login form lifecycle. |
@@ -114,6 +130,38 @@ immediate rejection 6, and the existing timeouts for pending or incomplete succe
 `powershell -NoProfile -File scripts/dev/test_live_client_only.ps1` checks closed/existing client startup,
 local gateway selection, and failed preflights with mocked processes and no GGPK writes.
 
+## Campaign helpers
+
+From character selection, `{"command":"character:create","name":"CampaignWitch","class":"Witch","league":"Standard"}`
+calls the client's own 0x12 sender (`league` defaults to Standard; `startState`, e.g. `IntDefault`, replaces `class`).
+The class's default start state (set 0, level 1) comes from `data/tables/Characters.json` and
+`CharacterStartStates.json`. Names follow Auth's rule: 3–23 letters, digits, `_` or `-`. The call waits until the new
+name is in the received list and returns `{"character":{index,name,league,level,classId},"startState",…}`. A non-zero
+0x13 result raises its meaning, e.g. 21 name taken or 49 no slots. After a successful create the client itself moves
+to the loading state (11) and waits for the Play its create screen would send; `character:play` sends that Play from
+there without pushing state 11 again (live: create 0.6 s, Play into The Twilight Strand 4.6 s).
+`{"command":"character:delete","name":"X"}` writes 0x0c with the class writer and waits until the name leaves the
+list; with `"missingOk":true` an unlisted name returns `{"deleted":false}`. A non-zero 0x0d result raises, e.g. 16.
+
+`game:status` has `area` (WorldAreas Id) and `areaHash` (HASH16) while instanceState is 3; they are null when the row
+cannot be read. `{"command":"waypoint:travel","area":"1_1_2"}` (or `"hash":31442`, or the HASH16 as `area`) sends the World panel's 9-byte 0x4d
+(u32 0x2f00, Ctrl 0) on the instance socket. With `"wait":true` the response adds a `status` once the area is entered.
+`{"command":"area:wait","area":"1_1_2","timeout":60}` waits for that area. `{"command":"area:wait","from":<status>}`
+waits for a change of area or instance: the instance leaves state 3 and returns, or the Id changes. With both, the
+change and the Id are required (travel into the current area). `{"command":"item:pickup","id":<ground item id>}`
+sends the `object:interact` 0x24, which puts the item into the first free main-inventory cell.
+
+Every message the bridge writes on a socket goes out as the client's own instance send (`0x14216e940`) writes one:
+the socket is marked as being written (+0x240) and, while another thread services it (+0x242), the buffered writer
+runs under the socket's SRW lock (+0x248), which the flush takes too. Written without the lock, a command raced the
+network thread's flush and the client's cipher fell out of step with the Gateway's for good (twice in about six
+campaign runs of hundreds of commands; the Gateway now closes such a connection, see 07 / `ClientInbox`).
+
+Live verified 2026-10-30 with the [campaign runner](campaign-automation.md): character creation and Play of fresh
+Witches, `area` right after every transition and waypoint travel, `area:wait`, `waypoint:travel` back to Lioneye's
+Watch from The Tidal Island and The Mud Flats, `item:pickup` of weapons, gems, glyphs and the Medicine Chest, and
+`--password-stdin` (it drops the leading BOM Windows PowerShell 5.1 pipes). `character:delete` and the 0x0d result
+are covered by the mocked tests only.
 
 ## Build provenance for native verification
 
@@ -134,16 +182,30 @@ Get-FileHash src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll -Al
 ## Targeted development interactions
 
 JSON RPC also accepts `game:resources` (read-only Life component pools and recent 0x1b1 corrections),
-`object:interact` with an object `id`, `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
+`object:interact` with an object `id` (and an optional `skill`, e.g. `258` = 0x0102, the default attack, to attack it), `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
 `reward:claim` with choice `id` and main-inventory `x`/`y`, and `inventory:pickup`/`inventory:place` with `inventoryId`
-and item `id` or destination `x`/`y`, and `flask:use` with a flask-bar `slot` (0-4) or `key` (1-5; CLI
-`flask:use 1`). `flask:use` sends the flask key's own C→S 0x70 (u32 cell, [13](../protocol/13-items.md) §8), so a flask
-is used without keyboard input or window focus. These use the existing C?S interaction messages. Their result acknowledges
+and item `id` or destination `x`/`y`, `item:use` with an item `id` (and `inventoryId`, default 1: the main inventory;
+CLI `item:use 0x403`), which sends the right-click C→S 0x58 (a quest book's use, an Orb of Regret), and `flask:use` with
+a flask-bar `slot` (0-4) or `key` (1-5; CLI
+`flask:use 1`), and `pantheon:select` with a PantheonPanelLayout `row` (0-based; CLI `pantheon:select 11`), which sends
+the Pantheon panel's C→S 0x1ee with row + 1 (for the later acts' Pantheon steps), and `stash:deposit` with an inventory item `id`
+and a stash `tab` (default 0), which sends the Ctrl + click C→S 0xe0 that puts the item into that tab's first free cell
+([18](../protocol/18-stash.md) §5; open the Stash first, as a player would). `flask:use` sends the flask key's own C→S 0x70
+(u32 cell, [13](../protocol/13-items.md) §8), so a flask is used without keyboard input or window focus. These use the existing C?S interaction messages. Their result acknowledges
 submission; wait for the resulting state or logs. Movement uses the client's Move action (0x2909). Interaction from
 far away can fail to find a path; `tp` next to the object first (`{"command":"tp","target":"GlyphWall"}`), then interact. Resource updates are bounded to 128 entries and drained on
 read, so persistent RPC is needed to observe a recovery interval. This measures client state, not HUD pixels.
+
+`waypoint:travel` with an `area` (a WorldAreas HASH16, number or `"0x7ad2"` string; a WorldAreas Id or `hash` as in
+"Campaign helpers" above) sends the World panel pin's C→S 0x4d ([16](../protocol/16-waypoints.md) §3): the Gateway changes area when that waypoint is activated
+(`/waypoints all` activates every one). Live 2026-10-31 to The Coast and back with `/goto 1_1_town`.
+`game:frames` returns the main-loop frames counted at the bridge's own frame point since it attached, and the frames
+per second since the previous call (a session client with the cheap preset runs at about 9.2;
+[headless client](headless-client.md)).
 
 Live interaction checks included Tarkleigh's reward claim, starter weapon pickup/equip, the biting zombie's death and
 gem pickup, walking to the support chest and opening it. The client stayed attached through these tests. RPC completion
 is deferred until its native callback has returned, so a one-shot process can detach without unloading a hook while
 it is still unwinding. Prefer loading additional probes into the same Frida session when extending this tool.
+
+The campaign runner built on this bridge is described in [campaign automation](campaign-automation.md).

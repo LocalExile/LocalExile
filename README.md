@@ -7,7 +7,14 @@ and Im broke and unemployed, so help out folks.
 
 [Join Discord](https://discord.gg/pd2Fd5M6Hd)
 
-# To get started [Humans]
+# To play
+Download the zip from [Releases](https://github.com/LocalExile/LocalExile/releases), extract it, and run `LocalExile.exe`.
+You need your own standalone Path of Exile 3.29.3b client, and nothing else to install.
+Always start the game with `LocalExile.exe`: any other way can update the client, which breaks the setup.
+
+Licensed under [AGPL-3.0](LICENSE); bundled components are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+# To develop [Humans]
 - Open up a Frontier Model (such as Claude Opus 5.5) and tell them to set-up this project on your machine. 
 - Tell them to read all the Agents/ folder and all the MD files.
 

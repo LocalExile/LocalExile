@@ -112,6 +112,34 @@ the world: the Player component's u16 at +0x1aa (the player object, and 0x2ba wi
 the character panel builds its art from it (`0x14081e730` → `0x142426b00`). On the character selection screen: the
 list entry's U46 (`0x14082e210`), which Auth keeps per character (control op `set_portrait`).
 
+**The portrait frame.** MicrotransactionSlot 17 ("Social Frame"); `MicrotransactionSocialFrameVariations.Index` is the
+variation. The client draws `Art/2DArt/UIImages/Common/MTX/SupporterIconFrame{variation}` around a portrait, and
+`Art/2DArt/UIImages/Common/DefaultIconFrame` for 0 or art that does not load. It appends the number and looks nothing up
+in the table; `art/uiimages1.txt` lists 1 to 412, as `Index` runs (the shop icons' file names do not follow it: Index 131
+uses `SupporterIconFrame128.dds`). Four rows have no such art, 269, 295, 327 and 376, all with a `BK2File`
+(`Art/Videos/ChinaMTX/`, no reader of it found), so those four draw the default.
+
+| Where | Drawn by | Read from |
+|---|---|---|
+| Character selection | `0x14082d660` | the list entry's U44 |
+| Character panel | `0x14081e390` | the Player component's u16 at +0x1a8 |
+| HUD portrait | `0x140774b20` | the same |
+| Party portraits | `0x1402093a0` | the same (`0x14020bdc0`), or the known player's +0xb0 (`0x14020b230`) |
+| Social panel rows | `0x140af6c20` | the known player's +0xb0 |
+
++0x1a8 is the player object's field and 0x2ba's flags bit 2 (`0x141e7ee30`, which fires the component's listeners when
+it changes). A known player's frame and portrait are 0xa7's second pair ([28](28-player-trade.md) §2).
+
+The client tells the player itself, so the server sends no text. After a pick in slot 16 or 17 the sender's
+`0x140cdc9c0` prints ClientStrings `PortraitFrameEquippedMessage` (row 0xb5c) to chat with the cosmetic's name, or
+`DefaultPortraitFrame` / `DefaultCharacterPortrait` for an emptied slot: "You must log out and in again for the change
+to take effect" (a 0x17 line of the same text showed twice, live 2026-10-31). So a pick is kept apart from what is shown. The account store's `PortraitFrame` takes it at once (control op
+`set_portrait_frame`) and the character list shows it; the login session copies it at Play, tickets carry that copy
+through area changes, and "resolve" gives it to the Gateway (`ClientState.PortraitFrame`). Live 2026-10-31 (a 0x1f9
+through the bridge, watching the image loader `0x1418667d0`): frame 3 asked for and loaded `SupporterIconFrame3` at
+selection, in game and, through 0xa7, in a party member's client; +0x1a8 stayed 0 through an area change after the pick
+and was 3 after the next Play.
+
 **Skill effects.** The Cosmetics tab's skill slots are 0x1f3's second list (message +0x40 → session +0xd5c8, 40 bytes
 each, sorted by key): raw u32 key, a target variant, u32 BE record id, u32 BE MtxTypeGameSpecific hash, raw u64. The
 target's index 1 is one socketed gem (`0x1424ada40`): u8 Inventories.dat row → +4, u8 socket → +8, u8 effect slot type

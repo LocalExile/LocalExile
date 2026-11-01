@@ -49,6 +49,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [28](../docs/protocol/28-player-trade.md) §5.
   Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
   Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.
+- **Friends:** the player context menu and Friends-panel name field add an account to the list.
+  The other account receives an invitation with Accept/Decline; Unfriend removes the relation from both lists.
+  Account GUIDs and invitations are saved transactionally, independently of character and league.
+  Native two-client checks confirmed add, invitation display, Accept, Unfriend, offline display and restoration on login.
+  Persistence/reopen, rollback and native packet framing have automated coverage.
+  Notes, ignore lists and status editing remain open.
+  See [28](../docs/protocol/28-player-trade.md) §6.
 
 ## Partly working
 

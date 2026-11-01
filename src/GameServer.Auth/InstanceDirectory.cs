@@ -27,7 +27,7 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
     private readonly ConcurrentDictionary<string, LoginLink> _links = new(StringComparer.OrdinalIgnoreCase);
 
     public sealed record TicketInfo(string Character, ulong Instance, ushort Area, League? League, CharacterClass Class,
-        int Level, Guid? CharacterId);
+        int Level, Guid? CharacterId, ushort PortraitFrame = 0);
 
     /// <summary>A logged-in client's login connection. Writes go through <see cref="SendAsync"/> (the reply loop and the
     /// control server both write).</summary>
@@ -74,7 +74,7 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
         }
         uint ticket = session.Keyring.NewTicket();
         _tickets[ticket] = new TicketInfo(character, inst.Id, inst.AreaHash, session.CharacterLeague, session.CharacterClass,
-            session.CharacterLevel, session.CharacterId);
+            session.CharacterLevel, session.CharacterId, session.CharacterPortraitFrame);
         _latest[character] = ticket;
         Console.WriteLine($"[auth] ticket 0x{ticket:x8}: {character} → instance {inst.Id} (area 0x{inst.AreaHash:x4}, seed {inst.Seed}, {inst.Players.Count} player(s))");
         return ticket;
@@ -148,9 +148,9 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                     CharacterId = info.CharacterId,
                     Account = accounts?.FindCharacter(info.Character) is { } owner ? accounts.GetAccount(owner.AccountId)?.Name : null,
                     League = info.League?.Name, Hardcore = info.League?.Hardcore ?? false,
-                    Ssf = info.League?.Ssf ?? false, Ruthless = info.League?.Ruthless ?? false,
-                    Class = (int)info.Class, Level = info.Level,
-                    LastTown = accounts?.FindCharacter(info.Character)?.LastTown is { } last
+                    Ssf = info.League?.Ssf ?? false, LeagueForm = info.League?.Form,
+                    Class = (int)info.Class, Level = info.Level, PortraitFrame = info.PortraitFrame,
+                    LastTown =accounts?.FindCharacter(info.Character)?.LastTown is { } last
                         && _towns.FirstOrDefault(t => t.Id == last) is { Id: not null } known ? known.Hash16 : (ushort)0,
                 };
             }
@@ -198,6 +198,15 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 var r = accounts.SetPortrait(info.Character, req.Portrait);
                 if (!r.Ok) return new ControlResponse { Ok = false, Error = r.Error.ToString() };
                 Console.WriteLine($"[auth] {info.Character}: portrait {req.Portrait}");
+                return new ControlResponse { Ok = true, Character = info.Character };
+            }
+            case "set_portrait_frame":
+            {
+                if (accounts is null) return new ControlResponse { Ok = false, Error = "no account store" };
+                // The login session keeps the old frame: as the pick's message says, it applies after logging in again.
+                var r = accounts.SetPortraitFrame(info.Character, req.PortraitFrame);
+                if (!r.Ok) return new ControlResponse { Ok = false, Error = r.Error.ToString() };
+                Console.WriteLine($"[auth] {info.Character}: portrait frame {req.PortraitFrame}");
                 return new ControlResponse { Ok = true, Character = info.Character };
             }
             case "leave":

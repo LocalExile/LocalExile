@@ -49,8 +49,11 @@ bench.
   NPCs and functional furniture now use inherited OT footprints and static-model hulls through one registry.
   Waypoints and loot remain passable. Check large MTX models and wall-adjacent layouts separately.
   Save/reentry persistence and collision escape for all supported NPC types have automated coverage.
-- **Start:** create the decorations (`HideoutObject`, each type's components from data/object-types.json);
-  the Edit mode's placement/removal and appearance messages;
+  The dev `/statue` command creates a stone Monster Statue of any MonsterVarieties row at the player and
+  saves it per character/template; C→S 0x0209 replaces a targeted hideout monster the same way. The
+  statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
+- **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
+  data/object-types.json); the Edit mode's placement/removal and appearance messages;
   maps: the arrival point, a return portal, fragments and device recipes and map mods.
   Personal template selection and login to the selected home are implemented (see Status).
 - **Done when:** the hideout looks like the real one, can be edited and saved, and maps can be run from its device.

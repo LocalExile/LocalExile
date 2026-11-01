@@ -80,15 +80,18 @@ public static class InstanceEntities
     /// u8 u16, bit1 +0x68: an f32 duration in seconds, default +infinity, so <paramref name="u68"/> takes its bits, bit2
     /// u16 stacks +0x70 (default 1), bit3 u16 ActionTypes HASH16 +0x74 then u16 skill id +0x72 (the active icon),
     /// bit4 u16 BuffVisuals override (default the row's), bit5 u8 +0x80
-    /// (default 2), bit6 → +0x81, bit7 f32 +0x6c (default 1.0)), then a u16 when the row's bool at +0xff is set, one u32
+    /// (default 2), bit6 → +0x81, bit7 f32 +0x6c (default 1.0)), then a u16 +0x82 when the row's bool at +0xff
+    /// (<c>__col44</c>) is set (<paramref name="u82"/>: the caller must give it exactly for those rows), one u32
     /// per GrantedStats value when its IsRecovery (+0x7c) is set (<paramref name="values"/>: the caller must give exactly
-    /// that many, or the client misreads the message), and a u32-counted list of u32. The buff's visual (BuffVisuals)
+    /// that many, or the client misreads the message), and a u32-counted list of u32 (<paramref name="list"/>, buff +0x80: a
+    /// RecordSkillUseLocations buff's first entry, which its behaviour reads unchecked). The buff's visual (BuffVisuals)
     /// plays while it lasts. u68 is the raw IEEE-754 f32 duration in seconds (not integer milliseconds);
     /// f6c is the countdown rate (default 1.0).
     /// </summary>
     public static byte[] AddBuff(uint objectId, ushort buffInstance, ushort buffRow, uint sourceId = 0, ushort sourceSkill = 0,
         IReadOnlyList<uint>? values = null, uint? u68 = null, float? f6c = null, ushort? visual = null,
-        (ushort Id, ushort Action)? activeSkill = null, bool auraSource = false, byte? displayState = null, ushort? stacks = null)
+        (ushort Id, ushort Action)? activeSkill = null, bool auraSource = false, byte? displayState = null, ushort? stacks = null,
+        ushort? u82 = null, IReadOnlyList<uint>? list = null)
     {
         // flags bit1: u32 +0x68; bit7: f32 +0x6c (read right after bit1's field); bit4: u16 BE a BuffVisuals row in place
         // of the BuffDefinitions row's (+0x38; read after bits 2 and 3, a row past the table keeps none): a skill
@@ -108,7 +111,9 @@ public static class InstanceEntities
         if (activeSkill is { } skill) w.U16(skill.Action).U16(skill.Id);
         if (visual is { } v) w.U16(v);
         if (displayState is { } state) w.U8(state);
-        return w.Bytes([.. (values ?? []).SelectMany(v => new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v })]).U32(0).ToArray();
+        if (u82 is { } row) w.U16(row);
+        static byte[] Be(IReadOnlyList<uint>? u) => [.. (u ?? []).SelectMany(v => new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v })];
+        return w.Bytes(Be(values)).U32((uint)(list?.Count ?? 0)).Bytes(Be(list)).ToArray();
     }
 
     /// <summary>S→C 0x1c2 (class 0x1435dd918, read 0x141fdfdd0): object header, u16 buff instance: the buff ends.</summary>
@@ -327,6 +332,14 @@ public static class InstanceEntities
     public static byte[] PlayerHideoutsUpdate(uint playerId, ushort hideout, ushort hideout2) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x10).U16(hideout).U16(hideout2).ToArray());
 
+    /// <summary>
+    /// The player's Pantheon gods (0x2ba to the Player component, reader 0x141e7ee30): u16 flags, bit7 (0x80) = u8 → +0x1ae
+    /// (major), u8 → +0x1ad (minor), each a PantheonPanelLayout row + 1 (0 = none), as C→S 0x1ee chooses them; then the
+    /// component's vtable +0x138 (refresh). campaign/pantheon.md §5.
+    /// </summary>
+    public static byte[] PlayerPantheonUpdate(uint playerId, byte major, byte minor) =>
+        ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x80).U8(major).U8(minor).ToArray());
+
     /// <summary>The player's league quest flags (0x2ba to the Player component): u16 flags, bit3 (0x08) = the whole
     /// second flag set (+0x1d0) again, as <see cref="PlayerObject.WriteFlagSet"/>.</summary>
     public static byte[] PlayerLeagueQuestFlagsUpdate(uint playerId, IEnumerable<int> flags)
@@ -473,6 +486,17 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// <summary>Set for a transition that leads within its own area (a map's boss arena gate): where it takes the player.
     /// Server side only; the blob names the area itself as the destination.</summary>
     public (int X, int Y)? TeleportTo { get; init; }
+
+    /// <summary>The tile object's own type when it was created as a plain AreaTransition (a quest exit such as
+    /// Metadata/QuestObjects/Act4/AscentTransition, see AreaTransitionCatalog.Resolve): quest rules and NPC scripts name it.
+    /// Server side only.</summary>
+    public string? SourceType { get; init; }
+    /// <summary>The module whose quest tables changed this exit of the shared layout, or null: an exit that stands only where
+    /// those tables run (a quest-gated disabled entrance, a quest portal, an exit's version a quest swaps in), or with
+    /// <see cref="QuestReplaced"/> one that stands only where they do not (the layout's own exit a quest replaced).
+    /// Server side only.</summary>
+    public string? QuestSource { get; init; }
+    public bool QuestReplaced { get; init; }
 
     /// <summary>Whether the exit stands in a town. Only then does the client read the compact int (<see cref="Index"/>)
     /// after the destination: 0x141e5b870 reads it when the state is 0 and the byte at +0x14 of the current area's
@@ -752,6 +776,9 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
 public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 {
     public const string TypePath = "Metadata/Effects/PermanentServerEffect";
+    const string RootBone = "<root>";
+    // The attachment's kind byte, a mask on its transform (0x142900da0): 1 drops the scale, 2 the translation, 4 the rotation.
+    const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
     /// a glide turns it to face the move (live 2026-10-21, Righteous Fire's ring). The only flags0 bits taken here are
@@ -767,6 +794,11 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// Righteous Fire's ring is scaled to the skill's radius.</summary>
     public float Scale { get; init; } = 1;
 
+    /// <summary>The object this effect rides on (0: none): Animated bit 2, the native attachment record (0x141e5adb0), to
+    /// the parent's "&lt;root&gt;" bone. The client carries it along with the parent's own predicted position, so no packet
+    /// moves it, and it does not turn with the parent.</summary>
+    public uint Parent { get; init; }
+
     public byte[] Blob()
     {
         var w = new BlobWriter();
@@ -775,7 +807,10 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
         w.I32(GridX).I32(GridY).F32(0).U16(0).U8((byte)((Flags0 & 0x81) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
         if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
         w.U8(0).U8(1);
-        w.U8(1).WStr32(AnimatedObject);                             // Animated: bit0 + the .ao path
+        w.U8(Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated: bit0 + the .ao path, bit2 the attachment
+        if (Parent != 0)
+            w.U32(Parent).F32(0).F32(0).U32((uint)RootBone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(RootBone))
+                .U8(AttachWithoutRotation).U8(0).F32(0).F32(0).F32(0);
         w.U8(0);                                                    // tasks
         return w.ToArray();
     }
@@ -915,10 +950,14 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null)
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
+
+    /// <summary>The Pantheon gods (Player +0x1ae major, +0x1ad minor): PantheonPanelLayout row + 1, 0 = none.</summary>
+    public byte PantheonMajor { get; init; }
+    public byte PantheonMinor { get; init; }
 
     /// <summary>The Inventories component's index in the player object's component order (04 §3).</summary>
     public const byte InventoriesComponentIndex = 8;
@@ -972,7 +1011,8 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         w.WStr32(Name)
          .U8(ClassIndex)     // Characters.dat row; bit5 and bits6-7 are the ascendancy (0x142156d80)
          .U32(Experience)    // 0x141e7f6b0 → +0x18c; the level is derived from it (+0x1ac)
-         .U32(0).U16(0)
+         .U32(0)
+         .U16(PortraitFrame) // +0x1a8: the portrait frame (MicrotransactionSocialFrameVariations Index, 0 = the default)
          .U16(Portrait)      // +0x1aa: the portrait variation (MicrotransactionCharacterPortraitVariations __col1, 0 = the class's)
          ;
         WriteFlagSet(w, QuestFlags);   // the quest flags (+0x1b8, 0x141e83340)
@@ -983,7 +1023,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .Zeros(9)           // raw +0x1e8
          .U16(Hideout).U16(Hideout2)   // Hideouts.dat keys (HASH16; 0 finds no row): the character's hideout (21-hideouts.md §1)
          .U8(0)              // +0x1b1 (non-zero → "WashedUp" state)
-         .U8(0).U8(0).U8(0).U8(0).U8(0)
+         .U8(PantheonMajor)  // +0x1ae: the major Pantheon god, PantheonPanelLayout row + 1 (0 = none; campaign/pantheon.md §5)
+         .U8(PantheonMinor)  // +0x1ad: the minor god, the same way
+         .U8(0).U8(0).U8(0)  // +0x1b0, +0x1af, +0x238
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e83470)
         WriteInventories(w, Equipped);   // Inventories (0x141e1ee30): what the model wears

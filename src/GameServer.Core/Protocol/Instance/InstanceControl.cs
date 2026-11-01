@@ -48,7 +48,8 @@ public static class InstanceControl
 /// the ticket's player and returns the destination's new Ticket (with New, Seed ≠ 0 gives the new instance that seed:
 /// the Gateway's capture tour); "leave" (Ticket) → the player left its instance (expiry starts);
 /// "set_level" (Ticket, Level) → the ticket's character gets that level (1 to 100) in the account store;
-/// "set_portrait" (Ticket, Portrait) → the ticket's character's worn portrait, which the character list shows.
+/// "set_portrait" (Ticket, Portrait) → the ticket's character's worn portrait, which the character list shows;
+/// "set_portrait_frame" (Ticket, PortraitFrame) → the same for its frame, which the game takes at the next login.
 /// </summary>
 public sealed record ControlRequest
 {
@@ -60,6 +61,7 @@ public sealed record ControlRequest
     public uint Seed { get; init; }
     public int Level { get; init; }
     public ushort Portrait { get; init; }
+    public ushort PortraitFrame { get; init; }
 }
 
 public sealed record ControlResponse
@@ -83,11 +85,14 @@ public sealed record ControlResponse
     public string? League { get; init; }
     public bool Hardcore { get; init; }
     public bool Ssf { get; init; }
-    public bool Ruthless { get; init; }
+    /// <summary>The league form (<see cref="GameServer.Core.Accounts.League.Form"/>): the module the character plays by.</summary>
+    public string? LeagueForm { get; init; }
     /// <summary>The character's class: Characters.dat IntegerId (CharacterClass), the Witch (3) if unknown.</summary>
     public int Class { get; init; } = 3;
     /// <summary>The character's level (from the account store).</summary>
     public int Level { get; init; } = 1;
+    /// <summary>"resolve": the portrait frame the character logged in with (a later pick waits for the next login).</summary>
+    public ushort PortraitFrame { get; init; }
     /// <summary>"resolve": the character's last town (HASH16): Resurrect in Town goes there. 0 before it has entered a
     /// town (the death screen then has no Resurrect in Town). An Auth that does not send it leaves Lioneye's Watch.</summary>
     public ushort LastTown { get; init; } = 0x235c;

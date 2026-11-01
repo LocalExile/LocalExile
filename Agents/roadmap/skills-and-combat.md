@@ -47,7 +47,7 @@ review other bow snapshots and special repeats. Complete remaining conditions, c
 publish all matching chance/always-hit rows. Ordinary/selected main-hand
 average/DPS now includes normal-reference landing and critical-confirmation probabilities; dual-hand/multi-hit,
 integer-roll expectation and other sources remain open. Validate these paths natively when shared resources are free.
-See [damage §2g](../docs/protocol/20-damage.md#2g-ordinary-attack-evasion-and-critical-confirmation).
+See [damage §2h](../docs/protocol/20-damage.md#2h-ordinary-attack-evasion-and-critical-confirmation).
 
 Impale now has a shared actual-contact implementation for ordinary and supported hits, scoped chance/effect
 inputs, captured duration/hit counts and separately mitigated reflection. The three selected chance aliases
@@ -81,8 +81,11 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   displayed rate once. Automated checks and real-client -80%/+100%/zero clip durations pass.
   Projectile release/contact alignment was not separately measured.
   Instant casts and attack timing stay separate; conditional action-speed and special native mechanics remain open.
-  Attack gems now share level-aware inherent speed with server pacing/contact and native total-duration/APS stats.
-  Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s; automated checks also pass.
+  Attack gems now share level-aware inherent speed with server pacing/contact and the APS stat; the client applies its
+  own to the clip. Native input verified the ordinary 0.714 s bow duration and Burning Arrow 1.02 s.
+  Open: an attack longer than its clip stretches the clip's slow span, which `AttackContactDelay` does not model
+  ([11](../docs/protocol/11-skills.md)), and the arrow still arrives about 25 ms after the muzzle flash, with a fixed
+  60 ms lead tuned on localhost rather than one that follows the connection's latency.
   Attack-gem damage/DPS and conditional speed remain separate work.
 - **Spell hit panel (#188):** selected-spell ranges now share combat's converted packet and hitless spells clear
   inherited weapon hit damage. Automated checks pass; verify selection, equipment updates and relog in the client.
@@ -97,6 +100,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 - **Warcry restriction (#297):** shared actor admission has regression and seven real-client controls in Status.
   Blocked input, source clearing, paid retries and an accepted cry's release are verified.
   See [11](../docs/protocol/11-skills.md) section 10b; broader warcry engines and Phrecia enablement remain separate.
+  Warcry speed, one-use warcry cooldowns and the shared release effects (section 10i) run for Enduring Cry; the other
+  warcries need executors, and explosions need their global added damage, flat crit chance, on-hit effects, the
+  native explosion art (a generic gore burst stands in) and the wave delay.
 - **Character panel (#75):** the Energy Shield regeneration row now shares the implemented recovery calculation,
   with native checks for modifiers, clearing and separation from recharge.
   Ordinary Life/Mana regeneration now includes separate regeneration/recovery increases and matching prohibitions.
@@ -121,7 +127,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need, in the items area, unique definitions
   beyond Mageblood (#60), abyss jewels socketable into abyssal sockets (the Stygian Vise is created without its socket,
   `PlayerInventories.Socket` takes gems only, `ItemModStats.Global` reads no socketed item's mods) and Shaper/Elder
-  influence on the `Item` record with its Base component wire flags (undocumented in 13-items.md). Blitz and Challenger
+  a consumer for `Item.Influences` (13-items.md §2f). Blitz and Challenger
   Charges have no 3.29 player source at all.
   Selected area/item-rarity/minion-increased aliases now use one raw actor-plus-own snapshot, with explicit final
   zero/replacement precedence, source clearing and Cyclone radius preservation. `SendPlayer` initial/transition
@@ -278,6 +284,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Native grey-icon prediction and persistent restricting equipment remain separate verification.
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
   Complete Lone Messenger, party auras and unsupported curse/enemy/banner/Vaal executors remain separate.
+  Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
+  the others (Overwhelm, the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
   Fire's); the combat auras (Anger, Hatred, Wrath, Zealotry, Pride), Heralds, banners, curse auras and
   their unsupported conditional effects.
@@ -295,6 +303,16 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 - **Done when:** the timer counts down and protection ends on movement, actions or expiry.
 
 ### Damage model (foundation done, deeper defence next)
+
+- **Client Buff descriptor consumer follow-up (#370, Known issues K1-K3):** follow one prepared descriptor
+  from `ChaosDegenerationAuraPlayersUniqueBodyStr3` to an actual reader and explain its output.
+  The [ownership/transfer report](../docs/re/client-buff-descriptor-consumers.md) is the bounded #466 delivery.
+  Mods `+0x38` and entity ObjectMagicProperties `+0xc8` embed the prepared structure separately.
+  Resume only with new same-object transfer or typed-reader evidence; stopped inventories remain stopped.
+  Bind a purpose-bearing reader and its output; copy/cleanup and the separate cache do not complete original N1/N2.
+  Reuse PR #371's fixed evidence without importing its full branch; no gameplay consumer is established yet.
+  A positive configuration/presentation classification is distinct from numerical DoT publication.
+  Scope any resumed investigation as a separate batch under #370; #466 leaves K1-K3 open.
 
 - **Done:** hits are per-type `DamagePacket`s; conversion follows physical, lightning, cold, fire, chaos, including
   chained conversion, the 100% cap and gain-as-extra.
@@ -351,7 +369,13 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Critical elemental ignore and non-critical penetration now compose with it on the same rolled packet.
   Rerun critical ignore against a rebuilt final DLL: the previous combined run used the preceding #225 artifact.
   Recheck the resolved bow-contact and target-modifier composition natively before claiming new combined proof.
-  Special ES mechanics, conditional penetration, exposure, ailments and further added-damage/support effects remain open.
+  Special ES mechanics, conditional penetration, exposure, damaging and alternative ailments on monsters (beyond the
+  player's ignites) and further added-damage/support effects remain open.
+  The player's ignites on monsters exist (`MonsterIgnites`), but only Abberath's Fury's footstep hits call them: the
+  default attack, gems, projectiles and bows need their flat (pre-increase) fire packet passed to `IgniteFromHit` next
+  ([20](../docs/protocol/20-damage.md) §3).
+  An attack's packet goes through `MaximumAttackDamage.Apply` after conversion first (Devout of Ryslatha's more maximum
+  damage scales attack ailments too), with a regression test.
   Ordinary Frostblink's bounded ground-instant acceptance passed actual Q, retry and invalid-request checks.
   Its hovered stationary-monster 0x191 path now uses the native size-aware object aim and object-bound confirmation.
   Automated acceptance/queued rejection checks and manual native endpoint experiments pass.
@@ -404,8 +428,16 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Do not inherit an owner's spell-damage restriction onto independent minions or daemons without a skill rule.
 - **Done when:** damage numbers match the character panel and the monsters' levels.
 
-### Incoming elemental ailment extensions
+### Elemental ailment extensions
 
+- The player's chill, freeze and shock on monsters are implemented with Gateway coverage.
+  Check the chilled/frozen/shocked buffs, the sent `virtual_action_speed_+%` and the frozen pose with the real client,
+  and find what 0x1c1's +0x82 u16 does.
+  The shatter visual (the server ends a shattered monster's ailments and spreads nothing from it; the packet that
+  removes the corpse is not known), unique/boss
+  thresholds and the monster variety's own immunities remain open, as do chill, freeze and ignite proliferation and a
+  native check of the shock proliferation radius's area scaling.
+  See [20](../docs/protocol/20-damage.md#outgoing-chill-freeze-and-shock-on-monsters).
 - Ordinary supported monster basic contacts now exercise ignite/chill/freeze/shock and final avoidance.
   Finish dedicated native buff icons and source/threshold/conditional-immunity parity before claiming a general ailment engine.
   Hostile spell adapters and alternative-ailment sources remain separate work; monster mortar shots already run the
@@ -433,8 +465,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Verify held death notifications, Vaal Haste/Grace aura costs, death/resurrection and slow destination loading.
   Include attribute gear removal before inventory notifications; current automated coverage is not native proof.
   See [27-vaal-souls.md](../docs/protocol/27-vaal-souls.md) and Status for the explicit LocalExile policies.
-  Vaal executors, payment, official distribution/capacity parity and the SGP countdown require separate work.
-  Unsupported Vaal casts remain refused; Behemoth and whole-class enablement remain separate.
+  Vaal Ground Slam payment, shared attack admission and prevention now have a bounded implementation.
+  Validate the [modular Behemoth candidate](../docs/game/behemoth.md) with current full suites and the native client.
+  Other executors and official distribution/capacity parity remain separate; unsupported casts stay refused.
 
 ### Death screen variants
 
@@ -446,6 +479,13 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 ### Skill projectiles
 
+- **Client-contract research:** use the frozen [delivery matrix](../docs/re/projectiles/delivery-matrix.md)
+  before extending the simulator or changing phase prediction ownership.
+  Recovered count/layout, random contexts, motion/contact/history and selected continuation/skill rules are available.
+  Keep the finite [K1/K2/K3 followups](../docs/re/projectiles/verification-and-limitations.md) separate:
+  gameplay TLS state/order, official Fireball result routing and six-witness effective-input/read-update timing.
+  Do not make full rendering, every stat producer or complete engine teardown prerequisites for using closed rules.
+  The research itself changes no server behavior; production tasks below remain pending under their existing scope.
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production projectile routing and the
   only Core simulator. Catalog-known gems and ordinary bows and wands have basic straight flight and resolved
   modifiers; [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB
@@ -458,6 +498,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   (extraction manifest version 2 supplies the ordered stance pools and exact rig contacts for all seven classes).
   Complete off-hand timing/damage and nonzero intrinsic attack repeats remain open.
   Basic catalog flight does not implement all special skill behavior; unknown metadata is refused before costs.
+  One movement instance is capped at 150 cells (15 m) through `projectile_maximum_range_cells`; fork, chain and split
+  get a fresh per-leg budget. Open: per-skill duration before the cap and a native check of the continuation boundary.
+  Action speed is not a projectile input; the native action-speed/Tailwind contract remains #246.
   Issue #75 accuracy, shared critical rolls, impale and leech are integrated with automated composition coverage.
   Earlier native packet/collision controls need retesting on the new path; actor positions still use integer walk
   estimates and shared projectile radii; Gateway actor radii are zero, making area coverage center-based even

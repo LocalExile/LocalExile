@@ -2,6 +2,8 @@
 
 This guide takes a fresh clone to "in game in Lioneye's Watch, able to walk and take The Coast exit". Each step says
 what success looks like and what to do when it fails. It is written to be followed by a person or by an AI agent.
+To play without developing, a [release](https://github.com/LocalExile/LocalExile/releases) needs none of this: run its
+`LocalExile.exe` ([releases](docs/dev/releases.md)).
 
 ## Rules (read first, especially if you are an AI agent)
 
@@ -9,8 +11,9 @@ what success looks like and what to do when it fails. It is written to be follow
    `--patching-server 127.0.0.1:12995`. Started any other way (double-click, Steam, launcher, a second instance), the
    client contacts the official patch servers. It may then update itself, which overwrites the patched executable and
    the game data.
-2. **Run only one client at a time.** To bring a running client to the front, restore its window; do not launch it
-   again.
+2. **Run only the clients `live.ps1` starts: one, or more as named sessions.** To bring a running client to the
+   front, restore its window; do not launch it again. Several clients (or several checkouts' servers) at once need
+   `live.ps1 -Session` and `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)).
 3. **Run every command from the repository root.** The tools read and write `data/` and `Client/` relative to the
    current directory.
 4. **Never commit `data/` or `Client/`.** They hold your keys, accounts and the game. Both are git-ignored; keep it
@@ -103,6 +106,8 @@ dotnet test tests/GameServer.Gateway.Tests
 
 Success: `Build succeeded` with 0 warnings, and every test run ends with `Passed!`. The tests that need the real client
 quietly pass when there is no `Client/` yet.
+
+New tests go in `tests/GameServer.Gateway.Tests` only: modules have no tests, a PR adds at most 2, and a test never sleeps or waits on real time.
 
 ## 2. Allow the scripts to run
 
@@ -197,6 +202,12 @@ A second run prints `game data up to date`.
 | `data\animation-contacts.json` | each class's spell timing and where its arrows and wand bolts leave |
 | `data\monster-contacts.json` | when and from where monster projectiles leave (the Sand Spitter's mortar) |
 | `data\projectile-clips.json` | the flight and impact clips of projectile objects (monster mortars are invisible without them) |
+| `data\game-files.zip` (about 126 MB) | the levels the Gateway generates itself, the Phrecia classes' passive graph check |
+| `data\client-constants.json` | the Gateway does not start; the Patch server closes each client's connection |
+
+After extraction the servers never open `Client\` or need Node: `data\` is enough to run them (`live.ps1 -NoClient`).
+Only the client, its setup steps and this extraction use `Client\`. To run servers on another machine, copy `data\`
+(`data\saves.db` holds the accounts and characters). The capture tour's debug tooling also reads the client's log.
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
@@ -219,8 +230,8 @@ builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
 
 | Table | Rows on 3.29.3b | From |
 |---|---:|---|
-| `catalog_entries` | 1,302 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
-| `system_settings` | 45 | the code defaults |
+| `catalog_entries` | 1,299 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
+| `system_settings` | 51 | the code defaults |
 | `stats` / `mods` / `mod_stats` | 23,346 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
 | `unique_weights` | 1,527 | `data\tables\VillageUniqueDisenchantValues.json` and `Words.json` |
 | `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
@@ -335,13 +346,11 @@ client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
 Selected modes change server rules; Hardcore Ruthless death is permanent.
-Ruthless balance can be edited in `config/ruthless.json` without rebuilding or restarting the server.
-That active file is local and git-ignored; `config/ruthless.example.json` holds the tracked defaults.
+Ruthless balance can be edited in `Modules/Ruthless/ruthless.json` without rebuilding or restarting the server.
 To create a missing local copy and edit it, run from the repository root:
 
 ```powershell
-if (!(Test-Path .\config\ruthless.json)) { Copy-Item .\config\ruthless.example.json .\config\ruthless.json }
-notepad .\config\ruthless.json
+notepad .\Modules\Ruthless\ruthless.json
 ```
 
 See [league modes](docs/game/league-modes.md) for exact behavior, limitations and editing instructions.
@@ -369,13 +378,15 @@ connection's last packets in `logs\packets\`. `Game_TRACE` adds dev traces, and 
 all for an issue ([debugging](docs/dev/debugging.md)).
 
 `live.ps1` options:
-- `-Stop` stops the client, the walk-map recorder and the servers, a watched Gateway included, then waits until their
-  ports are free (with `-Only Gateway` only that server, with `-NoClient` everything but the client).
+- `-Stop` stops this checkout's clients, walk-map recorder and servers, a watched Gateway included, then waits until
+  their ports are free (with `-Only Gateway` only that server, with `-NoClient` everything but the clients, with
+  `-ClientOnly -Session S` only that session's client). Another checkout's processes are never stopped
+  ([live testing](docs/dev/live-testing.md), "Several stacks and clients").
 - `-NoClient` restarts the servers but keeps the running client.
 - `-ClientOnly` starts only the client, against servers that already run: nothing is built, extracted or restarted, and
-  a running client stays. With `-Walkmaps` it also starts the walk-map recorder unless one runs (the recorder ends with
-  its client, so each new client needs one); the Gateway announces area loads to it only if it was started with
-  `-Walkmaps` too.
+  a running client stays. With `-Walkmaps` (default ports and client) it also starts this checkout's walk-map recorder
+  unless it runs (the recorder ends with its client, so each new client needs one); the Gateway announces area loads
+  to it only if it was started with `-Walkmaps` too.
 - `-Only Gateway` (or `Auth`, `Patch`, comma-separated) rebuilds and restarts only those servers; the client and the
   other servers keep running. After a Gateway change hot reload cannot apply this is all you need: the client drops to
   the login screen, log in and Play again.
@@ -393,6 +404,11 @@ all for an issue ([debugging](docs/dev/debugging.md)).
   Auth and Patch are not watched.
 - `-NoHotReload` starts the built Gateway without `dotnet watch`; `-Only Gateway -NoHotReload` switches a running
   setup over, and a later `-Only Gateway` switches back.
+- `-Release` builds and runs the servers' Release builds, without `dotnet watch`: the monster AI runs 1.6-2.3x faster
+  and no watcher (~220 MB) runs beside the Gateway, for a stack that needs no hot reload
+  ([performance](docs/dev/performance.md)). `-Debug` goes back to the default. A run without either uses the
+  configuration of the last full run (`data\live-configuration.txt`), so `-Only`, `-ClientOnly` and `-NoBuild` keep to
+  the builds that are running.
 - `-NoBuild` skips the builds.
 - `-NoExtract` skips the game-data check (step 7).
 
@@ -431,15 +447,16 @@ Environment variables, read when each server starts:
 | `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on |
 | `Game_LOGIN_PORT` | 20493 | login server port (must match step 6) |
 | `Game_GATEWAY_PORT` | 6112 | instance server port |
-| `Game_GATEWAY_HOST` | 127.0.0.1 | address sent to the client for area changes |
+| `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port (localhost only) |
-| `Game_CLIENT_EXE` | `Client/Game.exe` | client executable the Gateway reads protocol constants from |
+| `Game_PORT_BASE` | unset | `live.ps1`: this checkout's servers on ports base..base+4 (Patch, Patch web, Auth login, Auth control, Gateway); remembered in `data/stack.json` like `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)) |
+| `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly` and `client_control.py`: the named client session, like `-Session` / `--session` |
 | `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere; an area the client cannot build at seed 1 gets a seed it built instead |
 | `Game_WALKMAPS` | unset | set by `live.ps1 -Walkmaps`: the Gateway announces each area load to the walk-map recorder and runs capture tours (`/tour`); unset, it records nothing |
 | `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |
 | `Game_LEAGUE` | `standard` | `hardcore` shows the hardcore death screen (a single Exit button) |
-| `Game_LEAGUES` | `Standard,Allflame` | base leagues; each offers its Hardcore/SSF/Ruthless combinations |
-| `Game_RUTHLESS_RULES` | `config/ruthless.json` | Ruthless tuning file; valid edits apply during play |
+| `Game_LEAGUES_FOLDER` | `Leagues` | where the leagues are: one folder per league |
+| `Game_RUTHLESS_RULES` | `Modules/Ruthless/ruthless.json` | Ruthless tuning file; valid edits apply during play |
 | `Game_START_WEAPON` | unset | `ground` = a new character's class weapon waits on the ground near the spawn instead of being worn |
 | `Game_FLASK_BUFFS` | unset | `0` = flasks recover without putting their flask_effect buff on the player |
 | `Game_FLASK_CHARGES` | unset | unset = the game's flask charge rules (kills by rarity, charge mods, a flask put on the bar in a hostile area starts empty); `full` = every kill fills all flasks and equipped flasks keep their charges |

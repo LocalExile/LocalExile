@@ -24,7 +24,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Auth records the town when a town ticket resolves (`Character.LastTown` in `data/saves.db`).
   Code: Auth (`InstanceDirectory`), `WorldAreaTowns.cs`.
   Docs: [09](../docs/protocol/09-area-change.md) §4.
-- Leagues and character creation: Standard and Allflame with their Hardcore / SSF / Ruthless variants on the create
+- Leagues and character creation: Standard and the league modules' (Allflame, Ruthless) with their variants on the create
   screen (S→C 0x1b), 24 character slots, any class in any league (C→S 0x12 → 0x15, 0x13), straight into the game;
   the league under the area name in game (0x1d); the hardcore death screen from the character's league;
   `Game_LEAGUES`.
@@ -35,7 +35,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `LoginServerSession`, Auth.
   Docs: [01](../docs/protocol/01-login.md) §5.
 - Every class in game: the Characters.dat row's object type and model, class byte, attributes, unarmed attack and
-  start kit (weapon, gems, sockets in the gems' colours); verified with a Templar.
+  start kit (weapon with two linked white sockets, gems); verified with a Templar, the weapon on the ground and the
+  saved gems also with a Ranger and a Shadow.
   Code: Gateway (`SkillCatalog.cs`, `PlayerInventories.cs`).
   Docs: [01](../docs/protocol/01-login.md) §7, [04](../docs/protocol/04-player-entity.md).
 - Exit to character selection: Esc → "Exit to Character Selection" and the hardcore death screen's Exit (C→S 0x153);
