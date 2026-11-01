@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 static partial class Game
 {
     // Creates one NPC (0x2b9, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
-    internal static async Task SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
+    internal static async Task<uint> SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
         int x, int y, float rotation)
     {
         uint id = conn.NextObjectId++;
@@ -17,6 +17,7 @@ static partial class Game
         lock (conn.Npcs) conn.Npcs[id] = new SpawnedNpc(npc, x, y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, npc.Id, x, y, rotation,
             HideoutCatalog.ByArea(conn.Layout.Hash) is not null ? "npc:" + npc.Id : null, npc.Model);
+        return id;
     }
 
     // The town's NPCs (NpcCatalog.In) at their cells.
@@ -29,8 +30,11 @@ static partial class Game
         if (Npcs.Value.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
         if (StashCatalog.FromArrival(conn.Layout.Hash))
             placements = [.. placements.Select(p => p with { X = conn.Layout.SpawnX + p.X, Y = conn.Layout.SpawnY + p.Y })];
+        var quests = QuestsOf(conn);
         foreach (var p in placements)
         {
+            // A town NPC a quest stages (DiallaTown / DiallaTownWithered …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
+            if (quests.ManagesNpc(conn.Layout.Id, p.Id)) continue;
             if (Npcs.Value.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {remote} npc {p.Id}: unknown or unsupported components"); continue; }
             if (!p.FromRoom && conn.Layout.Walkable is { } w && !w(p.X, p.Y)) Console.WriteLine($"[gateway] {remote} npc {npc.Name}: ({p.X}, {p.Y}) is not walkable");
             await SpawnNpc(remote, stream, ciphers, conn, npc, p.X, p.Y, p.Rotation);
@@ -85,12 +89,21 @@ static partial class Game
                 conn.NpcFinishFlag = null;
                 await SetQuestFlags(remote, stream, ciphers, conn, [finish]);
             }
+            // The row's script decides what follows its talk: the next page, or the end of the dialogue.
+            if (conn.NpcTalkScript is { } script)
+            {
+                conn.NpcTalkScript = null;
+                SpawnedNpc? speaker;
+                lock (conn.Npcs) speaker = conn.Npcs.GetValueOrDefault(id);
+                if (speaker is not null && await EndTalkScript(remote, stream, ciphers, conn, id, speaker, script)) return;
+            }
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 npc 0x{id:x}: back to the options (0x85 after a talk)");
             return;
         }
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
+        conn.NpcTalkScript = null;
         conn.NpcRewardOffer = null;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 object 0: npc dialogue closed (0x85)");
 
@@ -114,8 +127,23 @@ static partial class Game
         if (talk is null) return;
         if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return;
         if (!await GameEvents.AllowNpcOption(conn, talk)) return;
-        if (talk.StartFlag is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
+        // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
+        if (!await HandInQuestItems(remote, stream, ciphers, conn, talk, npc.Npc.Id)) return;
+        if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(remote, stream, ciphers, conn, [start]);
+        if (QuestsOf(conn).OnTalkRow(talk.Row) is { Count: > 0 } byRow) await SetQuestFlags(remote, stream, ciphers, conn, byRow);
+        await OnQuestTalk(remote, stream, ciphers, conn, id, npc, talk);
         conn.NpcFinishFlag = talk.FinishFlag;
+        conn.NpcTalkScript = null;
+        // A scripted row's end (FinishNPCChat, DoNPCChat, a screen, a move): after its talk, or now when it has none.
+        if (EndsWithScript(talk) && talk.Category is "Gossip" or "Quests" or "QuestReward" && talk.RewardOffer is null)
+        {
+            if (talk.TextAudio.Count > 0) conn.NpcTalkScript = talk;
+            else
+            {
+                if (conn.NpcFinishFlag is { } finish) { conn.NpcFinishFlag = null; await SetQuestFlags(remote, stream, ciphers, conn, [finish]); }
+                if (await EndTalkScript(remote, stream, ciphers, conn, id, npc, talk)) return;
+            }
+        }
         // What an option does is a module's (Modules/Core/npcdialogue); one nothing answers does nothing.
         if (!await Program.ServerHooks.RunNpcOption(new(PlayerOf(conn), npc.Npc.Name, talk.Category, talk.Option, talk.Script, talk.TextAudio.Count > 0,
                 talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer)))
@@ -128,9 +156,21 @@ static partial class Game
         var (remote, stream, ciphers) = conn.Wire;
         var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
         var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
-            .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), LeagueFor(conn).HardMode ? RollsFor(conn) : null)))
+            .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), RollsFor(conn))))
             .Where(c => c.Item is not null).ToArray();
-        if (rewardCatalog.Find(offer) is not { } rewardOffer || conn.QuestFlags.Contains(rewardOffer.TakenFlag) || rewardItems.Length == 0) return false;
+        if (rewardCatalog.Find(offer) is not { } rewardOffer) return false;
+        // An offer none of whose choices can be built yet (unique gear, jewels) still counts as taken, so its quest completes
+        // (campaign-quests.md E10): its taken flag is set without an item, and the options come back.
+        if (rewardItems.Length == 0)
+        {
+            if (rewardOffer.TakenFlag is not { } taken || ClientHasQuestFlag(conn, taken)) return false;
+            Console.WriteLine($"[gateway] {remote} offer {offer}: no choice can be built yet; {taken} set without an item");
+            await SetQuestFlags(remote, stream, ciphers, conn, [taken]);
+            await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options again (offer {offer} taken without an item)");
+            return true;
+        }
+        if (QuestRewardCatalog.Taken(rewardOffer.TakenFlag, ItemsFor(conn).ByHash(rewardItems[0].Item!.TypeHash)?.Quest,
+                f => ClientHasQuestFlag(conn, f))) return false;
         conn.InNpcTalk = false;
         conn.NpcRewardOffer = offer;
         conn.NpcRewardItems = rewardItems.ToDictionary(c => c.Choice.Id, c => c.Item!);

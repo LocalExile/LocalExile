@@ -21,11 +21,23 @@ static partial class Game
     // the sources before this publication, so the base adds once.
     internal static List<(string Stat, int Value)> BloodChargePanelRows(ClientState conn, Func<string, int> get)
     {
+        var (held, shown) = BloodChargePanelInputs(conn);
+        return BloodChargePanelRows(held, shown, get);
+    }
+
+    // The count held and whether the rows show, as the stat snapshot reads them before its tail.
+    internal static (int Held, bool Shown) BloodChargePanelInputs(ClientState conn)
+    {
         int held;
         lock (conn.Monsters) held = conn.BloodCharges;
         var inactive = InactiveItems.GetValueOrDefault(CharacterName(conn));
         bool shown = ItemsOf(conn).SocketedGemsByItem().Any(g => inactive?.Contains(g.ItemId) != true
             && ItemsFor(conn).GemEffects(g.Gem).Any(effect => UsesBloodCharges(conn, effect)));
+        return (held, shown);
+    }
+
+    internal static List<(string Stat, int Value)> BloodChargePanelRows(int held, bool shown, Func<string, int> get)
+    {
         return
         [
             (BloodCharges.Current, held),

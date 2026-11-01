@@ -38,6 +38,11 @@ static partial class Game
                 // (below). The client starts the action itself and waits for this echo before sending the next one.
                 var use = InstanceProtocol.ReadUseSkillAtLocation(bytes);
                 double at = conn.ClockAt(readAt);   // when the client applied the click, not when this handler runs
+                if (use.SkillId == TutorialObjects.WashedUpSkillId)
+                {
+                    await WakeUpOnBeach(remote, stream, ciphers, conn, (use.X, use.Y), use.Slot, use.Flags, at);
+                    continue;
+                }
                 // A gem skill cast at the ground (Fireball) stops the player where it stands; anything else (Move) walks there.
                 if (InTown(conn) && SkillsFor(conn).ActionName(use.SkillId) != "Move") continue;
                 if (SkillsFor(conn).ActionName(use.SkillId) != "Move")
@@ -120,14 +125,17 @@ static partial class Game
                 int action = 0;
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
+                int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(conn, use.SkillId, gem.Effect) : 0, chargeToken = 0;
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     (px, py) = cast ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
                     if (cast) conn.Walk.Order(px, py, at);
-                    // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway.
-                    if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
+                    // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
+                    // there at its own speed instead (ShieldCharge.cs).
+                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, chargeBonus, use.X, use.Y, at);
+                    else if (gem.Name is not null && SkillsFor(conn).IsMovement(gem.Effect)
                         && (conn.Layout.Walkable is not { } canWalk || canWalk(use.X, use.Y)))
                         conn.Walk.Teleport(use.X, use.Y, at);
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
@@ -147,6 +155,8 @@ static partial class Game
                         StartAction();
                     }
                 }
+                if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
+                    use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
                 bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
                 if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
@@ -588,6 +598,31 @@ static partial class Game
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
+            // C→S 0x29c: Hinekora's Lock preview request: u16 key, u32 currency inventory, u32 currency id,
+            // u32 target inventory, u32 target id (all BE after the key). The 0x29f answer uses the same key.
+            if (uid == 0x029c && unknown.Length >= 20)
+            {
+                static uint U32(byte[] b, int i) => (uint)(b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]);
+                ushort key = (ushort)(unknown[2] << 8 | unknown[3]);
+                uint currencyInventory = U32(unknown, 4), currencyId = U32(unknown, 8);
+                uint targetInventory = U32(unknown, 12), targetId = U32(unknown, 16);
+                var items = ItemsOf(conn);
+                var currency = items.RowOf(currencyId) is byte currencyRow
+                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == currencyId) : null;
+                var target = items.RowOf(targetId) is byte targetRow
+                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == targetId) : null;
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                    ? CurrencyResult(conn, target.Item, currency.Item.TypeHash,
+                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
+                    : null;
+                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
+                conn.ForesightRequest = (key, currencyInventory, currencyId, targetInventory, targetId,
+                    target?.Item.ForeseeSeed ?? 0, preview);
+                await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
+                    key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+                    preview is null ? [] : [preview]),
+                    $"0x029f foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
+            }
             // Unframed messages have the hooks too.
             if (Program.ServerHooks.WantsPacket(uid)) await Program.ServerHooks.Packet(PlayerOf(conn), uid, unknown);
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.

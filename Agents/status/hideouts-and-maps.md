@@ -24,7 +24,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Generic 3.29 maps, first slice (2026-10-27): `MapKeyTierN` items serialize their MapKey component and `/item Map
   (Tier N)` creates one; the map device accepts them and uses `MapKeys.dat` for the tier. The native hideout Atlas
   window (S?C 0x7b kind 0x2b) shows the four starting layouts; a node click (C?S 0x00e7) selects one and Activate opens
-  it. Every character has the epilogue quest flag `EndGameAvailable`, without which the client refuses Atlas activation.
+  it. Every character has the epilogue quest flag `EndGameAvailable`, without which the client refuses Atlas activation
+  (until Kitava earns it, only in a hideout and the maps, so the Epilogue's gates stay shut; checked offline).
   Live 2026-10-29: selecting Estuary opened Estuary; Cells is the default.
   Basic monster map drops use a local approximation.
   Atlas passive tree foundation (2026-10-30): the three saved presets are sent with their node lists and point budget
@@ -33,9 +34,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   client updated the tree; the presets are saved. The Atlas graph and point awards from map completion are not
   implemented, so connectivity is left to the client and the budget has no in-game source yet.
   The selected layout is saved per character, and generic maps now use their tier as the area level (tier + 67).
-  Atlas progress, Voidstones, map stash placement and official drop pools remain open.
-  Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
-  Docs: [21](../docs/protocol/21-hideouts.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
+  Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
+  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one filled 0x1a3 with the 0x3d
+  presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
+  Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
+  real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
+  Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
+  Docs: [21](../docs/protocol/21-hideouts.md), [re/013](../docs/re/013-atlas-progress.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;

@@ -130,8 +130,7 @@ static partial class Game
     // (until Walk.ArrivesAt; a movement skill's blink is no walk) at the walk's speed over the base speed, so movement speed
     // and chill change the step rate (the wiki: movement speed raises the frequency). It starts over when the walk ends, as
     // the run animation does.
-    // shortcut: Shield Charge blinks here, so it takes no steps (the wiki: it triggers footsteps); advance this clock
-    // during its charge once Shield Charge moves like a walk.
+    // Shield Charge walks its charge (ShieldCharge.cs), so it takes steps at the charge speed, as the wiki says.
     internal static int FootstepsDue(ClientState conn, ref double run, double from, double now)
     {
         double before = run, until = Math.Min(now, conn.Walk.ArrivesAt);
@@ -225,6 +224,8 @@ static partial class Game
         int chance = SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct);
         int? vsBlinded = Player(VsBlindedCriticalStat) is not 0 and var extra
             ? SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + (long)extra) : null;
+        int? vsProfane = SpellCriticalStrike.Chance(baseChance, Player, Own,
+            conn.Pools.SpellCriticalStrikeChancePct + FlaskGrounds.ProfaneCritIncrease);
         int multiplier = (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier + Own("base_critical_strike_multiplier_+"),
             int.MinValue, int.MaxValue);
         var gambler = GamblerFor(player);
@@ -243,8 +244,8 @@ static partial class Game
                 // Stop the sweep, but not the kills it already queued.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) break;
                 if (m.Dead || m.Life == 0 || MonsterBlocks(m, Random.Shared, spell: true)) continue;
-                var rolled = (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared);
-                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded), own, attack: false);
+                var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(hit, Random.Shared);
+                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(conn);
                 (damage, _, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
@@ -269,6 +270,7 @@ static partial class Game
                 await Send(remote, stream, ciphers, packet, $"0x01c1/0x01c2 monster 0x{id:x} ignited by {skill.EffectId}");
             if (applied is not { } landed) continue;
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
+            if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, landed, damage,
                 $"{skill.EffectId} (footstep){(critical ? " (critical)" : "")}", deaths: deaths);
             ChargesOnHit(conn, m, critical, spell: true, skill.Effect, skill.Level, primary: id == targets[0].Id);

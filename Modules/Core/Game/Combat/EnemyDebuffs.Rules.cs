@@ -37,9 +37,10 @@ static partial class Game
 
     // One step of the player's debuffs on monsters, worked out at the send gate so a removed monster gets none: a taunt
     // shows the taunted buff (408) for its time left and goes when it ends, the monster dies or the player dies (wiki: a
-    // taunt ends when its source dies); each enemy aura of his passives (Light of Divinity's Augury of Penitence, 2551)
+    // taunt ends when its source dies), and his hits' Intimidate, Unnerve and Blind (HitDebuffs) the same way; each enemy aura of his passives (Light of Divinity's Augury of Penitence, 2551)
     // and Born under Fire's) is on every hostile living monster within its radius of the player while he lives, and the
     // blind aura (SaboteurBlind) blinds them, shown with the blinded buff (PassiveBuffAuras.BlindState, Game.Blinded).
+    // Pride adds its own enemy aura (BuffDefinitions 1331) with the ramp each monster keeps while it stays inside.
     // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
     // burns read. A refund or a death takes the auras off; a new area is a new connection.
     internal static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
@@ -59,38 +60,91 @@ static partial class Game
                 bool alive = conn.PlayerLife > 0;
                 var here = conn.Walk.Position(now);
                 uint? elementalKey = Stats.Key("elemental_damage_taken_+%");
+                // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp
+                // is kept per monster.
+                AuraCatalog.Aura? pride = conn.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == "Pride");
+                IReadOnlyList<PassiveBuffAuras.Aura> enemyAuras = auras;
+                int prideRadius = 0;
+                (int Min, int Max) prideValues = default;
+                if (pride is not null)
+                {
+                    var skills = SkillsFor(conn);
+                    prideRadius = AuraRadius.Of(pride, conn.Pools.AuraAreaPct, skills, Stats);
+                    prideValues = AuraCatalog.PridePhysicalDamageTaken(pride, conn.Pools.AuraEffectPct, skills, Stats);
+                    enemyAuras = [.. auras, new PassiveBuffAuras.Aura(0, "Pride", AuraCatalog.PrideBuffRow,
+                        prideRadius, [3], [])];
+                }
                 var bytes = new List<byte>();
                 int added = 0, removed = 0;
+                // One timed debuff on a monster: its buff shown for the time left, shown again when that changes, taken
+                // off when it ends or the monster or the player dies. Whether it is on.
+                bool Timed(uint id, bool living, ref double until, ref double shown, ref ushort buff, ushort row,
+                    IReadOnlyList<uint>? values)
+                {
+                    bool on = living && until > now;
+                    if (!on) until = double.NegativeInfinity;
+                    if (buff != 0 && (!on || shown != until))
+                    {
+                        bytes.AddRange(InstanceEntities.RemoveBuff(id, buff));
+                        buff = 0;
+                        removed++;
+                    }
+                    if (on && buff == 0)
+                    {
+                        shown = until;
+                        bytes.AddRange(InstanceEntities.AddBuff(id, buff = conn.NextBuff++, row, PlayerId, values: values,
+                            u68: BitConverter.SingleToUInt32Bits((float)(until - now))));
+                        added++;
+                    }
+                    return on;
+                }
+                // Its Withered stacks (WitherOnHitLocked): one buff with their count and the time the last one has left,
+                // shown again when either changes; off when none runs or it or the player dies.
+                void Withers(uint id, bool living, SpawnedMonster m)
+                {
+                    if (m.Withered.Count == 0 && m.WitherBuff == 0) return;
+                    if (living) m.Withered.RemoveAll(s => s.Until <= now);
+                    else m.Withered.Clear();
+                    int stacks = m.Withered.Count;
+                    double until = stacks > 0 ? m.Withered.Max(s => s.Until) : 0;
+                    if (m.WitherBuff != 0 && (stacks != m.WitherShownStacks || until != m.WitherShownUntil))
+                    {
+                        bytes.AddRange(InstanceEntities.RemoveBuff(id, m.WitherBuff));
+                        m.WitherBuff = 0;
+                        removed++;
+                    }
+                    if (stacks == 0 || m.WitherBuff != 0) return;
+                    (m.WitherShownStacks, m.WitherShownUntil) = (stacks, until);
+                    bytes.AddRange(InstanceEntities.AddBuff(id, m.WitherBuff = conn.NextBuff++, WitheredBuffRow, PlayerId,
+                        values: [(uint)Math.Round(m.Withered[^1].Pct), 1], u68: BitConverter.SingleToUInt32Bits((float)(until - now)),
+                        stacks: (ushort)stacks));
+                    added++;
+                }
                 foreach (var (id, m) in conn.Monsters)
                 {
                     bool living = alive && !m.Dead && m.Life > 0 && m.Hostile;
-                    bool taunted = living && m.TauntedUntil > now;
-                    if (!taunted) m.TauntedUntil = double.NegativeInfinity;
-                    if (m.TauntBuff != 0 && (!taunted || m.TauntShownUntil != m.TauntedUntil))
-                    {
-                        bytes.AddRange(InstanceEntities.RemoveBuff(id, m.TauntBuff));
-                        m.TauntBuff = 0;
-                        removed++;
-                    }
-                    if (taunted && m.TauntBuff == 0)
-                    {
-                        m.TauntShownUntil = m.TauntedUntil;
-                        bytes.AddRange(InstanceEntities.AddBuff(id, m.TauntBuff = conn.NextBuff++, FlaskGrounds.TauntedBuffRow, PlayerId,
-                            values: TauntedBuffValues, u68: BitConverter.SingleToUInt32Bits((float)(m.TauntedUntil - now))));
-                        added++;
-                    }
-                    double distance = living && (auras.Count > 0 || m.PlayerAuras.Count > 0)
+                    bool taunted = Timed(id, living, ref m.TauntedUntil, ref m.TauntShownUntil, ref m.TauntBuff,
+                        FlaskGrounds.TauntedBuffRow, TauntedBuffValues);
+                    Timed(id, living, ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null);
+                    Timed(id, living, ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
+                    Timed(id, living, ref m.BlindedUntil, ref m.BlindShownUntil, ref m.BlindBuff, FlaskGrounds.BlindedBuffRow, null);
+                    for (int i = 0; i < ExposureTypes.Length; i++)
+                        if (!Timed(id, living, ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i],
+                                ExposureBuffRows[i], null))
+                            EndExposureLocked(m, ExposureTypes[i]);
+                    Withers(id, living, m);
+                    double distance = living && (enemyAuras.Count > 0 || m.PlayerAuras.Count > 0)
                         ? Dist(m.Walk.Position(now), here) : double.PositiveInfinity;
                     if (m.PlayerAuras.Count > 0)
                         foreach (var (definition, buff) in m.PlayerAuras.ToArray())
-                            if (auras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius)
+                            if (enemyAuras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius)
                             {
                                 bytes.AddRange(InstanceEntities.RemoveBuff(id, buff));
                                 m.PlayerAuras.Remove(definition);
                                 removed++;
                             }
                     int elemental = 0;
-                    foreach (var aura in auras)
+                    foreach (var aura in enemyAuras)
                     {
                         if (distance > aura.Radius) continue;
                         if (!m.PlayerAuras.ContainsKey(aura.Definition))
@@ -99,6 +153,16 @@ static partial class Game
                             added++;
                         }
                         elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);
+                    }
+                    if (pride is not null && living && distance <= prideRadius)
+                    {
+                        if (double.IsNaN(m.PrideSince)) m.PrideSince = now;
+                        m.PridePhysicalMore = AuraCatalog.PridePhysicalMore(prideValues.Min, prideValues.Max, now - m.PrideSince);
+                    }
+                    else
+                    {
+                        m.PrideSince = double.NaN;
+                        m.PridePhysicalMore = 0;
                     }
                     m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental);
                 }

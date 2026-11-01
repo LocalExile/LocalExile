@@ -16,6 +16,8 @@ sealed class MonsterElementalAilments
         public bool LessDealt { get; init; }
         // A shock's proliferation radius in cells when it landed; 0 for one that does not spread, as a spread copy.
         public int Spread { get; init; }
+        // Within the Tempest's shock on the corpse, which came after the death (a spread copy of it did not).
+        public bool OnKill { get; init; }
     }
     readonly List<Effect> effects = [];
     // The strongest shock another enemy's proliferation puts on this one, set again on every AI tick.
@@ -33,6 +35,9 @@ sealed class MonsterElementalAilments
     // The AI asks every living monster each tick, and most have no ailment: that case allocates nothing.
     public double Magnitude(Kind kind, double now) =>
         effects.Count == 0 && spread is null ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
+
+    /// <summary>Whether it was shocked when it died: Within the Tempest's shock on its corpse does not count.</summary>
+    public bool ShockedAtDeath(double now) => Active(Kind.Shock, now).Any(e => !e.OnKill && e.Magnitude > 0);
 
     /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
     public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => e.Until - now).DefaultIfEmpty().Max();
@@ -77,7 +82,7 @@ sealed class MonsterElementalAilments
     /// this monster affects it at the same effect until that shock ends, like an aura; the copy does not spread again and
     /// is not a new shock. Null, or a monster that cannot be shocked, takes it off.</summary>
     public void Proliferated(Effect? shock, Func<string, int> target) =>
-        spread = shock is null || Immune(Kind.Shock, target) ? null : shock with { Spread = 0 };
+        spread = shock is null || Immune(Kind.Shock, target) ? null : shock with { Spread = 0, OnKill = false };
 
     /// <summary>Chill and shock effect: floor(50 × (damage / threshold)^0.4 × effect modifiers), up to the cap, and none
     /// below 5% (the modifiers count before both limits).</summary>
@@ -102,7 +107,9 @@ sealed class MonsterElementalAilments
     /// damage, 0.06 s per 1% of the threshold up to 3 s, then duration modifiers, discarded under 0.3 s. Shock: a
     /// critical strike or chance_to_shock_% with lightning damage, and cold damage too with cold_damage_can_shock
     /// (Stormy Seas: the magnitude, not the chance), 2 s. <paramref name="attacker"/> gives the player's and the skill's
-    /// summed stats, <paramref name="target"/> the monster's own. The effects added are returned. A chill carries the
+    /// summed stats, <paramref name="target"/> the monster's own; the attacker's prohibitions (<see cref="CannotInflict"/>) stop
+    /// each ailment. The damage the chill, freeze and shock read takes the attacker's as-though multipliers (Overcharge).
+    /// The effects added are returned. A chill carries the
     /// attacker's Glacial Wave stats, a shock its proliferation radius grown by the hit's area modifier <paramref name="area"/>.
     /// </summary>
     public List<Effect> Inflict(double cold, double lightning, bool critical, double threshold, double now,
@@ -111,19 +118,33 @@ sealed class MonsterElementalAilments
         var added = new List<Effect>();
         if (threshold <= 0) return added;
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
-        Add(new(Kind.Chill, now, now + 2, Effectiveness(cold, threshold, EffectModifier(Kind.Chill, attacker, target), 30))
-        {
-            MoreTaken = attacker("enemies_chilled_by_hits_take_damage_increased_by_chill_effect") != 0,
-            LessDealt = attacker("enemies_chilled_by_hits_deal_damage_lessened_by_chill_effect") != 0,
-        });
-        if (cold > 0 && (critical || RandomRolls.Chance(attacker("chance_to_freeze_%"), 100, random)))
-            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * cold / threshold), 100));
+        if (!CannotInflict("chill", attacker))
+            Add(new(Kind.Chill, now, now + 2, Effectiveness(cold * AsThough(Kind.Chill, attacker), threshold,
+                EffectModifier(Kind.Chill, attacker, target), 30))
+            {
+                MoreTaken = attacker("enemies_chilled_by_hits_take_damage_increased_by_chill_effect") != 0,
+                LessDealt = attacker("enemies_chilled_by_hits_deal_damage_lessened_by_chill_effect") != 0,
+            });
+        // The chance rolls first, so a prohibition leaves the random sequence of the hits after it unchanged.
+        if (cold > 0 && (critical || RandomRolls.Chance(attacker("chance_to_freeze_%"), 100, random))
+            && !CannotInflict("freeze", attacker))
+            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * cold * AsThough(Kind.Freeze, attacker) / threshold), 100));
         double shocking = lightning + (attacker("cold_damage_can_shock") != 0 ? cold : 0);
-        if (shocking > 0 && (critical || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random)))
-            Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking, threshold, EffectModifier(Kind.Shock, attacker, target), 50))
-                { Spread = SpreadRadius(attacker, area) });
+        if (shocking > 0 && (critical || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random))
+            && !CannotInflict("shock", attacker))
+            Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
+                EffectModifier(Kind.Shock, attacker, target), 50)) { Spread = SpreadRadius(attacker, area) });
         return added;
     }
+
+    /// <summary>Whether the attacker's hits cannot inflict this elemental ailment ("ignite", "chill", "freeze" or
+    /// "shock"): Elemental Focus's cannot_inflict_status_ailments ("Supported Skills cannot inflict Elemental Ailments"),
+    /// never_ignite_chill_freeze_shock, and the per-ailment never_* stats; never_freeze_or_chill covers both cold
+    /// ailments.</summary>
+    public static bool CannotInflict(string ailment, Func<string, int> attacker) =>
+        attacker("cannot_inflict_status_ailments") != 0 || attacker("never_ignite_chill_freeze_shock") != 0
+        || attacker($"never_{ailment}") != 0
+        || ailment is "chill" or "freeze" && attacker("never_freeze_or_chill") != 0;
 
     /// <summary>Brine Bound (chance_to_freeze_enemies_for_1_second_when_hit_%): a freeze of a set base duration, through
     /// the same duration modifiers, threshold, minimum and immunity as a hit's.</summary>
@@ -136,14 +157,34 @@ sealed class MonsterElementalAilments
     {
         effects.Clear();
         spread = null;
+        Shattered = true;
     }
+
+    /// <summary>A hit killed it while frozen and it shattered: its freeze is gone, but the kill was of a frozen enemy.</summary>
+    public bool Shattered { get; private set; }
 
     /// <summary>Within the Tempest (enemy_shock_on_kill): the shock a killed monster's corpse gets, 15% base for 2 s
     /// through the shock effect and duration modifiers (wiki Within the Tempest; the 15% of shocks without damage, wiki
     /// Shock), up to 50%. It spreads like any shock the player inflicts, by the player's area modifier <paramref name="area"/>.</summary>
     public Effect? ShockOnKill(double now, Func<string, int> attacker, Func<string, int> target, double area = 1) =>
         Apply(new(Kind.Shock, now, now + 2, Math.Min(50, Math.Floor(15 * EffectModifier(Kind.Shock, attacker, target))))
-            { Spread = SpreadRadius(attacker, area) }, attacker, target);
+            { Spread = SpreadRadius(attacker, area), OnKill = true }, attacker, target);
+
+    // "Shock/Chill/Freeze Enemies as though dealing X% more Damage" (PoB CalcOffence: the ailment's damage times each
+    // <Ailment>AsThoughDealing more): the damage the magnitude or the freeze duration reads, not the hit's, nor the chance.
+    // Weapon-local, per-hand and skill-named ones (Manabond, Stormbind, graft skills) are not read.
+    static readonly Dictionary<Kind, string[]> AsThoughStats = new()
+    {
+        [Kind.Chill] = ["active_skill_chill_as_though_damage_+%_final", "unique_quiver_chill_as_though_damage_+%_final",
+            "non_damaging_ailments_as_though_damage_+%_final"],
+        [Kind.Freeze] = ["freeze_as_though_dealt_damage_+%", "helmet_mod_freeze_as_though_damage_+%_final",
+            "ice_nova_freeze_as_though_damage_+%_final", "non_damaging_ailments_as_though_damage_+%_final"],
+        [Kind.Shock] = ["support_pure_shock_shock_as_though_damage_+%_final", "active_skill_shock_as_though_damage_+%_final",
+            "helmet_mod_shock_as_though_damage_+%_final", "non_damaging_ailments_as_though_damage_+%_final"],
+    };
+
+    static double AsThough(Kind kind, Func<string, int> attacker) =>
+        AsThoughStats[kind].Aggregate(1.0, (more, name) => more * Math.Max(0, 1 + attacker(name) / 100.0));
 
     static double EffectModifier(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
         Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_effect_+%") / 100.0)

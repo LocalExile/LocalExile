@@ -93,8 +93,8 @@ Full classification, mechanics, radius/ring model and reuse notes:
   Destiny, Forbidden Flame, Forbidden Flesh, Megalomaniac, Sublime Vision, The Balance of Terror and Watcher's Eye
   without item sources; they are recorded in `unique-jewels.md` and are not implemented here.
 - **Generated specials:** Impossible Escape (`/impossible_escape`, 48 keystone variants) is implemented with the
-  keystone-radius allocation bypass; Rational Doctrine has a `/unique_jewel` item source, but its ground mechanics
-  remain inert.
+  keystone-radius allocation bypass; Rational Doctrine's `/unique_jewel` source and its stationary consecrated /
+  critical-strike profane ground mechanics are implemented (see [status](../status/progression.md)).
 - **Pilot done (42 rows with server effects; 33 threshold and Lioneye's Fall item sources generated):**
   `RadiusJewelCatalogue`,
   `ThresholdJewelCatalogue`, `/radius_jewel`, the 1500/1200/800 disc and Thread of Hope ring

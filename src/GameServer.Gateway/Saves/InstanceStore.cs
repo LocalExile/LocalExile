@@ -72,6 +72,20 @@ sealed partial class InstanceState
         lock (_startWeapons) return _startWeapons.TryGetValue(character, out var placed) && placed.Id == id;
     }
 
+    readonly HashSet<string> _states = new(StringComparer.Ordinal);
+
+    /// <summary>The instance's own quest states (Quests.InstanceFlag: the Library's hidden door, opened by its candle for
+    /// whoever is in this instance, never saved): true the first time one is set.</summary>
+    public bool SetState(string state)
+    {
+        lock (_states) return _states.Add(state);
+    }
+
+    public bool HasState(string state)
+    {
+        lock (_states) return _states.Contains(state);
+    }
+
     readonly HashSet<(int X, int Y)> _openedChests = [];
 
     /// <summary>Opens the quest chest standing at this cell (a Rhoa Nest): true the first time in this instance.</summary>

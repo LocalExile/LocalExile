@@ -51,6 +51,7 @@ static partial class Game
                     captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
                 { SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
                     VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
+                    VsProfaneCriticalChance = AttackCriticalChanceVsProfane(conn, character, release: true),
                     Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
                     ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
                     Ignite = MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Projectile: true),
@@ -59,6 +60,7 @@ static partial class Game
                     CriticalRoll = criticalRoll, Leech = captured.Leech,
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
                     AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
+                    PointBlank = Get("keystone_point_blank") != 0,
                     ReturnMultiplier = ProjectileReturn.DamageMore(Get),
                     // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
                     Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },

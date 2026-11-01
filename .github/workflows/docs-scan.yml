@@ -1,0 +1,87 @@
+# Scans what a pull request adds (.github/scripts/scan-docs.py). Agents/docs/dev/pr-checks.md
+# pull_request_target runs this file and the scanner as they are on main, so a pull request cannot edit its own check.
+# Never check out or run the pull request's code here: this job holds a token that can write to the repository's PRs.
+name: Docs scan
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  docs-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      MAINTAINER: Wrathen
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the pull request without checking it out
+        run: |
+          git fetch --no-tags "https://github.com/$REPO" "refs/pull/$PR/head" \
+            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          git cat-file -e "$HEAD_SHA^{commit}"
+
+      - name: Scan
+        id: scan
+        run: |
+          code=0
+          python3 -I .github/scripts/scan-docs.py --base "origin/$BASE_REF" --head "$HEAD_SHA" --report report.md || code=$?
+          if [ "$code" -gt 2 ]; then exit "$code"; fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the pull request's comment
+        env:
+          CODE: ${{ steps.scan.outputs.code }}
+        run: |
+          marker='<!-- docs-scan -->'
+          existing=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)
+          if [ "$CODE" = 0 ] && [ -z "$existing" ]; then exit 0; fi
+          {
+            echo "$marker"
+            echo "### Docs scan"
+            echo
+            cat report.md
+            if [ "$CODE" = 2 ]; then
+              echo
+              echo "After reading these lines, @$MAINTAINER approves this commit and re-runs this check."
+            fi
+          } > comment.md
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@comment.md > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@comment.md > /dev/null
+          fi
+
+      - name: Decide
+        env:
+          CODE: ${{ steps.scan.outputs.code }}
+        run: |
+          if [ "$CODE" = 0 ]; then exit 0; fi
+          if [ "$CODE" = 1 ]; then
+            echo "::error::Hidden text in the added lines; see the comment on the pull request."
+            exit 1
+          fi
+          latest=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+            --jq ".[] | select(.user.login == \"$MAINTAINER\" and .state != \"COMMENTED\") | \"\(.state) \(.commit_id)\"" | tail -n 1)
+          if [ "$latest" = "APPROVED $HEAD_SHA" ]; then
+            echo "Findings reviewed: $MAINTAINER approved this commit."
+            exit 0
+          fi
+          echo "::error::Waiting for $MAINTAINER to approve this commit, then re-run this check."
+          exit 1

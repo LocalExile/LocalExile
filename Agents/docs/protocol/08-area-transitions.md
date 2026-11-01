@@ -317,7 +317,8 @@ takes each exit's destination from the graph node of the room it stands in (§8)
 - with a capture: picks the graph variant (topology) whose transition models cover the captured models best, then
   gives each captured AreaTransition the destination of the same model in that topology (resolved and enabled). Per
   topology only 53 of 6 474 models lead to more than one place; those are logged and skipped. Disabled one-way links
-  (e.g. town → The Twilight Strand, `entrance1disabled`) are not created;
+  (e.g. town → The Twilight Strand, `entrance1disabled`) are not created, unless a quest gates that exit
+  (`Quests.FlagToEnter`): then it is created, and shown once the character has the flag;
 - without a capture: the atlas's static placement for fixed layouts (26 areas, the town among them);
 - the town keeps a built-in fallback when there is no atlas.
 The objects get ids 0x2000, 0x2001, …, their model, rotation and fixed height, and their own object type. After 0x7d
@@ -374,7 +375,10 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
    Kitava ladder lies 3 cells outside bossentry.arm), the last placed of them. Its node descriptions are its exits:
    `entranceN` (→ WorldAreas Connections[N − 1]), `entranceNdisabled` or `entranceN-disabled` (an arrival point only:
    not created, e.g. Lioneye's Watch's Twilight Strand marker, The Submerged Passage's Depths return boat, The Sarn
-   Ramparts' spider tomb from The Temple of Decay), `teleportN[disabled][-label]` (also `=label`: a gate within the
+   Ramparts' spider tomb from The Temple of Decay; unless a quest gates that exit, `Quests.FlagToEnter`: then it is
+   created and shown by the quest's flag, as The Upper Sceptre of God's way to The Aqueduct after Dominus (a3q10,
+   city_tower.arm's `entrance2disabled`) and The Library's into The Archives after the loose candle (a3q12), a room
+   point `…disabled` the game enables by script), `teleportN[disabled][-label]` (also `=label`: a gate within the
    area to `telepadN`), `telepadN[-label]` (an arrival); a space before the number occurs (`"telepad 1"` in every
    Peninsula topology). A room whose node names none places no exit (a sewer grate of a side area, an unused
    transition room's arch). `entranceNloot` (Descent's loot rooms) is not an exit.
@@ -414,6 +418,18 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
    `foothills_DelveEntrance01` into the mine, the mine's exit back to the hub).
 8. Arrivals: next to the exit back; through a one-way entrance, at that disabled entrance's point
    (`AreaTransitionCatalog.EntrancePoint`, `AreaLayout.EntranceFrom`).
+9. Quest rules ([12](12-quests.md) §5): every exit keeps its tile object's own type (`AreaTransitionObject.SourceType`),
+   which `On.Exists` shows or hides by flag. Two exits of one tile record that swap by a flag lead to their own version
+   of the area (`On.Exists` with `to`: the Chamber of Innocence's InnocenceToCourts / InnocenceToDestroyedCourts), and
+   the twin the layout left out is created from its record (`QuestExitDestinations`), in the destination's act only
+   (`SameAct`, WorldAreas Act: Act 10's burnt Oriath has the same tiles, and The Desecrated Chambers' exit keeps its
+   layout's way to Act 10's Torched Courts). A quest portal no tile or room places (`On.Portal`: Maligaro's portals
+   beside the Reverie Device, Sin's EpiloguePortal) is created on its object or beside it (`PortalCell`: 12 cells along
+   the object's own turned +X, else the nearest direction round it, on floor joined to the floor at the object; a fixed
+   +X offset left Maligaro's portal off the floor at 18 of 41 seeds) and stands in for the exit without a model (6.) to
+   the same place (`AddQuestPortals`, `ReplacePointExits`). What a quest adds or replaces in the shared layout is marked
+   with the module whose tables did it (`QuestSource`, `QuestReplaced`): a player whose league does not run those
+   tables sees the layout as generated.
 
 The model plays no part, so this covers the Reskin, the objects the atlas cannot see and shared models without a
 special case each. A gate or exit the game enables later is sent enabled (no Transitionable step, no disabled bit).
@@ -425,20 +441,28 @@ reached only that way, after the Depraved Trinity dies; its exit to Oriath is cr
 **The audit** (`scripts/re/exits`, from the repository root):
 
 ```bash
-dotnet run --project scripts/re/exits -c Release -- [area regex] [--all] [--seeds N] [--seed S] [--json out.json] [--quiet] [--notes] [--objects]
+dotnet run --project scripts/re/exits -c Release -- [area regex] [--all] [--seeds N] [--seed S] [--json out.json] [--quiet] [--notes] [--objects] [--quests]
 ```
 
 For every campaign area (WorldAreas "1_…" / "2_…" of acts 1–10 with a topology; `--all`: every area with one) that
 the Gateway generates, at seed 1 and N more seeds (default 3, fixed per area), it generates the layout, asks
-`AreaTransitionCatalog.For` for the exits as the Gateway does on entry (captures off) and checks them:
+`AreaTransitionCatalog.For` for the exits as the Gateway does on entry (captures off; `--quests` registers the act
+tables first, as in a league that lists the QuestObjects module, so the disabled entrances a quest gates are created
+too; the tool compiles `Modules/Core/World/QuestObjects/Acts/*.cs` in, so its build writes no module or Debug output)
+and checks them:
 - against the layout's descriptions and the WorldAreas connections: missing (an enabled `entranceN` whose room holds a
   transition object at which no exit was created, by position), misplaced, unexpected and duplicate destinations, a
-  `teleportN` without a gate to its `telepadN`;
+  `teleportN` without a gate to its `telepadN`; with `--quests`, more exits to a quest-gated disabled entrance's area
+  than such entrances, or one outside their rooms (`gated-duplicate`, `gated-misplaced`);
 - against §7's model matching over the same objects: a destination or a gate it had that no exit has now (this also
   covers areas without connections, such as Delve_Hub);
 - for reachability: walking from the exit back to Connections[0] within the Gateway's walk-up range, and through the
   area's gates.
 
 Info lines: rooms without an object for their entrance, connections no node names, objects not created, destinations
-the layout names only as a disabled entrance, gates no player can reach whose target is reached anyway, telepads
+the layout names only as a disabled entrance, with `--quests` the disabled entrances created because a quest gates them
+(`gated`: at seed 1 The Upper Sceptre of God → The Aqueduct and The Library → The Archives, The Slave Pens → Overseer's
+Tower, The Control Blocks → Oriath Square; without `--quests` they are dropped as arrival points) and the exits a quest
+rule sends to their own version of an area with the twin it creates (`quest-exit`: The Control Blocks →
+The Ruined Square, `ControlBlocksToDestroyedSquare`), gates no player can reach whose target is reached anyway, telepads
 no gate leads to. Exit code 1 on a problem.

@@ -6,13 +6,20 @@ using static Program;
 
 namespace GameServer.Modules.Social;
 
-/// <summary>Trades between players, and parties.</summary>
+/// <summary>Trades between players, parties and persistent account friendships.</summary>
 public sealed class SocialModule : IModule
 {
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
         static (ClientState Conn, string Remote) Of(Packet p) => (ConnOf(p.Player), ConnOf(p.Player).Wire.Remote);
+        module.OnEnterMessages(player => FriendsFeature.Enter(ConnOf(player)));
+        module.OnPlayerLeaving((player, why) => FriendsFeature.Leaving(ConnOf(player)));
+        module.OnPacket(InstanceSocial.FriendAddId, async p =>
+        {
+            await FriendsFeature.Change(ConnOf(p.Player), InstanceSocial.ReadFriendAdd(p.Bytes.ToArray()));
+            return true;
+        });
         module.OnPlayerLeaving((player, why) => SocialFeature.CancelPlayerTrade(ConnOf(player), why));
         module.OnPacket(InstanceNpcs.TradeOfferId, async p =>
         {

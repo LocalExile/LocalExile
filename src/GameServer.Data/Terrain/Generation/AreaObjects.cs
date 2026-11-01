@@ -56,30 +56,41 @@ public static class AreaObjects
     /// objects only).</summary>
     public static List<PlacedTileObject> RoomWaypoints(GenerationResult result) => RoomObjects(result, t => t == WaypointType);
 
-    /// <summary>The server object lines of the placed .arm rooms whose type is kept (a waypoint, an area transition such
-    /// as The Submerged Passage's <c>DepthsReturnTransition</c> boat), placed as <see cref="DoodadStage"/>'s room lines
-    /// (<c>0x142040770</c>: the cell turned by the room's code, the angle mirrored for codes 4–7 plus (code &amp; 3)·π/2),
-    /// which skip them as no client doodad.</summary>
-    public static List<PlacedTileObject> RoomObjects(GenerationResult result, Func<string, bool> keep)
+    /// <summary>The server object lines of the placed .arm rooms whose type <paramref name="keep"/> takes (default: any type
+    /// but the plain doodad: a waypoint, an area transition such as The Submerged Passage's <c>DepthsReturnTransition</c>
+    /// boat, a quest object), placed as <see cref="DoodadStage"/>'s room lines (<c>0x142040770</c>: the cell turned by the
+    /// room's code, the angle mirrored for codes 4–7 plus (code &amp; 3)·π/2), which skip them as no client doodad; with
+    /// <paramref name="points"/> also the
+    /// named points named by an object type (a room's point list can place a chest: The Cavern of Anger's
+    /// <c>BlackFlagChest</c>, "x y angle "type""). The quest engine's fallback for rooms data/room-points.json does not keep
+    /// (The Ascent's Resonator in ascent_summit_01.arm, Kitava's socket in bossentry.arm: their objects are not QuestObjects).
+    /// A point has no model and no fixed height (NaN).</summary>
+    public static List<PlacedTileObject> RoomObjects(GenerationResult result, Func<string, bool>? keep = null, bool points = false)
     {
+        keep ??= t => t != DoodadType;
         var placed = new List<PlacedTileObject>();
         foreach (var record in result.Records)
             foreach (var room in record.Rooms)
             {
                 int code = room.Orientation;
-                foreach (var d in room.Room.Doodads)
+                void Add(string type, string model, float x, float y, float rawAngle, float z)
                 {
-                    if (!keep(d.Type)) continue;
-                    var (cx, cy) = Orientation.Map(code, (int)d.X, (int)d.Y, room.Room.Width * 23, room.Room.Height * 23);
-                    float angle = code is >= 4 and < 8 ? MathF.PI * 2 - d.Angle : d.Angle;
+                    var (cx, cy) = Orientation.Map(code, (int)x, (int)y, room.Room.Width * 23, room.Room.Height * 23);
+                    float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
                     angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
-                    var o = new PlacedTileObject(d.Type, d.Model, room.X * 23 + cx, room.Y * 23 + cy, angle,
-                        d.FixedHeight ?? float.NaN, code);
+                    var o = new PlacedTileObject(type, model, room.X * 23 + cx, room.Y * 23 + cy, angle, z, code);
                     if (!placed.Contains(o)) placed.Add(o);
                 }
+                foreach (var d in room.Room.Doodads)
+                    if (keep(d.Type)) Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN);
+                if (points)
+                    foreach (var p in room.Room.Points)
+                        if (p.Name.StartsWith("Metadata/", StringComparison.Ordinal) && keep(p.Name)) Add(p.Name, "", p.X, p.Y, p.Angle, float.NaN);
             }
         return placed;
     }
+
+    const string DoodadType = "Metadata/MiscellaneousObjects/Doodad";
 
     const string WaypointType = "Metadata/MiscellaneousObjects/Waypoint";
 
@@ -87,8 +98,18 @@ public static class AreaObjects
     public static List<PlacedTileObject> QuestObjects(TerrainCache files, GenerationResult result) =>
         Place(files, result, QuestTypes.Contains, _ => false);
 
+    /// <summary>The tile objects of a generated grid whose type <paramref name="keep"/> takes, placed as
+    /// <see cref="Transitions"/> (the Gateway's quest objects: seals, levers, quest chests, altars).</summary>
+    /// <remarks>A record whose virtual model is no file of its own but which names an .ao (the Ancient Seal's
+    /// dungeon_bossrelease_v01_01_ball_replacement record: a static mesh, and bossrelease.ao with the animation its .ot
+    /// plays on creation) is placed with that .ao, as the doodad stage takes it; live, the static model hung the client.</remarks>
+    public static List<PlacedTileObject> TileObjects(TerrainCache files, GenerationResult result, Func<string, bool> keep) =>
+        Place(files, result, keep, _ => false, (o, tdt) => files.Text(o.VirtualModel(tdt)) is null
+            && o.Animation is { } ao && ao.EndsWith(".ao", StringComparison.OrdinalIgnoreCase) ? ao : o.VirtualModel(tdt));
+
     // The tile objects of the types kept; a tile is looked at when it has one of them (has) or an effect.
-    static List<PlacedTileObject> Place(TerrainCache files, GenerationResult result, Func<string, bool> keep, Func<TileDef, bool> has)
+    static List<PlacedTileObject> Place(TerrainCache files, GenerationResult result, Func<string, bool> keep, Func<TileDef, bool> has,
+        Func<TileObject, string, string>? modelOf = null)
     {
         var grid = result.Grid;
         var records = result.Records;
@@ -108,7 +129,7 @@ public static class AreaObjects
                 {
                     if (!keep(o.Type)) return;
                     var (cx, cy) = Orientation.Map(e.Orientation, cellX, cellY, tile.Width * 23, tile.Height * 23);
-                    string model = IsEffect(o.Type) && EffectModel(files, o.Type) is { } own ? own : o.VirtualModel(tile.Path);
+                    string model = IsEffect(o.Type) && EffectModel(files, o.Type) is { } own ? own : modelOf?.Invoke(o, tile.Path) ?? o.VirtualModel(tile.Path);
                     placed.Add(new PlacedTileObject(o.Type, model, x * 23 + cx, y * 23 + cy,
                         TilePlacement.Angle(e.Orientation, angle), o.Z - e.HeightOffset * 7.8125f, e.Orientation));
                 }

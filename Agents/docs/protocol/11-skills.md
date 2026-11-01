@@ -107,6 +107,42 @@ ActionType → `HASH16`); the default attack's is `Melee` 45448 = 0xb188.
 **Skill ids** are the server's choice, but they share the manager with the basic actions, whose ids are `HASH16 &
 0x3fff`. 0x0101 collided with a Monster.ot basic action (monsters showed a skill 0x101 / 0x4101). The Gateway uses
 **0x0102**, which no ActionType masks to in 3.29.3b (`SkillCatalog.FirstSkillId`).
+Granted-skill construction `0x141ee7439`, insertion `0x142198280/0x1421982b1` and action lookup
+`0x141ee9850/0x141ee987e` preserve and compare the full u16 ID, as do the checked S2C 0x1ab/0x1b4 paths.
+The basic-action mask is not a general rule for network-granted skills.
+The external official-server report's `0x4000/0x8002` IDs are a comparison input, not proof of an emission gate;
+their high-bit allocation convention has not been reconstructed.
+
+### 3.1 S2C 0x1b4: update one skill's stat set
+
+Static 3.29.3b evidence: class `0x1435c21c0`, reader `0x141fdeb10`, writer `0x141fdea50`.
+After the common object/action header (`0x141f92000`), the reader consumes:
+
+```text
+u16 BE skill id                      → packet +0x20
+u8 stat-set selector                 → packet +0x22
+unsigned compact pair count
+pair count × (unsigned compact stat key, signed compact stat value)
+                                     → packet +0x28/+0x30, eight bytes per decoded pair
+```
+
+Actor dispatcher case `0x142194482` binary-searches the full u16 skill ID against the registered skills' `+0x40`.
+Selector 0 uses that skill's primary network-stat object at `+0xf8`.
+Selector `n>0` uses additional stat-set entry `n-1` in the `+0x108/+0x110` vector, after a bounds check.
+At `0x142194640..0x142194659`, each decoded pair calls `0x1424cfaf0(stats, key, value)`:
+the low DWORD is the key, the high DWORD is its value.
+This is the same raw network-stat setter used elsewhere, not a position/path insertion.
+The handler compares values for `0x190c/0x4806` and nonzero states for `0x2532/0x2644` before/after.
+It conditionally calls `0x141eeb550` on the skill manager, then continues its notifications.
+The [selected action-stat getter](../re/projectiles/actions-and-emission.md#61-selected-stat-views-and-cached-values-have-different-lifetimes)
+uses skill `+0x138` for its primary fallback, initially aliased to the updated `+0xf8` object by skill construction.
+Overrides and explicit action caches prevent treating this as an unconditional update of every in-flight outcome.
+Later slot replacement and complete invalidation remain unresolved.
+
+[PR 373's official-server report](../re/projectiles/external-ranged-evidence.md) observed this message carrying
+skill IDs and integer pairs and tentatively called it a possible path.
+The receiver establishes a skill-stat update instead; the private payload values have not been reviewed here.
+Include these updates when reconstructing effective release inputs, without assuming they explain the first missing arrow.
 
 ## 4. The default attack
 
@@ -1227,8 +1263,10 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Its precise active action phase is not tracked, so even an inactive equipped skill is conservatively excluded.
 - **Hit effects (2026-10-25).** The target's blood and the weapon impact sound come from S→C **0x1af** "action hit"
   (`InstanceProtocol.ActionHit`; class `0x1435ddb38`, read `0x141fddba0` → `0x1419bd6f0`, Actor handler `0x1421940a0`
-  → `0x141e90f50`): object header (the attacker), u16 action sequence (must match the action's), u8, u8 skill index
-  (0 = the current action), u32 target id, u16 flags, u8 kind (bit 0: belongs to an action, bit 1: hit data follows).
+  → `0x141e90f50`): object header (the attacker), u16 action sequence, u8 result stage, u8 derived action byte,
+  u32 target id, u16 flags, u8 kind (bit 0: immediate processing rather than queueing, bit 1: hit data follows).
+  Derived zero selects the current root action; nonzero selects a retained derived action, both with matching sequence.
+  Local consumption matches `(sequence, derived, stage, target)`; kind bit 0 clear inserts without requiring an action.
   With bit 1: a u16 if `flags & 0x400` (`flags >> 10 & 1` in the reader), u8 code, u8 hit angle (0..255 a full turn,
   `atan2(dx, −dy)` from attacker to target), then a u16 for kind bit 2 and one for bit 3. The handler calls the
   attacker's `ProcessDamagePackageInternal` (vtable +0x230), which plays the effects; 0x1b1 stays authoritative on
@@ -1250,10 +1288,36 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   index 0 searches the current action).
   A Sand Spitter's hit on the player (live 2026-10-30) is kind 3, flags 0x4201 (0x4221 on a crit), code 0, skill
   index 2, with the sequence of the monster's own action (0x80c0…, from its 0x1ab), not 0xffff.
+
+  KB/Rain target callbacks consume queued results; stage/end processing is mode/kind-filtered and retains ordinary
+  queued records in the checked Predictive/Lockstep client bindings.
+  S→C 0x1b0 carries the same handle and a process byte: remove the first match, optionally process; absent is a no-op.
+  Its actual reader `0x141fddc20` normalizes every nonzero process byte to one. All multibyte result/handle fields
+  above are big-endian. Including the common 12-byte header, 0x1af is 23..31 bytes and 0x1b0 is 21 bytes on these
+  selected reader paths. Kind bits 2/3 add no fields unless bit 1 is also set. Optional fields default to zero in
+  the fresh 0x1af factory; the payload reader itself preserves omitted fields on direct reread. See the
+  [actual decoder contract](../re/projectiles/results-and-protocol.md#31-actual-payload-decoding-fresh-defaults-and-dispatch).
+  See [RE 012: results and lifecycle](../re/projectiles/results-and-protocol.md) for duplicate handling,
+  late-result limits, exact VAs and the distinction between local prediction and authoritative hit presentation.
 - **Release.** A spell leaves at its cast animation's **contact** keyframe, which the client plays stretched to the cast
   time: the Witch's `spell_projectile_wand` in `Art/Models/CHARACTERS/Witch/rig.amd` is 1066 ms long with `contact` at
   599 ms, so Fireball leaves after 56% of the cast. `python -I scripts/re/anim_contacts.py` writes every class's
   contacts to data/animation-contacts.json (`AnimationContacts`); the Gateway waits cast time × that fraction.
+  An area spell plays its action's Animation.dat row: the spell action base `0x1419e6e30` asks virtual +0x4e0 (the
+  base `0x1412402d0` returns 0x16, row 22 `SpellAreaOfEffect`); the IceNova action (ActionTypes 0x2748, constructor
+  `0x141bff6a0`, vtable `0x14353b5b0`) overrides it with `0x141241c10`, `mov eax, 0x21`: row 33
+  `SpellAreaOfEffectCold`. The class ACT maps that to `@SpellAreaOfEffect`, i.e. `spell_aoe_<stance>`
+  (`spellaoe_` in the StrDex/DexInt/StrInt/StrDexInt rigs); the Witch's is 766 ms with contact at 266, so a 700 ms
+  Ice Nova releases after 243 ms (`AnimationContacts.SpellAreaRelease`). `AreaSkillHit` waited the whole cast until
+  2026-10-31, about 450 ms after the client's nova. Other area spells use the same lookup; their own action
+  overrides were not read.
+  **Ice Nova's ring.** The IceNova action's update (`0x141c00180`, vtable slot 0x118) grows the ring by elapsed / 0.2 s
+  (0.25 s with `skill_art_variation` 3) × `active_skill_area_of_effect_radius` (`0x141c00430`) and hits every target
+  within it, so a victim at the edge is hit 0.2 s after one at the centre. `AreaSkillHit` sorts the victims by
+  distance and waits for each (`IceNovaRing`); once released, the ring no longer depends on the player's action.
+  Not modelled: `spell_repeat_count` repeats (0.3 s apart in the same update, each with `ice_nova_radius_+%_per_repeat`;
+  the server sends Ice Nova no count, see Spell repeats)
+  and Frostbolt casting (`active_skill_area_of_effect_+%_final_when_cast_on_frostbolt`).
 - **Cast speed (#192).** Genuine Spell/non-Attack skills keep the catalog milliseconds in both
   `base_spell_cast_time_ms` and `virtual_base_spell_cast_time_ms`. The native spell action already divides that
   virtual base by `1 + cast_speed_+% / 100`; pre-dividing it on the server applied cast speed twice.
@@ -1275,9 +1339,34 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   More cast speed: the native `cast_speed_+%` calculator `0x142709610` is
   `round((combined_cast_speed_+% + 100) × combined final − 100)`, at least −99; `0x142708190` multiplies the
   `_final` stats into that combined final. The stat getter `0x1424fc1e0` runs no calculator, so the server sends the
-  result. `FinalCastSpeedPct` applies Screaming Reels' `cast_speed_+%_final_while_holding_fishing_rod` this way (the
-  only `_final` cast speed modelled), and a genuine spell's record carries that total, a support's
-  `base_cast_speed_+%` included, as its `cast_speed_+%`.
+  result. `FinalCastSpeedPct` builds that final as `0x142708190` does, in single precision and its order: each
+  source is max(0, 1 + v / 100), multiplied, then ×100 − 100 rounded half away from zero. The sources are
+  `active_skill_`, `righteous_fire_`, `suppressing_fire_debuff_`, `support_multicast_` (Spell Echo), `echoing_shrine_`
+  and `cast_speed_+%_final`, `essence_support_` and `covered_in_spiders_attack_and_cast_speed_+%_final`, the weapon
+  tree's main- and off-hand finals and `cast_speed_+%_final_for_minion`, unconditionally.
+  The two totem supports' count when `is_totem` is 0, Fanaticism's when `casting_spell` is set and `is_not_hand_cast`
+  is not, Screaming Reels' with `main_hand_weapon_type` 15 (a fishing rod).
+  The Frostbolt factor is min(200, per destroyed × destroyed recently) and the metamorphosis boss's is in permyriad.
+  A genuine spell's record carries the total, a support's `base_cast_speed_+%` included, as its `cast_speed_+%`.
+- **Spell repeats (Spell Echo).** The spell action base `0x1419e2a50` gets `spell_repeat_count` (0x912) from its
+  constructor (`0x1419e7100`; the projectile action's `0x1419ee9a0` passes it to `0x141ba2160`) and stores it at
+  +0x2d4 (total) and +0x2d0 (left), both 0 for a Channel skill (type 0x30). At the animation's end `0x1419e3960`
+  takes one off +0x2d0 and plays the animation again (virtuals 0x458, 0xf8) until none are left, so every repeat
+  releases at the same contact a cast time after the last. `0x1419e3030` applies the final-repeat stats when +0x2d0
+  is 0 and +0x2d4 is not (`support_spell_echo_final_repeat_damage_+%_final` → `damage_+%_final_from_spell_echo_final_repeat`,
+  the `spell_skills_*_on_final_repeat` crits, `support_greater_spell_echo_spell_damage_+%_final_per_repeat` × index).
+  The count is calculator `0x1427e4310`: `base_spell_repeat_count + skill_repeat_count`, plus
+  `skill_repeat_count_if_mined` with `skill_is_mined`, and 0 with `disable_skill_repeats`. Spell Echo (SupportSpellEcho,
+  item `SupportGemMulticast`) has `base_spell_repeat_count` 1, `support_echo_damage_+%_final` 0 and 40% more cast
+  speed at level 1. The copy constructor `0x1419e2d40` keeps +0x2d0, so every projectile's seeds take the repeats left:
+  Spark's [sequence, 2 + index, left, owner], the random volley's third slot, the single random projectile's fourth
+  (`0x141bb13a0`: [sequence, +0x11c, +0x458, +0x2d0, owner]) and the return roll's fourth.
+  `SpellRepeats` sends the count with the skill and the server repeats its releases (`ScheduleGemProjectile`) and
+  area hits (`LaunchProjectile`) a cast time apart, with the use's one cost and critical roll; a new action cancels the
+  rest. Ice Nova's action (`0x141c00180`) also reads 0x912 for rings 0.3 s apart (only while bytes +0x2b8 and +0x2b9
+  are equal), and its slot 0x460 thunks to the base replay; it gets no count until a trace shows how the two combine.
+  Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
+  at a moving target.
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
   A channelled spell's native base is also preserved; this does not implement beam damage or change the existing
   server channel-hit cadence. Attack and non-spell timing paths are unchanged.
@@ -1455,7 +1544,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
 
 Only projectile skills (Fireball) and Righteous Fire dealt damage: every other gem skill logged "no projectile". Now
 `AreaSkillHit` gives them one hit, at the attack's contact keyframe (attacks, as the default attack but without the
-walk-in offset) or after the cast (spells), on every living monster
+walk-in offset) or at the area cast clip's contact (spells: `AnimationContacts.SpellAreaRelease`, see Release in §9;
+until 2026-10-31 after the whole cast; Ice Nova's victims as its ring reaches them), on every living monster
 within the skill's `active_skill_base_area_of_effect_radius` (in cells, else 12, grown by area of effect as Righteous
 Fire's: `SkillArea`; halved before 2026-10-23, which the units do not support) of the aimed
 point, or of the player when a melee skill is aimed too far. Attacks use the default attack's hit (`WeaponFor`: the
@@ -1493,7 +1583,7 @@ use) with and without the stat is not checked live yet; the Gateway log's 0x01ab
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
 cell when the skill starts (`SkillCatalog.IsMovement`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23).
+player back there (live 2026-10-23). Shield Charge instead walks there at its charge speed and hits on the way (§10k).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
@@ -1526,6 +1616,9 @@ The old callback flight, observed-motion estimator, fixed-gap spread and named r
 The older native evidence below records packet discoveries and the replaced implementation: its 16 ms polling,
 send-gate damage commits, return overshoot/debug flags and fixed-gap controls are not current runtime behavior.
 Revalidate native gameplay against the current runtime; packet-layout evidence remains applicable.
+The client's shared execution model is documented separately in [RE 012](../re/012-projectile-execution.md):
+animation/contact-based emission, fan/Volley layouts, integer motion, local contacts, history/continuations and results.
+Those static paths do not establish an official global 30 Hz cadence or a C→S per-projectile result-report contract.
 
 **The client predicts its own spell gem projectiles (Frida 2026-10-29, 2026-10-31).** One Fireball cast built two Projectile
 components: one from the 0x2b9 handler (`0x142187c8a` → `0x141ebe190`), one from the player's action
@@ -1535,12 +1628,11 @@ client built three before the server's three, so it predicts every primary proje
 position. The server therefore sends no object for a spell gem use's primary projectiles (`ProjectileOffense.ClientPredicted`,
 `ProjectileSession.Publish`) and still simulates them; continuation children and area effects still go out. The
 client made no explosion object of its own.
-An attack gem is not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
+In these local inputs an attack gem was not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
 by `0x141e8cf10`) and created no projectile at all until the server's `0x2b9`, as the default attack's arrow; with
 no server object nothing was drawn. `ClientPredicted` is therefore set for spells only (`CaptureGemProjectile`). Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
 and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw no client-created projectile at all
-(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). The
-default attack is not predicted the way a gem's volley is. Trace: `scripts/re/frida/trace-projectile-create.js`
+(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). These observations describe those supplied ordinary-attack inputs. Trace: `scripts/re/frida/trace-projectile-create.js`
 (load `common.js` and the trace in one script: `run.py` gives each file its own scope).
 
 **Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
@@ -1554,10 +1646,74 @@ the flight a wander: slot 0x548 returns false (no fixed range), slot 0x558 (`0x1
 The life is set once, at `0x141b35b7a`: `skill_effect_duration` (0x168) / 1000 seconds, ± up to 100% of
 `spark_random_duration_%` (0x4397). That stat is virtual, so the client does not derive it from
 `base_skill_effect_duration`: before the Gateway sent it (`GemSkills`, `SkillDurationModifiers.Seconds`) every client
-spark died on its first tick and none was drawn. Not checked live yet.
+spark died on its first tick and none was drawn (live 2026-10-30: sparks drawn).
 
-The server creates and moves the projectile. The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does
-nothing by itself: its slot 17 reads nothing and almost every other slot is a bare `ret`.
+**Spark's wander (live 2026-10-31, Frida `scripts/re/frida/trace-spark-legs.js`, 1,084 sparks).** Each spark is its own
+copy of the Spark action. Its first leg seeds the client's small generator (`0x14146d8f0`, the TinyMT32 key
+initializer with this client's constants, as `AnimationVariantSelector.NativeRandom`) from four words: the use's
+sequence (`+0x11a`), 2 + the spark's index in the volley (`+0x11c`), `+0x2d0` (0) and the owner's `+0x88` (the
+player, 0x1000). Every draw is the float range `0x1404ce3f0`: N = (int)(hi − lo + 1) × 1000, k uniform in [0, N]
+(`0x140484fa0`), value = k / N × (hi − lo) + lo in single precision; a zero-width range still draws.
+
+- First leg (`0x141b35a10`): life (`skill_effect_duration` / 1000 × 1 ± min(`spark_random_duration_%`, 100)%), then a
+  length of 15–25 cells toward the aim cell (target = start + round(delta × length / |delta|)), heading = atan2 of
+  the delta, then a speed factor of 0.8–1.2 × the projectile speed (`0x141b36080`).
+- Each later leg (`0x141b358c0`): a turn of ±45° (`0x141b35e80`), or 0–2π after terrain stopped it, added to the
+  heading and wrapped to [0, 2π]; a length of 15–25 (`0x141b360f0`); target = cell + truncate(cos, sin × length); a
+  speed factor. Slots 0x4c8/0x4d8 (`0x141b357f0`) end a leg by arrival, 0x4d0 (`0x141b35800`) by collision.
+- `skill_behaviour_variation` (0x1921, slot 0x310 `0x1419397d0`) changes these: 6 gives ±120° turns and 10–40-cell
+  legs, and 1, 2 and 4 forget hit enemies every 0.1 s instead of 0.66 s with no 150-cell limit. No player Spark gem
+  sets it.
+
+The Gateway flies the same legs (`SparkLegs`, `ProjectileProfile.Legs`): from the same seed, the server's legs are
+the client's cell for cell (`SparkLegsTests`, three live sparks). The start cell is the server's walk position, which can be cells away from
+the client's own (it snaps only beyond ~8.5 cells), so the drawn and simulated sparks then fly parallel paths.
+
+**The client's volley (static RE 2026-10-31, `0x141bb13a0`, setup `0x141bb0f20`).** Every spell projectile the client
+draws itself is aimed by one of four patterns, checked in this order: parallel (`0x141bb89d0`, when
+`support_parallel_projectile_number_of_points_per_side` is set), random directions (`0x141bb9280`, seeded through
+`0x140404a20`, when `random_projectile_direction` is set), nova (`0x141bb9500`, when `projectiles_nova` is set or a
+Disgorge nova applies; projectile i flies i × 6.28318 / n from the aim), and the fan (`0x141bb9730`) otherwise.
+The fan scales by k = (`multiple_projectiles_projectile_spread_+%` + 100) / 100 and steps
+max(min(atan(k × width / aim distance), min(2π, k × 120°) / (n − 1)), 0.14279968 rad), where width is
+`total_projectile_spread_angle_override` world units, else 60 (fitted to 175 live Spark volleys). A fixed spread
+replaces that step with max(fixed, 0)° / (n − 1): it is −1, so no spread, with `projectile_remove_default_spread`, else
+`fixed_projectile_spread`. The Gateway spreads every client-predicted spell this way (`ProjectileNativeVolley`,
+`ClientDrawnVolley`); parallel is not ported yet and keeps the server's own fan.
+
+Random directions: the setup fills a six-word key when the release asks for it (the plain release `0x141bb3f80` does)
+and `random_projectile_direction` is set: [sequence `+0x11a`, `+0x11c`, `+0x2d0`, `+0x458`, the owner's `+0x88`, slot
+0x540 (always 0)]. `0x141bb9280` adds a 0, seeds `0x141bba070` (the keyed initializer for seven words) and turns the
+aim of projectile i by its own float draw in 0–2π (x cos a − y sin a, y cos a + x sin a). A lone projectile takes
+another path in `0x141bb13a0`: its detached copy seeds `0x141a0c9d0` (five words: sequence, its `+0x11c` = 2, its
+`+0x458`, `+0x2d0`, owner), draws a in 0–2π and flies along (sin a, cos a) whatever the aim. The Gateway takes
+`+0x11c`, `+0x2d0` and `+0x458` of the casting action as 0 (the action's initializer zeroes `+0x11c` and `+0x458`;
+static only) (`RandomVolleyAngles`).
+
+The client flies its own projectiles `projectile_maximum_range_override` cells, else 50 with
+`reclaimed_malevolence_notable_abyss_searching`, else 150 (slot 0x600, `0x141ba62d0`); a return (`0x141bb2ae0`) aims
+at the caster's cell and flies that range past it. The Gateway uses both for client-drawn projectiles (live 2026-10-31:
+at the server's old 120 cells a returning Fireball hit before the drawn one came back).
+
+The return chance (`0x141bb04f0`, slot 0x698, asked when a projectile ends its outward flight) is rolled by each
+projectile's own copy: none with `skill_projectiles_cannot_return`; always with `projectiles_return`, or
+`attack_projectiles_return` on an attack; otherwise `projectile_return_%_chance` under 100 rolls `0x1404d03d0` in
+0–99 from `0x1419c29b0` seeded with eight words, [sequence, `+0x11c` (2 + the projectile's index), owner, `+0x2d0`,
+byte `+0x2b8`, 0, 0, 0], and returns below the chance. Only a decrement of `+0x2b8` was found (`0x141ba4620`); the
+Gateway takes it as 0 (`ReturnRolls`, `ProjectileProfile.ReturnRolls`), which needs a live check with a return chance.
+
+The captures above are bounded runtime observations, not a universal attack-versus-spell rule.
+The pinned executable has shared emission and final client bindings for ordinary ranged attacks and TS;
+release eligibility, effective count aliases, selected resources and lifecycle determine whether emission occurs.
+The earlier TS research branch enabled native mothers after publishing arrow aliases and reported duplicated
+wind/children when server-created stages remained. That branch behavior is not a current-main implementation claim.
+See [the client/server contract](../re/projectiles/client-server-contract.md) and
+[external evidence](../re/projectiles/external-ranged-evidence.md) before changing prediction ownership.
+
+The following object/move notes describe the historical server-created path.
+The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does little by itself:
+slot 17 reads nothing and almost every other slot is a bare `ret`.
+Native flight/contact logic resides in action/Positioned paths, not this small component.
 
 - **Object.** A 0x2b9 of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
@@ -1662,8 +1818,9 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   native flight or stun-animation capture yet.
 - **Hit (reworked 2026-10-25).** `ProjectileFlight` advances from the
   connection's elapsed game clock, polled about every 16 ms. For each interval it solves the earliest intersection
-  of the projectile segment and each living monster's observed movement segment in relative coordinates, with the
-  existing 4-cell radius (`Game_PROJECTILE_HIT_RADIUS`; the row's CollisionRadius is 2). It keeps previous samples
+  of the projectile segment and each living monster's observed movement segment in relative coordinates. A projectile
+  the client draws itself (spells, `ProjectileOffense.ClientPredicted`) uses the client's contact rule below; any other
+  keeps the 4-cell circle (`ProjectileProfile.Radius`) against the monster's centre. It keeps previous samples
   across movement orders, rather than choosing a future target at launch. A monster can walk out of a formerly
   predicted hit, walk into the path later, or intercept before a farther monster. Removed/dead monsters are omitted;
   new objects and replaced walk estimators are tested only at the current endpoint, without inventing past motion.
@@ -1672,6 +1829,26 @@ nothing by itself: its slot 17 reads nothing and almost every other slot is a ba
   missed, and the projectile reached the wall at (369, 220).
   Ordering the monster from (330, 240) into the ray after release produced a hit at (326, 220).
   These checks used actual monster movement orders; nearer interceptors and dead targets also have automated coverage.
+- **The client's object contact (static RE 2026-10-31, checked against the disassembly).** Creation (`0x141bb13a0`)
+  copies the Projectiles.dat row's `CollisionRadius` (+0x3d) to the projectile's Positioned +0x1e3 and
+  `CollisionCandidateRadius` (+0x5f) to +0x1e4. Its move (`ActionProjectile` starts it through `0x141bacf60` →
+  `0x141e34220`, which stores the action's contact callback, std::function vtable `0x14352d058` → `0x141bad450`, at
+  Positioned +0x160) steps the flight one grid cell at a time (`0x141e32710`, cell from `0x141e4d390`). Before each
+  step it tests terrain with +0x1e3 + 1, then, at `0x141e329ca`, objects with `0x141e47a40(grid, next cell,
+  max(+0x1e3, +0x1e4) + 1, layer, positioned)`. That query walks the 23-cell tile buckets around the cell and, per
+  object (`0x141e47ca0`), contacts it when `max(|dx|, |dy|) − object +0x1e3 < reach`, all in integer grid cells
+  (+0x294/+0x298), skipping objects of size −1 (`cmp r10b, 0xff`). So a projectile cell contacts a monster at
+  Chebyshev distance ≤ max(CollisionRadius, CollisionCandidateRadius) + the monster's Positioned size (`ObjectSize − 1`):
+  a square, not a circle, and the monster's size counts. Fireball (2, 2) and Spark (`Metadata/Projectiles/Spark`, 1, 2)
+  both reach 2 cells; a common ObjectSize-3 monster is hit 4 cells from its cell on either axis.
+  `0x141e32dc0` then filters team relations (matrix `0x144489800`) and calls the stored callback (+0x198, or +0x1d8 with
+  +0x1e6 bit 0x40), which reaches `ActionProjectile::CollideWith` (`0x141ba7b30`, already-hit and immunity checks). Only
+  for a target with neither Monster nor Player component, and a projectile whose +0x1e4 exceeds +0x1e3, does
+  `CollideWith` narrow the reach to `CollisionRadius` (Chebyshev − target size ≤ +0x1e3). A projectile created
+  inside a monster's square is tested once at creation (`0x141ba99d0` → `0x141bb83c0`, reach 1).
+  The server (`ProjectileProfile.ContactCells`, set in `ClientDrawnVolley` from `SkillCatalog.ProjectileContactCells`;
+  `ProjectileActor.Size` from `LivingCollision.Size`) solves the same square in continuous coordinates: cells are
+  centred on integers, so its half-width is reach + size + 0.5. Not live-checked yet.
 - **Stopping at contact (static evidence and live verification, 2026-10-25).** The initial 0x1ba goes to the
   range/static-wall endpoint. At a discovered contact, S→C **0x1b7** relocates it to the rounded contact cell with the appropriate height,
   then the Animated swap below plays its impact. The 3.29.3b Positioned handler's switch (`0x141e30c90`) maps 0x1b7
@@ -1920,6 +2097,19 @@ passive or another item changes which weapons qualify. Because the client still 
 (the effect's ActiveSkills `WeaponRestriction_ItemClassesKeys`) against the active hands' ItemClasses rows, an empty or
 inactive main hand counting as Unarmed (row 36), either hand fitting. Automated coverage only; awaiting a native check.
 
+The rest of `FUN_141ee7fb0` (Frida 2026-11-01, `scripts/re/frida/trace-skill-usable.js` and
+`trace-skill-usable-stats.js`), with ebp the main and esi the off hand's type, every test reading the skill's stats:
++0xb0 starts at 1 and is cleared by `skill_number_of_triggers` over 1, `skill_disabled_by_stat`, an Attack (type 1)
+with `disable_skill_if_melee_attack` (unless the main hand is 14 or 9) or `disable_skill_if_weapon_not_bow`,
+RequiresShield (type 10) without an off-hand 0x1b, RequiresStaff (0x86) without a main-hand 0xf or 0x3a, and
+RequiresOffHandNotWeapon (0x6a). DualWieldOnly (4) needs both hands fitting and, with DualWieldRequiresDifferentTypes
+(0x77), different types (Varunastra's stats 0x1066/0x1067 excepted). Then neither hand fitting clears it, and so does
+**`is_dual_wielding` (0xf6) with the main hand not fitting**, unless the off hand is 0x68, 0x1b or 0x15 and the main
+hand fits. Shield Charge's only class is Shield, so the main hand never fits it: with `is_dual_wielding` 1, which the
+client held because the server never sent it (stats from the network run no calculators,
+[13](13-items.md) "Client weapon-type stats"), it stayed greyed out beside a sceptre (live 2026-11-01). The Gateway now
+sends `is_dual_wielding` with both hands' weapon types, and the skill is usable.
+
 ## 10b. Actor restriction: warcry skills disabled
 
 `your_warcry_skills_are_disabled` is Stats row 5408, wire key 5409 in 3.29.3b.
@@ -1975,7 +2165,8 @@ Static inspection of the pinned 3.29.3b client establishes these virtuals (wire 
 
 Classification follows GrantedEffects.ActiveSkill to ActiveSkills.ActiveSkillTypes and ActiveSkillType.Id.
 Aura type row 38 has FlagStat row 3003, giving wire key 3004.
-All 17 supported ordinary self auras are typed Aura, as are unsupported Pride, Flesh and Stone, Vaal Haste and banners.
+All 17 supported ordinary self auras are typed Aura, as are Pride (the enemy aura) and the unsupported Flesh and Stone,
+Vaal Haste and banners.
 Reservation alone is insufficient: Heralds, Arctic Armour, Tempest Shield, Petrified Blood and Blood and Sand
 are not Aura.
 RF is not Aura even though one of its buffs is named `righteous_fire_aura`.
@@ -2263,6 +2454,111 @@ A Righteous Fire already burning keeps burning: it deals the enemies no damage (
 handling of an aura that is running when the restriction starts is unverified.
 Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
 
+## 10k. Shield Charge: the charge action
+
+Found with Frida on 2026-11-01 (`scripts/re/frida/trace-action-state.js`, `trace-call-stats.js`, `trace-stat-source.js`,
+`trace-charge-hits.js`); usability (the shield beside a one-handed weapon) is §10a.
+
+**The action.** The client creates the local player's actions in `0x141ee97f0` (manager, &action, skill id) and starts
+them in `0x141e8cf10`; an action's +0x118 is its type HASH16 and +0x11a the use's sequence (the skill id is not stored
+there; older notes had the two swapped). Shield Charge is type 0x2bc0, vtable `0x143324da8`, constructor `0x1413c6d80`.
+It derives from a moving-attack class (`0x141a6b7d0`) whose per-frame update `0x141a6c060` has three phases:
+
+- **Travel** (+0x3e5 and +0x3e8 set): the setup `0x141a6bae0` reads `shield_charge_range_+%`,
+  `shield_charge_extra_distance` and `global_knockback` and lays out the path; the update moves the player at its
+  mover's speed (float +0x240 of `[[action+0xe8]+8]+0x98`) and calls the action's hit function (vtable +0x550,
+  `0x1413c79d0`, which forwards to `0x141a6d7c0`) with kind 0 along the way.
+- **Arrival**: `0x141a6ca30` stops the mover and calls vtable +0x530. The parent's `0x141a6cb60` would start the end
+  phase at once (kind 2); Shield Charge overrides it with `0x1413c7780`, which tail-calls `0x141a6df00`: the final hit
+  (kind 1), then the end-of-charge attack's animation (`0x141e9a3c0`), reading `shield_charge_attack_time_+30%_if_no_charge`.
+- **End phase** (+0x3f8): only `0x141a6d7c0` with kind 2 sets it, from that animation's completion; it runs the scheduled
+  events (count +0x3fc, next +0x400, elapsed +0x404 against duration +0x420) and ends the action.
+
+**The end attack swings the shield.** It reads `off_hand_total_base_weapon_attack_duration_ms`, which the Gateway sent
+only for an off-hand weapon (`SkillCatalog.Unarmed.OffStats`). At 0 the animation started but never completed: the
+end phase never began, the player kept running in place after arriving and no other skill could be used until a walk.
+A shield skill with a shield in the off hand now carries the gem's own GrantedEffectsPerLevel `AttackTime` (Shield
+Charge 500 ms) as `off_hand_base_weapon_attack_duration_ms` and `off_hand_total_base_weapon_attack_duration_ms`
+(`SkillCatalog.AttackTimeMs`, `RequiresShield`); the client adds the +30% itself. Verified live: the charge stops and
+plays its end effect.
+
+**Speed.** The mover's speed comes from `0x141e7c0b0`: base (+0x548) × (1 + `movement_velocity_+%` / 100) ×
+(1 + `virtual_action_speed_+%` / 100), capped by `movement_velocity_cap`, all read from the player's own Stats component
+(the network getter `0x1424cfa40`: sorted (key, value) pairs at +0xf0..+0xf8, then the provider at +0xe0), not the
+skill's record. The game adds the gem's `base_movement_velocity_+%` (+90 at level 1) through the invisible buff
+`shield_charge_movement_speed_while_charging` (BuffDefinitions 1352); network stats run no calculators, so the Gateway
+adds it to the pools' movement speed from the use until its own walk arrives (`ShieldCharge.cs`, `Progression.cs`) and
+sends the player stats at both ends. Its walk estimate goes to the aimed cell at that speed instead of the generic
+movement skill's teleport (§9a). Verified live: `movement_velocity_+%` 22 → 112 → 22, the charge twice as fast; the
+first stats update arrives after the client has started the charge, and the client takes it up mid-charge.
+
+**Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
+100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a6d760` returns the range), kind 1 within 16 cells where
+it arrives, and kind 2 (range 28) as the end phase starts. The Gateway lands kind 0 and 1 on its own walk
+(`RunShieldCharge`): path hits every 100 ms within 8 cells, each monster at most once per charge (neighbouring path
+areas overlap), and a final hit within 16 cells reaching every monster there. The generic area hit, which landed once
+around the starting cell, skips Shield Charge. Verified live: path and arrival hits land.
+
+**Not modelled yet:** the gem's shield damage (`off_hand_local_minimum/maximum_added_physical_damage`, the added damage
+per 15 shield armour and evasion), `shield_charge_damage_+%_maximum` by distance, the stun and knockback scaling, and
+the end phase's kind-2 effects; the hits deal the ordinary weapon hit.
+
+## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
+
+These are action instructions, distinct from per-target hit results or C→S collision reports.
+Actor dispatcher `0x1421940a0` sends both to executor `0x142195880`.
+It creates/configures an action, registers derived byte one, then invokes synthetic start/contact.
+See [RE 012's execution contract](../re/projectiles/synthetic-start-and-server-commands.md)
+for flags, actual final predicates, identity, cleanup and the separate Actor finalization receiver.
+This is bounded static evidence for client 3.29.3b; it does not establish official route choice for every skill.
+
+The event-bearing `0x1cf` factory is `0x1421c6150`, selected branch `0x1421c64a9`.
+Table `0x1435c20e8` binds writer `0x141fde370`, reader `0x141fde530` and copy `0x141fdd6a0`.
+The reader starts after message ID selection; the ID is not repeated inside this payload.
+Successful reads consume the following in order (BE = big-endian):
+
+```text
+u32 BE, u32 BE, u16 BE          common object/action header → +10,+14,+18
+u16 BE skill, sequence, flags   → +2a,+2c,+50
+if flags & 0x20: u32 BE target  → +30; strip 0x20; absent target = 0
+u32 BE animation context       → +20
+u32 BE float bit pattern       → +24
+u16 BE event hash              → +28
+3 × u32 BE event vector bits   → +44,+48,+4c
+if flags & 0x2000:
+    2 × signed compact int     extra aim → +3c,+40; retain this flag
+if flags & 0x10:
+    action configuration       → +58; initialize defaults then decode; strip 0x10
+2 × signed compact int         ground aim → +34,+38
+```
+
+The configuration's presence byte is message `+d0` (configuration `+78`).
+Absent configuration clears presence and releases old containers; stale scalar bytes need not be erased.
+Absent extra aim can retain old storage in a reused message; fresh factory defaults are zero.
+Use presence/flags to decide whether those bytes apply.
+The shared configuration reader `0x1419e54d0` uses one mask byte.
+Its inner bit `0x10` reads a BE u32 into configuration `+1c`, independently of the outer packet presence bit.
+Both instructions copy that value through action `+80 → 0x141bae280` into action `+434` as a signed speed percentage.
+A present default configuration with inner bit clear writes zero; an absent configuration skips this callback.
+Inner bit `0x80` reads an unsigned compact count and count times four raw bytes without per-element swapping.
+The other configuration fields and complete receiver chain are tabulated in RE 012.
+
+Compact integers here use a prefix-length format, not LEB128 or zigzag.
+Prefixes `00..7f / 80..bf / c0..df / e0..ef / f0..ff` select 1/2/3/4/5 total bytes.
+Signed reader `0x141fa3d60` sign-extends 7/14/21/28 payload bits in the first four forms;
+the final form consumes raw BE32. Unsigned count reader `0x14089cad0` omits sign extension.
+Signed writer `0x141fa3c50` uses the four-byte form only for `[-67108864,67108864)`,
+although that decoder form can represent more values; outside the writer's range it emits `f0` and BE32.
+
+The event handler passes `+20/+28` to animation lookup `0x141db3870`.
+It advances matching records while message float `+24` is greater than current event time `+0c`.
+Equality keeps the current event. Original `COMISS/JBE` also selects current on unordered comparisons;
+this does not establish NaN as a valid official input.
+The chosen event is copied, its vector replaced by `+44..+4f`, then passed to the executor.
+Missing matching events take the existing failure path.
+Original-instruction offline controls cover successful decoding/transfer and separate event comparisons;
+failed I/O, allocation limits, actual official values and every skill's successful emission remain unverified.
+
 ## 11. The skill bar
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.
@@ -2306,6 +2602,11 @@ Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
   not known. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+  The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
+  Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
+  cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
+  supplies 1, not preservation. See [the exact repeat state/input contract](../re/projectiles/repeat-source-state.md).
+  This identifies a supported input route, not official server values or timing for those definitions.
 - **Passive self buffs** (`PassiveBuffAuras.SelfBuffsFor`, §10e). A row without `IsRecovery` carries no values in
   0x1c1, so the client cannot apply them: the server adds the values to the allocated passives' stat sum and sends the
   buff for its icon and visual only. The buff goes out with 0x1c1 at area entry (each area's connection starts without
@@ -2333,7 +2634,7 @@ Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
   each living hostile monster within the radius of the living player with 0x1c1 and takes it off with 0x1c2 when it
   leaves, the player dies or the node is refunded; a vanished monster is forgotten without a message
   (`PassiveBuffAuras.BlindState`). The invisible aura buff on the player is not sent: nothing on the client reads it
-  that we know of. `Game.Blinded` (smoke cloud or aura) is the one Blind condition the hits read: 20% less monster
+  that we know of. `Game.Blinded` (smoke cloud, aura or a hit's Blind, below) is the one Blind condition the hits read: 20% less monster
   accuracy and evasion, `critical_strike_chance_+%_vs_blinded_enemies` in the player's increased critical chance
   against the target, `damage_taken_+%_from_blinded_enemies` on its hits ([Polytheist](../game/polytheist.md)).
 - **Passive-granted skills** (`PassiveGrantedSkills.cs`, §10f): a passive's PassiveSkills `GrantedEffectsPerLevel`
@@ -2345,7 +2646,8 @@ Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
   restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
   footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
   steps (the wiki: movement skills do not trigger it). The wiki's exception, Shield Charge (the player still walks,
-  faster), is a known gap: it is a Movement skill here and blinks too, so it triggers nothing. `TriggerFootstepSkill`
+  faster), now walks its charge (§10k), so the clock advances during it at the charge speed; not checked live yet.
+  `TriggerFootstepSkill`
   sends the explosion where the player
   stands: an `EffectObject` with SkillArtVariations `repeating_shockwave`'s default (MiscAnimated 1173
   `AbberathsHoovesImpact`, `Abberaths_Hooves_fireimpact.ao`, whose own SoundEvent is the step sound), its wake zone, and
@@ -2393,7 +2695,8 @@ Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
 - **Resistances** (`CharacterStats`, `DamageModel`): the passives' `base_resist_all_elements_%` and
   `base_fire/cold/lightning/chaos_damage_resistance_%` are summed from the character's 0% base into `Pools`; the client
   applies the two permanent Kitava quest penalties itself, and the Gateway mirrors them from the same flags
-  (`a5q6-CompletedBoss`, `a10q3-SeenBoss`/`a10q3-UsedRewardBook`: -30% each, not an aura). The final value is
+  (`a5q6-CompletedBoss`/`SinOnKitavaDefeat`; `EndGameAvailable` once earned, QuestStaticRewards 39, or
+  `a10q3-UsedRewardBook`: -30% each, not an aura). The final value is
   `clamp(resistance, -200, min(75 + max-resistance modifiers, 90))`, taken from Path of Building commit `16de4b8`:
   `src/Modules/Data.lua` (`ResistFloor = -200`, `MaxResistCap = 90`), `src/Data/Misc.lua`
   (`base_maximum_all_resistances_% = 75`) and `src/Modules/CalcDefence.lua` (the clamp). The project is cloned locally
@@ -2490,6 +2793,35 @@ Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
   Taunt), raised by `taunt_duration_+%`; a new taunt replaces the player's older one; a death of the monster or the
   player ends it. BuffDefinitions 408 `taunted` shows it with its time left (flags bit1). The row is IsRecovery
   (+0x7c), so its 0x1c1 carries its two GrantedStats values: `taunt_target_id` (the player) and `is_taunted` 1.
+- **Intimidate and Unnerve** (`HitDebuffs`). A player hit that lands on a living monster rolls
+  `chance_to_intimidate_on_hit_%` (plus `attacks_intimidate_on_hit_%` for an attack) and `chance_to_unnerve_on_hit_%`
+  (plus `chance_to_unnerve_on_hit_with_spells_%` for a spell), with `Random.Shared`; Grattus Signet's
+  `spells_inflict_intimidate_on_crit` and `attacks_inflict_unnerve_on_crit` inflict them on a critical strike. Each lasts
+  4 s from the latest hit that inflicts it (poedb: "Intimidate Enemies for 4 seconds on Hit"). `intimidated` (733) and
+  `unnerved` (1412) show them with their time left, like the taunt; neither row is IsRecovery, so they carry no values.
+  An intimidated monster takes 10% increased damage from attack hits and an unnerved one from spell hits (poedb), added
+  to its `base_damage_taken_+%` in `MonsterTakesMitigated` and the hit's ailment damage, not in burns. Not read: the
+  weapon-local chance, "Nearby Enemies are Intimidated" auras, the full-life, curse, block and warcry sources, minions'
+  chances and Intimidate's stun duration stat.
+- **Blind on hit** (`HitDebuffs.BlindRoll`). The same hit makes one roll for the sum of `global_chance_to_blind_on_hit_%`
+  (the Blind support's 10%), `attacks_chance_to_blind_on_hit_%` for an attack and
+  `%_chance_to_blind_on_critical_strike` on a critical strike. Blind lasts 4 s (poedb: "base duration of Blind is 4
+  seconds") × (1 + `blind_duration_+%`/100) from the latest hit that inflicts it (`SpawnedMonster.BlindedUntil`), and
+  `EnemyDebuffsTick` shows it with the `blinded` buff (179) and its time left, like Intimidate. `Game.Blinded` counts
+  it, so it has the aura's effects above. Not read: `blind_effect_+%`, the weapon-local chance
+  (`local_chance_to_blind_on_hit_%`, on the panel only), `cannot_be_blinded` and `avoid_blind_%` on monsters (no
+  Blind source checks them), the conditional chances and minions' chances.
+- **Withered on hit** (`HitDebuffs.WitherRoll`). The same hit makes one roll for `withered_on_hit_for_2_seconds_%_chance`
+  (items, the weapon tree) plus Withering Touch's `withered_on_hit_chance_%`. A stack lasts the support's
+  `support_withered_base_duration_ms` or else 2 s, divided by (1 + `wither_expire_speed_+%`/100) for the Eldritch gloves'
+  "expires slower". Each gives 6% increased chaos damage taken × (1 + `withered_effect_+%`/100), up to 15 stacks with
+  their own ends; a 16th replaces the one ending first (poedb Withered: 6%, "stacking up to 15 times"; the replacement is
+  not checked). It adds to the monster's increased damage taken on the chaos part of a hit in `MonsterTakesMitigated`
+  and on chaos damage over time in `MonsterDotTaken`. `EnemyDebuffsTick` shows the `withered` buff (506, IsRecovery:
+  `chaos_damage_taken_+%` and `is_withered`, sent as one stack's value and 1) once, with the stack count and the time
+  the last stack has left, again when either changes. Whether the client wants one instance per stack instead is not
+  checked. A monster with `immune_to_wither` takes none. Not read: the weapon-local chance, the target's
+  `withered_effect_on_self_+%`, Wither the skill, the auras and the conditional sources.
 - **Where it runs.** The player tick (`RunPlayerTick`, 250 ms, not while paused) calls `TickPassiveAuras`, which
   does `EnemyDebuffsTick`; the step works at the send gate, so a removed monster gets no buff. The auras come from
   the allocated nodes at each step, `taunted_enemies_damage_taken_+%` from the stats last sent
@@ -2686,9 +3018,17 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
   A 40 fire hit changed current ES from 84 to 44 without Life loss, followed by delayed recovery at 2184 per minute.
   Native toggle, quality, gem-host, conversion, shield, town and death controls passed.
   Both fixture characters retained identical inventories and remembered intent across a Gateway restart.
+  Pride is the enemy aura: its buff (BuffDefinitions 1331) goes on every hostile living monster within the aura's
+  radius (base 40 cells plus the gem's `active_skill_base_radius_+`, 50 at level 20, scaled by the player's
+  `base_aura_area_of_effect_+%` and the gem's quality), and the monster takes its
+  `physical_damage_aura_nearby_enemies_physical_damage_taken_+%` (19% at level 20) rising linearly to `_max` (39%)
+  after 4 seconds in the aura. Aura effect scales both ends. The ramp is kept per monster and resets when it leaves
+  or the aura ends; `MonsterTakesMitigated` applies it to the physical part of every hit and `MonsterDotTaken` to
+  physical damage over time. The buff is removed with the aura, the monster's death or the player's death.
+  Live 2026-11-01: a level-20 Pride in a helmet showed `Auras: Pride (0 flat, 50%)`, the Rhoa received `0x01c1` with
+  BuffDefinitions 1331, and `0x01c2` removed it when Pride was toggled off; death cleared both.
 - **Not implemented yet.** Casting one of these logs that its reservation is known but its effect is not implemented and does not
   reserve mana:
-  - **Enemy auras:** Pride still needs a radius- and time-dependent enemy physical-damage-taken debuff.
   - **Heralds:** Ash, Ice and Thunder need on-kill/overkill/shatter/storm effects; Agony and Purity need minions.
   - **Banners:** Defiance, Dread and War need the planted banner, stages and their pulses.
   - **Curse auras:** Blasphemy-style skills need the curse system.

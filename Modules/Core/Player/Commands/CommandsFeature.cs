@@ -1240,14 +1240,8 @@ static class CommandsFeature
                 await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, dev block hit)");
             await conn.Commands!.Reply($"{(spell ? "Spell" : "Attack")} hit: {amount} → {dealt}; {(blocked ? "blocked" : "not blocked")} ({chance}% chance); life {life}/{conn.PlayerMaxLife}.");
         })
-        .Add("god", "/god (toggles: 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, 200% increased area of effect, +10 000 life, +1000 attributes)", async _ =>
-        {
-            bool on = !conn.God;
-            await SetGod(remote, stream, ciphers, conn, on);
-            // A burning Righteous Fire takes its radius when lit: light it again with the new area.
-            await RelightRighteousFire(remote, stream, ciphers, conn, "/god");
-            await conn.Commands!.Reply(on ? "God mode on." : "God mode off.");
-        })
+        .Add("god", "/god [on | off | immune] (toggles, or on/off: 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, 200% increased area of effect, +10 000 life, +1000 attributes; immune: also no damage taken; kept across area changes)",
+            args => GodCommand(remote, stream, ciphers, conn, args))
         .Add("set_aoe", "/set_aoe <percent> | off (dev: the character's increased area of effect, base_skill_area_of_effect_+%, in place of what passives, items and /god give)", async args =>
         {
             if (args.Length == 0) throw new ArgumentException("percent or off");

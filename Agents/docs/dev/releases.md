@@ -39,6 +39,7 @@ Merge commits stay; no history is rewritten.
 | Path | What |
 |---|---|
 | `LocalExile.exe` | the launcher (`src/LocalExile`), one self-contained file |
+| `LocalExileGUI.exe` | a window over the launcher (`src/LocalExileGui`), for .NET Framework 4.8, which Windows 10/11 has |
 | `app/` | self-contained win-x64: the Auth, Patch and Gateway servers and the extraction tools, sharing one runtime |
 | `Modules/`, `Mods/Binaries/`, `Leagues/` | built modules and mods; leagues as source, which the Gateway compiles when it starts |
 | `Tools/python/`, `Tools/node/`, `Tools/ooz/` | the embeddable Python and Node (pinned by hash in `build-release.ps1`), ooz-wasm |
@@ -92,6 +93,15 @@ Exit codes: 0 done, 1 unexpected, 2 usage, 3 client not usable, 4 extraction fai
 already running, 7 input needed, 8 the client failed to start.
 A GUI keeps the process running while the game runs: ending it ends the servers and the client.
 `--password-stdin` takes the new account's password as the first line of standard input.
+
+`LocalExileGUI.exe` is that GUI: tabs to play (or run only the servers), set up (client folder, copy or link, account),
+turn mods on and off (`mod-state.txt`, as `/mod_enable` keeps it), create accounts and change passwords
+(`app\GameServer.Auth.exe passwd`), and check every part of the install. Its text is English, Simplified or Traditional
+Chinese (`Strings.cs`; the system's language unless one is picked), and its settings are in `LocalExileGUI.ini` beside it.
+It is C# 5 for the compiler in .NET Framework 4.x (`build.ps1`), so it ships no runtime.
+It does not run `LocalExile.exe stop`: that ends every process that runs from the install, the GUI's own tree included,
+and fails. It ends the `LocalExile.exe` it started, whose job ends the servers and the client, then what else runs from
+the install, as `stop` does.
 
 ## Limits
 

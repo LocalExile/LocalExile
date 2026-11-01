@@ -46,6 +46,39 @@ The admission path does not guarantee closing an older half-open socket when the
 Ruthless's separate resource-admission owner protects its vitals, not this shared qualification dictionary.
 A still-open, non-retired old connection and out-of-order calculations on one current connection remain follow-up work.
 
+## Snapshot cache
+
+`CharacterPlayerStatsSnapshot` (the whole character panel) runs about 90 times a second for one idle player: the Energy
+Shield publication on every 16 ms recovery step, the recovery loop's rates, Rage, charges and the player tick. It is two
+parts (`StatSnapshotCache.cs`), with the tail split into three pure stages. The head gathers the stat sources and runs every side effect that goes with them (pool
+rebuilds, the charge, Fortification and Antiquarian observations, the leech and Fortification configuration, the
+time-dependent counts, the qualification snapshot); it runs on every call, as before. The tail (the panel's derived
+rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows) is a pure function of
+`StatSnapshotTailInputs`: the head's stats in their order, the raw `/set_stat` values, the pools, the active set's
+hands (rows 2 and 3, immutable item records, and which are inactive), the hands' local stats, life and maximum life,
+Energy Shield recharge, whether the player is walking (the while-moving regeneration), Blood Charges held and shown, the elemental ailments, the suppression chance and the default
+attack's effect. Inputs are captured at each stage boundary; the stages read nothing else of the connection.
+`WithRampage` runs between the panel and offence stages on every call, at its original position.
+Ailment reconciliation runs between the offence and critical stages on every call, before capturing ailments,
+suppression and the combined action factor. This preserves derived immunity, freeze effect and action-speed floors.
+A connection keeps its last result for each stage and reuses it while that stage's inputs are equal, so there is no invalidation to forget: any source the
+head changes (equipment, gems, passives, level, buffs, auras, flasks, charges, leech, Fortification, mods and modules)
+changes the head's stats or an input. A new area is a new connection with no tail.
+
+The head runs `CharacterStatSources` twice (the sources and the own-aura restriction), each expanding the charges.
+`WithCharges` reuses its last `ChargeEffects.Expand` while what that pure function reads is the same (the stats in
+order, the `/set_stat` values, the effective counts and the conversions); `ChargeSession.Observe` still runs every time.
+
+`Game_STAT_SNAPSHOT_VERIFY=1` computes every reused tail and charge expansion again and throws if they differ in any
+value or in order; the snapshot tests turn it on in a scoped fixture. `StatSnapshotTailTests` changes each source in turn, on a stopped connection
+clock, and compares with a connection that has no tail. The tests use the built Game assembly and a scoped rules lifetime and temporary save database.
+They do not start the global module host or register optional providers that would affect other tests.
+Regression coverage includes Rampage expiry with warm stages, additive action speed, base-speed floors and immunity
+reconciliation after a cache hit.
+Historical measurements before the three-stage integration (Release, one character in Lioneye's Watch): one snapshot 64 µs and 150 KB before, 20-22 µs and 61 KB after;
+an idle player (the connection's loops over loopback) allocates 13-14 MB/s before and 5.4-6.1 MB/s after, on The Coast
+16-18 MB/s and 7-9 MB/s; its process CPU, on a shared machine, 42-56 ms/s before and 29-37 ms/s after in town.
+
 ## Automated evidence
 
 The reviewed code revision is `576625933f964c3528848ab73d774868b1985866`.

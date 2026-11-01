@@ -373,6 +373,22 @@ static class AreaPopulation
     // How far (cells) a unique boss whose point is off the walk map may stand from it.
     const int BossSearchRadius = 60;
 
+    /// <summary>Where the bosses the instance leaves out (<see cref="PackCatalog.AreaPacks.Absent"/>) would stand, by
+    /// variety row: their own numbered room point ("mapboss1" for The Rotting Core's Depraved Trinity), or the nearest
+    /// walkable cell to it. A quest that forms one later (Quests.FormsRule) creates it there.</summary>
+    public static Dictionary<int, (int X, int Y)> LaterFormPoints(PackCatalog.AreaPacks area, IReadOnlyList<RoomPoint> points,
+        Func<int, int, bool> walkable)
+    {
+        var at = new Dictionary<int, (int X, int Y)>();
+        foreach (int i in area.Absent.Order())
+        {
+            if (i >= area.Bosses.Count || at.ContainsKey(area.Bosses[i])) continue;
+            if (points.FirstOrDefault(p => BossPoint(p.Name) is { Count: > 0 } rows && rows.Contains(i + 1)) is not { } point) continue;
+            if (Nearest((point.X, point.Y), walkable, [], BossSearchRadius) is { } cell) at[area.Bosses[i]] = cell;
+        }
+        return at;
+    }
+
     /// <summary>The free walkable cell nearest to <paramref name="at"/> within <paramref name="radius"/> (square rings
     /// outwards, the closest of each ring by distance), or null.</summary>
     static (int X, int Y)? Nearest((int X, int Y) at, Func<int, int, bool> walkable, HashSet<(int, int)> taken, int radius)
@@ -527,7 +543,11 @@ static class AreaPopulation
                     if (hits < Math.Max(4, (int)Math.Ceiling(FitShare * plain.Count))) continue;
                     if (origins.Any(o => Math.Abs(o.X - ox) <= 3 && Math.Abs(o.Y - oy) <= 3)) continue;
                     origins.Add((ox, oy));
-                    foreach (var p in room.Points) { var g = At(p.X, p.Y); points.Add(new RoomPoint(p.Name, g.X, g.Y)); }
+                    foreach (var p in room.Points)
+                    {
+                        var g = At(p.X, p.Y);
+                        points.Add(new RoomPoint(p.Name, g.X, g.Y, TurnAngle(a, b, cc, dd, p.Angle)));
+                    }
                     foreach (var d in room.Doodads.Where(d => d.Type is not null))
                     {
                         var g = At(d.X, d.Y);
@@ -588,14 +608,13 @@ static class AreaPopulation
     }
 
     /// <summary>A room angle through a turn/flip [[a, b], [c, d]] (grid = M · room): a turn adds its own angle, a flip
-    /// mirrors the angle first. Only the identity is checked live (The Twilight Strand's town_entrance_exclude.arm,
-    /// whose captured doodads keep the room's angles mod 2π). For a flip this gives π − θ where
-    /// TutorialObjects.RoomPlacement.Place (and #236's town rooms, checked against the client) give 2π − θ; the flips'
-    /// matrices and codes are not matched here yet, so no mirrored room is relied on.</summary>
+    /// mirrors the angle and adds half a turn, the same angle as TutorialObjects.RoomPlacement.Place's codes 4..7 (#236's
+    /// town rooms, checked against the client). Here only the identity is checked live (The Twilight Strand's
+    /// town_entrance_exclude.arm, whose captured doodads keep the room's angles mod 2π).</summary>
     public static float TurnAngle(int a, int b, int c, int d, float angle)
     {
         float turn = MathF.Atan2(c, a);
-        if (a * d - b * c < 0) angle = -angle;
+        if (a * d - b * c < 0) { angle = -angle; turn += MathF.PI; }
         float r = (turn + angle) % (2 * MathF.PI);
         return r < 0 ? r + 2 * MathF.PI : r;
     }

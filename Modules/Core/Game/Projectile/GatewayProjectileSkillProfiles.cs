@@ -50,6 +50,11 @@ static class GatewayProjectileSkillProfiles
         }
         else if (IsFireball(metadata))
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
+        // Wiki Spark: a set of sparks forgets the enemies it hit every 0.66 seconds, so one cast can hit a target again.
+        // The transfigured and Vaal versions share the rule.
+        // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
+        else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
+            p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
 
         p = GatewayProjectileModifiers.Resolve(p, get, attack);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.

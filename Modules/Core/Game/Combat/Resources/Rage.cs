@@ -28,11 +28,11 @@ static partial class Game
 
     // Only accepted contacts call these, in the same Monsters critical section as life mutation, before any await.
     internal static bool RageOnHitLocked(ClientState conn, bool attack, bool melee, bool critical,
-        IReadOnlyDictionary<uint, int>? own = null, Random? random = null)
+        IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         if (conn.Character is null || conn.Closed || conn.LeavingArea || conn.RageRetired
             || conn.Paused || conn.PlayerLife == 0) return false;
-        var player = CharacterPlayerStats(conn);
+        player ??= CharacterPlayerStats(conn);
         int Get(string name) => (int)Math.Clamp((long)RageStat(player, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);

@@ -59,7 +59,8 @@ When a Voidstone is socketed into the Atlas:
   be created with `/item Map (Tier N)`; the map device accepts them, the native Atlas panel selects a starting layout
   (C?S 0x00e7), and the device opens that layout at the map tier. The selected layout is saved with the character.
   The area level follows the tier (`tier + 67`), and the area instance/monsters use it. Every character has the epilogue
-  flag `EndGameAvailable` that the client requires for Atlas activation. Basic map drops from monsters use a local
+  flag `EndGameAvailable` that the client requires for Atlas activation and map areas (before Kitava only in a hideout
+  and the maps: `Quests.EndgameOnly`). Basic map drops from monsters use a local
   approximation.
 - **Atlas passive tree, first slice:** the three presets are saved and sent (S→C 0x3d); node allocation/refund
   (C→S 0x3e/0x3f) is saved, with a dev point budget (`/atlas_points`). The Atlas graph, point awards from completion,

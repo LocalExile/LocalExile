@@ -32,6 +32,7 @@ These rules keep pull requests from conflicting with each other:
 - Put the entry in its area's file, in the section for its state.
   Never add notes at the top or bottom of a file, or to this index.
 - When a feature changes state, edit or move its existing entry instead of adding a new dated note about it.
+- Keep an entry to one line: what works and where its doc is. Mechanics go in the doc, and evidence in the pull request.
 - Start each sentence on a new line, and keep lines under 120 characters.
   Don't rewrap lines you didn't change.
 - Don't add "last updated" dates or totals that every pull request would change.

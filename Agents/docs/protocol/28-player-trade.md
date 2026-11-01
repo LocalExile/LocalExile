@@ -13,7 +13,7 @@ offer messages ([17](17-npcs.md) "Sell"); this file covers what is specific to t
 | **0x93** | var | wstr the character's name | "Invite to Party" |
 | **0x95** | 6 | u32 BE the party id (from 0xa9) | Accept on the party invite notice |
 | **0x96** | 6 | u32 BE the party id | "Leave Party" |
-| **0x80** | var | wstr the character's name, u16 (0 from the context menu) | "Add Friend" (read, not answered yet) |
+| **0x80** | var | wstr name, u8 list, u8 action | Friends: list 0; add 0, remove/decline 1, accept 2 |
 
 The offer, accept and cancel messages of the open window are the sale's: C→S 0xb2 (drop / Ctrl + click, x = y = 0xff),
 0xb3 and 0xb5 (Shift / Ctrl + Shift + click), 0xb6 (Accept: u32 the revision of the other side's offer inventory),
@@ -118,10 +118,42 @@ Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs
   - S→C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
   - With fewer than two members left, every member gets 0xaa (disbanded); otherwise the others get the smaller party.
 
+## 6. Friends
+
+The Social module handles the ordinary context-menu and Friends-panel actions through C→S `0x80`.
+The final bytes are independent list/action bytes (`0x141f94db0`), not a network-order ushort.
+List 0 selects friends; action 0 adds, 1 removes or declines, and 2 accepts an incoming invitation.
+Other lists/actions do not mutate friendships.
+Names resolve to durable account identities through the account/character store; self and unknown targets are refused.
+Accept requires an existing incoming invitation.
+
+S→C `0xa7` supplies account and character metadata, followed by **`0xc9`**: u8 flags, wstr account, wstr note.
+Dispatcher case `0x3c` (`0x14214e3da`) puts flag bits 0/1 into the account map, or removes its entry for bit 2.
+The Friends panel (`0x140a3a340`, `0x140a3bd70`) uses bit 0 to distinguish accepted friends from incoming invitations,
+and `0xa7`'s character-present bit to split online and offline rows.
+The implementation sends flags 1 for the owner's added friend, 0 for the other account's incoming invitation,
+and 4 to remove the relation.
+Offline metadata is `0xa7`, the account, an empty string, flags 0 and a raw u64 timestamp (currently 0).
+Do not substitute `0xa3`: a native probe produced an unrelated hideout-invitation notification.
+
+`SqliteFriendStore` stores directed invitations/acknowledgements under account GUIDs in `account_friends`.
+Adding back accepts the invitation; remove/decline transactionally clears both directions of that pair.
+Duplicate adds do not create duplicate rows; failed transactions leave the previous relation intact.
+The list is independent of character and league and is reconstructed on area entry.
+The module registers online connections on entry and discovers existing peers for first use after a module reload.
+Departure sends offline metadata; re-entry republishes the current character's metadata.
+
+Native verification with two clients confirmed context-menu add, the name-entry form, incoming invitation display,
+Accept, confirmed Unfriend removing the row on both clients, offline display, acceptance while the sender is offline,
+and reconstruction after a new login (including presence updates while the players occupy different areas).
+Automated checks cover persistence/reopen, rollback, duplicates, self/missing identities, pair deletion,
+Unicode names, action-byte framing and relation/offline packet layouts.
+Friend notes, ignore lists and account status editing remain separate features.
+
 ## Open
 
 - Party: Decline, kicking and promoting members, a member's disconnect or area change, the party panel's other fields
   (`+0x6c`, `+0x6f`, the leader's character string), and parties across instances.
-- Friends (0x80 with u16 0): the friend list.
+- Friends: notes, ignore lists and account status editing.
 - The exact meaning of 0xa7's other fields (class, league, online state) and of the request option `0x19`.
 - Trades across instances (the client only offers Trade on a player it sees).

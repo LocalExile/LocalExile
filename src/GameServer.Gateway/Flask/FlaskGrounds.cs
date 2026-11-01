@@ -1,15 +1,16 @@
 using System.Text.Json;
 
 /// <summary>
-/// What some utility flasks leave on the ground or do around the player when used, from their implicit mods (Agents/docs/
+/// Ground effects the player creates. Utility flasks leave them on use, from their implicit mods (Agents/docs/
 /// protocol/13-items.md §8a): Stibnite Flask's smoke cloud (local_smoke_ground_on_flask_use_radius 16), which blinds the
 /// enemies standing in it; Sulphur Flask's consecrated ground (local_consecrate_ground_on_flask_use_radius 18), on which
-/// the player regenerates life; Basalt Flask's taunt (local_flask_taunt_enemies_on_use_radius 30, 3 s). Radii are in
-/// cells. The ground lasts as long as the flask's effect: the tables do not give its own duration.
+/// the player regenerates life; Basalt Flask's taunt (local_flask_taunt_enemies_on_use_radius 30, 3 s). Rational
+/// Doctrine adds the stationary consecrated ground and the profane ground created on a critical strike. Radii are in
+/// cells. A flask ground lasts as long as the flask's effect: the tables do not give its own duration.
 /// </summary>
 static class FlaskGrounds
 {
-    public enum Kind { SmokeCloud, ConsecratedGround, Taunt }
+    public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt }
 
     /// <summary>The flask's implicit stats that make something on use, by kind.</summary>
     static readonly (string Stat, Kind Kind)[] OnUseStats =
@@ -60,11 +61,36 @@ static class FlaskGrounds
         return radius;
     }
 
+    /// <summary>Rational Doctrine's profane-ground chance on a critical strike: the stat applies only while Intelligence
+    /// is the highest attribute (ties count, as the client's Strength condition above).</summary>
+    public static int ProfaneChance(Func<string, int> get)
+    {
+        int intelligence = get("intelligence");
+        return intelligence >= get("strength") && intelligence >= get("dexterity")
+            ? Math.Max(0, get(ProfaneChanceStat)) : 0;
+    }
+
     /// <summary>How long the effects of the player's consecrated ground stay after he stops being covered by any.</summary>
     public const string LingerStat = "your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area";
 
-    /// <summary>BuffDefinitions rows: blinded (on monsters in smoke), ground_consecration (on the player on it), taunted.</summary>
-    public const ushort BlindedBuffRow = 179, ConsecratedBuffRow = 208, TauntedBuffRow = 408;
+    /// <summary>Rational Doctrine's chance to create profane ground on a critical strike, when Intelligence is highest.</summary>
+    public const string ProfaneChanceStat = "profane_ground_on_crit_chance_%_if_highest_attribute_is_intelligence";
+
+    /// <summary>How long profane ground's effects stay on a monster after it leaves the ground (Rational Doctrine).</summary>
+    public const string ProfaneLingerStat = "your_profane_ground_effect_lingers_for_ms_after_leaving_the_area";
+
+    /// <summary>PoB's SelfCritChance INC from profane ground: hits against enemies on it have 100% increased crit chance.</summary>
+    public const int ProfaneCritIncrease = 100;
+
+    /// <summary>How long a profane ground created on a critical strike stays (Rational Doctrine's ground).</summary>
+    public const double ProfaneSeconds = 4;
+
+    /// <summary>The radius in cells of a profane ground created on a critical strike (GroundEffectTypes Profane __col1).</summary>
+    public const int ProfaneRadius = 10;
+
+    /// <summary>BuffDefinitions rows: blinded (on monsters in smoke), ground_consecration (on the player on it),
+    /// ground_profane_enemy (on monsters in profane ground), taunted.</summary>
+    public const ushort BlindedBuffRow = 179, ConsecratedBuffRow = 208, ProfaneBuffRow = 1569, TauntedBuffRow = 408;
 
     /// <summary>The ground's art: GroundEffects' animated object for the GroundEffectTypes Id (variation 0, the current
     /// art) and its size (GroundEffects __col4, taken as the radius it is drawn for in world units; not verified).</summary>
@@ -76,7 +102,8 @@ static class FlaskGrounds
         using var t = JsonDocument.Parse(File.ReadAllBytes(types));
         var ids = t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString()).ToList();
         using var e = JsonDocument.Parse(File.ReadAllBytes(effects));
-        foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration") })
+        foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
+            (Kind.ProfaneGround, "Profane") })
             foreach (var r in e.RootElement.EnumerateArray())
                 if (r.GetProperty("GroundEffectTypesKey") is { ValueKind: JsonValueKind.Number } k && ids.ElementAtOrDefault(k.GetInt32()) == id
                     && r.GetProperty("__col1").GetInt32() == 0 && r.GetProperty("__col2").GetInt32() == 2
@@ -95,17 +122,22 @@ static class FlaskGrounds
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
     }
 
+    /// <summary>Rational Doctrine's profane ground at a critically struck monster's cell.</summary>
+    public static Ground ProfaneGround((int X, int Y) at, double now, uint? obj = null) =>
+        new(Kind.ProfaneGround, at.X, at.Y, ProfaneRadius, now + ProfaneSeconds, obj);
+
     /// <summary>One connection's flask grounds, the monsters blinded by smoke (with their buff ids), whether the player
     /// stands on consecrated ground (its buff id), and the consecrated ground around him while stationary.</summary>
     public sealed class State
     {
         readonly List<Ground> _grounds = [];
         readonly Dictionary<uint, ushort> _blinded = [];
+        readonly Dictionary<uint, (ushort Buff, double LastCovered)> _profane = [];
         readonly Lock _lock = new();
         ushort? _consecrated;
         bool _ticking;
         int _stationaryRadius;
-        double _lingerSeconds, _lastCovered = double.NegativeInfinity;
+        double _lingerSeconds, _profaneLingerSeconds, _lastCovered = double.NegativeInfinity;
         Ground? _stationary;
 
         public bool Any
@@ -113,12 +145,19 @@ static class FlaskGrounds
             get { lock (_lock) return !Idle; }
         }
 
-        bool Idle => _grounds.Count == 0 && _blinded.Count == 0 && _consecrated is null && _stationaryRadius == 0 && _stationary is null;
+        bool Idle => _grounds.Count == 0 && _blinded.Count == 0 && _profane.Count == 0 && _consecrated is null
+            && _stationaryRadius == 0 && _stationary is null;
 
-        /// <summary>The stationary radius and the linger, from the stats last sent to the client (Program.PlayerStatsWithCleared).</summary>
-        public void Configure(int stationaryRadius, int lingerMs)
+        /// <summary>The stationary radius and the lingers, from the stats last sent to the client
+        /// (Program.PlayerStatsWithCleared).</summary>
+        public void Configure(int stationaryRadius, int lingerMs, int profaneLingerMs = 0)
         {
-            lock (_lock) (_stationaryRadius, _lingerSeconds) = (Math.Max(0, stationaryRadius), Math.Max(0, lingerMs) / 1000.0);
+            lock (_lock)
+            {
+                _stationaryRadius = Math.Max(0, stationaryRadius);
+                _lingerSeconds = Math.Max(0, lingerMs) / 1000.0;
+                _profaneLingerSeconds = Math.Max(0, profaneLingerMs) / 1000.0;
+            }
         }
 
         /// <summary>True once when a stationary radius needs the ticker and none runs (Program.RunPlayerTick starts it).</summary>
@@ -243,6 +282,51 @@ static class FlaskGrounds
         public bool Blinded(uint monster)
         {
             lock (_lock) return _blinded.ContainsKey(monster);
+        }
+
+        /// <summary>Marks a monster on profane ground (or within the linger after leaving it): the buff id to add or
+        /// remove, or null. A dead monster loses the effect at once.</summary>
+        public (ushort Buff, bool Added)? SetProfane(uint monster, bool inside, bool alive, double now, Func<ushort> nextBuff)
+        {
+            lock (_lock)
+            {
+                if (!alive)
+                    return _profane.Remove(monster, out var gone) ? (gone.Buff, false) : null;
+                if (inside)
+                {
+                    if (_profane.TryGetValue(monster, out var kept))
+                    {
+                        _profane[monster] = (kept.Buff, now);
+                        return null;
+                    }
+                }
+                else if (_profane.TryGetValue(monster, out var lingering))
+                {
+                    if (now < lingering.LastCovered + _profaneLingerSeconds) return null;
+                    _profane.Remove(monster);
+                    return (lingering.Buff, false);
+                }
+                else return null;
+            }
+            ushort buff = nextBuff();
+            lock (_lock)
+            {
+                if (_profane.ContainsKey(monster)) return null;
+                _profane[monster] = (buff, now);
+                return (buff, true);
+            }
+        }
+
+        /// <summary>Whether the monster is on the player's profane ground, or still within its linger.</summary>
+        public bool Profane(uint monster)
+        {
+            lock (_lock) return _profane.ContainsKey(monster);
+        }
+
+        /// <summary>The monsters carrying the profane-ground effect now.</summary>
+        public IReadOnlyList<uint> ProfaneMonsters()
+        {
+            lock (_lock) return [.. _profane.Keys];
         }
 
         /// <summary>Marks the player on consecrated ground or not: the buff id to add or to remove, or null.</summary>

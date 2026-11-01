@@ -36,12 +36,26 @@ public static class InstanceSocial
     /// <summary>C→S 0x93: "Invite to Party": wstr the character's name.</summary>
     public static string ReadPartyInvite(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
-    /// <summary>C→S 0x80: "Add Friend": wstr the character's name, u16 (0 from the context menu).</summary>
+    /// <summary>C→S 0x80: wstr name, two independent bytes (0x141f94db0).
+    /// First byte selects friends (0) or ignore (1); second is add (0), remove/decline (1), accept (2).
+    /// Returned U16 packs the native low/high bytes: friend add 0, remove/decline 0x100, accept 0x200.</summary>
     public static (string Name, ushort U16) ReadFriendAdd(ReadOnlySpan<byte> m)
     {
         var r = new LoginReader(m[2..]);
-        return (r.WStr(), r.U16());
+        string name = r.WStr();
+        byte operation = r.U8(), kind = r.U8();
+        return (name, (ushort)(operation | kind << 8));
     }
+
+    /// <summary>S→C 0xc9: account relation and note. Dispatcher 0x14214e3da: bit 0 accepted,
+    /// bit 2 remove. The Friends panel (0x140a3bd70) separates incoming invitations from accepted friends using bit 0;
+    /// online character metadata comes from 0xa7, not 0xa3 (hideout invitation).</summary>
+    public static byte[] FriendRelation(string account, bool accepted, bool remove = false) =>
+        new LoginWriter().U16(0xc9).U8((byte)(remove ? 4 : accepted ? 1 : 0)).WStr(account).WStr("").ToArray();
+
+    /// <summary>A known account without an active character: flags zero followed by its offline timestamp.</summary>
+    public static byte[] OfflinePlayer(string account) =>
+        new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8(0).RawU64(0).ToArray();
 
     /// <summary>Bytes of a 0x93 at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
     public static int? PartyInviteLength(ReadOnlySpan<byte> m)

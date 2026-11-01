@@ -157,6 +157,7 @@ static partial class Game
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
+                Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
         }
@@ -193,7 +194,10 @@ static partial class Game
         if (Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
         if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
-        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v);
+        var quests = QuestsOf(conn);
+        // A boss a quest brings (an NPC that turns into it, a second form, an object's use: Quests.QuestSpawned) is not
+        // placed with the area.
+        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && !quests.QuestSpawned(layout.Id, v.Id);
         // A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) comes with its fight.
         area = AreaPopulation.LaterForms(area, row => Monsters.Find(row.ToString()) is { } v ? (v.Id, v.Name) : null);
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
@@ -213,6 +217,14 @@ static partial class Game
             for (int dy = -LabyrinthTrials.TrapClearance; dy <= LabyrinthTrials.TrapClearance; dy++)
                 for (int dx = -LabyrinthTrials.TrapClearance; dx <= LabyrinthTrials.TrapClearance; dx++)
                     trapClear.Add((trap.X + dx, trap.Y + dy));
+        // Where the later forms the area leaves out would stand, for a quest that forms one (Quests.FormsRule).
+        var laterForms = AreaPopulation.LaterFormPoints(area, points, walkable);
+        lock (conn.Monsters)
+        {
+            conn.LaterFormPoints.Clear();
+            foreach (var (row, cell) in laterForms)
+                if (Monsters.Find(row.ToString()) is { } form) conn.LaterFormPoints[form.Id] = cell;
+        }
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes,
@@ -340,7 +352,7 @@ static partial class Game
                     {
                         m.BusyUntil = now + ma.Seconds;
                         m.LastTarget = null;
-                        m.Walk.Order(mx, my, now);
+                        // The walk goes on, as for a hostile swing below (0x141e90740).
                         plan.MinionSwings.Add((id, m, (mx, my), target));
                     }
                     // A new path when the target moved, else again after arriving short, at most twice a second.
@@ -363,7 +375,9 @@ static partial class Game
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
                     m.LastTarget = null;
-                    m.Walk.Order(mx, my, now);
+                    // The walk goes on: starting a non-pathing action ends the Move with DestroyPathingAction(…, 0)
+                    // (0x141e90740), which hands the Move's target to the pathing component and does not stop it, so the
+                    // client swings while it walks to that target (live 2026-11-01: 273 of 273 attacks on walking monsters).
                     m.SwingGeneration = ++m.ActionGeneration;
                     cadence.BeginSwing(m, m.ActionGeneration);
                     plan.Swings.Add((id, m, m.ActionGeneration));
@@ -804,6 +818,8 @@ static partial class Game
         var onBlock = blocked ? BlockRecovery(conn, stats) : default;
         int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
         int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
+        if (!blocked) RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
+            new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), now, stats);
         long lifeBefore = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage - chaosDamage, chaosDamage, now, stats);
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, lifeBefore - lifeDamage + gainedLife));
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);

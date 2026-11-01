@@ -41,6 +41,7 @@ One scenario per process (catalogues load once per process). Results go to stdou
 | `planner` | `PlanMonsterAi` alone over the same crowd, 2000 steps: time, process CPU and allocation per step |
 | `single` | one player's Gateway: the startup loads (`GameData.Open`), then the town, a combat area (The Coast, its packs) and a boss area (The Twilight Strand, Hillock), each entered and held as a connection does; after each, the heap, its large-object part and private bytes. The runtime files come from the extracted game pack |
 | `idle` | one player standing in town with the per-connection loops a connection starts (recovery, player tick, charges, rage, server frames, monster AI â€¦): process CPU, allocation and bytes sent per second |
+| `sweep` | one level 20 Ice Nova (`AreaSkillHit`, every packet encrypted and sent) on 100, 300 and 500 monsters inside its radius, with huge life (hits only, no deaths); then the per-call cost of each input the sweep's loop reads (player stats, hit, crit chance and multiplier, the roll and mitigation, charges, leech, the hit's sends) |
 
 The busy instance is the same in every run (fixed placement, no buried monsters, which rise on a wall-clock watch);
 `PopulateArea` is not, because it seeds placement with the process's randomized `HashCode`. Timings on a shared
@@ -86,6 +87,26 @@ Stats.json, Mods.json, MonsterVarieties.json and GrantedEffects.json among the c
 The GGPK rows of these numbers predate `data/game-files.zip`: the Gateway now generates levels from that pack, with no
 bundle cache or Node worker (`GamePack`), and its layout timings have not been measured again. The chunk and bundle
 caches still serve the tools that read the GGPK.
+
+**Hit path (2026-11-01, `sweep`, Release, on main d377bd25).** One player stat build (`CharacterPlayerStats`) costs
+~120-155 µs and 151 KB; `SupportedHit` and `SupportedCriticalChance` ~225 µs and ~250 KB each (they build the stats
+again). The damage itself (roll, resistances, penetration) is 0.3-0.5 µs per victim and the 0x1b1 packet 0.1 µs.
+The sweep reads its hit once and Rage takes the sweep's player stats.
+The critical chance is still read for each victim (`CriticalChanceOn`, because a source can change between targets),
+which is most of what is left:
+
+| Ice Nova sweep | Time (median) | Allocated |
+|---|---|---|
+| 100 monsters | 123 ms | 28 MB |
+| 300 monsters | 375 ms | 81 MB |
+| 500 monsters | 215 ms | 130 MB |
+
+On main 33ea0151 the sweep with the crit chance read once took 18, 46 and 68 ms (2.3, 4.2 and 5.8 MB), against 168,
+548 and 340 ms (57, 163 and 272 MB) for three stat builds per victim.
+A projectile contact (`ProjectileSession.Hit`) built the stats five times; it builds them once now (same values:
+nothing changes them within one contact, under the Monsters lock), about 0.5 ms less per contact inside the 30/s
+projectile tick. What remains per victim besides the crit chance is mostly its sends, ~30 µs (flinch and life
+packets, each its own gated write and log line).
 
 Tried and dropped (no measurable effect): `DOTNET_GCConserveMemory` (5, 7), `DOTNET_GCgen0size`,
 `DOTNET_ThreadPool_UnfairSemaphoreSpinLimit=0`, shift-based bucket math and span loops in `BlockerSet.Query`, skipping
