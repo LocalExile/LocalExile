@@ -112,6 +112,34 @@ public sealed class LabyrinthTrialTests
         (int, int)[] levers = [(153, 268), (148, 367)];
         Assert.Equal([0, 3, 7], LabyrinthTrials.SwitchedSaws(sawblades, levers, 0, (229, 58)));
         Assert.Equal([1, 2, 8], LabyrinthTrials.SwitchedSaws(sawblades, levers, 1, (229, 58)));
+
+        // The Crypt trial's spinner track (crypt_intro.arm, room cells): the upper room's square, whose middle joins a
+        // crossing to a TriCorner rail switch, and a lane with a straight stopper. Its spinners go round the square's
+        // small rings until the switch is lifted, then round the square (live 2026-11-01, the original); a stopper turns
+        // its spinner back until it is lifted, then it runs to its lane's end and back.
+        const string Pieces = "Metadata/Terrain/Doodads/Traps/";
+        var spinners = LabyrinthTrials.SpinnerTrack.Build([(204, 96, 0, Pieces + "spinner_rail_corner_v02_01.ao"),
+            (204, 73, Half, Pieces + "spinner_rail_crossing_v02_01.ao"), (250, 50, MathF.PI, Pieces + "spinner_rail_corner_v02_01.ao"),
+            (250, 96, -Half, Pieces + "spinner_rail_corner_v01_01.ao"), (204, 50, Half, Pieces + "spinner_rail_corner_v01_01.ao"),
+            (250, 73, -Half, Pieces + "SpinnerStopper_TriCorner.ao"), (117, 299, MathF.PI, Pieces + "spinner_rail_end_v01_01.ao"),
+            (117, 253, MathF.PI, Pieces + "SpinnerStopper_Straight.ao"), (117, 230, MathF.PI, Pieces + "spinner_rail_corner_v01_01.ao"),
+            (94, 230, -Half, Pieces + "spinner_rail_end_v01_01.ao")])!;
+        List<(int, int)> Goes((int, int) at, float angle, bool lifted, int pieces)
+        {
+            var ((from, to), turn, seen) = (spinners.Start(at, angle)!.Value, 0, new List<(int, int)>());
+            for (int k = 0; k < pieces; k++)
+            {
+                seen.Add(spinners.Rails[to]);
+                (int next, turn) = spinners.Next(from, to, turn, _ => lifted);
+                (from, to) = (to, next);
+            }
+            return seen;
+        }
+        Assert.Equal([(204, 50), (204, 73), (250, 73), (250, 50), (204, 50)], Goes((212, 50), -Half, false, 5));
+        Assert.Equal([(250, 96), (250, 73), (204, 73), (204, 96), (250, 96)], Goes((227, 96), Half, false, 5));
+        Assert.Equal([(204, 50), (204, 73), (204, 96), (250, 96), (250, 73), (250, 50)], Goes((212, 50), -Half, true, 6));
+        Assert.Equal([(117, 253), (117, 299), (117, 253)], Goes((117, 281), 0, false, 3));
+        Assert.Equal([(117, 253), (117, 230), (94, 230), (117, 230)], Goes((117, 281), 0, true, 4));
     }
 
     [Fact]

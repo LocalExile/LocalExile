@@ -5,8 +5,8 @@ The trials in the acts that open each Labyrinth tier (#450, roadmap "The Labyrin
 The Lower Prison's Normal trial is verified with the real client: its door, lever, Locked Door, plaque and the
 Trial Plaque window work.
 Its spike traps (the cascade ring and the plaque room's checkerboard) are matched against the original game by eye.
-The Imperial Gardens' dart traps and the Catacombs' roombas are checked live against the original; the Chamber of
-Sins' sawblades and toggling levers are built from its description and not yet checked live.
+The Imperial Gardens' dart traps, the Catacombs' roombas, the Chamber of Sins' sawblades and toggling levers and the
+Crypt's spinners, rail switches, levers and door are checked live against the original.
 The other traps, the trials' monsters and the other trials' puzzles are not built yet.
 
 ## Where a trial is
@@ -27,7 +27,7 @@ scale, and `AreaPopulation.LoadObjects` places them through the room's placement
 | `axiom_intro_end` | `LabyrinthTrialPlaque`, `LabyrinthTrialReturnPortal`, 10 spike traps, two delay triggers, `PrisonPoacherSpawner` |
 | `labyrinth_intro` (Imperial Gardens, `RuinedCity/Garden`) | the door, 14 `LabyrinthArrowTrap`, the plaque, the portal, the Bronze Monograph: one room, no puzzle |
 | `catacomb_intro` / `_end` | the door, one `Door_Closed` and `Switch_Once`, roombas; the plaque and the portal |
-| `crypt_intro` | the door, `Door_Closed`, `Switch`, `Switch_Multi`, `Switch_Once`, spinners, the plaque, the portal, `CryptFrostPriestSpawner` |
+| `crypt_intro` | the door, `Door_Closed`, `Switch`, `Switch_Multi`, `Switch_Once`, 12 `LabyrinthSpinner` on `Rail_Visible` and three `Rail_Visible_Swap_Anims01`, a plain `Door`, the Bronze Monograph, the plaque, the portal, `CryptFrostPriestSpawner` |
 | `crematorium_intro` | the door, three `Door_Closed` and `Switch_Once`, five `TimerGears`, lava, the plaque, the portal, `CremPyroSpawner` |
 | `intro` / `intro_end` (Chamber of Sins, `RuinedTemple`) | the door, two `Door_Open` and `Switch`, nine `LabyrinthSawblade` on 45 `Rail_Visible`, the Bronze Monograph; the plaque and the portal |
 
@@ -41,9 +41,12 @@ but counts for the 0x2ba component index.
 | Type | Components read | Transitionable index |
 |---|---|---|
 | `Labyrinth/Objects/LabyrinthIntroDoor` | Positioned, BaseEvents, Animated, InteractionAction, Transitionable, TriggerableBlockage | 4 |
+| `MiscellaneousObjects/Door` (plain door) | Positioned, BaseEvents, Animated, InteractionAction, Transitionable, TriggerableBlockage | 4 |
 | `Puzzle_Parts/Door_Closed` ("Locked Door") | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, TriggerableBlockage, MinimapIcon | 4 |
 | `Puzzle_Parts/Switch_Once` (lever) | Positioned, Transitionable, InteractionAction, BaseEvents, Animated, MinimapIcon | 1 |
 | `Puzzle_Parts/Switch` (toggling lever) | Positioned, Transitionable, InteractionAction, BaseEvents, Animated, MinimapIcon | 1 |
+| `Puzzle_Parts/Switch_Multi` (toggling lever) | Positioned, Transitionable, InteractionAction, BaseEvents, Animated, MinimapIcon | 1 |
+| `Traps/Rail_Visible_Swap_Anims01` (rail switch) | Positioned, BaseEvents, Transitionable, Animated | 2 |
 | `Puzzle_Parts/Door_Open` (cage) | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, TriggerableBlockage, MinimapIcon | 4 |
 | `QuestObjects/Labyrinth/LabyrinthTrialPlaque` | Positioned, BaseEvents, Animated, Transitionable, MinimapIcon, InteractionAction | 3 |
 | `Labyrinth/Objects/LabyrinthTrialReturnPortal` | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, MinimapIcon | 4 |
@@ -78,6 +81,9 @@ pair's lanes by theirs from the levers' middle.
 The Gateway pulls the lever both ways (`InstanceState.SetTransitioned`), shuts or opens the nearest `Door_Open` with
 it (0x2ba state 2 or 1, 0x1c6, and its Hull `doorbar_ruinedtemple.ao` ±2.2 × ±8 cells on the server's walk estimate)
 and stops or starts its sawblades; a later entry of the instance finds them as they were left.
+The Crypt's `Switch_Multi` (`num_states = 3`: `create_state_1` and `on_untransition_to_1` play clip 3, state 2 clip 1,
+state 3 disables it) goes both ways as `Switch` does, state 3 unused. Both levers there move the rail switches nearest
+them ([Spinners](#spinners)).
 
 ## Unblocking a door
 
@@ -287,6 +293,48 @@ life plus 50% of maximum energy shield a second (our numbers, the roomba's) with
 0x1ba to its own cell. Its `.ot` plays nothing on the way back to state 1, so started again it is removed (0x2bb) and
 created anew there, spinning, and goes on to the rail it was heading for.
 
+## Spinners
+
+The Crypt trial's room (`Crypt/Rooms/Unique/crypt_intro.arm`) has twelve `Metadata/Terrain/Labyrinth/Traps/LabyrinthSpinner`
+(`spinning_morning_star_v01_01.ao`, its `spin` clip by default) on tracks of `Rail_Visible` pieces
+(`spinner_rail_end`, `_corner_v01` / `_v02`, `_crossing_v02`; the straight pieces between them and the X crossing are
+the client's own doodads) and three `Rail_Visible_Swap_Anims01` rail switches: two `SpinnerStopper_Straight` and one
+`SpinnerStopper_TriCorner`.
+The spinner's `.ot` is the roomba's: Movement `FollowPath`, `reverse_when_path_ends`, `base_speed` 24, no pause and no
+turning; StateMachine `define_shared_state = "killswitch"` (0 plays clip 1, `spin`; 1 plays clip 0, `breakage`, to its
+end). Its blob reads Positioned, Animated, BaseEvents, Stats, Movement, Buffs and StateMachine (one state, 0), in that
+order (`LabyrinthTrials.SpinnerBlob`); the Gateway moves it with 0x1ba as the others.
+A rail switch's Transitionable plays clip 0 in state 1 and clip 1 in state 2: a straight stopper's `activate` then
+`deactivate` (its wedges up, then down), the TriCorner's `switch_corner` then `switch_straight`.
+
+**The track** (`LabyrinthTrials.SpinnerTrack`): each piece leads its model's ways from its angle (direction
+(sin a, −cos a)): an end one, back from a; a corner a and a + 90°; a crossing four; a straight stopper a and a + 180°;
+the TriCorner a and a ± 90°. A way joins the nearest piece along it (within 6°) that leads back, so the X's two
+diagonal runs join across it. A spinner sets out along the run it stands on, the way it faces, and at each piece:
+- turns back at an end, and at a straight stopper in state 1;
+- goes round a corner;
+- at a junction goes straight on when its switch is in state 2 (the TriCorner itself; the crossing follows the
+  TriCorner of its track), else the way it turns its corners (both of the upper room's spinners face round their
+  square the same way).
+
+What the room makes of it, in the original (live 2026-11-01, the user's observation; map numbers in the room file's
+order): two spinners side by side in the way up from the Locked Door run to their stoppers and back until the
+`Switch_Multi` between them lifts both, then to their lanes' ends and back; three go round a square clockwise on the
+screen; one runs a U to and fro, two the diagonals of an X, two straight lanes; the upper room's two go round the two
+small rings of its square (its middle, from the crossing to the TriCorner) until its `Switch` sets the TriCorner
+straight, then round the square. The `Switch_Once` opens the `Door_Closed`, as in the other trials, while the spinners
+run on. No file links a lever to its switches: each rail switch goes with the nearest `Switch` or `Switch_Multi`
+(`LabyrinthTrials.SwitchedRails`).
+The original has a second gate at the crossing, which the room file has no switch object for.
+Between the upper spinner room and the plaque room stands a plain `Metadata/MiscellaneousObjects/Door`
+(`thinwallbar_door.ao`, `start_blocked`, opened by a click; the only room of the data with one). The Gateway places it
+closed and opens it as the trial's door, its Hull (±2.3 × ±5.5 cells) closed on the server's walk estimate meanwhile:
+without it the plaque room's monsters came through to the player in the spinner room (live 2026-11-01).
+
+**What it does**: its `.ot` names no buff, so a spinner cuts as a roomba does (our reading): within 9 cells of its
+centre (its mesh's bounding box, about ±100 units) the player degenerates by the roomba's shares with `roomba_damage`
+on them.
+
 ## Monsters
 
 In the original there are no monsters among a trial's traps (live 2026-10-31); what stands in its rooms the room file
@@ -298,10 +346,12 @@ places among its points (`data/room-points.json` v8):
 - packs the original has where the room file has no point (`LabyrinthTrials.RoomPacks`, room cells, added to the
   file's points): the Chamber of Sins trial's two normal packs on the open ground before the upper lever room's cage,
   where the way comes down the one-lane track (live 2026-11-01: none came there among the scattered packs, which keep
-  clear of the tracks);
+  clear of the tracks); the Crypt trial's normal pack just past its door and a second in the plaque room (live
+  2026-11-01: skeletons and spiders at the way in, spider packs by the plaque);
 - a server spawner (`Metadata/QuestObjects/Labyrinth/…Spawner`, no `.ot` to tell what it spawns): the Lower Prison's
   `PrisonPoacherSpawner`, beside that pack, is a rare Brittle Poacher (`SkeletonBowLightning`), as the original shows a
-  rare skeleton archer there (`LabyrinthTrials.Spawners`). `CryptFrostPriestSpawner` and `CremPyroSpawner` are not
+  rare skeleton archer there (`LabyrinthTrials.Spawners`); the Crypt's `CryptFrostPriestSpawner`, by the plaque, a rare
+  Frost Priest (`SkeletonCasterCold4`, by its name; the original shows rare skeletons there). `CremPyroSpawner` is not
   mapped yet.
 
 The Gateway places these for a trial's rooms (a room with the plaque or the trial's door, `AreaPopulation.PlacedRoom`)
@@ -327,10 +377,10 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 
 ## Not built yet
 
-- The other traps (spinners, lava) and the step-triggered spikes of Izaro's rooms.
+- The other traps (lava) and the step-triggered spikes of Izaro's rooms.
 - The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
   the alternate arrow traps).
-- The other puzzle parts: `Switch_Multi`, `TimerGears` (timed levers).
-- The other trials' spawners (`CryptFrostPriestSpawner`, `CremPyroSpawner`).
+- The other puzzle parts: `TimerGears` (timed levers).
+- The other trials' spawners (`CremPyroSpawner`).
 - Saving league quest flags, so that trials are shared across a league's characters.
 - The Eternal trials' plaques drop an Offering to the Goddess.

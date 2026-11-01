@@ -118,16 +118,17 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
   `AreaTransitionCatalog` does not know the Labyrinth areas yet.
 - **Known (trials):** the Gateway places each trial's door, `Switch_Once` levers, Locked Doors, plaque, portal,
-  spike traps, the Imperial Gardens' dart traps, the Catacombs' roombas and the Chamber of Sins' sawblades with
-  their toggling `Switch` levers and `Door_Open` cages;
+  spike traps, the Imperial Gardens' dart traps, the Catacombs' roombas, the Chamber of Sins' sawblades with
+  their toggling `Switch` levers and `Door_Open` cages, and the Crypt's spinners with its `Switch_Multi` and rail
+  switches;
   The Lower Prison's trial completes with the real client ([status](../status/world.md), "Trials of Ascendancy").
   A trial is done for the client by its quest flag or its league quest flag
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. The rest of the Normal trials: the `Switch_Multi` and `TimerGears` puzzle parts of The Crypt and The
-     Crematorium, the trials' monster spawners, and saving league
+  1. The rest of the Normal trials: the `TimerGears` puzzle parts of The Crematorium, its monster spawner
+     (`CremPyroSpawner`), and saving league
      quest flags so a trial counts for every character of the league.
-  2. The other trial traps: each trial teaches one kind (spinners, furnaces; darts, roombas and sawblades are done), the same
+  2. The other trial traps: each trial teaches one kind (furnaces; darts, roombas, sawblades and spinners are done), the same
      objects as the Labyrinth's; their timing and damage, as the spike traps do
      ([labyrinth-trials](../docs/game/labyrinth-trials.md), "Spike traps").
   3. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra

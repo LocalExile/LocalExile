@@ -13,9 +13,14 @@ static class LabyrinthTrials
 
     public const string IntroDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIntroDoor",
         Door = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Door_Closed",
+        // A plain door, opened by a click (the Crypt trial's bars between its upper spinner room and the plaque room:
+        // the only room of the data with one).
+        BarDoor = "Metadata/MiscellaneousObjects/Door",
         Lever = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch_Once",
         // The Chamber of Sins trial's toggling lever and the cage it closes (num_states 2: 1 open, 2 closed).
         Switch = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch",
+        // The Crypt trial's other toggling lever (num_states 3, state 3 spent: not used).
+        MultiSwitch = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch_Multi",
         OpenDoor = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Door_Open",
         Plaque = "Metadata/QuestObjects/Labyrinth/LabyrinthTrialPlaque",
         Portal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthTrialReturnPortal",
@@ -31,15 +36,23 @@ static class LabyrinthTrials
         // The Chamber of Sins trial's sawblades and the track they run on (Rail_Visible: the track pieces, shown).
         Sawblade = "Metadata/Terrain/Labyrinth/Traps/LabyrinthSawblade",
         SlowSawblade = "Metadata/Terrain/Labyrinth/Traps/LabyrinthSawbladeSlow",
-        VisibleRail = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible";
+        VisibleRail = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible",
+        // The Crypt trial's spinners (spinning morning stars) and the track pieces that turn them back or switch their
+        // way (SpinnerStopper_Straight, _TriCorner: Transitionable swaps the piece's animation).
+        Spinner = "Metadata/Terrain/Labyrinth/Traps/LabyrinthSpinner",
+        RailSwitch = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible_Swap_Anims01";
 
     public static bool IsSawblade(string type) => type is Sawblade or SlowSawblade;
 
-    /// <summary>A roomba's or sawblade's speed in cells a second: its .ot's Movement <c>base_speed</c> (the player's
-    /// Pathfinding base_speed 37 is 37 cells a second), and how long it waits at each rail
-    /// (<c>pause_at_waypoint_duration</c>: the roombas 100 ms, the sawblades none).</summary>
-    public static double RoombaSpeed(string type) => type switch { FlyingRoomba => 25, Sawblade => 28, SlowSawblade => 16, _ => 35 };
-    public static double RoombaPauseSeconds(string type) => IsSawblade(type) ? 0 : 0.1;
+    /// <summary>A roomba's, sawblade's or spinner's speed in cells a second: its .ot's Movement <c>base_speed</c> (the
+    /// player's Pathfinding base_speed 37 is 37 cells a second), and how long it waits at each rail
+    /// (<c>pause_at_waypoint_duration</c>: the roombas 100 ms, the sawblades and spinners none).</summary>
+    public static double RoombaSpeed(string type) => type switch { FlyingRoomba => 25, Sawblade => 28, SlowSawblade => 16, Spinner => 24, _ => 35 };
+    public static double RoombaPauseSeconds(string type) => IsSawblade(type) || type == Spinner ? 0 : 0.1;
+
+    /// <summary>Whether it turns to where it goes (the roombas' <c>rotate_to_movement_direction</c>): a sawblade or a
+    /// spinner keeps its room line's angle.</summary>
+    public static bool TurnsToMovement(string type) => type is Roomba or FlyingRoomba;
 
     /// <summary>How near a roomba's centre the player is in it (our number, from its look: about two tiles across; the
     /// model has no Hull, and it does not block: live 2026-10-31).</summary>
@@ -61,8 +74,13 @@ static class LabyrinthTrials
     public static (double Life, double EnergyShield) SawDamagePerSecond = (0.40, 0.50);
     public static double SawRadius = 5;
 
+    /// <summary>How near a spinner's centre its morning stars reach: its mesh's bounding box
+    /// (<c>spinning_morning_star_v01_01.sm</c>, about ±100 units). It cuts as a roomba does (its .ot is the roomba's,
+    /// with <c>roomba.ao</c> for its model, and names no buff of its own), our reading.</summary>
+    public static double SpinnerRadius = 9;
+
     public static (double Life, double EnergyShield) TrapDegenShares(string type) => IsSawblade(type) ? SawDamagePerSecond : RoombaDamagePerSecond;
-    public static double TrapRadius(string type) => IsSawblade(type) ? SawRadius : RoombaRadius;
+    public static double TrapRadius(string type) => IsSawblade(type) ? SawRadius : type == Spinner ? SpinnerRadius : RoombaRadius;
 
     /// <summary>A roomba's 0x2b9 blob: LabyrinthRoomba.ot reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement,
     /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement; a sawblade's
@@ -85,6 +103,22 @@ static class LabyrinthTrials
 
     /// <summary>Transitionable's index in a roomba's or sawblade's components (<see cref="RoombaBlob"/>).</summary>
     public const byte RoombaTransitionableIndex = 6;
+
+    /// <summary>A spinner's 0x2b9 blob: LabyrinthSpinner.ot reads Positioned, Animated, BaseEvents, Stats, Movement,
+    /// Buffs, StateMachine; written as the roomba's, with the room line's model (<c>spinning_morning_star_v01_01.ao</c>:
+    /// <c>spin</c> plays by default) and StateMachine's one shared state, <c>killswitch</c> 0 (1 plays its
+    /// <c>breakage</c> clip to the end: not sent).</summary>
+    public static byte[] SpinnerBlob(int x, int y, float angle, string model)
+    {
+        var w = new BlobWriter().U8(0).U8(0);
+        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1);    // Positioned: the .ot's team 14
+        w.U8(1).WStr32(model);                                              // Animated (BaseEvents reads nothing)
+        w.Stats(null).U32(0).U32(0).U8(0);                                  // Stats
+        w.U8(0).I32(x).I32(y).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0);      // Movement
+        w.U16(0);                                                           // Buffs
+        new StateMachineData([0], 0).Write(w);                              // StateMachine: killswitch 0
+        return w.U8(0).ToArray();                                           // tasks
+    }
 
     /// <summary>A visible rail's 0x2b9 blob (Rail_Visible.ot: Positioned, BaseEvents, Animated): the room line's track
     /// piece, at its angle.</summary>
@@ -218,22 +252,155 @@ static class LabyrinthTrials
         return paths;
     }
 
+    /// <summary>The Crypt trial's spinner track: its server track pieces (Rail_Visible and the Rail_Visible_Swap_Anims01
+    /// stoppers; the straight pieces between them are the client's doodads) and the ways each leads, by its model and
+    /// angle (direction (sin a, −cos a)): an end one, back from a; a corner a and a + 90°; a crossing four; a straight
+    /// stopper a and a + 180°; the TriCorner stopper a and a ± 90°. A way joins the nearest piece along it (within 6°,
+    /// the X of two diagonal runs too) that has a way back. A spinner goes piece to piece and decides at each
+    /// (<see cref="Next"/>): back at an end and at a straight stopper in state 1 (its wedge up, <c>activate</c>), on
+    /// round a corner, and at a junction straight on when the junction's switch (a TriCorner in state 2,
+    /// <c>switch_straight</c>; a crossing follows its track's TriCorner) lets it, else round the way it turns its corners.
+    /// Live (2026-11-01, the original): the two spinners in the upper room go round two small rings (the middle of the
+    /// square), and its lever switches them to the square.</summary>
+    public sealed class SpinnerTrack
+    {
+        public IReadOnlyList<(int X, int Y)> Rails { get; }
+        readonly List<(int Rail, double X, double Y)>[] ways;
+        readonly bool[] stopper;
+        readonly int[] gate;
+
+        SpinnerTrack(IReadOnlyList<(int X, int Y)> rails, List<(int, double, double)>[] ways, bool[] stopper, int[] gate) =>
+            (Rails, this.ways, this.stopper, this.gate) = (rails, ways, stopper, gate);
+
+        /// <summary>The track of these pieces (others than a spinner track's are left out: null when none is one).</summary>
+        public static SpinnerTrack? Build(IReadOnlyList<(int X, int Y, float Angle, string Model)> pieces)
+        {
+            static (double X, double Y) Way(double a) => (Math.Round(Math.Sin(a), 6), Math.Round(-Math.Cos(a), 6));
+            static double[]? Turns(string model) => Path.GetFileNameWithoutExtension(model).ToLowerInvariant() switch
+            {
+                var m when m.StartsWith("spinner_rail_end") => [Math.PI],
+                var m when m.StartsWith("spinner_rail_corner") => [0, Math.PI / 2],
+                var m when m.StartsWith("spinner_rail_crossing") => [0, Math.PI / 2, Math.PI, -Math.PI / 2],
+                var m when m.StartsWith("spinner_rail_straight") || m.StartsWith("spinnerstopper_straight") => [0, Math.PI],
+                var m when m.StartsWith("spinnerstopper_tricorner") => [0, Math.PI / 2, -Math.PI / 2],
+                _ => null,
+            };
+            var kept = pieces.Where(p => Turns(p.Model) is not null).ToList();
+            if (kept.Count == 0) return null;
+            var arms = kept.Select(p => Turns(p.Model)!.Select(t => Way(p.Angle + t)).ToList()).ToList();
+            const double MaxDeviation = 6 * Math.PI / 180;
+            int? Best(int i, (double X, double Y) d)
+            {
+                int? best = null;
+                double nearest = double.MaxValue;
+                for (int j = 0; j < kept.Count; j++)
+                {
+                    double vx = kept[j].X - kept[i].X, vy = kept[j].Y - kept[i].Y;
+                    double along = vx * d.X + vy * d.Y, across = Math.Abs(vx * d.Y - vy * d.X);
+                    if (j == i || along <= 0 || Math.Atan2(across, along) > MaxDeviation || along >= nearest
+                        || !arms[j].Any(e => e.X * -d.X + e.Y * -d.Y > 0.99)) continue;
+                    (best, nearest) = (j, along);
+                }
+                return best;
+            }
+            var ways = kept.Select(_ => new List<(int, double, double)>()).ToArray();
+            for (int i = 0; i < kept.Count; i++)
+                foreach (var d in arms[i])
+                    if (Best(i, d) is int j && Best(j, (-d.X, -d.Y)) == i) ways[i].Add((j, d.X, d.Y));
+            var stopper = kept.Select(p => Path.GetFileName(p.Model).StartsWith("SpinnerStopper_Straight", StringComparison.OrdinalIgnoreCase)).ToArray();
+            bool[] switches = [.. kept.Select(p => Path.GetFileName(p.Model).StartsWith("SpinnerStopper_TriCorner", StringComparison.OrdinalIgnoreCase))];
+            // A junction follows the TriCorner on its own track (itself, for a TriCorner), nearest first.
+            var part = new int[kept.Count];
+            Array.Fill(part, -1);
+            for (int start = 0, n = 0; start < kept.Count; start++)
+            {
+                if (part[start] >= 0) continue;
+                var todo = new Stack<int>([start]);
+                part[start] = n;
+                while (todo.TryPop(out int at))
+                    foreach (var (next, _, _) in ways[at])
+                        if (part[next] < 0) { part[next] = n; todo.Push(next); }
+                n++;
+            }
+            long Distance(int a, int b) => (long)(kept[a].X - kept[b].X) * (kept[a].X - kept[b].X) + (long)(kept[a].Y - kept[b].Y) * (kept[a].Y - kept[b].Y);
+            int[] gate = [.. Enumerable.Range(0, kept.Count).Select(i => ways[i].Count < 3 ? -1
+                : Enumerable.Range(0, kept.Count).Where(k => switches[k] && part[k] == part[i]).OrderBy(k => Distance(i, k)).DefaultIfEmpty(-1).First())];
+            return new SpinnerTrack([.. kept.Select(p => (p.X, p.Y))], ways, stopper, gate);
+        }
+
+        /// <summary>The run a spinner stands on (within 4 cells), from the piece behind it to the one it faces (its room
+        /// line's angle); where two runs cross under it, the one along its facing. Null when none.</summary>
+        public (int From, int To)? Start((int X, int Y) at, float angle)
+        {
+            double fx = Math.Sin(angle), fy = -Math.Cos(angle);
+            var runs = Enumerable.Range(0, Rails.Count).SelectMany(i => ways[i].Where(w => w.Rail > i).Select(w => (A: i, B: w.Rail, Along: w.X * fx + w.Y * fy)))
+                .Select(e => (e.A, e.B, e.Along, Distance: ToSegment(at, Rails[e.A], Rails[e.B])))
+                .Where(e => e.Distance <= 4)
+                .OrderByDescending(e => Math.Abs(e.Along) >= Math.Cos(Math.PI / 6)).ThenBy(e => e.Distance).ToList();
+            if (runs.Count == 0) return null;
+            var run = runs[0];
+            return run.Along < 0 ? (run.B, run.A) : (run.A, run.B);
+        }
+
+        /// <summary>The piece after <paramref name="at"/> for a spinner come from <paramref name="from"/>, and the way it
+        /// turns its corners now (−1 or 1 by the turn's sign, 0 not yet known: a reversal turns it about).
+        /// <paramref name="open"/> says whether a stopper piece is in state 2.</summary>
+        public (int Next, int Turn) Next(int from, int at, int turn, Func<int, bool> open)
+        {
+            double hx = Rails[at].X - Rails[from].X, hy = Rails[at].Y - Rails[from].Y, length = Math.Sqrt(hx * hx + hy * hy);
+            (hx, hy) = length == 0 ? (0, 0) : (hx / length, hy / length);
+            int Turn((int Rail, double X, double Y) w) { double cross = hx * w.Y - hy * w.X; return cross > 0.5 ? 1 : cross < -0.5 ? -1 : 0; }
+            var onward = ways[at].Where(w => w.Rail != from).ToList();
+            if (onward.Count == 0 || stopper[at] && !open(at)) return (from, -turn);
+            var ahead = onward.Where(w => w.X * hx + w.Y * hy > 0.9).ToList();
+            var way = onward.Count == 1 ? onward[0]
+                : (gate[at] < 0 || open(gate[at])) && ahead.Count > 0 ? ahead[0]
+                : onward.Where(w => turn != 0 && Turn(w) == turn).Concat(ahead).Concat(onward).First();
+            int turned = Turn(way);
+            return (way.Rail, turned == 0 ? turn : turned);
+        }
+
+        static double ToSegment((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
+        {
+            double dx = b.X - a.X, dy = b.Y - a.Y, len = dx * dx + dy * dy;
+            double t = len == 0 ? 0 : Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len, 0, 1);
+            return Math.Sqrt(Math.Pow(p.X - a.X - t * dx, 2) + Math.Pow(p.Y - a.Y - t * dy, 2));
+        }
+    }
+
+    /// <summary>The rail switches (Rail_Visible_Swap_Anims01) a lever moves: each goes with its nearest toggling lever
+    /// (Switch, Switch_Multi). Live (2026-11-01, the original): the Crypt trial's Switch_Multi between the first two
+    /// spinners lifts both their stoppers, so they run on to their track's ends; the upper room's Switch moves its
+    /// TriCorner.</summary>
+    public static List<int> SwitchedRails(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int X, int Y)> levers, int lever)
+    {
+        static long Distance((int X, int Y) a, (int X, int Y) b) => (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y);
+        return [.. Enumerable.Range(0, rails.Count).Where(i => levers.Count > 0
+            && Enumerable.Range(0, levers.Count).MinBy(k => Distance(rails[i], levers[k])) == lever)];
+    }
+
     /// <summary>A trial room's server spawners (points of its room file, with no .ot to tell what they spawn) and the
     /// monster each places, rare: the Lower Prison trial's PrisonPoacherSpawner, on the plaque's platform, a Brittle
-    /// Poacher (live 2026-10-31, the original: a rare skeleton archer beside the platform's pack).</summary>
+    /// Poacher (live 2026-10-31, the original: a rare skeleton archer beside the platform's pack); the Crypt trial's
+    /// CryptFrostPriestSpawner, by the plaque, a Frost Priest (its name; live 2026-11-01, the original: rare skeletons
+    /// there).</summary>
     public static readonly IReadOnlyDictionary<string, string> Spawners = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["Metadata/QuestObjects/Labyrinth/PrisonPoacherSpawner"] = "Metadata/Monsters/Skeletons/SkeletonBowLightning",
+        ["Metadata/QuestObjects/Labyrinth/CryptFrostPriestSpawner"] = "Metadata/Monsters/Skeletons/SkeletonCasterCold4",
     };
 
     /// <summary>Pack points a trial room has in the original that its room file lacks (room cells, as the file's points;
     /// one of the area's packs of that rarity each): the Chamber of Sins trial's two packs in the open ground before the
     /// upper lever room's cage, where the way comes down the one-lane track (live 2026-11-01, the original: two packs
-    /// there; the area's scattered packs keep <see cref="TrapClearance"/> from its tracks, so none came).</summary>
+    /// there; the area's scattered packs keep <see cref="TrapClearance"/> from its tracks, so none came); the Crypt
+    /// trial's pack just past its door and a second in the plaque room (live 2026-11-01, the original: skeletons and
+    /// spiders at the way in, spider packs beside the rare skeletons by the plaque).</summary>
     public static readonly IReadOnlyDictionary<string, AreaPopulation.RoomPoint[]> RoomPacks =
         new Dictionary<string, AreaPopulation.RoomPoint[]>(StringComparer.OrdinalIgnoreCase)
         {
             ["Metadata/Terrain/Labyrinth/RoomSets/RuinedTemple/Rooms/Unique/intro.arm"] = [new("normal", 67, 260), new("normal", 62, 293)],
+            ["Metadata/Terrain/Labyrinth/RoomSets/Crypt/Rooms/Unique/crypt_intro.arm"] = [new("normal", 95, 338), new("normal", 120, 75)],
         };
 
     /// <summary>How far from a trial's traps (the rails its roombas run on among them) the area's scattered packs keep
@@ -481,11 +648,13 @@ static class LabyrinthTrials
 
     /// <summary>A trial door's walk Hull, half sizes in cells (across the way, through it), by its room line's model:
     /// <c>LabyrinthDoor.ao</c> (the trial's door) ±14 × ±6, <c>preview_labyrinthdoornofx.ao</c> (the Catacombs' Locked
-    /// Door) ±14 × ±3.6, <c>doorbar_prison.ao</c> ±2 × ±5.5.</summary>
+    /// Door) ±14 × ±3.6, <c>doorbar_prison.ao</c> ±2 × ±5.5, <c>thinwallbar_door.ao</c> (the Crypt trial's plain door)
+    /// ±2.3 × ±5.5.</summary>
     public static (double X, double Y) DoorHull(string model) => Path.GetFileName(model).ToLowerInvariant() switch
     {
         "preview_labyrinthdoornofx.ao" => (14, 3.6),
         "doorbar_prison.ao" => (2, 5.5),
+        "thinwallbar_door.ao" => (2.3, 5.5),
         "doorbar_ruinedtemple.ao" => (2.2, 8),
         _ => (14, 6),
     };
@@ -549,9 +718,12 @@ static class LabyrinthTrials
     static readonly Dictionary<string, string[]> Components = new(StringComparer.Ordinal)
     {
         [IntroDoor] = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "Transitionable", "TriggerableBlockage"],
+        [BarDoor] = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "Transitionable", "TriggerableBlockage"],
         [Door] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [Lever] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
         [Switch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
+        [MultiSwitch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
+        [RailSwitch] = ["Positioned", "BaseEvents", "Transitionable", "Animated"],
         [OpenDoor] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [Plaque] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "MinimapIcon", "InteractionAction"],
         [Portal] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "MinimapIcon"],

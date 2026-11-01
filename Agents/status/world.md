@@ -172,11 +172,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Chamber of Sins' nine sawblades run their tracks (shown, Rail_Visible) to and fro, each pair together, and cut
   as the roombas do; its two levers (`Switch`) go both ways: pulled, a lever shuts the cage round its room
   (`Door_Open`) and stops one sawblade of each pair (the inner or the outer lanes), pulled back it opens it and they
-  run on. Built from the original's description (2026-11-01), not yet checked live.
+  run on. Checked live against the original (2026-11-01).
+  The Crypt's twelve spinners (spinning morning stars) run their track pieces piece by piece, turning back at ends
+  and at stoppers, round corners, and at a junction as its rail switch stands, and cut as the roombas do; its
+  `Switch_Multi` lifts the two stoppers in the way up so those spinners run to their lanes' ends, its `Switch` sets
+  the upper room's TriCorner straight so its two spinners leave their small rings for the square, both going both
+  ways; the plain door between its upper spinner room and the plaque room stays shut until clicked, keeping the
+  plaque room's monsters in. Checked live against the original (2026-11-01).
   The area's packs keep away from a trial's traps; its rooms get what their room file places: the Gardens' four
-  Devourers, the Lower Prison plaque platform's pack and its spawner's rare Brittle Poacher, and the two packs the
-  Chamber of Sins has before its upper cage, which its room file lacks.
-  Not built: the other traps, the trials' monsters, the multi and timed levers of the other trials, and
+  Devourers, the Lower Prison plaque platform's pack and its spawner's rare Brittle Poacher, the Crypt spawner's rare
+  Frost Priest, and the packs the original has where the room file has none (two before the Chamber of Sins' upper
+  cage, one past the Crypt trial's door and one by its plaque).
+  Not built: the other traps, the trials' monsters, the timed levers of The Crematorium, and
   league-wide trials (league quest flags are not saved).
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).

@@ -20,7 +20,7 @@ static partial class QuestobjectsRules
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))]);
         await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.ArrowTrap)]);
-        // The Chamber of Sins trial's track pieces: server objects the client shows.
+        // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
         {
             uint id = conn.NextObjectId++;
@@ -29,8 +29,8 @@ static partial class QuestobjectsRules
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         }
         await SpawnRoombas(remote, stream, ciphers, conn,
-            [.. all.Where(o => o.Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba || LabyrinthTrials.IsSawblade(o.Type))],
-            [.. all.Where(o => o.Type is LabyrinthTrials.Rail or LabyrinthTrials.VisibleRail)],
+            [.. all.Where(o => o.Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba or LabyrinthTrials.Spinner || LabyrinthTrials.IsSawblade(o.Type))],
+            [.. all.Where(o => o.Type is LabyrinthTrials.Rail or LabyrinthTrials.VisibleRail or LabyrinthTrials.RailSwitch)],
             [.. all.Where(o => o.Type == LabyrinthTrials.Switch).Select(o => (o.X, o.Y))],
             all.FirstOrDefault(o => o.Type == LabyrinthTrials.IntroDoor) is { } entrance ? (entrance.X, entrance.Y) : default);
         // The Bronze Monograph at the trial's door: an NPCs.dat row on StoryGlyphBase, read like any NPC (its NPCTalk
@@ -72,7 +72,7 @@ static partial class QuestobjectsRules
                 if (open) BarCage(conn, id, o, true);
                 continue;
             }
-            if (open || o.Type is not (LabyrinthTrials.IntroDoor or LabyrinthTrials.Door)) continue;
+            if (open || o.Type is not (LabyrinthTrials.IntroDoor or LabyrinthTrials.Door or LabyrinthTrials.BarDoor)) continue;
             var cells = conn.Layout.Walkable is { } walkable
                 ? QuestBarriers.Cells(walkable, conn.Layout.GridW, conn.Layout.GridH, (o.X, o.Y), o.Angle, from, guarded)
                 : [];
@@ -94,7 +94,7 @@ static partial class QuestobjectsRules
         }
     }
 
-    // A trial object used: the player walks up to it, then the trial's door opens, a lever opens the nearest locked door,
+    // A trial object used: the player walks up to it, then the trial's door (or a plain door) opens, a lever opens the nearest locked door,
     // the plaque completes the trial (its flag) and opens the portal (every use), and the open portal returns to the trial's door.
     // False when the object is not a trial's.
     internal static async Task<bool> UseTrialObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -115,7 +115,7 @@ static partial class QuestobjectsRules
             Console.WriteLine($"[gateway] {remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
         else switch (o.Type)
         {
-            case LabyrinthTrials.IntroDoor:
+            case LabyrinthTrials.IntroDoor or LabyrinthTrials.BarDoor:
                 await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o);
                 break;
             case LabyrinthTrials.Lever:
@@ -123,7 +123,7 @@ static partial class QuestobjectsRules
                 if (NearestTrialObject(conn, LabyrinthTrials.Door, (o.X, o.Y), closed: true) is { } door)
                     await OpenTrialObject(remote, stream, ciphers, conn, door.Id, door.Object);
                 break;
-            case LabyrinthTrials.Switch:
+            case LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch:
                 await ToggleTrialSwitch(remote, stream, ciphers, conn, use.TargetId, o);
                 break;
             case LabyrinthTrials.Plaque:
@@ -164,7 +164,7 @@ static partial class QuestobjectsRules
         if (!conn.Instance.Transition(o.Type, o.X, o.Y)) return false;
         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), LabyrinthTrials.Open),
             $"0x02ba trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}) opens");
-        if (o.Type is not (LabyrinthTrials.IntroDoor or LabyrinthTrials.Door)) return true;
+        if (o.Type is not (LabyrinthTrials.IntroDoor or LabyrinthTrials.Door or LabyrinthTrials.BarDoor)) return true;
         await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 trial door 0x{id:x} unblocked");
         lock (conn.Monsters)
         {
@@ -191,8 +191,9 @@ static partial class QuestobjectsRules
 
     // The Chamber of Sins trial's lever (Switch) goes both ways (live 2026-11-01, the original): pulled, it shuts the cage
     // nearest it (Door_Open, round the lever's own room) and stops one sawblade of every pair, the inner or the outer
-    // lane's (LabyrinthTrials.SwitchedSaws); pulled back, the cage opens and they run on. This instance keeps where it
-    // stands.
+    // lane's (LabyrinthTrials.SwitchedSaws); pulled back, the cage opens and they run on. The Crypt trial's levers
+    // (Switch, Switch_Multi) move the rail switches nearest them (LabyrinthTrials.SwitchedRails) the same way: its
+    // spinners read them as they come (SpinnerTrack). This instance keeps where it all stands.
     static async Task ToggleTrialSwitch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         AreaPopulation.RoomObject o)
     {
@@ -208,6 +209,20 @@ static partial class QuestobjectsRules
                 $"0x02ba trial cage 0x{cage.Id:x} at ({cage.Object.X}, {cage.Object.Y}) {(pulled ? "shuts" : "opens")}");
             BarCage(conn, cage.Id, cage.Object, pulled);
             await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(cage.Id, pulled), null);
+        }
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> rails, levers;
+        lock (conn.Monsters)
+        {
+            rails = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.RailSwitch)];
+            levers = [.. conn.TrialObjects.Where(t => t.Value.Type is LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch)];
+        }
+        foreach (int i in LabyrinthTrials.SwitchedRails([.. rails.Select(r => (r.Value.X, r.Value.Y))],
+                     [.. levers.Select(l => (l.Value.X, l.Value.Y))], levers.FindIndex(l => l.Key == id)))
+        {
+            var (railId, rail) = rails[i];
+            conn.Instance.SetTransitioned(rail.Type, rail.X, rail.Y, pulled);
+            await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(railId, LabyrinthTrials.TransitionableIndex(rail.Type), state),
+                $"0x02ba trial rail switch 0x{railId:x} at ({rail.X}, {rail.Y}) to state {state}");
         }
         if (TrapRuns.TryGetValue(conn, out var runs))
         {
@@ -751,21 +766,30 @@ static partial class QuestobjectsRules
             .Where(k => conn.Instance.Transitioned(LabyrinthTrials.Switch, switches[k].X, switches[k].Y))
             .SelectMany(k => LabyrinthTrials.SwitchedSaws([.. saws.Select(i => (roombas[i].X, roombas[i].Y))], switches, k, entrance))
             .Select(k => saws[k]).ToHashSet();
+        // The Crypt trial's spinners go piece to piece on their track, which its rail switches change as they stand in
+        // this instance.
+        var track = roombas.Any(r => r.Type == LabyrinthTrials.Spinner)
+            ? LabyrinthTrials.SpinnerTrack.Build([.. rails.Select(r => (r.X, r.Y, r.Angle, r.Model))]) : null;
+        bool Lifted(int k) => conn.Instance.Transitioned(LabyrinthTrials.RailSwitch, track!.Rails[k].X, track.Rails[k].Y);
         var runs = new List<RoombaRun>();
         for (int i = 0; i < roombas.Count; i++)
         {
             var r = roombas[i];
             uint id = conn.NextObjectId++;
-            bool stopped = halted.Contains(i);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type),
-                LabyrinthTrials.RoombaBlob(r.Type, r.X, r.Y, r.Angle, r.Model, stopped ? LabyrinthTrials.Open : LabyrinthTrials.Closed)), null);
+            bool stopped = halted.Contains(i), spinner = r.Type == LabyrinthTrials.Spinner;
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type), spinner
+                ? LabyrinthTrials.SpinnerBlob(r.X, r.Y, r.Angle, r.Model)
+                : LabyrinthTrials.RoombaBlob(r.Type, r.X, r.Y, r.Angle, r.Model, stopped ? LabyrinthTrials.Open : LabyrinthTrials.Closed)), null);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
-            if (paths[i] is { } path)
+            if (spinner && track?.Start((r.X, r.Y), r.Angle) is { } run)
+                runs.Add(new RoombaRun(id, r, track, run, Lifted));
+            else if (!spinner && paths[i] is { } path)
                 runs.Add(new RoombaRun(id, r, LabyrinthTrials.IsSawblade(r.Type) ? path.TowardNearerEnd((r.X, r.Y)) : path) { Halted = stopped, Stopped = stopped });
             else Console.WriteLine($"[gateway] {remote} trial roomba 0x{id:x} {r.Type} at ({r.X}, {r.Y}): no rail under it, it stays");
         }
-        Console.WriteLine($"[gateway] {remote} trial roombas and sawblades: {roombas.Count} placed, " +
-            string.Join(", ", runs.Select(r => $"0x{r.Id:x} {(r.Path.Ring ? "round" : "to and fro")} {r.Path.Rails.Count} rails{(r.Stopped ? " (stopped)" : "")}")));
+        Console.WriteLine($"[gateway] {remote} trial roombas, sawblades and spinners: {roombas.Count} placed, " +
+            string.Join(", ", runs.Select(r => $"0x{r.Id:x} " + (r.Path is { } p ? $"{(p.Ring ? "round" : "to and fro")} {p.Rails.Count} rails" : $"on the track from {r.To}")
+                + (r.Stopped ? " (stopped)" : ""))));
         TrapRuns.AddOrUpdate(conn, runs);
         _ = RunRoombas(remote, stream, ciphers, conn, runs);
     }
@@ -775,13 +799,16 @@ static partial class QuestobjectsRules
 
     // A roomba or sawblade on its rails: its object (a stopped sawblade starts again as a new one), the leg it is on (from
     // where, to which rail, when it set out and arrives), which way it goes along a chain, and whether a lever wants it
-    // stopped (Halted, set by ToggleTrialSwitch) and whether it is (Stopped, RunRoombas).
+    // stopped (Halted, set by ToggleTrialSwitch) and whether it is (Stopped, RunRoombas). A spinner goes on its track
+    // instead of a path: from piece to piece, which way it turns its corners, and how it reads the rail switches.
     sealed class RoombaRun
     {
         public uint Id;
         public readonly AreaPopulation.RoomObject Roomba;
-        public readonly LabyrinthTrials.RoombaPath Path;
-        public int Target, Step = 1;
+        public readonly LabyrinthTrials.RoombaPath? Path;
+        readonly LabyrinthTrials.SpinnerTrack? track;
+        readonly Func<int, bool>? lifted;
+        public int Target, Step = 1, Previous, Turn;
         public (double X, double Y) From;
         public double LegStart, LegEnd = double.NegativeInfinity;
         public volatile bool Halted;
@@ -796,7 +823,10 @@ static partial class QuestobjectsRules
             Target = (Enumerable.Range(0, legs).MinBy(i => Distance((roomba.X, roomba.Y), rails[i], rails[(i + 1) % rails.Count])) + 1) % rails.Count;
         }
 
-        public (double X, double Y) To => Path.Rails[Target];
+        public RoombaRun(uint id, AreaPopulation.RoomObject spinner, LabyrinthTrials.SpinnerTrack track, (int From, int To) run, Func<int, bool> lifted) =>
+            (Id, Roomba, this.track, this.lifted, Previous, Target, From) = (id, spinner, track, lifted, run.From, run.To, (spinner.X, spinner.Y));
+
+        public (double X, double Y) To => track is not null ? track.Rails[Target] : Path!.Rails[Target];
 
         public (double X, double Y) Position(double now)
         {
@@ -806,10 +836,16 @@ static partial class QuestobjectsRules
             return (From.X + (To.X - From.X) * t, From.Y + (To.Y - From.Y) * t);
         }
 
-        // The next rail: round a ring, or on along a chain, turning at its ends.
+        // The next rail: round a ring, or on along a chain, turning at its ends; a spinner's as its track decides.
         public void Next()
         {
-            if (Path.Ring) { Target = (Target + 1) % Path.Rails.Count; return; }
+            if (track is not null)
+            {
+                (int next, Turn) = track.Next(Previous, Target, Turn, lifted!);
+                (Previous, Target) = (Target, next);
+                return;
+            }
+            if (Path!.Ring) { Target = (Target + 1) % Path.Rails.Count; return; }
             if (Target + Step < 0 || Target + Step >= Path.Rails.Count) Step = -Step;
             Target += Step;
         }
@@ -866,8 +902,9 @@ static partial class QuestobjectsRules
                     (r.LegStart, r.LegEnd) = (now, now + seconds);
                     var move = InstanceProtocol.MoveTo(r.Id, (int)Math.Round(r.To.X), (int)Math.Round(r.To.Y), (float)seconds, InstanceProtocol.FollowTerrain);
                     // A roomba turns to where it goes (rotate_to_movement_direction); a sawblade keeps its room line's
-                    // angle, along its track, and only goes back at an end (live 2026-11-01, the original).
-                    await Send(remote, stream, ciphers, LabyrinthTrials.IsSawblade(r.Roomba.Type) ? move
+                    // angle, along its track, and only goes back at an end (live 2026-11-01, the original), as a
+                    // spinner does.
+                    await Send(remote, stream, ciphers, !LabyrinthTrials.TurnsToMovement(r.Roomba.Type) ? move
                         : [.. InstanceProtocol.Orientation(r.Id, (float)Math.Atan2(dx, -dy)), .. move], null);
                 }
                 // In a roomba: its degeneration on the player (RunResourceRecovery deals it) and its buff, whose visual
