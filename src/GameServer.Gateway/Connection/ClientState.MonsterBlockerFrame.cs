@@ -21,6 +21,8 @@ sealed partial class ClientState
         readonly BlockerSet current;
         readonly Dictionary<uint, (int Body, int Current)> indices = [];
         readonly Dictionary<uint, IReadOnlyList<ClientPathfinder.Blocker>> views = [];
+        readonly int playerBody = -1;
+        readonly IReadOnlyList<ClientPathfinder.Blocker> forPlayer;
         public readonly List<(uint Id, int X, int Y, int Size)> Bodies = [];
         public IReadOnlyList<ClientPathfinder.Blocker> FixedBlockers { get; }
 
@@ -36,7 +38,7 @@ sealed partial class ClientState
             if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.Phasing)
             {
                 var player = owner.Walk.Position(now);
-                current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
+                playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
             }
             foreach (var (id, m) in owner.Monsters)
             {
@@ -47,7 +49,17 @@ sealed partial class ClientState
                 indices.Add(id, (Bodies.Count, current.Add(blocker)));
                 Bodies.Add((id, p.X, p.Y, size));
             }
+            // Phasing (Quartz Flask): the player and the monsters pass each other.
+            forPlayer = owner.Phasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
             owner.Performance.Elapsed(LatencyPhase.BlockerBuild, startedAt);
+        }
+
+        /// <summary>What stands in the player's way.</summary>
+        public IReadOnlyList<ClientPathfinder.Blocker> ForPlayer => forPlayer;
+
+        public void MovePlayer(int x, int y)
+        {
+            if (playerBody >= 0) current.Replace(playerBody, new(x, y, LivingCollision.PlayerSize));
         }
 
         public IReadOnlyList<ClientPathfinder.Blocker> For(uint self)

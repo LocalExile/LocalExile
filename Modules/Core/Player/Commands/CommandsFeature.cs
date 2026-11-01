@@ -1814,7 +1814,6 @@ static class CommandsFeature
             {
                 conn.Monsters[id].Walk = conn.NewMonsterWalk(id, x, y, conn.Monsters[id].Walk.Speed,
                     LivingCollision.Size(conn.Monsters[id]), conn.Monsters[id].Rarity == MonsterRarity.Unique);
-                conn.Monsters[id].CollisionPosition = (x, y);
             }
         })
         // Action probe: start the monster's Move action (0x1ab) toward the player, like the echo of a player's click. The skill
@@ -1858,7 +1857,6 @@ static class CommandsFeature
             {
                 conn.Monsters[id].Walk = conn.NewMonsterWalk(id, x, y, conn.Monsters[id].Walk.Speed,
                     LivingCollision.Size(conn.Monsters[id]), conn.Monsters[id].Rarity == MonsterRarity.Unique);
-                conn.Monsters[id].CollisionPosition = (x, y);
             }
         })
         .Add("ai", "/ai [on|off] (monsters chase you when you come near; emerge monsters rise either way)", async args =>

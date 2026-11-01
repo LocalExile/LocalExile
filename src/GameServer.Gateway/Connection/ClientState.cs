@@ -170,7 +170,6 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public bool CorpseConsumed;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
-    public (int X, int Y)? CollisionPosition;
     public (int X, int Y)? LastTarget;
     public double NextChaseRetryAt;
     // A boss's stage (BossFights) and whether a hit has started it.
@@ -250,6 +249,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
     public double NextKeepInSyncAt;
+    // How far every walker's steps have been checked (Game.StepWalkers).
+    public double WalkersSteppedTo;
     // When the movement skill under way ends on the client: the server has already landed it (Game.ResyncAfter).
     public double LandingUntil;
     public int ActionInterruptionGeneration => unchecked(HitRecovery.Generation + FreezeGeneration);

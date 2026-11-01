@@ -98,8 +98,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [league modes](../docs/game/league-modes.md).
 - **Predictive actor collision.** Player paths include living monsters and published players in the same instance.
   Monster paths use their `MonsterVarieties.ObjectSize` clearance and avoid other living bodies, including friendlies.
-  A 50 ms loop stops a walking monster's estimate at the first cell a body blocks, as the client does (no packets);
-  nothing is pushed out of a body. Death releases the occupied space and the corpse stays in the area.
+  A 50 ms pass steps the player's and the monsters' estimates in time order as the client does (no packets): a step
+  blocked by terrain or a body ends the walk, and a path cut short paths again from its end. Nothing is pushed out of a
+  body. Death releases the occupied space and the corpse stays in the area.
   Melee monsters chase with their attack aimed at the player, about every 200 ms, and the swing starts on S→C 0x1ac.
   Ranged monsters and minions take rings around the player (`MonsterSurround`); the AI decides every 50 ms.
   Automated regressions cover player-body clearance for new and reused slots.

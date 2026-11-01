@@ -165,38 +165,65 @@ static partial class Game
 
     internal static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        using (ProjectileMutation(conn, phase: "collision"))
-        {
-            double now = ProjectileWorldTime(conn);
-            // Every living body's cell and size once per frame (kept current as bodies are moved below), instead of
-            // recomputing each other monster's position for every monster: the overlap test was O(n²) walk queries.
-            using var frame = conn.BeginMonsterBlockerFrame(now);
-            var bodies = frame.Bodies;
-            int index = 0;
-            foreach (var (id, m) in conn.Monsters)
-            {
-                if (!LivingCollision.Blocks(m)) { m.CollisionPosition = null; continue; }
-                int self = index++;
-                var current = (bodies[self].X, bodies[self].Y);
-                var previous = m.CollisionPosition ??= current;
-                if (current == previous) continue;
-                int size = bodies[self].Size;
-                var blockers = conn.MonsterBlockers(id);
-                bool Floor(int x, int y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y));
-                // The client stops a walker at the first cell a body blocks (0x141e32710, 0x141e47a40) and nothing ever
-                // moves a monster that stands. One that started inside a body walks out of it.
-                var stop = ClientPathfinder.ObjectBlocks(blockers, previous.X, previous.Y, size + 1, size + 4) ? current
-                    : LivingCollision.Sweep(previous, current, size, Floor, blockers);
-                if (stop != current)
-                {
-                    m.Walk.Teleport(stop.X, stop.Y, now);
-                    frame.Move(id, stop.X, stop.Y);
-                    // A chaser's next order paths it again; a Move's client does so itself when its walk ends short.
-                    if (m.LastTarget is { } target && m is not { Hostile: true, Attack.Ranged: false }) m.Walk.Order(target.X, target.Y, now);
-                }
-                m.CollisionPosition = stop;
-            }
-        }
+        using (ProjectileMutation(conn, phase: "collision")) StepWalkers(conn, ProjectileWorldTime(conn));
         return Task.CompletedTask;
+    }
+
+    // The client steps every walker a cell at a time and checks each step (0x141e32710): the cell's walk value must be at
+    // least the walker's size + 1, and no other body may be within reach (0x141e47a40 → 0x141e47ca0: the Chebyshev distance
+    // less that body's size below the walker's size + 1). A blocked step ends the walk where it stands, with no new path
+    // (0x141e7bc20); a chaser's next order paths it again. A walk whose path began on a blocked cell steps through bodies
+    // until its first free step; terrain still stops it. A path cut short by the search is walked to its end and then paths
+    // again from there at once (0x141e7bec0 → 0x141e7b920). The client moves nobody for any other reason, so this replays
+    // the steps taken since the last pass, the player's and every monster's in time order, each against the cells the others
+    // hold at that moment. Called under conn.Monsters.
+    internal static void StepWalkers(ClientState conn, double now)
+    {
+        double from = conn.WalkersSteppedTo;
+        if (now <= from) return;
+        conn.WalkersSteppedTo = now;
+        var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
+        foreach (var (id, m) in conn.Monsters)
+            if (LivingCollision.Blocks(m)) walks[id] = m.Walk;
+        if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
+        var pending = new Dictionary<uint, double>();
+        foreach (var (id, walk) in walks)
+            if (walk.ArrivesAt > from) pending[id] = from;
+        if (pending.Count == 0 && walks.Values.All(w => w.Reached)) return;
+        using var frame = conn.BeginMonsterBlockerFrame(from);
+        for (int round = 0; round < 8; round++)
+        {
+            var steps = new List<(double At, uint Id, (int X, int Y) Cell)>();
+            foreach (var (id, since) in pending)
+                foreach (var (at, cell) in walks[id].Steps(since, now)) steps.Add((at, id, cell));
+            steps.Sort((a, b) => a.At != b.At ? a.At.CompareTo(b.At) : a.Id.CompareTo(b.Id));
+            var stopped = new HashSet<uint>();
+            foreach (var (at, id, cell) in steps)
+            {
+                if (stopped.Contains(id)) continue;
+                var walk = walks[id];
+                bool floor = walk.Floor(cell.X, cell.Y);
+                bool body = floor && ClientPathfinder.ObjectBlocks(id == PlayerId ? frame.ForPlayer : frame.For(id),
+                    cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
+                if (!floor || body && !walk.WalksThrough)
+                {
+                    walk.StopAt(at);
+                    stopped.Add(id);
+                    continue;
+                }
+                if (!body) walk.WalksThrough = false;
+                if (id == PlayerId) frame.MovePlayer(cell.X, cell.Y);
+                else frame.Move(id, cell.X, cell.Y);
+            }
+            pending.Clear();
+            foreach (var (id, walk) in walks)
+            {
+                if (walk.Reached || walk.ArrivesAt > now) continue;
+                double at = walk.ArrivesAt;
+                walk.Repath(at);
+                pending[id] = at;
+            }
+            if (pending.Count == 0) break;
+        }
     }
 }

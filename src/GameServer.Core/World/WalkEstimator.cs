@@ -45,22 +45,31 @@ public sealed class WalkEstimator
     }
 
     /// <summary>Estimated position at <paramref name="now"/> (seconds, any monotonic clock).</summary>
-    public (int X, int Y) Position(double now)
+    public (int X, int Y) Position(double now) => At(now, out _);
+
+    // The client's cell: a Bresenham step at a time along the segment (see PlayerWalk), and how far into the next step.
+    private (int X, int Y) At(double now, out double fraction)
     {
+        fraction = 0;
         double d = Math.Max(0, _speed * (now - _t0));
         int i = Array.BinarySearch(_cumulative, d);
         if (i >= 0) return _path[i];
         i = ~i;
         if (i >= _path.Count) return _path[^1];
         var (a, b) = (_path[i - 1], _path[i]);
-        double f = (d - _cumulative[i - 1]) / (_cumulative[i] - _cumulative[i - 1]);
-        return ((int)Math.Round(a.X + (b.X - a.X) * f), (int)Math.Round(a.Y + (b.Y - a.Y) * f));
+        int total = Math.Max(Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
+        double steps = (d - _cumulative[i - 1]) / (_cumulative[i] - _cumulative[i - 1]) * total;
+        int done = Math.Min((int)steps, total);
+        fraction = steps - done;
+        return ClientPathfinder.Line(a, b).ElementAt(done);
     }
 
-    /// <summary>A new walk order at <paramref name="now"/>. Returns where the actor is now (what the echo must report).</summary>
+    /// <summary>A new walk order at <paramref name="now"/>. Returns where the actor is now (what the echo must report).
+    /// As in the client, the step in progress keeps its elapsed fraction: rounding to a cell on every order gained up to √2
+    /// of the speed on diagonals.</summary>
     public (int X, int Y) Order(int targetX, int targetY, double now)
     {
-        var here = Position(now);
+        var here = At(now, out double fraction);
         _path = _blockers is null ? FindPath(here, (targetX, targetY))
             : ClientPathfinder.FindPath(here, (targetX, targetY), _walkable, _w, _h, _blockers(), _size, limit: _limit);
         if (_path.Count == 0) _path = [here];
@@ -68,6 +77,8 @@ public sealed class WalkEstimator
         for (int i = 1; i < _path.Count; i++)
             _cumulative[i] = _cumulative[i - 1] + Math.Sqrt(Math.Pow(_path[i].X - _path[i - 1].X, 2) + Math.Pow(_path[i].Y - _path[i - 1].Y, 2));
         _t0 = now;
+        if (_path.Count > 1)
+            _t0 -= fraction * _cumulative[1] / Math.Max(Math.Abs(_path[1].X - here.X), Math.Abs(_path[1].Y - here.Y)) / _speed;
         return here;
     }
 

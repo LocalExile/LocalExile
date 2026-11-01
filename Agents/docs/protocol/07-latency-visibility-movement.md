@@ -174,8 +174,8 @@ object's size + 3 and tolerance = its size (an NPC, size 4: 7 and 4; the stash, 
 between waypoints is a Bresenham line of cells; one step takes `(√(dx² + dy²) / speed) / max(|dx|, |dy|)` seconds,
 and the grid cell (`+0x294`) only changes a step at a time. Each frame adds its time to the accumulator (`+0x244`, a
 whole number of milliseconds on the client's clock) and steps while it holds a whole step time (`+0x240`); before every
-step the next cell is checked again (terrain, objects) and a blocked step ends the walk. A new segment, including the
-first one of a new order, rescales the accumulator to its own step time (`A × s_new / s_old`), so a re-order keeps the
+step the next cell is checked again (terrain, objects) and a blocked step ends the walk: the walker stands, with no new
+path and no message (`0x141e7bc20`). A new segment, including the first one of a new order, rescales the accumulator to its own step time (`A × s_new / s_old`), so a re-order keeps the
 elapsed fraction of the step in progress. A stop (`0x141e350e0`) takes effect in the next tick, after that tick's
 steps, and keeps the accumulator. Verified on a capture (2026-10-21): the per-tick rule held in 55,915 of 56,069 player
 ticks (the rest are counter resets), the rescale on 575 of 575 clicks. Speed (`0x141e7c0b0`) is the Pathfinding base
@@ -192,9 +192,12 @@ still differ by one cell.
 
 **Monsters on the client.** A monster's 0x1ab is applied when the client next reads packets, 5–50 ms after the
 server sent it (median 17 ms), and the client paths it at once (1,235 of 1,235 recorded monster paths match
-`ClientPathfinder` with `SearchLimit.Expansions100`, all other objects as blockers and the size's walk threshold). When a
-walk ends short of the target the client paths again on its own, and monsters far from the player keep their walk but do
-not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8): the Actor's run-speed roll `+0x1a8`. Actor
+`ClientPathfinder` with `SearchLimit.Expansions100`, all other objects as blockers and the size's walk threshold). Each
+step is checked like the player's. A path that began on a blocked cell steps through bodies until its first free step
+(`0x141e4d890`'s out flag → Positioned `+0x1e5 & 4`). A path the expansion limit cut short is walked to its end and then
+paths again from there at once (`0x141e7bec0` → `0x141e7b920`). Starting a non-pathing action ends the Move with
+`0x141e90740(…, 0)`, which leaves the pathing running, so a ranged monster shoots while it walks on to the Move's target.
+Monsters far from the player keep their walk but do not tick. Their speeds vary by a few percent (7.60–8.40 for a base of 8): the Actor's run-speed roll `+0x1a8`. Actor
 setup `0x141e9ca20` seeds a TinyMT32 state (`0x1413cbe50`, init_by_array) with the key [object id, the object type's
 u32 at its data +8] and, when the MonsterVarieties row's two unnamed i32 columns before `AilmentThreshold` (`__col75`,
 `__col76`) differ, draws a uniform integer in that range (`0x1404d03d0`); the roll multiplies the Pathfinding speed by
@@ -333,9 +336,11 @@ The indexes are discarded after the pass; normal/unique expansion budgets, stati
 AI and correction passes advance prior projectile contacts before taking the body snapshot, using the shared
 projectile mutation scope and its experience-before-combat lock order.
 The client stops a walker at the first cell a body blocks (`0x141e32710`, `0x141e47a40`), whatever its path said, and a
-walker that started inside a body walks out of it. The 50 ms loop does the same to the server's estimate, cell by cell
-against the other bodies, and sends nothing; a chaser's next order paths it again. Nothing moves a monster or the player
-out of a monster: the client does not, and a server that did so walked its copy away from the client's (it used to send
+walker that started inside a body steps through until its first free step. `StepWalkers` does the same to the server's
+estimates, every 50 ms and before each AI decision (an order would drop the steps it replaces): the steps taken since the
+last pass, the player's and every monster's in time order, each against the cells the others hold at that moment. It
+sends nothing. A chaser's next order paths it again, and a path the search cut short paths again from its end. Nothing
+moves a monster or the player out of a monster: the client does not, and a server that did so walked its copy away from the client's (it used to send
 ActionEnded and Teleport, then to teleport only its estimate, and to walk the player out through a crowd that held the
 client).
 The client never snaps a non-predicted monster to the 0x1ab position pair by the 92-cell check, which runs only for

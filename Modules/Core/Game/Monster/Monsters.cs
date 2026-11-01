@@ -154,7 +154,7 @@ static partial class Game
             {
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
-                HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
+                HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
@@ -273,6 +273,8 @@ static partial class Game
             if (conn.Closed || conn.LeavingArea || conn.PendingTransfer is not null) return plan;
             if (!conn.Paused) plan.Ailments.AddRange(MonsterAilmentChangesLocked(conn, now));
             if (!cadence.TryBeginStep(now, conn.AiEnabled && !conn.Paused && conn.PlayerLife > 0)) return plan;
+            // Before any order replaces a walk: its steps since the last pass would go unchecked.
+            StepWalkers(conn, now);
             using var blockers = conn.BeginMonsterBlockerFrame(now);
             var (px, py) = conn.Walk.Position(now);
             // Entry protection: hostile monsters neither chase nor swing while the player stands protected on the arrival cell.
@@ -339,7 +341,7 @@ static partial class Game
                     {
                         m.BusyUntil = now + ma.Seconds;
                         m.LastTarget = null;
-                        m.Walk.Order(mx, my, now);
+                        if (!ma.Ranged) m.Walk.Order(mx, my, now);
                         plan.MinionSwings.Add((id, m, (mx, my), target));
                     }
                     // A new path when the target moved, else again after arriving short, at most twice a second.
@@ -363,7 +365,9 @@ static partial class Game
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
                     m.LastTarget = null;
-                    m.Walk.Order(mx, my, now);
+                    // A melee swing starts at the end of its walk-up. A non-pathing action ends the Move with
+                    // 0x141e90740(…, 0), which does not stop the pathing: a ranged monster shoots while it walks on.
+                    if (!a.Ranged) m.Walk.Order(mx, my, now);
                     m.SwingGeneration = ++m.ActionGeneration;
                     cadence.BeginSwing(m, m.ActionGeneration);
                     plan.Swings.Add((id, m, m.ActionGeneration));
