@@ -146,12 +146,19 @@ sealed class MonsterElementalAilments
 
     /// <summary>The damage that counts for an ailment: its own element's, and another type's with "All Damage with Hits can
     /// Shock" (all_damage_can_*), "Your Chaos Damage can Shock" (one type's, Stormy Seas' cold among them) or, for shock,
-    /// "Your Elemental Damage can Shock". Each type counts once.</summary>
-    static double Inflicting(string ailment, DamageType own, DamagePacket damage, Func<string, int> attacker) =>
-        damage.Components.Where(c => c.Type == own || attacker($"all_damage_can_{ailment}") != 0
-                || attacker($"{c.Type.ToString().ToLowerInvariant()}_damage_can_{ailment}") != 0
-                || ailment == "shock" && DamageTypes.IsElemental(c.Type) && attacker("elemental_damage_can_shock") != 0)
-            .Sum(c => c.Range.Min);
+    /// "Your Elemental Damage can Shock". Each type counts once. "Your Cold Damage cannot Freeze" (Replica Tasalio's
+    /// Sign) keeps a type out whatever lets it, as a cannot does.</summary>
+    static double Inflicting(string ailment, DamageType own, DamagePacket damage, Func<string, int> attacker)
+    {
+        bool Counts(DamageType type)
+        {
+            string name = type.ToString().ToLowerInvariant();
+            return attacker($"{name}_damage_cannot_{ailment}") == 0 && (type == own
+                || attacker($"all_damage_can_{ailment}") != 0 || attacker($"{name}_damage_can_{ailment}") != 0
+                || ailment == "shock" && DamageTypes.IsElemental(type) && attacker("elemental_damage_can_shock") != 0);
+        }
+        return damage.Components.Where(c => Counts(c.Type)).Sum(c => c.Range.Min);
+    }
 
     /// <summary>Whether the attacker's hits cannot inflict this elemental ailment ("ignite", "chill", "freeze" or
     /// "shock"): Elemental Focus's cannot_inflict_status_ailments ("Supported Skills cannot inflict Elemental Ailments"),

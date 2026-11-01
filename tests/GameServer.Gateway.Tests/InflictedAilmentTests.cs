@@ -27,8 +27,8 @@ public class InflictedAilmentTests
 
     // "Shocks/Chills from your Hits always ... by at least X%" raise the base before the effect modifiers (wiki Shock), so
     // a hit too weak for the 5% minimum still applies one, but only with the ailment's damage. "All Damage with Hits can
-    // Shock", the one-type forms and the chill and freeze ones make other types count, "Hits always Shock" needs no
-    // chance, and the caps can be raised.
+    // Shock", the one-type forms and the chill and freeze ones make other types count, a cannot keeps one out, "Hits
+    // always Shock" needs no chance, and the caps can be raised.
     [Fact]
     public void Minimums_caps_and_the_damage_that_can_inflict_set_what_a_hit_inflicts()
     {
@@ -67,6 +67,11 @@ public class InflictedAilmentTests
         Assert.Equal(.6, Hit(Freeze, Taken(lightning: 10), With(("lightning_damage_can_freeze", 1)))!.Until, 9);
         Assert.Equal(7, Magnitude(Shock, Taken(fire: 1), With(("elemental_damage_can_shock", 1))));
         Assert.Equal(0, Magnitude(Shock, Taken(chaos: 1), With(("elemental_damage_can_shock", 1))));
+        // A cannot keeps the type out, even its own element and with all damage can.
+        Assert.Null(Hit(Freeze, Taken(cold: 10), With(("cold_damage_cannot_freeze", 1))));
+        Assert.Equal(.6, Hit(Freeze, Taken(cold: 10, physical: 10), With(("cold_damage_cannot_freeze", 1), ("all_damage_can_freeze", 1)))!.Until, 9);
+        Assert.Equal(7, Magnitude(Chill, Taken(cold: 1), With(("cold_damage_cannot_freeze", 1))));
+        Assert.Equal(0, Magnitude(Shock, Taken(lightning: 1), With(("lightning_damage_cannot_shock", 1))));
 
         // A hit that is not critical shocks only by chance, or always with "Hits always Shock".
         Assert.Equal(0, Magnitude(Shock, Taken(lightning: 1), With(), critical: false));

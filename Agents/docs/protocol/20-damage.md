@@ -1432,6 +1432,8 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   `{type}_damage_can_{ailment}` (Voltaxic Rift's chaos can shock, physical can chill) that type; for shock,
   `elemental_damage_can_shock` the three elements. `Inflict` takes the hit by type, the physical part after the
   monster's physical reduction; each type counts once, and with several the effect reads their total (wiki Shock).
+  `{type}_damage_cannot_{ailment}` ("Your Cold Damage cannot Freeze": Replica Tasalio's Sign) keeps that type out
+  whatever lets it, as a cannot beats a can; PoB parses these flags but does not apply them.
   `always_shock` ("Hits always Shock", Shaper of Storms) shocks without the chance roll, so it draws no random number.
 - **As though dealing more damage.** "Shock/Chill/Freeze Enemies as though dealing X% more Damage" multiplies the
   damage the chill's and shock's magnitude and the freeze's duration read by 1 + X/100 per stat (PoB `CalcOffence`:
