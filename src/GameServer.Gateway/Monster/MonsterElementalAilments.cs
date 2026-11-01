@@ -129,7 +129,7 @@ sealed class MonsterElementalAilments
         double shocking = lightning + (AllCan("shock") ? cold + other : attacker("cold_damage_can_shock") != 0 ? cold : 0);
         if (!CannotInflict("chill", attacker))
             Add(new(Kind.Chill, now, now + 2, Effectiveness(chilling * AsThough(Kind.Chill, attacker), threshold,
-                EffectModifier(Kind.Chill, attacker, target), 30, attacker("chill_minimum_slow_%")))
+                EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker), attacker("chill_minimum_slow_%")))
             {
                 MoreTaken = attacker("enemies_chilled_by_hits_take_damage_increased_by_chill_effect") != 0,
                 LessDealt = attacker("enemies_chilled_by_hits_deal_damage_lessened_by_chill_effect") != 0,
@@ -142,7 +142,7 @@ sealed class MonsterElementalAilments
                 || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random))
             && !CannotInflict("shock", attacker))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
-                EffectModifier(Kind.Shock, attacker, target), 50, attacker("shock_minimum_damage_taken_increase_%")))
+                EffectModifier(Kind.Shock, attacker, target), ShockCap(attacker), attacker("shock_minimum_damage_taken_increase_%")))
                 { Spread = SpreadRadius(attacker, area) });
         return added;
     }
@@ -175,9 +175,9 @@ sealed class MonsterElementalAilments
 
     /// <summary>Within the Tempest (enemy_shock_on_kill): the shock a killed monster's corpse gets, 15% base for 2 s
     /// through the shock effect and duration modifiers (wiki Within the Tempest; the 15% of shocks without damage, wiki
-    /// Shock), up to 50%. It spreads like any shock the player inflicts, by the player's area modifier <paramref name="area"/>.</summary>
+    /// Shock), up to the shock cap. It spreads like any shock the player inflicts, by the player's area modifier <paramref name="area"/>.</summary>
     public Effect? ShockOnKill(double now, Func<string, int> attacker, Func<string, int> target, double area = 1) =>
-        Apply(new(Kind.Shock, now, now + 2, Math.Min(50, Math.Floor(15 * EffectModifier(Kind.Shock, attacker, target))))
+        Apply(new(Kind.Shock, now, now + 2, Math.Min(ShockCap(attacker), Math.Floor(15 * EffectModifier(Kind.Shock, attacker, target))))
             { Spread = SpreadRadius(attacker, area), OnKill = true }, attacker, target);
 
     // "Shock/Chill/Freeze Enemies as though dealing X% more Damage" (PoB CalcOffence: the ailment's damage times each
@@ -195,6 +195,15 @@ sealed class MonsterElementalAilments
 
     static double AsThough(Kind kind, Func<string, int> attacker) =>
         AsThoughStats[kind].Aggregate(1.0, (more, name) => more * Math.Max(0, 1 + attacker(name) / 100.0));
+
+    // The caps on the effect, 30% chill and 50% shock: Shaper of Winter's override ("Your Chills can reduce Action Speed by
+    // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value (wiki
+    // Voltaxic Rift). "+X% to Maximum Effect of Shock" is not read: only removed content (runesmithing, Royale) has it.
+    static int ChillCap(Func<string, int> attacker) =>
+        attacker("elementalist_chill_maximum_magnitude_override") is > 0 and int cap ? cap : 30;
+
+    static int ShockCap(Func<string, int> attacker) =>
+        50 + (attacker("unique_voltaxic_rift_shock_maximum_magnitude_override") != 0 ? 40 : 0);
 
     static double EffectModifier(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
         Math.Max(0, 1 + attacker($"virtual_{Name(kind)}_effect_+%") / 100.0)

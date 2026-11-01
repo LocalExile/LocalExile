@@ -20,9 +20,10 @@ public class InflictedAilmentTests
 
     // "Shocks/Chills from your Hits always ... by at least X%" raise the base before the effect modifiers (wiki Shock), so
     // a hit too weak for the 5% minimum still applies one, but only with the ailment's damage. "All Damage with Hits can
-    // Shock" and the chill and freeze forms make every type count, and "Hits always Shock" needs no chance.
+    // Shock" and the chill and freeze forms make every type count, "Hits always Shock" needs no chance, and the caps can be
+    // raised.
     [Fact]
-    public void Minimums_all_damage_and_always_shock_set_what_a_hit_inflicts()
+    public void Minimums_caps_all_damage_and_always_shock_set_what_a_hit_inflicts()
     {
         var shockAtLeast15 = With(("shock_minimum_damage_taken_increase_%", 15));
         Assert.Equal(7, Magnitude(Shock, 0, 1, With()));   // floor(50 × 0.01^0.4)
@@ -53,5 +54,13 @@ public class InflictedAilmentTests
         // A hit that is not critical shocks only by chance, or always with "Hits always Shock".
         Assert.Equal(0, Magnitude(Shock, 0, 1, With(), critical: false));
         Assert.Equal(7, Magnitude(Shock, 0, 1, With(("always_shock", 1)), critical: false));
+
+        // The caps: 30% chill, 40% with Shaper of Winter; 50% shock, 90% with Voltaxic Rift's +40%, whose stat is stored
+        // as 100.
+        Assert.Equal(30, Magnitude(Chill, 100, 0, With()));
+        Assert.Equal(40, Magnitude(Chill, 100, 0, With(("elementalist_chill_maximum_magnitude_override", 40))));
+        Assert.Equal(50, Magnitude(Shock, 0, 300, With()));   // floor(50 × 3^0.4) is 77
+        Assert.Equal(77, Magnitude(Shock, 0, 300,
+            With(("unique_voltaxic_rift_shock_maximum_magnitude_override", 100))));
     }
 }

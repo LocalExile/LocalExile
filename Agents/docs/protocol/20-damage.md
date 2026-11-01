@@ -1395,8 +1395,8 @@ strike; the threshold is its maximum life (wiki: equal to it for most monsters).
 
 | Ailment | Applied by | Effect | Duration |
 |---|---|---|---|
-| Chill | every hit with cold damage, or any damage with `all_damage_can_chill` | floor(50 × (cold / threshold)^0.4 × modifiers), at most 30%; none under 5% | 2 s |
-| Shock | a critical strike, `chance_to_shock_%` or `always_shock`, with lightning damage, cold damage with `cold_damage_can_shock`, or any damage with `all_damage_can_shock` | the same formula on that damage, at most 50% | 2 s |
+| Chill | every hit with cold damage, or any damage with `all_damage_can_chill` | floor(50 × (cold / threshold)^0.4 × modifiers), at most 30% (40% with Shaper of Winter); none under 5% | 2 s |
+| Shock | a critical strike, `chance_to_shock_%` or `always_shock`, with lightning damage, cold damage with `cold_damage_can_shock`, or any damage with `all_damage_can_shock` | the same formula on that damage, at most 50%, 90% with Voltaxic Rift | 2 s |
 | Freeze | a critical strike or `chance_to_freeze_%`, with cold damage, or any damage with `all_damage_can_freeze` | the monster cannot act | 0.06 s per 1% of the threshold, at most 3 s; none under 0.3 s |
 
 The effect modifiers are the attacker's `virtual_chill_effect_+%`/`virtual_shock_effect_+%` and the monster's
@@ -1462,7 +1462,7 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
 - **Shock on kill.** `enemy_shock_on_kill` (Within the Tempest) shocks a monster the player kills
   (`ShockOnKillLocked`: from `AilmentsOnHitLocked` after a killing hit's own ailments, and from Righteous Fire's burn):
   15% base (wiki Shock: shocks without damage) and 2 s, through the player's shock effect and duration modifiers and
-  the monster's own, at most 50%. Skill-local shock modifiers of the killing skill are not counted; whether the game
+  the monster's own, at most the shock cap. Skill-local shock modifiers of the killing skill are not counted; whether the game
   counts them is not verified. The killing hit's own shock stays on the corpse too; the stronger one applies to it, and
   each spreads as far as its own radius reaches (wiki Within the Tempest: the spread includes shocks inflicted on
   enemies the character kills). A shattered monster
