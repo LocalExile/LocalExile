@@ -16,8 +16,9 @@ readiness** as the current work-selection and readiness rule. The user's
 and their evidence standards remain unchanged: R2/R3/R4 are still Partial.
 Issue #370 remains the umbrella investigation after this delivery merges.
 
-The investigation is currently paused. This document sets the next execution
-order; it does not resume binary exploration or certify the PR ready.
+The first delivery is active. Start with the [baseline reading guide](client-damage-baseline.md)
+and [evidence review](client-damage-evidence-review.md). Reuse existing sealed
+records; readiness requires the explicit audit below, not further broad exploration.
 
 ## Two selected paths
 
@@ -36,11 +37,11 @@ or official-server send. No whole-client absence claim is required or allowed.
 
 | Gate | Concrete result required before passing | Current state |
 |---|---|---|
-| D0: freeze scope | This objective, the two paths, the follow-up queue and the same readiness rule appear in the workbench and Draft PR; issue #370 distinguishes the initial delivery from ongoing research | Defined; verify publication |
-| D1: close the DoT explanation | One compact annotated path and a numerical witness from existing checked evidence. Every edge identifies inputs, outputs, guards and source anchors; every fixture and unbound edge is visible. Cover rate change, fractional carry and independent absolute correction. Audit the cited records against the claims | Pending synthesis and evidence audit; existing composition is not yet a delivery sign-off |
-| D2: close the Hit explanation | One compact annotated Fireball path and the existing result/assignment witness. Separate offence estimates, contact/feedback and resource authority. State the missing numerical resolver explicitly; retain PR #373 source revision and capture-availability limits | Pending synthesis and evidence audit; no locally computed Hit amount claimed |
-| D3: make the PR reviewable | A short entry guide and PR body, clear core versus supplementary references, and an explicit treatment of the three large machine-readable JSON files. Preserve parsed evidence content, source identities and sealed artifacts; verify any packaging change. Reviewers must not need to read the full chronological evidence inventory | Pending; changing status labels or minifying everything onto one line is insufficient |
-| D4: final integration and claim audit | Verify latest main and exact PR head, resolve any real documentation conflict, validate links/privacy/manifest and affected reproduction tools, and check D0–D3 claim by claim. No new server behavior; no game/CI claims for documentation-only checks. Only then change Draft to Ready | Pending |
+| D0: freeze scope | This objective, the two paths, the follow-up queue and the same readiness rule appear in the workbench and Draft PR; issue #370 distinguishes the initial delivery from ongoing research | Scope published and verified at `29bfbbd6`; final publication recheck belongs to D4 |
+| D1: close the DoT explanation | One compact annotated path and a numerical witness from existing checked evidence. Every edge identifies inputs, outputs, guards and source anchors; every fixture and unbound edge is visible. Cover rate change, fractional carry and independent absolute correction. Audit the cited records against the claims | Passed: [path, edge contracts and witnesses](client-damage-baseline.md#dot-received-target-rate-to-life); [claim audit](client-damage-delivery-audit.md) |
+| D2: close the Hit explanation | One compact annotated Fireball path and the existing result/assignment witness. Separate offence estimates, contact/feedback and resource authority. State the missing numerical resolver explicitly; retain PR #373 source revision and capture-availability limits | Passed: [Fireball path and numerical witness](client-damage-baseline.md#hit-one-fireball-continuation-and-independent-resources); 42 retained cases inspected; no locally computed Hit amount claimed |
+| D3: make the PR reviewable | A short entry guide and PR body, clear core versus supplementary references, and an explicit treatment of the three large machine-readable JSON files. Preserve evidence content, source identities and sealed artifacts; verify any packaging change. Reviewers must not need to read the full chronological evidence inventory | Passed: [entry guide](client-damage-baseline.md), [evidence review](client-damage-evidence-review.md), default-collapsed machine diffs; only two public support locators normalized for privacy |
+| D4: final integration and claim audit | Verify latest main and exact PR head, resolve any real documentation conflict, validate links/privacy/manifest and affected reproduction tools, and check D0–D3 claim by claim. No new server behavior; no game/CI claims for documentation-only checks. Only then change Draft to Ready | Local acceptance passed: [claim-by-claim evidence](client-damage-delivery-audit.md), latest main included, tools/bytes/links/privacy checked. Final exact-head publication and Ready transition must be verified remotely before stopping |
 
 Ready means D0–D4 passed for this **explicit first delivery**. It does not mean
 all damage mechanics, the original R2–R4, or official-server parity are complete.

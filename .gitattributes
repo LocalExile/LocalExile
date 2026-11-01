@@ -1,0 +1,4 @@
+# Retain machine evidence in full; collapse it by default in GitHub reviews.
+Agents/docs/re/client-damage-evidence.json linguist-generated=true
+Agents/docs/re/client-attack-hit-equations.json linguist-generated=true
+Agents/docs/re/client-spell-hit-equations.json linguist-generated=true

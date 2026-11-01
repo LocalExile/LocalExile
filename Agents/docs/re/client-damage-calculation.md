@@ -7,7 +7,8 @@ Treat those as three separate questions, for both **hits** and **damage over tim
 "Pre-resolution" is a research name, not an established description of every client combat path.
 The goal is to recover useful calculations and their execution boundaries before choosing a server implementation.
 
-The current delivery is [PR #371's first research baseline](client-damage-delivery.md).
+Start with [PR #371's first research baseline](client-damage-baseline.md) for two annotated paths and examples.
+The [delivery workbench](client-damage-delivery.md) owns the current scope and readiness rules.
 Its D0–D4 gates prioritize two receiving paths in depth and a reviewable evidence package.
 The original R0–R4 matrix remains the long-term evidence ledger; making this PR ready no longer
 requires every original row to become Established. R2/R3/R4 remain Partial.
