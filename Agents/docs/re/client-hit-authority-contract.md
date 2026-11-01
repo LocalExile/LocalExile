@@ -31,7 +31,8 @@ consumer contracts from the missing per-event association and client contributio
 
 ## Fixed inputs to reuse
 
-The branch starts from main `d377bd256036242d2fb43f53eb7110b4897e1862`.
+The branch started from main `d377bd256036242d2fb43f53eb7110b4897e1862`
+and now includes main `a1ca5ce08acceec487aea846496fcc00eabd0971`.
 PR #371 is an unmerged, Ready documentation dependency pinned at
 `801358d732adbc558d657d8773e273a02bc891b1`; use its fixed sources without
 importing the baseline branch:
@@ -51,7 +52,7 @@ consumer and separate `0x1b1` absolute pool assignment. Neither proves that a
 particular feedback record caused a particular resource change. Network Stat
 overrides and native formula evaluation also have separate contracts.
 
-PR #466's descriptor ownership/transfer findings are a separate delivery.
+PR #466's descriptor ownership/transfer findings are merged in main as a separate delivery.
 Its unresolved consumers do not block or become the subject of this batch.
 
 ## Questions the contract must answer
