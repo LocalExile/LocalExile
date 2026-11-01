@@ -8,11 +8,19 @@ using static QuestObjectsFeature;
 
 namespace GameServer.Modules.M_questobjects;
 
-/// <summary>The objects of the campaign's quests: the opening tutorial, its gems, and the Glyph quest.</summary>
+/// <summary>The campaign's quests (Agents/docs/game/campaign-quests.md): the quest engine's tables, one per act (Acts/), which
+/// it registers while loaded, the engine's hooks on entering an area, a kill, a click on a quest object and a read of item
+/// moves (the engine itself is the Game module's World/Quest/), the opening tutorial, its gems, and the Glyph quest.</summary>
 public sealed class QuestObjectsModule : IModule, IDisposable
 {
     readonly List<IDisposable> _events = [];
     void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("QuestObjects", run));
+
+    /// <summary>Every act of this assembly (each class deriving <see cref="Quests.Act"/>, one per file in Acts/), in order.</summary>
+    internal static IReadOnlyList<Quests.Act> Acts() =>
+        [.. typeof(QuestObjectsModule).Assembly.GetTypes()
+            .Where(t => t.IsSubclassOf(typeof(Quests.Act)) && !t.IsAbstract && t.GetConstructor(Type.EmptyTypes) is not null)
+            .Select(t => (Quests.Act)Activator.CreateInstance(t)!).OrderBy(a => a.Number)];
 
     /// <inheritdoc/>
     public void Dispose()
@@ -23,12 +31,33 @@ public sealed class QuestObjectsModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        var acts = Acts();
+        // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
+        _events.Add(Quests.Register(module.Manifest.Id, acts));
+        Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
         module.OnAreaGenerated(async player =>
         {
             var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
             await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
             await SpawnOpeningTutorial(remote, stream, ciphers, conn);
             await SpawnGlyphQuest(remote, stream, ciphers, conn);
+            // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
+            await StartQuestArea(remote, stream, ciphers, conn);
+        });
+        // The quests after a kill's flags: quest drops (Hailrake's Medicine Chest), second forms (Merveil), NPCs that appear
+        // or are freed, a fight of several bosses, a cleared area (a1q8).
+        On(GameEvents.Kill, kill =>
+        {
+            if (kill.Monster.Variety is not { } variety) return;
+            var (remote, stream, ciphers) = kill.Conn.Wire;
+            kill.Later(() => QuestKillEffects(remote, stream, ciphers, kill.Conn, kill.Monster, variety, kill.At));
+        });
+        // After a read that moved items, the quest items' flags (and the removal of those done with: the Medicine Chest once
+        // Nessa has one), on the message path so the inventory revisions stay in order.
+        On(GameEvents.MessagesHandled, async (conn, ids) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            if (conn.PlayerSent && ids.Any(QuestItems.MovesItems)) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
         });
         On(GameEvents.Kill, kill =>
         {
@@ -62,6 +91,20 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             if (conn.TutorialChestId == use.TargetId && conn.TutorialChest is { } tutorialChest)
             {
                 await OpenTutorialChest(remote, stream, ciphers, conn, use, tutorialChest, requestedAt);
+                return true;
+            }
+            (Quests.ChestRule Rule, GlyphQuest.Placement At)? questChest;
+            lock (conn.QuestChests) questChest = conn.QuestChests.TryGetValue(use.TargetId, out var qc) ? qc : null;
+            if (questChest is var (chestRule, chestAt))
+            {
+                await OpenQuestChest(remote, stream, ciphers, conn, use, chestRule, chestAt, requestedAt);
+                return true;
+            }
+            (Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)? questObject;
+            lock (conn.QuestObjects) questObject = conn.QuestObjects.TryGetValue(use.TargetId, out var qo) ? qo : null;
+            if (questObject is var (objectRule, objectAt, objectInfo))
+            {
+                await UseQuestObject(remote, stream, ciphers, conn, use, objectRule, objectAt, objectInfo, requestedAt);
                 return true;
             }
             GlyphQuest.Nest? nest;

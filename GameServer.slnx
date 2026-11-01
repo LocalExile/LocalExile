@@ -18,11 +18,11 @@
     <Project Path="Modules/Core/Content/Heist/Heist.csproj" />
     <Project Path="Modules/Core/World/HideoutEditing/HideoutEditing.csproj" />
     <Project Path="Modules/Core/Player/Commands/Commands.csproj" />
+    <Project Path="Modules/Core/Player/Pantheon/Pantheon.csproj" />
     <Project Path="Modules/Core/NPC/Vendors/Vendors.csproj" />
     <Project Path="Modules/Core/World/Portals/Portals.csproj" />
     <Project Path="Modules/Core/World/QuestObjects/QuestObjects.csproj" />
     <Project Path="Modules/Core/Item/UniqueBelts/UniqueBelts.csproj" />
-    <Project Path="Modules/Core/Content/Mercy/Mercy.csproj" />
     <Project Path="Modules/Core/Item/Tattoos/Tattoos.csproj" />
     <Project Path="Modules/Core/Item/Cosmetics/Cosmetics.csproj" />
     <Project Path="Modules/Core/Item/Bench/Bench.csproj" />
@@ -36,6 +36,7 @@
     <Project Path="Mods/Source/BossLoot/BossLoot.csproj" />
     <Project Path="Mods/Source/DoubleExperience/DoubleExperience.csproj" />
     <Project Path="Mods/Source/Example/Example.csproj" />
+    <Project Path="Mods/Source/FastCampaign/FastCampaign.csproj" />
     <Project Path="Mods/Source/Hello/Hello.csproj" />
     <Project Path="Mods/Source/ItemQuantity/ItemQuantity.csproj" />
     <Project Path="Mods/Source/ItemRarity/ItemRarity.csproj" />

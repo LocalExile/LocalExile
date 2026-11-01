@@ -16,10 +16,14 @@ own dat tables**. It walks the rows of several tables and registers each row's m
 |---|---|---|
 | 0x141 | | row field +0xc2 |
 | 0xac | | row field +0x10 |
-| 0xea | | row field +0x43 |
+| 0xea | **Projectiles.dat** | row field +0x43 (`InheritsFrom`) |
 | 0x264 | **Characters.dat** | `"Metadata/Characters/Character"` |
 | 0x31a | | row field +0x48 (with a list at +0x2e3/+0x2eb) |
 | 0x8a, 0x2c, 0x9c | | none |
+
+The projectile row/name-to-retained-type and ordered component-construction path is traced in
+[projectile object-type binding](../re/projectiles/object-type-binding.md); same-name source priority and generated
+parent fallback are distinct branches. This identifies the table above without changing the registration protocol.
 
 The register is a sorted vector of 0x30-byte entries keyed by a u32 under a critical section (lookup `0x1416719b0`,
 insert `0x1424f76c0`).
@@ -45,12 +49,18 @@ World group (factory `0x1421c6150`, handler `0x142187480`). Class `0x1435dd8f8`,
 
 ```
 u16  0x02b9
-u32  entity id      +0x10   ┐ common entity header (0x141f91f60 / 0x141f92000)
-u32                 +0x14   │ we send 0
-u16                 +0x18   ┘ we send 0
+u32  entity id       +0x10   ┐ common entity header (0x141f91f60 / 0x141f92000)
+u32  ordering object +0x14   │ local server sends 0
+u16  checkpoint      +0x18   ┘ local server sends 0
 u32  object type    +0x20   MurmurHash2 key (section 1)
 blob16 component data +0x28 u16 BE length + bytes (0x141fa4610)
 ```
+
+The common writer emits `u16 kind, u32 target, u32 ordering object, u16 checkpoint`, all big-endian;
+the common reader consumes the ten bytes after kind. The last two fields place incoming updates at supported
+World/component boundaries in nonzero mode; they are independent of the updated entity ID.
+See [World message inputs](../re/projectiles/world-message-inputs.md) for the codec, embedded intake interface,
+ownership/cursor rules and frame-admission gate. Zero values above describe the local server's use.
 
 Handler (`0x142187480`, id 0x2b9): look the type up, build the object with `0x141ebe190(obj, type, id, &blob, world)`
 (0x248 bytes), then if `id == world+0x980` (set by 0x22) the object becomes the **local player** (`world+0x970`,
@@ -143,7 +153,12 @@ Other bits only set flags: f0 0x01 → `+0x1e5|0x10`, f0 0x80 → `+0x1e6|2` (th
 ### 4.1 Component 1 (`0x1421c2f40`, stats-like), 10 bytes minimal
 
 compact int n, then n × (compact int key `0x141e61010`, value `0x141e490e0` → `0x1424cfaf0(stats, key, value)`), then
-u32 `+0x28`, u32 `+0x2c`, u8 `+0x30`. Compact int: a first byte < 0x80 is the value, 0x80–0xbf is a 2-byte form, and so
+u32 LE entropy `+0x28`, f32 LE reset timer `+0x2c`, u8 needs-initialization `+0x30`.
+The trailer's direct little-endian loads overwrite constructor defaults; these are component state, not raw stat pairs.
+[Local hit prediction](../re/projectiles/local-hit-prediction.md) connects those fields to target-owned attack entropy
+and its three-second reset clock, with exact stores and validation boundaries.
+Actual official initialization values and later correction routes remain separate questions.
+Compact int: a first byte < 0x80 is the value, 0x80–0xbf is a 2-byte form, and so
 on. The writer counterpart is `0x141fa3c50`.
 
 ### 4.1a Player Actor scale (#299)
@@ -308,7 +323,7 @@ u32. With 0 nothing else is read.
 | 9 raw bytes | +0x1e8 | |
 | u16, u16 | → +0x1f8, +0x208 | Hideouts.dat keys by HASH16 (lookups that fail give null and are tolerated); the first is the character's hideout ([21](21-hideouts.md) §1) |
 | u8 | +0x1b1 | non-zero → "WashedUp" state |
-| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | |
+| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | +0x1ae / +0x1ad: the major and minor **Pantheon** god, PantheonPanelLayout row + 1, 0 = none (`PlayerObject.PantheonMajor/Minor`; [pantheon](../game/campaign/pantheon.md) §5) |
 | u32 n + n × u32 | → vtable +0x158 | |
 | u8 n + n × (record `0x141e840c0`, u32) | → vtable +0x160 | MicrotransactionCounters.dat |
 
@@ -317,7 +332,8 @@ flag word, then one part per set bit; every part is conditional. Bit 0 = u32 **e
 `0x141e7f6b0`: it derives the level again and, when it changed, sets "levelled up" (+0x2e8 = new > old) and calls the
 component's vtable +0x108. Other bits: 2 and 8 the two vec16 lists, 0x200 the 9 raw bytes, 4 → +0x1a8 (frame), 0x40 → +0x1aa (portrait),
 0x10 the Hideouts keys, 0x20 the class byte, 0x1000 → +0x1b0, 0x80 → +0x1ae/+0x1ad, 0x100 → +0x1af, 0x800 a u32-counted
-list. `InstanceEntities.PlayerExperienceUpdate` sends `0001` + the u32 (`/set_level`).
+list. `InstanceEntities.PlayerExperienceUpdate` sends `0001` + the u32 (`/set_level`); `PlayerPantheonUpdate` sends
+`0080` + the two Pantheon bytes after C→S 0x1ee.
 
 ### 4.8 Inventories (`0x141e1ee30`, through slot 17 → slot 20), 2 bytes minimal
 

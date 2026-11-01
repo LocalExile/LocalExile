@@ -135,6 +135,21 @@ public sealed class PlayerWalk
         return MathF.Max(MathF.Sqrt((uint)(dx * dx + dy * dy)) - objectSize, 0f) <= objectSize + 3;
     }
 
+    /// <summary>Walk-up range for an object that may stand where nobody can walk (The Reliquary's Pearl Case on its
+    /// pedestal, 7 cells from the nearest floor): in <see cref="InWalkUpRange"/>, or no farther than the nearest walkable
+    /// cell within <paramref name="search"/> cells is, plus the usual reach of 3.</summary>
+    public static bool InReach((int X, int Y) cell, (int X, int Y) target, int objectSize, Func<int, int, bool>? walkable, int search = 16)
+    {
+        if (InWalkUpRange(cell, target, objectSize)) return true;
+        if (walkable is null) return false;
+        double nearest = double.MaxValue;
+        for (int y = target.Y - search; y <= target.Y + search; y++)
+            for (int x = target.X - search; x <= target.X + search; x++)
+                if (walkable(x, y)) nearest = Math.Min(nearest, Math.Sqrt((double)(x - target.X) * (x - target.X) + (double)(y - target.Y) * (y - target.Y)));
+        double here = Math.Sqrt((double)(cell.X - target.X) * (cell.X - target.X) + (double)(cell.Y - target.Y) * (cell.Y - target.Y));
+        return nearest < double.MaxValue && here <= nearest + 3;
+    }
+
     private (int X, int Y) Walk((int X, int Y) target, int maxRange, int tolerance, double now)
     {
         var here = At(now, out double fraction);

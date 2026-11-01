@@ -13,7 +13,7 @@ static class QuestObjectsFeature
     {
         var notes = new List<string>();
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes)
-            .Select(o => (Object: o, Flag: Quests.RoomObjectRemovedBy(conn.Layout.Id, o.Type)))
+            .Select(o => (Object: o, Flag: QuestsOf(conn).RoomObjectRemovedBy(conn.Layout.Id, o.Type)))
             .Where(o => o.Flag is not null).ToList();
         if (objects.Count == 0) return;
         // The walls guard the exits their flag opens; the boss's side is the room's boss point ("mapboss", "mapboss2" …,
@@ -77,7 +77,6 @@ static class QuestObjectsFeature
     // PlacedGlyphs. The recorder writes the capture while the client generates the area: wait briefly for it.
     internal static async Task SpawnGlyphQuest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        await RemoveLeftoverGlyphs(remote, stream, ciphers, conn);
         if (conn.Layout.Id != GlyphQuest.Area) return;
         // Usually captured on an earlier visit: created at once, with the area. Else wait for the recorder in the background.
         if (LoadGlyphLayout(remote, conn) is { } now) { await CreateGlyphObjects(remote, stream, ciphers, conn, now); return; }

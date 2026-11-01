@@ -98,9 +98,16 @@ All four groups in the client share the generic handle slot `0x14299e300` and di
 | `0x1435da300` | `0x1421c6150` | **world** (ids 0x51, 0x84, 0x161, 0x1a8–0x1d3, 0x1f0/1, 0x22f/230, 0x261/262, 0x26f–271, 0x285, 0x2b5–0x2c6) |
 | `0x14363eb88` | `0x1428f74d0` | NetworkFile mode (`0x1428e9a60`) |
 
-`0x14299e300(group, id, stream)`: id 0 → the group's owner slot 0 with no message. Otherwise factory(id) → message
-object → its read slot 2 → owner `[1]` vtable slot 0 with the message. The instance pump at `this+0xc2b0` has the
-instance group (`this+0xc2a0`, owner `this+8`) and the world group (`world+0x1c8`, registered by `0x142188cc0`).
+`0x14299e300(group, id, stream)`: id 0 → the group's owner slot 0 with a null message. Otherwise the group's
+factory (slot 2) constructs the message **and calls its read slot 2 inside that factory**; the generic handler
+then transfers the parsed pointer to owner `[1]` slot 0 only if stream failure byte `+0x252` is clear.
+If that flag is set, a nonnull parsed object is destroyed without owner delivery, while the group still accepts
+the type; the pump clears the flag/pending consumption and returns false. A null factory result rejects the kind.
+The instance pump at `this+0xc2b0` registers the instance group (`this+0xc2a0`, owner `this+8`) and then the world
+group (`world+0xa08`, owner **`world+0x1c8`**, registered by `0x142188cc0`). Front insertion makes World the first
+group tried. The connected Instance tick loops this pump at `0x142148c4a` while it returns true.
+See [World message inputs](../re/projectiles/world-message-inputs.md#3-registered-pump-factory-and-owner-handoff)
+for the original factory/header/intake composition and its verification boundaries.
 
 ## 6. The instance dispatcher
 

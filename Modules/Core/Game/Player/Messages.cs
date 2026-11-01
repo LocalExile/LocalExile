@@ -588,6 +588,31 @@ static partial class Game
         {
             ushort uid = unknown.Length > 1 ? (ushort)(unknown[0] << 8 | unknown[1]) : unknown[0];
             Console.WriteLine($"[gateway] {remote} <= unframed 0x{uid:x4} ({unknown.Length} bytes): {Convert.ToHexString(unknown.AsSpan(0, Math.Min(unknown.Length, 256)))}");
+            // C→S 0x29c: Hinekora's Lock preview request: u16 key, u32 currency inventory, u32 currency id,
+            // u32 target inventory, u32 target id (all BE after the key). The 0x29f answer uses the same key.
+            if (uid == 0x029c && unknown.Length >= 20)
+            {
+                static uint U32(byte[] b, int i) => (uint)(b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]);
+                ushort key = (ushort)(unknown[2] << 8 | unknown[3]);
+                uint currencyInventory = U32(unknown, 4), currencyId = U32(unknown, 8);
+                uint targetInventory = U32(unknown, 12), targetId = U32(unknown, 16);
+                var items = ItemsOf(conn);
+                var currency = items.RowOf(currencyId) is byte currencyRow
+                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == currencyId) : null;
+                var target = items.RowOf(targetId) is byte targetRow
+                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == targetId) : null;
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                    ? CurrencyResult(conn, target.Item, currency.Item.TypeHash,
+                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
+                    : null;
+                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
+                conn.ForesightRequest = (key, currencyInventory, currencyId, targetInventory, targetId,
+                    target?.Item.ForeseeSeed ?? 0, preview);
+                await Send(remote, stream, ciphers, InstanceItems.CurrencyApplicationForesightResult(
+                    key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+                    preview is null ? [] : [preview]),
+                    $"0x029f foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
+            }
             // Unframed messages have the hooks too.
             if (Program.ServerHooks.WantsPacket(uid)) await Program.ServerHooks.Packet(PlayerOf(conn), uid, unknown);
             // The client's answer to 0x2b2 (0x142148690): it is ready to leave, so move it now.

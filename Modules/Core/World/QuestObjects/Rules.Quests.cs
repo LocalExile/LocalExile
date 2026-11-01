@@ -113,49 +113,10 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] a1q4 objects: {ServerLog.Describe(ex)}"); }
     }
 
-    // Once the glyphs are placed, glyphs still carried go (the .it remove_flag): a copy taken back from the stash or given.
-    // On entering an area, from the message path, so its 0xbf sends keep their order with the other inventory changes.
-    internal static async Task RemoveLeftoverGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        var items = ItemsOf(conn);
-        var carried = GlyphQuest.Carried(items).Where(c => GlyphIndex(c.Item.Item) is not null).ToList();
-        if (carried.Count == 0 || !ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs)) return;
-        foreach (var row in carried.GroupBy(c => c.Row))
-        {
-            List<uint> gone;
-            lock (conn.Monsters)
-            {
-                if (HardcoreProgressBlocked(conn)) return;
-                gone = row.Where(c => items.Remove(row.Key, c.Item.Id) is not null).Select(c => c.Item.Id).ToList();
-            }
-            if (gone.Count > 0)
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key), gone, []),
-                    $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: glyphs {string.Join(", ", gone)} removed, the glyphs are placed");
-        }
-    }
-
-    // A nest's glyph on the instance's ground, unless the glyphs are placed or a copy is carried, in the stash or on this
-    // instance's ground (GlyphQuest.NestDrops): a glyph lost another way drops again.
-    internal static async Task DropGlyph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GlyphQuest.Nest nest)
-    {
-        int g = nest.Glyph;
-        if (Items.Find(GlyphQuest.Glyphs[g]) is not { Supported: true } type)
-        {
-            Console.WriteLine($"[gateway] {remote} a1q4: {GlyphQuest.Glyphs[g]} is not in the item data");
-            return;
-        }
-        var stash = PersonalStashOf(conn);
-        if (!GlyphQuest.NestDrops(type.Hash, ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs), ItemsOf(conn), stash.CountOf, conn.Instance.Ground))
-        {
-            Console.WriteLine($"[gateway] {remote} Rhoa Nest at ({nest.At.X}, {nest.At.Y}): no {type.Name}, the character has it or the glyphs are placed");
-            return;
-        }
-        var ground = new WorldItemObject(nest.At.X, nest.At.Y, ItemCatalog.Create(type));
-        uint id = conn.Instance.Ground.Add(ground);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-            $"0x02b9 {type.Name} 0x{id:x} from the Rhoa Nest at ({nest.At.X}, {nest.At.Y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
-    }
+    // A nest's glyph on the instance's ground, unless the character no longer needs it (QuestItems.Drops: the glyphs are
+    // placed, or a copy is carried or on this instance's ground): a glyph lost another way drops again.
+    internal static Task DropGlyph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GlyphQuest.Nest nest) =>
+        DropQuestItem(remote, stream, ciphers, conn, GlyphQuest.Glyphs[nest.Glyph], (nest.At.X, nest.At.Y), $"the Rhoa Nest at ({nest.At.X}, {nest.At.Y})");
 
     internal static async Task PlaceGlyphs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {

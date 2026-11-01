@@ -19,6 +19,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
+- `LocalExileGUI.exe` in a release: a window over `LocalExile.exe --json` to play, set up, switch mods, create accounts,
+  change passwords and check the install, in English, Simplified or Traditional Chinese. It builds with the compiler of
+  .NET Framework 4.x and ships no runtime.
+  Tried on a set-up PC's install: a servers-only run and its stop, the full check, the mod list, all three languages.
+  Not tried from it: the setup, a client start, an account creation, a password change.
+  Code: `src/LocalExileGui`, `scripts/release/build-release.ps1`.
+  Docs: [releases](../docs/dev/releases.md) ("For a GUI").
 - Local patching server: the client never contacts the official patch servers.
   Code: `GameServer.Patch`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
@@ -63,9 +70,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   modules listed per league in its `modules.json`. Characters of a deleted or ended league cannot be entered.
   Not tried in the client: a blocked character.
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
-  Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, Mercy Mission, quest objects, hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
+  Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  `Mods/Source/` has six examples, of which only `example` is on by default.
+  `Mods/Source/` has seven examples, of which only `example` is on by default.
+  `FastCampaign` (experience and movement speed, `/fast`, three languages) loaded as a script in a running Gateway and read
+  its `settings.txt`; not tried with the client, nor built as a project (no SDK on that PC).
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
   `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.
@@ -104,6 +113,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   the session's settings file in use and a bridge login on a session (the memory guard stopped the client while loading).
   Code: `scripts/dev/live.ps1`, `scripts/dev/client_control.py`, `GatewayEndpoint.cs`.
   Docs: [live testing](../docs/dev/live-testing.md#several-stacks-and-clients).
+
+- Campaign automation: `scripts/dev/campaign.ps1` starts the checkout's servers if needed (`-PortBase`), opens its
+  own session client (`-Session`, default `campaign`; `-Nullifier`), logs in, creates a fresh character (or continues
+  one) and plays the quest order through the control bridge with `/god immune`, teleports and `/kill`; quest progress
+  comes from the quest engine reacting to the real kills, pickups, object use and NPC talk. Resumable (done quests and
+  steps are skipped), with diagnostics and recoveries for stuck steps; servers on its ports that are not the
+  checkout's, a missing `Game_SAVES_DB` (unless `-AllowDefaultSaves`), a Gateway on another save database and a second
+  run on the same session stop the run. Step files: Act 1 (a1q1-a1q9); the later acts' quests are "not implemented" until their act
+  is on the quest engine. Dev commands `/state`, `/kill`, `/quest_preset`, `/god immune`; `/tp` also finds the ids
+  `/state` reports and the objects quest rules watch.
+  The same driver played Acts 1-10 and the Epilogue live before the game moved into modules; on the quest engine's Act 1
+  it is checked offline only (runner tests against a simulated server, `test_client_control.py`,
+  `CampaignCommandTests`).
+  Code: `scripts/dev/campaign/`, `Modules/Core/Player/Commands/Rules.Campaign.cs`, `CampaignState.cs`.
+  Docs: [campaign automation](../docs/dev/campaign-automation.md), [10](../docs/protocol/10-chat-and-commands.md).
 
 - Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its
   messages), the reason on every `DISCONNECT` line, archived logs of the last 10 full runs, each connection's last 256
@@ -173,6 +197,8 @@ UI input.
 It targets the copied standalone 3.29.3b client and local services only.
 Login keeps waiting within its existing timeout when success 0 precedes authenticated state 3.
 Mocked execute/RPC regressions cover this wait, rejection 6 and timeouts; this fix has no new native verification.
+It also creates and deletes characters, travels by waypoint (by WorldAreas Id too), waits for an area and knows the
+current area; it uses items, deposits into the stash and picks up ground items (the campaign driver's requests).
 
 ## Doc caveats
 

@@ -58,7 +58,11 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     public IReadOnlyList<(uint, int)> SkillStats() => [.. Stats(), (StatKeys.SkillIsNonPathing, 1)];
 }
 
-sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y);
+sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
+{
+    /// <summary>Its Transitionable state as the client has it (NPCTalk scripts step it: Game.StepNpcTransition).</summary>
+    public byte State { get; set; } = Npc.TransitionState;
+}
 
 // An open sell window: the NPC, the two offer inventories (manager 1), the offered items and the NPC's offer.
 sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
@@ -161,6 +165,9 @@ sealed class SpawnedMonster(string label, WalkEstimator walk, int aggroRange, in
     // A boss's stage (BossFights) and whether a hit has started it.
     public BossFights.Stage? Stage { get; init; }
     public bool StageTaken, StageRunning;
+    // A quest threshold (Quests.ThresholdRule): the monster never dies; reaching it sets the flags once (Game.QuestThreshold).
+    public Quests.ThresholdRule? Threshold { get; init; }
+    public bool ThresholdReached;
     // Its StateMachine's shared states as last sent, and whether the big boss life bar is up.
     public StateMachineData? States;
     public bool BossBarShown;
@@ -392,6 +399,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public float PortalRotationRadians => PortalRotationDegrees * MathF.PI / 180f;
     public long Ticks;
     public volatile PendingTransfer? PendingTransfer;
+    /// <summary>The 0x29c preview request (Hinekora's Lock): its key, the currency/target it names and the computed
+    /// preview answered by 0x29f. The next 0x71 on that target commits exactly this item.</summary>
+    public (ushort Key, uint InventoryId, uint CurrencyId, uint TargetInventoryId, uint TargetId, uint Seed, Item? Preview)? ForesightRequest;
     public ChooserList? Chooser;
     public ChatCommands? Commands;
     // 0x1c's u32 is an HNC carrier and must decrypt to idle zero bytes, or the client throws "HNC Protocol Violated".
@@ -499,6 +509,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public ushort RefundPoints;
     // /god (GodStats) and the running Righteous Fire, if any; buff instance ids (0x1c1) given out on this connection.
     public bool God;
+    // /god immune: god mode that also takes no damage (hits and ailment ticks); only with God.
+    public bool Immune;
     public readonly GracePeriod EntryProtection = new();
     public RighteousFireState? RighteousFire;
     /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
@@ -614,22 +626,59 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public GlyphQuest.Layout? Glyphs;
     public readonly Dictionary<uint, GlyphQuest.Nest> GlyphNests = [];
     public uint GlyphWallId, GlyphWaterId;
-    public double GlyphSyncAt;
+    // When the quest items' flags are synced next (Game.SyncQuestItems, about once a second from the player tick).
+    public double QuestItemSyncAt;
+    // The quest engine's objects in this area (Modules/Core/Game/World/Quest/QuestEngine.cs): the quest chests by object id (guarded by itself),
+    // the room objects the sight rules watch, and the client's own blockers the server mirrors (Monsters lock).
+    public readonly Dictionary<uint, (Quests.ChestRule Rule, GlyphQuest.Placement At)> QuestChests = [];
+    public List<(Quests.NearRule Rule, int X, int Y)> QuestNear = [];
+    /// <summary>The instance's proximity spawns (Quests.NearSpawnRule) and whether each has spawned.</summary>
+    public List<(Quests.NearSpawnRule Rule, int X, int Y, bool Spawned)> QuestNearSpawns = [];
+    public List<(Quests.BlockerRule Rule, int X, int Y)> QuestBlockers = [];
+    // The quest objects the engine created (Quests.ObjectRule: seals, levers, altars) and the room NPCs whose state follows a
+    // flag (Quests.NpcRule.TransitionedBy), by object id (each guarded by itself).
+    public readonly Dictionary<uint, (Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)> QuestObjects = [];
     public TutorialObjects.Placement? TutorialChest;
     public AreaPopulation.RoomObject? TutorialZombiePlacement;
     public bool TutorialSceneRunning;
     public string? NpcFinishFlag;
+    // The dialogue row whose script acts when its talk ends (DoNPCChat, FinishNPCChat, SendOpenScreen, AreaTransitionTo:
+    // Game.EndTalkScript), or null.
+    public NpcCatalog.Talk? NpcTalkScript;
+    // The NPCs a quest decides in this instance (QuestNpc, Game's QuestNpcs.cs), created or not.
+    public readonly List<QuestNpc> QuestNpcs = [];
+    // The monster varieties that died in this instance, for NPCs a death frees (Quests.NpcRule.FreedBy); under QuestNpcs' lock.
+    public readonly HashSet<string> KilledVarieties = new(StringComparer.Ordinal);
+    // Where the later forms the area leaves out would stand (AreaPopulation.LaterFormPoints), by MonsterVarieties Id, for a
+    // quest that forms one (Quests.FormsRule); under Monsters' lock.
+    public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);
+    // The area transitions created on this instance's client (ids), and those a script showed before their quest flag
+    // (Game.TransitionShown).
+    public HashSet<uint> ShownTransitions = [];
+    public HashSet<uint> ScriptShownTransitions = [];
     public int? NpcRewardOffer;
     public Dictionary<uint, Item> NpcRewardItems = [];
     // NPCs created on this connection by object id (town NPCs, /npc).
     public readonly Dictionary<uint, SpawnedNpc> Npcs = [];
     /// <summary>The character's quest flags (QuestFlags.dat Ids), saved in data/saves/.</summary>
     public HashSet<string> QuestFlags = [];
+    /// <summary>Of <see cref="Quests.EveryCharacter"/> (given on login, in <see cref="QuestFlags"/> but for
+    /// <see cref="Quests.EndgameOnly"/>), those the character's save does not have: granted, not earned. A quest event that
+    /// sets one (Kitava's death: EndGameAvailable) saves it and takes it out of here; what is earned only through the quest
+    /// (Kitava's Act 10 penalty, /state's flags) reads this, and Game.PlayerQuestFlags sends an unearned endgame flag only
+    /// in a hideout or a map area.</summary>
+    public HashSet<string> UnearnedQuestFlags = [];
+    /// <summary>The chosen Pantheon gods (PantheonPanelLayout Ids, null = none), from the save (CharacterSaves.SetPantheon);
+    /// the Pantheon module changes them under the Monsters lock (campaign/pantheon.md).</summary>
+    public string? PantheonMajor, PantheonMinor;
     // QuestFlags is changed under the Monsters lock (SetQuestFlagsHeld); code that may run beside it (the player tick)
     // reads it through these, under the same lock.
     public HashSet<string> QuestFlagsSnapshot() { lock (Monsters) return [.. QuestFlags]; }
     public bool HasQuestFlag(string flag) { lock (Monsters) return QuestFlags.Contains(flag); }
-    // One quest-flag change at a time per connection (SetQuestFlags, SyncGlyphs, the a1q5 sync): each reads, changes and sends the whole
+    /// <summary>Whether the character earned the flag: it has it, and not only as one every character is given at login
+    /// (<see cref="UnearnedQuestFlags"/>: EndGameAvailable before Kitava's Act 10 death).</summary>
+    public bool EarnedQuestFlag(string flag) { lock (Monsters) return QuestFlags.Contains(flag) && !UnearnedQuestFlags.Contains(flag); }
+    // One quest-flag change at a time per connection (SetQuestFlags, the quest item sync): each reads, changes and sends the whole
     // set, so two at once could send an older set last.
     public readonly SemaphoreSlim QuestGate = new(1, 1);
 

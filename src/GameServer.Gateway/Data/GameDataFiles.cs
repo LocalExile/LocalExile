@@ -31,9 +31,11 @@ static class GameDataFiles
         ("data/tables/Words.json", "item names"),
         ("data/tables/VillageUniqueDisenchantValues.json", "unique drop weights"),
         ("data/tables/ItemVisualIdentity.json", "unique map artwork"),
-        // object-types manifest v4 combines inherited Life flags with Positioned/Animated collision metadata.
-        ("data/object-types.json", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, stationary collision footprints"),
-        ("data/item-types.json", "items"),
+        // object-types manifest v4 combines inherited Life flags with Positioned/Animated collision metadata; v6 adds the
+        // rooms' server objects (room-points.json) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
+        // QUEST_ROOM_TYPES). item-types v2: the quest items' .it Quest flags.
+        ("data/object-types.json", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
+        ("data/item-types.json", "items, quest items' Quest flags"),
         ("data/area-transitions.json", "area transitions of fixed layouts"),
         ("data/room-points.json", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects"),
         ("data/hideouts.json", "hideouts and native stationary model collision radii"),
@@ -50,6 +52,43 @@ static class GameDataFiles
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>
         All.Where(f => !File.Exists(Path.Combine(root, f.File)));
+
+    /// <summary>Generated files whose older versions still load but lack what a feature reads (extract-data.ps1's manifest
+    /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
+    public static readonly (string Entry, int Version, string Feature)[] Needed =
+    [
+        ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
+        ("object-types", 6, "quest objects and chests (rooms' server objects, quest tile and room types): without them they get the wrong blob or none"),
+    ];
+
+    /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older
+    /// version; none without the file (it cannot tell).</summary>
+    public static IEnumerable<(string Entry, int Have, int Version, string Feature)> Outdated(string root = ".")
+    {
+        string file = Path.Combine(root, "data", "extract-stamps.json");
+        if (!File.Exists(file)) yield break;
+        Dictionary<string, int> stamps = [];
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file).TrimStart('﻿'));
+            foreach (var e in doc.RootElement.EnumerateObject())
+                if (e.Value.ValueKind == System.Text.Json.JsonValueKind.Object && e.Value.TryGetProperty("version", out var v) && v.TryGetInt32(out int n))
+                    stamps[e.Name] = n;
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { stamps.Clear(); }
+        foreach (var (entry, version, feature) in Needed)
+            if (stamps.TryGetValue(entry, out int have) && have < version) yield return (entry, have, version, feature);
+    }
+
+    /// <summary>One warning naming every generated file older than a feature needs, or null.</summary>
+    public static string? OutdatedWarning(string root = ".")
+    {
+        var old = Outdated(root).ToList();
+        if (old.Count == 0) return null;
+        return $"[gateway] WARNING: {old.Count} game data file(s) older than this build reads: " +
+            string.Join("; ", old.Select(o => $"{o.Entry} v{o.Have} (needs v{o.Version}: {o.Feature})")) +
+            ". Run .\\scripts\\dev\\extract-data.ps1 (live.ps1 runs it unless -NoExtract).";
+    }
 
     /// <summary>One warning naming every missing file and what goes without it, or null when nothing is missing.</summary>
     public static string? Warning(string root = ".")

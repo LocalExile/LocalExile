@@ -314,6 +314,16 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   and closes the selected ordinary Sand Spitter action's two empty result callbacks.
   No server implementation or new runtime collection is included.
 
+- **Client Buff descriptor consumer follow-up (#370, Known issues K1-K3):** follow one prepared descriptor
+  from `ChaosDegenerationAuraPlayersUniqueBodyStr3` to an actual reader and explain its output.
+  The [ownership/transfer report](../docs/re/client-buff-descriptor-consumers.md) is the bounded #466 delivery.
+  Mods `+0x38` and entity ObjectMagicProperties `+0xc8` embed the prepared structure separately.
+  Resume only with new same-object transfer or typed-reader evidence; stopped inventories remain stopped.
+  Bind a purpose-bearing reader and its output; copy/cleanup and the separate cache do not complete original N1/N2.
+  Reuse PR #371's fixed evidence without importing its full branch; no gameplay consumer is established yet.
+  A positive configuration/presentation classification is distinct from numerical DoT publication.
+  Scope any resumed investigation as a separate batch under #370; #466 leaves K1-K3 open.
+
 - **Done:** hits are per-type `DamagePacket`s; conversion follows physical, lightning, cold, fire, chaos, including
   chained conversion, the 100% cap and gain-as-extra.
   DoT/ailment formulas and fractional ticks are in the same model, and per-type resistance mitigation works on
@@ -479,6 +489,13 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 ### Skill projectiles
 
+- **Client-contract research:** use the frozen [delivery matrix](../docs/re/projectiles/delivery-matrix.md)
+  before extending the simulator or changing phase prediction ownership.
+  Recovered count/layout, random contexts, motion/contact/history and selected continuation/skill rules are available.
+  Keep the finite [K1/K2/K3 followups](../docs/re/projectiles/verification-and-limitations.md) separate:
+  gameplay TLS state/order, official Fireball result routing and six-witness effective-input/read-update timing.
+  Do not make full rendering, every stat producer or complete engine teardown prerequisites for using closed rules.
+  The research itself changes no server behavior; production tasks below remain pending under their existing scope.
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production projectile routing and the
   only Core simulator. Catalog-known gems and ordinary bows and wands have basic straight flight and resolved
   modifiers; [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB

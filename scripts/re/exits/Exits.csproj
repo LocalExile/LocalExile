@@ -5,6 +5,10 @@
        (Client/Content.ggpk, Node for Oodle) and data/ (extract-data.ps1). Run from the repository root. -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
+    <!-- The quests option: the act tables (Modules/Core/World/QuestObjects/Acts/), compiled into this tool rather than
+         referencing the modules, so a build here writes nothing outside its own bin/ and obj/ (a module build would
+         write the Gateway's and the modules' outputs, which a running Gateway loads and hot-reloads). -->
+    <Compile Include="..\..\..\Modules\Core\World\QuestObjects\Acts\*.cs" LinkBase="Acts" />
   </ItemGroup>
   <PropertyGroup>
     <OutputType>Exe</OutputType>

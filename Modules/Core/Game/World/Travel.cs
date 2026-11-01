@@ -99,7 +99,7 @@ static partial class Game
             await OpenGuildStash(remote, stream, ciphers, conn, use, requestedAt);
             return;
         }
-        var (_, transition) = conn.Layout.AreaTransitions.FirstOrDefault(e => e.Id == use.TargetId);
+        var (transitionId, transition) = conn.Layout.AreaTransitions.FirstOrDefault(e => e.Id == use.TargetId);
         if (transition is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0024 use object {use} (not an area transition)");
@@ -107,9 +107,10 @@ static partial class Game
         }
         ushort dest = transition.DestinationHash16;
         // A quest can close an exit: The Twilight Strand's way into Lioneye's Watch needs Hillock dead (a1q1).
-        if (AreaTransitionCatalog.IdOf(dest) is { } destId && Quests.FlagToEnter(conn.Layout.Id, destId) is { } needed && !ClientHasQuestFlag(conn, needed))
+        if (!TransitionShown(conn, transitionId, transition))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0024 area transition 0x{use.TargetId:x} to {destId}: closed until quest flag {needed}");
+            Console.WriteLine($"[gateway] {remote} <= 0x0024 area transition 0x{use.TargetId:x} to {AreaTransitionCatalog.IdOf(dest)}: closed " +
+                $"(quest flag {TransitionFlag(conn, transition)})");
             return;
         }
         // The client walks to the area transition first; follow it and act once the player is there (a move meanwhile cancels).
@@ -236,8 +237,12 @@ static partial class Game
         // show their "not my hideout" rows. (It does not hide Sell Items: the client offers Sell only in towns and hideouts.)
         bool inHideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null || conn.Layout.Hash == StashCatalog.DelveHub;
         // The quest flags as a snapshot, taken before the Waypoints lock (ClientState.QuestFlagsSnapshot): the two locks are
-        // never held together.
+        // never held together. The endgame flags not earned yet (Quests.EndgameOnly: EndGameAvailable before Kitava) only
+        // in a hideout and a map area, where the map device and the maps need them.
         var own = conn.QuestFlagsSnapshot();
+        string[] endgame;
+        lock (conn.Monsters) endgame = [.. Quests.EndgameOnly.Where(conn.UnearnedQuestFlags.Contains)];
+        if (endgame.Length > 0 && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) own.UnionWith(endgame);
         lock (conn.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => conn.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(conn.Visited.Concat(conn.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))

@@ -151,6 +151,7 @@ static partial class Game
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
+                Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
         }
@@ -187,7 +188,10 @@ static partial class Game
         if (Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
         if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
-        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v);
+        var quests = QuestsOf(conn);
+        // A boss a quest brings (an NPC that turns into it, a second form, an object's use: Quests.QuestSpawned) is not
+        // placed with the area.
+        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && !quests.QuestSpawned(layout.Id, v.Id);
         // A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) comes with its fight.
         area = AreaPopulation.LaterForms(area, row => Monsters.Find(row.ToString()) is { } v ? (v.Id, v.Name) : null);
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
@@ -196,6 +200,14 @@ static partial class Game
         var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data");
         // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
+        // Where the later forms the area leaves out would stand, for a quest that forms one (Quests.FormsRule).
+        var laterForms = AreaPopulation.LaterFormPoints(area, points, walkable);
+        lock (conn.Monsters)
+        {
+            conn.LaterFormPoints.Clear();
+            foreach (var (row, cell) in laterForms)
+                if (Monsters.Find(row.ToString()) is { } form) conn.LaterFormPoints[form.Id] = cell;
+        }
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes);

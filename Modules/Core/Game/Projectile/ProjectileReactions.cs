@@ -96,7 +96,7 @@ static partial class Game
             session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
             ChargesOnKill(conn, monster);
         }
-        if (CommitQuestFlags(conn, Quests.OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
+        if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
@@ -109,7 +109,7 @@ static partial class Game
         var (gemPackets, leveled) = CommitGemExperience(conn, xp);
         foreach (var packet in gemPackets) session.Packet(packet);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
-        if (Quests.LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
+        if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - conn.Experience));
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
         {

@@ -673,8 +673,10 @@ static partial class Game
     internal static async Task PickUpGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        // a1q4: a glyph is not needed once the glyphs are placed (a copy left in another instance): it goes, unpicked.
-        if (GlyphIndex(ground.Item) is not null && ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs))
+        // A quest item done with (its remove_flag set: a glyph after the placement, a Medicine Chest after Nessa has one, a
+        // copy left in another instance) is not needed any more: it goes, unpicked.
+        var questFlags = QuestFlagsOf(conn, ground.Item);
+        if (questFlags is not null && QuestItems.Removed(questFlags, f => ClientHasQuestFlag(conn, f)))
         {
             bool removed;
             lock (conn.Monsters)
@@ -683,7 +685,7 @@ static partial class Game
                 removed = conn.Instance.Ground.Take(id) is not null;
             }
             if (removed)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove glyph 0x{id:x}: the glyphs are placed");
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove quest item 0x{id:x}: {questFlags.Remove} is set");
             return;
         }
         if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true)) return;
@@ -742,7 +744,7 @@ static partial class Game
             return;
         }
         InventoryItem? placed;
-        int? glyph;
+        List<string> pickupFlags;
         (byte X, byte Y) cell = (0, 0);
         lock (conn.Monsters)
         {
@@ -761,8 +763,8 @@ static partial class Game
             if (conn.Instance.IsStartWeapon(CharacterName(conn), id) && items.ClaimStartWeapon())
                 Console.WriteLine($"[gateway] {remote} start weapon picked up");
 
-            // A glyph (a1q4) sets its quest flags with the pickup, in the same save.
-            glyph = GlyphIndex(ground.Item);
+            // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
+            pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(conn, f));
             placed = KeepOnGroundIfNotSaved(conn, ground, () =>
             {
                 InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, ground.Item));
@@ -770,14 +772,15 @@ static partial class Game
                     foreach (bool support in new[] { false, true })
                         if (conn.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(conn), tutorial, support), id))
                             return TutorialObjects.Claim(CharacterName(conn), support, ground.Item, Put);
-                return glyph is int g ? GlyphQuest.Claim(CharacterName(conn), g, Put) : Put();
+                return questFlags is not null ? QuestItems.Claim(CharacterName(conn), questFlags, Put) : Put();
             }, id);
         }
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
             toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
-        if (glyph is int picked) await SetQuestFlags(remote, stream, ciphers, conn, GlyphQuest.PickupFlags(picked));
+        if (pickupFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, pickupFlags);
+        if (questFlags is not null) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
     }
 
     internal static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
@@ -870,6 +873,12 @@ static partial class Game
             return;
         }
         if (await GameEvents.AnyItemUse(conn, r, item, type)) return;
+        // A quest item with a use_flag (the quest books, Book of Regrets included): its flag, and QuestStaticRewards' points.
+        if (type.Quest?.Use is not null)
+        {
+            await UseQuestItem(remote, stream, ciphers, conn, items, r, item, type);
+            return;
+        }
         if (type.Name == SkillBook)
         {
             await UseSkillBook(remote, stream, ciphers, conn, items, r, item, type);
@@ -937,6 +946,63 @@ static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}, {type.Id}): +1 passive point, {extra} extra in all");
     }
 
+    /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is
+    /// Random.Shared normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
+    static Item? CurrencyResult(ClientState conn, Item target, uint currencyTypeHash, Random random)
+    {
+        const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
+        var type = ItemsFor(conn).ByHash(currencyTypeHash);
+        bool isEssence = type is not null && EssencesFor(conn).Contains(type.Hash);
+        return type?.Id switch
+        {
+            Wisdom => target.Identified || !target.Components.Contains("Mods") ? null : target with { Identified = true },
+            CurrencyEffects.ChromaticOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } targetType
+                ? CurrencyEffects.Chromatic(target, ItemsFor(conn).Requirements(targetType), random) : null,
+            CurrencyEffects.JewellersOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } socketType
+                ? CurrencyEffects.Jewellers(target, socketType, random) : null,
+            CurrencyEffects.OrbOfFusing => ItemsFor(conn).ByHash(target.TypeHash) is { } linkType
+                ? CurrencyEffects.Fusing(target, linkType, random) : null,
+            CurrencyEffects.OrbOfAlchemy => CurrencyEffects.Alchemy(target, RollsFor(conn), random),
+            CurrencyEffects.ChaosOrb => CurrencyEffects.Chaos(target, RollsFor(conn), random),
+            CurrencyEffects.DivineOrb => RollsFor(conn).Reforge(target, random, UniquesFor(conn).RollsOf(target)),
+            CurrencyEffects.BlessedOrb => RollsFor(conn).Bless(target, random, UniquesFor(conn).RollsOf(target)),
+            CurrencyEffects.OrbOfScouring => CurrencyEffects.Scouring(target, RollsFor(conn)),
+            CurrencyEffects.OrbOfTransmutation => CurrencyEffects.Transmutation(target, RollsFor(conn), random),
+            CurrencyEffects.OrbOfAlteration => CurrencyEffects.Alteration(target, RollsFor(conn), random),
+            CurrencyEffects.OrbOfAugmentation => CurrencyEffects.Augmentation(target, RollsFor(conn), random),
+            CurrencyEffects.RegalOrb => CurrencyEffects.Regal(target, RollsFor(conn), random),
+            CurrencyEffects.ExaltedOrb => CurrencyEffects.Exalted(target, RollsFor(conn), random),
+            CurrencyEffects.OrbOfAnnulment => CurrencyEffects.Annulment(target, RollsFor(conn), random),
+            CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or
+                CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor =>
+                ItemsFor(conn).ByHash(target.TypeHash) is { } eldritchType &&
+                CurrencyEffects.EldritchIchorTier(type!.Id) is int ichorTier
+                    ? CurrencyEffects.EldritchIchor(target, eldritchType, ichorTier, RollsFor(conn), random)
+                    : null,
+            CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or
+                CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber =>
+                ItemsFor(conn).ByHash(target.TypeHash) is { } emberType &&
+                CurrencyEffects.EldritchEmberTier(type!.Id) is int emberTier
+                    ? CurrencyEffects.EldritchEmber(target, emberType, emberTier, RollsFor(conn), random)
+                    : null,
+            CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target),
+            CurrencyEffects.SacredOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } defenceType
+                ? CurrencyEffects.Sacred(target, ItemsFor(conn).Defences(defenceType), random) : null,
+            CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target),
+            CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target, RollsFor(conn), random),
+            CurrencyEffects.AncientOrb => UniquesFor(conn).Reforge(target, DropsFor(conn).UniqueWeight, random),
+            FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling => ItemsFor(conn).ByHash(target.TypeHash) is { } flaskType
+                ? FlaskEnchantments.Apply(target, flaskType, ItemsFor(conn).Mods, type.Id == FlaskEnchantments.Instilling, random) : null,
+            CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target),
+            CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target),
+            CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target, RollsFor(conn), random),
+            CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } vaalType
+                ? CurrencyEffects.Vaal(target, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), random) : null,
+            _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target, random),
+            _ => null,
+        };
+    }
+
     // C→S 0x71: an item used on another one. A Scroll of Wisdom identifies an unidentified item (its explicit mods and rare
     // name are sent from now on) and loses one from its stack. Socket currency uses the same update path, including Shift.
     internal static async Task UseItemOn(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.UseItemOn use, string hex)
@@ -973,56 +1039,22 @@ static partial class Game
         // A corrupted item takes no currency but a Scroll of Wisdom (no corrupted currency yet). A mirrored item takes
         // no currency at all: the wiki says a mirrored copy cannot be altered in any way except a Reflective Oil, which
         // is not modelled.
-        Item? result = target.Item.Mirrored ? null
+        bool foreseeing = target.Item.Foreseeing;
+        var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : Random.Shared;
+        Item? result = type?.Id == CurrencyEffects.HinekorasLock
+            ? RollsFor(conn).ApplyLock(target.Item, random)
+            : target.Item.Mirrored ? null
             : target.Item.Corrupted && type?.Id != Wisdom ? null
-            : type?.Id switch
+            : CurrencyResult(conn, target.Item, used.Item.TypeHash, random);
+        // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29c/0x29f) and clears the
+        // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
+        if (foreseeing && type?.Id != CurrencyEffects.HinekorasLock)
         {
-            Wisdom => target.Item.Identified || !target.Item.Components.Contains("Mods") ? null : target.Item with { Identified = true },
-            CurrencyEffects.ChromaticOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } targetType
-                ? CurrencyEffects.Chromatic(target.Item, ItemsFor(conn).Requirements(targetType), Random.Shared) : null,
-            CurrencyEffects.JewellersOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } socketType
-                ? CurrencyEffects.Jewellers(target.Item, socketType, Random.Shared) : null,
-            CurrencyEffects.OrbOfFusing => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } linkType
-                ? CurrencyEffects.Fusing(target.Item, linkType, Random.Shared) : null,
-            CurrencyEffects.OrbOfAlchemy => CurrencyEffects.Alchemy(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.ChaosOrb => CurrencyEffects.Chaos(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.DivineOrb => RollsFor(conn).Reforge(target.Item, Random.Shared, UniquesFor(conn).RollsOf(target.Item)),
-            CurrencyEffects.BlessedOrb => RollsFor(conn).Bless(target.Item, Random.Shared, UniquesFor(conn).RollsOf(target.Item)),
-            CurrencyEffects.OrbOfScouring => CurrencyEffects.Scouring(target.Item, RollsFor(conn)),
-            CurrencyEffects.OrbOfTransmutation => CurrencyEffects.Transmutation(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.OrbOfAlteration => CurrencyEffects.Alteration(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.OrbOfAugmentation => CurrencyEffects.Augmentation(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.RegalOrb => CurrencyEffects.Regal(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.ExaltedOrb => CurrencyEffects.Exalted(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.OrbOfAnnulment => CurrencyEffects.Annulment(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or
-                CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor =>
-                ItemsFor(conn).ByHash(target.Item.TypeHash) is { } eldritchType &&
-                CurrencyEffects.EldritchIchorTier(type!.Id) is int ichorTier
-                    ? CurrencyEffects.EldritchIchor(target.Item, eldritchType, ichorTier, RollsFor(conn), Random.Shared)
-                    : null,
-            CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or
-                CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber =>
-                ItemsFor(conn).ByHash(target.Item.TypeHash) is { } emberType &&
-                CurrencyEffects.EldritchEmberTier(type!.Id) is int emberTier
-                    ? CurrencyEffects.EldritchEmber(target.Item, emberType, emberTier, RollsFor(conn), Random.Shared)
-                    : null,
-            CurrencyEffects.ArmourersScrap => CurrencyEffects.ArmourerScrap(target.Item),
-            CurrencyEffects.SacredOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } defenceType
-                ? CurrencyEffects.Sacred(target.Item, ItemsFor(conn).Defences(defenceType), Random.Shared) : null,
-            CurrencyEffects.BlacksmithsWhetstone => CurrencyEffects.Whetstone(target.Item),
-            CurrencyEffects.OrbOfChance => CurrencyEffects.Chance(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.AncientOrb => UniquesFor(conn).Reforge(target.Item, DropsFor(conn).UniqueWeight, Random.Shared),
-            FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } flaskType
-                ? FlaskEnchantments.Apply(target.Item, flaskType, ItemsFor(conn).Mods, type.Id == FlaskEnchantments.Instilling, Random.Shared) : null,
-            CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target.Item),
-            CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target.Item),
-            CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target.Item, RollsFor(conn), Random.Shared),
-            CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.Item.TypeHash) is { } vaalType
-                ? CurrencyEffects.Vaal(target.Item, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), Random.Shared) : null,
-            _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target.Item, Random.Shared),
-            _ => null,
-        };
+            Item? preview = conn.ForesightRequest is { } request && request.TargetId == target.Id && request.CurrencyId == used.Id
+                && request.Seed == target.Item.ForeseeSeed ? request.Preview : result;
+            conn.ForesightRequest = null;
+            result = preview is null ? null : ItemRolls.ClearForesee(preview);
+        }
         if (result is null)
         {
             if (type?.Id == CurrencyEffects.JewellersOrb && ItemsFor(conn).ByHash(target.Item.TypeHash) is { } refusedType)

@@ -28,7 +28,8 @@ static class CharacterSaves
         List<SavedSocket>? Sockets = null, List<byte>? Links = null, int GemExperience = 0,
         ItemRarity Rarity = ItemRarity.Normal, bool Identified = true, List<SavedMod>? Mods = null, List<uint>? Name = null,
         int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null,
-        byte DefenceBaseRoll = 0, ItemInfluence Influences = ItemInfluence.None, bool Split = false, bool Synthesised = false);
+        byte DefenceBaseRoll = 0, ItemInfluence Influences = ItemInfluence.None, bool Split = false, bool Synthesised = false,
+        bool Foreseeing = false, uint ForeseeSeed = 0);
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
@@ -50,7 +51,9 @@ static class CharacterSaves
     /// the picked record (<see cref="MtxCatalog"/>: a MtxTypes row + 1). SkillCosmetics: the Cosmetics tab's skill
     /// slots, <see cref="SkillCosmeticKey"/> (a gem's BaseItemTypes HASH32 and effect slot type) → the picked record
     /// (every gem of that type wears it). ClusterPassives: the cluster jewel nodes the client allocated (its expansion
-    /// layout ids, not PassiveSkillGraphIds).</summary>
+    /// layout ids, not PassiveSkillGraphIds). QuestRefundsCredited: the quest flags whose QuestStaticRewards refund
+    /// points the save has had (<see cref="CreditQuestRefunds(Save)"/>). PantheonMajor / PantheonMinor: the chosen
+    /// Pantheon gods, by PantheonPanelLayout Id (<see cref="SetPantheon"/>).</summary>
     public sealed record Save(Dictionary<byte, List<SavedPlacement>> Inventories, Dictionary<int, string>? SkillBar = null,
         uint? Experience = null, List<ushort>? Passives = null, List<string>? Waypoints = null, List<string>? Visited = null,
         List<string>? QuestFlags = null, ushort? ExtraPassivePoints = null,
@@ -63,7 +66,8 @@ static class CharacterSaves
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
         ushort? Sulphite = null, Dictionary<ushort, string>? Tattoos = null,
         Dictionary<ushort, ushort>? TattooKeystones = null, List<List<ushort>>? AtlasPassivePresets = null,
-        ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, Dictionary<string, string>? ModuleData = null)
+        ushort? AtlasPassivePoints = null, string? SelectedAtlasLayout = null, Dictionary<string, string>? ModuleData = null,
+        List<string>? QuestRefundsCredited = null, string? PantheonMajor = null, string? PantheonMinor = null)
     {
         /// <summary>Fields this build doesn't know (a newer build wrote them): kept as they are by the next write.</summary>
         [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
@@ -119,6 +123,11 @@ static class CharacterSaves
         });
 
     public static void SetSelectedHideout(string character, string area) => Update(character, s => s with { SelectedHideout = area });
+
+    /// <summary>The character's Pantheon gods, by PantheonPanelLayout Id (TheBrineKing, Tukohama …; null = none), so they
+    /// survive changes to the table's order (campaign/pantheon.md §4).</summary>
+    public static void SetPantheon(string character, string? major, string? minor) =>
+        Update(character, s => s with { PantheonMajor = major, PantheonMinor = minor });
 
 
     /// <summary>A module's saved text (IPlayerWorld.CharacterData). A save from before Delve was a module has its sulphite here.</summary>
@@ -312,13 +321,39 @@ static class CharacterSaves
     public static void ForgetExperience(string character) => UnsavedExperience.TryRemove(character, out _);
 
     /// <summary>Sets (or clears) quest flags (QuestFlags.dat Ids) in the save and keeps the others, so flags another
-    /// connection set meanwhile stay.</summary>
+    /// connection set meanwhile stay. Session flags (SessionQuestFlags.dat, e.g. a1q6-FairgravesAggro) are never saved. A
+    /// flag set for the first time with QuestStaticRewards refund points (a1q8-UsedRewardBook: 2) credits them in the same
+    /// write, once (<see cref="Save.QuestRefundsCredited"/>): refund points are spent, so they cannot be derived from the
+    /// flags as the passive points are.</summary>
     public static void ChangeQuestFlags(string character, IEnumerable<string> flags, bool on) => Update(character, s =>
     {
+        var states = QuestStates.Default.Value;
+        var changed = flags.Where(f => !states.IsSession(f)).ToList();
         var saved = new HashSet<string>(s.QuestFlags ?? []);
-        if (on) saved.UnionWith(flags); else saved.ExceptWith(flags);
-        return s with { QuestFlags = [.. saved.Order()] };
+        if (on) saved.UnionWith(changed); else saved.ExceptWith(changed);
+        s = s with { QuestFlags = [.. saved.Order()] };
+        return on ? CreditQuestRefunds(s) : s;
     });
+
+    /// <summary>The save with the refund points of its quest flags that it has not been credited yet (QuestStaticRewards).</summary>
+    internal static Save CreditQuestRefunds(Save s)
+    {
+        var (points, flags) = QuestStaticRewards.Default.Value.NewRefunds(s.QuestFlags ?? [], s.QuestRefundsCredited ?? []);
+        if (flags.Count == 0) return s;
+        return s with
+        {
+            RefundPoints = (ushort)Math.Min(ushort.MaxValue, (s.RefundPoints ?? 0) + points),
+            QuestRefundsCredited = [.. (s.QuestRefundsCredited ?? []).Union(flags).Order()],
+        };
+    }
+
+    /// <summary>Credits the refund points of quest flags the save has but was not credited for (a save from before the
+    /// credit, a flag set by hand in the database); the refund points afterwards.</summary>
+    public static ushort CreditQuestRefunds(string character)
+    {
+        Update(character, CreditQuestRefunds);
+        return Load(character)?.RefundPoints ?? 0;
+    }
 
     /// <summary>Records the allocated passives (PassiveSkillGraphId) with their mastery effects (node → effect HASH16), and
     /// the refund points when given, in one write.</summary>
@@ -460,7 +495,7 @@ static class CharacterSaves
         i.Links is null ? null : [.. i.Links], i.GemExperience, i.Rarity, i.Identified,
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
-        i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised);
+        i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed);
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -479,6 +514,7 @@ static class CharacterSaves
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised,
+            Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);

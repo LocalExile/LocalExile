@@ -16,12 +16,15 @@ static partial class Game
     // The characters in god mode, by name, for the Gateway's lifetime: every area is a new connection, so without this an
     // area change or a relog silently ended /god.
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> GodCharacters = new(StringComparer.OrdinalIgnoreCase);
+    // The characters with /god immune, by name (as GodCharacters).
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> ImmuneCharacters = new(StringComparer.OrdinalIgnoreCase);
 
     // A new connection of a character in god mode is in it again (LoadProgress, before its pools are worked out). It only
     // switches on: a caller may have set it already.
     internal static void RestoreGod(ClientState conn)
     {
         if (GodCharacters.ContainsKey(CharacterName(conn))) conn.God = true;
+        if (ImmuneCharacters.ContainsKey(CharacterName(conn))) conn.Immune = conn.God;
     }
 
     // The player's life per second from regeneration: the flat life regeneration per minute (/god, /set_stat) plus a
@@ -466,24 +469,29 @@ static partial class Game
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
             // Quests that start when the player comes near a monster (a1q1: Hillock, "Kill Hillock").
-            if (Quests.Watched(conn.Layout.Id) is { Count: > 0 } watched)
+            if (QuestsOf(conn).Watched(conn.Layout.Id) is { Count: > 0 } watched)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 List<string> seen;
                 lock (conn.Monsters)
                     seen = [.. conn.Monsters.Values.Where(m => !m.Dead && m.Life > 0 && m.Variety is { } v && watched.Contains(v.Id)
                         && Dist(m.Walk.Position(now), at) <= Quests.SightRange).Select(m => m.Variety!.Id).Distinct()];
-                foreach (string variety in seen) await SetQuestFlags(remote, stream, ciphers, conn, Quests.OnMonsterSeen(conn.Layout.Id, variety));
+                foreach (string variety in seen) await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterSeen(conn.Layout.Id, variety));
             }
             // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
             if (conn.Glyphs?.Wall is { } glyphWall && !conn.HasQuestFlag(GlyphQuest.SeenGlyphWall)
                 && Dist(at, (glyphWall.X, glyphWall.Y)) <= Quests.SightRange)
                 await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.SeenGlyphWall]);
-            // a1q4: the HaveGlyph flags follow the glyphs carried (dropped, sold, stashed ones too), about once a second.
-            if (conn.Clock.Elapsed.TotalSeconds >= conn.GlyphSyncAt)
+            // The quest engine's sight rules (room objects, exits).
+            await CheckQuestSights(remote, stream, ciphers, conn, at);
+            if (conn.QuestNearSpawns.Count > 0) await CheckQuestNearSpawns(remote, stream, ciphers, conn, at);
+            await CheckQuestThresholds(remote, stream, ciphers, conn);
+            // The quest items' grant flags follow the items carried (dropped, sold, stashed ones too), about once a second;
+            // no inventory change here (the message path removes items).
+            if (conn.Clock.Elapsed.TotalSeconds >= conn.QuestItemSyncAt)
             {
-                conn.GlyphSyncAt = conn.Clock.Elapsed.TotalSeconds + 1;
-                await SyncGlyphs(remote, stream, ciphers, conn);
+                conn.QuestItemSyncAt = conn.Clock.Elapsed.TotalSeconds + 1;
+                await SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
             }
         }
     }
@@ -694,19 +702,22 @@ static partial class Game
     // Act 10 pair. A change to any of them rebuilds the pools (SetQuestFlags), because the overcapped-resistance
     // modifiers (ResistanceOvercap) read the penalty.
     internal static readonly string[] ResistancePenaltyAct5 = ["a5q6-CompletedBoss", "SinOnKitavaDefeat"],
-        ResistancePenaltyAct10 = ["a10q3-SeenBoss", "a10q3-UsedRewardBook"];
+        ResistancePenaltyAct10 = [Quests.EndGameAvailable, "a10q3-UsedRewardBook"];
 
     // The permanent resistance penalty from Kitava: -30% after the Act 5 encounter and another -30% after the final
     // Act 10 Kitava. It is a quest penalty, not a buff/aura: the client keeps it through its quest flags, and the server
-    // mirrors it from the same flags. (In the 3.29.3b tables the flags are a5q6-CompletedBoss and a10q3-SeenBoss /
-    // a10q3-UsedRewardBook; a9q5-KilledBoss is the Act 9 boss and does not grant it.)
+    // mirrors it from the same flags. (In the 3.29.3b tables QuestStaticRewards 38 is a5q6-CompletedBoss and 39 is
+    // EndGameAvailable, set when Kitava dies in The Feeding Trough; a10q3-UsedRewardBook, Lani's book after him, implies
+    // it. EndGameAvailable counts only once earned: every character is given it for the Atlas (in a hideout and the maps
+    // only until then, Quests.EndgameOnly), ClientState.UnearnedQuestFlags.
+    // a9q5-KilledBoss is the Act 9 boss and does not grant it.)
     internal static int ResistancePenalty(ClientState conn)
     {
         bool act5, act10;
         lock (conn.Monsters)
         {
             act5 = ResistancePenaltyAct5.Any(conn.QuestFlags.Contains);
-            act10 = ResistancePenaltyAct10.Any(conn.QuestFlags.Contains);
+            act10 = ResistancePenaltyAct10.Any(f => conn.QuestFlags.Contains(f) && !conn.UnearnedQuestFlags.Contains(f));
         }
         return (act5 ? -30 : 0) + (act10 ? -30 : 0);
     }
@@ -878,7 +889,12 @@ static partial class Game
             Skills: [.. SkillsFor(conn).PlayerDefaults(weaponStats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn))),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
-            Portrait: WornPortrait(conn), PortraitFrame: conn.PortraitFrame);
+            Portrait: WornPortrait(conn), PortraitFrame: conn.PortraitFrame)
+        {
+            // The saved Pantheon gods (campaign/pantheon.md §5): the Player component's two bytes.
+            PantheonMajor = PantheonCatalog.Default.Value.Wire(conn.PantheonMajor),
+            PantheonMinor = PantheonCatalog.Default.Value.Wire(conn.PantheonMinor),
+        };
         lock (conn.Monsters)
         {
             RefreshVaalSouls(conn);
@@ -917,9 +933,12 @@ static partial class Game
         var (passives, passivesLabel) = PassivesMessage(conn);
         messages.Add((passivesLabel, passives));
         // Area transitions. Like the player they are queued by the world and created when 0x21 activates it.
-        foreach (var (id, transition) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Transition)))
+        foreach (var (id, transition) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Id, t.Transition)))
+        {
+            lock (conn.ShownTransitions) conn.ShownTransitions.Add(id);
             messages.Add(($"0x02b9 create area transition 0x{id:x} {transition}",
                 InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob())));
+        }
         foreach (var (id, effect) in layout.Effects)
             messages.Add(($"0x02b9 create transition effect 0x{id:x} {effect}",
                 InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(effect.Type), effect.Blob())));
@@ -950,7 +969,7 @@ static partial class Game
             }
             // Put the player in the wake zone so it is drawn and its actions/movement run.
             messages.Add(("0x01a9 player enters wake zone", InstanceProtocol.EnterWakeZone(PlayerId)));
-            foreach (var (id, _) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Transition)))
+            foreach (var (id, _) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Id, t.Transition)))
                 messages.Add(($"0x01a9 area transition 0x{id:x} enters wake zone", InstanceProtocol.EnterWakeZone(id)));
             foreach (var (id, _) in layout.Effects)
                 messages.Add(($"0x01a9 transition effect 0x{id:x} enters wake zone", InstanceProtocol.EnterWakeZone(id)));

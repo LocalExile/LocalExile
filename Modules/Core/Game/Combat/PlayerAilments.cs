@@ -46,7 +46,7 @@ static partial class Game
         int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
             MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
             source => DamageTakenFromBlindedPct(conn, source, stats));
-        int lifeDamage = conn.EnergyShield.Damage(damage, false, until);
+        int lifeDamage = conn.Immune ? 0 : conn.EnergyShield.Damage(damage, false, until);
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)
         {

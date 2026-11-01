@@ -14,13 +14,20 @@ static partial class Game
     // Compute the native virtual_on_low_life input from current pools. Actions capture its luck contribution at use;
     // the panel continues to show the owner's current state.
     // Focus and Vulnerability use their current raw state inputs; their skill/curse lifecycles are separate mechanics.
-    internal static bool CriticalOnLowLife(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    internal static bool CriticalOnLowLife(ClientState conn, IReadOnlyDictionary<uint, int> player) =>
+        CriticalOnLowLife(() => conn.PlayerLife, () => conn.PlayerMaxLife, player);
+
+    // From the life and maximum life as read once (the stat snapshot's tail inputs), or as they are now.
+    internal static bool CriticalOnLowLife(uint life, uint maximumLife, IReadOnlyDictionary<uint, int> player) =>
+        CriticalOnLowLife(() => life, () => maximumLife, player);
+
+    static bool CriticalOnLowLife(Func<uint> life, Func<uint> maximumLife, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        bool counts = Get("you_count_as_low_life_while_not_on_full_life") != 0 && conn.PlayerLife < conn.PlayerMaxLife
+        bool counts = Get("you_count_as_low_life_while_not_on_full_life") != 0 && life() < maximumLife()
             || Get("you_count_as_low_life_while_affected_by_vulnerability") != 0
                 && (Get("cursed_by_vulnerability") != 0 || Get("you_are_cursed_with_vulnerability") != 0);
-        return CriticalStrikePolicy.OnLowLife(conn.PlayerLife, conn.PlayerMaxLife,
+        return CriticalStrikePolicy.OnLowLife(life(), maximumLife(),
             Get("low_life_threshold_%_override"), Get("low_life_threshold_%"), counts);
     }
 
@@ -31,13 +38,17 @@ static partial class Game
     }
 
     internal static int CriticalExtraRollsFor(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null) =>
+        CriticalExtraRollsFor(CriticalOnLowLife(conn, player), player, own);
+
+    internal static int CriticalExtraRollsFor(bool onLowLife, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
     {
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Own(string name) => Stats.Key(name) is uint key ? own?.GetValueOrDefault(key) ?? 0 : 0;
         long Sum(string name) => (long)Player(name) + Own(name);
         return CriticalStrikePolicy.ExtraRolls(Sum("extra_critical_rolls"),
-            Sum("extra_critical_rolls_while_on_low_life"), CriticalOnLowLife(conn, player),
+            Sum("extra_critical_rolls_while_on_low_life"), onLowLife,
             Sum("extra_critical_rolls_during_focus"), Player("has_focus") != 0,
             Player("keystone_sharp_and_brittle") != 0 || Own("keystone_sharp_and_brittle") != 0);
     }
@@ -97,12 +108,16 @@ static partial class Game
         chance > 0 && AlwaysCritical(conn, get) ? 10_000 : chance;
 
     internal static int AttackCriticalMultiplier(ClientState conn, IReadOnlyDictionary<uint, int> player,
-        int effect = -1, IReadOnlyDictionary<uint, int>? own = null)
+        int effect = -1, IReadOnlyDictionary<uint, int>? own = null) =>
+        AttackCriticalMultiplier(conn.Pools, WeaponProfileFor(conn, activeSet: true).Unarmed, MeleeAttack(conn, effect),
+            effect >= 0 && SkillsFor(conn).IsSpell(effect), player, own);
+
+    // The default attack's (no gem effect) from the stat snapshot's tail inputs: the active set's profile decides both.
+    internal static int AttackCriticalMultiplier(CharacterStats.Pools pools, bool unarmed, bool melee, bool spell,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own = null)
     {
         uint? key = Stats.Key(CriticalStrikePolicy.UnarmedMeleeMultiplierStat);
         long extra = key is uint k ? (long)player.GetValueOrDefault(k) + (own?.GetValueOrDefault(k) ?? 0) : 0;
-        return CriticalStrikePolicy.Multiplier(conn.Pools.CriticalStrikeMultiplier, extra,
-            WeaponProfileFor(conn, activeSet: true).Unarmed, MeleeAttack(conn, effect),
-            effect >= 0 && SkillsFor(conn).IsSpell(effect));
+        return CriticalStrikePolicy.Multiplier(pools.CriticalStrikeMultiplier, extra, unarmed, melee, spell);
     }
 }

@@ -67,6 +67,7 @@ new folder's name in lower case.
 | `ItemRarity` | 10 times the chance of magic, rare and unique equipment | no |
 | `DoubleExperience` | twice the experience from kills | no |
 | `BossLoot` | an Exalted Orb from every unique monster: an extra drop by name | no |
+| `FastCampaign` | a faster campaign: 5 times the experience from kills and +50% movement speed, changed by `/fast_xp` and `/fast_speed` and kept in its `settings.txt`; `/fast` lists the Gateway's commands that skip ahead, in English, Simplified or Traditional Chinese (`/fast_lang`) | no |
 
 ```csharp
 public sealed class MyMod : IMod

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A faster campaign (Agents/docs/dev/modding.md). Everything else is in Directory.Build.props. -->
+
+</Project>

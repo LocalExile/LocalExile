@@ -107,6 +107,42 @@ ActionType → `HASH16`); the default attack's is `Melee` 45448 = 0xb188.
 **Skill ids** are the server's choice, but they share the manager with the basic actions, whose ids are `HASH16 &
 0x3fff`. 0x0101 collided with a Monster.ot basic action (monsters showed a skill 0x101 / 0x4101). The Gateway uses
 **0x0102**, which no ActionType masks to in 3.29.3b (`SkillCatalog.FirstSkillId`).
+Granted-skill construction `0x141ee7439`, insertion `0x142198280/0x1421982b1` and action lookup
+`0x141ee9850/0x141ee987e` preserve and compare the full u16 ID, as do the checked S2C 0x1ab/0x1b4 paths.
+The basic-action mask is not a general rule for network-granted skills.
+The external official-server report's `0x4000/0x8002` IDs are a comparison input, not proof of an emission gate;
+their high-bit allocation convention has not been reconstructed.
+
+### 3.1 S2C 0x1b4: update one skill's stat set
+
+Static 3.29.3b evidence: class `0x1435c21c0`, reader `0x141fdeb10`, writer `0x141fdea50`.
+After the common object/action header (`0x141f92000`), the reader consumes:
+
+```text
+u16 BE skill id                      → packet +0x20
+u8 stat-set selector                 → packet +0x22
+unsigned compact pair count
+pair count × (unsigned compact stat key, signed compact stat value)
+                                     → packet +0x28/+0x30, eight bytes per decoded pair
+```
+
+Actor dispatcher case `0x142194482` binary-searches the full u16 skill ID against the registered skills' `+0x40`.
+Selector 0 uses that skill's primary network-stat object at `+0xf8`.
+Selector `n>0` uses additional stat-set entry `n-1` in the `+0x108/+0x110` vector, after a bounds check.
+At `0x142194640..0x142194659`, each decoded pair calls `0x1424cfaf0(stats, key, value)`:
+the low DWORD is the key, the high DWORD is its value.
+This is the same raw network-stat setter used elsewhere, not a position/path insertion.
+The handler compares values for `0x190c/0x4806` and nonzero states for `0x2532/0x2644` before/after.
+It conditionally calls `0x141eeb550` on the skill manager, then continues its notifications.
+The [selected action-stat getter](../re/projectiles/actions-and-emission.md#61-selected-stat-views-and-cached-values-have-different-lifetimes)
+uses skill `+0x138` for its primary fallback, initially aliased to the updated `+0xf8` object by skill construction.
+Overrides and explicit action caches prevent treating this as an unconditional update of every in-flight outcome.
+Later slot replacement and complete invalidation remain unresolved.
+
+[PR 373's official-server report](../re/projectiles/external-ranged-evidence.md) observed this message carrying
+skill IDs and integer pairs and tentatively called it a possible path.
+The receiver establishes a skill-stat update instead; the private payload values have not been reviewed here.
+Include these updates when reconstructing effective release inputs, without assuming they explain the first missing arrow.
 
 ## 4. The default attack
 
@@ -1227,8 +1263,10 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Its precise active action phase is not tracked, so even an inactive equipped skill is conservatively excluded.
 - **Hit effects (2026-10-25).** The target's blood and the weapon impact sound come from S→C **0x1af** "action hit"
   (`InstanceProtocol.ActionHit`; class `0x1435ddb38`, read `0x141fddba0` → `0x1419bd6f0`, Actor handler `0x1421940a0`
-  → `0x141e90f50`): object header (the attacker), u16 action sequence (must match the action's), u8, u8 skill index
-  (0 = the current action), u32 target id, u16 flags, u8 kind (bit 0: belongs to an action, bit 1: hit data follows).
+  → `0x141e90f50`): object header (the attacker), u16 action sequence, u8 result stage, u8 derived action byte,
+  u32 target id, u16 flags, u8 kind (bit 0: immediate processing rather than queueing, bit 1: hit data follows).
+  Derived zero selects the current root action; nonzero selects a retained derived action, both with matching sequence.
+  Local consumption matches `(sequence, derived, stage, target)`; kind bit 0 clear inserts without requiring an action.
   With bit 1: a u16 if `flags & 0x400` (`flags >> 10 & 1` in the reader), u8 code, u8 hit angle (0..255 a full turn,
   `atan2(dx, −dy)` from attacker to target), then a u16 for kind bit 2 and one for bit 3. The handler calls the
   attacker's `ProcessDamagePackageInternal` (vtable +0x230), which plays the effects; 0x1b1 stays authoritative on
@@ -1250,6 +1288,17 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   index 0 searches the current action).
   A Sand Spitter's hit on the player (live 2026-10-30) is kind 3, flags 0x4201 (0x4221 on a crit), code 0, skill
   index 2, with the sequence of the monster's own action (0x80c0…, from its 0x1ab), not 0xffff.
+
+  KB/Rain target callbacks consume queued results; stage/end processing is mode/kind-filtered and retains ordinary
+  queued records in the checked Predictive/Lockstep client bindings.
+  S→C 0x1b0 carries the same handle and a process byte: remove the first match, optionally process; absent is a no-op.
+  Its actual reader `0x141fddc20` normalizes every nonzero process byte to one. All multibyte result/handle fields
+  above are big-endian. Including the common 12-byte header, 0x1af is 23..31 bytes and 0x1b0 is 21 bytes on these
+  selected reader paths. Kind bits 2/3 add no fields unless bit 1 is also set. Optional fields default to zero in
+  the fresh 0x1af factory; the payload reader itself preserves omitted fields on direct reread. See the
+  [actual decoder contract](../re/projectiles/results-and-protocol.md#31-actual-payload-decoding-fresh-defaults-and-dispatch).
+  See [RE 012: results and lifecycle](../re/projectiles/results-and-protocol.md) for duplicate handling,
+  late-result limits, exact VAs and the distinction between local prediction and authoritative hit presentation.
 - **Release.** A spell leaves at its cast animation's **contact** keyframe, which the client plays stretched to the cast
   time: the Witch's `spell_projectile_wand` in `Art/Models/CHARACTERS/Witch/rig.amd` is 1066 ms long with `contact` at
   599 ms, so Fireball leaves after 56% of the cast. `python -I scripts/re/anim_contacts.py` writes every class's
@@ -1526,6 +1575,9 @@ The old callback flight, observed-motion estimator, fixed-gap spread and named r
 The older native evidence below records packet discoveries and the replaced implementation: its 16 ms polling,
 send-gate damage commits, return overshoot/debug flags and fixed-gap controls are not current runtime behavior.
 Revalidate native gameplay against the current runtime; packet-layout evidence remains applicable.
+The client's shared execution model is documented separately in [RE 012](../re/012-projectile-execution.md):
+animation/contact-based emission, fan/Volley layouts, integer motion, local contacts, history/continuations and results.
+Those static paths do not establish an official global 30 Hz cadence or a C→S per-projectile result-report contract.
 
 **The client predicts its own spell gem projectiles (Frida 2026-10-29, 2026-10-31).** One Fireball cast built two Projectile
 components: one from the 0x2b9 handler (`0x142187c8a` → `0x141ebe190`), one from the player's action
@@ -1535,12 +1587,11 @@ client built three before the server's three, so it predicts every primary proje
 position. The server therefore sends no object for a spell gem use's primary projectiles (`ProjectileOffense.ClientPredicted`,
 `ProjectileSession.Publish`) and still simulates them; continuation children and area effects still go out. The
 client made no explosion object of its own.
-An attack gem is not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
+In these local inputs an attack gem was not predicted: on 2026-10-31 four Burning Arrow uses started the client's action (`0x415`, accepted
 by `0x141e8cf10`) and created no projectile at all until the server's `0x2b9`, as the default attack's arrow; with
 no server object nothing was drawn. `ClientPredicted` is therefore set for spells only (`CaptureGemProjectile`). Ordinary bow arrows and wand bolts (`ScheduleOrdinaryRanged`) keep their server object,
 and rightly so: across 40 default-attack arrows on 2026-10-29 the same trace saw no client-created projectile at all
-(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). The
-default attack is not predicted the way a gem's volley is. Trace: `scripts/re/frida/trace-projectile-create.js`
+(only the 36 server `DefaultArrow` objects), and none for a monster's action either (27 Sand Spitter attacks). These observations describe those supplied ordinary-attack inputs. Trace: `scripts/re/frida/trace-projectile-create.js`
 (load `common.js` and the trace in one script: `run.py` gives each file its own scope).
 
 **Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
@@ -1556,8 +1607,18 @@ The life is set once, at `0x141b35b7a`: `skill_effect_duration` (0x168) / 1000 s
 `base_skill_effect_duration`: before the Gateway sent it (`GemSkills`, `SkillDurationModifiers.Seconds`) every client
 spark died on its first tick and none was drawn. Not checked live yet.
 
-The server creates and moves the projectile. The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does
-nothing by itself: its slot 17 reads nothing and almost every other slot is a bare `ret`.
+The captures above are bounded runtime observations, not a universal attack-versus-spell rule.
+The pinned executable has shared emission and final client bindings for ordinary ranged attacks and TS;
+release eligibility, effective count aliases, selected resources and lifecycle determine whether emission occurs.
+The earlier TS research branch enabled native mothers after publishing arrow aliases and reported duplicated
+wind/children when server-created stages remained. That branch behavior is not a current-main implementation claim.
+See [the client/server contract](../re/projectiles/client-server-contract.md) and
+[external evidence](../re/projectiles/external-ranged-evidence.md) before changing prediction ownership.
+
+The following object/move notes describe the historical server-created path.
+The client's Projectile component (vtable `0x1435a0d10`, 0x20 bytes) does little by itself:
+slot 17 reads nothing and almost every other slot is a bare `ret`.
+Native flight/contact logic resides in action/Positioned paths, not this small component.
 
 - **Object.** A 0x2b9 of the Projectiles.dat type named after the effect (`Metadata/Projectiles/Fireball`, hash of the
   path; the type register knows it from the table). `Metadata/Projectiles/Projectile` deserializes Positioned,
@@ -2263,6 +2324,62 @@ A Righteous Fire already burning keeps burning: it deals the enemies no damage (
 handling of an aura that is running when the restriction starts is unverified.
 Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
 
+## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
+
+These are action instructions, distinct from per-target hit results or C→S collision reports.
+Actor dispatcher `0x1421940a0` sends both to executor `0x142195880`.
+It creates/configures an action, registers derived byte one, then invokes synthetic start/contact.
+See [RE 012's execution contract](../re/projectiles/synthetic-start-and-server-commands.md)
+for flags, actual final predicates, identity, cleanup and the separate Actor finalization receiver.
+This is bounded static evidence for client 3.29.3b; it does not establish official route choice for every skill.
+
+The event-bearing `0x1cf` factory is `0x1421c6150`, selected branch `0x1421c64a9`.
+Table `0x1435c20e8` binds writer `0x141fde370`, reader `0x141fde530` and copy `0x141fdd6a0`.
+The reader starts after message ID selection; the ID is not repeated inside this payload.
+Successful reads consume the following in order (BE = big-endian):
+
+```text
+u32 BE, u32 BE, u16 BE          common object/action header → +10,+14,+18
+u16 BE skill, sequence, flags   → +2a,+2c,+50
+if flags & 0x20: u32 BE target  → +30; strip 0x20; absent target = 0
+u32 BE animation context       → +20
+u32 BE float bit pattern       → +24
+u16 BE event hash              → +28
+3 × u32 BE event vector bits   → +44,+48,+4c
+if flags & 0x2000:
+    2 × signed compact int     extra aim → +3c,+40; retain this flag
+if flags & 0x10:
+    action configuration       → +58; initialize defaults then decode; strip 0x10
+2 × signed compact int         ground aim → +34,+38
+```
+
+The configuration's presence byte is message `+d0` (configuration `+78`).
+Absent configuration clears presence and releases old containers; stale scalar bytes need not be erased.
+Absent extra aim can retain old storage in a reused message; fresh factory defaults are zero.
+Use presence/flags to decide whether those bytes apply.
+The shared configuration reader `0x1419e54d0` uses one mask byte.
+Its inner bit `0x10` reads a BE u32 into configuration `+1c`, independently of the outer packet presence bit.
+Both instructions copy that value through action `+80 → 0x141bae280` into action `+434` as a signed speed percentage.
+A present default configuration with inner bit clear writes zero; an absent configuration skips this callback.
+Inner bit `0x80` reads an unsigned compact count and count times four raw bytes without per-element swapping.
+The other configuration fields and complete receiver chain are tabulated in RE 012.
+
+Compact integers here use a prefix-length format, not LEB128 or zigzag.
+Prefixes `00..7f / 80..bf / c0..df / e0..ef / f0..ff` select 1/2/3/4/5 total bytes.
+Signed reader `0x141fa3d60` sign-extends 7/14/21/28 payload bits in the first four forms;
+the final form consumes raw BE32. Unsigned count reader `0x14089cad0` omits sign extension.
+Signed writer `0x141fa3c50` uses the four-byte form only for `[-67108864,67108864)`,
+although that decoder form can represent more values; outside the writer's range it emits `f0` and BE32.
+
+The event handler passes `+20/+28` to animation lookup `0x141db3870`.
+It advances matching records while message float `+24` is greater than current event time `+0c`.
+Equality keeps the current event. Original `COMISS/JBE` also selects current on unordered comparisons;
+this does not establish NaN as a valid official input.
+The chosen event is copied, its vector replaced by `+44..+4f`, then passed to the executor.
+Missing matching events take the existing failure path.
+Original-instruction offline controls cover successful decoding/transfer and separate event comparisons;
+failed I/O, allocation limits, actual official values and every skill's successful emission remain unverified.
+
 ## 11. The skill bar
 
 - **C→S 0x4e** (5 bytes, class `0x1435bfc58`): `u8 slot, u16 skill id` (big-endian). Slot 2 is the right mouse button.
@@ -2306,6 +2423,11 @@ Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
   not known. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435dd918`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2ba update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+  The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
+  Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
+  cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
+  supplies 1, not preservation. See [the exact repeat state/input contract](../re/projectiles/repeat-source-state.md).
+  This identifies a supported input route, not official server values or timing for those definitions.
 - **Passive self buffs** (`PassiveBuffAuras.SelfBuffsFor`, §10e). A row without `IsRecovery` carries no values in
   0x1c1, so the client cannot apply them: the server adds the values to the allocated passives' stat sum and sends the
   buff for its icon and visual only. The buff goes out with 0x1c1 at area entry (each area's connection starts without
@@ -2393,7 +2515,8 @@ Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
 - **Resistances** (`CharacterStats`, `DamageModel`): the passives' `base_resist_all_elements_%` and
   `base_fire/cold/lightning/chaos_damage_resistance_%` are summed from the character's 0% base into `Pools`; the client
   applies the two permanent Kitava quest penalties itself, and the Gateway mirrors them from the same flags
-  (`a5q6-CompletedBoss`, `a10q3-SeenBoss`/`a10q3-UsedRewardBook`: -30% each, not an aura). The final value is
+  (`a5q6-CompletedBoss`/`SinOnKitavaDefeat`; `EndGameAvailable` once earned, QuestStaticRewards 39, or
+  `a10q3-UsedRewardBook`: -30% each, not an aura). The final value is
   `clamp(resistance, -200, min(75 + max-resistance modifiers, 90))`, taken from Path of Building commit `16de4b8`:
   `src/Modules/Data.lua` (`ResistFloor = -200`, `MaxResistCap = 90`), `src/Data/Misc.lua`
   (`base_maximum_all_resistances_% = 75`) and `src/Modules/CalcDefence.lua` (the clamp). The project is cloned locally

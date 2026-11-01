@@ -336,6 +336,7 @@ static partial class Game
                 $", life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
             if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, targetId, m);
             if (stageStarts) _ = RunBossStage(remote, stream, ciphers, conn, targetId, m);
+            if (m.ThresholdReached) await QuestThreshold(remote, stream, ciphers, conn, targetId, m);
             return true;
         }
     }
@@ -1198,6 +1199,7 @@ static partial class Game
         // One sweep's deaths (loot, experience, quests) wait until every monster of the sweep has its hit (AreaSkillHit).
         if (life == 0) { if (deaths is not null) deaths.Add((id, m)); else await MonsterKilled(remote, stream, ciphers, conn, id, m); }
         if (stageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
+        if (m.ThresholdReached) await QuestThreshold(remote, stream, ciphers, conn, id, m);
     }
 
     // The hit reaction: one of the rig's TakeHit clips and its SoundEvent, S→C 0x1b2 kind 0 (see Attack and HitMonster).
@@ -1269,6 +1271,13 @@ static partial class Game
     {
         // While the stage runs the boss cannot die: its life fills up at the end anyway.
         if (m.StageRunning) return ((uint)Math.Max(1, (long)m.Life - damage), false);
+        // A quest threshold (Kitava): the hit that reaches it leaves the monster alive; it never dies.
+        if (m.Threshold is { } threshold)
+        {
+            long left = Math.Max(1, (long)m.Life - damage);
+            if (left * 100 <= (long)m.MaxLife * threshold.LifePct) m.ThresholdReached = true;
+            return ((uint)left, false);
+        }
         var (life, starts) = BossFights.Damage(m.Life, m.MaxLife, damage, m.StageTaken ? null : m.Stage);
         if (starts)
         {
@@ -1342,7 +1351,7 @@ static partial class Game
             await Program.ServerHooks.MonsterKilled(new(killer, monster));
             ChargesOnKill(conn, m);
         }
-        await SetQuestFlags(remote, stream, ciphers, conn, Quests.OnMonsterKilled(conn.Layout.Id, variety.Id));
+        await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         if (alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
@@ -1353,7 +1362,7 @@ static partial class Game
             await GainExperience(remote, stream, ciphers, conn, xp, $"{m.Rarity} {m.Label} 0x{id:x}");
         }
         // A quest kill that levels the character up (a1q1: Hillock → at least level 2), wherever the player stands.
-        if (Quests.LevelAfterKill(conn.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
+        if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
         {
             uint needed = CharacterStats.LevelStarts[level - 1], have;
             lock (conn.Monsters) have = conn.Experience;

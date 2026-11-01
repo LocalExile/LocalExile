@@ -724,6 +724,13 @@ The generic [projectile framework](../docs/game/projectile-framework.md) owns pr
 the sole 30 Hz runtime. Catalog fallback provides basic flight; registered skill definitions supply special rules
 and can require explicit recipes.
 
+The [client projectile research](../docs/re/012-projectile-execution.md) now separates shared execution,
+client/server input contracts and six ordinary witnesses from the current server implementation.
+Final bindings, finite arithmetic, local contact/history, continuations and selected skill-stage joins are documented.
+Public scalar/vector and synthetic observation checks are separate from retained original-instruction controls.
+Gameplay TLS state/order, official Fireball direct/area result routing and actual effective-input timing remain open.
+This is a research baseline, not new live skill acceptance or complete native/server parity.
+
 - Arcane Might (#364) shares one highest-eligible-ratio consumer across current attacks and damage panels.
   Normal Crown of Eyes, Whisperer's existing consumer and wand mastery use the six modern stat contracts.
   Independent grants do not stack; skill base plus quality still adds before the maximum comparison.
@@ -1308,6 +1315,14 @@ and can require explicit recipes.
   Ascendancy allocation remains in its separate lifecycle change.
   Code: `HitResistances.cs`, `HitMitigation.cs`, Gateway (`MonsterDamage`).
   Docs: [20](../docs/protocol/20-damage.md) §4.
+- **Client Buff descriptor ownership/transfer research (#370, #466, offline only).**
+  Original bytes bind the prepared structure to item
+  Mods `+0x38` and entity ObjectMagicProperties `+0xc8`, with a structural item-assignment path.
+  A separate `+0x1d8` cache is excluded from the descriptor path by pointer provenance and record stride.
+  This does not establish a meaningful descriptor consumer, actual target DoT publication or live behavior.
+  The revised delivery records these structural findings; actual readers and outputs remain Known issues K1-K3.
+  Original N1 is partial, N2 remains open and R2/R3/R4 stay Partial.
+  See the [report](../docs/re/client-buff-descriptor-consumers.md).
 - **Damage model (foundation, with armour/evasion).** A hit is a per-type `DamagePacket`;
   `DamageConversion` handles the game's physical, lightning, cold, fire, chaos order, chained conversion, skill/global
   precedence, the 100% cap and gain-as-extra.

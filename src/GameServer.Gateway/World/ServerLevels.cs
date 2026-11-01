@@ -26,6 +26,13 @@ static class ServerLevels
     {
         /// <summary>The client's tile hash of the generated grid, and how long the generation took.</summary>
         public uint TileHash { get; init; }
+        /// <summary>Every quest tile object of the grid (<see cref="QuestObjectTypes.IsTileQuestObject"/>): the quest engine's
+        /// seals, levers, doors, altars and quest chests. <see cref="QuestObjects"/> keeps a1q4's types only, as the
+        /// recorder captures them (the level generator's gate compares those).</summary>
+        public IReadOnlyList<PlacedTileObject> TileQuestObjects { get; init; } = [];
+        /// <summary>The server objects of the placed rooms and the objects their point lists name (AreaObjects.RoomObjects):
+        /// the quest engine's places for room objects data/room-points.json does not keep (QuestObjectTypes.AreaPlacements).</summary>
+        public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
         public long Milliseconds { get; init; }
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
@@ -208,6 +215,8 @@ static class ServerLevels
             {
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
                 Exits = exits.Exits, Entrances = exits.Entrances,
+                TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
+                RoomObjects = AreaObjects.RoomObjects(result, points: true),
             };
         }
         catch (Exception ex)
