@@ -61,6 +61,7 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 | [re/client-native-contribution-callers.md](re/client-native-contribution-callers.md) | 103 retained direct contribution callsites, receiving-object provenance, graph-owned tokens and remove-then-rebuild policy; target DoT publication remains open |
 | [re/client-stat-dependency-order.md](re/client-stat-dependency-order.md) | native declared-dependency ordering, cycle diagnostics, growing transaction queues and actual duplicate declarations |
 | [re/client-dot-routing.md](re/client-dot-routing.md) | typed DoT mitigation, healing, ES/Mana/Life routes, self-rate calculations and exact cap/overflow boundaries |
+| [re/client-maximum-resistance-inputs.md](re/client-maximum-resistance-inputs.md) | eight maximum-resistance equations, override order, fire-only transfer, Divine Flesh and two undeclared cold/lightning reads; actor invalidation remains separate |
 | [re/client-offence-estimates.md](re/client-offence-estimates.md) | both-hand typed damage ranges, base/added scaling, conversion, averages/DPS and actual numerical UI readers |
 | [re/client-spell-damage-components.md](re/client-spell-damage-components.md) | thirty spell base/intermediate/selected-added equations, wand splitting, typed qualifications and arithmetic boundaries |
 | [re/client-spell-contributor-builders.md](re/client-spell-contributor-builders.md) | life-cost, hand-cast, Battlemage and weapon-as-spell contributors with native qualification tables |

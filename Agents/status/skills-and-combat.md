@@ -684,6 +684,9 @@ and can require explicit recipes.
   Code: `HitResistances.cs`, `HitMitigation.cs`, Gateway (`MonsterDamage`).
   Docs: [20](../docs/protocol/20-damage.md) §4.
 - **Client damage research (static, partial).** The client integrates per-minute continuous resource rates.
+  [Eight maximum-resistance equations](../docs/re/client-maximum-resistance-inputs.md) now preserve shared
+  bonuses, override-before-cap order, fire-only transfer and Divine Flesh. Cold/lightning each read an
+  undeclared intermediate; actual actor invalidation and numerical target application remain open.
   Incoming `0x1b1` assigns absolute pool values; network Stats honor explicit overrides, including zero.
   Integer pool deltas separately bind skill-cost routing/payment and extra-arrow Life sacrifice.
   The arrow benefit precedes its skip-sacrifice check; two cost callers can bypass payment through a context gate.

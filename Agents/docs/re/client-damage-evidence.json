@@ -14579,7 +14579,8 @@
         }
       ],
       "sourceBatches": [
-        "r19-stat-order"
+        "r19-stat-order",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -14595,7 +14596,8 @@
         }
       ],
       "sourceBatches": [
-        "r19-stat-order"
+        "r19-stat-order",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -14611,7 +14613,8 @@
         }
       ],
       "sourceBatches": [
-        "r19-stat-order"
+        "r19-stat-order",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -14628,7 +14631,8 @@
       ],
       "sourceBatches": [
         "r19-stat-order",
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -14645,7 +14649,8 @@
       ],
       "sourceBatches": [
         "r19-stat-order",
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -14662,7 +14667,8 @@
       ],
       "sourceBatches": [
         "r19-stat-order",
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -14679,7 +14685,8 @@
       ],
       "sourceBatches": [
         "r19-stat-order",
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -39578,7 +39585,8 @@
       ],
       "sourceBatches": [
         "r19-stat-order",
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -68786,7 +68794,8 @@
         }
       ],
       "sourceBatches": [
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -68809,7 +68818,8 @@
         }
       ],
       "sourceBatches": [
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -68832,7 +68842,8 @@
         }
       ],
       "sourceBatches": [
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -68855,7 +68866,8 @@
         }
       ],
       "sourceBatches": [
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -72123,7 +72135,8 @@
         }
       ],
       "sourceBatches": [
-        "r2-route-guards"
+        "r2-route-guards",
+        "r66-max-resistance"
       ],
       "selectedDecompilationCompleted": true
     },
@@ -74736,6 +74749,70 @@
         "r58-resource-sources"
       ],
       "selectedDecompilationCompleted": null
+    },
+    "0x142715540": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x142715540",
+          "endExclusive": "0x142715c7e",
+          "bytes": 1854,
+          "fileOffset": 40978752,
+          "sha256": "9f4073bad77f48a8fbd066cbd3ec263fb5b23388ed7d89967dbfa8de6a95da0d"
+        }
+      ],
+      "sourceBatches": [
+        "r66-max-resistance"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x142715c80": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x142715c80",
+          "endExclusive": "0x1427167d9",
+          "bytes": 2905,
+          "fileOffset": 40980608,
+          "sha256": "7bb37dd624256ebf8e7039af523b2504461a9693b08e51d824f2dd7833e834a3"
+        }
+      ],
+      "sourceBatches": [
+        "r66-max-resistance"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1427167e0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1427167e0",
+          "endExclusive": "0x142716c91",
+          "bytes": 1201,
+          "fileOffset": 40983520,
+          "sha256": "8f4cffad8c7dd103a580a59c0495bef50133f37b5b5b30926af88c6ffd10acc8"
+        }
+      ],
+      "sourceBatches": [
+        "r66-max-resistance"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x142c661f0": {
+      "boundary": "explicit-analyst-leaf-range",
+      "ranges": [
+        {
+          "start": "0x142c661f0",
+          "endExclusive": "0x142c662f5",
+          "bytes": 261,
+          "fileOffset": 46552560,
+          "sha256": "88511e0c33f5c82afa3445356903e6b472f0f3bf8ca16b290f2eb99871cf365e"
+        }
+      ],
+      "sourceBatches": [
+        "r66-max-resistance"
+      ],
+      "selectedDecompilationCompleted": null
     }
   },
   "batches": [
@@ -76123,6 +76200,11 @@
       "name": "r58-resource-sources",
       "auditSha256": "e06a939c8e2c37cfcb08de6a0f3fd28a21d1e7d1db8d78a0c8ef05ec07496a32",
       "functionCount": 6
+    },
+    {
+      "name": "r66-max-resistance",
+      "auditSha256": "ef2dd1906f8a54d3d1385a0241c9caa7e006e2a50ce26cadc94b8953ddb85646",
+      "functionCount": 17
     }
   ],
   "pointerSlots": [
@@ -78552,15 +78634,15 @@
     }
   ],
   "verification": {
-    "entryCount": 4074,
-    "originalByteRangeCount": 5082,
+    "entryCount": 4078,
+    "originalByteRangeCount": 5086,
     "historicalBoundedThunkEntries": 4,
     "pointerSlotCount": 298,
     "selectedDecompilationRecords": 877,
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R58 rechecked all original ranges, ownership, offsets, 298 pointer slots and 1136 prior sealed supports. The retained 24 direct setter sites in 18 owners are classified at their local value boundary; selected LegionBreakout target Life-floor composition passes 438 supplied-state cases / 63879 original instructions / 210 sites. Six identities / twelve ranges / 530 records, 31 anchors and two slots checked. Upstream invocation, callback consequences, accepted-Hit damage, source DoT publication/shared cap and generic clock refresh remain open."
+    "additionalFreshValidation": "R66 freshly rechecked all 4078 retained identities' 5086 original-byte ranges and 298 pointer slots, preserving 1145 prior sealed public supports and 111 R59-R65 private files. Eight maximum-resistance registrars/callbacks pass 2186 supplied-cache cases / 164952 interpreted instructions / 643 sites. Seventeen function records / 22 ranges / 3532 decoded records and 20 semantic anchors checked; four identities newly indexed. Cold/lightning conditionally read undeclared 18914. Declared-graph reachability is not actual actor invalidation or an official bug reproduction. Accepted-Hit numerical deduction, actual DoT instance publication/shared cap/withdrawal and original R2/R3/R4 remain open/Partial."
   },
   "supportingRecords": [
     {
@@ -85387,6 +85469,60 @@
       "bytes": 6616,
       "sha256": "fbf70abdd7620aded873f849928c5a87cda68b2202e98eb34a9a2169f90846ff",
       "role": "R58 finite retained direct setter-input classification and selected Monster/other-owner/LegionBreakout/stored-value Life-floor operation, original inlined reason14 policy and absolute setter. Supplied component/provider/reservation/callback inputs; not upstream invocation, accepted-Hit amount/mitigation, DoT publication/shared cap or a complete resource-write census."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance.py",
+      "bytes": 6645,
+      "sha256": "55c24823a1e0669d7a3873b83c4fb8ffe36f166555d47ef9f242cf731067cd6b",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance-controls.py",
+      "bytes": 7000,
+      "sha256": "f74f2f5c7ad733bcf026351410473f07b4dc9db4a3cc696f92958f9b2b5fa106",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance-verify.py",
+      "bytes": 4956,
+      "sha256": "47fc05b903d829ab57c6487851fc2516721ffa73b6538e402de3a8589f8b33bc",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-publish-prepare.py",
+      "bytes": 5637,
+      "sha256": "45ea7c63543a5198639f932bcbe7a67442f46629863f3ed34b4f8ea454cc0c3c",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance/audit.json",
+      "bytes": 487503,
+      "sha256": "ef2dd1906f8a54d3d1385a0241c9caa7e006e2a50ce26cadc94b8953ddb85646",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance/controls.json",
+      "bytes": 1723945,
+      "sha256": "f82d84ea29ab1f5a08efeb95ee296bf3b1d5c3e20657eca103f515a532f19c9c",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance/verification.json",
+      "bytes": 1029,
+      "sha256": "076a8ce3f9bd58e5c2df1b6ba6a10cfe957337013314ed404616360720f907f3",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance/publication.json",
+      "bytes": 805,
+      "sha256": "ee889a7c66fd3f2592308395a41e25d0bb658590f8bfee495f601ff2e624d278",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r66-max-resistance/findings.md",
+      "bytes": 9521,
+      "sha256": "e878c318094486dc1bbfc528cc091e6a616717927a6858bfd124ed071c9b6f09",
+      "role": "R66 eight maximum-resistance equations, signed override/cap/transfer order, 57 original registration dependencies, two conditional undeclared reads and 2186 supplied-cache original-instruction controls. Declared-graph reachability is separate from actual actor invalidation. No actual Hit deduction, DoT source publication/shared cap or official-server parity."
     }
   ],
   "auxiliaryDataTables": [
@@ -86426,5 +86562,24 @@
     "controlsSha256": "bd69a8354918272a0c777f80be739fc7a593bab244a1b1ac17bf1ba2bd974607",
     "casesSha256": "919e9e5ff20524a02efd8f7f01c9a6a053dca760156796391f6a4397ef2b1915",
     "conclusion": "The finite retained direct-setter inventory has 12 literal-zero slices, four selected LegionBreakout Life-policy sites, one maximum-refresh and seven established delta/payment sites. Selected original Monster/other-source/LegionBreakout/stored-value gates lead to floor-one targeting with original minimum-Life policy. This is not accepted-Hit amount/mitigation or DoT source publication/shared-cap closure."
+  },
+  "maximumResistanceInputVerification": {
+    "path": "Tools/re/out/client-damage-audit/r66-max-resistance/verification.json",
+    "sha256": "076a8ce3f9bd58e5c2df1b6ba6a10cfe957337013314ed404616360720f907f3",
+    "cases": 2186,
+    "interpretedInstructions": 164952,
+    "visitedSites": 643,
+    "registrars": 8,
+    "declaredInputs": 57,
+    "missingDeclaredInputs": {
+      "148": [
+        18914
+      ],
+      "150": [
+        18914
+      ]
+    },
+    "newManifestIdentities": 4,
+    "limitation": "Whole-manifest byte identity and new conditional equations only; original R2/R3/R4 Partial. No gameplay, source-publication, actual actor refresh or accepted-Hit damage claim."
   }
 }

@@ -144,6 +144,9 @@ fire 146 at `0x142716ca0` returns nonzero override 7700 directly, otherwise caps
 cold 148 at `0x142716fa0`, lightning 150 at `0x142717810`, and chaos 152 at `0x142718080` also contain
 ordinary integer component sums and 90 comparisons. These upstream caps do not justify inserting a second,
 unconditional 90 clamp into the final DoT-resistance callback or ignoring an earlier override.
+The [complete maximum-resistance input equations](client-maximum-resistance-inputs.md) now recover eight
+registered callbacks, including fire-only transfer, shared bonuses and Divine Flesh. Cold/lightning each
+conditionally read an undeclared fire-only input; actual actor refresh behavior remains unproven.
 
 ## ES bypass, healing and Mana-before-Life
 

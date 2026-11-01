@@ -117,6 +117,8 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 - **Client damage research:** recover Hit and DoT calculations before proposing further server mechanics.
   Network Actor/skill input freshness and the distinct native transaction/startup boundary are established.
   Typed routing, cap/overflow boundaries, mode-dependent ticks and absolute assignment have static evidence.
+  Reuse the [complete maximum-resistance equations](../docs/re/client-maximum-resistance-inputs.md);
+  investigate actual freshness separately from the two recovered undeclared reads. Do not restage the formulas.
   Outgoing RF parameters and 14408/8198/5981 formulas are bound separately from incoming base rates.
   Resolve source instances into base rates and actual publication eligibility.
   Reuse [bleeding policy inputs](../docs/re/client-bleeding-policy-inputs.md): conditional Crimson Dance,
