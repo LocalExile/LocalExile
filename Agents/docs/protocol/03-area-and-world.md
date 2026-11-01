@@ -77,6 +77,8 @@ activation:
 
 1. `world+0x968` = the caller (the instance client), then `0x142189120` and `0x141ebf050`
 2. **sets `+0xb7a`, replays every queued message through `0x142187480`, frees them, clears `+0xb7a`**
+   and sets `+0xa00=1`, admitting later nonzero-mode frame delimiters; see
+   [World message inputs](../re/projectiles/world-message-inputs.md)
 3. takes the local player `world+0x970` (set while replaying 0x2b9, see [04](04-player-entity.md)) and looks up its
    **"Player" component without a null check**, then registers listeners on it
 

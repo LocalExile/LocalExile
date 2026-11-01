@@ -804,7 +804,9 @@ mechanics remain open; source IDs, support lifecycle and parsed contact tests ar
   a passive enemy aura's `elemental_damage_taken_+%` on fire, cold and lightning. Both are increases that add to the
   monster's `base_damage_taken_+%` (PoB: DamageTaken and ElementalDamageTaken are INC), in `MonsterTakesMitigated`
   (every player hit) and `MonsterBurn` (Righteous Fire); Spell Resistant's less spell damage multiplies after them.
-  25% elemental and 20% taunted: fire 145%, physical 120%.
+  Pride adds `SpawnedMonster.PridePhysicalMore` as a MORE multiplier on the physical part only: 19% at gem level 20,
+  rising linearly to 39% after 4 seconds in the aura. `MonsterDotTaken` applies the same factor to physical damage
+  over time. 25% elemental, 20% taunted and 19% Pride: fire 145%, physical 142.8%.
 - `DamageModel.Mitigate(DamagePacket, ...)` applies each type's own capped resistance.
   Incoming hit commands and monster swings share `PlayerHitMitigation` after resistance.
   Righteous Fire keeps the single-value resistance-only DoT path.

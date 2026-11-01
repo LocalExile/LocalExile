@@ -19,6 +19,7 @@ G = global / static data.
 | `0x140e0c9b0` / `0x140e0cbe0` | Fn | wstr write / read |
 | `0x141fa4610` / `0x141fa44f0` | Fn | blob16 read / write |
 | `0x141fa3c50` / `0x141e61010` | Fn | compact int write / read |
+| `0x141fa3d60` | Fn | signed prefix-length compact reader used by synthetic action aim fields; not zigzag or LEB128 |
 | `0x14089e520` / `0x14089cad0` | Fn | compact int write / read (stream) |
 | `0x14299e440` | Fn | message pump: read id, offer to groups |
 | `0x14299e3b0` | Fn | register handler group |
@@ -122,6 +123,9 @@ G = global / static data.
 | `0x141d876e0` | Fn | TriggerableBlockage: blocks the cells of the Animated model's footprint at the object's grid position ([12](12-quests.md) §6) |
 | `0x1421c2310` | Fn | Transitionable update reader (vtable `0x1435dd290` +0xa0, S→C 0x2ba): u8 target state, steps toward it ([12](12-quests.md) §6) |
 | `0x141e44290` | Fn | TriggerableBlockage reader: u8 blocked, then only while blocked u8 count + count × u8 |
+| `0x141fe14b0` | Fn | S→C 0x1c6 reader: TriggerableBlockage's own update (it has no 0x2ba reader); u8 0 → +0xb8 `0x141e43b60` (unblock), else +0xb0 with the sections ([labyrinth-trials](../game/labyrinth-trials.md)) |
+| `0x141e43200` | Fn | TriggerableBlockage .ot keys: `start_blocked` +0x10, `disable_save` +0x11, `shunt_objects_away` +0x12 (`save_as_diff` not kept) |
+| `0x141d88690` | Fn | stamps objects' Hulls (`0x141d876e0`): some types always, the others only while their TriggerableBlockage is blocked |
 | `0x141ee0ba0` | Fn | blob task lookup by u16 task type (registry), used by the tasks reader `0x141ee00f0` |
 | `0x142f496a0` | G | static initializer table entry (Positioned) |
 | `0x1445bb240`, `0x1445bb6f0`, `0x1445bbe50`, `0x1445bbd60`, `0x1445bb760`, `0x1445bbd10`, `0x1445ba850`, `0x1445bc610` | G | component pools (Positioned, Stats, Pathfinding, Life, Animated, Player, Inventories, Actor) |
@@ -130,7 +134,7 @@ G = global / static data.
 
 | Address | Kind | What |
 |---|---|---|
-| `0x1421c2f40` | Fn | Creation Stats pairs reach the network setter |
+| `0x1421c2f40` | Fn | Creation Stats pairs reach the network setter; trailing LE u32/f32/u8 loads target entropy/timer/reset |
 | `0x1424cfa40` | Fn | Network stat override getter; upstream fallback only when absent |
 | `0x1424cfaf0` | Fn | Insert/replace one raw pair, notifying only that key |
 | `0x1424cfd00` | Fn | Stat change notification to registered listeners |
@@ -210,6 +214,8 @@ G = global / static data.
 | `0x142087910` | Fn | effect script: plays a MiscAnimated as a `Metadata/Effects/*Effect` object |
 | `0x1400bac70` | Fn | registers the derived stat active_skill_area_of_effect_radius (from the base radius and area %) |
 | `0x142155bf0` | Fn | create passive slot 0/1/2 (`instance+0xc2f8`) |
+| `0x140dcda40` | Fn | S→C 0x7b kind 9 (instance +0x19f8): shows the Trial Plaque window (live HUD +0x7e8, built by `0x140b75b90`) ([labyrinth-trials](../game/labyrinth-trials.md)) |
+| `0x141f69230` | Fn | a Labyrinths row's trial done: LabyrinthTrials column 7 quest flag or column 1 league quest flag |
 | `0x140785160` | Fn | UI reading the active passive slot |
 
 ## Items ([13](13-items.md))
@@ -316,6 +322,10 @@ G = global / static data.
 | `0x142163420` case 5 | Fn | S→C 0x7b kind 5 → listeners at instance +0x1778 → `0x140dcd9a0` |
 | `0x142163420` case 0x2b | Fn | S→C 0x7b kind 0x2b (HideoutMapDeviceScreen) → listeners at instance +0x2278; opens the Atlas map device |
 | `0x00e7` | C→S | Atlas map node picked: u16 BE WorldAreas HASH16, u8 0x0d (21-hideouts.md §4) |
+| `0x142150ab1` (case 0x7f) / `0x142150d5c` (case 0x80) | Fn | S→C 0x1a3 Atlas progress masks / 0x1a4 one completed node → instance +0xd030, +0xd070, +0xcff0 (21-hideouts.md §4) |
+| `0x1421560b0` | Fn | 0x1a3 row mask (22 bytes, rows below 170) → an AtlasNode set |
+| `0x14078fc90` | Fn | AtlasNode set lookup (instance +0xcff0 / +0xd030 / +0xd070) |
+| `0x140786d90` | Fn | Atlas node state updater: completed (+0x9cb/+0x9ce) when the node is in instance +0xd070 |
 | `0x140dcd9a0` / `0x140dce1f0` / `0x140dce290` | Fn | open the map device window (modes 0xd, 0x5e, 0x56; lists +0x1778, +0x17f8, +0x1878) |
 | `0x140c2a1c0` | Fn | map device window: Activate button (mode 0xd → `0x142166480`, mode 0x5e → C→S 0x296) |
 | `0x142166480` | Fn | C→S 0x00d8 Activate: u16 (target +0x7b), u8 (writer class `0x1435bff20`) |
@@ -409,6 +419,44 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x141f935a0` / `0x1435bfe78` | Fn/VT | C→S 0x0059 writer / vtable: 16 bytes including opcode |
 | `0x142160020` | Fn | C→S 0x0059 sender; fixed 4/2/2/4/1/1-byte fields |
 
+## Shared projectile execution ([RE 012](../re/012-projectile-execution.md))
+
+Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence and open questions are in
+[the execution ledger](../re/projectiles/evidence-and-open-questions.md).
+
+| Address | Type | Role |
+|---|---|---|
+| `0x141ba4930 → 0x141ba4db0 → 0x141ba51a0` | Fn | release, animation/model contact offset, count/origin/aim/terrain preparation |
+| `0x141ba6070` / `0x141ba61c0` | Fn | generic arrows/projectiles count and per-release distribution |
+| `0x141bb13a0` / `0x141bb0f20` | Fn | single/multiple emission dispatcher and layout profile |
+| `0x141bb89d0` / `0x141bb9280` / `0x141bb9500` / `0x141bb9730` | Fn | Volley / randomized seed-vector / radial / fan layouts |
+| `0x141a0c9d0` / `0x141bba070` / `0x14193a720` | Fn | five-word / seven-word projectile RNG initialization / object-seed hash; recipes in RE 012 random inputs |
+| `0x141bb2480` / `0x141ba99d0` | Fn | per-arrow admission/construction and final placement/observer/overlap/motion |
+| `0x141421a10 → 0x14193dc60` / `0x14193a720` | Fn | derived-byte allocator / object-seed generation boundary |
+| `0x141bacf60` / `0x141e32710` | Fn | shared action motion setup / Positioned frame and due-sample loop |
+| `0x141e4d180` / `0x141e4d390` | Fn | dominant-axis integer path init / next sample, strict >0 minor-axis tie |
+| `0x141ba7b30` / `0x141bad450` | Fn | shared candidate contact / special-object handling |
+| `0x141b6f950` / `0x1419eee20` | Fn | final selected attack / ordinary Fireball avoidance wrappers; acceptance bool inverted |
+| `0x141ee4920 → 0x141ebd1a0` | Fn | supplied f32 chance to target-Stats entropy; target ID/sequence initialization and single-subtraction trial |
+| `0x141e40bd0` / `0x1421c2f40` | Fn | target entropy reset-timer update / creation LE entropy-timer-reset trailer |
+| `0x141ebd038..0x141ebd07c` | Code | attack's one-step defensive-provider redirect/fallback; original target Entity retained, selected component owns entropy |
+| `0x141f92000` / `0x142188162..0x1421881eb` | Fn / Code | property-message common header / typed Stats provider pair loop, separate from entropy creation trailer |
+| `0x141ebd2f0` | Fn | local spell avoidance: deterministic identity seeds or TLS mode, signed extra-roll clamp/min/max |
+| `0x141ebc990` / `0x1424ff510` | Fn | ordered attack probability composition / base u32 accuracy-evasion formula: divisor 5, f32 exponent 0.9, 1.25 multiplier |
+| `0x1403b4950 → 0x142d79cb0` / `0x140664f10` | Fn | native power dispatch/body / f32 add-half floor-to-i32 helper |
+| `0x141ba67b0` / `0x141ba67e0` / `0x141ba68c0` | Fn | completed observer / blocked observer / shared terminal |
+| `0x141bae2b0` / `0x141bae0c0` / `0x141bb8840` | Fn | phase target contains/insert / history deep copy |
+| `0x141bae1d0` / `0x141baf5f0` | Fn | erase own target reservation / dispatch local continuation reason |
+| `0x141baea60` / `0x141baef40` / `0x141baf2a0` | Fn | Chain candidates / ranking flags / redirect |
+| `0x141baf130 → 0x141bb09c0` | Fn | random/terrain Bounce, previously mislabelled Return |
+| `0x141bb04f0` / `0x141bb0710` | Fn | actual Return qualification / phase mutation and redirect-or-clone |
+| `0x14195dde0` / `0x14195de60` | Fn | hit handle reader / sequence-derived-stage comparator |
+| `0x141e90f50` / `0x141e90c30` | Fn | 0x1af immediate/queue / 0x1b0 first-match remove and optional process |
+| `0x141939f40` / `0x14193a170` | Fn | exact local hit-result consumption / stage increment and old-range processing |
+| `0x141e91330` / `0x141e91500` | Fn | result range processing / kind-world filter |
+| `0x14164dc70` | Fn | checked client world getter returns 1+(raw mode==2); ordinary queue survives end batches |
+| `0x141e8ef50` / `0x141e8c890` | Fn | retained-action runner / Actor reset including full pending-result cleanup |
+
 ## Skills ([11](11-skills.md))
 
 | Address | Kind | What |
@@ -437,7 +485,10 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x142197f90..0x142197fd8` | Fn | Actor 0x40 replaces the matching existing cooldown entry vector |
 | `0x1401232e0` | Fn | instant input sender: mode 4 ground 0x190, modes 5/6 object/self 0x191 |
 | `0x1435c0718` | Cls | C→S 0x190 location instant; writer `0x141f91f60`, reader `0x141f92000` |
-| `0x142195880` | Fn | S→C 0x1ce instant action and use consumption, without an ordinary action sequence |
+| `0x142195880` | Fn | shared S→C 0x1ce/0x1cf action executor: transported sequence, derived-one registration and synthetic start/contact |
+| `0x1435c20e8` | Cls | S→C 0x1cf event-bearing action; writer `0x141fde370`, reader `0x141fde530`, copy `0x141fdd6a0` |
+| `0x1421c64a9` | Code | world factory's 0x1cf branch: allocate 0xd8, install message table, invoke reader |
+| `0x1419e54d0` / `0x141bae280` | Fn | action configuration reader / projectile receiver: optional signed speed input to action +434 |
 | `0x1432823d0` | Vt | IceDash action, installed by factory `0x1412805a0` |
 | `0x1412f1200` | Fn | IceDash start: departure at action +0x318, aim at +0x320 |
 | `0x141bfe240` | Fn | blink endpoint: max 42 cells scaled by stat 11856, min 32, then terrain validation |
@@ -452,6 +503,8 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x1421932b0` | Fn | Actor slot 20 reader (f0 0x40 skill list, 0x20 skill update, …) |
 | `0x14246f900` | Fn | SkillGem: the level from the experience (thresholds from ItemExperiencePerLevel) |
 | `0x142197b10` | Fn | Actor 0x40: skills, soul row/capacity/current, cooldown trailer |
+| `0x141fdeb10` / `0x141fdea50` | Fn | S2C 0x1b4 skill/stat-set raw-pair reader/writer ([11](11-skills.md#31-s2c-0x1b4-update-one-skills-stat-set)) |
+| `0x142194482..0x1421946d7` | Code | Actor 0x1b4: full-u16 skill lookup, selected network stats, pair setter and conditional cooldown refresh |
 | `0x142198800` | Fn | Actor 0x20: skills/removes, soul seeds, current/new-capacity updates |
 | `0x142199a80` | Fn | Sorted soul-entry upsert at skill manager +0x188, stride 0x20 |
 | `0x141eea5b0` | Fn | Soul payload lookup through GrantedEffects ActiveSkills pointer |
@@ -514,7 +567,7 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x1419e7500` / `0x1419e763c` | Fn / Code | Ordinary spell speed getter / read cast_speed_+% (296) |
 | `0x141d84b00` | Fn | terrain height of a cell (terrain, int cell[2]) in steps of 7.8125; `0x141e35800` interpolates for a Positioned |
 | `0x1415f53c0` | Fn | Render: model transform; tilt = −`0x141e35c00`(Positioned) when the type has `tilt_to_target` |
-| `0x141e34400` | Fn | Positioned: start a move (interpolation `0x141e4d180`; height 0x7fffffff = terrain, else z = −height × 7.8125) |
+| `0x141e34400` | Fn | Positioned: start a move (integer path `0x141e4d180`; height 0x7fffffff = terrain, else z = −height × 7.8125) |
 | `0x141e3491a` / `0x141e34921` | Fn | Move endpoint/current Positioned markers passed to the 3D stepper |
 | `0x141e3495b` to `0x141e3496b` | Code | Move endpoint world z = -marker * 7.8125 before render interpolation |
 | `0x141e4d510` | Fn | Render interpolation setup: stores endpoint world z minus current world z |

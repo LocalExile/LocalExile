@@ -9,9 +9,9 @@
 /// go through the same placement. The rows below copy the .arm lines; nothing is measured by eye.
 /// <para>Which NPCs: the campaign NPCs of the room (Metadata/NPC/Act*, Epilogue). Not placed: league NPCs (Einhar, Niko,
 /// Jun, Alva, the Expedition four, Divinia, Faustus, Kurai, Cassia, Tane, Johan), the Tutorial NPC and Letters of
-/// Exile, quest-stage variants (only the first one is placed: Lady Dialla before she withers, Bannon before Innocence
-/// leaves him, Lilly by her ship in act 6) and NPCs the Gateway cannot serialize yet (Kirac, the Karui Shores'
-/// HelenaIntro: ControlZone).</para>
+/// Exile, quest-stage variants (only the first one is placed: Lady Dialla before she withers, Lilly by her ship in act 6;
+/// a stage a quest's rules pick stands in the list with the others: Oriath Docks' BannonTown and InnocenceTown) and NPCs
+/// the Gateway cannot serialize yet (Kirac, the Karui Shores' HelenaIntro: ControlZone).</para>
 /// <para>Several NPCs stand on cells the client's walk map marks blocked (on stalls, platforms and piers: Hargan in
 /// both Sarn Encampments, Grigor, Highgate's Petarus and Vanja and Tasuni in both acts, Act 6's Sin and Lilly, Act 7's
 /// and Act 8's Sin) or on edge cells (Tarkleigh, Eramir, Silk, Helena, Irasha …). They are placed as the room has them;
@@ -118,13 +118,15 @@ static class TownNpcs
             new(Npc + "Act3/Maramoa", 305, 350, -1.36175f, Z: -62.5f),
             new(Npc + "Act3/ClarissaTown", 179, 376, -0.985034f, Z: 54.6875f),
         ]),
-        // town.dgr: R270. Also DiallaTownWithered at (250, 553), her later stage.
+        // town.dgr: R270. Both Diallas: DiallaTown, and DiallaTownWithered, her stage once the Rapture Device works
+        // (Acts/Act4.cs: a4q1-RaptureActivated decides which one stands there).
         new(0xb63e, "1_4_town", new("Metadata/Terrain/Act4/Town/Rooms/town.arm", 759, 943, 3),
         [
             new(Npc + "Act4/Kira", 252, 160, 2.82952f, Z: -335.938f),
             new(Npc + "Act4/Oyun", 260, 566, -0.469922f, Z: -695.313f),
             new(Npc + "Act4/PetarusVanja", 206, 213, 0.520564f, Z: -335.938f),
             new(Npc + "Act4/DiallaTown", 253, 555, 1.11073f, Z: -695.313f),
+            new(Npc + "Act4/DiallaTownWithered", 250, 553, 0.399797f, Model: "Metadata/NPC/Act4/DiallaWithered.ao"),
             new(Npc + "Act4/Tasuni", 311, 407, 0.00824316f, Z: -392.663f),
         ]),
         // 1_5_town.dgr: I.
@@ -175,6 +177,9 @@ static class TownNpcs
         [
             new(Npc + "Act10/SinTown", 490, 275, -2.79379f, Z: -86.9565f),
             new(Npc + "Act10/BannonTown", 470, 295, -0.497837f),
+            // dock_town.arm lists InnocenceTown on Bannon's cell: Bannon's later stage once he takes Avarius' staff
+            // (Acts/Act10.cs: a10q2-BannonTransformed decides which one stands there).
+            new(Npc + "Act10/InnocenceTown", 470, 295, -0.497837f),
             new(Npc + "Act10/Weylam", 457, 356, -1.08016f, Model: "Metadata/NPC/Act6/RotTooth.ao"),
             new(Npc + "Act10/Lani", 431, 274, 2.71676f),
             new(Npc + "Act10/Lilly", 448, 364, -0.0830655f, Model: "Metadata/NPC/Act5/Lilly.ao"),

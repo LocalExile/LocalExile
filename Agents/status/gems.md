@@ -72,6 +72,8 @@ Nothing yet.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
+  Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed
+  (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); tested, not yet checked with the real client.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays

@@ -614,7 +614,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Granted effects whose Projectiles.dat row is not named after them, by effect Id. Kinetic Blast's effect is
     // ClusterBurst (the skill data names no row); it uses the wand attack's projectile at the same 3260 speed. Tornado
     // Shot's arrow is TornadoShotArrow (2173); without it every use was refused while the client had stopped to shoot,
-    // and the server walked on (live 2026-10-29).
+    // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -626,11 +626,30 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["TornadoShot"] = "Metadata/Projectiles/TornadoShotArrow",
         ["TornadoShotAltX"] = "Metadata/Projectiles/TornadoShotArrow",
         ["TornadoShotAltY"] = "Metadata/Projectiles/TornadoShotArrow",
+        ["SparkAltX"] = "Metadata/Projectiles/Spark",
+        ["SparkAltY"] = "Metadata/Projectiles/Spark",
+        ["VaalSpark"] = "Metadata/Projectiles/Spark",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
     public (string Id, int Speed)? Projectile(string id) =>
         _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
+
+    /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
+    /// contact for a projectile it draws itself (0x141e32710 → 0x141e47a40, 11-skills.md "Hit").</summary>
+    public int? ProjectileContactCells(string id) => _projectileContacts.Value.TryGetValue(id, out int cells) ? cells : null;
+
+    private readonly Lazy<Dictionary<string, int>> _projectileContacts = new(() =>
+    {
+        var result = new Dictionary<string, int>();
+        using var d = DataFile(Path.Combine(folder, "tables", "Projectiles.json"));
+        if (d is null) return result;
+        static int Cells(JsonElement r, string key) => r.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+        foreach (var r in d.RootElement.EnumerateArray())
+            if (r.GetProperty("Id").GetString() is { } id)
+                result.TryAdd(id, Math.Max(Cells(r, "CollisionRadius"), Cells(r, "CollisionCandidateRadius")));
+        return result;
+    });
 
     private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
     {

@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Login;
 
 
 // The Gateway's repeatable in-process measurements (Agents/docs/dev/performance.md), run from the repository root:
-//   dotnet run -c Release --project scripts/perf/PerfBench -- <catalogue|area|busy|planner|single|idle>
+//   dotnet run -c Release --project scripts/perf/PerfBench -- <catalogue|area|busy|planner|single|idle|sweep>
 // The first-player catalogue loads, an area instance's creation (server level generation, layout, monster population),
 // a busy instance's monster AI with its swings and projectiles, the AI planner alone, one player's memory through the
 // town, a combat area and a boss area, and one idle player's per-connection loops. One scenario per process
@@ -34,7 +34,8 @@ static class PerfBenchMain
                 case "planner": await PerfBench.Monster_planner(); break;
                 case "single": await PerfBench.Single_player_memory(); break;
                 case "idle": await PerfBench.Idle_player_cpu(); break;
-                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle"); return 2;
+                case "sweep": await PerfBench.Area_sweep(); break;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep"); return 2;
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
@@ -550,5 +551,102 @@ static class PerfBench
             (conn.Performance.Read(LatencyPhase.BlockerBuild).TotalMilliseconds - blockersBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
         conn.Closed = true;
     }
-}
 
+    // One Ice Nova (level 20, in a body armour socket) on N monsters inside its radius: the real AreaSkillHit with every
+    // packet encrypted and sent, at 100, 300 and 500 monsters, and the per-call cost of the inputs its loop reads.
+    // The monsters keep a huge life pool, so the sweeps measure hits (no deaths, loot or experience).
+    public static async Task Area_sweep()
+    {
+        _ = ConsoleLog.Value;
+        using var wire = new Wire();
+        const string id = "1_1_2";
+        var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf(id)!.Value, 1);
+        var conn = Player(layout, 1);
+        var items = Game.ItemsFor(conn);
+        var (gemType, variant) = items.FindGem("Ice Nova") ?? throw new InvalidOperationException("no Ice Nova gem");
+        var gem = Game.ItemsFor(conn).Gem(gemType)!;
+        var created = ItemCatalog.Create(gemType) with { GemExperience = gem.ExperienceFor(20), GemVariant = variant.Index };
+        var robe = items.Find("Simple Robe") ?? throw new InvalidOperationException("no Simple Robe");
+        var inventories = Game.ItemsOf(conn);
+        inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(inventories.NewItemId(), 0, 0,
+            ItemCatalog.Create(robe) with { Sockets = [new ItemSocket(SocketColour.Blue, created)] }));
+        var nova = Game.GemSkillEffects(conn).First(g => g.Name.Contains("Ice Nova"));
+        var kind = Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite") ?? Game.Packs.For(id)!.Scattered
+            .SelectMany(p => p.Pack.Entries).Select(e => Game.Monsters.Find(e.Variety.ToString()))
+            .OfType<MonsterCatalog.Variety>().First(v => v.Supported && Game.Emerges.Kind(v, MonsterRarity.Normal) == EmergeKind.None);
+        var (px, py) = (layout.SpawnX, layout.SpawnY);
+        var random = new Random(7);
+        foreach (int crowd in (int[])[100, 300, 500])
+        {
+            while (conn.Monsters.Count < crowd)
+            {
+                // Inside the nova's radius (the aimed point is the player): spawning may push a monster a little out.
+                int x = px + random.Next(-12, 13), y = py + random.Next(-12, 13);
+                await Game.SpawnMonster("perf", wire.Stream, wire.Ciphers, conn, kind, 5, MonsterRarity.Normal, x, y, log: false);
+            }
+            // Crowded spawns push each other apart: put every monster back inside the radius (overlapping is fine here).
+            double now0 = conn.Clock.Elapsed.TotalSeconds;
+            foreach (var m in conn.Monsters.Values)
+            {
+                m.Walk.Teleport(px + random.Next(-15, 16), py + random.Next(-15, 16), now0);
+                m.Life = 1_000_000_000; m.FlinchUntil = 0;
+            }
+            const int Sweeps = 6;
+            var times = new List<double>();
+            long allocated = 0, sent = 0;
+            for (int i = 0; i < Sweeps; i++)
+            {
+                foreach (var m in conn.Monsters.Values) m.FlinchUntil = 0;
+                long a0 = Allocated(), s0 = Interlocked.Read(ref wire.Received);
+                var clock = Stopwatch.StartNew();
+                await Game.AreaSkillHit("perf", wire.Stream, wire.Ciphers, conn, nova.Id, nova, (px, py), (px, py), immediate: true);
+                times.Add(clock.Elapsed.TotalMilliseconds);
+                if (i > 0) { allocated += Allocated() - a0; sent += Interlocked.Read(ref wire.Received) - s0; }
+            }
+            // The first sweep is a fresh process's JIT; the median of the others.
+            var warm = times.Skip(1).Order().ToList();
+            Record("sweep", $"{crowd} monsters: first sweep ms", times[0], "ms");
+            Record("sweep", $"{crowd} monsters: sweep ms (median)", warm[warm.Count / 2], "ms");
+            Record("sweep", $"{crowd} monsters: allocated MB per sweep", allocated / 1048576.0 / (Sweeps - 1), "MB");
+        }
+        // The loop's inputs, one call each, as the sweep reads them per victim or per sweep.
+        void Time(string name, Action call, int n = 2000)
+        {
+            for (int i = 0; i < 50; i++) call();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            var clock = Stopwatch.StartNew();
+            for (int i = 0; i < n; i++) call();
+            Record("sweep", $"{name} µs per call", clock.Elapsed.TotalMilliseconds * 1000 / n, "µs");
+            Record("sweep", $"{name} KB per call", (GC.GetAllocatedBytesForCurrentThread() - a0) / 1024.0 / n, "KB");
+        }
+        var first = conn.Monsters.First();
+        var player = Game.CharacterPlayerStats(conn);
+        var skillStats = Game.SupportedSkill(conn, nova.Id).Stats;
+        var hit = Game.SupportedHit(conn, nova.Id);
+        var pen = Penetration.Of(player, Program.Stats, attack: false, skillStats, null);
+        var mods = Game.HitResistMods(player, skillStats);
+        lock (conn.Monsters)
+        {
+            Time("CharacterPlayerStats", () => Game.CharacterPlayerStats(conn), 200);
+            Time("SupportedHit", () => Game.SupportedHit(conn, nova.Id), 200);
+            Time("SupportedCriticalChance", () => Game.SupportedCriticalChance(conn, nova.Id), 200);
+            Time("SupportedCriticalMultiplier", () => Game.SupportedCriticalMultiplier(conn, nova.Id), 200);
+            Time("roll + mitigation (MonsterDamage)", () => Game.MonsterDamage(first.Value,
+                hit.Roll(Random.Shared), false, attack: false, mods, pen, out _, false));
+        }
+        Time("LifeUpdate packet", () => InstanceProtocol.LifeUpdate(first.Key, 5));
+        lock (conn.Monsters)
+        {
+            Time("ChargesOnHit", () => Game.ChargesOnHit(conn, first.Value, false, true, nova.Effect, nova.Level, nova.Quality), 200);
+            var leech = Game.HitLeechSources(player, false, skillStats, null);
+            var rolledHit = hit.Roll(Random.Shared);
+            Time("LeechOnHitLocked", () => Game.LeechOnHitLocked(conn, first.Value, rolledHit, 10, leech), 200);
+            Time("ApplyMonsterHitLocked", () => Game.ApplyMonsterHitLocked(conn, first.Value, 1, null, null), 200);
+            Time("GamblerFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(conn, player, first.Value,
+                (Game.GamblerFor(player) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
+        }
+        Time("NotifyMonsterHit (sends)", () => Game.NotifyMonsterHit("perf", wire.Stream, wire.Ciphers, conn, first.Key, first.Value,
+            new(1_000_000, false), 1, "bench", log: true).GetAwaiter().GetResult(), 200);
+        conn.Closed = true;
+    }
+}

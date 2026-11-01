@@ -39,6 +39,7 @@ def main():
                     help="wait for a NEW process with this name (attach as it starts) instead of attaching to the running one")
     ap.add_argument("--seconds", type=float, default=0, help="exit after this many seconds (0 = until Ctrl-C)")
     ap.add_argument("--log", help="also append messages to this file")
+    ap.add_argument("--finish-rpc", help="call this exported RPC, when present, before detaching")
     args = ap.parse_args()
 
     device = frida.get_local_device()
@@ -54,10 +55,12 @@ def main():
             time.sleep(0.02)
     else:
         pid = pick_pid(device, args.target)
-    session = device.attach(pid)
     log = open(args.log, "a", encoding="utf-8") if args.log else None
     stop = threading.Event()
+    session_gone = threading.Event()
     lock = threading.Lock()   # Frida's callbacks run on its own threads
+    session = None
+    scripts = []
 
     def emit(line):
         with lock:
@@ -69,36 +72,53 @@ def main():
     def on_message(message, data):
         emit(json.dumps(message, ensure_ascii=False))
 
-    for path in args.scripts:
-        source = open(path, encoding="utf-8").read()
-        script = session.create_script(source, name=path)
-        script.on("message", on_message)
-        script.load()
-        emit(json.dumps({"loaded": path}))
     # A crashed or closed client ends the session: say why ("process-terminated") and stop. Our own detach (Ctrl-C,
     # --seconds) is reported below.
     def detached(reason, crash):
         if reason != "application-requested":
             emit(json.dumps({"detached": pid, "reason": reason, "crash": str(crash) if crash else None}))
         stop.set()
-
-    session.on("detached", detached)
-    emit(json.dumps({"attached": pid, "message": "listening; Ctrl-C detaches"}))
+        session_gone.set()
 
     def timer():
         time.sleep(args.seconds)
         stop.set()
 
-    if args.seconds:
-        threading.Thread(target=timer, daemon=True).start()
     try:
+        session = device.attach(pid)
+        session.on("detached", detached)
+        for path in args.scripts:
+            with open(path, encoding="utf-8") as source_file:
+                source = source_file.read()
+            script = session.create_script(source, name=path)
+            script.on("message", on_message)
+            script.load()
+            scripts.append(script)
+            emit(json.dumps({"loaded": path}))
+        emit(json.dumps({"attached": pid, "message": "listening; Ctrl-C detaches"}))
+        if args.seconds:
+            threading.Thread(target=timer, daemon=True).start()
         while not stop.is_set():
             time.sleep(0.2)
     except KeyboardInterrupt:
         pass
     finally:
-        session.detach()
-        emit(json.dumps({"detached": pid}))
+        try:
+            if session is not None and not session_gone.is_set():
+                try:
+                    if args.finish_rpc:
+                        for script in scripts:
+                            try:
+                                if args.finish_rpc in script.list_exports_sync():
+                                    getattr(script.exports_sync, args.finish_rpc)()
+                            except Exception as exc:
+                                emit(json.dumps({"type": "error", "description": f"finish RPC failed: {exc}"}))
+                finally:
+                    session.detach()
+                emit(json.dumps({"detached": pid}))
+        finally:
+            if log:
+                log.close()
 
 
 if __name__ == "__main__":

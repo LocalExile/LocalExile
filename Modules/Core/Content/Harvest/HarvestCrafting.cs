@@ -51,7 +51,7 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
             Operation.Convert => items.ConvertMod(item, recipe.Convert, rng),
             _ => null,
         };
-        return result is null ? null : new(result with { Identified = true }, recipe.Costs);
+        return result is null ? null : new(ItemRolls.ClearForesee(result with { Identified = true }), recipe.Costs);
     }
 
     Item? Augment(Item item, string tag, Random rng)

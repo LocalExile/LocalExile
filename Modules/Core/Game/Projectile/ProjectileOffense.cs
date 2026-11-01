@@ -29,6 +29,8 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public int? SecondFormCriticalChance { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
+    /// <summary>The chance against a target on the player's profane ground (Rational Doctrine), or null.</summary>
+    public int? VsProfaneCriticalChance { get; init; }
     public string? AreaVisual { get; init; }
     public string? FlightVisual { get; init; }
     /// <summary>The client spawns this use's primary projectiles itself (its own skill use), so the server sends no object

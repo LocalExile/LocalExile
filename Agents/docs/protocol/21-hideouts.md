@@ -125,7 +125,33 @@ The map device's `.ot`: Targetable `is_map_device = true`, `required_league_ques
 StateMachine `define_shared_state = "opening; active;"` with `per_player_quest_flag_state_opening_1 = "MapDeviceOpening"`
 and `…_active_1 = "MapDeviceActive"`. Clicking it sends C→S 0x24; the server walks there and sends **S→C 0x7b kind 0x2b** (`HideoutMapDeviceScreen` in the screen table at `0x142fc5920`), which opens the Atlas map device with its four starting map nodes. Kind 5 (`MapDeviceScreen`) opens the older, non-Atlas window; it has no node selection and opens the default layout. The hideout window's slots are Inventories row 13 `Map1` (3 × 2), already registered on login.
 
-**Atlas node selection.** A click on a node sends **C→S 0x00e7** (5 bytes: u16 BE WorldAreas HASH16, u8 0x0d). The Gateway maps the HASH16 to an `AtlasCatalog.Layout` and stores it per character; the next generic map key opens that layout. The client refuses to activate an Atlas map unless the normal quest flag **EndGameAvailable** is set ("You do not have the required Quest State to access this area"; live 2026-10-29), so every character gets it..
+**Atlas node selection.** A click on a node sends **C→S 0x00e7** (5 bytes: u16 BE WorldAreas HASH16, u8 0x0d). The Gateway maps the HASH16 to an `AtlasCatalog.Layout` and stores it per character; the next generic map key opens that layout. The client refuses to activate an Atlas map unless the normal quest flag **EndGameAvailable** is set ("You do not have the required Quest State to access this area"; live 2026-10-29), so every character gets it, and every map area has it in its WorldAreas EndQuestFlags. It is also the Epilogue's gate and Kitava's Act 10 penalty (QuestStaticRewards 39), so until a character earns it (Kitava) the client gets it only in a hideout and in a map area (`Quests.EndgameOnly`, Game `PlayerQuestFlags`, like ThisIsMyHideout); there, before Kitava, the character panel shows the second −30% that the server's resistances do not count yet.
+
+**Atlas progress (completed maps).** The client keeps three sets of the instance (constructor `0x142144b50`, rebuilt
+with every area): +0xcff0 (WorldAreas rows), +0xd030 and +0xd070 (AtlasNode rows; MSVC `unordered_set` of the row
+reference, lookup `0x14078fc90`). The node state updater `0x140786d90` marks a node completed (+0x9cb/+0x9ce, drawn
+with `AtlasMapCompletedFrame` by `0x14079e680`) when it is in +0xd070, and that opens its AtlasNode `Connections`
+(live 2026-11-01: Chateau completed lit Springs and Arachnid Nest). Two messages fill them; the dispatcher's r13 is the
+instance + 8, so its +0xd068 is +0xd070:
+
+- **S→C 0x1a3** (case 0x7f `0x142150ab1`, read `0x1421a9970`), the whole state: u8 → +0xc400, u8 → +0xc401, u8 → +0xd0f0
+  (unknown, 0), u8 sections, u8 n × (u16, u16) (→ +0xd0a8, unknown; 0), then by section bit: 0x1 22 bytes → +0xd030,
+  0x2 22 bytes → +0xd070 (`0x1421560b0`: bit r of byte r / 8 is AtlasNode row r; rows from 170 are ignored, the
+  RandomContent nodes), 0x4 a WorldAreas list → +0xcff0, 0x8 and 0x10 further lists (see the schema). A section that is
+  sent replaces its set.
+- **S→C 0x1a4** (case 0x80 `0x142150d5c`, read `0x141f96560`), one node: u16 BE AtlasNode HASH16 (looked up in the
+  AtlasNode table's HASH16 index), u8 → +0xc400, u8 → +0xc401, u8 flags. The node is added to +0xd030, with bit 0x2 also
+  to +0xd070, with bit 0x4 its area to +0xcff0.
+
+The Atlas module (`AtlasProgress.cs`) saves the completed AtlasNode Ids per character (module data `completed`). Area
+entry sends one filled 0x1a3 with the 0x3d presets, before 0x21, so the HUD is not up and does not announce them
+(live 2026-11-01: a filled 0x1a3 or a 0x1a4 after 0x21 listed every saved map as completed). A kill, in an AtlasNode's
+Area1/Area2, of its WorldAreas `Bosses_MonsterVarietiesKeys` or of any unique monster sends 0x1a4 with flags 0x02 and
+one chat line, only the first time.
+`/atlas_complete <one map>` sends 0x1a4 like a first completion; `/atlas_complete all` only saves (a filled 0x1a3 after
+0x21 announced every map); `/atlas_reset` sends an empty 0x1a3. Method: [re/013](../re/013-atlas-progress.md). Not yet:
+the meaning of +0xc400/+0xc401 and the 0x4/0x8/0x10 sections (bonus objectives, Voidstones and the like), and Atlas
+passive points from progress.
 
 ## 5. The map device: slots, Activate, portals
 
@@ -163,7 +189,8 @@ because `MapKeyTierN` names the tier). `/item Map (Tier 5)` makes one. `MapKeys.
 the Atlas layout selected for the character in the native panel; `/atlas <layout id or name>` is a dev fallback. The
 first starting node (Cells) is the default. The selection is saved per character and restored on login. A generic
 map's area level follows its tier (`tier + 67`: tier 1 = 68, tier 16 = 83); old area-named maps keep their WorldAreas
-level.
+level. The client generates the layout at the 0x1d level, so the Gateway generates it there too
+(`ServerLevels.PlayableSeed` keeps the level for the seed played; re/011 §8).
 
 **Portals** are `Metadata/MiscellaneousObjects/MultiplexPortal` (`MapPortalObject`): Positioned, BaseEvents, StateMachine,
 Animated, Portal, Transitionable, MinimapIcon, InteractionAction, all read except BaseEvents (Frida

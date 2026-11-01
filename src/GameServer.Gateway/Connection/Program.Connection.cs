@@ -94,8 +94,12 @@ partial class Program
                     return;
                 }
                 ushort areaHash = resolved.Area;
-                // The client generates the area at the seed of 0x1d: one the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed);
+                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
+                string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
+                byte areaLevel = MapDevice.OpenOf(characterName) is { } openMap && openMap.Area.Hash16 == areaHash
+                    && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
+                // The client generates the area at the seed and level of 0x1d: a seed the Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel);
                 ulong instanceId = resolved.Instance;
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
@@ -120,8 +124,6 @@ partial class Program
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
-                byte areaLevel = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == areaHash
-                    && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
                 var moduleHeader = ServerHooks.Header(PlayerOf(conn));
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),

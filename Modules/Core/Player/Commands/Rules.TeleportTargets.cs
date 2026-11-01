@@ -15,8 +15,8 @@ static class TeleportTargets
     /// <summary>Where the player lands: a cell, and what it is next to (null for a cell given by coordinates).</summary>
     public sealed record Destination(int X, int Y, string? Next);
 
-    /// <summary>Every named place of the player's area, in a stable order: monsters, NPCs, area transitions, the waypoint,
-    /// the arrival point, then the capture's objects in file order.</summary>
+    /// <summary>Every named place of the player's area, in a stable order: monsters, NPCs, the area transitions it sees,
+    /// the waypoint, the arrival point, then the capture's objects in file order.</summary>
     public static List<Target> Candidates(ClientState conn, string folder = "data/walkability")
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -28,8 +28,16 @@ static class TeleportTargets
                 list.Add(new(m.Label, id, x, y));
             }
         lock (conn.Npcs)
-            foreach (var (id, n) in conn.Npcs) list.Add(new(n.Npc.Name, id, n.X, n.Y));
-        foreach (var (id, t) in conn.Layout.AreaTransitions)
+            foreach (var (id, n) in conn.Npcs)
+            {
+                // By name and by type (NPCs.dat Id's last part): several share a name (Lady Dialla, Sin, Nessa), the
+                // campaign steps name the one they mean (DiallaRapture, SinTukohama, NessaMudFlats).
+                list.Add(new(n.Npc.Name, id, n.X, n.Y));
+                string type = n.Npc.Id[(n.Npc.Id.LastIndexOf('/') + 1)..];
+                if (!type.Equals(n.Npc.Name, StringComparison.OrdinalIgnoreCase)) list.Add(new(type, id, n.X, n.Y));
+            }
+        // The exits this player sees: a quest's replaced, gated or league-scoped ones stay in the layout (TransitionShown).
+        foreach (var (id, t) in conn.Layout.AreaTransitions.Where(e => TransitionShown(conn, e.Id, e.Transition)))
             list.Add(new($"transition to {AreaTransitionCatalog.IdOf(t.DestinationHash16) ?? $"0x{t.DestinationHash16:x4}"}", id, t.GridX, t.GridY));
         if (conn.Layout.Waypoint is { } w) list.Add(new("waypoint", null, w.GridX, w.GridY));
         list.Add(new("arrival", null, conn.Layout.SpawnX, conn.Layout.SpawnY));

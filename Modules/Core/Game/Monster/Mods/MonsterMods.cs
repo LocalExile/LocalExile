@@ -96,13 +96,16 @@ static partial class Game
     {
         var e = m.Mods.Effects;
         double physical = mitigated[DamageType.Physical].Min;
-        double total = mitigated.MinTotal - physical * e.PhysicalReduction / 100.0;
+        double physicalTaken = physical * Math.Max(0, 1 - e.PhysicalReduction / 100.0);
+        double total = mitigated.MinTotal - physical + physicalTaken;
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
-        // increase on fire, cold and lightning only.
+        // increase on fire, cold and lightning only, and Pride's more Physical Damage on the physical part.
         double factor = MonsterDamageTaken(m, spell, now);
-        if (m.TakenFromPlayer.Elemental == 0) return (int)Math.Round(total * factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        return (int)Math.Round(total * factor + elementalDamage * (MonsterDamageTaken(m, spell, now, elemental: true) - factor));
+        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor : MonsterDamageTaken(m, spell, now, elemental: true);
+        double physicalFactor = 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
+        return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor
+            + physicalTaken * factor * (physicalFactor - 1));
     }
 
     internal static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell) =>
@@ -145,8 +148,10 @@ static partial class Game
     internal static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
     {
         var resistance = MonsterHitResistance(m, type, default);
-        return (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
+        double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type));
+        if (type == DamageType.Physical) factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
+        return factor;
     }
 
     // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life

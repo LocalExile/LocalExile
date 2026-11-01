@@ -83,7 +83,7 @@ public static class InstanceProtocol
         InstanceSocial.TradeRequestAcceptId => InstanceSocial.TradeRequestAcceptLength,
         InstanceSocial.PartyAcceptId => InstanceSocial.PartyAcceptLength,
         InstanceSocial.PartyLeaveId => InstanceSocial.PartyLeaveLength,
-        InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength,
+        InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength, InstancePantheon.ChooseGodId => InstancePantheon.ChooseGodLength,
         InstanceWaypoints.VisitDelveHubId => InstanceWaypoints.VisitDelveHubLength, InstanceWaypoints.VisitSanctumId => InstanceWaypoints.VisitSanctumLength,
         InstanceWaypoints.VisitKingsmarchId => InstanceWaypoints.VisitKingsmarchLength, InstanceWaypoints.VisitHeistHubId => InstanceWaypoints.VisitHeistHubLength,
         InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength,

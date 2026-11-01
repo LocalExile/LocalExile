@@ -150,8 +150,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   keystone was allocated; after allocation the ring appeared and Dire Torment (9015) next to it was accepted.
   Replenishing Remedies (50690, 953.7 units from Supreme Ego) is inside the client ring and is now accepted too. The
   command now warns when the chosen keystone is not allocated; the five legacy row-valued items were migrated on load
-  and their tooltips now show Supreme Ego/Versatile Combatant. Rational Doctrine now has a `/unique_jewel` item source with
-  its four ground mods; the ground mechanics themselves remain inert.
+  and their tooltips now show Supreme Ego/Versatile Combatant. Rational Doctrine (`/unique_jewel`) creates
+  consecrated ground while stationary with Strength highest and profane ground on a critical strike with Intelligence
+  highest; both effects linger for 4 seconds, and hits against enemies on profane ground have 100% increased critical
+  chance. The profane-ground debuff and its critical-chance consumer have automated coverage. Live 2026-11-01 (the
+  item's stats set through `/set_stat`): a critical strike created the profane ground art, applied buff 1569, and
+  removed it after the linger.
 
 - Wiki catalogue gap check: the poewiki list (189 distinct names) vs this catalogue (182) leaves Bound By Destiny,
   Forbidden Flame/Flesh, Megalomaniac, Sublime Vision, The Balance of Terror and Watcher's Eye unimplemented; they are

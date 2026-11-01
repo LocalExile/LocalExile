@@ -40,8 +40,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   In a layout the Gateway generates, each exit leads where the graph node of its room says: "entranceN" to
   Connections[N − 1], "teleportN" to the "telepadN" slot as a gate within the area (the Upper Prison's way to the
   Warden's Quarters, boss arenas).
+  An exit the layout disables ("entranceNdisabled") is created when a quest gates it (`Quests.FlagToEnter`), and shown
+  once the character has the flag, as for any gated exit (Act 3: The Upper Sceptre of God's way to The Aqueduct, The
+  Library's into The Archives; Acts 7–10: The Ashen Fields' way north, The Harbour Bridge's into Act 9, Sin's portal
+  home from The Feeding Trough; checked offline, not yet with the client on the modules).
   Other areas use the walk-map recorder's capture and the atlas.
-  The offline audit `scripts/re/exits` checks every generated area at several seeds;
+  The offline audit `scripts/re/exits` checks every generated area at several seeds (`--quests`: with the act tables,
+  so the gated disabled exits too);
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
@@ -125,6 +130,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   A seed the port cannot generate (2 of 21 for The Coast, 5 of 21 for 1_2_12) is played at the first of 8 replacements
   derived from it that the port generates (`ServerLevels.PlayableSeed`, sent in 0x1d): before, such a map had no walk
   grid, area transitions or waypoint.
+  An opened map is generated at the area level 0x1d sends (its tier: 83 for tier 16), the level the client generates
+  at, not its WorldAreas level (2026-11-01). Before, a tier-16 Chateau (WorldAreas 71) took another topology than the
+  client's, so the player spawned outside the client's layout (a black screen), and seeds the client cannot build
+  were played.
 - **Level generator port.** `GameServer.Data/Terrain/Generation` reproduces the client's level generator: the tile
   grid, the walkability and projectile grids, the doodads, every cell's ground height (`CellHeights.cs`) and the area
   transitions and waypoints (`AreaObjects.cs`: the tiles' objects, and a room's `Waypoint` line where no tile places
@@ -158,6 +167,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Labyrinth's boss ends use the layout the client builds with seed 0; the server sends no daily layout.
   Code: `GameServer.Data/Terrain/Generation`, `scripts/re/levelgen`.
   Docs: [re/011](../docs/re/011-level-generation.md).
+- **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
+  Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
+  The door opens, a lever opens the nearest Locked Door, the plaque sets the trial's quest flag (the client counts it
+  done), opens the portal back to the door and opens the Trial Plaque window (0x7b kind 9) with the trials done.
+  What an instance opened stays open; an opened Locked Door is removed, since the client keeps its cells closed.
+  Verified with the real client in The Lower Prison (2026-10-31).
+  Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
+  over a stretched Emerge animation (0x1d1), hit a player on their tile for LbRetractableTrap's share of life and energy
+  shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
+  Not built: the other traps, the trials' monsters, the toggling, multi and timed levers of the other trials, and
+  league-wide trials (league quest flags are not saved).
+  Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
+  Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
 
 ## Not working yet
 

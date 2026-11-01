@@ -17,7 +17,8 @@
 # Files come from the GGPK through scripts/re/ggdump (read-only; works while the client runs) and are cached in
 # Tools/re/out/ot. --all enumerates object types from every Metadata path in data/tables/*.json plus the raw
 # strings of the dat files our extractor could not decode (MonsterVarieties, Chests), plus the tile objects' types
-# in data/area-transitions.json (scripts/re/atlas; e.g. Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition).
+# in data/area-transitions.json (scripts/re/atlas; e.g. Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition), the
+# server objects of the rooms in data/room-points.json and QUEST_TILE_TYPES (quest objects that tiles place).
 import json, os, re, subprocess, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -275,12 +276,36 @@ def first_contact(events):
 TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|[{}=]|[^\s{}=]+')
 
 
+_QUEST_FLAGS = None
+
+
+def quest_flag(name):
+    """A quest flag named in an .ot/.it: "minus" stands for "-" (the client's name lookup 0x141de7b20), but only where the
+    literal name is not a flag itself ("a3q10-KilledDominus" keeps its "minus"); QuestFlags.json decides."""
+    global _QUEST_FLAGS
+    if _QUEST_FLAGS is None:
+        path = os.path.join(ROOT, "data", "tables", "QuestFlags.json")
+        _QUEST_FLAGS = {f["Id"] for f in json.load(open(path, encoding="utf-8"))} if os.path.exists(path) else set()
+    if name in _QUEST_FLAGS or "minus" not in name:
+        return name
+    dashed = name.replace("minus", "-")
+    if dashed in _QUEST_FLAGS:
+        return dashed
+    # Only some of the "minus" are dashes (e.g. a3q10minusKilledDominus): try each one alone.
+    parts = name.split("minus")
+    for i in range(1, len(parts)):
+        candidate = "minus".join(parts[:i]) + "-" + "minus".join(parts[i:])
+        if candidate in _QUEST_FLAGS:
+            return candidate
+    return dashed
+
+
 def parse(text):
     """-> {extends: [...], abstract, sections: [names], client: [names], server: [names]}"""
     toks = TOKEN.findall(re.sub(r"//[^\n]*", "", text))
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
          "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
-         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}}
+         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {}}
     i = 0
 
     def block(i):  # i at '{' -> index after matching '}', plus the names of sections directly inside
@@ -330,6 +355,10 @@ def parse(text):
                     body = toks[i + 2:j - 1]
                     r["basic_actions"] += [body[k + 2].strip("\"'") for k in range(len(body) - 2)
                                            if body[k] == "basic_action" and body[k + 1] == "="]
+                elif t == "Quest":  # a quest item's flags (12-quests.md §5): "minus" in a name stands for "-"
+                    keys = {}
+                    top_level_keys(toks[i + 2:j - 1], keys, ("grant_flag", "extra_flag", "remove_flag", "use_flag"))
+                    r["quest"].update({k: quest_flag(v) for k, v in keys.items()})
                 elif t == "Base":  # item tags (Tags.dat Ids) for mod spawn weights: tag = "wand"
                     body = toks[i + 2:j - 1]
                     r["tags"] += [body[k + 2].strip("\"'") for k in range(len(body) - 2) if body[k] == "tag" and body[k + 1] == "="]
@@ -500,6 +529,125 @@ def load(types, ext=".ot", companion=".otc"):
     return files, otc
 
 
+# Quest tile objects: types that tiles (.tdt/.tmd records) place, which no table names and the GGPK index lists only in
+# lower case (object type hashes need the real case). From the server's own generation of every act 1-10 area: quest
+# objects, quest chests and the quest doors/levers/spawners the Gateway creates itself (Gateway QuestObjectTypes,
+# AreaObjects.TileObjects). A quest whose tile object is missing here adds it. Room objects need no
+# entry when data/room-points.json keeps their room (QUEST_ROOM_TYPES below otherwise).
+QUEST_TILE_TYPES = [
+    "Metadata/Chests/QuestChests/ChurchAltar",
+    "Metadata/Chests/QuestChests/Fairgraves/FruitTree",
+    "Metadata/Chests/QuestChests/Ossuary/PurityBox",
+    "Metadata/Monsters/IncaShadowBoss/IncaBossSpawner",
+    "Metadata/QuestObjects/Act10/Square/CanalHornBlockage",
+    "Metadata/QuestObjects/Act10/Square/CanalHornTransition",
+    "Metadata/QuestObjects/Act4/AscentTransition",
+    "Metadata/QuestObjects/Act4/CoreMouth",
+    "Metadata/QuestObjects/Act4/CoreTransition",
+    "Metadata/QuestObjects/Act4/MalachaiGroundHole",
+    "Metadata/QuestObjects/Act4/MineEntranceTransition",
+    "Metadata/QuestObjects/Act4/RaptureTransition",
+    "Metadata/QuestObjects/Act5/BloodWingBlockingDoor",
+    "Metadata/QuestObjects/Act5/CathedralKitavaLadder",
+    "Metadata/QuestObjects/Act5/ControlBlocksToDestroyedSquare",
+    "Metadata/QuestObjects/Act5/ControlBlocksToSquare",
+    "Metadata/QuestObjects/Act5/InnocenceShortcutDoor",
+    "Metadata/QuestObjects/Act5/InnocenceToCourts",
+    "Metadata/QuestObjects/Act5/InnocenceToDestroyedCourts",
+    "Metadata/QuestObjects/Act5/OriathSquareToCourts",
+    "Metadata/QuestObjects/Act5/TemplarCourtsDoor",
+    "Metadata/QuestObjects/Act6/BeaconFuelTank",
+    "Metadata/QuestObjects/Act6/BlackCrest_BeaconFlame",
+    "Metadata/QuestObjects/Act6/BlackCrest_BeaconInteract",
+    "Metadata/QuestObjects/Act6/FortressKaruiDoor",
+    "Metadata/QuestObjects/Act6/MudFlatsKaruiDoor",
+    "Metadata/QuestObjects/Act6/MudFlatsKaruiTransition",
+    "Metadata/QuestObjects/Act6/ToRidgeTransition",
+    "Metadata/QuestObjects/Act7/GreustShrine",
+    "Metadata/QuestObjects/Act7/MaligaroOrrery",
+    "Metadata/QuestObjects/Act7/MaligaroOrrery_Main",
+    "Metadata/QuestObjects/Act7/MaligaroPassage",
+    "Metadata/QuestObjects/Act7/MaligaroPassageCover",
+    "Metadata/QuestObjects/Act7/TempleOfDecayEntrance",
+    "Metadata/QuestObjects/Act8/GoddessStatueBreak",
+    "Metadata/QuestObjects/Act9/BeastMembraneAnimated",
+    "Metadata/QuestObjects/Act9/BeastMembraneTransition",
+    "Metadata/QuestObjects/Act9/Refinery_Boss_Door",
+    "Metadata/QuestObjects/BossArenaEntranceTransition",
+    "Metadata/QuestObjects/BridgeBarrier",
+    "Metadata/QuestObjects/EpicDoor/EpicDoor",
+    "Metadata/QuestObjects/EpicDoor/EpicDoorLock",
+    "Metadata/QuestObjects/EpicDoor/EpicDoorTransition",
+    "Metadata/QuestObjects/Inca/IncaDarknessRelease",
+    "Metadata/QuestObjects/Inca/IncaPyramidDoor",
+    "Metadata/QuestObjects/Inca/IncaPyramidOutsideDust",
+    "Metadata/QuestObjects/Inca/IncaPyramidTransition",
+    "Metadata/QuestObjects/Inca/IncaTreeTransition",
+    "Metadata/QuestObjects/Inca/PoisonTree",
+    "Metadata/QuestObjects/Library/HiddenDoor",
+    "Metadata/QuestObjects/Library/HiddenDoorGeneric",
+    "Metadata/QuestObjects/Library/HiddenDoorTransition",
+    "Metadata/QuestObjects/Library/HiddenDoorTrigger",
+    "Metadata/QuestObjects/Library/HiddenDoorTriggerGeneric",
+    "Metadata/QuestObjects/MapRoom/OrreryInert",
+    "Metadata/QuestObjects/MerveilExit",
+    "Metadata/QuestObjects/MerveilExitTransition",
+    "Metadata/QuestObjects/Sewers/SewersGrate",
+    "Metadata/QuestObjects/Sewers/SewersGrateTransition",
+    "Metadata/QuestObjects/Sewers/SewersHiddenDoorBase",
+    "Metadata/QuestObjects/Sewers/SewersHiddenDoor_Baths",
+    "Metadata/QuestObjects/Sewers/SewersHiddenDoor_Battlefront",
+    "Metadata/QuestObjects/Sewers/SewersHiddenDoor_Warehouse",
+    "Metadata/QuestObjects/Sewers/SewersLockedDoor",
+    "Metadata/QuestObjects/Sewers/SewersLockedTransition",
+    "Metadata/QuestObjects/Spikes/BlockedPassageTransition",
+    "Metadata/QuestObjects/Spikes/SpikeBlockageButton",
+    "Metadata/QuestObjects/WaterCave/GlyphWall",
+    "Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition",
+    "Metadata/Terrain/Act11/Area2/Reliquary/Objects/VaultDoor",
+    "Metadata/Terrain/Act5/Area2/Objects/SlavePenSecurityDoor",
+    "Metadata/Terrain/Act5/Area6/Objects/Ossuary_HiddenDoor",
+    "Metadata/Terrain/Act5/Area7/Objects/LeverHidden",
+    "Metadata/Terrain/Act5/Area7/Objects/LeverMissingLeft",
+    "Metadata/Terrain/Act5/Area7/Objects/LeverMissingRight",
+    "Metadata/Terrain/Act5/Area7/Objects/VaultDoor",
+    "Metadata/Terrain/Act5/Area8/Objects/KitavaDoor",
+    "Metadata/Terrain/Act8/Area1/Objects/HiddenDoor",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumDoubleDoors",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumDoubleDoorsDaresso",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumDoubleDoorsSpawner",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumDoubleDoorsSpawnerLeft",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumDoubleDoorsSpawnerRight",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumGladiatorTrapdoor",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumTrapDoorSpawnerLeft",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumTrapDoorSpawnerRight",
+    "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumTrapDoorSpawnerSand",
+    "Metadata/Terrain/Mountain/Arena/Pit/Objects/PitGate",
+    "Metadata/Terrain/Mountain/Arena/Pit/Objects/PitGateTransition",
+    "Metadata/Terrain/Mountain/Arena/Pit/Objects/PitSpawner",
+    "Metadata/Terrain/Mountain/Arena/Pit/Objects/PitSpawnerGate",
+    "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaDoor",
+    "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaTransition",
+    "Metadata/Terrain/Mountain/Belly/Objects/BellyArseDoor",
+    "Metadata/Terrain/Mountain/Belly/Objects/BellyWallSpawner",
+    "Metadata/Terrain/Mountain/Mines/Objects/BeastSkinDoor",
+    "Metadata/Terrain/Mountain/Mines/Objects/BeastSkinDoorExplosion",
+    "Metadata/Terrain/Mountain/Mines/Objects/BeastSkinDoorFX",
+    "Metadata/Terrain/Theopolis/SlaveDens/Objects/SlavePensDoubleDoors",
+    "Metadata/Terrain/Theopolis/SlaveDens/Objects/SlavePensDoubleDoorsSpawner1",
+    "Metadata/Terrain/Theopolis/SlaveDens/Objects/SlavePensDoubleDoorsSpawner2",
+    "Metadata/Terrain/Theopolis/SlaveDens/Objects/SlavePensDoubleDoorsSpawner3",
+]
+
+# Quest room objects of rooms data/room-points.json does not keep (they hold no monster point and no QuestObjects/ type, so
+# their objects come from the server's own placed rooms, AreaObjects.RoomObjects): The Ascent's Resonator
+# (ascent_summit_01.arm, a5q1a).
+QUEST_ROOM_TYPES = [
+    "Metadata/Terrain/Act4/Area7/Objects/PortalDevice",
+    "Metadata/Terrain/Act4/Area7/Objects/PortalDeviceLever",
+]
+
+
 def all_types():
     paths = set()
 
@@ -522,6 +670,12 @@ def all_types():
             for topology in area.get("topologies") or []:
                 for t in topology.get("transitions") or []:
                     if t.get("objectType"): paths.add(t["objectType"])
+    # The rooms' server objects (NPCs, quest objects and chests: scripts/re/atlas room-points) and the quest tile objects.
+    points = os.path.join(ROOT, "data", "room-points.json")
+    if os.path.exists(points):
+        walk(json.load(open(points, encoding="utf-8")).get("rooms"))
+    paths.update(QUEST_TILE_TYPES)
+    paths.update(QUEST_ROOM_TYPES)
     fetch(RAW_DATS)
     for d in RAW_DATS:
         b = open(cache_name(d), "rb").read()
@@ -560,7 +714,13 @@ def merge_items():
         r["type"] = tid
         # Tags along the chain, parents first (the BaseItemTypes row adds its own TagsKeys on top).
         r["tags"] = list(dict.fromkeys(tag for p in r["chain"] for tag in files.get(p, {}).get("tags", [])))
-        for k in ("shared_states", "shared_timers", "transitionable", "positioned", "animated_object"):
+        # The Quest component's flags along the chain (later files override): grant_flag while carried, extra_flag once
+        # picked up, remove_flag takes the item away, use_flag set by using it (the quest books).
+        quest = {k: v for p in r["chain"] for k, v in files.get(p, {}).get("quest", {}).items()}
+        if quest:
+            r["quest"] = quest
+        for k in ("shared_states", "shared_timers", "transitionable", "positioned", "animated_object", "basic_actions",
+                  "client_transitionable", "client_targetable"):
             r.pop(k, None)
         out[tid] = r
     return out

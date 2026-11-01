@@ -57,7 +57,8 @@ This verifies the native display path, not every support's special execution or 
 ## Remaining execution gaps
 
 A native compatibility match and a displayed support letter do not prove that its special mechanic is implemented.
-Triggers, totems, mines, minion behaviour, repeats, projectile branching, leech and many conditional effects
+Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
+Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
 still require their own execution paths.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys explicitly listed by GemSupportDamage receive multiplicative processing.

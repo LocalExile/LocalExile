@@ -2,4 +2,9 @@
 
   <!-- The chat commands for development and testing. (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
 
+  <ItemGroup>
+    <!-- The campaign driver's /state and /quest_preset (CampaignCommandTests). -->
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
+
 </Project>

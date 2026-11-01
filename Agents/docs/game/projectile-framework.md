@@ -73,7 +73,9 @@ Denied siblings pass through that victim. An evaded contact keeps flying without
 Independent area events have independent admission and may overlap any geometrically covered target.
 Core contact tests combine projectile and actor radii; area tests combine area and actor radii. The Gateway
 adapter currently passes zero actor radii, so area coverage checks target centers, including for large monsters.
-Monster catalog `ObjectSize` feeds movement blocking but has not been calibrated as a circular combat radius.
+A projectile the client draws itself instead uses the client's square contact (`ProjectileProfile.ContactCells`):
+Chebyshev cells within its Projectiles.dat reach plus the monster's `ObjectSize − 1` ([11-skills](../protocol/11-skills.md),
+"The client's object contact").
 A terminal collision victim shares direct admission with its terminal area, receiving one area-classified hit
 instead of a direct hit plus another blast. An evaded terminal victim does not end the flight.
 

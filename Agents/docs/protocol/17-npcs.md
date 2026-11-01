@@ -180,6 +180,23 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 C→S 0x85 during a talk = Continue → 0x84 0xff (back to the options); otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).
 
+### NPCTalk scripts
+
+A row's `Script` / `Script2` (NPCTalk columns) can do more than set flags. The Game module runs these calls
+(`NpcCatalog.Talk`, Game `World/Quest/NpcScripts.cs`; [campaign quests](../game/campaign-quests.md) E5):
+
+| Call | When | What the Gateway does |
+|---|---|---|
+| `SetQuestFlag(f)`, `ClearQuestFlag(f)`, `SetSessionQuestFlag(f)` | on choosing | the flags ([12](12-quests.md) §5); a session flag (SessionQuestFlags.dat) is never saved and is gone on the next area |
+| `DirtyTransition();` (top level) | on choosing | the NPC's own Transitionable steps one state on (S→C 0x2ba; Dialla at the Rapture Device withers, 534) |
+| `ForEachOfType("<type>", { DirtyTransition(); })`, `ForEachInRange(r, { IfType("<type>", { Transition(); }) })` | on choosing | every object of the type steps on: NPCs, the quest objects the engine created, and area transitions of that tile type its quest flag still hides are shown on this instance (Dialla's 521 opens `AscentTransition`; the row's own flag keeps it open, `On.Exit`) |
+| `DoNPCChat(n)` | when the talk ends (0x85 Continue) | the NPC's option `n` plays next (0x84 with its index), with its own flags and script: talks in pages (Sin's "Kitava" 882 → 883 → 884) |
+| `FinishNPCChat()` | when the talk ends (at once for a row without text) | the dialogue closes (0x84 object 0) instead of listing the options again |
+| `SendOpenScreen(PantheonScreen)` | with FinishNPCChat | S→C 0x7b kind 0x14 (the Pantheon panel) |
+| `AreaTransitionTo(<area>, <index>, <delay>)` + Script2 `FadeToBlack(…)` | with FinishNPCChat | after the delay (seconds) the player moves to the area's arrival point, as `/goto`; the fade is the client's own. The index (0/1) is probably the arrival point (not decoded); every arrival is the area's default point |
+
+Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRulesetEvent`, `EnableScion`.
+
 ## 5. Shops
 
 - **S→C 0x8c** (read `0x1421a1f60`): u32 BE NPC, u16 BE (NPCShop row), u8, u16 n + n × u32 BE inventory ids (one tab
@@ -272,7 +289,7 @@ which ends the dialogue (without an answer the client stays in its dialogue stat
 
 ## Open
 
-- Selling: real sell prices; remaining quest reward offers/scripts; Respecialisation with refund points;
+- Selling: real sell prices; remaining quest reward offers and scripts (above); Respecialisation with refund points;
   real buy prices.
 - The NPC component's two bytes, and 0x84's other mode values.
 - NPCs outside towns, league NPCs in towns, and quest-stage variants of town NPCs (§2).

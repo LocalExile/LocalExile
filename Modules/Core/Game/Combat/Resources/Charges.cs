@@ -101,12 +101,42 @@ static partial class Game
         // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
         // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
         int Coefficient(string name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
-        var added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+        // Expand is a pure function of the coefficients (stats and dev), the counts and the conversions: the last
+        // expansion is reused while they are the same (every stat snapshot expands twice, idle or not).
+        int[] heldNow = [.. Charges.Types.Select(t => held[t])];
+        bool[] convertedNow = [.. Charges.Types.Select(t => converted[t])];
+        var slot = ChargeExpansions.GetValue(conn, _ => new());
+        Dictionary<string, int> added;
+        if (slot.Last is { } last && last.Held.AsSpan().SequenceEqual(heldNow) && last.Converted.AsSpan().SequenceEqual(convertedNow)
+            && SameInOrder(last.Dev, dev) && SameInOrder(last.Stats, stats))
+            added = VerifyStatSnapshotTail ? Verified(last.Added) : last.Added;
+        else
+        {
+            added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+            slot.Last = new(new(stats), dev, heldNow, convertedNow, added);
+        }
+        // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
+        Dictionary<string, int> Verified(Dictionary<string, int> reused)
+        {
+            var fresh = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+            if (!SameInOrder(fresh, reused))
+            {
+                Interlocked.Increment(ref StatSnapshotTailMismatches);
+                throw new InvalidOperationException("[gateway] stat snapshot: a reused charge expansion differs from a fresh one");
+            }
+            return reused;
+        }
         foreach (var (stat, value) in added.Select(kv => (Stat: kv.Key, kv.Value))
             .Concat(ChargeEffects.Display(t => held[t], t => limits[t], t => converted[t], t => minimumConverted[t])))
             if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
     }
+
+    // One per connection: the last charge expansion and what it was expanded from. Never changed after it is published.
+    sealed record ChargeExpansion(Dictionary<uint, int> Stats, Dictionary<uint, int> Dev, int[] Held, bool[] Converted,
+        Dictionary<string, int> Added);
+    sealed class ChargeExpansionSlot { public volatile ChargeExpansion? Last; }
+    static readonly ConditionalWeakTable<ClientState, ChargeExpansionSlot> ChargeExpansions = new();
 
     // The more multiplier of the charges on a hit (AttackHit, SpellDamage) or a burn, from the final stats.
     internal static double ChargeDamageMore(IReadOnlyDictionary<uint, int> stats, bool spell = false) =>

@@ -33,6 +33,23 @@ static partial class Game
         }
     }
 
+    // Rational Doctrine: a critical strike has its chance to leave profane ground where the victim stands. The chance
+    // applies only while Intelligence is the highest attribute; the ground lasts ProfaneSeconds and its effect lingers
+    // on monsters after they leave it (FlaskGroundsTick).
+    internal static async Task MaybeCreateProfaneGround(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, (int X, int Y) at)
+    {
+        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+        var player = CharacterPlayerStats(conn);
+        int chance = FlaskGrounds.ProfaneChance(name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
+        if (chance <= 0 || Random.Shared.Next(100) >= chance) return;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var ground = FlaskGrounds.ProfaneGround(at, now,
+            await SendGroundArt(remote, stream, ciphers, conn, FlaskGrounds.Kind.ProfaneGround, at, FlaskGrounds.ProfaneRadius));
+        Console.WriteLine($"[gateway] {remote} critical strike: profane ground of radius {FlaskGrounds.ProfaneRadius} at ({at.X}, {at.Y}) for {FlaskGrounds.ProfaneSeconds:0.##} s");
+        if (conn.FlaskGrounds.Add(ground)) _ = RunFlaskGrounds(remote, stream, ciphers, conn);
+    }
+
     // A ground's art (an effect object), or null when the tables have none for its kind.
     internal static async Task<uint?> SendGroundArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         FlaskGrounds.Kind kind, (int X, int Y) at, int radius)
@@ -80,18 +97,31 @@ static partial class Game
         var state = conn.FlaskGrounds;
         foreach (var g in state.Expire(now))
             if (g.Object is uint obj) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(obj), $"0x02bb remove effect 0x{obj:x} ({g.Kind} ends)");
-        // Smoke: who stands in it now.
-        List<(uint Id, bool Inside)> monsters;
+        // Smoke and profane ground: who stands in them now.
+        List<(uint Id, bool Alive, bool InSmoke, bool InProfane)> monsters;
         lock (conn.Monsters)
-            monsters = [.. conn.Monsters.Select(kv => (kv.Key, kv.Value.Hostile && !kv.Value.Dead && kv.Value.Life > 0
-                && state.Covers(FlaskGrounds.Kind.SmokeCloud, kv.Value.Walk.Position(now))))];
-        foreach (uint gone in state.BlindedMonsters().Except(monsters.Select(m => m.Id)))
+            monsters = [.. conn.Monsters.Select(kv =>
+            {
+                bool alive = kv.Value.Hostile && !kv.Value.Dead && kv.Value.Life > 0;
+                var at = kv.Value.Walk.Position(now);
+                return (kv.Key, alive, alive && state.Covers(FlaskGrounds.Kind.SmokeCloud, at),
+                    alive && state.Covers(FlaskGrounds.Kind.ProfaneGround, at));
+            })];
+        foreach (uint gone in state.BlindedMonsters().Except(monsters.Where(m => m.Alive).Select(m => m.Id)))
             state.SetBlinded(gone, false, () => 0);
-        foreach (var (id, inside) in monsters)
-            if (state.SetBlinded(id, inside, () => { lock (conn.Monsters) return conn.NextBuff++; }) is { } change)
+        foreach (uint gone in state.ProfaneMonsters().Except(monsters.Where(m => m.Alive).Select(m => m.Id)))
+            state.SetProfane(gone, inside: false, alive: false, now, () => 0);
+        foreach (var (id, isAlive, inSmoke, inProfane) in monsters)
+        {
+            if (state.SetBlinded(id, inSmoke, () => { lock (conn.Monsters) return conn.NextBuff++; }) is { } change)
                 await Send(remote, stream, ciphers, change.Added
                     ? InstanceEntities.AddBuff(id, change.Buff, FlaskGrounds.BlindedBuffRow, PlayerId)
                     : InstanceEntities.RemoveBuff(id, change.Buff), $"0x{(change.Added ? "01c1" : "01c2")} monster 0x{id:x} {(change.Added ? "blinded in the smoke cloud" : "no longer blinded")}");
+            if (state.SetProfane(id, inProfane, isAlive, now, () => { lock (conn.Monsters) return conn.NextBuff++; }) is { } profane)
+                await Send(remote, stream, ciphers, profane.Added
+                    ? InstanceEntities.AddBuff(id, profane.Buff, FlaskGrounds.ProfaneBuffRow, PlayerId)
+                    : InstanceEntities.RemoveBuff(id, profane.Buff), $"0x{(profane.Added ? "01c1" : "01c2")} monster 0x{id:x} {(profane.Added ? "on profane ground" : "no longer on profane ground")}");
+        }
         // Consecrated ground around the stationary player: stationary is the walk having ended (as ChargeGains reads it).
         bool alive = conn.PlayerLife > 0;
         var here = conn.Walk.Position(now);

@@ -384,12 +384,31 @@ Part of [Status](../Status.md); what to build next in this area is in
   coverage. A separate Eldritch dominance state and the Orb of Conflict remain separate, and native tooltip
   acceptance is pending.
   See [13](../docs/protocol/13-items.md), "Eldritch Embers", and [evidence](../docs/re/eldritch-ember-coe.md).
+- **Enkindling Orb:** a utility flask of any rarity gets one of the five GenerationType 21 enchantments (increased
+  effect / duration / Charge Recovery / maximum Charges, or reduced Charges per use, all with `Gains no Charges during
+  Effect`) with the game's 250/100/100/100/100 weights. Life/mana, corrupted/mirrored, non-flask and
+  unsupported/unmodifiable targets are refused before spending. An existing Enkindling is replaced; an existing
+  Instilling and the flask's explicit affixes, quality, charges, rarity and name stay. Harvest/bench flask
+  enchantments (GenerationType 3, family `FlaskEnchantment`) are removed. The `Gains no Charges during Effect`
+  drawback is enforced by `FlaskEnchantments.BlocksGain` through `CanGainFlaskCharges` for kills, hits, crits, the
+  every-3-seconds recovery, refills and projectiles while the effect runs; expired effects and pause are covered.
+  CoE pool/weights and native coexistence checks have automated coverage; see
+  [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb", and
+  [evidence](../docs/re/enkindling-coe.md).
+- **Instilling Orb:** the Searing Exarch counterpart: a utility flask gets one of the fifteen spawnable GenerationType
+  22 trigger enchantments (charges full, frozen/chilled/shocked/ignited/bleeding/poisoned, block, savage hit, guard or
+  travel skill, rare/unique hit, adjacent flask, effect end, life flask), equal weight. The sixteenth row
+  (`Used when you lose a Guard Skill Buff`) has spawn weight 0 in 3.29.3b and is excluded, as are the bench recipes.
+  An existing Instilling is replaced; an existing Enkindling and the rest of the item stay. See
+  [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb", and
+  [evidence](../docs/re/instilling-coe.md).
 - **Visual client acceptance (2026-10-30):** the main successful uses of all implemented currencies were checked in
   the 3.29.3b client: Transmutation, Augmentation, Regal, Alteration, Alchemy, Exalted, Chaos, Vaal, Chance,
-  Annulment, all four Eldritch Ichors and all four Eldritch Embers. Vaal turned normal items rare (yellow) and the
-  tooltip showed `Corrupted`; the Eater/Exarch implicit names, values and tiers were visible. No visual defects were
-  found. Vaal on jewels remains outside the local rule; official jewel/Vaal outcomes are separate work. Stash/Shift
-  and the remaining refusal paths stay under automated coverage.
+  Annulment, all four Eldritch Ichors and all four Eldritch Embers, Enkindling and Instilling. Vaal turned normal
+  items rare (yellow) and the tooltip showed `Corrupted`; the Eater/Exarch implicit names, values and tiers were
+  visible. Enkindling and Instilling both appeared on one flask, repeated use replaced only its own type, and magic
+  explicit affixes stayed. No visual defects were found. Vaal on jewels remains outside the local rule; official
+  jewel/Vaal outcomes are separate work. Stash/Shift and the remaining refusal paths stay under automated coverage.
 - **Glassblower's Bauble (verified live, 2026-10-21):** +1% flask quality up to 20%; Scouring resets it.
   See [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
 - **Fracturing Orb (verified live, 2026-10-21; rules rechecked 2026-10-30):** one random explicit mod of a rare item
@@ -407,6 +426,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   on the cursor, while a unique Mageblood, a Diamond Flask, a Crimson Jewel and a Scroll of Wisdom on the copy were
   refused without spending. See [13](../docs/protocol/13-items.md), "Mirror of Kalandra", and
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
+- **Hinekora's Lock (server rules verified live, 2026-10-31):** applying the Lock through C→S 0x71 to a rare item
+  sets the Mods flag bit 8 (0x0100) and a non-zero seed; the client shows the purple glow and the Lock tooltip text. When a currency is
+  used on the item the client sends C→S 0x29c (u16 key, currency/target ids) and S→C 0x29f answers with the preview
+  item (keyA = request key, status 0 = preview, 0x04FA = failure); the next 0x71 commits exactly that preview,
+  consumes the currency and clears the state. Normal, magic, gem, corrupted, mirrored, unmodifiable and
+  already-foreseeing targets are refused without spending; bench/Harvest/essence and every successful currency clear
+  the state. The client's
+  preview branch is the item popup's foresight element (`HinekoraForesightPopupIcon`, `HinekorasLockFutureSight`);
+  status 0 shows it and any non-zero status plays `HinekorasLockFail`. The committed result matches the preview byte
+  for byte. See [13](../docs/protocol/13-items.md), "Hinekora's Lock", and
+  [the evidence](../docs/re/hinekora-lock.md).
 - **Orb of Fusing: verified live (2026-10-21).** Captured 0x71/0x72 packets feed the same handler.
   Only links change; sockets, colours, gems and item properties stay intact.
   Refuses fewer than two sockets and protects fully linked 5/6-socket items; 2-4 sockets remain rerollable.
@@ -424,5 +454,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   currency other than Scroll of Wisdom, Chromatic Orb, Jeweller's Orb, Orb of Fusing, Orb of Alchemy, Chaos Orb,
   Divine Orb, Orb of Scouring, Orb of Transmutation, Orb of Alteration, Orb of Augmentation, Regal Orb, Exalted Orb,
   Orb of Annulment, Armourer's Scrap, Blacksmith's Whetstone, Orb of Chance, Vaal Orb, the four Eldritch Ichors and
-  Embers, Glassblower's Bauble, Fracturing Orb, Mirror of Kalandra, Gemcutter's Prism, Sacred Orb and Orb of Regret;
-  support gems and links ([13](../docs/protocol/13-items.md) "Open").
+  Embers, Enkindling Orb, Instilling Orb, Glassblower's Bauble, Fracturing Orb, Mirror of Kalandra, Hinekora's
+  Lock, Gemcutter's Prism, Sacred Orb and Orb of Regret; support gems and links ([13](../docs/protocol/13-items.md)
+  "Open").

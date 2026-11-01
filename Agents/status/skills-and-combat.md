@@ -298,18 +298,33 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fireball's impact explodes: an area hit of its radius (`active_skill_base_area_of_effect_radius`) on an enemy or a
   wall, excluding the projectile's own target; the explosion art is a standalone effect object and the projectile is
   removed at the impact.
+  Spell projectiles the client draws itself (Fireball, Spark) hit by the client's contact rule: Chebyshev cells within
+  the row's max(CollisionRadius, CollisionCandidateRadius) plus the monster's `ObjectSize − 1`
+  ([11](../docs/protocol/11-skills.md), "The client's object contact"); automated only, not live-checked.
   Ordinary bow ground/object attacks now share contact-time release and damage at the actual flight collision
   (#203, automated and native collision/release/pause checks pass).
   Object uses no longer also deal a melee contact hit.
   The client spawns the primary projectiles of its own spell gem use itself, every one of a volley, from where it
   stands; the server simulates them but sends no object for them (one fireball was two, 2026-10-29). Their
   continuation children still get server objects.
+  The server aims them with the client's own volley: its fan, fixed spread and nova
+  ([11-skills](../docs/protocol/11-skills.md) "The client's volley"; static RE, the fan fitted to live Spark volleys)
+  and its seeded random directions (static RE, checked live 2026-10-31: damage only where a projectile was drawn).
+  Parallel volleys still use the server's own fan.
   An attack gem's projectiles are not predicted: they get a server object like the default attack's arrow (Burning
   Arrow showed no arrow before; live 2026-10-31, the arrows fly and ignite).
   Spark's action fires through the same client method, so its sparks are the client's too; they live the skill's
   `skill_effect_duration`, which gem skills now carry (without it no spark was drawn; static RE 2026-10-30, not yet
-  checked live). The server's Spark flight is still straight, not the client's wander, so its hits can land where no
-  spark is drawn.
+  checked live).
+  The server flies each spark on the client's own seeded wander ([11-skills](../docs/protocol/11-skills.md) "Spark's
+  wander"; from the same start the server's legs are the client's cell for cell for three traced live sparks, and the
+  live fan agrees within a few degrees).
+  Each cast's set of sparks forgets the enemies it hit every 0.66 seconds (wiki Spark), so one cast can hit a target
+  again.
+  Spark's transfigured and Vaal versions fire Spark's own Projectiles.dat row and follow the same rules; before, they
+  had no projectile on the server.
+  Still apart: the start cell is the server's walk position, often a few cells from the client's, so the paths run
+  parallel but offset, and a live check still saw a drawn spark hit with no damage now and then.
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
   2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
@@ -724,6 +739,13 @@ The generic [projectile framework](../docs/game/projectile-framework.md) owns pr
 the sole 30 Hz runtime. Catalog fallback provides basic flight; registered skill definitions supply special rules
 and can require explicit recipes.
 
+The [client projectile research](../docs/re/012-projectile-execution.md) now separates shared execution,
+client/server input contracts and six ordinary witnesses from the current server implementation.
+Final bindings, finite arithmetic, local contact/history, continuations and selected skill-stage joins are documented.
+Public scalar/vector and synthetic observation checks are separate from retained original-instruction controls.
+Gameplay TLS state/order, official Fireball direct/area result routing and actual effective-input timing remain open.
+This is a research baseline, not new live skill acceptance or complete native/server parity.
+
 - Arcane Might (#364) shares one highest-eligible-ratio consumer across current attacks and damage panels.
   Normal Crown of Eyes, Whisperer's existing consumer and wand mastery use the six modern stat contracts.
   Independent grants do not stack; skill base plus quality still adds before the maximum comparison.
@@ -922,7 +944,10 @@ and can require explicit recipes.
 - **Projectile modifiers.** Generic profiles consume resolved primary counts, speed, pierce/fork/chain/split/return
   grants and independent prohibitions in the sole staged runtime. Ordinary bows and catalog-known projectile gems
   work without a skill provider. A basic recipe is straight flight, not complete special-skill behavior.
-  Return opens another hit-admission phase and reads the shared returning-damage multiplier. Partial return chance,
+  Return opens another hit-admission phase and reads the shared returning-damage multiplier. A client-drawn spell
+  rolls its partial return chance per projectile with the client's seed (static RE, checked live 2026-10-31: the
+  projectiles that came back were the ones that dealt return damage), and flies the client's 150-cell range out and
+  past the caster on the way back (`projectile_maximum_range_override` replaces it). Return chance,
   return speed, contact budgets, overshoot and terrain behavior are configurable through skill definitions.
   Boolean fork sources grant one generation, and raw bow always-pierce sources bind to the same common profile.
   One movement instance is capped at 150 cells (15 m) through `projectile_maximum_range_cells`; fork, chain and split
@@ -1007,14 +1032,18 @@ and can require explicit recipes.
 - **Auras (the simple set is verified live).** Reservation is read from GrantedEffectsPerLevel (`ManaReservationFlat`
   / `ManaReservationPercent`), reduced by the passive/mastery reservation efficiency and sent as the Life pool's
   reserved mana (and in every 0x1b1 mana update).
-  Aura skills toggle on cast; Purity of Elements/Fire/Ice/Lightning, Clarity, Vitality, Precision and Haste apply
-  their gem's level and quality effects and buff icons; their 3D effects (`affected_player.epk`, `faster_attack.epk`
-  …) do not render yet.
+  Aura skills toggle on cast; Purity of Elements/Fire/Ice/Lightning, Clarity, Vitality, Precision, Haste,
+  Determination, Grace, Discipline, Anger, Hatred, Wrath, Zealotry, Malevolence and Envy apply their gem's level and
+  quality effects and buff icons; their 3D effects (`affected_player.epk`, `faster_attack.epk` …) do not render yet.
+  Pride applies its enemy debuff: every hostile monster in its radius carries BuffDefinitions 1331 and takes its
+  `physical_damage_aura_nearby_enemies_physical_damage_taken_+%` (19% at level 20) rising linearly to `_max` (39%)
+  after 4 s, both scaled by aura effect; the ramp resets on leaving the aura and feeds hits and physical damage over
+  time. Live 2026-11-01: `Auras: Pride (0 flat, 50%)`, `0x01c1` with row 1331 on a Rhoa, `0x01c2` on toggle-off, and
+  death cleared both.
   The skill-bar active frame and rotating circle now receive the buff's skill id/action hash association (0x1c1 bit3),
   including area-entry restoration; automated checks pass, live icon verification pending.
-  Not modelled: combat auras (Anger/Hatred/Wrath/Zealotry/Pride), Heralds, banners, curse auras,
-  unsupported conditional effects, Purity ailment immunity, Reservation masteries 1/2/6,
-  supports, party/minion auras and life reservation
+  Not modelled: Heralds, banners, curse auras, unsupported conditional effects, Purity ailment immunity, Reservation
+  masteries 1/2/6, supports, party/minion auras and life reservation
   ([11](../docs/protocol/11-skills.md) 13).
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
@@ -1082,13 +1111,21 @@ and can require explicit recipes.
   Real-client Q Fireball clips measured 3.750000157 s at -80%, 0.375 s at +100%, and 0.75 s at zero.
   Native virtual base stayed 750 ms; emitted cast rates were 0.27, 2.67 and 1.33 casts/s respectively.
   Projectile release/contact alignment was not separately measured.
-  Screaming Reels' 60% more cast speed with a Fishing Rod uses the native calculator's formula in the server wait and in
-  the spell record's `cast_speed_+%`.
+  "More" cast speed (Spell Echo's 40%, Screaming Reels' 60% with a Fishing Rod, Fanaticism's, the totem supports' and
+  the other sources of the native combined final) uses the native calculator's formula in the server wait and in the
+  spell record's `cast_speed_+%`.
   That record value now also includes a support's own cast speed (Faster Casting), as the server wait already did.
   Neither change is checked with the real client; only the Gateway tests cover them.
+  Area spells without a projectile (Ice Nova) release at their `spell_aoe` clip's contact (Witch 266/766 of the cast,
+  `AnimationContacts.SpellAreaRelease`; the clip choice read from the IceNova action's code), no longer at the end of the
+  cast (about 450 ms late for a 700 ms Ice Nova).
+  Ice Nova's victims are hit as its ring reaches them, over 0.2 s (`IceNovaRing`), and a released ring still lands when
+  the player moves or casts again.
+  Not checked frame by frame with the real client yet.
   Instant casts remain instant; channel damage cadence and conditional action-speed mechanics are unchanged.
   Numeric server durations below 1 ms are floored, and invalid factors/unrepresentable waits produce no spell effect.
-  Code: `SpellCastTiming.cs`, Gateway (`GemSkills`, `CastMs`, `CastGemSkill`, `LaunchProjectile`, `AreaSkillHit`).
+  Code: `SpellCastTiming.cs`, `AnimationContacts.cs`, Gateway (`GemSkills`, `CastMs`, `CastGemSkill`, `LaunchProjectile`,
+  `AreaSkillHit`).
   Docs: [11](../docs/protocol/11-skills.md) section 9.
 - **Selected spell hit damage panel (#188).** Spell total/per-type ranges and historical pre-crit average damage/DPS
   now use the same converted packet as projectile and area combat.
@@ -1308,6 +1345,14 @@ and can require explicit recipes.
   Ascendancy allocation remains in its separate lifecycle change.
   Code: `HitResistances.cs`, `HitMitigation.cs`, Gateway (`MonsterDamage`).
   Docs: [20](../docs/protocol/20-damage.md) §4.
+- **Client Buff descriptor ownership/transfer research (#370, #466, offline only).**
+  Original bytes bind the prepared structure to item
+  Mods `+0x38` and entity ObjectMagicProperties `+0xc8`, with a structural item-assignment path.
+  A separate `+0x1d8` cache is excluded from the descriptor path by pointer provenance and record stride.
+  This does not establish a meaningful descriptor consumer, actual target DoT publication or live behavior.
+  The revised delivery records these structural findings; actual readers and outputs remain Known issues K1-K3.
+  Original N1 is partial, N2 remains open and R2/R3/R4 stay Partial.
+  See the [report](../docs/re/client-buff-descriptor-consumers.md).
 - **Damage model (foundation, with armour/evasion).** A hit is a per-type `DamagePacket`;
   `DamageConversion` handles the game's physical, lightning, cold, fire, chaos order, chained conversion, skill/global
   precedence, the 100% cap and gain-as-extra.

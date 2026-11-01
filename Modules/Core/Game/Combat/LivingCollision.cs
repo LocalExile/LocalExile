@@ -139,8 +139,9 @@ static partial class Game
                 if (!exists || previous!.Life == 0 && peer.Life > 0)
                 {
                     if (exists) packets.Add(InstanceProtocol.RemoveObject(peer.Id));
+                    // The beach wake-up is the owner's alone: observers get no action to end that stance with.
                     var player = peer.Template with { GridX = peer.X, GridY = peer.Y, Life = peer.Life,
-                        Skills = [], QuestFlags = [], LeagueQuestFlags = [] };
+                        Skills = [], QuestFlags = [], LeagueQuestFlags = [], WashedUp = false, Rotation = 0 };
                     packets.Add(InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
                     packets.Add(InstanceProtocol.EnterWakeZone(peer.Id));
                 }

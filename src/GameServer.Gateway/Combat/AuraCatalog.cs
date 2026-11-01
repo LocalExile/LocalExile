@@ -1,7 +1,8 @@
 /// <summary>
 /// The auras the server models: their BuffDefinitions rows and their effects on the player. Reservation itself is
-/// data-driven (SkillCatalog.Reservation). This table holds ordinary self auras; heralds, banners, minion summons
-/// and enemy debuff auras require their own mechanics rather than treating every reservation as a self buff.
+/// data-driven (SkillCatalog.Reservation). This table holds ordinary self auras and Pride, whose effect is the enemy
+/// debuff EnemyDebuffsTick applies; heralds, banners, minion summons and other enemy debuff auras require their own
+/// mechanics rather than treating every reservation as a self buff.
 /// </summary>
 static class AuraCatalog
 {
@@ -48,7 +49,15 @@ static class AuraCatalog
         ["Zealotry"] = 1272,
         ["Malevolence"] = 1274,
         ["Envy"] = 828,
+        // Pride's buff is on nearby enemies; the same row also draws the player's aura icon (BuffVisuals 1098).
+        ["Pride"] = PrideBuffRow,
     };
+
+    /// <summary>Pride's BuffDefinitions row: the enemy debuff, also the player's aura icon.</summary>
+    public const ushort PrideBuffRow = 1331;
+
+    /// <summary>Every aura's base radius in cells (Path of Building; the data has none).</summary>
+    public const int BaseRadius = 40;
 
     public static string Family(string effectId) => effectId switch
     {
@@ -58,6 +67,17 @@ static class AuraCatalog
     public static bool Supported(string effectId) => BuffRows.ContainsKey(Family(effectId));
 
     public static ushort BuffRow(string effectId) => BuffRows[Family(effectId)];
+
+    /// <summary>Pride's "more Physical Damage taken" at its minimum and maximum, scaled by aura effect.</summary>
+    public static (int Min, int Max) PridePhysicalDamageTaken(Aura aura, int auraEffectPct, SkillCatalog skills,
+        StatCatalog stats) =>
+        (Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%", auraEffectPct),
+         Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%_max", auraEffectPct));
+
+    /// <summary>Pride's ramp: at least <paramref name="min"/> more Physical Damage, reaching
+    /// <paramref name="max"/> after 4 seconds in the aura (linear).</summary>
+    public static double PridePhysicalMore(int min, int max, double secondsInAura) =>
+        min + Math.Max(0, max - min) * Math.Clamp(secondsInAura / 4.0, 0, 1);
 
     public static IReadOnlyList<Aura> Restore(IEnumerable<string> saved, IEnumerable<Aura> available, CharacterStats.Pools pools, bool inTown = false)
     {

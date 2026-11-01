@@ -931,6 +931,45 @@ modelled. Using a Mirror from a stash tab is a local limitation, not a game rule
 it): the client's crafting check refuses an item with it (`0x141d68f9b`); the tooltip shows
 "Mirrored". See [the game rules](../re/fracturing-mirror-mechanics.md).
 
+### Hinekora's Lock (2026-10-31, server rules verified live)
+
+`CurrencyHinekorasLock`. Applying the Lock through the normal 0x71 currency path to a **rare** item sets its
+foreseeing state: the Mods component's u16 flags **bit 8 (`0x0100`)** and a non-zero `Item.ForeseeSeed`. The client
+reads the flag at item `+0x2c0` and shows the purple glow and the Lock tooltip text
+(`ItemPopupHinekorasLockFunctionText`, ClientStrings 6976). A second Lock is refused
+(`ItemErrorAlreadyHasHinekorasLock`, 6984); normal, magic, gem, corrupted, mirrored, unmodifiable and
+already-foreseeing items are refused before spending. `Item.Foreseeing`/`ForeseeSeed` are saved with the item.
+
+When a currency is used on a foreseeing item the client sends an **unframed C→S 0x029c** (20 bytes):
+
+```
+u16 0x029c, u16 key (BE, the client's +0xe1fa counter), u32 currency inventory, u32 currency item,
+u32 target inventory, u32 target item (all BE)
+```
+
+Captured: `029C 0001 00000001 0000054D 00000001 0000054F` = key 1, Orb of Alchemy 1357 on wand 1359. Sender
+`0x14216d5f0`, reader `0x141f9e8a0`; it only sends when both inventories are the player inventory (`client+0xc9d0`).
+The client sends 0x71 immediately after the 0x29c on the same use: 0x29c asks for the preview, 0x71 is the commit.
+
+The answer is **S→C 0x029f CurrencyApplicationForesightResult**: `u16 0x029f`, `u16 BE keyA` (the 0x29c key),
+`u16 raw status` (0: preview, non-zero: failure; 0x04FA is the client's own fail code), `u64 raw count`, then
+`count × item` (u16 BE length + `Item.Payload`). Handler `0x1421544c1`, reader `0x141fa1c50`, writer
+`0x141fa1b50`. The handler builds `{keyA, status, vector<Item>}` and dispatches it to the item popup's listener
+`0x1402d0120`; the client logs `CurrencyApplicationForesightResult recieved` (`0x1435d96a0`). The key must match
+the request: a response with the target id in keyA is logged but not matched. Status 0 shows the preview and loads
+`HinekorasLockFutureSight`/`HinekorasLockLoop`; any non-zero status plays `HinekorasLockFail`.
+
+The 0x71 commit uses the preview stored for the matching key/currency/target/seed (or recomputes the same
+`seed ^ currencyTypeHash` result), clears the flag and seed, consumes the currency and sends the normal 0xbf. The
+preview item and the committed item are byte-for-byte the same payload. Bench, Harvest, essence and every successful
+currency clear the state; a refused modification keeps it.
+
+The client's preview popup is the item popup's foresight element (`HinekoraForesightPopupIcon`,
+`HinekorasLockFutureSight`). The item popup's controller sends 0x29c when a currency is used in use mode on a
+foreseeing item; 0x29f status 0 shows the preview, any non-zero status plays `HinekorasLockFail`. The server-side
+preview/commit identity and all refusal/persistence rules are covered by the Gateway tests. See
+[the evidence](../re/hinekora-lock.md).
+
 ### Vaal Orb and corruption (2026-10-21, verified live)
 
 **Corrupted** is bit 0 of the Base component's u8 `+0xc7` (the second u8 after the visual identity): the client's
@@ -961,6 +1000,44 @@ The four `CurrencyEldritchEmber1..4` are the Searing Exarch mirror: `CurrencyEff
 Exarch implicit and replaces every other implicit except Eater of Worlds ones, with the same classes, rarity and
 admission.
 See [the Ichor comparison](../re/eldritch-ichor-coe.md) and [the Ember comparison](../re/eldritch-ember-coe.md).
+
+### Enkindling Orb and Instilling Orb (2026-10-30, verified live)
+
+`CurrencyEnkindlingOrb` and `CurrencyInstillingOrb`, same 0x71/0x72 handler. `FlaskEnchantments.Apply` handles both.
+
+Both are utility-flask currencies: the base's class is `UtilityFlask` and supported, and the item has the `Flask` and
+`Mods` components; corrupted and mirrored items are refused. Life and mana flasks, hybrid flasks, tinctures,
+non-flasks and unsupported targets are refused before spending.
+
+The chosen enchantment is a normal `ModSection.Enchant` entry. The item's explicit affixes, other implicits, quality,
+rarity and name stay; charges are clamped to the enchantment's maximum.
+
+Enkindling uses the five GenerationType 21 rows (Domain 1) with the game's spawn weights 250/100/100/100/100:
+
+- `FlaskEnchantmentSealIncreasedEffect_`: 60-70% increased effect
+- `FlaskEnchantmentSealIncreasedDuration`: 80-100% increased Duration
+- `FlaskEnchantmentSealIncreasedChargesGained`: 60-80% increased Charge Recovery
+- `FlaskEnchantmentSealReducedChargesUsed`: 25-35% reduced Charges per use
+- `FlaskEnchantmentSealMaximumCharges____`: +40-60 to Maximum Charges
+
+Every one also carries `Gains no Charges during Effect` (stat value 1). While the enchanted flask's effect runs,
+`Program.CanGainFlaskCharges` refuses every charge source (kills, hits, critical strikes, the every-3-seconds
+recovery, refills and projectiles); an expired effect no longer blocks, and the paused clock keeps the effect active.
+This is absolute and separate from the Ruthless active-flask rule.
+
+Instilling uses the fifteen spawnable GenerationType 22 rows (Domain 1), equal weight: adjacent flask used, reused at
+the end of the flask's effect, charges reach full, guard skill used, travel skill used, hit a rare/unique enemy,
+frozen, chilled, shocked, ignited, bleeding, poisoned, block, savage hit, life flask used. The sixteenth row,
+`FlaskEnchantmentInjectorOnGuardSkillExpired` (`Used when you lose a Guard Skill Buff`), has spawn weight 0 in
+3.29.3b and is excluded; the bench has fifteen matching recipes and excludes it too.
+
+Enkindling and Instilling are separate enchantments: each replaces only its own type and preserves the other. Both
+remove Harvest/bench flask enchantments (GenerationType 3, family `FlaskEnchantment`) and other enchant-list mods; a
+legacy Harvest item therefore loses that enchantment while keeping unrelated implicits. CoE's `flaskEnchant` removes
+both types, so its engine does not model the coexistence the client shows; the local replacement scope follows the
+game data, wiki, PoB and the native client. The pools, weights and target class come from CoE beta and the extracted
+tables. See [the Enkindling comparison](../re/enkindling-coe.md) and
+[the Instilling comparison](../re/instilling-coe.md).
 
 ### Orb of Fusing (2026-10-21, verified live)
 
@@ -1042,7 +1119,9 @@ so a crash never keeps it both waiting and in the inventory. A new instance or a
 it there again; so does a new character with a deleted one's name in the same instance (its weapon is another item).
 `Game_START_ITEMS=0` starts empty.
 
-The kit is built once, when the character has no save, and saved at once. Without `data/tables` (`Characters.json`,
+The kit is built once, when the character has no save, and saved at once: admission sets the class
+(`PlayerInventories.SetClass`) and passes its read-only progress preflight first, because a kit built without the class
+would be the Witch's. Without `data/tables` (`Characters.json`,
 `SkillGems.json`) and `data/item-types.json` it is empty, the Gateway logs `start kit is empty`, and the character keeps
 the empty kit: remove its row from the `characters` table of `data/saves.db` (with the Gateway stopped) to give it the kit
 again.
@@ -1348,8 +1427,8 @@ target's walk takes their `base_movement_velocity_+%`: the server's speed and th
 (0x1b3 on the minion) change together (`MinionFlaskSpeedLocked`). Their other stats have nothing to act on or are
 not applied ([Paladin](../game/paladin.md#link-skills)).
 
-**What some flasks make on use** (`FlaskGrounds.cs`, `Program.FlaskGrounds.cs`), from their implicit mods, where the
-player stands (radii in cells):
+**What some flasks and Rational Doctrine make** (`FlaskGrounds.cs`, `Program.FlaskGrounds.cs`), from their implicit
+mods or the jewel's stats, where the player or the struck monster stands (radii in cells):
 - Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Hostile monsters standing in it (not the
   player's minions) are blinded (buff 179 `blinded`): 20% less accuracy against the player (`MonsterSwing`) and 20% less evasion against the player's attacks
   (Path of Building's Blind; the tables have no default value for it). Live: Hillock's accuracy 14 → 11.
@@ -1363,6 +1442,15 @@ player stands (radii in cells):
 - A stationary player with `consecrated_ground_while_stationary_radius` (or its Strength or Crusader variant, the
   largest as the client's 0x1428d43a0) has one consecrated ground of that radius where he stands: made when his walk
   ends, removed (0x2bb) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
+  Rational Doctrine's `consecrated_ground_while_stationary_radius_if_highest_attribute_is_strength` is that Strength
+  variant; `your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area` keeps its effect on the player for
+  the listed time after he leaves the ground.
+- Rational Doctrine's `profane_ground_on_crit_chance_%_if_highest_attribute_is_intelligence` (25%) creates profane
+  ground where the critically struck monster stands, when Intelligence is the highest attribute (ties count). The ground
+  lasts 4 s, and `your_profane_ground_effect_lingers_for_ms_after_leaving_the_area` keeps its effect on monsters for
+  the listed time after they leave it. Monsters on it get the `ground_profane_enemy` buff (1569): hits against them
+  have 100% increased critical strike chance (`ProfaneCritIncrease`) and curses have 10% increased effect on them.
+  The ground's art is GroundEffects' `Profane` row; `RunFlaskGrounds` adds and removes the buff with the same ticker.
 - Basalt (`local_flask_taunt_enemies_on_use_radius` 30): taunts the hostile monsters around for 3 s (the reminder
   text), through the player's shared taunt (`TauntLocked`, [11](11-skills.md) §12), which shows `taunted` (408).
   Row 408 is IsRecovery, so its 0x1c1 carries `taunt_target_id` and `is_taunted`; the flask used to send it without
@@ -1372,8 +1460,9 @@ player stands (radii in cells):
   their slower walks and attacks to match on the client, which is not done. The ground shows the GroundEffects art
   (`ground_effects_v2/consecrated/consecrated_01.ao`, `smoke_blind/smoke_blind.ao`) as an effect object (`EffectObject`)
   scaled from GroundEffects __col4 (taken as the art's radius in world units) to the radius; live, the consecrated
-  ground's ring and light show, the smoke cloud's art does not show. The grounds last as long as the flask's effect: the
-  tables give no duration for them. `RunFlaskGrounds` looks every 100 ms of game time.
+  ground's ring and light show, the smoke cloud's art does not show. Flask grounds last as long as the flask's effect
+  (the tables give no duration for them); Rational Doctrine's profane ground lasts 4 s. `RunFlaskGrounds` looks every
+  100 ms of game time.
 
 **Quartz Flask's phasing.** The client's Pathfinding keeps "Phase Through Objects" (+0x52e) from the player's
 `virtual_phase_through_objects` (`0x141e9cd68`) and picks its blocker filter with it (`0x141e7b77c`). The Gateway sends

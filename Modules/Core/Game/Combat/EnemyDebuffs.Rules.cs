@@ -40,6 +40,7 @@ static partial class Game
     // taunt ends when its source dies); each enemy aura of his passives (Light of Divinity's Augury of Penitence, 2551)
     // and Born under Fire's) is on every hostile living monster within its radius of the player while he lives, and the
     // blind aura (SaboteurBlind) blinds them, shown with the blinded buff (PassiveBuffAuras.BlindState, Game.Blinded).
+    // Pride adds its own enemy aura (BuffDefinitions 1331) with the ramp each monster keeps while it stays inside.
     // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
     // burns read. A refund or a death takes the auras off; a new area is a new connection.
     internal static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
@@ -59,6 +60,20 @@ static partial class Game
                 bool alive = conn.PlayerLife > 0;
                 var here = conn.Walk.Position(now);
                 uint? elementalKey = Stats.Key("elemental_damage_taken_+%");
+                // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp
+                // is kept per monster.
+                AuraCatalog.Aura? pride = conn.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == "Pride");
+                IReadOnlyList<PassiveBuffAuras.Aura> enemyAuras = auras;
+                int prideRadius = 0;
+                (int Min, int Max) prideValues = default;
+                if (pride is not null)
+                {
+                    var skills = SkillsFor(conn);
+                    prideRadius = AuraRadius.Of(pride, conn.Pools.AuraAreaPct, skills, Stats);
+                    prideValues = AuraCatalog.PridePhysicalDamageTaken(pride, conn.Pools.AuraEffectPct, skills, Stats);
+                    enemyAuras = [.. auras, new PassiveBuffAuras.Aura(0, "Pride", AuraCatalog.PrideBuffRow,
+                        prideRadius, [3], [])];
+                }
                 var bytes = new List<byte>();
                 int added = 0, removed = 0;
                 foreach (var (id, m) in conn.Monsters)
@@ -79,18 +94,18 @@ static partial class Game
                             values: TauntedBuffValues, u68: BitConverter.SingleToUInt32Bits((float)(m.TauntedUntil - now))));
                         added++;
                     }
-                    double distance = living && (auras.Count > 0 || m.PlayerAuras.Count > 0)
+                    double distance = living && (enemyAuras.Count > 0 || m.PlayerAuras.Count > 0)
                         ? Dist(m.Walk.Position(now), here) : double.PositiveInfinity;
                     if (m.PlayerAuras.Count > 0)
                         foreach (var (definition, buff) in m.PlayerAuras.ToArray())
-                            if (auras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius)
+                            if (enemyAuras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius)
                             {
                                 bytes.AddRange(InstanceEntities.RemoveBuff(id, buff));
                                 m.PlayerAuras.Remove(definition);
                                 removed++;
                             }
                     int elemental = 0;
-                    foreach (var aura in auras)
+                    foreach (var aura in enemyAuras)
                     {
                         if (distance > aura.Radius) continue;
                         if (!m.PlayerAuras.ContainsKey(aura.Definition))
@@ -99,6 +114,16 @@ static partial class Game
                             added++;
                         }
                         elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);
+                    }
+                    if (pride is not null && living && distance <= prideRadius)
+                    {
+                        if (double.IsNaN(m.PrideSince)) m.PrideSince = now;
+                        m.PridePhysicalMore = AuraCatalog.PridePhysicalMore(prideValues.Min, prideValues.Max, now - m.PrideSince);
+                    }
+                    else
+                    {
+                        m.PrideSince = double.NaN;
+                        m.PridePhysicalMore = 0;
                     }
                     m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental);
                 }

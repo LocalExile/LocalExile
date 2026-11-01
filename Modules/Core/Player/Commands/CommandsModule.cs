@@ -28,5 +28,7 @@ public sealed class CommandsModule : IModule, IDisposable
     public void Load(IModuleContext module)
     {
         On(GameEvents.CommandsBuilding, CommandsFeature.Register);
+        // The campaign driver's /state, /kill and /quest_preset (Rules.Campaign.cs).
+        On(GameEvents.CommandsBuilding, AddCampaignCommands);
     }
 }

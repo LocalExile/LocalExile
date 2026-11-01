@@ -42,6 +42,8 @@ static partial class Game
     internal static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
+        // /god immune: nothing reaches the ward, energy shield or life.
+        if (conn.Immune) return 0;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         (nonChaos, chaos) = TotemsTakeHitLocked(conn, nonChaos, chaos, now, stats);
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);

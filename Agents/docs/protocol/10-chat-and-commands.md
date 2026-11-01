@@ -43,7 +43,7 @@ Candidates that read a wide string were found by mapping every S→C factory cas
 | 0x10 | u32, wstr | Nothing visible (no dispatcher case). |
 | 0x188 | wstr, u16 | Nothing visible. |
 | 0xa9 | party info | Not chat. |
-| 0xc9 | u8, wstr, wstr | Friend presence map. Not chat. |
+| 0xc9 | u8 flags, wstr account, wstr note | Friend relation: accepted bit 0, remove bit 2; see [28](28-player-trade.md) §6. |
 
 **S→C 0x17: chat line** (class `0x1435dcec0`, read `0x140e0c710`, dispatcher case 2 → listeners at instance +0xb78 →
 chat panel `0x140179f20` / `0x14017a300`; verified 2026-10-20 with `/raw`): wstr sender (its first character picks the
@@ -120,6 +120,12 @@ u16 0x1b3, u32 object id, u32 0, u16 0,
 compact uint n, n × (compact uint stat key, compact int value)
 ```
 
+The zeros above are the current server's header values, not reader-enforced constants.
+Shared reader `0x141f92000` stores them as network-order u32/u16 at decoded message `+0x14/+0x18`.
+The selected Stats pair loop uses component `+0x40` and does not read those two fields or explicitly replace
+the separate entropy/timer/reset creation trailer; see [local hit prediction](../re/projectiles/local-hit-prediction.md#31-property-updates-are-not-an-explicit-entropy-state-payload).
+Other header consumers and indirect notification effects are separate questions.
+
 - Unsigned compact (`0x14089cad0`): < 0x80 is 1 byte; then 0x80 + 14 bits, 0xc0 + 21 bits, 0xe0 + 28 bits; else 0xf0 +
   u32. Signed compact is `0x141fa3d60` (`InstanceProtocol.CompactInt`).
 - The stat key is the client's own stat id: the int its getter `0x1424cfa40(stats, key)` binary-searches in the sorted
@@ -152,6 +158,7 @@ Both run before `ServerLog`, so their output is JSON lines only.
 |---|---|
 | `/commands [page \| name]`, `/com …` | lists the commands, 8 per page (`/com 2`, `/com 3`, …; after four blank lines a green header, then each command's syntax only), or the full usage of one command (`/com item`; otherwise every command whose name contains the text) |
 | `/raw <hex>` | sends the bytes as one S→C message (dev probe; spaces allowed) |
+| `/atlas_complete <map name or AtlasNode id \| all>`, `/atlas_reset` | Atlas module: marks Atlas maps completed or clears them, saved ([21](21-hideouts.md) §4); one map sends 0x1a4, `all` only saves, reset sends an empty 0x1a3 |
 | `/set_speed <percent>` | 0x1b3 `movement_velocity_+%` = percent − 100 on the player; the server's walk estimate uses 37 × percent / 100 cells/s |
 | `/set_stat <stat name or client key> <value\|off>` | replaces a raw stat or removes its development replacement |
 | `/spawn_mob <row, Id or name>[@level] [friendly] [normal\|magic\|rare\|unique] [name]` | 0x20 + 0x2b9 + 0x1a9 for a MonsterVarieties row at a level (default 1), hostile unless `friendly`, with a rarity and an optional name, a few cells from the player (§5) |
@@ -177,11 +184,15 @@ Both run before `ServerLog`, so their output is JSON lines only.
 | `/charges [<endurance\|frenzy\|power> <n>]`, `/charges add <type> [n]`, `/charges clear` | dev: each charge type's count, maximum, minimum, duration and time left; sets a count, gains like a skill (refreshing the duration) or clears them ([11](11-skills.md) §15) |
 | `/block_luck <attack\|spell\|both\|off>` | dev: force lucky block for testing |
 | `/blockhit <attack\|spell> <fire\|cold\|lightning\|chaos\|physical> <damage>` | dev: a hit through block and resistance |
-| `/god` | toggles 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, +10 000 life, +1000 to each attribute ([11](11-skills.md) §12); remains enabled for this character across area changes and relogs until toggled off or Gateway restarts |
+| `/god [on \| off \| immune]` | toggles (or turns on/off) 1000% increased attack and cast speed, 100% of life and 10 000 mana regenerated per second, +10 000 life, +1000 to each attribute ([11](11-skills.md) §12); `immune` also takes no damage from hits and ailments. Remains enabled for this character across area changes and relogs until toggled off or the Gateway restarts |
 | `/death_screen [hex flags]` | S→C 0x55 with these flags (default: the league's; 2 hides it), [11](11-skills.md) §7 |
 | `/quest_flag [<QuestFlags Id> [off]]` | lists the character's quest flags, or sets or clears one (saved); the quest's room objects follow ([12](12-quests.md) §5) |
+| `/quest_preset <CharacterStartQuestState Id>` | dev: adds that preset's quest flags (e.g. `Act1Complete`); an `ActNComplete` preset also adds each earlier act's first preset, since the table lists only the flags each act ends with, and the flags that complete the presets' quests; it unlocks the waypoints of those acts' campaign areas and the preset's own, and gives the quest items the preset holds ([campaign automation](../dev/campaign-automation.md)) |
+| `/kill <id> \| <name> [n] \| boss \| near [radius] \| all` | dev: kills living hostile monsters here through the normal death path (a lethal hit of their life: death, experience within range, drops, quest flags and quest items); a boss's stage is skipped. Names match as `/tp`'s (name, MonsterVarieties Id or variety name, whole else a part); every match unless `n` picks one; `boss` = the unique monsters and those with the big boss life bar or a boss stage ([campaign automation](../dev/campaign-automation.md)) |
+| `/pantheon [<god> …]` | dev (Pantheon module): lists the chosen and unlocked Pantheon gods, or chooses each named one (a PantheonPanelLayout Id, a name or a panel row) as C→S 0x1ee does, with the same unlock and location checks ([pantheon](../game/campaign/pantheon.md) §4) |
+| `/state [brief \| all]` | dev: one `STATE {json}` reply for the campaign driver (area, character, passives, quest flags, waypoints, open dialogue/reward, this area's monsters, NPCs with their available options, objects, ground items, exits, waypoint, Stash, inventory, and with the Pantheon module the Pantheon); JSON beyond 900 characters continues on `STATE+ ` lines. `brief` leaves out the area's things; `all` lists every monster, not only bosses and those within 120 cells ([campaign automation](../dev/campaign-automation.md)) |
 | `/goto <area id or name> [seed]` | change area as if through an area transition (e.g. `/goto 1_1_3`; ids from the atlas; a seed makes a new instance at it, towns keep 1), [08](08-area-transitions.md) §7 |
-| `/tp <x> <y> \| <+dx> <+dy> \| <id> \| <name> [n] \| list [filter]` | dev: 0x1b7 teleports the player within the area, for testing without walking. A cell lands on itself when walkable, else on the nearest walkable cell; a value with + or - is relative to the player on that axis. A name (whole, else a part, any case) or id lands next to a monster, NPC, area transition (`transition to <area>`), the `waypoint`, the `arrival` point or an object of the area's walk-map capture (`RhoaChest`, `GlyphWall`: the last part of its object type); `n` picks the n-th of equal names. `/tp list` shows them. The current action ends and the server's position estimate moves with the player (`TeleportTargets.cs`) |
+| `/tp <x> <y> \| <+dx> <+dy> \| <id> \| <name> [n] \| list [filter]` | dev: 0x1b7 teleports the player within the area, for testing without walking. A cell lands on itself when walkable, else on the nearest walkable cell; a value with + or - is relative to the player on that axis. A name (whole, else a part, any case) or id lands next to a monster, NPC, area transition (`transition to <area>`), the `waypoint`, the `arrival` point or an object of the area's walk-map capture (`RhoaChest`, `GlyphWall`: the last part of its object type); `n` picks the n-th of equal names. An NPC also by its type (the NPCs Id's last part: `DiallaRapture`, `SinTukohama`), and the ids `/state` reports for interactive objects (the tutorial chest, Rhoa Nests, Glyph Wall, quest chests and objects) and ground items work too, as do the room objects quest rules watch (`PietyBlockage`), all listed after the others. `/tp list` shows them. The current action ends and the server's position estimate moves with the player (`TeleportTargets.cs`) |
 | `/transition [pos … \| rot <deg> \| z <z \| none> \| model <path \| none> \| index <n>]` | show or change the first area transition (re-created), [08](08-area-transitions.md) §5 |
 | `/mobs` | lists the monsters spawned on this connection; emerge monsters that have not risen are marked "(buried)" or "(lurking)" |
 | `/despawn [all \| <id>]` | S→C 0x2bb (remove object, header only) for the last spawned monster, all of them (buried ones too), or one id |

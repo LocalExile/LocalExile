@@ -1,0 +1,123 @@
+{
+  "evidence_type": "historical-instruction-interpretation-projection",
+  "source": {
+    "path": "logs/projectile-native-deep/rng-vectors.json",
+    "sha256": "a4270fb69e2a7101dd414aae7f66c07c914e85535569623980c4dc7c9180d156"
+  },
+  "binary_sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
+  "scope": "Explicit scalar input/output projections; no client instructions, live trace or trig included.",
+  "vectors": [
+    {
+      "words": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "warm_state": [
+        1787275976,
+        3850046887,
+        3094294842,
+        1581353703
+      ],
+      "raw_outputs": [
+        727980856,
+        2579274948,
+        502002237,
+        2368369794,
+        1838621512
+      ],
+      "angle_sample": 2874,
+      "angle_bits": "0x402519b6",
+      "sample_transitions": 1
+    },
+    {
+      "words": [
+        1,
+        0,
+        4096,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "warm_state": [
+        1954703602,
+        1046213728,
+        33052108,
+        143979944
+      ],
+      "raw_outputs": [
+        2142187731,
+        1999447444,
+        786086825,
+        603151360,
+        1282859819
+      ],
+      "angle_sample": 748,
+      "angle_bits": "0x3f2be10c",
+      "sample_transitions": 1
+    },
+    {
+      "words": [
+        65535,
+        255,
+        4294967295,
+        4294967295,
+        255,
+        0,
+        0,
+        0
+      ],
+      "warm_state": [
+        3268441007,
+        3484786005,
+        169862843,
+        4012640113
+      ],
+      "raw_outputs": [
+        620758244,
+        4032464437,
+        222485437,
+        1296521856,
+        4058166863
+      ],
+      "angle_sample": 577,
+      "angle_bits": "0x3f0495fc",
+      "sample_transitions": 1
+    },
+    {
+      "words": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "warm_state": [
+        3575221490,
+        3173439061,
+        1155905210,
+        3191161045
+      ],
+      "raw_outputs": [
+        2237813674,
+        743451396,
+        1324237719,
+        3296837710,
+        4146386961
+      ],
+      "angle_sample": 32,
+      "angle_bits": "0x3ceb4cba",
+      "sample_transitions": 1
+    }
+  ]
+}

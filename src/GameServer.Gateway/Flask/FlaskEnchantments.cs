@@ -25,7 +25,7 @@ static class FlaskEnchantments
 
     public static Item? Apply(Item item, ItemCatalog.BaseType type, ModCatalog mods, bool instilling, Random random)
     {
-        if (type.Class != "UtilityFlask" || !type.Supported || !item.Components.Contains("Flask")
+        if (type.Class != "UtilityFlask" || !type.Supported || type.Unmodifiable || !item.Components.Contains("Flask")
             || !item.Components.Contains("Mods") || item.Corrupted || item.Mirrored) return null;
         int generation = instilling ? 22 : 21;
         var pool = mods.All.Where(m => m.GenerationType == generation)
@@ -34,9 +34,17 @@ static class FlaskEnchantments
         int roll = random.Next(pool.Sum(m => m.Weight));
         var chosen = pool[^1].Mod;
         foreach (var entry in pool) { roll -= entry.Weight; if (roll < 0) { chosen = entry.Mod; break; } }
-        // Both currencies replace the existing flask enchantment, including the old Harvest enchantment family.
-        var kept = item.Mods.Where(m => m.Section != ModSection.Enchant
-            && !(mods.ByHash(m.Hash)?.Families.Intersect(chosen.Families).Any() ?? false));
+        // Enkindling and Instilling are separate enchantments: each replaces only its own type and keeps the other.
+        // Both replace the old Harvest/bench flask enchantment family.
+        int other = generation == 21 ? 22 : 21;
+        var kept = item.Mods.Where(m =>
+        {
+            var mod = mods.ByHash(m.Hash);
+            if (m.Section == ModSection.Enchant) return mod?.GenerationType == other;
+            if (mod is not null && mod.ModType.Contains("FlaskEnchantment", StringComparison.Ordinal)
+                && mod.GenerationType != other) return false;
+            return mod is null || !mod.Families.Intersect(chosen.Families).Any();
+        });
         var result = item with { Mods = [.. kept, chosen.Roll(ModSection.Enchant, random)] };
         int maximum = Math.Max(1, type.MaxCharges + ItemModStats.Local(result, mods).GetValueOrDefault("local_extra_max_charges"));
         return result with { Charges = Math.Min(result.Charges, maximum) };

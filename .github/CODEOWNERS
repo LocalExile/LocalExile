@@ -1,0 +1,63 @@
+# Only the maintainer approves changes to these. Agents/docs/dev/pr-checks.md
+# GitHub reads this file from the branch a pull request merges into, so a pull request cannot remove its own owner.
+
+# Instructions agents obey, at any depth
+AGENTS.md @Wrathen
+CLAUDE.md @Wrathen
+GEMINI.md @Wrathen
+.cursorrules @Wrathen
+.claude/ @Wrathen
+.cursor/ @Wrathen
+.mcp.json @Wrathen
+
+# Guides with the commands and workflows agents follow
+/README.md @Wrathen
+/Agents/GettingStarted.md @Wrathen
+/Agents/Status.md @Wrathen
+/Agents/Roadmap.md @Wrathen
+/Agents/docs/README.md @Wrathen
+/Agents/docs/dev-server.md @Wrathen
+/Agents/docs/re/tooling.md @Wrathen
+/Agents/docs/dev/campaign-automation.md @Wrathen
+/Agents/docs/dev/client-control.md @Wrathen
+/Agents/docs/dev/debugging.md @Wrathen
+/Agents/docs/dev/headless-client.md @Wrathen
+/Agents/docs/dev/live-testing.md @Wrathen
+/Agents/docs/dev/modding.md @Wrathen
+/Agents/docs/dev/modules.md @Wrathen
+/Agents/docs/dev/performance.md @Wrathen
+/Agents/docs/dev/pr-checks.md @Wrathen
+/Agents/docs/dev/releases.md @Wrathen
+
+# The repository's own controls
+/.github/ @Wrathen
+/.gitattributes @Wrathen
+/.gitignore @Wrathen
+
+# Scripts and tools people and agents run
+/scripts/ @Wrathen
+/Tools/ @Wrathen
+/src/LocalExileGui/build.ps1 @Wrathen
+
+# What runs during a build, or adds a dependency
+Directory.Build.props @Wrathen
+Directory.Build.targets @Wrathen
+Directory.Packages.props @Wrathen
+*.csproj @Wrathen
+*.slnx @Wrathen
+*.targets @Wrathen
+nuget.config @Wrathen
+NuGet.Config @Wrathen
+global.json @Wrathen
+
+# What ships to players, starts processes, or could make the client contact the official servers
+/src/LocalExile/ @Wrathen
+/src/LocalExileGui/ @Wrathen
+/src/GameServer.Patch/ @Wrathen
+
+# What loads and runs compiled code
+/src/GameServer.Gateway/Modding/ @Wrathen
+
+# Legal
+/LICENSE @Wrathen
+/THIRD-PARTY-NOTICES.md @Wrathen

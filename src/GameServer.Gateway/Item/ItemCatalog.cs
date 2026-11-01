@@ -61,6 +61,9 @@ sealed class ItemCatalog
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
 
+        /// <summary>A quest item's Quest component (its .it, item-types.json "quest"), or null for other items.</summary>
+        public QuestItemFlags? Quest { get; init; }
+
         /// <summary>BaseItemTypes ModDomain: the Mods.dat Domain its affixes come from (1 items, 2 flasks, …).</summary>
         public int ModDomain { get; init; } = 1;
 
@@ -190,6 +193,10 @@ sealed class ItemCatalog
         /// <summary>The variant the client uses: an index outside the list is the normal gem (0x14246fa50 resets it).</summary>
         public GemVariant Variant(int index) => index > 0 && index < Variants.Count ? Variants[index] : Variants[0];
     }
+
+    /// <summary>The quest items: every type with a Quest component (QuestItems, Agents/docs/protocol/12-quests.md §5).</summary>
+    public IReadOnlyList<BaseType> QuestItemTypes => _questTypes ??= [.. _rows.Value.Rows.Where(t => t.Quest is not null)];
+    IReadOnlyList<BaseType>? _questTypes;
 
     /// <summary>The gems a shop sells of one colour, active or support: creatable, writable, dropping (DropLevel above 0),
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
@@ -490,6 +497,7 @@ sealed class ItemCatalog
         if (!File.Exists(bases) || !File.Exists(visuals)) return ([], $"{bases} is missing: extract the game tables (Tools/PoEDataExtractor)");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var itemTags = new Dictionary<string, IReadOnlyList<string>>();
+        var questFlags = new Dictionary<string, QuestItemFlags>();
         string types = Path.Combine(folder, "item-types.json");
         if (!File.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
         using (var doc = GameTables.Open(types))
@@ -499,6 +507,12 @@ sealed class ItemCatalog
                     [.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)];
                 // "tags" since 2026-10-20; older files have none (regenerate with ot_components.py --items).
                 if (t.TryGetProperty("tags", out var tg)) itemTags[t.GetProperty("type").GetString()!] = [.. tg.EnumerateArray().Select(x => x.GetString()!)];
+                // "quest" since manifest version 2: the Quest component's flags.
+                if (t.TryGetProperty("quest", out var q) && q.ValueKind == JsonValueKind.Object)
+                {
+                    string? Flag(string name) => q.TryGetProperty(name, out var v) && v.GetString() is { Length: > 0 } f ? f : null;
+                    questFlags[t.GetProperty("type").GetString()!] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"));
+                }
             }
         List<ushort> visualHashes;
         using (var doc = JsonDocument.Parse(File.ReadAllBytes(visuals)))
@@ -579,6 +593,7 @@ sealed class ItemCatalog
                     Tags = new HashSet<string>([.. itemTags.GetValueOrDefault(id) ?? [],
                         .. r.GetProperty("TagsKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k < tagIds.Count).Select(k => tagIds[k])]),
                     ModDomain = r.GetProperty("ModDomain").GetInt32(),
+                    Quest = questFlags.GetValueOrDefault(id),
                     ClassRow = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cr ? cr.GetInt32() : -1,
                     Unmodifiable = r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True ||
                         r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } uc &&
@@ -593,3 +608,9 @@ sealed class ItemCatalog
         return (rows, null);
     }
 }
+
+/// <summary>A quest item's Quest component (its .it file; Agents/docs/protocol/12-quests.md §5): <see cref="Grant"/> is held
+/// while the item is carried, <see cref="Extra"/> set when it is first picked up, <see cref="Remove"/> takes the item away
+/// once set (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
+/// QuestStaticRewards keys by that flag).</summary>
+sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);

@@ -22,15 +22,24 @@ static partial class Game
     // critical_strike_chance_+%_vs_blinded_enemies (PoB "against Blinded Enemies": ActorCondition enemy Blinded) is an
     // increase: a hit's chance against a Blinded target is recomputed from its base with it in the increased sum, never
     // the final chance scaled. Each site computes that second chance once (null without the stat) and picks it here.
-    internal static int CriticalChanceOn(ClientState conn, uint target, int chance, int? vsBlinded) =>
-        vsBlinded is int blinded && Blinded(conn, target) ? blinded : chance;
+    internal static int CriticalChanceOn(ClientState conn, uint target, int chance, int? vsBlinded, int? vsProfane = null) =>
+        vsProfane is int profane && conn.FlaskGrounds.Profane(target) ? profane
+        : vsBlinded is int blinded && Blinded(conn, target) ? blinded : chance;
 
     // The default attack's (and an ordinary bow's) chance against a Blinded target: the main hand's base with the pooled
     // attack increases and the vs-Blinded one, as Pools.AttackCriticalStrikeChance is built. A release keeps the
     // unprohibited chance, as the bow's ordinary one; the roll checks the prohibitions.
-    internal static int? AttackCriticalChanceVsBlinded(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false)
+    internal static int? AttackCriticalChanceVsBlinded(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
+        StatOf(player, VsBlindedCriticalStat) is not (not 0 and var extra)
+            ? null : AttackCriticalChanceWith(conn, player, extra, release);
+
+    // The default attack's (and an ordinary bow's) chance against a target on the player's profane ground: +100%
+    // increased critical strike chance (PoB's SelfCritChance INC for enemies on Profane Ground).
+    internal static int? AttackCriticalChanceVsProfane(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
+        AttackCriticalChanceWith(conn, player, FlaskGrounds.ProfaneCritIncrease, release);
+
+    static int? AttackCriticalChanceWith(ClientState conn, IReadOnlyDictionary<uint, int> player, long extra, bool release)
     {
-        if (StatOf(player, VsBlindedCriticalStat) is not (not 0 and var extra)) return null;
         var weapon = WeaponProfileFor(conn, activeSet: true);
         return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct + extra,
             name => release && IsCriticalProhibition(name) ? 0 : StatOf(player, name));
@@ -39,6 +48,10 @@ static partial class Game
     // A supported gem's chance against a Blinded target (its attack or spell base, the pooled and own increases).
     internal static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
         conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
+
+    // A supported gem's chance against a target on the player's profane ground (+100% increased critical chance).
+    internal static int? SupportedCriticalChanceVsProfane(ClientState conn, ushort skillId, bool release) =>
+        SupportedCriticalChanceFor(conn, skillId, release, FlaskGrounds.ProfaneCritIncrease);
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where
     // it joins the other increased damage taken (shock), and the ticks of the ignite its hit inflicted (Advance's takenFrom).

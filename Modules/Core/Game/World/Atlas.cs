@@ -4,6 +4,10 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
+    /// <summary>Extra S→C messages next to the 0x3d Atlas presets, before 0x21. The Atlas module restores completed
+    /// maps here so the client's HUD is not up yet and does not announce them.</summary>
+    internal static Func<ClientState, IEnumerable<(string Log, byte[] Message)>>? ExtraPlayerMessages;
+
     // The Atlas passive tree's three presets. The client keeps the geometry and connectivity; the server owns the
     // allocation lists and the point budget (not yet earned from Atlas progress).
     internal static byte[] AtlasSlots(ClientState conn, int preset) =>
