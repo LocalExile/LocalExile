@@ -235,6 +235,23 @@ static class LabyrinthTrials
 
     public static double ArrowForwardCells => 50 / WorldUnits.PerCell;
 
+    /// <summary>A turret's Hull (<c>statueturret_circleclean.ao</c>, as every turret model but <c>_noblock</c>): squares
+    /// of ±3.25 cells for walking and ±2.26 for projectiles, turned with the turret. The client stamps it, so a dart stops
+    /// at another turret and a player walks round one (live 2026-10-31: the darts vanished at the turrets while the
+    /// server's flew on).</summary>
+    public const double ArrowTrapWalkHalf = 3.25, ArrowTrapProjectileHalf = 2.26;
+
+    /// <summary>The cells whose centres lie in a turret's square of this half size, turned by its angle.</summary>
+    public static IEnumerable<(int X, int Y)> ArrowTrapCells(int x, int y, float angle, double half)
+    {
+        int reach = (int)Math.Ceiling(half * Math.Sqrt(2));
+        double cos = Math.Cos(angle), sin = Math.Sin(angle);
+        for (int dy = -reach; dy <= reach; dy++)
+            for (int dx = -reach; dx <= reach; dx++)
+                if (Math.Abs(dx * cos + dy * sin) <= half && Math.Abs(-dx * sin + dy * cos) <= half)
+                    yield return (x + dx, y + dy);
+    }
+
     /// <summary>Where the darts leave the turret: its rig's <c>cast</c> contact (<c>StatueTurret/rig.amd</c>, 118.757 up).</summary>
     public static int ArrowLaunchHeight => new ContactPoint(0, 0, -118.757f).HeightSteps;
 
@@ -248,9 +265,15 @@ static class LabyrinthTrials
 
     static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> ArrowStats = new(() => TrapStats("LbArrowTrap"));
 
+    /// <summary>What a dart's poison is reckoned from: its hit's share of maximum life alone. The poison goes past energy
+    /// shield, so the whole hit's would turn an energy shield character's own pool against their life (live 2026-10-31:
+    /// about 100 000 energy shield took a 13 135 hit, whose poison, 3 940 over 2 s, killed 3 707 life; our reading).</summary>
+    public static int? ArrowPoisonBase(uint maxLife) => ArrowDamage(maxLife, 0);
+
     /// <summary>A dart's hit poisons (<c>global_poison_on_hit</c>): the wiki's poison is 30% of the hit's physical and
     /// chaos damage a second for 2 s, here with the .ot's <c>monster_poison_damage_+%_final</c> −50; every hit adds a
-    /// stack of its own. Chaos damage: past energy shield, less the player's chaos resistance. The slow the original's
+    /// stack of its own. Chaos damage: past energy shield, less the player's chaos resistance. Its base is the hit's life
+    /// share only (<see cref="ArrowPoisonBase"/>). The slow the original's
     /// darts leave (BuffDefinitions <c>labyrinth_arrow_slow</c>, <c>labyrinth_arrow_movement_speed_+%_final</c>) has
     /// no value in the client data: not applied.</summary>
     public const double ArrowPoisonPerSecond = 0.30 * (1 - 0.50), ArrowPoisonSeconds = 2;

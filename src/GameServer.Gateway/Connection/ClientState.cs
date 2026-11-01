@@ -405,6 +405,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
+    // own projectile map (a trial's dart turrets). Changed and read under the Monsters lock.
+    public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
     // Cells quest walls and closed doors close to the player's walk estimate (QuestBarriers): the union of
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();

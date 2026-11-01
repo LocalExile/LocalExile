@@ -200,7 +200,7 @@ static partial class Game
 
         bool Wall(int x, int y) => x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
             || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
-            || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true;
+            || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true || Conn.ProjectileWalls.Contains((x, y));
 
         int? Height(int x, int y) => TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y);
 

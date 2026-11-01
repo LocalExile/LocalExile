@@ -152,6 +152,11 @@ does so for as long as the player is in the area, each turret playing Animation.
 The darts are `Metadata/Projectiles/PoisonArrowTrapProjectile` (the poison dart rig; `ArrowTrapProjectile` is the
 plain one), 2000 units a second, flown by the connection's projectile world: a wall stops them, the player is their
 only target.
+The turret's Hull (every turret model but `statueturret_circlevine_noblock.ao`: ±3.25 to walking, ±2.26 to
+projectiles, turned with it) is stamped by the client: live (2026-10-31) the darts vanished at the turrets in their
+way while the server's flew on, unseen, and could hit a player behind one.
+So the Gateway closes those cells too (`ClientState.ProjectileWalls` for the darts, `DoorBarriers` for the walk
+estimate).
 The rig's flight clip `spine_shoot` is a `loopnoint` clip, which the `.amd` reader did not know: it dropped every rig
 with one (321 of them), so these darts had no clips in `data/projectile-clips.json` before.
 
@@ -161,6 +166,8 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
 - it poisons (`global_poison_on_hit`): 30% of the hit a second for 2 s (the wiki's poison), with the `.ot`'s
   `monster_poison_damage_+%_final` −50. Every hit adds a stack with its own BuffDefinitions `poison` ("Poisoned",
   whose count the client shows). Poison is chaos damage: past energy shield, less the player's chaos resistance.
+  Its base is the hit's life share alone (our reading): reckoned from the whole hit, a character with about 100 000
+  energy shield took a 13 135 hit whose poison (3 940 over 2 s) killed their 3 707 life (live 2026-10-31).
 - The original's darts also slow (the user's observation): BuffDefinitions `labyrinth_arrow_slow` (invisible,
   `labyrinth_arrow_movement_speed_+%_final`), whose value the client data lacks. Not applied.
 

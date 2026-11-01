@@ -413,13 +413,20 @@ static partial class QuestobjectsRules
                 LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model)), null);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             placed.Add((id, trap));
+            // Its Hull, as the client stamps it: a wall to the darts and to the player's walk estimate.
+            lock (conn.Monsters)
+            {
+                conn.ProjectileWalls.UnionWith(LabyrinthTrials.ArrowTrapCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapProjectileHalf));
+                conn.DoorBarriers[id] = LabyrinthTrials.ArrowTrapCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapWalkHalf).ToHashSet();
+                conn.UpdateBarrier();
+            }
         }
         Console.WriteLine($"[gateway] {remote} trial dart traps: {placed.Count} placed");
         _ = RunArrowTraps(remote, stream, ciphers, conn, placed);
     }
 
     // Each volley: every turret plays its cast (0x1d1) and releases its four darts (LabyrinthTrials.ArrowDirections) into
-    // the connection's projectile world, which flies them, stops them at walls and hands a contact to ArrowHit.
+    // the connection's projectile world, which flies them, stops them at walls and turrets and hands a contact to ArrowHit.
     static async Task RunArrowTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         List<(uint Id, AreaPopulation.RoomObject Trap)> traps)
     {
@@ -477,11 +484,12 @@ static partial class QuestobjectsRules
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
         if (LabyrinthTrials.ArrowDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int damage
             || TrapHitLocked(conn, damage, now) is not uint life) return ProjectileHitResult.Miss;
+        int poison = LabyrinthTrials.ArrowPoisonBase(conn.PlayerMaxLife) ?? 0;
         session.Enqueue(async () =>
         {
             if (await PresentTrapHit(session.remote, session.stream, session.ciphers, conn, id,
                     $"trial dart trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
-                await ArrowPoison(session.remote, session.stream, session.ciphers, conn, damage);
+                await ArrowPoison(session.remote, session.stream, session.ciphers, conn, poison);
         });
         return ProjectileHitResult.Hit;
     }
@@ -496,11 +504,12 @@ static partial class QuestobjectsRules
     }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Poisons> PoisonStacks = new();
 
-    // A dart's poison (LabyrinthTrials.ArrowPoisonPerSecond of its hit a second for ArrowPoisonSeconds), a stack of its own
-    // with its own Poisoned buff, which the client counts. The stacks' chaos damage goes past energy shield, less the
-    // player's chaos resistance, in SpikeBleedTickSeconds ticks, off the traps' loop.
+    // A dart's poison (LabyrinthTrials.ArrowPoisonPerSecond of its base, ArrowPoisonBase, a second for ArrowPoisonSeconds),
+    // a stack of its own with its own Poisoned buff, which the client counts. The stacks' chaos damage goes past energy
+    // shield, less the player's chaos resistance, in SpikeBleedTickSeconds ticks, off the traps' loop.
     static async Task ArrowPoison(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit)
     {
+        if (hit <= 0) return;
         var poisons = PoisonStacks.GetValue(conn, _ => new());
         ushort buff;
         bool start;
