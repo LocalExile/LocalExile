@@ -357,6 +357,7 @@ static partial class QuestobjectsRules
         _ = Task.Run(async () =>
         {
             ushort shown = buff;
+            bool died = false;
             while (!conn.Closed)
             {
                 await Task.Delay(TimeSpan.FromSeconds(SpikeBleedTickSeconds));
@@ -366,7 +367,8 @@ static partial class QuestobjectsRules
                 lock (conn.Monsters)
                 {
                     double now = conn.Clock.Elapsed.TotalSeconds;
-                    if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return;
+                    // Dead of something else: the bleed ends, and its buff (removed below) with it.
+                    if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) { bleed.Until = double.NegativeInfinity; break; }
                     double factor = now < conn.Walk.ArrivesAt ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
                     dealt = (int)Math.Round(bleed.PerSecond * factor * SpikeBleedTickSeconds);
                     long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
@@ -374,7 +376,8 @@ static partial class QuestobjectsRules
                     if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                     RecordHardcoreDeath(conn);
                     life = conn.PlayerLife;
-                    over = now + SpikeBleedTickSeconds / 2 >= bleed.Until;
+                    died = life == 0;
+                    over = died || now + SpikeBleedTickSeconds / 2 >= bleed.Until;
                     if (over) bleed.Until = double.NegativeInfinity;   // a later hit starts a bleed of its own
                     if (bleed.Buff != shown && LabyrinthTrials.BleedingBuffRow is not null)
                     {
@@ -388,11 +391,12 @@ static partial class QuestobjectsRules
                 await SendPlayerEnergyShield(remote, stream, ciphers, conn);
                 await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
                     life == 0 ? $"0x01b1 player bleeds {dealt} from a trial spike trap and dies" : null);
-                if (life == 0) { await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)"); return; }
                 if (over) break;
             }
             if (!conn.Closed && LabyrinthTrials.BleedingBuffRow is not null)
                 await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, shown), null);
+            if (!conn.Closed && died)
+                await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
         });
     }
 
@@ -528,43 +532,43 @@ static partial class QuestobjectsRules
             while (!conn.Closed)
             {
                 await Task.Delay(TimeSpan.FromSeconds(SpikeBleedTickSeconds));
-                uint life;
-                int dealt;
-                bool over;
+                uint life = 0;
+                int dealt = 0;
+                bool over, died = false;
                 List<ushort> ended;
                 lock (conn.Monsters)
                 {
                     double now = conn.Clock.Elapsed.TotalSeconds;
-                    if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn))
+                    // Dead, of this or of something else: every stack ends, and its buff with it (the client keeps a
+                    // buff until it is removed, through the resurrection too: live 2026-10-31).
+                    bool dead = conn.PlayerLife == 0 || HardcoreProgressBlocked(conn);
+                    if (!dead)
                     {
-                        poisons.Stacks.Clear();
-                        (poisons.Ticking, poisons.Carried) = (false, 0);
-                        return;
+                        // Each stack deals for the part of this tick it lasted.
+                        double raw = poisons.Stacks.Sum(s => s.PerSecond * Math.Clamp(s.Until - (now - SpikeBleedTickSeconds), 0, SpikeBleedTickSeconds));
+                        var chaos = GameServer.Core.World.DamageType.Chaos;
+                        poisons.Carried += GameServer.Core.World.DamageModel.Mitigate(raw, Resistance(conn, chaos), MaxResistance(conn, chaos));
+                        dealt = (int)poisons.Carried;
+                        poisons.Carried -= dealt;
+                        long lifeDamage = conn.EnergyShield.Damage(dealt, true, now);
+                        conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
+                        if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+                        RecordHardcoreDeath(conn);
+                        life = conn.PlayerLife;
+                        dead = died = life == 0;
                     }
-                    // Each stack deals for the part of this tick it lasted.
-                    double raw = poisons.Stacks.Sum(s => s.PerSecond * Math.Clamp(s.Until - (now - SpikeBleedTickSeconds), 0, SpikeBleedTickSeconds));
-                    var chaos = GameServer.Core.World.DamageType.Chaos;
-                    poisons.Carried += GameServer.Core.World.DamageModel.Mitigate(raw, Resistance(conn, chaos), MaxResistance(conn, chaos));
-                    dealt = (int)poisons.Carried;
-                    poisons.Carried -= dealt;
-                    long lifeDamage = conn.EnergyShield.Damage(dealt, true, now);
-                    conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
-                    if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
-                    RecordHardcoreDeath(conn);
-                    life = conn.PlayerLife;
-                    ended = [.. poisons.Stacks.Where(s => s.Until <= now).Select(s => s.Buff)];
-                    poisons.Stacks.RemoveAll(s => s.Until <= now);
-                    if (life == 0) poisons.Stacks.Clear();
+                    ended = [.. poisons.Stacks.Where(s => dead || s.Until <= now).Select(s => s.Buff)];
+                    poisons.Stacks.RemoveAll(s => dead || s.Until <= now);
                     // Over here, under the lock: a stack added after this starts ticks of its own.
                     over = poisons.Stacks.Count == 0;
                     if (over) (poisons.Ticking, poisons.Carried) = (false, 0);
                 }
                 if (dealt > 0)
                     await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
-                        life == 0 ? $"0x01b1 player takes {dealt} poison damage from a trial dart trap and dies" : null);
-                if (life == 0) { await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)"); return; }
+                        died ? $"0x01b1 player takes {dealt} poison damage from a trial dart trap and dies" : null);
                 if (LabyrinthTrials.PoisonBuffRow is not null)
                     foreach (ushort old in ended) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old), null);
+                if (died) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
                 if (over) return;
             }
         });

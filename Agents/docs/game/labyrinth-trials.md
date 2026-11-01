@@ -165,7 +165,9 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
   33% more against players, as the spike trap's share does (always hitting, armour and resistances not applied);
 - it poisons (`global_poison_on_hit`): 30% of the hit a second for 2 s (the wiki's poison), with the `.ot`'s
   `monster_poison_damage_+%_final` −50. Every hit adds a stack with its own BuffDefinitions `poison` ("Poisoned",
-  whose count the client shows). Poison is chaos damage: past energy shield, less the player's chaos resistance.
+  whose count the client shows; the client keeps a buff until it is removed, through a death and the resurrection,
+  so a death ends every stack and the spike traps' bleed with their buffs). Poison is chaos damage: past energy
+  shield, less the player's chaos resistance.
   Its base is the hit's life share alone (our reading): reckoned from the whole hit, a character with about 100 000
   energy shield took a 13 135 hit whose poison (3 940 over 2 s) killed their 3 707 life (live 2026-10-31).
 - The original's darts also slow (the user's observation): BuffDefinitions `labyrinth_arrow_slow` (invisible,
