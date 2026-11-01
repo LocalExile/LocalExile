@@ -225,11 +225,12 @@ the flying one's `flying_roomba_damage`) carries `base_physical_damage_%_of_maxi
 cells of a roomba's centre degenerates by 30% of maximum life plus 50% of maximum energy shield a second (our numbers,
 fitted live to the original's with `/trial_roomba_damage`, 2026-11-01), physical, energy shield first, and can die of
 it. A player who cannot bleed (the panel's `cannot_gain_bleeding` or `virtual_immune_to_bleeding`) takes nothing in
-one (live 2026-11-01, the original: a character immune to bleeding stands in a roomba unharmed), as if the cut were a
-bleed. When the degeneration starts the Gateway logs it with the player's life regeneration. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
+one (live 2026-11-01, the original: a character immune to bleeding stands in a roomba unharmed, still with the cut's
+sound and blood, so the buff still goes on), as if the cut were a bleed. When the degeneration starts the Gateway logs it with the player's life regeneration. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
 While they are in one the Gateway puts that buff on the player (0x1c1); its BuffVisuals `rhoomba_damage` plays
 `labyrinth/traps/roomba/roomba.epk` (the flying one's `flying_roomba.epk`) on them, and the buff goes when they leave
-or die.
+or die. A roomba glides at 35 cells a second, so one that passes a player standing on its run cuts them for about
+half a second.
 
 In the original the pools fall smoothly in it (live 2026-10-31/11-01). The client cannot drain a pool itself: its
 pool step (`0x141e6b320`) adds the pool's native recovery rate only when it is above 0, so a negative

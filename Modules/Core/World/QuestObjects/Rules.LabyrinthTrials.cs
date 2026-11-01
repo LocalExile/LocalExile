@@ -764,7 +764,8 @@ static partial class QuestobjectsRules
                 lock (conn.Monsters) here = conn.Walk.Position(now);
                 double radius = LabyrinthTrials.RoombaRadius;
                 var inside = runs.FirstOrDefault(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
-                if (inside is not null && CannotBleed(conn)) inside = null;
+                // A player who cannot bleed takes nothing, but still has the cut's sound and blood (live 2026-11-01).
+                bool spared = inside is not null && CannotBleed(conn);
                 ushort? row = inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type);
                 bool was, degen;
                 ushort instance = 0;
@@ -772,10 +773,10 @@ static partial class QuestobjectsRules
                 {
                     var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
                     was = conn.TrapDegenPerSecond > 0;
-                    conn.TrapDegenPerSecond = inside is null || conn.PlayerLife == 0 ? 0
+                    conn.TrapDegenPerSecond = inside is null || spared || conn.PlayerLife == 0 ? 0
                         : conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
                     degen = conn.TrapDegenPerSecond > 0;
-                    if (!degen) row = null;
+                    if (conn.PlayerLife == 0) row = null;
                     if (row is not null && shown?.Row != row) instance = conn.NextBuff++;
                 }
                 if (shown is { } old && old.Row != row)
@@ -788,11 +789,11 @@ static partial class QuestobjectsRules
                     await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
                     shown = (instance, buffRow);
                 }
-                // Entering and leaving change the recovery rates the client is sent (PlayerStatsUpdateAtGate).
                 if (degen && !was)
                     Console.WriteLine($"[gateway] {remote} trial roomba: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
                         $"energy shield {conn.EnergyShield.Maximum}), life regeneration {LifeRegenPerSecond(conn):0.#}/s, life {conn.PlayerLife}, " +
                         $"energy shield {conn.EnergyShield.Current}");
+                // Entering and leaving change the recovery rates the client is sent (PlayerStatsUpdateAtGate).
                 if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? "in a trial roomba" : "out of the trial roombas");
                 await Task.Delay(SpikeTickMilliseconds);
             }
