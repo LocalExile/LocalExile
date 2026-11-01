@@ -115,7 +115,22 @@ def stand(d, seconds):
     time.sleep(seconds)
 
 
-SCENARIOS = {"walk-clicks": walk_clicks, "walk-held": walk_held, "stand": stand}
+def skill_clicks(d, seconds):
+    """The skill on the right mouse button at a new point every ~1.2 s, near and far, with a walk click between."""
+    end = time.time() + seconds
+    while time.time() < end:
+        d.input.cursor(*d.at(random.uniform(0, math.tau), random.uniform(60, 330)))
+        time.sleep(.05)
+        if d.key:
+            d.input.key(d.key)
+        else:
+            d.input.skill()
+        time.sleep(random.uniform(.8, 1.4))
+        d.click(random.uniform(0, math.tau), random.uniform(60, 140))
+        time.sleep(.35)
+
+
+SCENARIOS = {"walk-clicks": walk_clicks, "walk-held": walk_held, "stand": stand, "skill-clicks": skill_clicks}
 
 
 def main():
@@ -125,9 +140,11 @@ def main():
     parser.add_argument("--out", default=str(ROOT / "logs" / "sync-client.jsonl"))
     parser.add_argument("--seconds", type=float, default=30)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--key", type=lambda v: int(v, 0), default=0, help="skill-clicks: this virtual key, not the right button")
     options = parser.parse_args()
     random.seed(options.seed)
     driver = Driver(options.session, options.out)
+    driver.key = options.key
     try:
         driver.mark(f"start {options.scenario}")
         SCENARIOS[options.scenario](driver, options.seconds)

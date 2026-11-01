@@ -3,13 +3,15 @@
 // Load with Python's frida and call the exports (see scripts/dev/sync_drive.py):
 //   cursor(x, y)  the client's cursor at client-area pixels (GetCursorPos answers it, a WM_MOUSEMOVE tells the window)
 //   down() / up() the left button
+//   skill()       a click of the right button, the skill bar's slot 2 by default
+//   key(code)     a press of the virtual key, Q (0x51) for slot 3
 // Nothing is sent to the user's own mouse: PostMessageW targets only the client's window.
 const user32 = Process.getModuleByName('user32.dll');
 const fn = (name, ret, args) => new NativeFunction(user32.getExportByName(name), ret, args);
 const postMessage = fn('PostMessageW', 'int', ['pointer', 'uint', 'pointer', 'pointer']);
 const clientToScreen = fn('ClientToScreen', 'int', ['pointer', 'pointer']);
 const getCursorPos = user32.getExportByName('GetCursorPos');
-const WM_ACTIVATE = 6, WM_SETFOCUS = 7, WM_ACTIVATEAPP = 0x1c, WM_MOUSEMOVE = 0x200, WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, MK_LBUTTON = 1;
+const MK_RBUTTON = 2, WM_ACTIVATE = 6, WM_SETFOCUS = 7, WM_ACTIVATEAPP = 0x1c, WM_MOUSEMOVE = 0x200, WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205, WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, MK_LBUTTON = 1;
 
 let hwnd = ptr(0), cx = 0, cy = 0, held = false, active = false;
 const point = Memory.alloc(8);
@@ -42,6 +44,14 @@ rpc.exports = {
   },
   down() { held = true; postMessage(hwnd, WM_LBUTTONDOWN, ptr(MK_LBUTTON), lparam()); },
   up() { held = false; postMessage(hwnd, WM_LBUTTONUP, ptr(0), lparam()); },
+  key(code) {
+    postMessage(hwnd, WM_KEYDOWN, ptr(code), ptr(1));
+    postMessage(hwnd, WM_KEYUP, ptr(code), ptr(0xc0000001));
+  },
+  skill() {
+    postMessage(hwnd, WM_RBUTTONDOWN, ptr(MK_RBUTTON), lparam());
+    postMessage(hwnd, WM_RBUTTONUP, ptr(0), lparam());
+  },
 };
 
 send('drive-input ready');

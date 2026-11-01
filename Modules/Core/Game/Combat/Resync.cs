@@ -21,6 +21,17 @@ static partial class Game
         return InstanceProtocol.Resync(objects);
     }
 
+    /// <summary>How long after a movement spell the resync goes out.</summary>
+    internal const double MovementResyncSeconds = .5;
+
+    internal static void ResyncAfter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double seconds, string why) =>
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            try { await SendResync(remote, stream, ciphers, conn, why); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+        });
+
     internal static Task SendResync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why) =>
         Send(remote, stream, ciphers, [], $"0x0128 resync ({why})", atGate: () =>
         {
