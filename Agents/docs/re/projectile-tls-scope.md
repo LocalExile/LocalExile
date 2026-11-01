@@ -43,9 +43,9 @@ The known thread-local state is at TLS `+0x170`; its transition is uint32
 |---|---|---|
 | T0: freeze and preflight | Pin baseline, witness, known stopped routes and exact missing edge | Complete; prior World/scope audits reused |
 | T1: local gate | Verify reached/skip conditions, TLS address and direct caller state access | Fresh original-byte and final-slot checks complete; inherited arithmetic reconfirmed |
-| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Selected ordinary contact ingress bound; earlier state/outer scope open |
+| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Open after A/B scope review; no positive state-source connection retained |
 | T3: reproducibility | Check exact state transitions with declared inputs; classify which inputs are action-derived, external or unobserved | Open |
-| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | Pending |
+| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | Scope review complete; closure and Ready validation pending |
 
 A **local reconstruction closure** requires a proved scope entry/state source, actual selected control-flow
 ordering, draw/restore behavior and a finite comparison witness. Supplied state may verify arithmetic but
@@ -61,7 +61,7 @@ converted into either closure above. K1 retains all other witnesses and obligati
 
 ## Investigation A: selected local contact envelope
 
-The [compact receipt](projectile-tls-scope-evidence.json) pins the six inspected code spans, ordinary
+The [compact receipt](projectile-tls-scope-evidence.json) pins A's six inspected code spans, ordinary
 Fireball's final `+0x678` binding and fixed source documents. This is original-byte inspection, not runtime
 execution. Reconfirming these inherited rules is not counted as discovery of a new seed producer.
 
@@ -86,6 +86,57 @@ binding open; repeating those generic traversals is not a new lead. The next inv
 concrete connection to that ingress, or specify a bounded observation of its caller/state/ordering. If no
 new edge narrows, the scope-review rule below applies. No whole-thread consumer inventory is authorized
 by this local result.
+
+## Investigation B: selected movement/query ingress
+
+Fresh bytes match the fixed baseline's ten selected spans for Positioned update `0x141e32710`, rectangle
+query `0x141e47a40`, candidate filter `0x141e47ca0` and capture dispatcher `0x141e32dc0`. These contain
+795 linear instructions, not 795 executed instructions. Their established straight-frame path connects:
+
+```text
+Positioned update: 0x141e329ca -> rectangle query 0x141e47a40
+rectangle query:   0x141e47c3c -> candidate filter 0x141e47ca0
+candidate filter:  0x141e47dd4 -> capture dispatcher 0x141e32dc0
+ordinary capture: +0x198 -> callable +0x10 -> 0x141a43720
+```
+
+These inspected inline bodies have no GS access. That observation does not eliminate state effects in
+earlier callees, pointer aliases, the update's pre-query virtual `+0x180` callback at `0x141e32846`, or
+an enclosing caller. It is not evidence of a globally unscoped random stream or a complete draw-order list.
+The wrapper/query chain is reused evidence checked against the executable, not a newly recovered seed source.
+
+After A and B the same core state-source edge remains open. **The agreed scope/method review is triggered**
+before further traversal. In particular, do not keep expanding the World scheduler merely because it
+is an ancestor. Any further static investigation must identify a concrete typed state/control boundary
+and how its result could change the conclusion; otherwise retain the precise observation requirement.
+
+## Scope/method review after A and B
+
+Independent read-only review confirms that neither acceptance route has been met. The typed call route
+is better pinned, but the required incoming-state edge has not narrowed. No retained positive writer or
+alias connection currently justifies another static state-source traversal. Keep this PR **Draft**.
+
+The pre-query `+0x180` call has returned at `0x141e32854`; its result is later passed as the rectangle-query
+receiver at `0x141e329c4/0x141e329ca`. A save/seed/restore confined to that method cannot enclose the later
+Pierce decision. A persistent write there could matter, but no inspected evidence establishes one.
+Resolving this getter and finding another body without inline GS access would not close the state source.
+
+Further generic wrapper traversal stops at this review boundary. Re-entry requires a concrete state-writer
+connection or one source-attributed observation of the selected invocation, with:
+
+1. Actual action/Positioned/contact identity, executing thread and dynamic call stack.
+2. State entering the selected gate, the nearest identifiable seed/save boundary and that boundary's inputs.
+3. All intervening reached state changes through the decision, including rejected samples, earlier contacts
+   and any associated restoration. Candidate traversal and movement loops can repeat consumers.
+
+Use one ordinary reached chance strictly between 0 and 100. Bound the observation to one selected invocation
+and its nearest identifiable state boundary. If recording starts after that boundary or misses preceding
+writes, the source remains unresolved. An observed decision-point state alone can check scalar arithmetic;
+it does not identify server-required seed inputs or prove a complete random scope.
+
+No such observation is asserted here and none was performed. Existing baseline observation tooling is not
+itself evidence that a source-attributed record exists. The review changes the next admissible method;
+it does not replace the goal with documentation-only completion or promote K1 to established.
 
 ## Scope review rules
 

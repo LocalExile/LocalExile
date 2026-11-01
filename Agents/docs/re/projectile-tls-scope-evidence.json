@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "scope": "Investigation A static identity receipt; no native replay, runtime state, complete scope or thread claim",
+  "scope": "Investigations A/B static identity receipt; no native replay, runtime state, complete scope or thread claim",
   "client_sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
   "address_convention": "Preferred-image VA; start inclusive, end exclusive. Selected spans do not imply complete transitive call coverage. Linear counts are not execution counts.",
   "ranges": [
@@ -45,6 +45,69 @@
       "end": "0x141e330a7",
       "sha256": "e0f4105204b86fe968134e19e690980cecf9991ee1978e0dc7e18f3462f6710f",
       "linear_instructions": 63
+    },
+    {
+      "label": "B selected span of 0x141e32710",
+      "start": "0x141e32710",
+      "end": "0x141e32746",
+      "sha256": "5b2696223cb44c6ea4cd4b5d0628ef25649328383ada12b0fda789a1613b5edc",
+      "linear_instructions": 11
+    },
+    {
+      "label": "B selected span of 0x141e32710",
+      "start": "0x141e32746",
+      "end": "0x141e32782",
+      "sha256": "1af58adde1848d41f310ec75fe6753b9e19864fb1a5e3cbac791b69239227d6c",
+      "linear_instructions": 12
+    },
+    {
+      "label": "B selected span of 0x141e32710",
+      "start": "0x141e32782",
+      "end": "0x141e32da0",
+      "sha256": "4fd3adaeee8f9ea839f853a7a71868a23268fd641e67055e8eb3cd92630ec7bd",
+      "linear_instructions": 328
+    },
+    {
+      "label": "B selected span of 0x141e32710",
+      "start": "0x141e32da0",
+      "end": "0x141e32da5",
+      "sha256": "655f277ef87107f54b747e95323751e7fce4fa2df08a02ea5e47b45a2d3db382",
+      "linear_instructions": 1
+    },
+    {
+      "label": "B selected span of 0x141e32710",
+      "start": "0x141e32da5",
+      "end": "0x141e32db3",
+      "sha256": "0844695ff9351d2d16eb39346eb1662384eb842002112cc66de5d7de1559daca",
+      "linear_instructions": 4
+    },
+    {
+      "label": "B selected span of 0x141e47a40",
+      "start": "0x141e47a40",
+      "end": "0x141e47c94",
+      "sha256": "c47e5d99aec2371226946c18e83c3938114c84e1055d521ab13778083896b9a9",
+      "linear_instructions": 162
+    },
+    {
+      "label": "B selected span of 0x141e47ca0",
+      "start": "0x141e47ca0",
+      "end": "0x141e47e34",
+      "sha256": "16786dbe9400d8f805e8455c9485b52a88e6a0e469949641718c760b70ee583e",
+      "linear_instructions": 113
+    },
+    {
+      "label": "B selected span of 0x141e32dc0",
+      "start": "0x141e32dc0",
+      "end": "0x141e32e38",
+      "sha256": "3a7ad4fff299392a0624c4de20591c8a861cf94c0ac5a843ad314b144a2cd2f4",
+      "linear_instructions": 25
+    },
+    {
+      "label": "B selected span of 0x141e32dc0",
+      "start": "0x141e32e38",
+      "end": "0x141e32fb3",
+      "sha256": "234eb8ae6cb1cb5377f8cd27e6c6a8cf350da716ee2562fe93214d23d24b8f6c",
+      "linear_instructions": 76
     }
   ],
   "slots": [
