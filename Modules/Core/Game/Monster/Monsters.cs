@@ -193,12 +193,22 @@ static partial class Game
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
         area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(conn)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
-        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data");
+        var placedRooms = new List<AreaPopulation.PlacedRoom>();
+        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
-        var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
+        // A Trial of Ascendancy's rooms hold none of the area's packs, only their traps and the monsters the room itself
+        // places (live 2026-10-31, the original: no monsters among the traps, the Imperial Gardens trial's Devourers).
+        var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
+        Func<int, int, bool> packCells = trialRooms.Count == 0 ? walkable : (x, y) => walkable(x, y) && !trialRooms.Any(r => r.Contains(x, y));
+        var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, packCells, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes);
+        foreach (var room in trialRooms)
+            foreach (var p in room.Points.Where(p => p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal)))
+                if (Monsters.Find(p.Name) is { } v && v.Id.Equals(p.Name, StringComparison.OrdinalIgnoreCase) && Spawnable(v.Row))
+                    spawns.Add(new AreaPopulation.Spawn(v.Row, p.X, p.Y, MonsterRarity.Normal, "trial room"));
+                else notes.Add($"trial room {room.Path.Split('/')[^1]}: {p.Name} at ({p.X}, {p.Y}) cannot be created");
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
         int areaLevel = area.AreaLevel;
         if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == layout.Hash && openMap.Area.Level > 0)

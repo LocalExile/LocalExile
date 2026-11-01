@@ -126,6 +126,14 @@ static class AreaPopulation
     /// angle (radians) and scale, through the room's placement.</summary>
     public sealed record RoomObject(string Type, string Model, int X, int Y, float Angle, float Scale);
 
+    /// <summary>A quest room placed where the client placed it (<see cref="FitRooms"/>): its points and server objects
+    /// in grid cells, and the cells its doodads span (a Trial of Ascendancy's room keeps the area's packs out).</summary>
+    public sealed record PlacedRoom(string Path, IReadOnlyList<RoomPoint> Points, IReadOnlyList<RoomObject> Objects,
+        int MinX, int MinY, int MaxX, int MaxY)
+    {
+        public bool Contains(int x, int y) => x >= MinX && x <= MaxX && y >= MinY && y <= MaxY;
+    }
+
     static bool IsMonsterPoint(string name) => BossPoint(name) is not null || name.StartsWith("%area%-", StringComparison.Ordinal);
 
     /// <summary>The bosses a fight brings rather than the area: a later Bosses row with the name of an earlier one whose
@@ -431,7 +439,7 @@ static class AreaPopulation
     /// <paramref name="generated"/>, the Gateway's own generation of the seed is used even where a capture exists (the
     /// capture tour's records compare the two fits).</summary>
     internal static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
-        string folder, bool generated = false)
+        string folder, bool generated = false, List<PlacedRoom>? placedRooms = null)
     {
         string walkability = Path.Combine(folder, "walkability");
         string capture = Path.Combine(walkability, $"{areaId}_seed{seed}.doodads.json");
@@ -550,10 +558,17 @@ static class AreaPopulation
                 objects.RemoveRange(fittedObjects, objects.Count - fittedObjects);
                 foreach (var placement in questPlacements)
                 {
+                    int first = objects.Count;
                     foreach (var d in room.Doodads.Where(d => d.Type is not null))
                     {
                         var g = placement.Place(new RoomPoint(d.Type!, (int)MathF.Round(d.X), (int)MathF.Round(d.Y), d.Angle));
                         objects.Add(new RoomObject(d.Type!, d.Model, g.X, g.Y, g.Angle, d.Scale));
+                    }
+                    if (placedRooms is not null && room.Doodads.Count > 0)
+                    {
+                        var cells = room.Doodads.Select(d => placement.Place(new RoomPoint("", (int)MathF.Round(d.X), (int)MathF.Round(d.Y)))).ToList();
+                        placedRooms.Add(new PlacedRoom(path, [.. room.Points.Select(placement.Place)], objects.GetRange(first, objects.Count - first),
+                            cells.Min(c => c.X), cells.Min(c => c.Y), cells.Max(c => c.X), cells.Max(c => c.Y)));
                     }
                     if (!capturedRooms.Contains(path)) capturedRooms.Add(path);
                     notes.Add($"room {path.Split('/')[^1]} at its captured placement ({placement.X}, {placement.Y}) code {placement.Code}: quest objects " +

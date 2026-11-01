@@ -96,6 +96,11 @@ So:
    (The Toxic Conduits) and `mapbossWG` take the area's bosses no other point took. Not used: `mapboss-<variety>`
    (Shaper guardian maps) and the league points `mapbosswarband…`, `mapbossexilepack`. Before version 6 only `mapboss`
    and `mapboss<n>` were kept, and neither Kitava, Shakari, Abberath nor the Lingering Aberrations had a point.
+   A room's own monsters are points too, named by their MonsterVarieties Id (`Metadata/Monsters/…`; version 7 keeps
+   them in the rooms kept for other reasons, 179 rooms: boss arenas' daemons and guards, the Imperial Gardens trial's
+   four `RootSpiderHidden`). Only a Trial of Ascendancy's rooms place them yet
+   ([labyrinth-trials](../game/labyrinth-trials.md), "Monsters"); a quest room placed where the client placed it is
+   also returned with its points, objects and the cells its doodads span (`AreaPopulation.PlacedRoom`).
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
    (`BossMonster_MonsterVarietiesKeys`, at its `BossMonsterSpawnChance`) comes with it, unique when it is one of the

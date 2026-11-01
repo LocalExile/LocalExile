@@ -179,6 +179,15 @@ with one (321 of them), so these darts had no clips in `data/projectile-clips.js
   60% less, final: the pools apply it to the whole `movement_velocity_+%`, which the client walks with and the panel
   shows, and the walk estimate follows.
 
+## Monsters
+
+In the original a trial's rooms have none of the area's monster packs (live 2026-10-31: no monsters among the traps).
+The Gateway keeps the scattered packs out of the cells a trial room's doodads span (a room with the plaque or the
+trial's door, `AreaPopulation.PlacedRoom`), and places the monsters the room file itself names among its points: the
+Imperial Gardens trial's four `Metadata/Monsters/RootSpiders/RootSpiderHidden` (Devourers, which rise from the ground
+as the player comes near), normal rarity, at the area's level.
+The other Normal trials' rooms name none; their monsters come from spawner objects (below).
+
 ## A completed trial
 
 The client counts a trial done (`0x141f69230`, for each of a Labyrinths row's `RequiredTrials`) when the player has
