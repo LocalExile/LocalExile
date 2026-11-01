@@ -104,29 +104,26 @@ sealed class MonsterElementalAilments
     }
 
     /// <summary>
-    /// One hit's ailments from the damage the monster took per type (critical multiplier included) against its ailment
-    /// threshold. Chill: every hit with cold damage, 2 s. Freeze: a critical strike or chance_to_freeze_% with cold
-    /// damage, 0.06 s per 1% of the threshold up to 3 s, then duration modifiers, discarded under 0.3 s. Shock: a
-    /// critical strike or chance_to_shock_% with lightning damage, and cold damage too with cold_damage_can_shock
-    /// (Stormy Seas: the magnitude, not the chance), 2 s. <paramref name="attacker"/> gives the player's and the skill's
+    /// One hit's ailments from the damage the monster took per type (<paramref name="damage"/>, critical multiplier
+    /// included) against its ailment threshold. Chill: every hit with chilling damage, 2 s. Freeze: a critical strike or
+    /// chance_to_freeze_% with freezing damage, 0.06 s per 1% of the threshold up to 3 s, then duration modifiers,
+    /// discarded under 0.3 s. Shock: a critical strike, chance_to_shock_% or always_shock ("Hits always Shock") with
+    /// shocking damage, 2 s. Which types chill, freeze or shock is <see cref="Inflicting"/>; the effect reads their total
+    /// (wiki Shock). <paramref name="attacker"/> gives the player's and the skill's
     /// summed stats, <paramref name="target"/> the monster's own; the attacker's prohibitions (<see cref="CannotInflict"/>) stop
     /// each ailment. The damage the chill, freeze and shock read takes the attacker's as-though multipliers (Overcharge).
     /// The effects added are returned. A chill carries the
     /// attacker's Glacial Wave stats, a shock its proliferation radius grown by the hit's area modifier <paramref name="area"/>.
-    /// <paramref name="other"/> is the hit's physical, fire and chaos damage: with the attacker's all_damage_can_chill,
-    /// _freeze or _shock ("All Damage with Hits can Shock") that ailment reads every type's damage (wiki Shock: the effect
-    /// is the total of every type that can inflict it). always_shock ("Hits always Shock") needs no chance.
     /// </summary>
-    public List<Effect> Inflict(double cold, double lightning, bool critical, double threshold, double now,
-        Func<string, int> attacker, Func<string, int> target, Random random, double area = 1, double other = 0)
+    public List<Effect> Inflict(DamagePacket damage, bool critical, double threshold, double now,
+        Func<string, int> attacker, Func<string, int> target, Random random, double area = 1)
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
-        bool AllCan(string ailment) => attacker($"all_damage_can_{ailment}") != 0;
-        double chilling = cold + (AllCan("chill") ? lightning + other : 0);
-        double freezing = cold + (AllCan("freeze") ? lightning + other : 0);
-        double shocking = lightning + (AllCan("shock") ? cold + other : attacker("cold_damage_can_shock") != 0 ? cold : 0);
+        double chilling = Inflicting("chill", DamageType.Cold, damage, attacker);
+        double freezing = Inflicting("freeze", DamageType.Cold, damage, attacker);
+        double shocking = Inflicting("shock", DamageType.Lightning, damage, attacker);
         if (!CannotInflict("chill", attacker))
             Add(new(Kind.Chill, now, now + 2, Effectiveness(chilling * AsThough(Kind.Chill, attacker), threshold,
                 EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker), attacker("chill_minimum_slow_%")))
@@ -146,6 +143,15 @@ sealed class MonsterElementalAilments
                 { Spread = SpreadRadius(attacker, area) });
         return added;
     }
+
+    /// <summary>The damage that counts for an ailment: its own element's, and another type's with "All Damage with Hits can
+    /// Shock" (all_damage_can_*), "Your Chaos Damage can Shock" (one type's, Stormy Seas' cold among them) or, for shock,
+    /// "Your Elemental Damage can Shock". Each type counts once.</summary>
+    static double Inflicting(string ailment, DamageType own, DamagePacket damage, Func<string, int> attacker) =>
+        damage.Components.Where(c => c.Type == own || attacker($"all_damage_can_{ailment}") != 0
+                || attacker($"{c.Type.ToString().ToLowerInvariant()}_damage_can_{ailment}") != 0
+                || ailment == "shock" && DamageTypes.IsElemental(c.Type) && attacker("elemental_damage_can_shock") != 0)
+            .Sum(c => c.Range.Min);
 
     /// <summary>Whether the attacker's hits cannot inflict this elemental ailment ("ignite", "chill", "freeze" or
     /// "shock"): Elemental Focus's cannot_inflict_status_ailments ("Supported Skills cannot inflict Elemental Ailments"),

@@ -1395,9 +1395,9 @@ strike; the threshold is its maximum life (wiki: equal to it for most monsters).
 
 | Ailment | Applied by | Effect | Duration |
 |---|---|---|---|
-| Chill | every hit with cold damage, or any damage with `all_damage_can_chill` | floor(50 × (cold / threshold)^0.4 × modifiers), at most 30% (40% with Shaper of Winter); none under 5% | 2 s |
-| Shock | a critical strike, `chance_to_shock_%` or `always_shock`, with lightning damage, cold damage with `cold_damage_can_shock`, or any damage with `all_damage_can_shock` | the same formula on that damage, at most 50%, 90% with Voltaxic Rift | 2 s |
-| Freeze | a critical strike or `chance_to_freeze_%`, with cold damage, or any damage with `all_damage_can_freeze` | the monster cannot act | 0.06 s per 1% of the threshold, at most 3 s; none under 0.3 s |
+| Chill | every hit with cold damage, or another type's that can chill | floor(50 × (cold / threshold)^0.4 × modifiers), at most 30% (40% with Shaper of Winter); none under 5% | 2 s |
+| Shock | a critical strike, `chance_to_shock_%` or `always_shock`, with lightning damage, or another type's that can shock | the same formula on that damage, at most 50%, 90% with Voltaxic Rift | 2 s |
+| Freeze | a critical strike or `chance_to_freeze_%`, with cold damage, or another type's that can freeze | the monster cannot act | 0.06 s per 1% of the threshold, at most 3 s; none under 0.3 s |
 
 The effect modifiers are the attacker's `virtual_chill_effect_+%`/`virtual_shock_effect_+%` and the monster's
 `chill_effectiveness_on_self_+%`/`shocked_effect_on_self_+%`, both counted before the cap and the 5% floor. The
@@ -1428,9 +1428,11 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   a critical strike or `chance_to_shock_%`. The client's calculator `0x1426f2660` makes `virtual_cold_damage_can_shock`
   (0x1bc6) from keys 0x451a, 0x1bc9 and 0x1b96, and nothing else in the client reads it.
 - **All Damage can Chill, Freeze or Shock.** `all_damage_can_chill`, `all_damage_can_freeze` and `all_damage_can_shock`
-  (Shaper of Storms has the last) make every type of the hit count for that ailment, the physical part after the
-  monster's physical reduction; with several types the effect reads their total (wiki Shock). `always_shock` ("Hits
-  always Shock", Shaper of Storms) shocks without the chance roll, so it draws no random number.
+  (Shaper of Storms has the last) make every type of the hit count for that ailment, and one type's
+  `{type}_damage_can_{ailment}` (Voltaxic Rift's chaos can shock, physical can chill) that type; for shock,
+  `elemental_damage_can_shock` the three elements. `Inflict` takes the hit by type, the physical part after the
+  monster's physical reduction; each type counts once, and with several the effect reads their total (wiki Shock).
+  `always_shock` ("Hits always Shock", Shaper of Storms) shocks without the chance roll, so it draws no random number.
 - **As though dealing more damage.** "Shock/Chill/Freeze Enemies as though dealing X% more Damage" multiplies the
   damage the chill's and shock's magnitude and the freeze's duration read by 1 + X/100 per stat (PoB `CalcOffence`:
   the ailment's damage × `<Ailment>AsThoughDealing` MORE). The stats read: Overcharge's
