@@ -57,8 +57,9 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
   area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `ClientState.DoorBarriers`);
 - using the trial's door opens it (0x2ba state 2, then 0x1c6 unblocked);
 - a lever opens itself and the nearest Locked Door that is still closed (our rule: no file links a lever to its door);
-- the plaque sets the trial's quest flag, opens the portal and opens the Trial Plaque window; using it again only
-  opens the window;
+- the plaque sets the trial's quest flag, opens the portal and opens the Trial Plaque window; a done trial's plaque
+  is lit when the player comes, but its portal is closed until the plaque is used (live 2026-10-31, the original: in
+  every trial), and using the plaque again only opens the window;
 - the open portal teleports the player back to the trial's door;
 - what an instance opened stays open for later entries (`InstanceState.Transition`).
 
@@ -210,6 +211,10 @@ no knockback, and it does not block the way. No skill: BuffDefinitions `labyrint
 with no values in the client data. So a player within 10 cells of a roomba's centre takes 40% of maximum life plus
 25% of maximum energy shield a second (our numbers), physical, energy shield first. `/trial_roomba_damage <life %>
 <energy shield %> [<radius>]` (dev) changes them.
+In the original the pools melt in it rather than drop in steps (live 2026-10-31). The client steps its pools between
+the server's updates by their native recovery rates ([recovery-timing](../re/recovery-timing.md)), so while the player
+is in a roomba the Gateway sends `energy_shield_recovery_per_minute` (or, once energy shield is gone,
+`life_recovery_per_minute`) less the roomba's damage a minute, and the ordinary rates again when they leave.
 
 ## Monsters
 

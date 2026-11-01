@@ -156,7 +156,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
   The door opens, a lever opens the nearest Locked Door, the plaque sets the trial's quest flag (the client counts it
-  done), opens the portal back to the door and opens the Trial Plaque window (0x7b kind 9) with the trials done.
+  done), opens the portal back to the door and opens the Trial Plaque window (0x7b kind 9) with the trials done; a
+  done trial's portal too opens only when its plaque is used.
   What an instance opened stays open; an opened Locked Door is removed, since the client keeps its cells closed.
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise

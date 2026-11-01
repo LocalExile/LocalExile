@@ -39,12 +39,15 @@ static partial class QuestobjectsRules
             return;
         }
         var plaque = objects.FirstOrDefault(o => o.Type == LabyrinthTrials.Plaque);
-        bool lit = ClientHasQuestFlag(conn, trial.Flag) || plaque is not null && conn.Instance.Transitioned(plaque.Type, plaque.X, plaque.Y);
+        // A done trial's plaque is lit when the player comes (the flag); it counts as used in this instance, so using it
+        // again opens the portal without playing its glow again. The portal opens only when the plaque is used (live
+        // 2026-10-31, the original: in every trial, done or not), and stays open in this instance.
+        if (plaque is not null && ClientHasQuestFlag(conn, trial.Flag)) conn.Instance.Transition(plaque.Type, plaque.X, plaque.Y);
         var from = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         List<(int X, int Y)> guarded = plaque is null ? [] : [conn.Layout.Near((plaque.X, plaque.Y))];
         foreach (var o in objects)
         {
-            bool open = o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.Portal ? lit : conn.Instance.Transitioned(o.Type, o.X, o.Y);
+            bool open = conn.Instance.Transitioned(o.Type, o.X, o.Y);
             if (open && o.Type == LabyrinthTrials.Door) continue;   // an opened Locked Door is gone (RemoveOpenedDoor)
             uint id = conn.NextObjectId++;
             lock (conn.Monsters) conn.TrialObjects[id] = o;
@@ -67,7 +70,7 @@ static partial class QuestobjectsRules
     }
 
     // A trial object used: the player walks up to it, then the trial's door opens, a lever opens the nearest locked door,
-    // the plaque completes the trial (its flag) and opens the portal, and the open portal returns to the trial's door.
+    // the plaque completes the trial (its flag) and opens the portal (every use), and the open portal returns to the trial's door.
     // False when the object is not a trial's.
     internal static async Task<bool> UseTrialObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use)
@@ -97,19 +100,18 @@ static partial class QuestobjectsRules
                 break;
             case LabyrinthTrials.Plaque:
                 if (await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o))
-                {
                     await SetQuestFlags(remote, stream, ciphers, conn, [trial.Flag]);
-                    List<KeyValuePair<uint, AreaPopulation.RoomObject>> portals;
-                    lock (conn.Monsters) portals = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.Portal)];
-                    foreach (var (id, portal) in portals)
+                List<KeyValuePair<uint, AreaPopulation.RoomObject>> portals;
+                lock (conn.Monsters) portals = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.Portal)];
+                foreach (var (id, portal) in portals)
+                    if (conn.Instance.Transition(portal.Type, portal.X, portal.Y))
                         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(portal.Type), LabyrinthTrials.Open),
-                            $"0x02ba trial portal 0x{id:x} opens: trial {trial.Flag} complete");
-                }
+                            $"0x02ba trial portal 0x{id:x} opens: trial {trial.Flag} plaque used");
                 // Every use shows the trials done (the window reads their flags itself).
                 await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
                 break;
             case LabyrinthTrials.Portal:
-                if (!TrialLit(conn, trial)) break;
+                if (!conn.Instance.Transitioned(o.Type, o.X, o.Y)) break;   // closed until the plaque is used
                 if (NearestTrialObject(conn, LabyrinthTrials.IntroDoor, (o.X, o.Y), closed: false) is not { } entrance) break;
                 var to = conn.Layout.Near((entrance.Object.X, entrance.Object.Y));
                 lock (conn.Monsters)
@@ -721,6 +723,7 @@ static partial class QuestobjectsRules
     static async Task RunRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<RoombaRun> runs)
     {
         double carried = 0, last = conn.Clock.Elapsed.TotalSeconds;
+        bool melting = false;
         try
         {
             while (!conn.Closed)
@@ -742,12 +745,40 @@ static partial class QuestobjectsRules
                 double radius = LabyrinthTrials.RoombaRadius;
                 bool inside = runs.Any(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
                 if (inside) carried = await RoombaDamage(remote, stream, ciphers, conn, now - last, carried);
+                if (inside || melting) melting = await RoombaMelt(remote, stream, ciphers, conn, inside);
                 last = now;
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // The client steps the player's pools between the server's updates by their native recovery rates
+    // (life_recovery_per_minute, energy_shield_recovery_per_minute: re/recovery-timing.md), so while the player is in a
+    // roomba these rates carry its damage, negative, on the pool it takes from (energy shield first): the pools melt
+    // as in the original (live 2026-10-31) rather than step at each update. Sent every look, since the energy shield's
+    // own updates may publish its rate again; on leaving the ordinary rates go back. Returns whether it still melts.
+    static async Task<bool> RoombaMelt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool inside)
+    {
+        if (Stats.Key("life_recovery_per_minute") is not uint lifeKey || Stats.Key("energy_shield_recovery_per_minute") is not uint shieldKey)
+            return false;
+        int lifeRate, shieldRate;
+        lock (conn.Monsters)
+        {
+            var stats = CharacterPlayerStats(conn);
+            (lifeRate, shieldRate) = (stats.GetValueOrDefault(lifeKey), stats.GetValueOrDefault(shieldKey));
+            if (inside && conn.PlayerLife > 0)
+            {
+                var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
+                int perMinute = (int)Math.Round((conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare) * 60);
+                if (conn.EnergyShield.Current > 0) shieldRate -= perMinute;
+                else lifeRate -= perMinute;
+            }
+            else conn.SentEsRecoveryRate = null;   // the next energy shield update publishes its own rate again
+        }
+        await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(lifeKey, lifeRate), (shieldKey, shieldRate)]), null);
+        return inside && conn.PlayerLife > 0;
     }
 
     // A roomba's damage over this many seconds (LabyrinthTrials.RoombaDamagePerSecond of maximum life and energy shield),
@@ -784,14 +815,6 @@ static partial class QuestobjectsRules
     internal static Task ReadTrialMonograph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedNpc npc) =>
         Send(remote, stream, ciphers, InstanceNpcs.Talk(id, LabyrinthTrials.GlyphTalk), $"0x0084 read trial monograph 0x{id:x} {npc.Npc.Id}");
-
-    // Whether the plaque is lit: the character has the trial's flag, or this instance's plaque was used.
-    static bool TrialLit(ClientState conn, LabyrinthTrials.Trial trial)
-    {
-        if (ClientHasQuestFlag(conn, trial.Flag)) return true;
-        lock (conn.Monsters)
-            return conn.TrialObjects.Values.Any(t => t.Type == LabyrinthTrials.Plaque && conn.Instance.Transitioned(t.Type, t.X, t.Y));
-    }
 
     // The trial object of this type nearest to a cell, closed or not in this instance.
     static (uint Id, AreaPopulation.RoomObject Object)? NearestTrialObject(ClientState conn, string type, (int X, int Y) at, bool closed)
