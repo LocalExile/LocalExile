@@ -171,7 +171,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   done trial's portal too opens only when its plaque is used.
   Entering a trial's area gives the Lord's Labyrinth quest (`LabyrinthQuestReceived`): the client's tracker then says
   "Solve the Trial of Ascendancy in this Area" until it is done, and "Enter the Labyrinth" once the six Normal trials
-  are ([labyrinth-trials](../docs/game/labyrinth-trials.md), "The Lord's Labyrinth quest"). Being checked live.
+  are ([labyrinth-trials](../docs/game/labyrinth-trials.md), "The Lord's Labyrinth quest"); checked live (2026-11-01).
   What an instance opened stays open; an opened Locked Door is removed, since the client keeps its cells closed.
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
@@ -204,8 +204,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Frost Priest, the Crematorium spawner's rare Cinder Elemental and its four Immolators, and the packs the original has where the room file
   has none (two before the Chamber of Sins' upper cage, one past the Crypt trial's door and one by its plaque, one in
   the Crematorium trial's first room and one past its second Locked Door).
-  Not built: the traps of Izaro's rooms, the hot plates' Cruel and Merciless rooms, and league-wide trials (league
-  quest flags are not saved).
+  Not built: the traps of Izaro's rooms and the hot plates' Cruel and Merciless rooms.
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
 
