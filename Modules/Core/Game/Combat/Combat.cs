@@ -1315,6 +1315,8 @@ static partial class Game
             $"0x02ba monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
     }
 
+    const int CorpseBlockDelayMilliseconds = 165;
+
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
     // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for as long as the
     // player is in the area (it stays in Monsters as Dead: no AI, no body collision); leaving does not save it.
@@ -1326,6 +1328,12 @@ static partial class Game
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill)
     {
+        // The server stops counting a dead body at once. The client keeps walking around it until it is told.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(CorpseBlockDelayMilliseconds);
+            await Send(remote, stream, ciphers, InstanceProtocol.StopBlocking(id), $"0x02b0 corpse of 0x{id:x} stops blocking", still: () => !conn.Closed && !conn.LeavingArea);
+        });
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
         bool alive, blocked;

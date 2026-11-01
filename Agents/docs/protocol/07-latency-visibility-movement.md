@@ -292,6 +292,8 @@ While that walk is in progress, player correction ignores estimated monster bodi
 stationary blockers and peer arbitration.
 Arrival, a replacement order or a teleport ends the escape; a new stationary obstruction still cancels and corrects it.
 Alive friendly monsters also block; corpses and removed objects do not.
+S→C 0x2b0 tells the client the same about a corpse, about 165 ms after its life reached 0, as GGG does (seen on 15 of 15
+in captures). The client takes it live; what it changes in the client's own paths is not measured.
 Phasing removes living bodies from the local player's path checks.
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.
 

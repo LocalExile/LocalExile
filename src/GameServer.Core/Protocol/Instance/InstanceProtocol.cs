@@ -421,6 +421,11 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
+    /// <summary>S→C 0x2b0 (Positioned): object header, u8, u8; two zeros stop the object blocking paths. GGG sends it about
+    /// 165 ms after a monster's life reaches 0, with the object id repeated in the header's order key.</summary>
+    public static byte[] StopBlocking(uint objectId) =>
+        new LoginWriter().U16(0x2b0).U32(objectId).U32(objectId).U16(0x7000).U8(0).U8(0).ToArray();
+
     /// <summary>The network's signed compact int (writer 0x141fa3c50, reader 0x141fa3d60): 1 byte for -0x40..0x3f, then
     /// 2/3/4 bytes with prefixes 0x80/0xc0/0xe0 (6/5/4 value bits in the first byte), else 0xf0 + 4 bytes, big-endian.</summary>
     public static void CompactInt(LoginWriter w, int v)
