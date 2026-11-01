@@ -99,6 +99,13 @@ sealed partial class InstanceState
         lock (_transitioned) return _transitioned.Contains((type, x, y));
     }
 
+    /// <summary>Puts a room object that goes both ways (the Chamber of Sins trial's levers and cages) in this state for
+    /// this instance: true when that changed it.</summary>
+    public bool SetTransitioned(string type, int x, int y, bool transitioned)
+    {
+        lock (_transitioned) return transitioned ? _transitioned.Add((type, x, y)) : _transitioned.Remove((type, x, y));
+    }
+
     public uint? PlaceTutorialItem(string key, WorldItemObject item)
     {
         lock (_startWeapons)

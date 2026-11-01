@@ -620,7 +620,8 @@ static class AreaPopulation
         var rooms = doc.RootElement.GetProperty("rooms").EnumerateObject().ToDictionary(r => r.Name, r => new RoomData(
             [.. r.Value.GetProperty("points").EnumerateArray().Select(p => new RoomPoint(p.GetProperty("name").GetString() ?? "",
                 (int)Math.Round(p.GetProperty("x").GetDouble()), (int)Math.Round(p.GetProperty("y").GetDouble()),
-                p.TryGetProperty("angle",out var angle)?angle.GetSingle():0))],
+                p.TryGetProperty("angle",out var angle)?angle.GetSingle():0)),
+                .. LabyrinthTrials.RoomPacks.GetValueOrDefault(r.Name, [])],
             [.. r.Value.GetProperty("doodads").EnumerateArray().Select(d => (d.GetProperty("model").GetString() ?? "",
                 (float)d.GetProperty("x").GetDouble(), (float)d.GetProperty("y").GetDouble(),
                 d.TryGetProperty("type", out var t) ? t.GetString() : null,

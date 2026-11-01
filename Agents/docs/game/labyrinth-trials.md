@@ -5,8 +5,8 @@ The trials in the acts that open each Labyrinth tier (#450, roadmap "The Labyrin
 The Lower Prison's Normal trial is verified with the real client: its door, lever, Locked Door, plaque and the
 Trial Plaque window work.
 Its spike traps (the cascade ring and the plaque room's checkerboard) are matched against the original game by eye.
-The Imperial Gardens' dart traps are checked live against the original; the Catacombs' roombas are built from its
-description and not yet checked live.
+The Imperial Gardens' dart traps and the Catacombs' roombas are checked live against the original; the Chamber of
+Sins' sawblades and toggling levers are built from its description and not yet checked live.
 The other traps, the trials' monsters and the other trials' puzzles are not built yet.
 
 ## Where a trial is
@@ -29,7 +29,7 @@ scale, and `AreaPopulation.LoadObjects` places them through the room's placement
 | `catacomb_intro` / `_end` | the door, one `Door_Closed` and `Switch_Once`, roombas; the plaque and the portal |
 | `crypt_intro` | the door, `Door_Closed`, `Switch`, `Switch_Multi`, `Switch_Once`, spinners, the plaque, the portal, `CryptFrostPriestSpawner` |
 | `crematorium_intro` | the door, three `Door_Closed` and `Switch_Once`, five `TimerGears`, lava, the plaque, the portal, `CremPyroSpawner` |
-| `intro` / `intro_end` (Chamber of Sins) | the door, two `Door_Open` and `Switch`, sawblades; the plaque and the portal |
+| `intro` / `intro_end` (Chamber of Sins, `RuinedTemple`) | the door, two `Door_Open` and `Switch`, nine `LabyrinthSawblade` on 45 `Rail_Visible`, the Bronze Monograph; the plaque and the portal |
 
 The objects are `server_only` (BaseEvents): the client creates none of them, so the server places every one.
 
@@ -43,6 +43,8 @@ but counts for the 0x2ba component index.
 | `Labyrinth/Objects/LabyrinthIntroDoor` | Positioned, BaseEvents, Animated, InteractionAction, Transitionable, TriggerableBlockage | 4 |
 | `Puzzle_Parts/Door_Closed` ("Locked Door") | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, TriggerableBlockage, MinimapIcon | 4 |
 | `Puzzle_Parts/Switch_Once` (lever) | Positioned, Transitionable, InteractionAction, BaseEvents, Animated, MinimapIcon | 1 |
+| `Puzzle_Parts/Switch` (toggling lever) | Positioned, Transitionable, InteractionAction, BaseEvents, Animated, MinimapIcon | 1 |
+| `Puzzle_Parts/Door_Open` (cage) | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, TriggerableBlockage, MinimapIcon | 4 |
 | `QuestObjects/Labyrinth/LabyrinthTrialPlaque` | Positioned, BaseEvents, Animated, Transitionable, MinimapIcon, InteractionAction | 3 |
 | `Labyrinth/Objects/LabyrinthTrialReturnPortal` | Positioned, InteractionAction, BaseEvents, Animated, Transitionable, MinimapIcon | 4 |
 
@@ -62,6 +64,20 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
   every trial), and using the plaque again only opens the window;
 - the open portal teleports the player back to the trial's door;
 - what an instance opened stays open for later entries (`InstanceState.Transition`).
+
+**The toggling parts** (the Chamber of Sins). `Switch` has `num_states = 3`: state 1 unpulled, 2 pulled
+(`on_transition_to_2`, `on_untransition_to_1` play the lever both ways), 3 spent (not used). `Door_Open` has
+`num_states = 2` the other way round from `Door_Closed`: state 1 is open (`create_state_1` plays the lifted bars), 2
+closed (`on_transition_to_2` lowers them, `on_untransition_to_1` lifts them), and it starts unblocked
+(`start_blocked = false`). In the original (live 2026-11-01) a lever shuts the cage round its own room and stops one
+sawblade of each of the three pairs round the lever rooms, and pulled again opens it and they run on: with the player
+inside, the cage shuts them in. The lever nearer the trial's door stops the pairs' inner lanes (nearer the lever
+rooms), the other the outer lanes; the first track's two and the lone one are on no lever. No file links a lever to its
+sawblades, so `LabyrinthTrials.SwitchedSaws` fits this: levers ranked by their distance from the trial's door, each
+pair's lanes by theirs from the levers' middle.
+The Gateway pulls the lever both ways (`InstanceState.SetTransitioned`), shuts or opens the nearest `Door_Open` with
+it (0x2ba state 2 or 1, 0x1c6, and its Hull `doorbar_ruinedtemple.ao` ±2.2 × ±8 cells on the server's walk estimate)
+and stops or starts its sawblades; a later entry of the instance finds them as they were left.
 
 ## Unblocking a door
 
@@ -240,6 +256,37 @@ beside regeneration, so one pool update carries both), and while it runs the pla
 as 0 (`PlayerStatsUpdateAtGate`, `SendPlayerEnergyShield`): with its own regeneration predicted up between the
 updates and the damage dealt down at each, the pool went in a saw (live 2026-11-01).
 
+## Sawblades
+
+The Chamber of Sins trial's trap room (`RuinedTemple/Rooms/Unique/intro.arm`) has nine
+`Metadata/Terrain/Labyrinth/Traps/LabyrinthSawblade` (`sawblade.ao`) on tracks of `Rail_Visible` pieces
+(`sawblades_track_straight_v01_01.ao`, `…_end_…`): server objects (Positioned, BaseEvents, Animated) the client
+shows, so the Gateway creates them too. A track is one or two lanes 9 cells apart, its pieces 23 cells apart along the
+piece's angle. In the order the way meets them: a two-lane track with a sawblade on each lane, a one-lane track, then
+round the two lever rooms three two-lane tracks with a pair of sawblades side by side (`Switch` in each room, a
+`Door_Open` in each room's way in).
+The `.ot`: Movement `FollowPath`, `reverse_when_path_ends`, `base_speed` 28 (`LabyrinthSawbladeSlow` 16), no pause at
+a waypoint, `orient_to_first_movement`; Transitionable `on_transition` plays `spin_saw_toinactive` (the spin winds
+down), and nothing for the way back. Its blob is the roomba's bytes (Positioned, BaseEvents, Animated, Stats, Buffs,
+Movement, Transitionable).
+
+**The paths** (`LabyrinthTrials.RoombaPaths`, as the roombas'): a visible rail joins only along its own piece, or the
+ends of a track's two lanes, 9 cells apart, close a ring. A sawblade's room line angle lies along its track; it heads
+first for its lane's nearer end (`RoombaPath.TowardNearerEnd`): the first track's two, each nearer one end, part from
+its middle as in the original (live 2026-11-01), and each pair goes together. It keeps its room line's angle: at an
+end it goes straight back without turning (the original; its `.ot` has no `rotate_to_movement_direction`), so the
+Gateway sends a sawblade no 0x1b9.
+
+**What it does**: BuffDefinitions `sawblade_damage` ("Death Rhoomba", invisible, BuffVisuals `sawblade_damage`
+playing `labyrinth/traps/sawblade/sawblood.epk`) takes the roomba's two stats, with no values in the client data. So a
+running sawblade cuts as a roomba does: a player within 5 cells (a lane) of its centre degenerates by 40% of maximum
+life plus 50% of maximum energy shield a second (our numbers, the roomba's) with that buff on them;
+`/trial_saw_damage <life %> <energy shield %> [<radius>]` (dev) changes them. A stopped one cuts nothing.
+
+**Stopping and starting.** A lever stops a sawblade where it is: 0x2ba Transitionable 2 (its spin winds down) and a
+0x1ba to its own cell. Its `.ot` plays nothing on the way back to state 1, so started again it is removed (0x2bb) and
+created anew there, spinning, and goes on to the rail it was heading for.
+
 ## Monsters
 
 In the original there are no monsters among a trial's traps (live 2026-10-31); what stands in its rooms the room file
@@ -248,6 +295,10 @@ places among its points (`data/room-points.json` v8):
   (Devourers, which rise as the player comes near), normal;
 - a pack point `normal`, `magic` or `rare`: one of the area's scattered packs of that rarity, with its boss monster
   (the Lower Prison trial's plaque platform: a Diabolist, `NecromancerEnfeebleCurse`, with skeletons);
+- packs the original has where the room file has no point (`LabyrinthTrials.RoomPacks`, room cells, added to the
+  file's points): the Chamber of Sins trial's two normal packs on the open ground before the upper lever room's cage,
+  where the way comes down the one-lane track (live 2026-11-01: none came there among the scattered packs, which keep
+  clear of the tracks);
 - a server spawner (`Metadata/QuestObjects/Labyrinth/…Spawner`, no `.ot` to tell what it spawns): the Lower Prison's
   `PrisonPoacherSpawner`, beside that pack, is a rare Brittle Poacher (`SkeletonBowLightning`), as the original shows a
   rare skeleton archer there (`LabyrinthTrials.Spawners`). `CryptFrostPriestSpawner` and `CremPyroSpawner` are not
@@ -276,10 +327,10 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 
 ## Not built yet
 
-- The other traps (spinners, sawblades, lava) and the step-triggered spikes of Izaro's rooms.
+- The other traps (spinners, lava) and the step-triggered spikes of Izaro's rooms.
 - The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
   the alternate arrow traps).
-- The other puzzle parts: `Switch` and `Door_Open` (toggling), `Switch_Multi`, `TimerGears` (timed levers).
+- The other puzzle parts: `Switch_Multi`, `TimerGears` (timed levers).
 - The other trials' spawners (`CryptFrostPriestSpawner`, `CremPyroSpawner`).
 - Saving league quest flags, so that trials are shared across a league's characters.
 - The Eternal trials' plaques drop an Offering to the Goddess.

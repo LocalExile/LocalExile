@@ -169,9 +169,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Catacombs' eight roombas run their rails (two rings round, two chains to and fro, set out as they face) and cut
   a player inside them, who degenerates by a share of life and energy shield a second (fitted live to the original,
   2026-11-01) with the roomba's own effect on them; the trial doors open for walking (checked in The Catacombs).
+  The Chamber of Sins' nine sawblades run their tracks (shown, Rail_Visible) to and fro, each pair together, and cut
+  as the roombas do; its two levers (`Switch`) go both ways: pulled, a lever shuts the cage round its room
+  (`Door_Open`) and stops one sawblade of each pair (the inner or the outer lanes), pulled back it opens it and they
+  run on. Built from the original's description (2026-11-01), not yet checked live.
   The area's packs keep away from a trial's traps; its rooms get what their room file places: the Gardens' four
-  Devourers, the Lower Prison plaque platform's pack and its spawner's rare Brittle Poacher.
-  Not built: the other traps, the trials' monsters, the toggling, multi and timed levers of the other trials, and
+  Devourers, the Lower Prison plaque platform's pack and its spawner's rare Brittle Poacher, and the two packs the
+  Chamber of Sins has before its upper cage, which its room file lacks.
+  Not built: the other traps, the trials' monsters, the multi and timed levers of the other trials, and
   league-wide trials (league quest flags are not saved).
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).

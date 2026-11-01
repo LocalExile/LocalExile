@@ -14,6 +14,9 @@ static class LabyrinthTrials
     public const string IntroDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIntroDoor",
         Door = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Door_Closed",
         Lever = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch_Once",
+        // The Chamber of Sins trial's toggling lever and the cage it closes (num_states 2: 1 open, 2 closed).
+        Switch = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch",
+        OpenDoor = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Door_Open",
         Plaque = "Metadata/QuestObjects/Labyrinth/LabyrinthTrialPlaque",
         Portal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthTrialReturnPortal",
         SpikeTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthCascadeSpikeTrap",
@@ -24,12 +27,19 @@ static class LabyrinthTrials
 
     public const string Roomba = "Metadata/Terrain/Labyrinth/Traps/LabyrinthRoomba",
         FlyingRoomba = "Metadata/Terrain/Labyrinth/Traps/LabyrinthFlyingRoomba",
-        Rail = "Metadata/Terrain/Labyrinth/Traps/Rail_Invisible";
+        Rail = "Metadata/Terrain/Labyrinth/Traps/Rail_Invisible",
+        // The Chamber of Sins trial's sawblades and the track they run on (Rail_Visible: the track pieces, shown).
+        Sawblade = "Metadata/Terrain/Labyrinth/Traps/LabyrinthSawblade",
+        SlowSawblade = "Metadata/Terrain/Labyrinth/Traps/LabyrinthSawbladeSlow",
+        VisibleRail = "Metadata/Terrain/Labyrinth/Traps/Rail_Visible";
 
-    /// <summary>A roomba's speed in cells a second: its .ot's Movement <c>base_speed</c> (the player's Pathfinding
-    /// base_speed 37 is 37 cells a second), and how long it waits at each rail (<c>pause_at_waypoint_duration</c> 100 ms).</summary>
-    public static double RoombaSpeed(string type) => type == FlyingRoomba ? 25 : 35;
-    public const double RoombaPauseSeconds = 0.1;
+    public static bool IsSawblade(string type) => type is Sawblade or SlowSawblade;
+
+    /// <summary>A roomba's or sawblade's speed in cells a second: its .ot's Movement <c>base_speed</c> (the player's
+    /// Pathfinding base_speed 37 is 37 cells a second), and how long it waits at each rail
+    /// (<c>pause_at_waypoint_duration</c>: the roombas 100 ms, the sawblades none).</summary>
+    public static double RoombaSpeed(string type) => type switch { FlyingRoomba => 25, Sawblade => 28, SlowSawblade => 16, _ => 35 };
+    public static double RoombaPauseSeconds(string type) => IsSawblade(type) ? 0 : 0.1;
 
     /// <summary>How near a roomba's centre the player is in it (our number, from its look: about two tiles across; the
     /// model has no Hull, and it does not block: live 2026-10-31).</summary>
@@ -43,12 +53,25 @@ static class LabyrinthTrials
     /// <c>/trial_roomba_damage</c> (dev) changes them.</summary>
     public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.40, 0.50);
 
+    /// <summary>A sawblade's cut, as a roomba's (<see cref="RoombaDamagePerSecond"/>): BuffDefinitions
+    /// <c>sawblade_damage</c> (invisible, BuffVisuals <c>sawblade_damage</c> playing
+    /// <c>labyrinth/traps/sawblade/sawblood.epk</c>) takes the same two stats, with no values in the client data. Our
+    /// numbers: the roomba's shares, within a lane of its track (the tracks' two lanes are 9 cells apart).
+    /// <c>/trial_saw_damage</c> (dev) changes them.</summary>
+    public static (double Life, double EnergyShield) SawDamagePerSecond = (0.40, 0.50);
+    public static double SawRadius = 5;
+
+    public static (double Life, double EnergyShield) TrapDegenShares(string type) => IsSawblade(type) ? SawDamagePerSecond : RoombaDamagePerSecond;
+    public static double TrapRadius(string type) => IsSawblade(type) ? SawRadius : RoombaRadius;
+
     /// <summary>A roomba's 0x2b9 blob: LabyrinthRoomba.ot reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement,
-    /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement. Movement
-    /// (<c>0x141e741e0</c>): u8 (+0x30), i32 x, i32 y (the cell it sets Positioned to), four u32 (+0x3c, +0x40, +0x4c,
-    /// +0x50), u8 +0x76 (non-zero starts its own movement, <c>0x141e74970</c>: not sent), u8 +0x77. The server moves it
-    /// with 0x1ba.</summary>
-    public static byte[] RoombaBlob(string type, int x, int y, float angle, string model)
+    /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement; a sawblade's
+    /// (LabyrinthSawblade.ot, …Slow) Positioned, BaseEvents, Animated, Stats, Buffs, Movement, Transitionable, the same
+    /// bytes. Movement (<c>0x141e741e0</c>): u8 (+0x30), i32 x, i32 y (the cell it sets Positioned to), four u32 (+0x3c,
+    /// +0x40, +0x4c, +0x50), u8 +0x76 (non-zero starts its own movement, <c>0x141e74970</c>: not sent), u8 +0x77. The
+    /// server moves it with 0x1ba. Transitionable 2 is a stopped sawblade (<c>create_transitioned</c>: its spin wound down).
+    /// </summary>
+    public static byte[] RoombaBlob(string type, int x, int y, float angle, string model, byte state = Closed)
     {
         var w = new BlobWriter().U8(0).U8(0);
         w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1);    // Positioned: the .ot's team 14
@@ -56,12 +79,58 @@ static class LabyrinthTrials
         w.Stats(null).U32(0).U32(0).U8(0);                                  // Stats
         w.U16(0);                                                           // Buffs
         w.U8(0).I32(x).I32(y).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0);      // Movement
-        if (type == Roomba) w.U8(1);                                        // Transitionable: active
+        if (type != FlyingRoomba) w.U8(state);                              // Transitionable: 1 active
         return w.U8(0).ToArray();                                           // tasks
     }
 
+    /// <summary>Transitionable's index in a roomba's or sawblade's components (<see cref="RoombaBlob"/>).</summary>
+    public const byte RoombaTransitionableIndex = 6;
+
+    /// <summary>A visible rail's 0x2b9 blob (Rail_Visible.ot: Positioned, BaseEvents, Animated): the room line's track
+    /// piece, at its angle.</summary>
+    public static byte[] RailBlob(int x, int y, float angle, string model)
+    {
+        var w = new BlobWriter().U8(0).U8(0);
+        w.I32(x).I32(y).F32(angle).U16(0).U8(0).U8(0x02).U8(0).U8(1);      // Positioned
+        w.U8(1).WStr32(model);                                              // Animated
+        return w.U8(0).ToArray();                                           // tasks
+    }
+
+    /// <summary>The sawblades a Chamber of Sins lever stops. Live (2026-11-01, the original): each lever stops one
+    /// sawblade of every pair (two side by side on a track's lanes, 9 cells apart), the lever nearer the trial's door the
+    /// inner lane's (nearer the levers), the other the outer lane's; a sawblade alone on its track runs on. No file links
+    /// them (the real server's are its own), so this is fitted to the original: levers ranked by their distance from the
+    /// trial's door, lanes by theirs from the levers' middle.</summary>
+    public static List<int> SwitchedSaws(IReadOnlyList<(int X, int Y)> saws, IReadOnlyList<(int X, int Y)> levers, int lever,
+        (int X, int Y) entrance)
+    {
+        static double Distance((double X, double Y) a, (double X, double Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+        int rank = Enumerable.Range(0, levers.Count).OrderBy(i => Distance(levers[i], entrance)).ToList().IndexOf(lever);
+        (double X, double Y) middle = (levers.Average(l => l.X), levers.Average(l => l.Y));
+        var stopped = new List<int>();
+        for (int i = 0; i < saws.Count; i++)
+            for (int j = i + 1; j < saws.Count; j++)
+            {
+                if (Distance(saws[i], saws[j]) > 12) continue;
+                int[] lanes = [.. new[] { i, j }.OrderBy(k => Distance(saws[k], middle))];
+                if (rank is >= 0 and < 2) stopped.Add(lanes[rank]);
+            }
+        return [.. stopped.Order()];
+    }
+
     /// <summary>A roomba's way along the trial's invisible rails: its rails in order, and whether they close a ring.</summary>
-    public sealed record RoombaPath(IReadOnlyList<(int X, int Y)> Rails, bool Ring);
+    public sealed record RoombaPath(IReadOnlyList<(int X, int Y)> Rails, bool Ring)
+    {
+        /// <summary>A chain turned so that it ends at its end nearer this cell, which a sawblade heads for first: the
+        /// Chamber of Sins trial's first two, each nearer one end of their track, part from its middle (live 2026-11-01,
+        /// the original), and each pair goes together. A sawblade's room line angle lies along its track either way
+        /// (<c>orient_to_first_movement</c>).</summary>
+        public RoombaPath TowardNearerEnd((int X, int Y) at)
+        {
+            static long Distance((int X, int Y) a, (int X, int Y) b) => (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y);
+            return Ring || Distance(at, Rails[^1]) <= Distance(at, Rails[0]) ? this : this with { Rails = [.. Rails.Reverse()] };
+        }
+    }
 
     /// <summary>Each roomba's path (null when no rail runs under it), its rails in the order it goes. Rails join their
     /// nearest rail along each axis, within 6° (one of the Catacombs' runs is 5° off), when each is the other's nearest
@@ -70,12 +139,17 @@ static class LabyrinthTrials
     /// and the flying one's) the one along its facing is its own. Round a ring it keeps going that way (the Catacombs'
     /// square of four all face round it; live 2026-10-31, the original: clockwise on the screen); a chain it follows to
     /// its end and back (<c>path_following_method = "reverse_when_path_ends"</c>).</summary>
-    public static RoombaPath?[] RoombaPaths(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int X, int Y, float Angle)> roombas)
+    /// <remarks>A visible rail (the Chamber of Sins' track pieces, <paramref name="railAngles"/>; NaN for an invisible one)
+    /// joins along its own piece only, so the ends of a track's two lanes, 9 cells apart, do not close a ring.</remarks>
+    public static RoombaPath?[] RoombaPaths(IReadOnlyList<(int X, int Y)> rails, IReadOnlyList<(int X, int Y, float Angle)> roombas,
+        IReadOnlyList<float>? railAngles = null)
     {
         const double MaxDeviation = 6 * Math.PI / 180, OnRail = 4;
         (int X, int Y)[] axes = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         int? Best(int i, (int X, int Y) d)
         {
+            if (railAngles is not null && !float.IsNaN(railAngles[i])
+                && Math.Abs(d.X * Math.Sin(railAngles[i]) - d.Y * Math.Cos(railAngles[i])) < Math.Cos(Math.PI / 4)) return null;
             int? best = null;
             (double Deviation, double Distance) bestKey = (double.MaxValue, double.MaxValue);
             for (int j = 0; j < rails.Count; j++)
@@ -151,6 +225,16 @@ static class LabyrinthTrials
     {
         ["Metadata/QuestObjects/Labyrinth/PrisonPoacherSpawner"] = "Metadata/Monsters/Skeletons/SkeletonBowLightning",
     };
+
+    /// <summary>Pack points a trial room has in the original that its room file lacks (room cells, as the file's points;
+    /// one of the area's packs of that rarity each): the Chamber of Sins trial's two packs in the open ground before the
+    /// upper lever room's cage, where the way comes down the one-lane track (live 2026-11-01, the original: two packs
+    /// there; the area's scattered packs keep <see cref="TrapClearance"/> from its tracks, so none came).</summary>
+    public static readonly IReadOnlyDictionary<string, AreaPopulation.RoomPoint[]> RoomPacks =
+        new Dictionary<string, AreaPopulation.RoomPoint[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Metadata/Terrain/Labyrinth/RoomSets/RuinedTemple/Rooms/Unique/intro.arm"] = [new("normal", 67, 260), new("normal", 62, 293)],
+        };
 
     /// <summary>How far from a trial's traps (the rails its roombas run on among them) the area's scattered packs keep
     /// their centres (our number: a pack's members stand within 9 cells of it, a spike tile reaches 11 from its trap).
@@ -284,7 +368,7 @@ static class LabyrinthTrials
     /// invisible, BuffVisuals <c>rhoomba_damage</c> playing <c>labyrinth/traps/roomba/roomba.epk</c>), or null without the
     /// table.</summary>
     public static ushort? RoombaBuffRow(string type) =>
-        BuffRows.Value.TryGetValue(type == FlyingRoomba ? "flying_roomba_damage" : "roomba_damage", out ushort row) ? row : null;
+        BuffRows.Value.TryGetValue(type == FlyingRoomba ? "flying_roomba_damage" : IsSawblade(type) ? "sawblade_damage" : "roomba_damage", out ushort row) ? row : null;
 
     static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
     {
@@ -295,7 +379,8 @@ static class LabyrinthTrials
         int row = 0;
         foreach (var buff in table.RootElement.EnumerateArray())
         {
-            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage" or "flying_roomba_damage")) rows.TryAdd(id, (ushort)row);
+            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage"
+                    or "flying_roomba_damage" or "sawblade_damage")) rows.TryAdd(id, (ushort)row);
             row++;
         }
         return rows;
@@ -401,6 +486,7 @@ static class LabyrinthTrials
     {
         "preview_labyrinthdoornofx.ao" => (14, 3.6),
         "doorbar_prison.ao" => (2, 5.5),
+        "doorbar_ruinedtemple.ao" => (2.2, 8),
         _ => (14, 6),
     };
 
@@ -465,12 +551,18 @@ static class LabyrinthTrials
         [IntroDoor] = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "Transitionable", "TriggerableBlockage"],
         [Door] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [Lever] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
+        [Switch] = ["Positioned", "Transitionable", "InteractionAction", "BaseEvents", "Animated", "MinimapIcon"],
+        [OpenDoor] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage", "MinimapIcon"],
         [Plaque] = ["Positioned", "BaseEvents", "Animated", "Transitionable", "MinimapIcon", "InteractionAction"],
         [Portal] = ["Positioned", "InteractionAction", "BaseEvents", "Animated", "Transitionable", "MinimapIcon"],
     };
 
-    /// <summary>Transitionable states: 1 runs create_untransitioned (closed, unpulled, dark), 2 the transition (num_states 2).</summary>
+    /// <summary>Transitionable states: 1 runs create_untransitioned (closed, unpulled, dark), 2 the transition (num_states 2).
+    /// A Door_Open is the other way round: 1 open, 2 closed (its .ot's <c>create_state_1</c> plays the open bars).</summary>
     public const byte Closed = 1, Open = 2;
+
+    /// <summary>Whether a door in this Transitionable state blocks the way.</summary>
+    public static bool Blocks(string type, byte state) => type == OpenDoor ? state == Open : state == Closed;
 
     /// <summary>Positioned sizes (object_size − 1): the doors and the lever 4, the plaque and the portal 6.</summary>
     public static int Size(string type) => type is Plaque or Portal ? 5 : 3;
@@ -537,7 +629,7 @@ static class LabyrinthTrials
                 case "Animated": if (model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)) w.U8(1).WStr32(model); else w.U8(0); break;
                 case "InteractionAction": w.U8(0); break;
                 case "Transitionable": w.U8(state); break;
-                case "TriggerableBlockage": if (state == Closed) w.U8(1).U8(0); else w.U8(0); break;
+                case "TriggerableBlockage": if (Blocks(type, state)) w.U8(1).U8(0); else w.U8(0); break;
                 case "MinimapIcon": w.U8(0); break;
             }
         return w.U8(0).ToArray();   // tasks

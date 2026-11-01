@@ -98,6 +98,20 @@ public sealed class LabyrinthTrialTests
         Run(paths[2], true, (172, 149), (172, 218), (264, 218), (264, 149));
         Assert.Equal(paths[2]!.Rails.ToHashSet(), paths[3]!.Rails.ToHashSet());
         foreach (var square in paths[4..]) Run(square, true, (181, 278), (119, 278), (119, 340), (181, 340));
+
+        // The Chamber of Sins trial's first track (intro.arm, room cells): two lanes 9 cells apart, a sawblade on each, and
+        // each heads for its lane's nearer end first, so the two part.
+        (int, int)[] track = [.. new[] { 111, 120 }.SelectMany(y => new[] { 128, 151, 174, 197, 220 }.Select(x => (x, y)))];
+        var saws = LabyrinthTrials.RoombaPaths(track, [(205, 111, Half), (142, 120, Half)], [.. track.Select(_ => Half)]);
+        Assert.False(saws[0]!.Ring);
+        Assert.Equal((220, 111), saws[0]!.TowardNearerEnd((205, 111)).Rails[^1]);
+        Assert.Equal((128, 120), saws[1]!.TowardNearerEnd((142, 120)).Rails[^1]);
+        // Each lever stops one of every pair (live 2026-11-01, the original): the lever nearer the trial's door the inner
+        // lanes, the other the outer ones; the lone sawblades run on.
+        (int, int)[] sawblades = [(167, 384), (167, 393), (169, 245), (169, 254), (205, 111), (142, 120), (104, 176), (204, 292), (213, 292)];
+        (int, int)[] levers = [(153, 268), (148, 367)];
+        Assert.Equal([0, 3, 7], LabyrinthTrials.SwitchedSaws(sawblades, levers, 0, (229, 58)));
+        Assert.Equal([1, 2, 8], LabyrinthTrials.SwitchedSaws(sawblades, levers, 1, (229, 58)));
     }
 
     [Fact]

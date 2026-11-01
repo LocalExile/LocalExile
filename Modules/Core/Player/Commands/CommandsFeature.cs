@@ -1347,6 +1347,17 @@ static class CommandsFeature
             var (l, e) = LabyrinthTrials.RoombaDamagePerSecond;
             await conn.Commands!.Reply($"Trial roombas deal {l * 100:0.#}% of maximum life and {e * 100:0.#}% of maximum energy shield a second within {LabyrinthTrials.RoombaRadius:0.#} cells.");
         })
+        .Add("trial_saw_damage", "/trial_saw_damage [<life %> <energy shield %> [<radius>]] (dev: what a Trials of Ascendancy sawblade deals a second of maximum life and energy shield while the player is in it, and how near its centre that is in cells, e.g. /trial_saw_damage 40 50 5)", async args =>
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            if (args.Length >= 2 && double.TryParse(args[0], System.Globalization.NumberStyles.Float, inv, out double life)
+                && double.TryParse(args[1], System.Globalization.NumberStyles.Float, inv, out double shield) && life is >= 0 and <= 1000 && shield is >= 0 and <= 1000)
+                LabyrinthTrials.SawDamagePerSecond = (life / 100, shield / 100);
+            if (args.Length >= 3 && double.TryParse(args[2], System.Globalization.NumberStyles.Float, inv, out double radius) && radius is > 0 and <= 50)
+                LabyrinthTrials.SawRadius = radius;
+            var (l, e) = LabyrinthTrials.SawDamagePerSecond;
+            await conn.Commands!.Reply($"Trial sawblades deal {l * 100:0.#}% of maximum life and {e * 100:0.#}% of maximum energy shield a second within {LabyrinthTrials.SawRadius:0.#} cells.");
+        })
         .Add("trial_dart_poison", "/trial_dart_poison [<percent>] (dev: how much of a Trials of Ascendancy dart's hit, its life share, a poison stack deals a second, from the next hit, e.g. /trial_dart_poison 10)", async args =>
         {
             if (args.Length >= 1 && double.TryParse(args[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double pct) && pct is > 0 and <= 100)
