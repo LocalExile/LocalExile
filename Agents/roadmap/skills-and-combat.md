@@ -469,6 +469,11 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 ### Skill projectiles
 
+- **Client input agreement:** the [ordinary Tornado Shot handoff](../docs/re/tornado-shot-input-contract.md)
+  establishes bounded authored producer/read edges. Its six observation checkpoints retain the missing effective
+  arrow/secondary counts, selected views, geometry, allocation order and first-contact result. Runtime agreement
+  remains open under [#467](https://github.com/LocalExile/LocalExile/issues/467); generic server flight is not evidence
+  that these native inputs or once-only wind/child ownership match.
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production projectile routing and the
   only Core simulator. Catalog-known gems and ordinary bows and wands have basic straight flight and resolved
   modifiers; [registered skills](../docs/game/projectile-skills.md) supply terminal Fireball blasts and separate KB

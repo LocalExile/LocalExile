@@ -1,0 +1,368 @@
+{
+  "format": 1,
+  "scope": "Ordinary Tornado Shot static input-contract evidence identity; no native replay or runtime capture",
+  "client_sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
+  "range_convention": "Preferred-image VA, start inclusive/end exclusive. Selected unwind spans are not necessarily entire logical functions. Instruction counts describe linear decoding, not execution.",
+  "final_vtable": "0x143423898",
+  "slots": {
+    "0x140": "0x1414fbd00",
+    "0x310": "0x1419397d0",
+    "0x380": "0x141a82610",
+    "0x4b8": "0x141ba4930",
+    "0x510": "0x141a826f0",
+    "0x558": "0x1414fc170",
+    "0x560": "0x1414fc020",
+    "0x568": "0x141a82bd0",
+    "0x590": "0x1414fbd90",
+    "0x598": "0x141b6fa10",
+    "0x5f0": "0x141a82510",
+    "0x618": "0x141bb13a0",
+    "0x6b0": "0x141a82bb0",
+    "0x6b8": "0x141a825d0"
+  },
+  "pe_ranges": [
+    {
+      "requested": "0x141b6fa10",
+      "start": "0x141b6fa10",
+      "end": "0x141b6fab4",
+      "sha256": "aa2ed9e72f9148454533c758c5c182d6bc3341b3db127fd287056b24e63f21c8",
+      "instructions": 47
+    },
+    {
+      "requested": "0x141a82510",
+      "start": "0x141a82510",
+      "end": "0x141a8258e",
+      "sha256": "504b1f038d39cd8b769a5d1151a4201a3e17e00eff22c898e2b48dbf5a4e34bb",
+      "instructions": 37
+    },
+    {
+      "requested": "0x141a826f0",
+      "start": "0x141a826f0",
+      "end": "0x141a8272b",
+      "sha256": "a84a782c3bb4966aaf20ece8e8c5d5c68ea0c0a4a29ac3f04f0ea3d4efafbe1c",
+      "instructions": 16
+    },
+    {
+      "requested": "0x14249f2f0",
+      "start": "0x14249f2f0",
+      "end": "0x14249f8dc",
+      "sha256": "bbc48a2df637760c8953f1db33574942a95cd58031715544fafafe6ea48e46d7",
+      "instructions": 343
+    },
+    {
+      "requested": "0x14249f140",
+      "start": "0x14249f140",
+      "end": "0x14249f2e7",
+      "sha256": "ba6eb4e6ea72b0a7c71a46fd9b5e27801d0740941f259d174c2993e68835fdf0",
+      "instructions": 111
+    },
+    {
+      "requested": "0x141ba6070",
+      "start": "0x141ba6070",
+      "end": "0x141ba61b3",
+      "sha256": "fb18ac36727377638feeec3a77eafc8dda60f262db2075203576cb7a6b321eb9",
+      "instructions": 92
+    },
+    {
+      "requested": "0x141a82610",
+      "start": "0x141a82610",
+      "end": "0x141a826ee",
+      "sha256": "fbed5f92926277cfe30a03dbe90a3c5223d6b3fb6cc389e579d14d9b44d7fa3d",
+      "instructions": 61
+    },
+    {
+      "requested": "0x141ee8ef0",
+      "start": "0x141ee8ef0",
+      "end": "0x141ee908d",
+      "sha256": "bff7f4fa30fc44ccf86f4423d97bcdeadeee81fe409c775047047f5c89df8d5f",
+      "instructions": 117
+    },
+    {
+      "requested": "0x1412d4890",
+      "start": "0x1412d4890",
+      "end": "0x1412d4aa0",
+      "sha256": "750d6d99dac0771d168d44e78e7707557079c1b3466d8bbab92faaea9fe136d9",
+      "instructions": 143
+    },
+    {
+      "requested": "0x141a827c0",
+      "start": "0x141a827c0",
+      "end": "0x141a82bab",
+      "sha256": "7dda3476c7e44d79e28eddc4b46715853d00c67e51b27ef365418bfad811628a",
+      "instructions": 222
+    },
+    {
+      "requested": "0x1414fbd90",
+      "start": "0x1414fbd90",
+      "end": "0x1414fbf9c",
+      "sha256": "56bb558563c273165165a0064b016e646c28c9cd622b3025bf03ce8f561446c4",
+      "instructions": 125
+    },
+    {
+      "requested": "0x1414fbc30",
+      "start": "0x1414fbc30",
+      "end": "0x1414fbcff",
+      "sha256": "a9a3efe85043f73863d2e36376aadc9cb08668307abab531692dc240d3da2179",
+      "instructions": 42
+    },
+    {
+      "requested": "0x141a82340",
+      "start": "0x141a82340",
+      "end": "0x141a82433",
+      "sha256": "496dc2b16bbd92ce833628a1b706c1d47da482b19b08a768fb7f27a58fe35329",
+      "instructions": 48
+    },
+    {
+      "requested": "0x141a82bd0",
+      "start": "0x141a82bd0",
+      "end": "0x141a82c89",
+      "sha256": "f37d86a5aaace48851f5b4e3a6df5610a4998ddc9a39b5ae97e2fa5af6c3e022",
+      "instructions": 36
+    },
+    {
+      "requested": "0x1414fc170",
+      "start": "0x1414fc170",
+      "end": "0x1414fc1cc",
+      "sha256": "7095dc7c267b61cf25fc11ecf3bd8d5d363eac900572122a60dcbd5215277c31",
+      "instructions": 23
+    },
+    {
+      "requested": "0x141ba51a0",
+      "start": "0x141ba51a0",
+      "end": "0x141ba5226",
+      "sha256": "bdbb89b38b60584dd94eb05443485e5f52dd5d972a4191babb5640d021a15857",
+      "instructions": 32
+    },
+    {
+      "requested": "0x141e35ae0",
+      "start": "0x141e35ae0",
+      "end": "0x141e35afc",
+      "sha256": "b39f11fa4f21d95ec27efdd47cb3a73d8ccd6632c2b46671aea40fea763acf86",
+      "instructions": 6
+    },
+    {
+      "requested": "0x1414fbd00",
+      "start": "0x1414fbd00",
+      "end": "0x1414fbd81",
+      "sha256": "319f53c29135752a7664f098086643a34ba957f2dfe602f3ebaeb432e3e0e88c",
+      "instructions": 34
+    },
+    {
+      "requested": "0x141ba4946",
+      "start": "0x141ba4930",
+      "end": "0x141ba49ee",
+      "sha256": "cbc31b3db758a52122d7553e69077c837e562e0bf746f732912ec8410bd14a0f",
+      "instructions": 52
+    },
+    {
+      "requested": "0x14193b350",
+      "start": "0x14193b350",
+      "end": "0x14193b3b7",
+      "sha256": "2ed9add4d9523ebbec64df4c70d4030556ff73d279b27e448d7e210de35ba346",
+      "instructions": 26
+    },
+    {
+      "requested": "0x141ee9090",
+      "start": "0x141ee9090",
+      "end": "0x141ee9466",
+      "sha256": "d7b13049721109da0d33cd1942aa407bb5f9e42744647e59475f9125351018f3",
+      "instructions": 264
+    },
+    {
+      "requested": "0x1424fc480",
+      "start": "0x1424fc480",
+      "end": "0x1424fc76b",
+      "sha256": "8bee4d23a967518f53073ac13ec685b4f93356582da74c7af7bec04c09b603e7",
+      "instructions": 197
+    },
+    {
+      "requested": "0x141ba4620",
+      "start": "0x141ba4620",
+      "end": "0x141ba4691",
+      "sha256": "5afc50713da47394f575ffdf24c3ccdf56d5118ec60d7ba657ec1b03704ca45f",
+      "instructions": 30
+    },
+    {
+      "requested": "0x141a82240",
+      "start": "0x141a82240",
+      "end": "0x141a82335",
+      "sha256": "b0c2fd03311acba213f3d21bd08ac90fc64be79881d2dd1a2ef320cfbb86e8ca",
+      "instructions": 56
+    }
+  ],
+  "table_files": [
+    {
+      "file": "GrantedEffects.json",
+      "sha256": "ee02ccde977a7a7c444b3fb329867b65a931dda3ab89f204dfc96b15571a6b3b",
+      "selected_zero_based_rows": [
+        3991
+      ]
+    },
+    {
+      "file": "GrantedEffectStatSets.json",
+      "sha256": "fa258d15498c5e1910f94bf6cfdf938184a4e9d4a1f4b71212cbaace192d5c8b",
+      "selected_zero_based_rows": [
+        4000
+      ]
+    },
+    {
+      "file": "GrantedEffectsPerLevel.json",
+      "sha256": "2ccf25b0cc3eb6d68d02c5abaf66117d460a9a1c920e897f5d4de2911ca7b0a7",
+      "selected_zero_based_rows": [
+        32571
+      ]
+    },
+    {
+      "file": "GrantedEffectStatSetsPerLevel.json",
+      "sha256": "b5554cc39a598ce05bc95fe3e0b0c6773f1d26cc2a1c12fb976eb5fac2456f6b",
+      "selected_zero_based_rows": [
+        32412
+      ]
+    },
+    {
+      "file": "ActiveSkills.json",
+      "sha256": "baadc60b03734004624100d6aeab1a7b3a97728a4c625761d2b01c04b1404c75",
+      "selected_zero_based_rows": [
+        468
+      ]
+    },
+    {
+      "file": "SkillArtVariations.json",
+      "sha256": "c8ea3d20e7678272ec8e836a051b81a745a53e7aeb4ca0adb670df2ca0a5ce6d",
+      "selected_zero_based_rows": [
+        133
+      ]
+    },
+    {
+      "file": "ProjectilesArtVariations.json",
+      "sha256": "2054a1d24d70bf2e8a14d86e316434847fdd90a0824ca4d081ef512e1ccdc848",
+      "selected_zero_based_rows": [
+        147,
+        152
+      ]
+    },
+    {
+      "file": "MiscAnimatedArtVariations.json",
+      "sha256": "bad3597272f1925c268dec00e6bf1b6f6dd8cec075ec16a245ae83c520dfd52b",
+      "selected_zero_based_rows": [
+        1217,
+        1222
+      ]
+    },
+    {
+      "file": "Projectiles.json",
+      "sha256": "28d902b5a89dcb584250fca84ee970d24f973d72e262f542b22f2c7064e1a2ef",
+      "selected_zero_based_rows": [
+        108,
+        114
+      ]
+    },
+    {
+      "file": "Stats.json",
+      "sha256": "91c2ed42f6d8094a2704f56aea32f6f16243881b04aadbe4fdbbdd3a566f05da",
+      "selected_zero_based_rows": [
+        501,
+        851,
+        4318,
+        348
+      ]
+    }
+  ],
+  "source_blobs": [
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "Modules/Core/Game/Projectile/ProjectilePanel.cs",
+      "sha256": "e1b4f99ad6ba1e4cb870bed7ae504beab6c2102461ad326f14f2a1c03b6225e6"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "Modules/Core/Game/Projectile/ProjectileRelease.cs",
+      "sha256": "03d8aa63f7a00d9c14d86d288cd77e6035d74764470d9d96adbdf792bdb443e5"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "Modules/Core/Game/Projectile/ProjectileOffense.cs",
+      "sha256": "cb9ebc39ae45b7aadc10ec15ccb5950dfda9741652858140d545c728f931d84e"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "Modules/Core/Game/Projectile/Projectiles.cs",
+      "sha256": "5dad8a9d164041a0bbb0f7c8f3faf7b59ad8576897d8e11971f6d422bdf3c7af"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "Modules/Core/Game/Projectile/ProjectileReactions.cs",
+      "sha256": "86f7fabbd63509ea6a1b6d9f2441165badc5f21954d2515d3e7009e2b0fa3671"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "Modules/Core/Game/Projectile/ProjectileDefinitions.cs",
+      "sha256": "c2895a3a207c0ca34d919298d37f0fb4f5bc991c51d0bbde4c901358f41e1878"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "Modules/Core/Game/Skill/Skills.cs",
+      "sha256": "a13aed3fe8dfc5c89e19ab6a3ab47ba686e45249f7baaa342f92e97bcdf3bc96"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "src/GameServer.Gateway/Skill/SkillCatalog.cs",
+      "sha256": "54ddea3dd0e2ca4da11b612d29b074d597436259aed170b478fa6c34f96f7550"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "src/GameServer.Core/Projectiles/ProjectileTypes.cs",
+      "sha256": "3dc4a21dedf05a80232ced680aa5addd829eb728482e759198ec4a65f0a30cb5"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "src/GameServer.Core/Projectiles/ProjectileRuntime.cs",
+      "sha256": "84de0954a2062d74991a9f1d044dcb7c71e4ff77f38bff7fc3cdd0fbd0de4850"
+    },
+    {
+      "commit": "d377bd256036242d2fb43f53eb7110b4897e1862",
+      "path": "src/GameServer.Core/Protocol/Instance/InstanceProtocol.cs",
+      "sha256": "f6cfa878d0ceb06256bd0a315c8ad3613cd8fa9549beb25abf8cfffab1c60b74"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/tornado-shot.md",
+      "sha256": "b4b86f8263536bf460dfc5e76fb1a096e609e99b30bb932f23fd724765cdf2ea"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/tornado-geometry.md",
+      "sha256": "567ac3df77357046d85748d145a442f441c394ec045215e6e4f5f48cfd0ccc74"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/count-stat-inputs.md",
+      "sha256": "7cec0fb880a753658fd321f5a90e836b78722bf3f6934baeac82c920a8fada91"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/layout-stat-inputs.md",
+      "sha256": "5674911f0ae52d62aab5dcedf179d97b47d02bd96cbf6decd29bc3696ee2b609"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/client-server-contract.md",
+      "sha256": "ce24ed930071ec38cf7e9013196cee70ea97566e5361f249752d7cbb576d9523"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/verification-and-limitations.md",
+      "sha256": "eb8bee0cffc4487119adaba3c8a0ba02e54b464c9129d728c3b7c6343b88b4ff"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/actions-and-emission.md",
+      "sha256": "84b7100a225c0b8755ac2655b63dbef44967b63c9ebcc199c582a415f0913dcd"
+    },
+    {
+      "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
+      "path": "Agents/docs/re/projectiles/emission-admission.md",
+      "sha256": "f6d3325e6f8bdfb62809cff5ebdc5fc692a3b713f3dcdbeaef1d214805d1f00b"
+    }
+  ]
+}

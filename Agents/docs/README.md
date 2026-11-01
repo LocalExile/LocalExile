@@ -51,6 +51,8 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 
 [Projectile framework](game/projectile-framework.md): sole production simulator and skill-provider boundary.
 [Projectile skills](game/projectile-skills.md): Fireball, Kinetic Blast, catalog policies, evidence and client checks.
+[Tornado Shot client inputs](re/tornado-shot-input-contract.md): authored count producers, native read order,
+identity/geometry requirements and the remaining real-release observations; research, no gameplay change.
 | Doc | Content |
 |---|---|
 | [../GettingStarted.md](../GettingStarted.md) | setup from a fresh clone, third-party tools, troubleshooting |

@@ -1197,6 +1197,9 @@ and can require explicit recipes.
   Ascendancy allocation remains part of the separate lifecycle change.
   See [11](../docs/protocol/11-skills.md) §4, §5 and §12.
 - **Projectiles.** One chronological runtime drives production gem/bow flight, contacts and continuation.
+  The [ordinary TS input contract](../docs/re/tornado-shot-input-contract.md) connects authored secondary-count
+  contributions to installed native readers and records mother/child selection and identity order. Actual effective
+  inputs and first-contact agreement remain unobserved; this research does not add verified TS skill coverage.
   It runs at 30 Hz boundaries with subtick contacts and commits damage/rewards before network output.
   Native gem skill records derive projectile count, pierce, chain, fork, split and return from shared parameter rules.
   These display-only projections respect prohibitions and refresh after support removal without changing release inputs.
