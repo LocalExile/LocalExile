@@ -135,7 +135,8 @@ So the pattern is fitted by eye against the original (live 2026-10-31):
   (`damage_+%_vs_players`), always hitting; armour and resistances are not applied.
   The hit packet (0x1af) carries the blood and particle flags.
 - The hit bleeds (the `.ot`: 100% chance, 80% less duration): the wiki's bleed from a monster, 10% of the hit a second,
-  three times that while the player moves, for 1 s, not reduced by armour, only the strongest running.
+  three times that while the player moves, for 1 s, not reduced by armour, only the strongest running; none on a
+  player who cannot bleed (the panel's `cannot_gain_bleeding` or `virtual_immune_to_bleeding`).
   BuffDefinitions `bleeding` shows it; `labyrinth_trap_bleed` and `trap_pinned` ("Spike Pinned") carry shares of the
   pools whose values the client data lacks.
 - Risen and lowering spikes are a wall: the trap's TriggerableBlockage (0x1c6) and its tile's cells on the server's walk
@@ -223,7 +224,9 @@ the flying one's `flying_roomba_damage`) carries `base_physical_damage_%_of_maxi
 `…_of_maximum_energy_shield_…`, with no values in the client data (nor in the wiki or PoEDB). So a player within 10
 cells of a roomba's centre degenerates by 30% of maximum life plus 50% of maximum energy shield a second (our numbers,
 fitted live to the original's with `/trial_roomba_damage`, 2026-11-01), physical, energy shield first, and can die of
-it. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
+it. A player who cannot bleed (the panel's `cannot_gain_bleeding` or `virtual_immune_to_bleeding`) takes nothing in
+one (live 2026-11-01, the original: a character immune to bleeding stands in a roomba unharmed), as if the cut were a
+bleed. When the degeneration starts the Gateway logs it with the player's life regeneration. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
 While they are in one the Gateway puts that buff on the player (0x1c1); its BuffVisuals `rhoomba_damage` plays
 `labyrinth/traps/roomba/roomba.epk` (the flying one's `flying_roomba.epk`) on them, and the buff goes when they leave
 or die.

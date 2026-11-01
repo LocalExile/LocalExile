@@ -341,6 +341,16 @@ static partial class QuestobjectsRules
         return life > 0;
     }
 
+    // Whether the player cannot bleed (the character panel's cannot_gain_bleeding, virtual_immune_to_bleeding: a flask's
+    // immunity too): no spike trap bleed, and no roomba's cut either (live 2026-11-01, the original: a character immune to
+    // bleeding stands in a roomba unharmed).
+    static bool CannotBleed(ClientState conn)
+    {
+        var stats = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        return Get("cannot_gain_bleeding") != 0 || Get("virtual_immune_to_bleeding") != 0;
+    }
+
     // The bleed a spike hit leaves on a connection: its damage a second while standing, and until when (Clock seconds).
     sealed class Bleed { public double PerSecond, Until; public ushort Buff; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Bleed> Bleeds = new();
@@ -350,6 +360,7 @@ static partial class QuestobjectsRules
     // damage goes to energy shield first, then life, in SpikeBleedTickSeconds ticks, off the traps' loop.
     static async Task SpikeBleed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit)
     {
+        if (CannotBleed(conn)) return;
         var bleed = Bleeds.GetValue(conn, _ => new());
         double perSecond = hit * LabyrinthTrials.SpikeBleedPerSecond, until;
         ushort buff;
@@ -753,6 +764,7 @@ static partial class QuestobjectsRules
                 lock (conn.Monsters) here = conn.Walk.Position(now);
                 double radius = LabyrinthTrials.RoombaRadius;
                 var inside = runs.FirstOrDefault(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
+                if (inside is not null && CannotBleed(conn)) inside = null;
                 ushort? row = inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type);
                 bool was, degen;
                 ushort instance = 0;
@@ -777,6 +789,10 @@ static partial class QuestobjectsRules
                     shown = (instance, buffRow);
                 }
                 // Entering and leaving change the recovery rates the client is sent (PlayerStatsUpdateAtGate).
+                if (degen && !was)
+                    Console.WriteLine($"[gateway] {remote} trial roomba: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
+                        $"energy shield {conn.EnergyShield.Maximum}), life regeneration {LifeRegenPerSecond(conn):0.#}/s, life {conn.PlayerLife}, " +
+                        $"energy shield {conn.EnergyShield.Current}");
                 if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? "in a trial roomba" : "out of the trial roombas");
                 await Task.Delay(SpikeTickMilliseconds);
             }
