@@ -31,6 +31,15 @@ for (const name of ['GetForegroundWindow', 'GetActiveWindow', 'GetFocus']) {
   Interceptor.replace(user32.getExportByName(name), new NativeCallback(() => active ? hwnd : real(), 'pointer', []));
 }
 
+// A held button is read as a key state each frame, not from the messages.
+const VK_LBUTTON = 1;
+for (const name of ['GetAsyncKeyState', 'GetKeyState']) {
+  Interceptor.attach(user32.getExportByName(name), {
+    onEnter(args) { this.left = active && args[0].toInt32() === VK_LBUTTON; },
+    onLeave(result) { if (this.left) result.replace(ptr(held ? 0x8000 : 0)); },
+  });
+}
+
 rpc.exports = {
   attach(window) {
     hwnd = ptr(window); active = true;
