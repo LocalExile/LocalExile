@@ -17,6 +17,7 @@ static class LabyrinthTrials
         Plaque = "Metadata/QuestObjects/Labyrinth/LabyrinthTrialPlaque",
         Portal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthTrialReturnPortal",
         SpikeTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthCascadeSpikeTrap",
+        ArrowTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthArrowTrap",
         // The trials' Bronze Monographs (NPCs.dat LabyrinthTrialGlyphPrison, …Sins, …Church, …Crematorium, …Hedge,
         // …Catacombs), placed as NPCs.
         GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph";
@@ -139,31 +140,40 @@ static class LabyrinthTrials
     public const double SpikeBleedPerSecond = 0.10, SpikeBleedMovingFactor = 3, SpikeBleedSeconds = 5 * (1 - 0.8);
 
     /// <summary>The <c>bleeding</c> BuffDefinitions row, or null without the table.</summary>
-    public static ushort? BleedingBuffRow => BleedingRow.Value;
+    public static ushort? BleedingBuffRow => BuffRows.Value.TryGetValue("bleeding", out ushort row) ? row : null;
 
-    static readonly Lazy<ushort?> BleedingRow = new(() =>
+    /// <summary>The <c>poison</c> BuffDefinitions row ("Poisoned", a count of its stacks), or null without the table.</summary>
+    public static ushort? PoisonBuffRow => BuffRows.Value.TryGetValue("poison", out ushort row) ? row : null;
+
+    static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
     {
         const string file = "data/tables/BuffDefinitions.json";
-        if (!File.Exists(file)) return null;
+        var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
+        if (!File.Exists(file)) return rows;
         using var table = GameTables.Open(file);
         int row = 0;
         foreach (var buff in table.RootElement.EnumerateArray())
         {
-            if (buff.GetProperty("Id").GetString() == "bleeding") return (ushort)row;
+            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison")) rows.TryAdd(id, (ushort)row);
             row++;
         }
-        return null;
+        return rows;
     });
 
     /// <summary>A spike trap's hit on a player (GrantedEffectStatSets <c>LbRetractableTrap</c>):
     /// <c>%_of_life_to_deal_as_damage</c> of maximum life plus <c>%_of_es_to_deal_as_damage</c> of maximum energy
     /// shield, with <c>damage_+%_vs_players</c>; it always hits and cannot be blocked. Null without the table. Armour and
     /// resistances are not applied (our reading: the trap deals a share of the pools).</summary>
-    public static int? SpikeDamage(uint maxLife, uint maxEnergyShield) =>
-        SpikeStats.Value is { } s ? (int)Math.Min(int.MaxValue,
+    public static int? SpikeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(SpikeStats.Value, maxLife, maxEnergyShield);
+
+    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> SpikeStats = new(() => TrapStats("LbRetractableTrap"));
+
+    static int? TrapDamage((int Life, int EnergyShield, int VsPlayers)? stats, uint maxLife, uint maxEnergyShield) =>
+        stats is { } s ? (int)Math.Min(int.MaxValue,
             ((long)maxLife * s.Life + (long)maxEnergyShield * s.EnergyShield) * (100 + s.VsPlayers) / 10000) : null;
 
-    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> SpikeStats = new(() =>
+    // A trap's stat set (GrantedEffectStatSets): its shares of the pools and its damage_+%_vs_players.
+    static (int Life, int EnergyShield, int VsPlayers)? TrapStats(string id)
     {
         const string file = "data/tables/GrantedEffectStatSets.json";
         try
@@ -174,7 +184,7 @@ static class LabyrinthTrials
             using var sets = JsonDocument.Parse(File.ReadAllBytes(file));
             foreach (var set in sets.RootElement.EnumerateArray())
             {
-                if (set.GetProperty("Id").GetString() != "LbRetractableTrap") continue;
+                if (set.GetProperty("Id").GetString() != id) continue;
                 var values = set.GetProperty("ConstantStats").EnumerateArray().Select(k => names[k.GetInt32()])
                     .Zip(set.GetProperty("ConstantStatsValues").EnumerateArray().Select(v => v.GetInt32()))
                     .ToDictionary(p => p.First, p => p.Second);
@@ -188,7 +198,7 @@ static class LabyrinthTrials
             Console.WriteLine($"[gateway] {file}: {ex.Message}");
             return null;
         }
-    });
+    }
 
     /// <summary>A spike trap's 0x2b9 blob (LabyrinthCascadeSpikeTrap.ot: Positioned, Animated, BaseEvents, Pathfinding,
     /// TriggerableBlockage, Transitionable, Stats, Buffs, Life, Actor), as a monster writes these components: the .ot's
@@ -201,6 +211,59 @@ static class LabyrinthTrials
         w.U8(0);                                                        // Animated: the .ot's
         w.U8(0);                                                        // TriggerableBlockage: unblocked
         w.U8(1);                                                        // Transitionable
+        w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
+        w.U16(0);                                                       // Buffs
+        foreach (uint pool in new uint[] { 1, 0, 0 }) w.U32(pool).U32(0).U16(0).U32(0).U32(0);
+        w.U8(0);                                                        // Life flags
+        w.WStr32("").U16(0).U8(0).U32(0).U32(0).U8(0).U8(0);            // Actor
+        return w.U8(0).ToArray();                                       // tasks
+    }
+
+    /// <summary>How often the dart traps fire (live 2026-10-31, the original's Imperial Gardens: every turret at once,
+    /// about 1.5 s apart; the real timer is the server's).</summary>
+    public const double ArrowVolleySeconds = 1.5;
+
+    /// <summary>A dart trap's shot (Projectiles.dat): the poison darts, for its skill's <c>global_poison_on_hit</c>.</summary>
+    public const string ArrowProjectile = "Metadata/Projectiles/PoisonArrowTrapProjectile";
+
+    /// <summary>A dart trap's four shots: its .ot's <c>number_of_additional_projectiles</c> 3 and <c>projectiles_nova</c>,
+    /// so a quarter turn apart from the way the turret faces (its room line's angle, as a projectile object's rotation:
+    /// direction (sin a, −cos a)). Each leaves <c>projectile_nova_extend_projectiles_forward_by_x_units</c> (50) ahead
+    /// of the turret, clear of its statue.</summary>
+    public static IEnumerable<(double X, double Y)> ArrowDirections(float angle) =>
+        Enumerable.Range(0, 4).Select(k => angle + k * Math.PI / 2).Select(a => (Math.Sin(a), -Math.Cos(a)));
+
+    public static double ArrowForwardCells => 50 / WorldUnits.PerCell;
+
+    /// <summary>Where the darts leave the turret: its rig's <c>cast</c> contact (<c>StatueTurret/rig.amd</c>, 118.757 up).</summary>
+    public static int ArrowLaunchHeight => new ContactPoint(0, 0, -118.757f).HeightSteps;
+
+    /// <summary>Animation.dat <c>SpellProjectile</c>, which the turret's .act plays as its <c>cast</c> clip (1000 ms, the
+    /// contact at 0 ms).</summary>
+    public const byte CastAnimation = 20;
+
+    /// <summary>A dart's hit on a player (GrantedEffectStatSets <c>LbArrowTrap</c>: 15% of maximum life plus 9% of maximum
+    /// energy shield, 33% more against players), read as the spike trap's (<see cref="SpikeDamage"/>).</summary>
+    public static int? ArrowDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(ArrowStats.Value, maxLife, maxEnergyShield);
+
+    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> ArrowStats = new(() => TrapStats("LbArrowTrap"));
+
+    /// <summary>A dart's hit poisons (<c>global_poison_on_hit</c>): the wiki's poison is 30% of the hit's physical and
+    /// chaos damage a second for 2 s, here with the .ot's <c>monster_poison_damage_+%_final</c> −50; every hit adds a
+    /// stack of its own. Chaos damage: past energy shield, less the player's chaos resistance. The slow the original's
+    /// darts leave (BuffDefinitions <c>labyrinth_arrow_slow</c>, <c>labyrinth_arrow_movement_speed_+%_final</c>) has
+    /// no value in the client data: not applied.</summary>
+    public const double ArrowPoisonPerSecond = 0.30 * (1 - 0.50), ArrowPoisonSeconds = 2;
+
+    /// <summary>A dart trap's 0x2b9 blob (LabyrinthArrowTrap.ot: Positioned, Transitionable, Animated, Pathfinding,
+    /// BaseEvents, Stats, Buffs, Life, Actor), as the spike trap's (<see cref="SpikeTrapBlob"/>): the .ot's team 14, the
+    /// room line's angle and model, state 1, one life, no skills (the server fires its darts).</summary>
+    public static byte[] ArrowTrapBlob(int x, int y, float angle, string model)
+    {
+        var w = new BlobWriter().U8(0).U8(0);
+        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1); // Positioned
+        w.U8(1);                                                        // Transitionable
+        w.U8(1).WStr32(model);                                          // Animated: the room line's
         w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
         w.U16(0);                                                       // Buffs
         foreach (uint pool in new uint[] { 1, 0, 0 }) w.U32(pool).U32(0).U16(0).U32(0).U32(0);

@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
@@ -18,6 +19,7 @@ static partial class QuestobjectsRules
         await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.SpikeTrap)],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))]);
+        await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => o.Type == LabyrinthTrials.ArrowTrap)]);
         // The Bronze Monograph at the trial's door: an NPCs.dat row on StoryGlyphBase, read like any NPC (its NPCTalk
         // "Read" row), with the room line's StoryGlyph.ao.
         var glyphs = all.Where(o => o.Type.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal)).ToList();
@@ -288,17 +290,33 @@ static partial class QuestobjectsRules
         int damage;
         lock (conn.Monsters)
         {
-            if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (!spike.Holds(conn.Walk.Position(now))
-                || LabyrinthTrials.SpikeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int dealt) return;
-            damage = dealt;
-            long before = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage, 0, now, CharacterPlayerStats(conn));
-            conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
-            if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
-            RecordHardcoreDeath(conn);
-            life = conn.PlayerLife;
+                || LabyrinthTrials.SpikeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int dealt
+                || TrapHitLocked(conn, dealt, now) is not uint left) return;
+            (damage, life) = (dealt, left);
         }
+        if (await PresentTrapHit(remote, stream, ciphers, conn, id, $"trial spike trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
+            await SpikeBleed(remote, stream, ciphers, conn, damage);
+    }
+
+    // Under conn.Monsters: a trap's hit of so much physical damage on the player, energy shield first, which may kill them.
+    // The life left, or null when the player is dead already (or a hardcore death holds them).
+    static uint? TrapHitLocked(ClientState conn, int damage, double now)
+    {
+        if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return null;
+        long before = conn.PlayerLife, lifeDamage = DamagePlayerHit(conn, damage, 0, now, CharacterPlayerStats(conn));
+        conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
+        if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+        RecordHardcoreDeath(conn);
+        return conn.PlayerLife;
+    }
+
+    // A trap's hit as the client shows it: the hit from the trap (0x1af), the pools and, when it killed, the death screen.
+    // True while the player lives.
+    static async Task<bool> PresentTrapHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        string trap, int damage, uint life)
+    {
         var taken = GameServer.Core.World.DamagePacket.Empty.Add(GameServer.Core.World.DamageType.Physical, new(damage, damage));
         await Send(remote, stream, ciphers, InstanceProtocol.ActionHit(id, 0xffff, PlayerId, flags: MonsterHitFlags(false, false),
             kind: 0x03, code: HitCode(taken)), null);
@@ -307,9 +325,9 @@ static partial class QuestobjectsRules
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
         await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
-            $"0x01b1 player hit by trial spike trap 0x{id:x} at ({trap.X}, {trap.Y}) for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
+            $"0x01b1 player hit by {trap} for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
         if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
-        else await SpikeBleed(remote, stream, ciphers, conn, damage);
+        return life > 0;
     }
 
     // The bleed a spike hit leaves on a connection: its damage a second while standing, and until when (Clock seconds).
@@ -380,6 +398,168 @@ static partial class QuestobjectsRules
 
     // How often a spike trap's bleed deals its damage (our own number).
     const double SpikeBleedTickSeconds = 0.2;
+
+    // A trial's dart traps (LabyrinthTrials.ArrowTrap, the Imperial Gardens' 14 turrets): created at rest, then all fire
+    // together every LabyrinthTrials.ArrowVolleySeconds for as long as the player is in the area.
+    static async Task SpawnArrowTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<AreaPopulation.RoomObject> traps)
+    {
+        if (traps.Count == 0) return;
+        var placed = new List<(uint Id, AreaPopulation.RoomObject Trap)>();
+        foreach (var trap in traps)
+        {
+            uint id = conn.NextObjectId++;
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
+                LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model)), null);
+            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            placed.Add((id, trap));
+        }
+        Console.WriteLine($"[gateway] {remote} trial dart traps: {placed.Count} placed");
+        _ = RunArrowTraps(remote, stream, ciphers, conn, placed);
+    }
+
+    // Each volley: every turret plays its cast (0x1d1) and releases its four darts (LabyrinthTrials.ArrowDirections) into
+    // the connection's projectile world, which flies them, stops them at walls and hands a contact to ArrowHit.
+    static async Task RunArrowTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<(uint Id, AreaPopulation.RoomObject Trap)> traps)
+    {
+        var skills = SkillsFor(conn);
+        double speed = ProjectileSpeed.CellsPerSecond(skills.Projectile(LabyrinthTrials.ArrowProjectile)?.Speed ?? 0, _ => 0, _ => 0);
+        if (speed <= 0)
+        {
+            Console.WriteLine($"[gateway] {remote} trial dart traps: no {LabyrinthTrials.ArrowProjectile} in Projectiles.dat, they stay still");
+            return;
+        }
+        // The dart's rig: spine_shoot in flight, spine_shatter where it stops (data/projectile-clips.json), from the
+        // turret's cast contact. A dart flies until a wall or the player stops it, at most the projectile range.
+        var presentation = (MonsterProjectilePresentation(skills.Clips(LabyrinthTrials.ArrowProjectile), 1) ?? new())
+            with { LaunchHeight = LabyrinthTrials.ArrowLaunchHeight };
+        try
+        {
+            double next = conn.Clock.Elapsed.TotalSeconds + 1;
+            while (!conn.Closed)
+            {
+                double wait = next - conn.Clock.Elapsed.TotalSeconds;
+                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
+                if (conn.Closed) break;
+                next = Math.Max(next + LabyrinthTrials.ArrowVolleySeconds, conn.Clock.Elapsed.TotalSeconds);
+                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                session.Advance();
+                foreach (var (id, trap) in traps)
+                {
+                    await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(id, 1, LabyrinthTrials.CastAnimation), null);
+                    foreach (var (x, y) in LabyrinthTrials.ArrowDirections(trap.Angle))
+                    {
+                        var direction = new ProjectileVector(x, y);
+                        var origin = new ProjectileVector(trap.X, trap.Y) + direction * LabyrinthTrials.ArrowForwardCells;
+                        var owner = new ProjectileActorKey(id);
+                        var profile = new ProjectileProfile(LabyrinthTrials.ArrowProjectile) { Speed = speed, Radius = 1, Count = 1 };
+                        session.Schedule(session.Runtime.Now, () => !conn.Closed, () =>
+                            new ProjectileUse(profile, owner, owner, 2, origin, origin + direction * 10)
+                            {
+                                Payload = new ObjectProjectileOffense($"trial dart trap 0x{id:x}",
+                                    (shot, contact) => ArrowHit(shot, contact, id, trap)) { Presentation = presentation, Quiet = true },
+                            });
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial dart traps stopped: {ServerLog.Describe(ex)}"); }
+    }
+
+    // Under the connection's lock (the projectile world's contact): a dart reaching the player hits them for the trap's
+    // share of their pools (LabyrinthTrials.ArrowDamage) and poisons them; anything else in its way it passes.
+    static ProjectileHitResult ArrowHit(ProjectileSession session, ProjectileDamage contact, uint id, AreaPopulation.RoomObject trap)
+    {
+        var conn = session.Conn;
+        if (contact.Target.Id != PlayerId || InGracePeriod(conn)) return ProjectileHitResult.Miss;
+        double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
+        if (LabyrinthTrials.ArrowDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int damage
+            || TrapHitLocked(conn, damage, now) is not uint life) return ProjectileHitResult.Miss;
+        session.Enqueue(async () =>
+        {
+            if (await PresentTrapHit(session.remote, session.stream, session.ciphers, conn, id,
+                    $"trial dart trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
+                await ArrowPoison(session.remote, session.stream, session.ciphers, conn, damage);
+        });
+        return ProjectileHitResult.Hit;
+    }
+
+    // The poisons on a connection: each stack's damage a second, until when (Clock seconds) and its buff instance, and
+    // whether their ticks run.
+    sealed class Poisons
+    {
+        public readonly List<(double PerSecond, double Until, ushort Buff)> Stacks = [];
+        public bool Ticking;
+        public double Carried;   // the part of a point dealt but not yet taken
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Poisons> PoisonStacks = new();
+
+    // A dart's poison (LabyrinthTrials.ArrowPoisonPerSecond of its hit a second for ArrowPoisonSeconds), a stack of its own
+    // with its own Poisoned buff, which the client counts. The stacks' chaos damage goes past energy shield, less the
+    // player's chaos resistance, in SpikeBleedTickSeconds ticks, off the traps' loop.
+    static async Task ArrowPoison(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit)
+    {
+        var poisons = PoisonStacks.GetValue(conn, _ => new());
+        ushort buff;
+        bool start;
+        lock (conn.Monsters)
+        {
+            buff = conn.NextBuff++;
+            poisons.Stacks.Add((hit * LabyrinthTrials.ArrowPoisonPerSecond, conn.Clock.Elapsed.TotalSeconds + LabyrinthTrials.ArrowPoisonSeconds, buff));
+            (start, poisons.Ticking) = (!poisons.Ticking, true);
+        }
+        if (LabyrinthTrials.PoisonBuffRow is ushort row)
+            await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, row,
+                u68: BitConverter.SingleToUInt32Bits((float)LabyrinthTrials.ArrowPoisonSeconds)), null);
+        if (!start) return;   // the running ticks take the new stack on
+        _ = Task.Run(async () =>
+        {
+            while (!conn.Closed)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(SpikeBleedTickSeconds));
+                uint life;
+                int dealt;
+                bool over;
+                List<ushort> ended;
+                lock (conn.Monsters)
+                {
+                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn))
+                    {
+                        poisons.Stacks.Clear();
+                        (poisons.Ticking, poisons.Carried) = (false, 0);
+                        return;
+                    }
+                    // Each stack deals for the part of this tick it lasted.
+                    double raw = poisons.Stacks.Sum(s => s.PerSecond * Math.Clamp(s.Until - (now - SpikeBleedTickSeconds), 0, SpikeBleedTickSeconds));
+                    var chaos = GameServer.Core.World.DamageType.Chaos;
+                    poisons.Carried += GameServer.Core.World.DamageModel.Mitigate(raw, Resistance(conn, chaos), MaxResistance(conn, chaos));
+                    dealt = (int)poisons.Carried;
+                    poisons.Carried -= dealt;
+                    long lifeDamage = conn.EnergyShield.Damage(dealt, true, now);
+                    conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
+                    if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+                    RecordHardcoreDeath(conn);
+                    life = conn.PlayerLife;
+                    ended = [.. poisons.Stacks.Where(s => s.Until <= now).Select(s => s.Buff)];
+                    poisons.Stacks.RemoveAll(s => s.Until <= now);
+                    if (life == 0) poisons.Stacks.Clear();
+                    // Over here, under the lock: a stack added after this starts ticks of its own.
+                    over = poisons.Stacks.Count == 0;
+                    if (over) (poisons.Ticking, poisons.Carried) = (false, 0);
+                }
+                if (dealt > 0)
+                    await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
+                        life == 0 ? $"0x01b1 player takes {dealt} poison damage from a trial dart trap and dies" : null);
+                if (life == 0) { await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)"); return; }
+                if (LabyrinthTrials.PoisonBuffRow is not null)
+                    foreach (ushort old in ended) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old), null);
+                if (over) return;
+            }
+        });
+    }
 
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on
     // after the player walks away): S→C 0x84 with its only NPCTalk row's index (0, "Read") opens the talk on that row.

@@ -95,7 +95,7 @@ static partial class Game
                         {
                             var use = release() with { Seed = ++seed };
                             long useId = Runtime.Release(use);
-                            Console.WriteLine($"[gateway] {remote} projectile release use={useId} "
+                            if (!Quiet(use.Payload)) Console.WriteLine($"[gateway] {remote} projectile release use={useId} "
                                 + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
                                 + $"origin={use.Origin} aim={use.Aim} speed={use.Profile.Speed:0.###}");
                         }
@@ -219,6 +219,8 @@ static partial class Game
             if (!Active) return ProjectileHitResult.Miss;
             // A monster's shot: the player is the target and the monster's damage pipeline commits the hit.
             if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
+            // A server object's shot (a trial's dart trap): its own rule commits the hit.
+            if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot) return ProjectileHitResult.Miss;
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
@@ -303,7 +305,7 @@ static partial class Game
             var p = value.Projectile;
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
-            if (value.Kind == ProjectileEventKind.End && p.ParentId == 0)
+            if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
                     + $" grid={Conn.Layout.Id}_seed{Conn.Seed} blocked={ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y)?.ToString() ?? "unknown"}");
@@ -340,7 +342,7 @@ static partial class Game
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
                         { AnimatedObject = flightVisual };
                     visual.Created = true;
-                    if (p.ParentId == 0)
+                    if (p.ParentId == 0 && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
@@ -506,8 +508,11 @@ static partial class Game
         {
             ProjectileOffense offense => offense.Label,
             HostileProjectileOffense hostile => hostile.Label,
+            ObjectProjectileOffense thrown => thrown.Label,
             _ => null,
         };
+        // A shot that logs itself (a trial's dart traps: 56 every 1.5 s).
+        static bool Quiet(object? payload) => payload is ObjectProjectileOffense { Quiet: true };
     }
 
     internal static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

@@ -117,8 +117,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
   `AreaTransitionCatalog` does not know the Labyrinth areas yet.
-- **Known (trials):** the Gateway places each trial's door, `Switch_Once` levers, Locked Doors, plaque, portal and
-  spike traps;
+- **Known (trials):** the Gateway places each trial's door, `Switch_Once` levers, Locked Doors, plaque, portal,
+  spike traps and the Imperial Gardens' dart traps;
   The Lower Prison's trial completes with the real client ([status](../status/world.md), "Trials of Ascendancy").
   A trial is done for the client by its quest flag or its league quest flag
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
@@ -126,7 +126,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   1. The rest of the Normal trials: the `Switch` / `Door_Open` (toggling), `Switch_Multi` and `TimerGears` puzzle
      parts of The Crypt, The Chamber of Sins and The Crematorium, the trials' monster spawners, and saving league
      quest flags so a trial counts for every character of the league.
-  2. The other trial traps: each trial teaches one kind (spinners, sawblades, furnaces, roombas, darts), the same
+  2. The other trial traps: each trial teaches one kind (spinners, sawblades, furnaces, roombas; darts are done), the same
      objects as the Labyrinth's; their timing and damage, as the spike traps do
      ([labyrinth-trials](../docs/game/labyrinth-trials.md), "Spike traps").
   3. The day's layout: port the rest of `0x1424e30f0` (connections, secrets) and send the layout in the area's extra

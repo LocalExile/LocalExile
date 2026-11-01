@@ -5,6 +5,7 @@ The trials in the acts that open each Labyrinth tier (#450, roadmap "The Labyrin
 The Lower Prison's Normal trial is verified with the real client: its door, lever, Locked Door, plaque and the
 Trial Plaque window work.
 Its spike traps (the cascade ring and the plaque room's checkerboard) are matched against the original game by eye.
+The Imperial Gardens' dart traps fire; they are built from the original's description and not yet checked live.
 The other traps, the trials' monsters and the other trials' puzzles are not built yet.
 
 ## Where a trial is
@@ -23,6 +24,7 @@ scale, and `AreaPopulation.LoadObjects` places them through the room's placement
 |---|---|
 | `axiom_intro` (Lower Prison) | `LabyrinthIntroDoor`, `Door_Closed`, `Switch_Once`, 16 `LabyrinthCascadeSpikeTrap`, `Trigger_PulsePrisonWG`, the Bronze Monograph |
 | `axiom_intro_end` | `LabyrinthTrialPlaque`, `LabyrinthTrialReturnPortal`, 10 spike traps, two delay triggers, `PrisonPoacherSpawner` |
+| `labyrinth_intro` (Imperial Gardens, `RuinedCity/Garden`) | the door, 14 `LabyrinthArrowTrap`, the plaque, the portal, the Bronze Monograph: one room, no puzzle |
 | `catacomb_intro` / `_end` | the door, one `Door_Closed` and `Switch_Once`, roombas; the plaque and the portal |
 | `crypt_intro` | the door, `Door_Closed`, `Switch`, `Switch_Multi`, `Switch_Once`, spinners, the plaque, the portal, `CryptFrostPriestSpawner` |
 | `crematorium_intro` | the door, three `Door_Closed` and `Switch_Once`, five `TimerGears`, lava, the plaque, the portal, `CremPyroSpawner` |
@@ -132,6 +134,36 @@ The timings are dev-tunable for a live check: `/trial_spike_hit <from> <to>` (th
 `/trial_spike_step <ms>` (the ring's step) and `/trial_spike_anim <ms>` (the stretched clip).
 Firings within about two tiles of the player are logged with the player's position.
 
+## Dart traps
+
+`Metadata/Terrain/Labyrinth/Traps/LabyrinthArrowTrap` (The Imperial Gardens: 14 statue turrets, `statueturret_circleclean.ao`
+on the room line, facing 45°, 90° or 135°) is a monster-like object like the spike trap.
+Its blob reads Positioned (the room line's angle, the `.ot`'s team 14), Transitionable, Animated (the room line's
+model), Pathfinding, BaseEvents, Stats, Buffs, Life and Actor, written as the spike trap's.
+
+**How it fires.** Its skill is `LbArrowTrap` (ActiveSkills `lb_arrow_trap`); the `.ot` gives it
+`number_of_additional_projectiles` 3 and `projectiles_nova`, so four darts a quarter turn apart from the way the turret
+faces: a 45° turret shoots along the diagonals, a 90° one straight.
+Each dart leaves `projectile_nova_extend_projectiles_forward_by_x_units` (50 units, 4.6 cells) ahead of the turret,
+at the height of the turret's `cast` contact (`StatueTurret/rig.amd`: 118.757 up).
+The original fires every turret at once, about every 1.5 s (live 2026-10-31, the user's observation); the Gateway
+does so for as long as the player is in the area, each turret playing Animation.dat `SpellProjectile` (its `.act`'s
+`cast`, 0x1d1) as it fires.
+The darts are `Metadata/Projectiles/PoisonArrowTrapProjectile` (the poison dart rig; `ArrowTrapProjectile` is the
+plain one), 2000 units a second, flown by the connection's projectile world: a wall stops them, the player is their
+only target.
+The rig's flight clip `spine_shoot` is a `loopnoint` clip, which the `.amd` reader did not know: it dropped every rig
+with one (321 of them), so these darts had no clips in `data/projectile-clips.json` before.
+
+**What it does.** A dart that reaches the player hits once and stops:
+- `LbArrowTrap`'s stat set (GrantedEffectStatSets 5469) deals 15% of maximum life plus 9% of maximum energy shield,
+  33% more against players, as the spike trap's share does (always hitting, armour and resistances not applied);
+- it poisons (`global_poison_on_hit`): 30% of the hit a second for 2 s (the wiki's poison), with the `.ot`'s
+  `monster_poison_damage_+%_final` −50. Every hit adds a stack with its own BuffDefinitions `poison` ("Poisoned",
+  whose count the client shows). Poison is chaos damage: past energy shield, less the player's chaos resistance.
+- The original's darts also slow (the user's observation): BuffDefinitions `labyrinth_arrow_slow` (invisible,
+  `labyrinth_arrow_movement_speed_+%_final`), whose value the client data lacks. Not applied.
+
 ## A completed trial
 
 The client counts a trial done (`0x141f69230`, for each of a Labyrinths row's `RequiredTrials`) when the player has
@@ -151,7 +183,9 @@ Kind 0x66 (HUD virtual +0x1028) shows the live HUD's +0xa30, Mirage's Wishes win
 
 ## Not built yet
 
-- The other traps (spinners, sawblades, roombas, lava, darts) and the step-triggered spikes of Izaro's rooms.
+- The other traps (spinners, sawblades, roombas, lava) and the step-triggered spikes of Izaro's rooms.
+- The darts' slow (`labyrinth_arrow_slow`) and the Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered`,
+  the alternate arrow traps).
 - The other puzzle parts: `Switch` and `Door_Open` (toggling), `Switch_Multi`, `TimerGears` (timed levers).
 - The trials' monster spawners (`PrisonPoacherSpawner`, `CryptFrostPriestSpawner`, `CremPyroSpawner`).
 - Saving league quest flags, so that trials are shared across a league's characters.

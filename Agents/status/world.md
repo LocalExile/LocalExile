@@ -162,6 +162,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
   over a stretched Emerge animation (0x1d1), hit a player on their tile for LbRetractableTrap's share of life and energy
   shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
+  The Imperial Gardens' 14 dart turrets fire together every 1.5 s, four poison darts each a quarter turn apart, through
+  the projectile world; a dart hits for LbArrowTrap's share and adds a 2 s poison stack. Not yet checked live; their
+  slow is not applied.
   Not built: the other traps, the trials' monsters, the toggling, multi and timed levers of the other trials, and
   league-wide trials (league quest flags are not saved).
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.

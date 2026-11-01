@@ -51,6 +51,25 @@ public sealed class LabyrinthTrialTests
     }
 
     [Fact]
+    public void DartTrapFiresFourDartsAQuarterTurnApartFromItsFacing()
+    {
+        const string model = "Metadata/Terrain/Labyrinth/Traps/statueturret_circleclean.ao";
+        List<(double, double)> Darts(float angle) =>
+            [.. LabyrinthTrials.ArrowDirections(angle).Select(d => (Math.Round(d.X, 3) + 0, Math.Round(d.Y, 3) + 0)).Order()];
+
+        // The Imperial Gardens' turrets face 45° or 90°: the first shoot along the diagonals, the others straight.
+        Assert.Equal([(-0.707, -0.707), (-0.707, 0.707), (0.707, -0.707), (0.707, 0.707)], Darts(0.785397f));
+        Assert.Equal([(-1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (1.0, 0.0)], Darts(1.5708f));
+
+        // Positioned (the room line's angle, the .ot's team 14), Transitionable, then Animated with the room line's model.
+        byte[] blob = LabyrinthTrials.ArrowTrapBlob(195, 138, 0.785397f, model);
+        Assert.Equal(0.785397f, BitConverter.ToSingle(blob, 10));
+        Assert.Equal(14, BitConverter.ToUInt16(blob, 14));
+        Assert.Equal(new byte[] { 1, 1 }, blob[20..22]);
+        Assert.Equal(model.Length, BitConverter.ToInt32(blob, 22));
+    }
+
+    [Fact]
     public void TrialsTakeTheirAreaAndCompletionFlag()
     {
         const string json = """
