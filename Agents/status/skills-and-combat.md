@@ -1447,6 +1447,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   and a monster that hits the player can be frozen (Brine Bound).
   "As though dealing more damage" raises the chill, shock or freeze it inflicts ([20](../docs/protocol/20-damage.md)).
   Shock and chill minimums (Beacon of Ruin) raise their base ([20](../docs/protocol/20-damage.md)).
+  "All Damage can Chill/Freeze/Shock" count every type, and "Hits always Shock" needs no chance (Shaper of Storms).
   A corpse keeps its killing hit's ailments and a kill can shock it, unless the hit killed it frozen and it shatters.
   Each shock spreads to living enemies within its own `virtual_shock_proliferation_radius` of the shocked monster or
   corpse, like an aura.

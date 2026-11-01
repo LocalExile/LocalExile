@@ -113,26 +113,33 @@ sealed class MonsterElementalAilments
     /// each ailment. The damage the chill, freeze and shock read takes the attacker's as-though multipliers (Overcharge).
     /// The effects added are returned. A chill carries the
     /// attacker's Glacial Wave stats, a shock its proliferation radius grown by the hit's area modifier <paramref name="area"/>.
+    /// <paramref name="other"/> is the hit's physical, fire and chaos damage: with the attacker's all_damage_can_chill,
+    /// _freeze or _shock ("All Damage with Hits can Shock") that ailment reads every type's damage (wiki Shock: the effect
+    /// is the total of every type that can inflict it). always_shock ("Hits always Shock") needs no chance.
     /// </summary>
     public List<Effect> Inflict(double cold, double lightning, bool critical, double threshold, double now,
-        Func<string, int> attacker, Func<string, int> target, Random random, double area = 1)
+        Func<string, int> attacker, Func<string, int> target, Random random, double area = 1, double other = 0)
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
+        bool AllCan(string ailment) => attacker($"all_damage_can_{ailment}") != 0;
+        double chilling = cold + (AllCan("chill") ? lightning + other : 0);
+        double freezing = cold + (AllCan("freeze") ? lightning + other : 0);
+        double shocking = lightning + (AllCan("shock") ? cold + other : attacker("cold_damage_can_shock") != 0 ? cold : 0);
         if (!CannotInflict("chill", attacker))
-            Add(new(Kind.Chill, now, now + 2, Effectiveness(cold * AsThough(Kind.Chill, attacker), threshold,
+            Add(new(Kind.Chill, now, now + 2, Effectiveness(chilling * AsThough(Kind.Chill, attacker), threshold,
                 EffectModifier(Kind.Chill, attacker, target), 30, attacker("chill_minimum_slow_%")))
             {
                 MoreTaken = attacker("enemies_chilled_by_hits_take_damage_increased_by_chill_effect") != 0,
                 LessDealt = attacker("enemies_chilled_by_hits_deal_damage_lessened_by_chill_effect") != 0,
             });
         // The chance rolls first, so a prohibition leaves the random sequence of the hits after it unchanged.
-        if (cold > 0 && (critical || RandomRolls.Chance(attacker("chance_to_freeze_%"), 100, random))
+        if (freezing > 0 && (critical || RandomRolls.Chance(attacker("chance_to_freeze_%"), 100, random))
             && !CannotInflict("freeze", attacker))
-            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * cold * AsThough(Kind.Freeze, attacker) / threshold), 100));
-        double shocking = lightning + (attacker("cold_damage_can_shock") != 0 ? cold : 0);
-        if (shocking > 0 && (critical || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random))
+            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) / threshold), 100));
+        if (shocking > 0 && (critical || attacker("always_shock") != 0
+                || RandomRolls.Chance(attacker("chance_to_shock_%"), 100, random))
             && !CannotInflict("shock", attacker))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
                 EffectModifier(Kind.Shock, attacker, target), 50, attacker("shock_minimum_damage_taken_increase_%")))

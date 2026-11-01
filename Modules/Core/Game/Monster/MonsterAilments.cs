@@ -76,7 +76,9 @@ static partial class Game
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         var added = m.Ailments.Inflict(mitigated[DamageType.Cold].Min * factor, mitigated[DamageType.Lightning].Min * factor,
             critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill), name => m.Mods.Effects[name], random,
-            AilmentArea(Player, Skill, spell));
+            AilmentArea(Player, Skill, spell),
+            other: factor * (mitigated[DamageType.Fire].Min + mitigated[DamageType.Chaos].Min
+                + mitigated[DamageType.Physical].Min * Math.Max(0, 1 - m.Mods.Effects.PhysicalReduction / 100.0)));
         if (m.Dead || m.Life == 0)
         {
             // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
