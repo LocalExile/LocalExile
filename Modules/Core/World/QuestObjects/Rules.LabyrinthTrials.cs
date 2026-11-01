@@ -747,7 +747,6 @@ static partial class QuestobjectsRules
     static async Task RunRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<RoombaRun> runs)
     {
         double carried = 0, last = conn.Clock.Elapsed.TotalSeconds;
-        bool melting = false;
         try
         {
             while (!conn.Closed)
@@ -769,40 +768,12 @@ static partial class QuestobjectsRules
                 double radius = LabyrinthTrials.RoombaRadius;
                 bool inside = runs.Any(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
                 if (inside) carried = await RoombaDamage(remote, stream, ciphers, conn, now - last, carried);
-                if (inside || melting) melting = await RoombaMelt(remote, stream, ciphers, conn, inside);
                 last = now;
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
-    }
-
-    // The client steps the player's pools between the server's updates by their native recovery rates
-    // (life_recovery_per_minute, energy_shield_recovery_per_minute: re/recovery-timing.md), so while the player is in a
-    // roomba these rates carry its damage, negative, on the pool it takes from (energy shield first): the pools melt
-    // as in the original (live 2026-10-31) rather than step at each update. Sent every look, since the energy shield's
-    // own updates may publish its rate again; on leaving the ordinary rates go back. Returns whether it still melts.
-    static async Task<bool> RoombaMelt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool inside)
-    {
-        if (Stats.Key("life_recovery_per_minute") is not uint lifeKey || Stats.Key("energy_shield_recovery_per_minute") is not uint shieldKey)
-            return false;
-        int lifeRate, shieldRate;
-        lock (conn.Monsters)
-        {
-            var stats = CharacterPlayerStats(conn);
-            (lifeRate, shieldRate) = (stats.GetValueOrDefault(lifeKey), stats.GetValueOrDefault(shieldKey));
-            if (inside && conn.PlayerLife > 0)
-            {
-                var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
-                int perMinute = (int)Math.Round((conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare) * 60);
-                if (conn.EnergyShield.Current > 0) shieldRate -= perMinute;
-                else lifeRate -= perMinute;
-            }
-            else conn.SentEsRecoveryRate = null;   // the next energy shield update publishes its own rate again
-        }
-        await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(lifeKey, lifeRate), (shieldKey, shieldRate)]), null);
-        return inside && conn.PlayerLife > 0;
     }
 
     // A roomba's damage over this many seconds (LabyrinthTrials.RoombaDamagePerSecond of maximum life and energy shield),

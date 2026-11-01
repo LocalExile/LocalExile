@@ -220,10 +220,10 @@ no knockback, and it does not block the way. No skill: BuffDefinitions `labyrint
 with no values in the client data. So a player within 10 cells of a roomba's centre takes 40% of maximum life plus
 25% of maximum energy shield a second (our numbers), physical, energy shield first. `/trial_roomba_damage <life %>
 <energy shield %> [<radius>]` (dev) changes them.
-In the original the pools melt in it rather than drop in steps (live 2026-10-31). The client steps its pools between
-the server's updates by their native recovery rates ([recovery-timing](../re/recovery-timing.md)), so while the player
-is in a roomba the Gateway sends `energy_shield_recovery_per_minute` (or, once energy shield is gone,
-`life_recovery_per_minute`) less the roomba's damage a minute, and the ordinary rates again when they leave.
+In the original the pools melt in it rather than drop in steps (live 2026-10-31). The Gateway deals the damage every
+50 ms and sends the pools with it; the client cannot melt them itself: its pool step (`0x141e6b320`) adds the pool's
+native recovery rate only when it is above 0, so a negative `energy_shield_recovery_per_minute` or
+`life_recovery_per_minute` is ignored, and only stops the client's recharge prediction (tried 2026-10-31, reverted).
 
 ## Monsters
 
