@@ -63,11 +63,13 @@ public class PlayerDamageTakenTests
         Assert.Equal(0, PlayerDamageTaken.Flat(DamageType.Cold, attack: true, flat));
 
         // A blocked hit deals nothing by default, 10% with the Ritual gauntlets' implicit, all its elemental damage
-        // with The Flawed Refuge's, and never less than nothing.
+        // with The Flawed Refuge's, 65% more with Glancing Blows, and never less than nothing.
         Assert.Equal(0, PlayerDamageTaken.BlockedPct(DamageType.Physical, With()));
         var blocked = With(("base_block_%_damage_taken", 10), ("block_%_damage_taken_from_elemental", 100));
         Assert.Equal(10, PlayerDamageTaken.BlockedPct(DamageType.Physical, blocked));
         Assert.Equal(110, PlayerDamageTaken.BlockedPct(DamageType.Cold, blocked));
+        Assert.Equal(75, PlayerDamageTaken.BlockedPct(DamageType.Physical,
+            With(("base_block_%_damage_taken", 10), ("keystone_glancing_blows", 1))));
         Assert.Equal(0, PlayerDamageTaken.BlockedPct(DamageType.Chaos, With(("base_block_%_damage_taken", -20))));
 
         // Mind Over Matter's 40% adds to the other shares, a typed share to its type, and each caps at 100%. Mana takes the

@@ -1388,7 +1388,8 @@ After mitigation, each type of the hit takes:
   Damage taken from Hits", only on a type the hit has;
 - "X% increased Damage taken", the type's own and, for an element, "Elemental Damage taken", added to the shock's
   increase, as PoB adds them to its `takenInc`;
-- on a blocked hit, its share: "You take X% of Damage from Blocked Hits", plus "of Elemental Damage" for an element.
+- on a blocked hit, its share: "You take X% of Damage from Blocked Hits" and Glancing Blows' 65%, plus "of Elemental
+  Damage" for an element.
   It is 0 by default and may pass 100%. A blocked hit still applies no ailments (wiki Blocking); Life Recoup reads the
   share it deals.
 
@@ -1403,10 +1404,10 @@ ranged `/hit` now also takes the shock's increase.
 
 Not read: the conditional shift stats (while affected by a Purity, with four influenced items, during a flask), the
 ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, the Divine Flesh and Tempered by War
-keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), Glancing Blows (it also
-doubles block chance), projectile and spell damage taken, the increased damage taken on damage over time (ignite
-ticks, Righteous Fire), and for Mana before Life: damage over time, Eldritch Battery's energy shield before it, the
-Focus and Clarity forms, and Mind Over Matter at maximum Power Charges.
+keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), projectile and spell
+damage taken, the increased damage taken on damage over time (ignite ticks, Righteous Fire), and for Mana before Life:
+damage over time, Eldritch Battery's energy shield before it, the Focus and Clarity forms, and Mind Over Matter at
+maximum Power Charges.
 
 ## Incoming ordinary elemental ailments
 

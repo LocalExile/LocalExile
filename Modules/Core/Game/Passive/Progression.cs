@@ -929,7 +929,9 @@ static partial class Game
             SpellBlockChance: Get("base_spell_block_%") + Get("additional_spell_block_%") + staffOrShieldSpell
                 + shieldSpellBlock + staffSpellBlock + dualSpellBlock + bowSpellBlock,
             BlockChanceMax: Get("maximum_block_%"), SpellBlockChanceMax: Get("base_maximum_spell_block_%"),
-            BlockChanceInc: Get("block_chance_+%"), BlockChanceMore: Get("block_chance_+%_final"),
+            // Glancing Blows doubles attack and spell block, a 100% more (PoB ModParser), before the caps.
+            BlockChanceInc: Get("block_chance_+%"), BlockChanceMore: Get("keystone_glancing_blows") != 0
+                ? 2 * Get("block_chance_+%_final") + 100 : Get("block_chance_+%_final"),
             SpellBlockPer5AttackBlock: Get("spell_block_%_per_5_attack_block"),
             LifeGainedOnBlock: Get("life_gained_on_block"), ManaGainedOnBlock: Get("mana_gained_on_block"),
             VersatileCombatant: Get("keystone_versatile_combatant") != 0,

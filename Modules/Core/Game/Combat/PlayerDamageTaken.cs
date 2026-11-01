@@ -45,9 +45,11 @@ static class PlayerDamageTaken
         FlatFire = "fire_damage_taken_+", Blocked = "base_block_%_damage_taken",
         ElementalBlocked = "block_%_damage_taken_from_elemental";
 
-    // Mind Over Matter's flag has no value: its 40% is the keystone's own text (3.29 tree, wiki Mind Over Matter).
-    const string ManaShield = "keystone_mana_shield", ManaBeforeLife = "base_damage_removed_from_mana_before_life_%";
-    const int ManaShieldPct = 40;
+    // Mind Over Matter's and Glancing Blows' flags have no value: their 40% and 65% are the keystones' own text (3.29 tree,
+    // wiki Mind Over Matter and Glancing Blows).
+    const string ManaShield = "keystone_mana_shield", ManaBeforeLife = "base_damage_removed_from_mana_before_life_%",
+        GlancingBlows = "keystone_glancing_blows";
+    const int ManaShieldPct = 40, GlancingBlowsBlockedPct = 65;
 
     static string TypedIncreased(DamageType type) => $"{type.ToString().ToLowerInvariant()}_damage_taken_+%";
 
@@ -63,7 +65,7 @@ static class PlayerDamageTaken
         .Concat(DamageTypes.ConversionOrder.Select(TypedIncreased))
         .Concat(DamageTypes.ConversionOrder.Select(TypedManaBeforeLife).OfType<string>())
         .Concat([Increased, ElementalIncreased, FlatPhysical, FlatPhysicalFromAttacks, FlatFire, Blocked, ElementalBlocked,
-            ManaShield, ManaBeforeLife]);
+            ManaShield, ManaBeforeLife, GlancingBlows]);
 
     /// <summary>"X% increased Damage taken", "X% increased Lightning Damage taken" and "X% increased Elemental Damage
     /// taken": one increased value for this type, which adds to the shock's (PlayerElementalAilments.DamageTakenFactor).</summary>
@@ -79,11 +81,12 @@ static class PlayerDamageTaken
         _ => 0,
     };
 
-    /// <summary>"You take X% of Damage from Blocked Hits" and "... of Elemental Damage from Blocked Hits": the share of the
-    /// type's damage a blocked hit still deals, 0 by default and over 100% allowed (wiki Blocking). A blocked hit still
-    /// applies no ailments or other on-hit effects.</summary>
+    /// <summary>"You take X% of Damage from Blocked Hits" (Glancing Blows' 65% too, added as PoB adds its BlockEffect) and
+    /// "... of Elemental Damage from Blocked Hits": the share of the type's damage a blocked hit still deals, 0 by default
+    /// and over 100% allowed (wiki Blocking). A blocked hit still applies no ailments or other on-hit effects.</summary>
     public static int BlockedPct(DamageType type, Func<string, int> get) =>
-        Math.Max(0, get(Blocked) + (DamageTypes.IsElemental(type) ? get(ElementalBlocked) : 0));
+        Math.Max(0, get(Blocked) + (get(GlancingBlows) != 0 ? GlancingBlowsBlockedPct : 0)
+            + (DamageTypes.IsElemental(type) ? get(ElementalBlocked) : 0));
 
     static int SharedManaBeforeLife(Func<string, int> get) => (get(ManaShield) != 0 ? ManaShieldPct : 0) + get(ManaBeforeLife);
 
