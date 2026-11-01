@@ -10,11 +10,19 @@ public class PlayerDamageTakenTests
     static DamagePacket Hit(params (DamageType Type, int Amount)[] parts) =>
         parts.Aggregate(DamagePacket.Empty, (hit, p) => hit.Add(p.Type, new DamageRange(p.Amount, p.Amount)));
 
+    // Returns the given rolls in order and counts them.
+    sealed class Rolls(params int[] values) : Random
+    {
+        public int Drawn { get; private set; }
+        public override int Next(int minValue, int maxValue) => values[Drawn++];
+    }
+
     // Each type shifts its share of its original amount once, in any direction; the source keeps the rest, and a total
-    // over 100% adds damage instead of being scaled down. After mitigation each type takes its flat damage, its increased
-    // damage taken and, when blocked, its share; mana takes its share of what reaches Life.
+    // over 100% adds damage instead of being scaled down. Each type taken may then be avoided. After mitigation each type
+    // takes its flat damage, its increased damage taken and, when blocked, its share; mana takes its share of what
+    // reaches Life.
     [Fact]
-    public void A_hit_shifts_once_then_takes_flat_increased_blocked_and_mana_before_life_damage()
+    public void A_hit_shifts_once_then_avoids_and_takes_flat_increased_blocked_and_mana_damage()
     {
         Assert.All(PlayerDamageTaken.StatNames, name => Assert.NotNull(Program.Stats.Key(name)));
 
@@ -48,6 +56,31 @@ public class PlayerDamageTakenTests
         Assert.Equal(30, elemental[DamageType.Cold].Min, 6);
         Assert.Equal(30, elemental[DamageType.Lightning].Min, 6);
         Assert.Equal(60, elemental[DamageType.Chaos].Min, 6);
+
+        // "Damage of each Type" adds to each type's own chance, capped at 75%. Each type rolls once; one without a chance
+        // draws nothing, so the incoming-hit rolls after it stay in order.
+        Assert.Equal(75, PlayerDamageTaken.AvoidPct(DamageType.Fire, With(("avoid_fire_damage_%", 70), ("avoid_damage_%", 10))));
+        Assert.Equal(10, PlayerDamageTaken.AvoidPct(DamageType.Cold, With(("avoid_fire_damage_%", 70), ("avoid_damage_%", 10))));
+        var rolls = new Rolls(99, 0);   // the packet's order: cold (kept at 99), then fire (avoided at 0)
+        var kept = PlayerDamageTaken.Avoid(Hit((DamageType.Physical, 100), (DamageType.Fire, 100), (DamageType.Cold, 100)),
+            With(("avoid_fire_damage_%", 75), ("avoid_cold_damage_%", 10)), rolls, out var avoided);
+        Assert.Equal(100, kept[DamageType.Physical].Min, 6);
+        Assert.Equal(0, kept[DamageType.Fire].Min, 6);
+        Assert.Equal(100, kept[DamageType.Cold].Min, 6);
+        Assert.Equal([DamageType.Fire], avoided);
+        Assert.Equal(2, rolls.Drawn);
+        Assert.Same(physical, PlayerDamageTaken.Avoid(physical, With(), new Rolls(), out var none));
+        Assert.Empty(none);
+
+        // The damage dealt that lands: avoided fire is gone, and fire half taken as physical keeps the half that is not
+        // avoided.
+        var dealt = Hit((DamageType.Fire, 100), (DamageType.Cold, 50));
+        var landed = PlayerDamageTaken.Landed(dealt, With(), [DamageType.Fire]);
+        Assert.Equal(0, landed[DamageType.Fire].Min, 6);
+        Assert.Equal(50, landed[DamageType.Cold].Min, 6);
+        Assert.Equal(50, PlayerDamageTaken.Landed(dealt, With(("base_fire_hit_damage_taken_%_as_physical", 50)),
+            [DamageType.Physical])[DamageType.Fire].Min, 6);
+        Assert.Same(dealt, PlayerDamageTaken.Landed(dealt, With(), []));
 
         // Generic, typed and elemental increases add; chaos is not elemental.
         var increased = With(("base_damage_taken_+%", 10), ("lightning_damage_taken_+%", 6), ("elemental_damage_taken_+%", -5));
@@ -98,9 +131,10 @@ public class PlayerDamageTakenTests
     }
 
     // Chill reads the damage taken, so physical taken as cold chills; ignite reads the damage dealt, so fire taken as
-    // physical still ignites on a critical strike (wiki Damage taken as, "Ailments and damage over time").
+    // physical still ignites on a critical strike (wiki Damage taken as, "Ailments and damage over time"), but only the
+    // part that lands: avoided fire cannot ignite.
     [Fact]
-    public void Ailments_read_the_shifted_damage_taken_but_ignite_reads_the_damage_dealt()
+    public void Ailments_read_the_shifted_damage_taken_but_ignite_reads_the_damage_dealt_that_lands()
     {
         var conn = new ClientState(new(1, "taken-as", 100, 100, 100, 100, null, []), 0, 1);
         lock (conn.Monsters) { conn.Pools = conn.Pools with { Life = 1000 }; conn.PlayerLife = 1000; }
@@ -121,5 +155,12 @@ public class PlayerDamageTakenTests
         Assert.True(ailments.Ignite);
         Assert.Equal(0, ailments.Chill);
         Assert.False(ailments.Freeze);
+
+        conn.ElementalAilments.Clear();
+        var cold = Hit((DamageType.Cold, 50));
+        var landed = PlayerDamageTaken.Landed(Hit((DamageType.Fire, 100), (DamageType.Cold, 50)), With(), [DamageType.Fire]);
+        lock (conn.Monsters) global::Game.ApplyPlayerAilmentsLocked(conn, landed, cold, true, false, now, stats);
+        Assert.False(conn.ElementalAilments.Snapshot(now).Ignite);
+        Assert.True(conn.ElementalAilments.Snapshot(now).Chill > 0);
     }
 }

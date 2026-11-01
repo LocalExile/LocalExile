@@ -930,7 +930,10 @@ static partial class Game
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
-        var taken = PlayerDamageTaken.Shift(rolled, StatOf);
+        // Then each type taken may be avoided, and ignite reads only the damage dealt that lands.
+        var taken = PlayerDamageTaken.Avoid(PlayerDamageTaken.Shift(rolled, StatOf), StatOf, conn.IncomingHitRandom,
+            out var avoided);
+        baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
         var mitigated = gambler.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
         var immune = PlayerImmunities(conn);

@@ -1382,6 +1382,14 @@ Glacial Wave's less damage. The rules come from the wiki's "Damage taken as" pag
 - The "from Hits" stats shift hits only. The `hit_and_dot` stats also shift damage over time, which is not read yet.
 - `base_fire_hit_damage_taken_%_as_physical_value_negated` is stored as -10 and shown as 10%.
 
+Then each type taken may be avoided (wiki Avoidance): "X% chance to Avoid Fire Damage from Hits" and the other types',
+plus "... Avoid Damage of each Type from Hits", capped at 75%. Each type rolls once in the packet's order, and a type
+without a chance draws nothing, so the rolls after it keep their order. An avoided type deals nothing, but the hit still
+lands, so when-hit effects happen. An ailment needs damage of a type that can inflict it, so an avoided type inflicts
+none: no chill, freeze or shock, and ignite reads only the dealt damage that lands (`Landed`), so avoided fire cannot
+ignite. Fire taken as physical keeps, for ignite, the share whose physical is not avoided; the wiki does not cover that
+case. Dev hits roll it too, before block.
+
 After mitigation, each type of the hit takes:
 
 - the flat stats, "+X Physical Damage taken from Hits", "... from Attack Hits" (monster hits are attacks) and "+X Fire
@@ -1407,7 +1415,8 @@ ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, th
 keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), projectile and spell
 damage taken, the increased damage taken on damage over time (ignite ticks, Righteous Fire), and for Mana before Life:
 damage over time, Eldritch Battery's energy shield before it, the Focus and Clarity forms, and Mind Over Matter at
-maximum Power Charges.
+maximum Power Charges; for avoidance: the per Frenzy Charge, while Phasing and soul gain prevention forms, and
+projectile avoidance.
 
 ## Incoming ordinary elemental ailments
 

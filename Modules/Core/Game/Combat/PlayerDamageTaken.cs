@@ -1,9 +1,9 @@
 using GameServer.Core.World;
 
-/// <summary>The player's own stats that change an incoming hit: the damage shift before mitigation, then after resistance
-/// and armour the flat damage taken, the increased damage taken and the share of a blocked hit (PoB CalcDefence's
-/// TakenHit: max(damage after mitigation + flat, 0) × the taken multiplier), and last the share of its Life damage that
-/// mana takes.</summary>
+/// <summary>The player's own stats that change an incoming hit: the damage shift and avoidance before mitigation, then
+/// after resistance and armour the flat damage taken, the increased damage taken and the share of a blocked hit (PoB
+/// CalcDefence's TakenHit: max(damage after mitigation + flat, 0) × the taken multiplier), and last the share of its
+/// Life damage that mana takes.</summary>
 static class PlayerDamageTaken
 {
     const DamageType P = DamageType.Physical, F = DamageType.Fire, C = DamageType.Cold, L = DamageType.Lightning,
@@ -51,7 +51,14 @@ static class PlayerDamageTaken
         GlancingBlows = "keystone_glancing_blows";
     const int ManaShieldPct = 40, GlancingBlowsBlockedPct = 65;
 
+    // "X% chance to Avoid Damage of each Type from Hits" adds to each type's own chance; avoidance caps at 75% (wiki
+    // Avoidance).
+    const string AvoidEach = "avoid_damage_%";
+    const int AvoidCap = 75;
+
     static string TypedIncreased(DamageType type) => $"{type.ToString().ToLowerInvariant()}_damage_taken_+%";
+
+    static string TypedAvoid(DamageType type) => $"avoid_{type.ToString().ToLowerInvariant()}_damage_%";
 
     static string? TypedManaBeforeLife(DamageType type) => type switch
     {
@@ -64,8 +71,46 @@ static class PlayerDamageTaken
     public static IEnumerable<string> StatNames => Shifts.Select(s => s.Stat)
         .Concat(DamageTypes.ConversionOrder.Select(TypedIncreased))
         .Concat(DamageTypes.ConversionOrder.Select(TypedManaBeforeLife).OfType<string>())
+        .Concat(DamageTypes.ConversionOrder.Select(TypedAvoid))
         .Concat([Increased, ElementalIncreased, FlatPhysical, FlatPhysicalFromAttacks, FlatFire, Blocked, ElementalBlocked,
-            ManaShield, ManaBeforeLife, GlancingBlows]);
+            ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach]);
+
+    /// <summary>"X% chance to Avoid Fire Damage from Hits" and the other types', plus "... Damage of each Type": this
+    /// type's chance that a hit deals none of it, at most 75% (wiki Avoidance).</summary>
+    public static int AvoidPct(DamageType type, Func<string, int> get) =>
+        Math.Clamp(get(TypedAvoid(type)) + get(AvoidEach), 0, AvoidCap);
+
+    /// <summary>One roll of this type's avoidance; a type without a chance draws nothing.</summary>
+    public static bool Avoids(DamageType type, Func<string, int> get, Random random) =>
+        RandomRolls.Chance(AvoidPct(type, get), 100, random);
+
+    /// <summary>The hit without the types it avoids, each rolled once in the packet's order (physical, lightning, cold,
+    /// fire, chaos), after the shift (the types taken). Avoiding damage does not stop the hit: when-hit effects still
+    /// happen (wiki Avoidance). The same packet when nothing is avoided.</summary>
+    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided)
+    {
+        var kept = DamagePacket.Empty;
+        var dropped = new List<DamageType>();
+        foreach (var (type, range) in hit.Components)
+            if (Avoids(type, get, random)) dropped.Add(type);
+            else kept = kept.Add(type, range);
+        avoided = [.. dropped];
+        return dropped.Count > 0 ? kept : hit;
+    }
+
+    /// <summary>The damage dealt that lands: each type keeps the share of it that the shift sends to types not avoided.
+    /// Ignite reads the damage dealt, but an avoided part deals nothing, and an ailment needs damage of a type that can
+    /// inflict it, so avoided fire cannot ignite. The same packet when nothing is avoided.</summary>
+    public static DamagePacket Landed(DamagePacket dealt, Func<string, int> get, IReadOnlyCollection<DamageType> avoided)
+    {
+        if (avoided.Count == 0) return dealt;
+        return dealt.Select((type, range) =>
+        {
+            var spread = Shift(DamagePacket.Of(type, 1, 1), get);
+            double lands = spread.Components.Where(c => !avoided.Contains(c.Type)).Sum(c => c.Range.Min);
+            return range.Scale(lands / spread.MinTotal);
+        });
+    }
 
     /// <summary>"X% increased Damage taken", "X% increased Lightning Damage taken" and "X% increased Elemental Damage
     /// taken": one increased value for this type, which adds to the shock's (PlayerElementalAilments.DamageTakenFactor).</summary>
