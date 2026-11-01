@@ -8,10 +8,10 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 
 static partial class Game
 {
-    // Monster basic Melee skills are weapon-polymorphic, just like the player's default attack.
-    internal static bool MonsterAttackIsRanged(MonsterCatalog.Variety variety) =>
-        variety.GrantedEffects is [int first, ..] && (Skills.IsRangedAttack(first)
-            || variety.RangedWeapon && Skills.IsAttack(first));
+    // A monster's combat granted effect (MavenNucleus.CombatEffect: skip teleports/daemons). Weapon-polymorphic Melee
+    // still counts as ranged when the variety's art is a bow or wand.
+    internal static bool MonsterAttackIsRanged(SkillCatalog skills, MonsterCatalog.Variety variety, int effect) =>
+        MavenNucleus.AttackIsRanged(skills, effect) || variety.RangedWeapon && skills.IsAttack(effect);
 
     // A projectile skill's own stats go to the client with the attack's numbers: the client derives none itself
     // (11-skills.md §4), and without them a Sand Spitter's action faces its target like a melee swing instead of turning
@@ -75,6 +75,8 @@ static partial class Game
         bool waits = emerge != EmergeKind.None && (unrisen ?? true);
         // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
         mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
+        if (MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
+            mods = mods with { Effects = mods.Effects.Combine(mapStats) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         uint life = (uint)mods.Effects.MaxLife(baseLife);
@@ -87,20 +89,28 @@ static partial class Game
         // The mods' damage and speed: the rarity's more damage per hit and faster attacks with that much less damage, the
         // affixes' increased damage, attack speed and extra elemental / chaos damage (MonsterModEffects.Hit).
         var (baseMin, baseMax) = Monsters.BaseDamage(variety, level) ?? (1, 1);
-        bool rangedAttack = MonsterAttackIsRanged(variety);
+        var skills = SkillsFor(conn);
+        int effect = MavenNucleus.CombatEffect(skills, variety);
+        bool rangedAttack = MonsterAttackIsRanged(skills, variety, effect);
         // A mortar skill's projectile (Sand Spitter): the shot flies and lands its hit; other ranged skills keep the
         // instant contact until their projectile is known (SkillCatalog.MonsterProjectile). Its release time and point
-        // come from the clip the client plays for it (MonsterReleaseFor).
-        var projectile = rangedAttack && variety.GrantedEffects is [int rangedEffect, ..] ? SkillsFor(conn).MonsterProjectile(rangedEffect) : null;
-        var attack = new MonsterAttack(SkillCatalog.FirstSkillId, mods.Effects.AttackSeconds(variety.AttackMs / 1000.0), variety.AttackRange,
+        // come from the clip the client plays for it (MonsterReleaseFor). MavenProjectile and the Nucleus barrages are
+        // monster_projectile_spell rows (not mortars): MavenNucleus.Shot names their Projectiles.dat art.
+        var projectile = rangedAttack ? MavenNucleus.Shot(skills, effect) : null;
+        double reach = rangedAttack ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
+        double swing = effect >= 0 && skills.IsSpell(effect) && skills.CastTimeMs(effect) > 0
+            ? skills.CastTimeMs(effect) / 1000.0 : variety.AttackMs / 1000.0;
+        ushort skillId = effect >= 0 && skills.ActionHash(effect) is ushort hash
+            ? (ushort)(hash & 0x3fff) : SkillCatalog.FirstSkillId;
+        var attack = new MonsterAttack(skillId, mods.Effects.AttackSeconds(swing), reach,
             mods.Effects.Hit(DamagePacket.Of(DamageType.Physical, baseMin, baseMax)))
         {
             Ranged = rangedAttack,
             Projectile = projectile,
-            Release = projectile is null ? null : MonsterReleaseFor(conn, variety, variety.GrantedEffects![0], level, projectile),
+            Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         };
-        var skill = variety.GrantedEffects is [int effect, ..]
-            ? SkillsFor(conn).FindByRow(attack.SkillId, effect, level,
+        var skill = effect >= 0
+            ? skills.FindByRow(attack.SkillId, effect, level,
                 attack.Projectile is null ? attack.SkillStats() : MonsterProjectileSkillStats(conn, effect, level, attack)) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights).
         var stage = BossFights.For(variety.Id);
@@ -113,7 +123,8 @@ static partial class Game
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
-        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, variety.StateMachine, MonsterEmerge.CreateState(variety, emerge, waits), team,
+        var states = MavenNucleus.StartStates(variety) ?? variety.StateMachine;
+        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
             skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill], stats)
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData,
@@ -149,7 +160,7 @@ static partial class Game
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
                 Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
-                Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = variety.StateMachine,
+                Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, CollisionPosition = (x, y), SpeedRoll = speedRoll,
                 Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
             }, emerge, waits);
@@ -194,6 +205,8 @@ static partial class Game
         bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && !quests.QuestSpawned(layout.Id, v.Id);
         // A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) comes with its fight.
         area = AreaPopulation.LaterForms(area, row => Monsters.Find(row.ToString()) is { } v ? (v.Id, v.Name) : null);
+        // Device-recipe phases hold the last WorldAreas boss (Maven's Nucleus, Sirus, Atziri) until the first wave is dead.
+        area = MapBossFights.Current.HoldFinal(area, row => Monsters.Find(row.ToString())?.Id);
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
         area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(conn)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
@@ -207,10 +220,16 @@ static partial class Game
             conn.LaterFormPoints.Clear();
             foreach (var (row, cell) in laterForms)
                 if (Monsters.Find(row.ToString()) is { } form) conn.LaterFormPoints[form.Id] = cell;
+            // Recipe arenas have no captured mapboss point: the held last boss forms next to arrival.
+            if (MapBossFights.Current.PhaseOf(layout.Id) is { } phase && !conn.LaterFormPoints.ContainsKey(phase.Last))
+                conn.LaterFormPoints[phase.Last] = (layout.SpawnX + 8, layout.SpawnY);
         }
-        var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
+        var mapMods = MapDevice.Current(CharacterName(conn), layout.Hash)?.Mods;
+        var scale = mapMods?.Packs ?? default;
+        var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
-            HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes);
+            HashCode.Combine(layout.Hash, conn.Seed), Spawnable, notes, scale,
+            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash)), mapMods).ToList();
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
         int areaLevel = area.AreaLevel;
         if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == layout.Hash && openMap.Area.Level > 0)
@@ -222,10 +241,49 @@ static partial class Game
             bool notable = s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare;
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false);
         }
-        Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count} at level {level}: " +
+        int extra = 0;
+        if (MapDevice.Current(CharacterName(conn), layout.Hash) is { ItemRow: > 0 } opening)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            lock (conn.Monsters)
+                foreach (var m in conn.Monsters.Values)
+                    if (m.Variety is { } v) seen.Add(v.Id);
+            foreach (string id in MapBossFights.Current.Witnesses(opening.ItemRow))
+            {
+                if (!seen.Add(id) || Monsters.Find(id) is not { Supported: true } witness || witness.Id != id) continue;
+                extra++;
+                await SpawnMonster(remote, stream, ciphers, conn, witness, level, MonsterRarity.Unique,
+                    layout.SpawnX + extra * 4, layout.SpawnY, log: true, alone: false);
+            }
+        }
+        if (layout.Id == MavenNucleus.Area)
+        {
+            var maven = spawns.Select(s => (V: Monsters.Find(s.Variety.ToString())!, s.X, s.Y))
+                .FirstOrDefault(s => s.V.Id == MavenNucleus.Maven);
+            if (maven.V.Id == MavenNucleus.Maven)
+                await SpawnMavenRing(remote, stream, ciphers, conn, MavenNucleus.Phase1Orbs,
+                    (maven.X, maven.Y), MavenNucleus.Phase1Radius, level);
+        }
+        Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count + extra} at level {level}: " +
             string.Join(", ", spawns.GroupBy(s => s.Pack).Select(g => $"{g.Key} × {g.Count()}")) +
+            (extra > 0 ? $", invitation × {extra}" : "") +
             $"; waiting to rise: {MonsterEmerge.Unrisen(conn).Count} ({MonsterEmerge.Buried(conn).Count} buried)" +
             $"; unique: {string.Join(", ", spawns.Where(s => s.Rarity == MonsterRarity.Unique).Select(s => $"{Monsters.Find(s.Variety.ToString())!.Name} at ({s.X}, {s.Y})").DefaultIfEmpty("none"))}");
+    }
+
+    internal static async Task<int> SpawnMavenRing(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, IReadOnlyList<string> ids, (int X, int Y) centre, int radius, byte level)
+    {
+        int n = 0;
+        foreach (var (id, x, y) in MavenNucleus.Around(ids, centre, radius))
+        {
+            if (Monsters.Find(id) is not { Supported: true } extra || extra.Id != id) continue;
+            n++;
+            await SpawnMonster(remote, stream, ciphers, conn, extra, level, MonsterRarity.Unique, x, y, log: true, alone: false);
+        }
+        if (n > 0)
+            Console.WriteLine($"[gateway] {remote} Maven fight extras: {n} around ({centre.X}, {centre.Y})");
+        return n;
     }
 
     internal sealed class MonsterAiPlan

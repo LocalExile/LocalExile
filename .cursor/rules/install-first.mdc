@@ -1,0 +1,14 @@
+---
+description: Edit the install first, then sync to source after it works
+alwaysApply: true
+---
+
+# Install first, source later
+
+The playable tree is `H:\LocalExile` (GUI, `Mods\Binaries`, `Modules`, `app`, `logs`).
+This worktree is source only. Do not treat it as the running game.
+
+- Change install files first (mods as scripts in `H:\LocalExile\Mods\Binaries\<id>\`, GUI, modules the release already loads).
+- Verify with the GUI-started game and `H:\LocalExile\logs\live-gateway.log`. A compiled checkout dll often fails there (`GameServer.Modding` not found); prefer a `.cs` script in the install folder.
+- Only after it works, copy the same change into this worktree (`Mods\Source\`, Gateway, docs).
+- Do not stop the running game to deploy. A `Mods\Binaries` edit reloads; say when a restart is required.

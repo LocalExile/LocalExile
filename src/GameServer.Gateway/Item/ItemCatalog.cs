@@ -34,6 +34,7 @@ sealed class ItemCatalog
         _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, hardMode));
         _onslaught = new(() => _utilityFlasks.Value.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null));
         _visualsById = new(() => LoadVisualsById(folder));
+        _currencyUses = new(() => LoadCurrencyUses(folder));
     }
 
     private readonly Lazy<Dictionary<string, ushort>> _visualsById;
@@ -84,6 +85,10 @@ sealed class ItemCatalog
         /// non-unique equipment check; the wiki's equipment definition is the same set.</summary>
         public bool CanBeMirrored { get; init; }
 
+        /// <summary>ItemClasses CanBeCorrupted: MapKey, jewels, some misc map items; old area-named maps are false, so
+        /// Vaal also admits anything with a Map or MapKey component.</summary>
+        public bool CanBeCorrupted { get; init; }
+
         public bool Supported => Components.Count > 0 && Item.CanSerialize(Components);
         /// <summary>Several of the type share one cell (a Stack component and a CurrencyItems StackSize above 1).</summary>
         public bool Stackable => MaxStack > 1;
@@ -109,6 +114,45 @@ sealed class ItemCatalog
     private readonly Lazy<Dictionary<uint, BaseType>> _byHash;
 
     public ItemCatalog() : this("data") { }
+
+    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem)> _currencyUses;
+
+    /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
+    /// and Vaal variants are picked up from the table instead of an Id list.</summary>
+    public string? CurrencyAction(BaseType t) =>
+        _currencyUses.Value.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
+
+    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels).</summary>
+    public byte? AlternateQualityOf(BaseType currency) =>
+        _currencyUses.Value.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
+
+    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem) LoadCurrencyUses(string folder)
+    {
+        var actions = new Dictionary<int, string>();
+        string currency = Path.Combine(folder, "tables", "CurrencyItems.json");
+        if (File.Exists(currency))
+        {
+            using var doc = GameTables.Open(currency);
+            foreach (var r in doc.RootElement.EnumerateArray())
+                if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b
+                    && r.TryGetProperty("Action", out var a) && a.GetString() is { Length: > 0 } action)
+                    actions.TryAdd(b.GetInt32(), action);
+        }
+        var quality = new Dictionary<int, byte>();
+        string alt = Path.Combine(folder, "tables", "AlternateQualityTypes.json");
+        if (File.Exists(alt))
+        {
+            using var doc = GameTables.Open(alt);
+            byte row = 0;
+            foreach (var r in doc.RootElement.EnumerateArray())
+            {
+                if (r.TryGetProperty("Item", out var item) && item.ValueKind == JsonValueKind.Number)
+                    quality.TryAdd(item.GetInt32(), row);
+                row++;
+            }
+        }
+        return (actions, quality);
+    }
 
     public BaseType? Row(int row) => row >= 0 && row < _rows.Value.Rows.Count ? _rows.Value.Rows[row] : null;
 
@@ -552,6 +596,7 @@ sealed class ItemCatalog
         var unmodifiableClasses = new List<bool>();
         var fracturableClasses = new List<bool>();
         var mirrorableClasses = new List<bool>();
+        var corruptibleClasses = new List<bool>();
         string classesPath = Path.Combine(folder, "tables", "ItemClasses.json");
         if (File.Exists(classesPath))
         {
@@ -567,6 +612,8 @@ sealed class ItemCatalog
             // equipment" rule from the wiki.
             mirrorableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
                 r.TryGetProperty("__col21", out var m) && m.ValueKind == JsonValueKind.True)];
+            corruptibleClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
+                r.TryGetProperty("CanBeCorrupted", out var c) && c.ValueKind == JsonValueKind.True)];
         }
         List<string> tagIds = [];
         string tagsPath = Path.Combine(folder, "tables", "Tags.json");
@@ -609,6 +656,8 @@ sealed class ItemCatalog
                         fc.GetInt32() >= 0 && fc.GetInt32() < fracturableClasses.Count && fracturableClasses[fc.GetInt32()],
                     CanBeMirrored = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } mc &&
                         mc.GetInt32() >= 0 && mc.GetInt32() < mirrorableClasses.Count && mirrorableClasses[mc.GetInt32()],
+                    CanBeCorrupted = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cc &&
+                        cc.GetInt32() >= 0 && cc.GetInt32() < corruptibleClasses.Count && corruptibleClasses[cc.GetInt32()],
                 });
             }
         }

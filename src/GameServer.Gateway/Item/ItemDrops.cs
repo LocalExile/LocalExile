@@ -101,6 +101,77 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
 
     public sealed record Drop(Item Item, ItemCatalog.BaseType Type);
 
+    readonly Lazy<List<ItemCatalog.BaseType>> _cards = new(() =>
+    {
+        var list = new List<ItemCatalog.BaseType>();
+        for (int row = 0; catalog.Row(row) is { } t; row++)
+            if (t.Class == "DivinationCard" && t.Supported && !string.IsNullOrEmpty(t.Name)) list.Add(t);
+        return list;
+    });
+
+    /// <summary>A random divination card. Null when the catalogue has none.</summary>
+    public Drop? Card(Random rng)
+    {
+        var cards = _cards.Value;
+        if (cards.Count == 0) return null;
+        var type = cards[rng.Next(cards.Count)];
+        return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
+    }
+
+    readonly Lazy<List<ItemCatalog.BaseType>> _scarabs = new(() => LoadScarabs(catalog, folder));
+
+    static List<ItemCatalog.BaseType> LoadScarabs(ItemCatalog catalog, string folder)
+    {
+        var list = new List<ItemCatalog.BaseType>();
+        var seen = new HashSet<int>();
+        string path = Path.Combine(folder, "tables", "Scarabs.json");
+        if (File.Exists(path))
+        {
+            using var doc = GameTables.Open(path);
+            foreach (var row in doc.RootElement.EnumerateArray())
+            {
+                if (!row.TryGetProperty("Items", out var items) || items.ValueKind != System.Text.Json.JsonValueKind.Array)
+                    continue;
+                foreach (var item in items.EnumerateArray().Where(v => v.ValueKind == System.Text.Json.JsonValueKind.Number))
+                {
+                    int n = item.GetInt32();
+                    if (!seen.Add(n)) continue;
+                    if (catalog.Row(n) is { Supported: true } type) list.Add(type);
+                }
+            }
+        }
+        if (list.Count == 0)
+        {
+            for (int row = 0; catalog.Row(row) is { } t; row++)
+                if (t.Class == "MapFragment" && t.Id.Contains("/Scarabs/", StringComparison.Ordinal) && t.Supported)
+                    list.Add(t);
+        }
+        return list;
+    }
+
+    public Drop? Scarab(Random rng)
+    {
+        var scarabs = _scarabs.Value;
+        if (scarabs.Count == 0) return null;
+        var type = scarabs[rng.Next(scarabs.Count)];
+        return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
+    }
+
+    /// <summary>Extra drops from any MapFragmentMods / map-quality stats: card packs, card/scarab/currency drop chances.
+    /// New scarabs that use those stat name patterns are included without an Id list.</summary>
+    public IEnumerable<Drop> FromMapMods(MapMods mods, int monsterLevel, MonsterRarity rarity, Random rng)
+    {
+        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && Card(rng) is { } packCard)
+            yield return packCard;
+        if (mods.CardDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CardDropChance, 0, 80) && Card(rng) is { } card)
+            yield return card;
+        if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && Scarab(rng) is { } scarab)
+            yield return scarab;
+        if (mods.CurrencyDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CurrencyDropChance, 0, 80)
+            && Pick(_pools.Value.Currency.Where(c => c.Type.DropLevel <= monsterLevel).ToList(), rng) is { } currency)
+            yield return new Drop(ItemCatalog.Create(currency) with { StackSize = 1 }, currency);
+    }
+
     /// <summary>A reward container's explicit number of rolls, without a monster's quantity or personal/mod multipliers.</summary>
     public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng)
     {
@@ -164,12 +235,15 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
 
     /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the campaign). Our own
     /// rates until the game pools are known.</summary>
-    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng)
+    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0)
     {
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
         chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps"));
         if (maps is null || chance <= 0 || rng.NextDouble() >= chance) return null;
-        int tier = Math.Clamp(mapTier > 0 ? mapTier : 1, 1, 16);
+        int stones = Math.Max(0, voidstones);
+        int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
+        // Socketed Voidstones convert found maps below tier 16 to gold (maps.md).
+        if (stones > 0 && tier < 16) return Gold(monsterLevel, monster, rng);
         if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
         var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(monster), 1, 100) };
         if (rolls is not null && rng.NextDouble() < 0.10) item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = true };
