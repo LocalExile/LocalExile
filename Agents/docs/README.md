@@ -52,8 +52,8 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 [Projectile framework](game/projectile-framework.md): sole production simulator and skill-provider boundary.
 [Projectile skills](game/projectile-skills.md): Fireball, Kinetic Blast, catalog policies, evidence and client checks.
 [Projectile TLS scope](re/projectile-tls-scope.md): Draft K1 investigation of one Pierce decision's state source,
-enclosing random scope and consumption order; a concrete queue-worker startup route is bound, while the
-selected Fireball route and decision-point state remain unresolved.
+enclosing random scope and consumption order; queue-worker startup and its shared singleton pool field
+are bound, while the selected Fireball route and decision-point state remain unresolved.
 | Doc | Content |
 |---|---|
 | [../GettingStarted.md](../GettingStarted.md) | setup from a fresh clone, third-party tools, troubleshooting |

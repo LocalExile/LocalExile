@@ -43,9 +43,9 @@ The known thread-local state is at TLS `+0x170`; its transition is uint32
 |---|---|---|
 | T0: freeze and preflight | Pin baseline, witness, known stopped routes and exact missing edge | Complete; prior World/scope audits reused |
 | T1: local gate | Verify reached/skip conditions, TLS address and direct caller state access | Fresh original-byte and final-slot checks complete; inherited arithmetic reconfirmed |
-| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Partial: D connects one queue-worker route to thread initialization; actual Fireball route and enclosing scope remain open |
+| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Partial: D binds queue-worker startup; E joins initialization and submission through the same singleton pool field. Actual Fireball route and enclosing scope remain open |
 | T3: reproducibility | Check exact state transitions with declared inputs; classify which inputs are action-derived, external or unobserved | Open |
-| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | A/B scope review and D evidence review complete; closure and Ready validation pending |
+| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | A/B scope review and D evidence review complete; E byte checks complete, independent review pending; closure and Ready validation pending |
 
 A **local reconstruction closure** requires a proved scope entry/state source, actual selected control-flow
 ordering, draw/restore behavior and a finite comparison witness. Supplied state may verify arithmetic but
@@ -157,7 +157,7 @@ These are descriptive labels for pointer roles, not recovered source class names
 | New-thread branch | The handoff passes entry `0x140e338e0` and a wrapper carrying `0x140e2f350(TC)` to `CreateThread`; the entry forwards through `0x1402167b0 → 0x1402167e0` | When `TC+0x20` and `TC+0x28` are both zero, the other branch calls setup on the current thread; it does not invoke this loop here |
 | Worker setup and invocation | `0x140e2f350` first calls setup `0x140e2f210`; setup calls imported `GetTickCount` at `0x140e2f2fe` and stores its uint32 result into TLS `+0x170` at `0x140e2f315`. On the normal successful COM-initialization path, `0x140e2f37b` invokes the stored callable | This is a thread-start seed source, not a per-task seed, nor a measured state at the first task |
 | Concrete callable to loop | Table `+0x10 = 0x140e33240` adds eight to the callable receiver and tail-jumps to `0x140e30000`; the loop loads the captured `Q`, calls dequeue `0x140e329c0` at `0x140e300c2`, then task `+0x10` at `0x140e300dc` | No inline `+0x170` reseed appears in this loop; callees and invoked tasks can still change or temporarily scope the stream |
-| Submission to the queue's task output | Submission `0x140e31310` selects `Q = [wrapper+8] + group * 0x178`, conditionally enqueues via `0x140e2f550`; enqueue and dequeue transfer the selected callable through `0x140133540`. Dequeue places its selected pointer at output `+0x48`, which the loop reads at stack `+0x68` | This is a same-`Q` transfer contract. Equality of the initializer's actual `S` and a particular submission's `[wrapper+8]` is still a premise, not an observed identity |
+| Submission to the queue's task output | Submission `0x140e31310` selects `Q = [wrapper+8] + group * 0x178`, conditionally enqueues via `0x140e2f550`; enqueue and dequeue transfer the selected callable through `0x140133540`. Dequeue places its selected pointer at output `+0x48`, which the loop reads at stack `+0x68` | D alone left equality of initializer `S` and submission `[wrapper+8]` as a premise. E below joins their singleton field; no runtime task identity is observed |
 
 The resulting **conditional** route is:
 
@@ -172,8 +172,9 @@ This closes the previously missing concrete worker-loop-to-startup connection. T
 Simulation submission contract, it supplies an evidenced candidate route to an external thread-start
 seed. It does **not** close the selected Fireball's incoming-state source. Current-thread node execution,
 submission's direct fallback at `0x140e313b4`, and waiting-thread task execution remain alternatives.
-The actual selected route, same pool instance, nearest scope inside the task, and prior reached consumers
-are not established. In particular, `GetTickCount` plus a known LCG is insufficient to replay the decision.
+At D's boundary, the selected route, same pool instance, nearest scope inside the task, and prior reached
+consumers were not established. E narrows the pool binding below. In particular, `GetTickCount` plus a
+known LCG is insufficient to replay the decision.
 
 The [receipt](projectile-tls-scope-evidence.json) includes the concrete capture leaves, transfer helpers,
 all selected setup fragments, imported-function identities and instruction anchors. Addresses are
@@ -195,6 +196,44 @@ route**, or a concrete state-changing/scope boundary on the already selected con
 pointer/call connection can justify that followup; another matching layout or no-GS wrapper cannot.
 If neither is available, retain the unresolved result and the observation alternative above. D advances
 one candidate source branch; T2/T3 and K1 remain open and this PR stays **Draft**.
+
+## Investigation E: initialization and Simulation submission use the same pool field
+
+A targeted lookup in retained R9/R14/R15/R16 text found a concrete initializer call outside D's two
+scheduler slices: `0x1410044c2`. Fresh original bytes join that call to D's worker startup contract.
+This integrates an already-retained setup instruction with the newly bound worker callable; it is not
+a new seed algorithm, a repeat image scan or a claim that R16 had established decision-point state.
+
+Let `P` be setup `0x141004030`'s second argument. Its inline prefix assigns `r14=P` and does not overwrite
+that register before the selected initializer call; this uses the x64 nonvolatile-register convention.
+The getter `0x140e31180` returns the address of one global wrapper `W`; its constructor stores the pool
+pointer in `W+8`. Both setup and the selected task submission obtain their receiver from that getter:
+
+| Edge | Checked source and consumer |
+|---|---|
+| Pool access | Getter stores its allocated pool into `W+8` at `0x140e312c5`; the returned `W` at `0x140e312f2` is the same global base used by that store |
+| Setup gate | `0x1410044af/0x1410044b7` skips the initializer when `P+0x2ce` is zero. Otherwise `0x1410044b9 → getter`, `0x1410044be → [W+8]`, `0x1410044c2 → initializer 0x140e30940` |
+| Another published queue gate | Earlier `0x141004066/0x141004072` copies `P+0x2cf` to pool `+0x602`; submission `0x140e31310` later reads this field. This is a source-to-field contract, not evidence of its current configured value |
+| Simulation-compatible batch submission | Fixed R16 evidence gives both frame graphs' Simulation node `flag14=0, flag15=1`. At `0x140e454b0/0x140e454b5`, zero `flag14` selects the batch branch. If it is not selected for current-thread execution, `0x140e45606 → getter`, `0x140e4560b → retain W`, `0x140e45661 → pass W`, `0x140e45664 → submit` |
+
+Thus initialization and this submission are statically connected to **the same singleton's pool field**,
+rather than merely two receivers with matching queue layouts. When the setup branch is reached and
+that initialized pool remains installed, D's conditional worker route applies to submissions through it.
+No all-process guarantee against later replacement/reconfiguration, actual setup option, live pool
+address, selected task or executing OS thread is inferred.
+
+The immediate route conditions are also explicit. For a nonempty selected node, current-thread selection
+requires the caller's allow-selection flag, nonzero node `+0x15`, and an empty output-selection slot
+(`0x140e45475..0x140e45488`). Otherwise this `flag14=0` node builds the batch task. Submission enqueues
+only when that group's worker vector is nonempty, pool `+0x600` is enabled, and either pool `+0x602` is
+nonzero or the group is nonzero; it otherwise invokes the task directly. These are static conditional
+contracts. The actual input values, successor/waiting-helper route and preceding work are still unknown.
+Simulation's nonempty-record premise does not establish which concrete contact or draw is reached.
+
+E removes D's unbound singleton-field connection. It does **not** remove the selected invocation and
+scope/order gaps: neither a specific Fireball gate invocation nor its nearest random boundary has been
+bound to one reached route. T2/T3 remain open. Further work needs a concrete connection to those gaps;
+the existence of more scheduler/configuration code is not a reason to extend this investigation.
 
 ## Scope review rules
 

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "scope": "Investigations A/B/D static identity receipt; concrete queue-worker startup connection, no native replay, actual Fireball route or scope closure",
+  "scope": "Investigations A/B/D/E static identity receipt; queue-worker startup and singleton-pool-field joins, no native replay, actual Fireball route or scope closure",
   "client_sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
   "address_convention": "Preferred-image VA; start inclusive, end exclusive. Selected spans do not imply complete transitive call coverage. Linear counts are not execution counts.",
   "ranges": [
@@ -248,6 +248,27 @@
       "end": "0x140e33270",
       "sha256": "1d7b63ca7547de7baff74d73b92e0f099cc3c880ee0965bb1ebe04c89cf095fd",
       "linear_instructions": 8
+    },
+    {
+      "label": "E setup selected configuration path",
+      "start": "0x141004030",
+      "end": "0x1410048e2",
+      "sha256": "4dd6a3e2d94f0b0a84d4a7eff30972f02c6458a609dc05a4be8e09e6a74e3100",
+      "linear_instructions": 478
+    },
+    {
+      "label": "E singleton wrapper and pool construction",
+      "start": "0x140e31180",
+      "end": "0x140e31309",
+      "sha256": "41440ff3ac61cf1233abc80ad403af96191a517d3aec46bab17e27150d87847a",
+      "linear_instructions": 79
+    },
+    {
+      "label": "E current-thread or batch selection/submission",
+      "start": "0x140e45420",
+      "end": "0x140e456c2",
+      "sha256": "299e4e749ebd6e440d35670ea8924f00d4565dfecb7bca40b389d73c514dbc39",
+      "linear_instructions": 179
     }
   ],
   "slots": [
@@ -591,6 +612,156 @@
       "address": "0x140134109",
       "mnemonic": "mov",
       "operands": "qword ptr [rsi], rax"
+    },
+    {
+      "address": "0x141004054",
+      "mnemonic": "mov",
+      "operands": "r14, rdx"
+    },
+    {
+      "address": "0x141004061",
+      "mnemonic": "call",
+      "operands": "0x140e31180"
+    },
+    {
+      "address": "0x141004066",
+      "mnemonic": "movzx",
+      "operands": "ecx, byte ptr [r14 + 0x2cf]"
+    },
+    {
+      "address": "0x14100406e",
+      "mnemonic": "mov",
+      "operands": "rax, qword ptr [rax + 8]"
+    },
+    {
+      "address": "0x141004072",
+      "mnemonic": "mov",
+      "operands": "byte ptr [rax + 0x602], cl"
+    },
+    {
+      "address": "0x1410044af",
+      "mnemonic": "cmp",
+      "operands": "byte ptr [r14 + 0x2ce], 0"
+    },
+    {
+      "address": "0x1410044b7",
+      "mnemonic": "je",
+      "operands": "0x1410044c7"
+    },
+    {
+      "address": "0x1410044b9",
+      "mnemonic": "call",
+      "operands": "0x140e31180"
+    },
+    {
+      "address": "0x1410044be",
+      "mnemonic": "mov",
+      "operands": "rcx, qword ptr [rax + 8]"
+    },
+    {
+      "address": "0x1410044c2",
+      "mnemonic": "call",
+      "operands": "0x140e30940"
+    },
+    {
+      "address": "0x140e312c5",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rip + 0x3908184], rbx"
+    },
+    {
+      "address": "0x140e312f2",
+      "mnemonic": "lea",
+      "operands": "rax, [rip + 0x390814f]"
+    },
+    {
+      "address": "0x140e45448",
+      "mnemonic": "mov",
+      "operands": "r13, rcx"
+    },
+    {
+      "address": "0x140e45465",
+      "mnemonic": "jne",
+      "operands": "0x140e45475"
+    },
+    {
+      "address": "0x140e45475",
+      "mnemonic": "test",
+      "operands": "r9b, r9b"
+    },
+    {
+      "address": "0x140e45478",
+      "mnemonic": "je",
+      "operands": "0x140e4548d"
+    },
+    {
+      "address": "0x140e4547a",
+      "mnemonic": "cmp",
+      "operands": "byte ptr [rcx + 0x15], 0"
+    },
+    {
+      "address": "0x140e4547e",
+      "mnemonic": "je",
+      "operands": "0x140e4548d"
+    },
+    {
+      "address": "0x140e45480",
+      "mnemonic": "cmp",
+      "operands": "qword ptr [r8], 0"
+    },
+    {
+      "address": "0x140e45484",
+      "mnemonic": "jne",
+      "operands": "0x140e4548d"
+    },
+    {
+      "address": "0x140e45488",
+      "mnemonic": "mov",
+      "operands": "qword ptr [r8], r13"
+    },
+    {
+      "address": "0x140e454b0",
+      "mnemonic": "cmp",
+      "operands": "byte ptr [r13 + 0x14], 0"
+    },
+    {
+      "address": "0x140e454b5",
+      "mnemonic": "je",
+      "operands": "0x140e455f6"
+    },
+    {
+      "address": "0x140e455f6",
+      "mnemonic": "mov",
+      "operands": "dword ptr [r13 + 0x64], 1"
+    },
+    {
+      "address": "0x140e45600",
+      "mnemonic": "jne",
+      "operands": "0x140e456a1"
+    },
+    {
+      "address": "0x140e45606",
+      "mnemonic": "call",
+      "operands": "0x140e31180"
+    },
+    {
+      "address": "0x140e4560b",
+      "mnemonic": "mov",
+      "operands": "rdi, rax"
+    },
+    {
+      "address": "0x140e4565d",
+      "mnemonic": "mov",
+      "operands": "edx, dword ptr [r13 + 0x10]"
+    },
+    {
+      "address": "0x140e45661",
+      "mnemonic": "mov",
+      "operands": "rcx, rdi"
+    },
+    {
+      "address": "0x140e45664",
+      "mnemonic": "call",
+      "operands": "0x140e31310"
     }
   ],
   "bounded_reference_queries": [
@@ -623,5 +794,18 @@
       "target": "0x140e30940",
       "aligned_sites": []
     }
-  ]
+  ],
+  "same_pool_field_join": {
+    "getter": "0x140e31180",
+    "constructor_store": "0x140e312c5",
+    "wrapper_return": "0x140e312f2",
+    "field_offset": "0x8",
+    "setup_getter_call": "0x1410044b9",
+    "setup_load": "0x1410044be",
+    "initializer_call": "0x1410044c2",
+    "batch_getter_call": "0x140e45606",
+    "batch_pass_wrapper": "0x140e45661",
+    "batch_submit_call": "0x140e45664",
+    "limitation": "Same singleton field on the reached conditional paths; no live value, all-process replacement exclusion, selected invocation or scope/order assertion"
+  }
 }
