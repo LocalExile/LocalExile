@@ -127,6 +127,33 @@ static partial class Game
         (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt) =>
         AttackContactDelay(conn, attackSeconds, approach: arrivedAt > departedAt && stop != from);
 
+    // How often the player's walk up to a monster paths again, and when the estimate stops following it.
+    const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
+
+    // Walks up to a monster until it is in reach, whenever it moves or bodies cut the way: the client's action keeps going
+    // until then, whatever the first path said, and its tick paths it again. Null when another action replaced this one.
+    internal static async Task<((int X, int Y) Here, (int X, int Y) Stop, double Arrive)?> FollowMonsterToSwing(ClientState conn,
+        SpawnedMonster m, double reach, Func<bool> current, Func<double, double, Task<bool>> until,
+        (int X, int Y) here, (int X, int Y) stop, double arrive, double now)
+    {
+        double giveUp = now + SwingFollowLimitSeconds;
+        while (true)
+        {
+            double next = Math.Min(arrive, now + SwingFollowSeconds);
+            if (arrive <= now) next = now + SwingFollowSeconds;
+            if (!await until(next, now) || !current()) return null;
+            using (ProjectileMutation(conn))
+            {
+                now = ProjectileWorldTime(conn);
+                if (!current()) return null;
+                var target = m.Walk.Position(now);
+                if (m.Life == 0 || now >= giveUp || now >= arrive && Dist(stop, target) <= reach) return (here, stop, arrive);
+                (here, stop, arrive) = conn.Walk.Approach(target.X, target.Y, reach, now, tolerance: m.StopRange - 2);
+                if (arrive <= now && Dist(stop, target) <= reach) return (here, stop, arrive);
+            }
+        }
+    }
+
     // The player uses a skill on a monster (C→S 0x24, e.g. the default attack on a left click). The client walks into range
     // first, so the server walks its estimate too (WalkEstimator.Approach, reach = the weapon's MaxAttackDistance in cells,
     // centre to centre) and only then starts the swing: it echoes the action aimed at the monster (0x1ab, flags | 0x80 +
@@ -170,12 +197,19 @@ static partial class Game
         }
         Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
             $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
-        if (arrive > now)
+        bool Current() => conn.ActionCount == action && (!ranged || OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch));
+        async Task<bool> Until(double at, double from)
         {
-            if (ranged) { if (!await WaitProjectileTime(conn, arrive, projectileEpoch)) return; }
-            else await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+            if (ranged) return await WaitProjectileTime(conn, at, projectileEpoch);
+            await Task.Delay(TimeSpan.FromSeconds(at - from));
+            return true;
         }
-        if (conn.ActionCount != action || (ranged && !OrdinaryRangedReleaseCurrent(conn, action, projectileEpoch))) { Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled before the swing"); return; }
+        if (await FollowMonsterToSwing(conn, m, weapon.Range, Current, Until, here, stop, arrive, now) is not { } swing)
+        {
+            Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled before the swing");
+            return;
+        }
+        (here, stop, arrive) = swing;
         now = conn.Clock.Elapsed.TotalSeconds;
         SkillCriticalRoll criticalRoll;
         lock (conn.Monsters)
@@ -377,12 +411,18 @@ static partial class Game
                 }, out var approachTicket, reserve: false, requestedAt: requestedAt)) return;
             Console.WriteLine($"[gateway] {remote} <= 0x0024 skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
                 $"monster ({target.X}, {target.Y}), distance {Dist(here, target):0.0}; swing from ({stop.X}, {stop.Y}) in {arrive - now:0.00} s (t={now:0.000})");
-            if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-            if (conn.ActionCount != action || approachTicket?.Current(conn) == false)
+            async Task<bool> Walked(double at, double from)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(at - from));
+                return true;
+            }
+            if (await FollowMonsterToSwing(conn, m, weapon.Range, () => conn.ActionCount == action && approachTicket?.Current(conn) != false,
+                Walked, here, stop, arrive, now) is not { } swing)
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} cancelled before the swing");
                 return;
             }
+            (here, stop, arrive) = swing;
             now = conn.Clock.Elapsed.TotalSeconds;
             lock (conn.Monsters) target = m.Walk.Position(now);
             if (Dist(stop, target) > weapon.Range + 2)
