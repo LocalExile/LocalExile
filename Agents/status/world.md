@@ -167,7 +167,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the projectile world, stopping at walls and at the turrets' Hull; a dart hits for LbArrowTrap's share and adds a 2 s
   poison stack reckoned from the hit's life share, less armour, and slows movement by 60% for 2 s. Being checked live.
   The Catacombs' eight roombas run their rails (two rings round, two chains to and fro, set out as they face) and cut
-  a player inside them for a share of life and energy shield a second; not yet checked live.
+  a player inside them, who degenerates by a share of life and energy shield a second (fitted live to the original,
+  2026-11-01) with the roomba's own effect on them; the trial doors open for walking (checked in The Catacombs).
   The area's packs keep away from a trial's traps; its rooms get what their room file places: the Gardens' four
   Devourers, the Lower Prison plaque platform's pack and its spawner's rare Brittle Poacher.
   Not built: the other traps, the trials' monsters, the toggling, multi and timed levers of the other trials, and

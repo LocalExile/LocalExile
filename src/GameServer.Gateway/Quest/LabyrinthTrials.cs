@@ -39,9 +39,9 @@ static class LabyrinthTrials
     /// buff shown, no knockback): BuffDefinitions <c>roomba_damage</c> ("Death Rhoomba", invisible; the flying one's
     /// <c>flying_roomba_damage</c>) takes <c>base_physical_damage_%_of_maximum_life_taken_per_minute</c> and
     /// <c>…_of_maximum_energy_shield_…</c>, whose values the client data lacks: these shares a second are ours, physical,
-    /// energy shield first, fitted to the original's (live 2026-11-01: a full Normal character dies in it in about 5 s).
+    /// energy shield first, fitted live to the original's (2026-11-01).
     /// <c>/trial_roomba_damage</c> (dev) changes them.</summary>
-    public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.20, 0.125);
+    public static (double Life, double EnergyShield) RoombaDamagePerSecond = (0.30, 0.50);
 
     /// <summary>A roomba's 0x2b9 blob: LabyrinthRoomba.ot reads Positioned, Animated, BaseEvents, Stats, Buffs, Movement,
     /// Transitionable; LabyrinthFlyingRoomba.ot Positioned, BaseEvents, Animated, Stats, Buffs, Movement. Movement
@@ -280,6 +280,12 @@ static class LabyrinthTrials
     /// <summary>The <c>poison</c> BuffDefinitions row ("Poisoned", a count of its stacks), or null without the table.</summary>
     public static ushort? PoisonBuffRow => BuffRows.Value.TryGetValue("poison", out ushort row) ? row : null;
 
+    /// <summary>The buff a roomba of this type puts on the player in it (<c>roomba_damage</c>, <c>flying_roomba_damage</c>:
+    /// invisible, BuffVisuals <c>rhoomba_damage</c> playing <c>labyrinth/traps/roomba/roomba.epk</c>), or null without the
+    /// table.</summary>
+    public static ushort? RoombaBuffRow(string type) =>
+        BuffRows.Value.TryGetValue(type == FlyingRoomba ? "flying_roomba_damage" : "roomba_damage", out ushort row) ? row : null;
+
     static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
     {
         const string file = "data/tables/BuffDefinitions.json";
@@ -289,7 +295,7 @@ static class LabyrinthTrials
         int row = 0;
         foreach (var buff in table.RootElement.EnumerateArray())
         {
-            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow")) rows.TryAdd(id, (ushort)row);
+            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage" or "flying_roomba_damage")) rows.TryAdd(id, (ushort)row);
             row++;
         }
         return rows;

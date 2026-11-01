@@ -726,10 +726,12 @@ static partial class QuestobjectsRules
     }
 
     // Each roomba glides rail to rail (0x1ba, turned to where it goes with 0x1b9) and waits LabyrinthTrials.RoombaPauseSeconds
-    // at each; a player within LabyrinthTrials.RoombaRadius of one takes its damage for as long as they stay (RoombaDamage).
+    // at each; a player within LabyrinthTrials.RoombaRadius of one degenerates for as long as they stay
+    // (ClientState.TrapDegenPerSecond).
     static async Task RunRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<RoombaRun> runs)
     {
-        double carried = 0, last = conn.Clock.Elapsed.TotalSeconds;
+        // The roomba buff shown on the player: its instance and row, while they are in one.
+        (ushort Instance, ushort Row)? shown = null;
         try
         {
             while (!conn.Closed)
@@ -745,47 +747,43 @@ static partial class QuestobjectsRules
                     await Send(remote, stream, ciphers, [.. InstanceProtocol.Orientation(r.Id, (float)Math.Atan2(dx, -dy)),
                         .. InstanceProtocol.MoveTo(r.Id, (int)Math.Round(r.To.X), (int)Math.Round(r.To.Y), (float)seconds, InstanceProtocol.FollowTerrain)], null);
                 }
-                // In a roomba: its damage for the time since the last look.
+                // In a roomba: its degeneration on the player (RunResourceRecovery deals it) and its buff, whose visual
+                // plays the roomba's cut on them.
                 (int X, int Y) here;
                 lock (conn.Monsters) here = conn.Walk.Position(now);
                 double radius = LabyrinthTrials.RoombaRadius;
-                bool inside = runs.Any(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
-                if (inside) carried = await RoombaDamage(remote, stream, ciphers, conn, now - last, carried);
-                last = now;
+                var inside = runs.FirstOrDefault(r => r.Position(now) is var p && (p.X - here.X) * (p.X - here.X) + (p.Y - here.Y) * (p.Y - here.Y) <= radius * radius);
+                ushort? row = inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type);
+                bool was, degen;
+                ushort instance = 0;
+                lock (conn.Monsters)
+                {
+                    var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
+                    was = conn.TrapDegenPerSecond > 0;
+                    conn.TrapDegenPerSecond = inside is null || conn.PlayerLife == 0 ? 0
+                        : conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
+                    degen = conn.TrapDegenPerSecond > 0;
+                    if (!degen) row = null;
+                    if (row is not null && shown?.Row != row) instance = conn.NextBuff++;
+                }
+                if (shown is { } old && old.Row != row)
+                {
+                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old.Instance), null);
+                    shown = null;
+                }
+                if (row is ushort buffRow && shown is null)
+                {
+                    await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
+                    shown = (instance, buffRow);
+                }
+                // Entering and leaving change the recovery rates the client is sent (PlayerStatsUpdateAtGate).
+                if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? "in a trial roomba" : "out of the trial roombas");
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
-    }
-
-    // A roomba's damage over this many seconds (LabyrinthTrials.RoombaDamagePerSecond of maximum life and energy shield),
-    // physical, energy shield first; whole points are dealt and the rest carried to the next look, which it returns.
-    static async Task<double> RoombaDamage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        double seconds, double carried)
-    {
-        uint life;
-        int dealt;
-        lock (conn.Monsters)
-        {
-            if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return 0;
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
-            carried += (conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare) * seconds;
-            dealt = (int)carried;
-            carried -= dealt;
-            if (dealt == 0) return carried;
-            long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
-            conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
-            if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
-            RecordHardcoreDeath(conn);
-            life = conn.PlayerLife;
-        }
-        await SendPlayerEnergyShield(remote, stream, ciphers, conn);
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life),
-            life == 0 ? $"0x01b1 player cut down by a trial roomba ({dealt}) and dies" : null);
-        if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
-        return carried;
+        finally { lock (conn.Monsters) conn.TrapDegenPerSecond = 0; }
     }
 
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on

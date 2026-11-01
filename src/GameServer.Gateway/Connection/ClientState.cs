@@ -581,6 +581,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public uint? SentEnergyShield;
     public bool? SentRechargeActive;
     public int? SentEsRecoveryRate;
+    // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
+    // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
+    public double TrapDegenPerSecond;
     // (MonsterVarieties row, level) pairs already registered with 0x20 on this connection.
     public readonly HashSet<(int Row, byte Level)> MonsterTypes = [];
     // The open sell window (Sell Items): what the player offered and what the NPC offers back.

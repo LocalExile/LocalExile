@@ -217,17 +217,24 @@ and the flying one's), the one along its facing is its own. The Catacombs' rails
 screen, live 2026-10-31), a crooked U for one ground roomba and a run with a 90° corner for the flying one, which go to
 their ends and back.
 
-**What it does** (live 2026-10-31, the original): damage for as long as the player is in it, with no buff shown and
+**What it does** (live 2026-10-31, the original): damage for as long as the player is in it, with no buff icon and
 no knockback, and it does not block the way. No skill: BuffDefinitions `roomba_damage` ("Death Rhoomba", invisible;
 the flying one's `flying_roomba_damage`) carries `base_physical_damage_%_of_maximum_life_taken_per_minute` and
 `…_of_maximum_energy_shield_…`, with no values in the client data (nor in the wiki or PoEDB). So a player within 10
-cells of a roomba's centre takes 20% of maximum life plus 12.5% of maximum energy shield a second (our numbers, fitted
-to the original's: a full Normal character dies in it in about 5 s, live 2026-11-01; 40% and 25% were twice too
-much), physical, energy shield first. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
-In the original the pools melt in it rather than drop in steps (live 2026-10-31). The Gateway deals the damage every
-50 ms and sends the pools with it; the client cannot melt them itself: its pool step (`0x141e6b320`) adds the pool's
-native recovery rate only when it is above 0, so a negative `energy_shield_recovery_per_minute` or
-`life_recovery_per_minute` is ignored, and only stops the client's recharge prediction (tried 2026-10-31, reverted).
+cells of a roomba's centre degenerates by 30% of maximum life plus 50% of maximum energy shield a second (our numbers,
+fitted live to the original's with `/trial_roomba_damage`, 2026-11-01), physical, energy shield first, and can die of
+it. `/trial_roomba_damage <life %> <energy shield %> [<radius>]` (dev) changes them.
+While they are in one the Gateway puts that buff on the player (0x1c1); its BuffVisuals `rhoomba_damage` plays
+`labyrinth/traps/roomba/roomba.epk` (the flying one's `flying_roomba.epk`) on them, and the buff goes when they leave
+or die.
+
+In the original the pools fall smoothly in it (live 2026-10-31/11-01). The client cannot drain a pool itself: its
+pool step (`0x141e6b320`) adds the pool's native recovery rate only when it is above 0, so a negative
+`energy_shield_recovery_per_minute` or `life_recovery_per_minute` is ignored (tried 2026-10-31, reverted). So the
+degeneration (`ClientState.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`RunResourceRecovery`,
+beside regeneration, so one pool update carries both), and while it runs the player's stat updates carry both rates
+as 0 (`PlayerStatsUpdateAtGate`, `SendPlayerEnergyShield`): with its own regeneration predicted up between the
+updates and the damage dealt down at each, the pool went in a saw (live 2026-11-01).
 
 ## Monsters
 
