@@ -1309,6 +1309,11 @@ and can require explicit recipes.
   Code: `HitResistances.cs`, `HitMitigation.cs`, Gateway (`MonsterDamage`).
   Docs: [20](../docs/protocol/20-damage.md) §4.
 - **Client damage research (static, partial).** The client integrates per-minute continuous resource rates.
+  [AddBuffToTarget variety selection](../docs/re/client-addbuff-varieties.md) binds its registered callback to
+  83 packed rows indexed by the sparse `__col5` key, rather than row ordinal. Four rows declare incoming rates;
+  their optional backend keys miss the audited startup catalogue. Actual target-rate publication remains open.
+  The [pinned-main comparison](../docs/re/client-main-reconciliation.md) separates existing server mechanics
+  and clocks from original-client evidence; it does not advance the original R2/R3/R4 completion states.
   [Eight maximum-resistance equations](../docs/re/client-maximum-resistance-inputs.md) now preserve shared
   bonuses, override-before-cap order, fire-only transfer and Divine Flesh. Cold/lightning each read an
   undeclared intermediate; actual actor invalidation and numerical target application remain open.

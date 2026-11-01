@@ -315,6 +315,11 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   investigate actual freshness separately from the two recovered undeclared reads. Do not restage the formulas.
   Outgoing RF parameters and 14408/8198/5981 formulas are bound separately from incoming base rates.
   Resolve source instances into base rates and actual publication eligibility.
+  Reuse [AddBuffToTarget's recovered sparse variety index](../docs/re/client-addbuff-varieties.md);
+  its four incoming-rate declarations and optional-backend misses are not actual target contribution writes.
+  Bind an actual target/provider/source/amount or the remaining BuffVisuals receiver before extending that lead.
+  Consult [current-main ownership](../docs/re/client-main-reconciliation.md) before proposing implementation;
+  existing Arcane Might and ignite paths should not be recreated from stale research assumptions.
   Reuse [bleeding policy inputs](../docs/re/client-bleeding-policy-inputs.md): conditional Crimson Dance,
   replacement stack limit, minion-suppressed movement override and exerted aggravation chance are numerical inputs.
   Find an actual instance-selection/application consumer; the finite registration graph has no declared downstream

@@ -47800,7 +47800,8 @@
       ],
       "sourceBatches": [
         "r3-default-bow-provider",
-        "r3-loss-concrete-actions"
+        "r3-loss-concrete-actions",
+        "r73-addbuff-variety-index"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -48013,7 +48014,8 @@
         }
       ],
       "sourceBatches": [
-        "r2-dot-publication-template-discovery"
+        "r2-dot-publication-template-discovery",
+        "r73-addbuff-variety-index"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -50950,7 +50952,8 @@
         "r12-buff-default-final",
         "r2-burning-arrow-bound",
         "r2-instance-builder-entry",
-        "r2-rf-backend"
+        "r2-rf-backend",
+        "r73-addbuff-variety-index"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -52641,7 +52644,8 @@
         }
       ],
       "sourceBatches": [
-        "r2-buff-registry-callers"
+        "r2-buff-registry-callers",
+        "r73-addbuff-variety-index"
       ],
       "selectedDecompilationCompleted": null
     },
@@ -75211,6 +75215,134 @@
         "r71-adopted-attack-chance"
       ],
       "selectedDecompilationCompleted": null
+    },
+    "0x141973a60": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x141973a60",
+          "endExclusive": "0x141973a8d",
+          "bytes": 45,
+          "fileOffset": 26685024,
+          "sha256": "ed9a55bbda52c56ec858edac4ceb636dc7f4b8e63894157dab68c8b4e446cc8f"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x141989940": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x141989940",
+          "endExclusive": "0x141989a5f",
+          "bytes": 287,
+          "fileOffset": 26774848,
+          "sha256": "b429f0590c1b9f887973c9b8de83952fa399a84d0ea56c10d7f73db48825f1be"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1419e9a60": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1419e9a60",
+          "endExclusive": "0x1419e9c91",
+          "bytes": 561,
+          "fileOffset": 27168352,
+          "sha256": "7b3db07363060afe36f4c185b9966742810bcaa39ba30a66849fffb92767de67"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1419e9ca0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1419e9ca0",
+          "endExclusive": "0x1419e9e9a",
+          "bytes": 506,
+          "fileOffset": 27168928,
+          "sha256": "5a0876a19bae542f5fda474ff818a9a551d9865505f17005e727c7105fb45ce0"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1419e9ea0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1419e9ea0",
+          "endExclusive": "0x1419e9f3e",
+          "bytes": 158,
+          "fileOffset": 27169440,
+          "sha256": "e988c510163ebe750ac1aaf50f5d2a5f886498b76935b42e7f79a32083d7a4b4"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x1419e9f40": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x1419e9f40",
+          "endExclusive": "0x1419e9fae",
+          "bytes": 110,
+          "fileOffset": 27169600,
+          "sha256": "52470956a37fd30bac0e7d3ab08901aeacf0f3dea8abe2e2cd81db6ff4e5fb11"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x14239a230": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x14239a230",
+          "endExclusive": "0x14239a6d9",
+          "bytes": 1193,
+          "fileOffset": 37328432,
+          "sha256": "3c192328ae27c9fc9f8b8785b4a842d36b35641472fad11fbe36cf231a9731a2"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
+    },
+    "0x14239a6e0": {
+      "boundary": "PE-unwind-root-and-chains",
+      "ranges": [
+        {
+          "start": "0x14239a6e0",
+          "endExclusive": "0x14239a89f",
+          "bytes": 447,
+          "fileOffset": 37329632,
+          "sha256": "a272f67570f07c204e57b828420fe9e81485e09e617508d46b1bf04c5c0f72fd"
+        }
+      ],
+      "sourceBatches": [
+        "r73-addbuff-variety-index"
+      ],
+      "selectedDecompilationCompleted": null
     }
   },
   "batches": [
@@ -76628,6 +76760,11 @@
       "name": "r71-adopted-attack-chance",
       "auditSha256": "15c3d7c28104e8b965b9cd3b73744fa0fe8b2fc92af11200117e09528ce30cd2",
       "functionCount": 10
+    },
+    {
+      "name": "r73-addbuff-variety-index",
+      "auditSha256": "b7470002789c0658caa4917ab95a220e392536f28a476dbb24b4035333245a03",
+      "functionCount": 12
     }
   ],
   "pointerSlots": [
@@ -79089,15 +79226,15 @@
     }
   ],
   "verification": {
-    "entryCount": 4091,
-    "originalByteRangeCount": 5118,
+    "entryCount": 4099,
+    "originalByteRangeCount": 5126,
     "historicalBoundedThunkEntries": 4,
     "pointerSlotCount": 302,
     "selectedDecompilationRecords": 877,
     "checkedReferenceInstructions": 13431,
     "decompilationFailures": [],
     "scope": "Original ranges/offsets, unwind ownership or explicit boundaries, stat identity, reference instructions and pointer-slot contents revalidated offline.",
-    "additionalFreshValidation": "R71 freshly rechecked 4091 identities / 5118 ranges / 302 pointer slots, preserving 1215 prior public supports and 220 prior snapshot files. Adopted peer R32 original-byte evidence: 55 immutable files / 39 exact Git sources, 10 functions / 10 ranges / 1386 decoded records, 2 bindings, 31 constant operands / 594 data reads / 32 Stats names / 13 fresh anchors. 22 receiving controls / 8497 interpreted instructions / 635 sites. Two newly indexed anchored explicit leaves. Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    "additionalFreshValidation": "R73 original-byte binding: 12 functions / 12 ranges / 1139 linear disassembly records, 42 anchors, 6 RIP targets, 2 strings. All 83 rows audited for five exact incoming base-rate keys; four matches. Full prior 4091 identities / 5118 ranges / 302 slots / 1240 supports and 294 sealed snapshot records rechecked. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
   },
   "supportingRecords": [
     {
@@ -86494,6 +86631,66 @@
       "bytes": 17242,
       "sha256": "48086a57e5c4899d0e5d77b7179368b0b1fe772c7204cb8ff8025647e2a8b1fe",
       "role": "R71 fixed peer R32 attack-chance adoption; Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties.py",
+      "bytes": 7912,
+      "sha256": "6dac65e7fb009aa95a40902724316265abece038fe0bb1ca47c3d8ecf75b6a57",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties-fresh.py",
+      "bytes": 7921,
+      "sha256": "5c731f5ccdf8ab5fd61a301ae141537ced2529c372a5de0bfcd4386af49619d1",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "C:/Users/jimno/.codex/worktrees/client-damage-research/LocalExile/Tools/re/out/client-damage-audit/r73-publish-prepare.py",
+      "bytes": 5227,
+      "sha256": "30e9771780a50d8244d9fbe5aab375c8ac189616cb764b952cbaa8fca9f7e816",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/bindings.json",
+      "bytes": 161714,
+      "sha256": "b7470002789c0658caa4917ab95a220e392536f28a476dbb24b4035333245a03",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/findings.md",
+      "bytes": 7690,
+      "sha256": "7c8858e00a071c9a15dfd804bfb7182c55b0a41bb33911dee7de307e79233a57",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/functions.asm",
+      "bytes": 37535,
+      "sha256": "6dace180c4ed742e12b8c7d362e7e0b0fca33ed8545148a4464ce2a6fc6cb837",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/main-preservation.json",
+      "bytes": 1063,
+      "sha256": "3ea911ec2e0236aae3be3968d80a0b9a279ee89dab0efee5cf63da5a81554ba2",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/main-reconciliation.md",
+      "bytes": 5041,
+      "sha256": "e77689683aa66464d029624b9a4cb92e44a3f5faefefc00b3f840c007679b00e",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/publication.json",
+      "bytes": 773,
+      "sha256": "00ac48baf69349c9d428e38f58a55bc5407defbf1b7c9dd5040f29a4e5cac08e",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
+    },
+    {
+      "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/verification.json",
+      "bytes": 792,
+      "sha256": "5e51e4e5ccc9d14214d4fafd781922212b12628cee226bc7e6e1408072f245d5",
+      "role": "R73 AddBuffToTarget variety-index binding and main preservation. Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
     }
   ],
   "auxiliaryDataTables": [
@@ -86571,6 +86768,11 @@
       "path": "data/tables/Projectiles.json",
       "sha256": "28d902b5a89dcb584250fca84ee970d24f973d72e262f542b22f2c7064e1a2ef",
       "rows": 1410
+    },
+    {
+      "path": "data/tables/AddBuffToTargetVarieties.json",
+      "sha256": "e5c46e5e6cd79acd1157f0cc808f82f79bf020b968c6f48f5d0ba85e60b31866",
+      "rows": 83
     }
   ],
   "comparisonSources": [
@@ -87604,5 +87806,12 @@
     "controlsSha256": "a6305ebc1cb6b6af6c49b5adefd898efd5d181233f08d1e2d2b2c21aa06f181d",
     "freshReceivingControls": 22,
     "limitation": "Evidence adoption, not a new formula discovery. Stable supplied inputs, shared peer interpreter and explicit CPU dispatch. Actual input publication/corrections, accepted numerical Hit damage, DoT instance selection/publication/shared cap/withdrawal and generic Buff refresh remain open; original R2/R3/R4 Partial."
+  },
+  "addBuffVarietyIndexVerification": {
+    "path": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/verification.json",
+    "sha256": "5e51e4e5ccc9d14214d4fafd781922212b12628cee226bc7e6e1408072f245d5",
+    "mainPreservationPath": "Tools/re/out/client-damage-audit/r73-addbuff-varieties/main-preservation.json",
+    "mainPreservationSha256": "3ea911ec2e0236aae3be3968d80a0b9a279ee89dab0efee5cf63da5a81554ba2",
+    "limitation": "Registered metadata/table-index/callback connection only. Four Id2 keys miss the audited startup catalogue; prior BuffVisuals receiver remains indirect. Actual target-rate publication, source instance arbitration/shared cap/withdrawal, accepted numerical Hit deduction and generic existing-Buff refresh remain open. Original R2/R3/R4 Partial."
   }
 }
