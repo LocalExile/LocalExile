@@ -10,7 +10,7 @@ It starts with the ordinary Fireball binding of shared qualification: selected p
 between 0 and 100, a legal Pierce opportunity and no earlier mode/prohibition rejection. These are witness
 conditions, not a claim that a particular running character currently supplies those values.
 
-**Draft; local gate and selected contact ingress rechecked, no scope closure yet.** The baseline already
+**Draft; local gate, selected contact ingress and one queue-worker startup route checked; no scope closure yet.** The baseline already
 recovers the helper arithmetic and selected consumption chains. Actual incoming TLS state, its enclosing
 scope, thread membership and preceding consumer order remain open. A stopped search is not proof that
 no enclosing scope exists.
@@ -43,9 +43,9 @@ The known thread-local state is at TLS `+0x170`; its transition is uint32
 |---|---|---|
 | T0: freeze and preflight | Pin baseline, witness, known stopped routes and exact missing edge | Complete; prior World/scope audits reused |
 | T1: local gate | Verify reached/skip conditions, TLS address and direct caller state access | Fresh original-byte and final-slot checks complete; inherited arithmetic reconfirmed |
-| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Open after A/B scope review; no positive state-source connection retained |
+| T2: enclosing boundary | Bind the selected caller to a concrete seed/save/restore or an evidenced inherited-state boundary; list intervening reached draws | Partial: D connects one queue-worker route to thread initialization; actual Fireball route and enclosing scope remain open |
 | T3: reproducibility | Check exact state transitions with declared inputs; classify which inputs are action-derived, external or unobserved | Open |
-| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | Scope review complete; closure and Ready validation pending |
+| T4: review and delivery | Independent evidence review, current-base checks, bounded implementation implications and final PR scope | A/B scope review and D evidence review complete; closure and Ready validation pending |
 
 A **local reconstruction closure** requires a proved scope entry/state source, actual selected control-flow
 ordering, draw/restore behavior and a finite comparison witness. Supplied state may verify arithmetic but
@@ -112,9 +112,10 @@ and how its result could change the conclusion; otherwise retain the precise obs
 
 ## Scope/method review after A and B
 
-Independent read-only review confirms that neither acceptance route has been met. The typed call route
-is better pinned, but the required incoming-state edge has not narrowed. No retained positive writer or
-alias connection currently justifies another static state-source traversal. Keep this PR **Draft**.
+The A/B independent read-only review confirmed that neither acceptance route had been met. The typed
+call route was better pinned, but the required incoming-state edge had not narrowed. At that review,
+no retained positive writer or alias connection justified another static state-source traversal.
+Investigation D below is a subsequent, bounded static re-entry; it does not change A/B's result.
 
 The pre-query `+0x180` call has returned at `0x141e32854`; its result is later passed as the rectangle-query
 receiver at `0x141e329c4/0x141e329ca`. A save/seed/restore confined to that method cannot enclose the later
@@ -135,8 +136,65 @@ writes, the source remains unresolved. An observed decision-point state alone ca
 it does not identify server-required seed inputs or prove a complete random scope.
 
 No such observation is asserted here and none was performed. Existing baseline observation tooling is not
-itself evidence that a source-attributed record exists. The review changes the next admissible method;
+itself evidence that a source-attributed record exists. The review constrains further investigation;
 it does not replace the goal with documentation-only completion or promote K1 to established.
+
+## Investigation D: a concrete queue worker reaches thread initialization
+
+Following the user's choice to continue statically, D addresses one explicit gap in the fixed
+[worker audit](https://github.com/LocalExile/LocalExile/blob/aaebde497419b5167f9c56cacfe7aa70a18f5f51/Agents/docs/re/projectiles/world-scheduling.md):
+the connection between the generic thread setup and an actual queue-execution callable. It does not
+repeat the World ancestor traversal or inventory all TLS writers. A preliminary check of the ordinary
+Fireball pre-Pierce callback only reconfirmed an inherited condition; it is not counted as new progress.
+
+Use `S` for an initializer's pool receiver, `Q` for one queue context and `TC` for one thread context.
+These are descriptive labels for pointer roles, not recovered source class names.
+
+| Concrete edge | Original-byte result | Limit |
+|---|---|---|
+| Initializer `0x140e30940` to creator `0x140e2f960` | Four callsites `0x140e30dbb/0x140e30e57/0x140e30efa/0x140e30f93` pass `Q = S + group * 0x178`, for groups 0–3; initialization later sets `S+0x600` | This does not identify the actual runtime `S`, configured worker counts or which branch a Fireball task takes |
+| Creator to thread handoff | Creator captures `Q` in callable payload `+8`, installs table `0x1431fa7d0` and calls `0x140e2f3c0` at `0x140e2ff69`; copy/swap transfers that callable into `TC+0x50`, with its selected pointer at `TC+0x88` | Callable transfer is not a claim that unrelated destructors or callbacks are TLS-neutral |
+| New-thread branch | The handoff passes entry `0x140e338e0` and a wrapper carrying `0x140e2f350(TC)` to `CreateThread`; the entry forwards through `0x1402167b0 → 0x1402167e0` | When `TC+0x20` and `TC+0x28` are both zero, the other branch calls setup on the current thread; it does not invoke this loop here |
+| Worker setup and invocation | `0x140e2f350` first calls setup `0x140e2f210`; setup calls imported `GetTickCount` at `0x140e2f2fe` and stores its uint32 result into TLS `+0x170` at `0x140e2f315`. On the normal successful COM-initialization path, `0x140e2f37b` invokes the stored callable | This is a thread-start seed source, not a per-task seed, nor a measured state at the first task |
+| Concrete callable to loop | Table `+0x10 = 0x140e33240` adds eight to the callable receiver and tail-jumps to `0x140e30000`; the loop loads the captured `Q`, calls dequeue `0x140e329c0` at `0x140e300c2`, then task `+0x10` at `0x140e300dc` | No inline `+0x170` reseed appears in this loop; callees and invoked tasks can still change or temporarily scope the stream |
+| Submission to the queue's task output | Submission `0x140e31310` selects `Q = [wrapper+8] + group * 0x178`, conditionally enqueues via `0x140e2f550`; enqueue and dequeue transfer the selected callable through `0x140133540`. Dequeue places its selected pointer at output `+0x48`, which the loop reads at stack `+0x68` | This is a same-`Q` transfer contract. Equality of the initializer's actual `S` and a particular submission's `[wrapper+8]` is still a premise, not an observed identity |
+
+The resulting **conditional** route is:
+
+```text
+initialize S's Q -> create TC with concrete Q capture
+  -> new-thread branch -> setup(TC): GetTickCount -> TLS+0x170
+  -> successful entry -> concrete capture +0x10 -> queue loop(Q)
+  -> dequeue(Q) -> selected task +0x10
+```
+
+This closes the previously missing concrete worker-loop-to-startup connection. Together with the fixed
+Simulation submission contract, it supplies an evidenced candidate route to an external thread-start
+seed. It does **not** close the selected Fireball's incoming-state source. Current-thread node execution,
+submission's direct fallback at `0x140e313b4`, and waiting-thread task execution remain alternatives.
+The actual selected route, same pool instance, nearest scope inside the task, and prior reached consumers
+are not established. In particular, `GetTickCount` plus a known LCG is insufficient to replay the decision.
+
+The [receipt](projectile-tls-scope-evidence.json) includes the concrete capture leaves, transfer helpers,
+all selected setup fragments, imported-function identities and instruction anchors. Addresses are
+preferred-image VAs; contiguous unwind fragments are recorded separately. These are static facts,
+not a client execution record or proof that every call in a body was reached.
+Independent read-only review reproduced D's range, slot, import, anchor and bounded-reference checks,
+including the same-queue capture transfer and successful-entry conditions. It found no substantive
+finding and confirmed that actual Fireball routing and T2/T3 remain unresolved.
+
+The finite reference lookup used the scheduler slices `0x140e31180..0x140e32c70` and
+`0x140e30000..0x140e31180`, validating candidate instruction alignment. It found the four creator
+calls above, but no direct reference to the initializer within those slices. The selected singleton
+constructor and its installed callback methods did not establish that initializer connection.
+Those negative results remain bounded; they do not prove absence of an initializer caller or a
+different pool. Further generic scheduler/initializer expansion stops here.
+
+The next static acceptance edge must bind **the selected Simulation submission's pool and execution
+route**, or a concrete state-changing/scope boundary on the already selected contact path. A typed
+pointer/call connection can justify that followup; another matching layout or no-GS wrapper cannot.
+If neither is available, retain the unresolved result and the observation alternative above. D advances
+one candidate source branch; T2/T3 and K1 remain open and this PR stays **Draft**.
 
 ## Scope review rules
 

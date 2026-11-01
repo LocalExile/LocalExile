@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "scope": "Investigations A/B static identity receipt; no native replay, runtime state, complete scope or thread claim",
+  "scope": "Investigations A/B/D static identity receipt; concrete queue-worker startup connection, no native replay, actual Fireball route or scope closure",
   "client_sha256": "78a0e227189c263658a7f65a02f086428b859bfc114ae8e7ce8aab721ebd48d5",
   "address_convention": "Preferred-image VA; start inclusive, end exclusive. Selected spans do not imply complete transitive call coverage. Linear counts are not execution counts.",
   "ranges": [
@@ -108,6 +108,146 @@
       "end": "0x141e32fb3",
       "sha256": "234eb8ae6cb1cb5377f8cd27e6c6a8cf350da716ee2562fe93214d23d24b8f6c",
       "linear_instructions": 76
+    },
+    {
+      "label": "D queue worker creator",
+      "start": "0x140e2f960",
+      "end": "0x140e2fffd",
+      "sha256": "f2520e126bdad872edaeae884e3670a359b57424c8cde02863c037d8c1973cfe",
+      "linear_instructions": 393
+    },
+    {
+      "label": "D thread handoff",
+      "start": "0x140e2f3c0",
+      "end": "0x140e2f54f",
+      "sha256": "fbc5fb227a66ecdeb0e567c8c89cec4bab66c5c25db2a539d2a6f268dc68100e",
+      "linear_instructions": 108
+    },
+    {
+      "label": "D callable swap fragment 1",
+      "start": "0x140133ff0",
+      "end": "0x14013403c",
+      "sha256": "62811759c3eace344c9649edcac4d7c939a72df621d66fa5211cb924719bc8f2",
+      "linear_instructions": 24
+    },
+    {
+      "label": "D callable swap fragment 2",
+      "start": "0x14013403c",
+      "end": "0x1401340ee",
+      "sha256": "af90fd51795e1fedd865400ebeabe33e43b6f1dff5f8f327a330498621d6cf21",
+      "linear_instructions": 53
+    },
+    {
+      "label": "D callable swap fragment 3",
+      "start": "0x1401340ee",
+      "end": "0x140134140",
+      "sha256": "11bfd06051780273df4831a5d84235143e712f7cd8e14e57f406519a2e178d0b",
+      "linear_instructions": 25
+    },
+    {
+      "label": "D native thread entry",
+      "start": "0x140e338e0",
+      "end": "0x140e338f1",
+      "sha256": "a4c442176544b9be1b8afd8bf646f38a78a3278079f4c7cc666616a32a7f777e",
+      "linear_instructions": 6
+    },
+    {
+      "label": "D thread forwarding entry",
+      "start": "0x1402167b0",
+      "end": "0x1402167c8",
+      "sha256": "7975648a6fa81cea516c7cc7d6cd7425159861d976289b0bbfd27c02e53e73c9",
+      "linear_instructions": 7
+    },
+    {
+      "label": "D thread forwarding body",
+      "start": "0x1402167e0",
+      "end": "0x140216804",
+      "sha256": "0036b545d622a7f3033dc23da28e2716ad81ddcb8cbaacab43876adaa6041173",
+      "linear_instructions": 13
+    },
+    {
+      "label": "D setup then invoke entry",
+      "start": "0x140e2f350",
+      "end": "0x140e2f3b3",
+      "sha256": "20eb60fd8fd4de586b52dc049d2ae70d580267ea6088f5995ec668e3bd708ed7",
+      "linear_instructions": 26
+    },
+    {
+      "label": "D setup fragment 1",
+      "start": "0x140e2f210",
+      "end": "0x140e2f277",
+      "sha256": "262657807d8381ee4d9572334555891be50e389f39da0c8a464586f67e8403c8",
+      "linear_instructions": 29
+    },
+    {
+      "label": "D setup fragment 2",
+      "start": "0x140e2f277",
+      "end": "0x140e2f2c5",
+      "sha256": "78d29b953eb6ee152dade66c64a1d494652fa2dec0da8a077743b93cf7f78d84",
+      "linear_instructions": 18
+    },
+    {
+      "label": "D setup fragment 3",
+      "start": "0x140e2f2c5",
+      "end": "0x140e2f341",
+      "sha256": "e858a3ca39b82f6f6a754fab97c63a471ce52a367abebd21cab9126f701898a1",
+      "linear_instructions": 26
+    },
+    {
+      "label": "D concrete queue worker loop",
+      "start": "0x140e30000",
+      "end": "0x140e3017a",
+      "sha256": "cf6c7420796c5b2f2dc68e2b3ea310409058ed0a363d2dccdb3eebe6da3f5b3f",
+      "linear_instructions": 96
+    },
+    {
+      "label": "D submit or direct fallback",
+      "start": "0x140e31310",
+      "end": "0x140e313da",
+      "sha256": "becda01f7370cc05e9231c5cb79d7b745a61c3895b3969cf2f6176dad19def69",
+      "linear_instructions": 57
+    },
+    {
+      "label": "D enqueue selected task",
+      "start": "0x140e2f550",
+      "end": "0x140e2f704",
+      "sha256": "77aa30adcb0b75262a3efeb17ca38d70f1c1d0d4114190fce756ab0e2e2e57d3",
+      "linear_instructions": 113
+    },
+    {
+      "label": "D dequeue selected task",
+      "start": "0x140e329c0",
+      "end": "0x140e32c6f",
+      "sha256": "a67771461ccf3674352282be710a5771806b3d8e9d50c5d55548b3caa37ac872",
+      "linear_instructions": 164
+    },
+    {
+      "label": "D callable move helper",
+      "start": "0x140133540",
+      "end": "0x1401335aa",
+      "sha256": "38a3e718955e11b5a9b3f08e13b57efa49c900e83dc5db94efbf025ae61a8e97",
+      "linear_instructions": 32
+    },
+    {
+      "label": "D four-group initializer",
+      "start": "0x140e30940",
+      "end": "0x140e30fba",
+      "sha256": "2d3b09bdc1b8e6ea09693db21a61f8886fd96e003400ce5078ee9b0aa3da4597",
+      "linear_instructions": 369
+    },
+    {
+      "label": "D concrete capture invoke leaf",
+      "start": "0x140e33240",
+      "end": "0x140e33249",
+      "sha256": "74aaa8214f17c278ac400e937b507b342c187827d19fbdea59ebc01ea842e0c5",
+      "linear_instructions": 2
+    },
+    {
+      "label": "D concrete capture copy/move leaf",
+      "start": "0x140e33250",
+      "end": "0x140e33270",
+      "sha256": "1d7b63ca7547de7baff74d73b92e0f099cc3c880ee0965bb1ebe04c89cf095fd",
+      "linear_instructions": 8
     }
   ],
   "slots": [
@@ -115,6 +255,21 @@
       "table": "0x14333ac40",
       "offset": "0x678",
       "target": "0x141ba96a0"
+    },
+    {
+      "table": "0x1431fa7d0",
+      "offset": "0x0",
+      "target": "0x140e33250"
+    },
+    {
+      "table": "0x1431fa7d0",
+      "offset": "0x8",
+      "target": "0x140e33250"
+    },
+    {
+      "table": "0x1431fa7d0",
+      "offset": "0x10",
+      "target": "0x140e33240"
     }
   ],
   "baseline_sources": [
@@ -142,6 +297,331 @@
       "commit": "aaebde497419b5167f9c56cacfe7aa70a18f5f51",
       "path": "Agents/docs/re/projectiles/fireball-and-kinetic-blast.md",
       "sha256": "6f810a6bccd5bc7f3266060d9b4d67968c51b7e403a8226cd2959b3b03e8fc32"
+    }
+  ],
+  "imports": [
+    {
+      "dll": "KERNEL32.dll",
+      "symbol": "CreateThread",
+      "iat": "0x142f43358"
+    },
+    {
+      "dll": "KERNEL32.dll",
+      "symbol": "GetTickCount",
+      "iat": "0x142f43468"
+    },
+    {
+      "dll": "ole32.dll",
+      "symbol": "CoInitializeEx",
+      "iat": "0x142f44080"
+    }
+  ],
+  "anchors": [
+    {
+      "address": "0x140e2ff30",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rsp + 0x50], r15"
+    },
+    {
+      "address": "0x140e2ff3f",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rbp - 0x50], r12"
+    },
+    {
+      "address": "0x140e2ff5f",
+      "mnemonic": "lea",
+      "operands": "r8, [rbp - 0x50]"
+    },
+    {
+      "address": "0x140e2ff66",
+      "mnemonic": "mov",
+      "operands": "rcx, qword ptr [rbx]"
+    },
+    {
+      "address": "0x140e2ff69",
+      "mnemonic": "call",
+      "operands": "0x140e2f3c0"
+    },
+    {
+      "address": "0x140e2f3fb",
+      "mnemonic": "call",
+      "operands": "qword ptr [rax]"
+    },
+    {
+      "address": "0x140e2f405",
+      "mnemonic": "lea",
+      "operands": "rdx, [rbx + 0x50]"
+    },
+    {
+      "address": "0x140e2f40e",
+      "mnemonic": "call",
+      "operands": "0x140133ff0"
+    },
+    {
+      "address": "0x140e2f440",
+      "mnemonic": "call",
+      "operands": "0x140e2f210"
+    },
+    {
+      "address": "0x140e2f47a",
+      "mnemonic": "lea",
+      "operands": "rax, [rip - 0x131]"
+    },
+    {
+      "address": "0x140e2f481",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rdi + 0x10], rax"
+    },
+    {
+      "address": "0x140e2f485",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rdi + 0x18], rbx"
+    },
+    {
+      "address": "0x140e2f4a1",
+      "mnemonic": "lea",
+      "operands": "r8, [rip + 0x4438]"
+    },
+    {
+      "address": "0x140e2f4aa",
+      "mnemonic": "call",
+      "operands": "qword ptr [rip + 0x2113ea8]"
+    },
+    {
+      "address": "0x140e2f359",
+      "mnemonic": "call",
+      "operands": "0x140e2f210"
+    },
+    {
+      "address": "0x140e2f362",
+      "mnemonic": "call",
+      "operands": "qword ptr [rip + 0x2114d18]"
+    },
+    {
+      "address": "0x140e2f36c",
+      "mnemonic": "mov",
+      "operands": "rcx, qword ptr [rbx + 0x88]"
+    },
+    {
+      "address": "0x140e2f37b",
+      "mnemonic": "call",
+      "operands": "qword ptr [rax + 0x10]"
+    },
+    {
+      "address": "0x140e2f2fe",
+      "mnemonic": "call",
+      "operands": "qword ptr [rip + 0x2114164]"
+    },
+    {
+      "address": "0x140e2f304",
+      "mnemonic": "mov",
+      "operands": "rcx, qword ptr gs:[0x58]"
+    },
+    {
+      "address": "0x140e2f30d",
+      "mnemonic": "mov",
+      "operands": "edx, 0x170"
+    },
+    {
+      "address": "0x140e2f312",
+      "mnemonic": "mov",
+      "operands": "rcx, qword ptr [rcx]"
+    },
+    {
+      "address": "0x140e2f315",
+      "mnemonic": "mov",
+      "operands": "dword ptr [rdx + rcx], eax"
+    },
+    {
+      "address": "0x140e33240",
+      "mnemonic": "add",
+      "operands": "rcx, 8"
+    },
+    {
+      "address": "0x140e33244",
+      "mnemonic": "jmp",
+      "operands": "0x140e30000"
+    },
+    {
+      "address": "0x140e33250",
+      "mnemonic": "lea",
+      "operands": "rax, [rip + 0x23c7579]"
+    },
+    {
+      "address": "0x140e33257",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rdx], rax"
+    },
+    {
+      "address": "0x140e30030",
+      "mnemonic": "mov",
+      "operands": "rbx, qword ptr [r14]"
+    },
+    {
+      "address": "0x140e300bf",
+      "mnemonic": "mov",
+      "operands": "rcx, rbx"
+    },
+    {
+      "address": "0x140e300c2",
+      "mnemonic": "call",
+      "operands": "0x140e329c0"
+    },
+    {
+      "address": "0x140e300cf",
+      "mnemonic": "mov",
+      "operands": "rcx, qword ptr [rsp + 0x68]"
+    },
+    {
+      "address": "0x140e300dc",
+      "mnemonic": "call",
+      "operands": "qword ptr [rax + 0x10]"
+    },
+    {
+      "address": "0x140e31319",
+      "mnemonic": "mov",
+      "operands": "rbx, qword ptr [rcx + 8]"
+    },
+    {
+      "address": "0x140e31323",
+      "mnemonic": "imul",
+      "operands": "rcx, rax, 0x178"
+    },
+    {
+      "address": "0x140e3132a",
+      "mnemonic": "add",
+      "operands": "rcx, rbx"
+    },
+    {
+      "address": "0x140e3136d",
+      "mnemonic": "call",
+      "operands": "0x140e2f550"
+    },
+    {
+      "address": "0x140e313b4",
+      "mnemonic": "call",
+      "operands": "qword ptr [rax + 0x10]"
+    },
+    {
+      "address": "0x140e32b95",
+      "mnemonic": "add",
+      "operands": "rdx, 8"
+    },
+    {
+      "address": "0x140e32b9e",
+      "mnemonic": "call",
+      "operands": "0x140133540"
+    },
+    {
+      "address": "0x140e32bac",
+      "mnemonic": "mov",
+      "operands": "byte ptr [r14], 1"
+    },
+    {
+      "address": "0x140e32bc2",
+      "mnemonic": "lea",
+      "operands": "rcx, [r14 + 0x10]"
+    },
+    {
+      "address": "0x140e32bcf",
+      "mnemonic": "call",
+      "operands": "0x140133540"
+    },
+    {
+      "address": "0x140e30945",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rsp + 8], rcx"
+    },
+    {
+      "address": "0x140e30d37",
+      "mnemonic": "mov",
+      "operands": "rbx, qword ptr [rbp + 0xe0]"
+    },
+    {
+      "address": "0x140e30db8",
+      "mnemonic": "mov",
+      "operands": "rcx, rbx"
+    },
+    {
+      "address": "0x140e30dbb",
+      "mnemonic": "call",
+      "operands": "0x140e2f960"
+    },
+    {
+      "address": "0x140e30e57",
+      "mnemonic": "call",
+      "operands": "0x140e2f960"
+    },
+    {
+      "address": "0x140e30efa",
+      "mnemonic": "call",
+      "operands": "0x140e2f960"
+    },
+    {
+      "address": "0x140e30f93",
+      "mnemonic": "call",
+      "operands": "0x140e2f960"
+    },
+    {
+      "address": "0x140e30f98",
+      "mnemonic": "mov",
+      "operands": "byte ptr [rdi + 0x600], 1"
+    },
+    {
+      "address": "0x140133564",
+      "mnemonic": "call",
+      "operands": "qword ptr [rax + 8]"
+    },
+    {
+      "address": "0x140133567",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rdi + 0x38], rax"
+    },
+    {
+      "address": "0x140133593",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rdi + 0x38], rcx"
+    },
+    {
+      "address": "0x140134101",
+      "mnemonic": "call",
+      "operands": "qword ptr [rax + 8]"
+    },
+    {
+      "address": "0x140134109",
+      "mnemonic": "mov",
+      "operands": "qword ptr [rsi], rax"
+    }
+  ],
+  "bounded_reference_queries": [
+    {
+      "start": "0x140e31180",
+      "end": "0x140e32c70",
+      "target": "0x140e2f960",
+      "aligned_sites": []
+    },
+    {
+      "start": "0x140e30000",
+      "end": "0x140e31180",
+      "target": "0x140e2f960",
+      "aligned_sites": [
+        "0x140e30dbb",
+        "0x140e30e57",
+        "0x140e30efa",
+        "0x140e30f93"
+      ]
+    },
+    {
+      "start": "0x140e31180",
+      "end": "0x140e32c70",
+      "target": "0x140e30940",
+      "aligned_sites": []
+    },
+    {
+      "start": "0x140e30000",
+      "end": "0x140e31180",
+      "target": "0x140e30940",
+      "aligned_sites": []
     }
   ]
 }
