@@ -1312,6 +1312,9 @@ and can require explicit recipes.
   [AddBuffToTarget variety selection](../docs/re/client-addbuff-varieties.md) binds its registered callback to
   83 packed rows indexed by the sparse `__col5` key, rather than row ordinal. Four rows declare incoming rates;
   their optional backend keys miss the audited startup catalogue. Actual target-rate publication remains open.
+  Its [selected BuffVisuals receiver](../docs/re/client-addbuff-visual-dependencies.md) is now bound through
+  actual callable installation to EPK resource dependency collection; the four visual rows provide 1/1/1/2 paths.
+  The third metadata input is a retained-handle vector under that installation, not established target damage.
   The [pinned-main comparison](../docs/re/client-main-reconciliation.md) separates existing server mechanics
   and clocks from original-client evidence; it does not advance the original R2/R3/R4 completion states.
   [Eight maximum-resistance equations](../docs/re/client-maximum-resistance-inputs.md) now preserve shared

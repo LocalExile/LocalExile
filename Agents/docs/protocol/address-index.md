@@ -666,7 +666,10 @@ that does not exist with hash: ", "Area reported by instance does not exist", "U
 | `0x1419e7660` / `0x1419eef50` | Fn | Spell duration: virtual base milliseconds / 1000 / (1 + cast speed / 100) |
 | `0x141973a60` / `0x141989800` | Fn | AddBuffToTarget registration / metadata callback: native 6433 selects variety by sparse __col5 key ([binding](../re/client-addbuff-varieties.md)); actual target-rate publication remains open |
 | `0x14239a230` / `0x14239a6e0` | Fn | AddBuffToTargetVarieties loader / record fixup: 0x5c stride and row+0x44 index key; table declaration is not a DoT contribution |
-| `0x141e517a0` | Fn | Selected variety row to BuffVisuals indirect callback and strict Id2 backend-callback route; four incoming-rate rows miss the audited backend startup catalogue |
+| `0x141e517a0` | Fn | Selected variety row to BuffVisuals dependency callback and strict Id2 backend-callback route; four incoming-rate rows miss the audited backend startup catalogue |
+| `0x141599a80` | Fn | Selected global 0x144499878 callable receiver: traverse BuffVisuals EPK/resource references into retained-handle output ([binding](../re/client-addbuff-visual-dependencies.md)); not recovered DoT publication |
+| `0x1415baea0` / `0x1415bae90` | Leaf | Actual call/table-anchored BuffVisuals callable copy/move / invocation tail thunk to 0x141599a80; selected installation uses table 0x14345e928 |
+| `0x141e4f370` | Fn | Resolve a configured resource reference and append its retained handle to the dependency vector |
 | `0x1419e7500` / `0x1419e763c` | Fn / Code | Ordinary spell speed getter / read cast_speed_+% (296) |
 | `0x141d84b00` | Fn | terrain height of a cell (terrain, int cell[2]) in steps of 7.8125; `0x141e35800` interpolates for a Positioned |
 | `0x1415f53c0` | Fn | Render: model transform; tilt = −`0x141e35c00`(Positioned) when the type has `tilt_to_target` |

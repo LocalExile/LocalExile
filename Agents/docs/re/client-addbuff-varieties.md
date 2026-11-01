@@ -8,8 +8,9 @@ The index key is **`__col5`, not the table row number**. The 83 keys are unique 
 
 Four variety rows refer to base incoming physical/chaos damage rates. Their Buff backend keys all miss the
 [previously audited startup catalogue](client-buff-default-backend.md), so the selected optional backend-callback
-arm is skipped. This does not identify an actual target-rate contribution or prove the whole function has no
-numerical consequences: its earlier BuffVisuals callback is indirect and remains a separate boundary.
+arm is skipped. The earlier BuffVisuals callback's selected installation is now
+[bound to dependency collection](client-addbuff-visual-dependencies.md). This still does not identify an actual
+target-rate contribution or prove that all other client paths lack numerical consequences.
 
 Original R2/R3/R4 remain Partial. This is an action configuration/callback connection, not recovered DoT
 infliction, instance selection, aggregation, shared-cap publication or expiration withdrawal.
@@ -87,7 +88,8 @@ That correspondence is a declaration, not an instance damage magnitude or a nati
 
 `0x141e517a0` first reads the definition from the row. When nonnull, it passes definition `+0x55` (BuffVisualsKey)
 and the original third input through a global object's virtual `+0x10` at `0x141e517de`.
-The selected receiver and its effects are not closed here; a missing global instead enters a failure helper.
+The [follow-up receiver audit](client-addbuff-visual-dependencies.md) binds its selected installation and resource
+handle output; a missing global instead enters a failure helper.
 
 The helper then gets the existing backend registry through `0x141e06110` and calls `0x141e05e40` at
 `0x141e517f7`, forwarding the selected row as the fifth argument.
@@ -102,7 +104,7 @@ flowchart LR
   V[skill_behaviour_variation] --> I[Index keyed by __col5]
   T[83 packed variety rows] --> I
   I --> R[Selected row and Buff definition]
-  R --> B[BuffVisuals indirect callback: receiver open]
+  R --> B[BuffVisuals resource dependency collector]
   B --> K[Strict Id2 backend lookup]
   K -->|Four selected keys absent from audited startup| S[Skip optional backend callback]
   R -. actual target-rate publication not recovered .-> D[Target DoT rate]
@@ -117,5 +119,5 @@ The immutable R12 registry and strict lookup evidence are reused without executi
 Exact hashes and verification results are indexed in the [evidence manifest](client-damage-evidence.json).
 
 Do not repeat the completed table-key or default-backend investigation as an unresolved numerical producer.
-A useful continuation must bind an actual target/provider/source token and amount, or identify the relevant
-indirect callback receiver. Neither the action name nor a StatsKeys declaration alone closes that edge.
+A useful continuation must bind an actual target/provider/source token and amount. The selected BuffVisuals
+receiver is now classified separately; neither the action name nor a StatsKeys declaration closes publication.

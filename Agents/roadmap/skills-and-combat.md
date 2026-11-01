@@ -317,7 +317,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Resolve source instances into base rates and actual publication eligibility.
   Reuse [AddBuffToTarget's recovered sparse variety index](../docs/re/client-addbuff-varieties.md);
   its four incoming-rate declarations and optional-backend misses are not actual target contribution writes.
-  Bind an actual target/provider/source/amount or the remaining BuffVisuals receiver before extending that lead.
+  Its [selected BuffVisuals receiver](../docs/re/client-addbuff-visual-dependencies.md) now closes as dependency
+  collection; stop that branch. Bind an actual target/provider/source/amount before extending it numerically.
   Consult [current-main ownership](../docs/re/client-main-reconciliation.md) before proposing implementation;
   existing Arcane Might and ignite paths should not be recreated from stale research assumptions.
   Reuse [bleeding policy inputs](../docs/re/client-bleeding-policy-inputs.md): conditional Crimson Dance,
