@@ -44,19 +44,21 @@ public sealed class PlayerWalk
 
     public double Speed => _speed;
 
-    /// <summary>Changes the walking speed. As in the client, the segment in progress keeps its pace; the following
-    /// segments are set up at the new speed.</summary>
+    /// <summary>Changes the walking speed. As in the client, the segment in progress starts again from the walker's cell
+    /// at the new pace, at once, and the following segments are set up at the new speed.</summary>
     public void SetSpeed(double speed, double now)
     {
         if (speed <= 0) throw new ArgumentOutOfRangeException(nameof(speed));
         _speed = speed;
+        var here = At(now, out double fraction);
         int i = _segments.FindIndex(s => now < s.End);
         if (i < 0) return;
-        for (int k = i + 1; k < _segments.Count; k++)
-        {
-            var s = _segments[k];
-            _segments[k] = s with { T0 = _segments[k - 1].End, Step = StepTime(s.From, s.Cells[^1]) };
-        }
+        var end = _segments[i].Cells[^1];
+        float step = StepTime(here, end);
+        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], now - fraction * step, step) };
+        foreach (var next in _segments.Skip(i + 1))
+            walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
+        _segments = walk;
     }
 
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
