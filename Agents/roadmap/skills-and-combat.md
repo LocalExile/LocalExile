@@ -304,6 +304,14 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 ### Damage model (foundation done, deeper defence next)
 
+- **Client/server single-hit authority contract research (#370):** prioritize the external contract over formulas.
+  Follow one attributable monster hit on the player, starting with evidence availability and client mode.
+  Bind client prediction/reporting, action/result identity, feedback/control and authoritative resource application.
+  Reuse fixed #371/#373 findings and peer contact boundaries; do not assume predict-then-correct or per-hit reports.
+  The [workbench](../docs/re/client-hit-authority-contract.md) defines Q0-Q3 and the evidence needed before Ready.
+  A mandatory association gap needs a bounded observation plan; author-reported or synthetic data cannot close it.
+  No server implementation or new runtime collection is included in the Draft bootstrap.
+
 - **Done:** hits are per-type `DamagePacket`s; conversion follows physical, lightning, cold, fire, chaos, including
   chained conversion, the 100% cap and gain-as-extra.
   DoT/ailment formulas and fractional ticks are in the same model, and per-type resistance mitigation works on
