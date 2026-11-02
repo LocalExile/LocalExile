@@ -297,7 +297,10 @@ static partial class Game
                 {
                     m.Aggro = false;
                     m.SwingGeneration = null;
-                    plan.Moves.Add((id, m, ++m.ActionGeneration, m.Walk.Order(mx, my, now), (mx, my), "gives up"));
+                    m.LastTarget = null;
+                    // A Move to its own cell does not replace the attack the client is still chasing with.
+                    var stay = NextCell(conn, m, mx, my);
+                    plan.Moves.Add((id, m, ++m.ActionGeneration, m.Walk.Order(stay.X, stay.Y, now), stay, "gives up"));
                     continue;
                 }
                 // Frozen: it stands where it is and does nothing until the freeze ends. A chase order stays open on the client
@@ -364,10 +367,10 @@ static partial class Game
                 if (m.Hostile && m.Attack is { } a && d <= (a.Ranged || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action;
+                    // A melee swing starts at the end of its walk-up. An attack during a Move ends that with
+                    // 0x141e90740(…, 0), which does not stop the pathing: the monster swings while it walks on.
+                    if (!a.Ranged && m.LastTarget is not null) m.Walk.Order(mx, my, now);
                     m.LastTarget = null;
-                    // A melee swing starts at the end of its walk-up. A non-pathing action ends the Move with
-                    // 0x141e90740(…, 0), which does not stop the pathing: a ranged monster shoots while it walks on.
-                    if (!a.Ranged) m.Walk.Order(mx, my, now);
                     m.SwingGeneration = ++m.ActionGeneration;
                     cadence.BeginSwing(m, m.ActionGeneration);
                     plan.Swings.Add((id, m, m.ActionGeneration));
@@ -432,6 +435,17 @@ static partial class Game
             }
         }
         return plan;
+    }
+
+    // The nearest other cell a monster can stand on, or its own when it has none.
+    static (int X, int Y) NextCell(ClientState conn, SpawnedMonster m, int x, int y)
+    {
+        int size = Math.Max(0, LivingCollision.Size(m));
+        for (int reach = 1; reach <= 3; reach++)
+            foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                if (conn.Layout.WalkableFor(x + dx * reach, y + dy * reach, size) && !conn.Barrier.Contains((x + dx * reach, y + dy * reach)))
+                    return (x + dx * reach, y + dy * reach);
+        return (x, y);
     }
 
     internal static async Task StepMonsterAi(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

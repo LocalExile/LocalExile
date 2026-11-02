@@ -96,6 +96,8 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
 
 sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
+    public bool Asleep;
     public MonsterAttack? Attack { get; init; }
     public bool Hostile { get; init; } = true;
     public uint? OwnerId { get; init; }
@@ -266,7 +268,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
-    public double NextKeepInSyncAt;
+    public double NextWakeZoneAt;
     // How far every walker's steps have been checked (Game.StepWalkers).
     public double WalkersSteppedTo;
     // When the movement skill under way ends on the client: the server has already landed it (Game.ResyncAfter).

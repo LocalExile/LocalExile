@@ -17,9 +17,9 @@ static partial class Game
     }
 
     // Every 250 ms: the monsters waiting near the player, and lurking ones that were hit, rise (MonsterEmerge.RiseLocked).
-    // For each, S→C 0x1ab gives it its Emerge basic action in place, 0x2ba steps its Transitionable to the transitioned
-    // state (on_transition: EnableTargetable), and 0x1ac at once lets the action play: the .act's Emerge clip, from the
-    // paused first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
+    // For each, 0x2ba steps its Transitionable to the transitioned state (on_transition: EnableTargetable), S→C 0x1ab gives
+    // it its Emerge basic action in place, and 0x1ac at once lets the action play: the .act's Emerge clip, from the paused
+    // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead.
     internal static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -57,14 +57,13 @@ static partial class Game
         {
             int index = v.ComponentsOrBase.ToList().IndexOf("Transitionable");
             byte state = MonsterEmerge.RisenState(v);
-            var messages = MonsterEmerge.RiseMessages(id, at, skill, (byte)index, state);
-            await Send(remote, stream, ciphers, messages[0],
-                $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s");
-            await Send(remote, stream, ciphers, messages[1], $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
+            var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
+            await Send(remote, stream, ciphers, messages[0], $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
             // A server action waits in the Actor's pending slot (+0x1b8) until 0x1ac sets its go flag (0x141e94720, looked at
             // again every 0.25 s); only then does it move to +0x1b0 and play.
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), $"0x01ac monster 0x{id:x} ({m.Label}) emerge action plays",
+            await Send(remote, stream, ciphers, messages[1],
+                $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",
                 still: Still);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)

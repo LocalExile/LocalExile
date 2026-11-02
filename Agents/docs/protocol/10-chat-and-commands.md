@@ -324,10 +324,12 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
       Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script.
 
     The server raises one:
-    1. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, sequence 0xffff, flags 0x0408:
-       the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead: `grasp_emerge`, 3.7 s).
-    2. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
-    3. In the same tick, as GGG does, S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
+    In one tick, in GGG's order:
+    1. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
+    2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
+       a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
+       `grasp_emerge`, 3.7 s).
+    3. S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
        (`0x141e94720`, looked at again every 0.25 s), and only then plays (`+0x1b0`). After the clip the monster chases
        and attacks like any other.
     Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises

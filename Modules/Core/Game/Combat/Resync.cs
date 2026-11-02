@@ -7,28 +7,52 @@ static partial class Game
 {
     // How far around the player GGG lists monsters in a resync (23.4 cells at most).
     internal const int ResyncRadius = 24;
-    // In a tight crowd a body's cell differs by one for a few milliseconds between client and server, which is enough to
-    // send a monster round the other side, and nothing tells the server. The list only moves what is 20 or more cells off,
-    // so sending it costs nothing when all is well; between stuns it is what ends such a drift.
-    const double KeepInSyncSeconds = 1;
-    const int KeepInSyncRadius = 171;   // the wake zone GGG keeps (0x1a9 and 0x1aa)
 
-    internal static async Task KeepInSync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // GGG wakes only what is near the player, and a monster out of the zone stops ticking on the client: without this a
+    // chase the server has given up goes on there for as long as the player stays away. One that comes back is put where
+    // the server has it.
+    const int WakeZoneRadius = 171, WakeZoneReturn = 163;
+    const double WakeZoneSeconds = .5;
+
+    internal static async Task KeepWakeZone(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        // Without a walk map the estimates go through walls: nothing may be put where they stand.
-        if (now < conn.NextKeepInSyncAt || now < conn.LandingUntil || !conn.PlayerSent || conn.Layout.Walkable is null) return;
-        conn.NextKeepInSyncAt = now + KeepInSyncSeconds;
+        double checkedAt = conn.Clock.Elapsed.TotalSeconds;
+        if (checkedAt < conn.NextWakeZoneAt || !conn.PlayerSent) return;
+        conn.NextWakeZoneAt = checkedAt + WakeZoneSeconds;
         await Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)
-                return conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 ? null
-                    : ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds, KeepInSyncRadius);
+            {
+                if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                var player = conn.Walk.Position(now);
+                var packets = new List<byte>();
+                List<(uint Id, int X, int Y)> back = [];
+                foreach (var (id, m) in conn.Monsters)
+                {
+                    if (m.Dead || m.Life <= 0 || m.OwnerId is not null) continue;
+                    var at = m.Walk.Position(now);
+                    double d = Dist(at, player);
+                    if (!m.Asleep && d > WakeZoneRadius)
+                    {
+                        m.Asleep = true;
+                        packets.AddRange(InstanceProtocol.LeaveWakeZone(id));
+                    }
+                    else if (m.Asleep && d <= WakeZoneReturn)
+                    {
+                        m.Asleep = false;
+                        packets.AddRange(InstanceProtocol.EnterWakeZone(id));
+                        back.Add((id, at.X, at.Y));
+                    }
+                }
+                if (back.Count > 0) packets.AddRange(InstanceProtocol.Resync([(PlayerId, player.X, player.Y), .. back]));
+                return packets.Count == 0 ? null : [.. packets];
+            }
         });
     }
 
     // S→C 0x128 with the player first, then the monsters around it, where the server has them. Called under conn.Monsters.
-    internal static byte[] ResyncPacketLocked(ClientState conn, double now, int radius = ResyncRadius)
+    internal static byte[] ResyncPacketLocked(ClientState conn, double now)
     {
         var player = conn.Walk.Position(now);
         List<(uint Id, int X, int Y)> objects = [(PlayerId, player.X, player.Y)];
@@ -36,7 +60,7 @@ static partial class Game
         {
             if (m.Dead || m.Life <= 0) continue;
             var at = m.Walk.Position(now);
-            if (Dist(at, player) <= radius) objects.Add((id, at.X, at.Y));
+            if (Dist(at, player) <= ResyncRadius) objects.Add((id, at.X, at.Y));
         }
         return InstanceProtocol.Resync(objects);
     }

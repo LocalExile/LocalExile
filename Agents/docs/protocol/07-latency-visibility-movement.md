@@ -298,17 +298,16 @@ cells from theirs. Under 20 cells nothing moves, so sending one costs nothing. L
 and 25 cells onto the records and went on playing. GGG sends it with every stun of the player and with no other hit,
 listing the player and the monsters within 23.4 cells; the Gateway does the same.
 
-**Once a second.** In a tight crowd a body's cell differs by one for a few milliseconds between client and server, which is
-enough to send a monster round the other side of the pack, and nothing tells the server. So the Gateway sends a 0x128
-every second for the player and the monsters within 171 cells (`KeepInSync`, the wake zone GGG keeps). It moves only what
-is 20 or more cells off, so it costs nothing when all is well. An area with no walk map gets none: the estimates there go
-through walls.
+GGG sends no timed 0x128: every drift above 20 cells it leaves alone, and a timed one is seen as objects, the player
+included, jumping 20 cells or more. A gap closes when a walk ends on its target.
+
+**The wake zone.** Monsters more than about 171 cells from the player leave it (S→C 0x1aa) and stop ticking on the client,
+so a chase the server gave up does not run on there. They come back with 0x1a9 and a 0x128 for their cell (`KeepWakeZone`).
 
 **The client asks for it.** Each commenced action other than Move adds one to a counter, each 0x1ac takes one off and
 5 s take one off; above 3 it sends C→S 0x16 command 8 (`InstanceItems.ForceResyncCommand`) and starts again. The
 Gateway answers with a 0x128, and `/oos` does the same by hand. GGG ends non-Move actions with a 0x1ac in the same tick,
-so its clients rarely ask. The Gateway does so for monsters but not for the player's own actions: a request
-costs nothing when nothing is 20 cells off, and it stays a safety net.
+so its clients do not ask, and the Gateway does the same.
 
 **Measuring it.** `Game_TRACE=sync` logs the server's estimates every 50 ms, `scripts/dev/sync_drive.py` plays a session
 client with real mouse input through `scripts/re/frida/drive-input.js` and records where the client has every object
@@ -429,9 +428,10 @@ frames (the tick rules above) and sending the start of each action in the frame 
 - The meaning of 0x1ba's +0x28 and u8. Moving other (non-predicted) objects works with 0x1ab and the Move skill
   0x2909 (monsters, [10](10-chat-and-commands.md) §5); 0x1ba's float is distance per second (duration = distance / value).
 - 0x0099 and 0x004e.
-- Monster estimates still differ in the 5–50 ms until the client applies an order. The Gateway never sends 0x1aa (GGG does
-  at about 171 cells).
+- Monster estimates still differ in the 5–50 ms until the client applies an order.
 - The client's walk-up arguments for the map device (`Approach`).
 - Two monsters racing for one cell can swap places between client and server: the same cells are taken, by different ids.
-  Routes through a tight crowd differ for the same reason; the once-a-second resync bounds it at 20 cells.
+  Routes through a tight crowd differ for the same reason.
+- A monster told to swing that the player then leaves walks after the player on the client while the server stands for the
+  attack's time; the gap stays while both chase.
 - Lockstep (§6): the action sequence for 0x1ad, the object-use path (0x018f) and server frame stepping.

@@ -351,6 +351,8 @@ public static class InstanceProtocol
     /// </summary>
     public static byte[] EnterWakeZone(uint objectId) => new LoginWriter().U16(EnterWakeZoneId).U32(objectId).U32(0).U16(0).ToArray();
 
+    public static byte[] LeaveWakeZone(uint objectId) => new LoginWriter().U16(LeaveWakeZoneId).U32(objectId).U32(0).U16(0).ToArray();
+
     public const ushort RemoveObjectId = 0x2bb;
 
     /// <summary>S→C 0x2bb (world group, header only, read 0x141f92000): remove an object (the world handler's "remove
