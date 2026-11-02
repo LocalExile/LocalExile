@@ -115,6 +115,7 @@ damage number:
 ## Commits (port branch, newest first)
 
 ```
+c976b7ab docs: checkpoint herald effects and latest commits
 193cb100 test: every herald has a hit effect
 263afdd9 feat: every herald plays its own hit effect
 2e593d64 docs: Frida confirms the cast and impact clips on the client
@@ -159,7 +160,7 @@ de07fbd6 merge: upstream main into the survivors port
 | Supports | 8 real support gems, up to 5 per skill, each linked at the skill's rank and read for its real stats (added fire/cold/lightning, cast speed, area, crit, projectile speed/damage, life leech) |
 | Blessings | 8 run-local passives (Might, Haste, Area, Critical, Leech, Wisdom, Fortitude, Swiftness) |
 | Unique items | every 3rd run level from the full 1299-definition PoB catalogue (1072 equipment); equipped on pick; requirements waived; mods reach the character and the run casts (FinalPlayerStats merged); only Tabula Rasa has no stat |
-| Heralds | Ash/Ice/Thunder/Agony/Purity as `Herald` kind: aura pulse (12 cells, grown by rank/area) every cast, gem aura buff on the player (`0x1c1`) + impact packet (`0x1af`) on each hit |
+| Heralds | Ash/Ice/Thunder/Agony/Purity as `Herald` kind: aura pulse (12 cells, grown by rank/area) every cast, gem aura buff on the player (`0x1c1`), impact packet (`0x1af`) with the gem's damage-type code, and the gem's own hit effect at up to three targets (Ash `flameherald_explode`, Ice `iceherald_explode`, Thunder `lightning_strike_herald`, Agony `mortarimpact`, Purity `slam_impact`) |
 | Skill bar | run skills as Actor skills (`0x2ba`), ids from `0x0300`, slots from Q; cooldown `0x1ce` per target + `0x02ba` trailer |
 | Loot | no `DropLoot`, no `SendGroundItems`, no gold auto-loot during a run; ground swept at start, on area resume and every run second (`0x2bb`, store `Take`) |
 | Inventory | every `/survivors start` empties the character (main inventory, equipment, flasks, second weapon set, row 102), one `0xbf` per row |
@@ -181,6 +182,23 @@ de07fbd6 merge: upstream main into the survivors port
 - Loot: 351 ground items hidden at start, 0 `create world item` during a run; inventory reset rows logged.
 - Window close: `offer cleared after choosing Herald of Ash` + `offer closed`, run continues.
 - Area change (old branch, same code path): run carried to the next area.
+
+## Verified live (2026-11-03, support matrix and animations)
+
+- **Support matrix** (`/survivors matrix`): Ethereal Knives `Physical 7-11` -> Added Fire `Fire 1.75-2.75`, Added
+  Cold `Cold 8.4-12.6`, Added Lightning `Lightning 2.1-16.8`, crit `10 -> 19.2%`, Faster Projectiles speed
+  `257.6 -> 386.4` and hit `7-11 -> 8.4-13.2`, Life Leech `0 -> 1000`; Fireball `Fire 9-14` -> Added Cold `12-18`,
+  Added Lightning `3-24`, radius `6.9 -> 7.3`, crit `5 -> 11.2%`, Faster Projectiles speed `95.7 -> 143.5` and hit
+  `9-14 -> 10.8-16.8`; Tornado Shot `Physical 10.35-20.7` -> Added Fire `Fire 2.59-5.18`. Faster Casting and
+  Increased Area correctly refused the attack, and the offer only showed legal supports.
+- **Cast animation**: `0x01b2` kind 0 with the stance rig clip. Fireball `spell_projectile_unarmed` index 386,
+  Tornado Shot `attack1_unarmed` 28, Storm Burst `spell_aoe_unarmed` 335, Herald of Ash `spell_buff_unarmed` 367.
+  A Frida probe on the live client saw the body controller accept index 386 and set its clip to 386.
+- **Projectile impact**: a Frida probe saw Fireball's projectile objects receive index 1 (`fireball_explode`) at
+  impact; the server-drawn projectile carries its flight/impact clips from `projectile-clips.json`.
+- **Herald hit effects**: `/survivors test Herald of <name>` plus a spawned unique produced the `0x02b9` create for
+  Ash `flameherald_explode.ao`, Ice `iceherald_explode.ao`, Agony `mortarimpact.ao`, Purity `slam_impact.ao`, and
+  Thunder `lightning_strike_herald.ao`; each object is removed when its clip ends.
 
 ## Tests and build
 
@@ -238,9 +256,10 @@ python scripts\dev\client_control.py command "/survivors status"
 
 1. **DOT components** (issue #503): Caustic Arrow / Vaal Caustic Arrow's caustic ground, Soulrend's debuff and poison
    need a monster ground-DOT model; their hit portions already work on the gem's real numbers.
-2. **Per-gem cast animations** (documented in `Agents/docs/game/survivors-mode.md` "Needs testing").
-3. **PR #502**: head `2fe060c9`, `mergeable=true`, `mergeable_state=clean`, docs-scan green. Merge it when the
-   maintainer is ready; the preview label stays in the title.
+2. **Conditional unique mechanics** (per charge, at full life, on block, "while you have..."): the catalogue and stats
+   are verified, but each such unique still needs its own live check.
+3. **PR #502**: head `c976b7ab` (the checkpoint docs commit follows), `mergeable=true`, `mergeable_state=clean`,
+   docs-scan green. Merge it when the maintainer is ready; the preview label stays in the title.
 4. Port the status entry: `Agents/status/skills-and-combat.md` still describes the old branch; update it on the port
    branch (the docs file is already ported).
-5. Optional: grow `UniqueCatalog` definitions used by the item offers; more blessings; herald variants.
+5. Optional: more blessings; more herald variants; a DOT ground model for the herald/ailment pass.
