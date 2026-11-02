@@ -24,7 +24,7 @@ public sealed class VolleySupportTests
         };
         try
         {
-            var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!);
+            var wand = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1") ?? Program.Items.Find("Driftwood Wand")!);
             var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
             var volley = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemParallelProjectiles")!);
             Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand with
@@ -36,7 +36,8 @@ public sealed class VolleySupportTests
             var skills = Game.PlayerSkills(conn);
             var fb = skills.Single(s => Game.SkillEffectId(conn, s.Id) == "Fireball");
             uint xDistKey = Program.Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist")!.Value;
-            Assert.Contains((xDistKey, 80), fb.Stats);
+            Assert.NotNull(fb.Stats);
+            Assert.Contains((xDistKey, 80), fb.Stats!);
         }
         finally
         {
