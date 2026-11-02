@@ -47,6 +47,8 @@ damage number:
   ailment stats reach the run's hit. The pool only offers items that fit an equipment row (no jewels/flasks/maps).
   The Searing Touch raised Fireball from `Fire 20.35-31.65 / Cold 27.13-40.70` to `Fire 44.56-69.32 / Cold
   39.61-59.42` live.
+  An attack gem also swings the equipped weapon (local damage, local added, attack time and local crit):
+  Doomfletch raised Tornado Shot from `Physical 10.35-20.70` to `Physical 28-80` live.
 - **Unique sweep.** `/survivors uniques`: 1299 definitions, 1299 create, 1072 fit an equipment row, 1071 with a
   recognized stat, 0 missing Mods.dat rows; only Tabula Rasa has no stat (its identity is white sockets).
   `UniqueCatalogueTests` locks this in CI.
@@ -72,6 +74,7 @@ damage number:
 ## Commits (port branch, newest first)
 
 ```
+6378079b feat: survivors attacks use the equipped weapon's local damage and crit
 6a9680e1 feat: seal each survivors stage behind its lore boss; run casts read unique stats
 d2dbfa10 feat: every survivors gem casts with its own stats and PoB formulas
 35eb8214 docs: full survivors port checkpoint for the next session
