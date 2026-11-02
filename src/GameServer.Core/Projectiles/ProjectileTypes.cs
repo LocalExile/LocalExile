@@ -46,7 +46,7 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
-    bool RandomDirections = false);
+    bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null);
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
 public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
@@ -184,6 +184,9 @@ public sealed record ProjectileProfile(string Id)
     public Func<int, IProjectileLegs>? Legs { get; init; }
     /// <summary>A legged flight ends this far from where it started; zero has no limit.</summary>
     public double LegLeash { get; init; }
+    /// <summary>The server simulates this flight for damage but sends no object: the client draws it itself (Tornado
+    /// Shot's terminal secondary arrows).</summary>
+    public bool HideVisual { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,
@@ -194,6 +197,10 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }
     public int Seed { get; init; } = 1;
+    /// <summary>The client action sequence that released this use, for the native terminal RNG.</summary>
+    public ushort Sequence { get; init; }
+    /// <summary>The cast's repeats left at release, for the native terminal RNG.</summary>
+    public uint RepeatsLeft { get; init; }
 }
 
 public sealed class ProjectileEntity
@@ -224,6 +231,8 @@ public sealed class ProjectileEntity
     public ProjectileVector Position { get; internal set; }
     public ProjectileVector Direction { get; internal set; }
     public long CreatedAt { get; }
+    /// <summary>The arrow's index in its release volley; the terminal RNG's mother-derived byte is 2 + this.</summary>
+    public int VolleyIndex { get; internal set; }
     public long ExpiresAt { get; internal set; }
     public int Phase { get; internal set; }
     public double Remaining { get; internal set; }
