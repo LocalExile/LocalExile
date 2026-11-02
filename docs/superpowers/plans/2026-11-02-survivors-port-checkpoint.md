@@ -145,8 +145,9 @@ python scripts\dev\client_control.py command "/survivors status"
 ## Gotchas learned this session
 
 - **Build while the game runs** fails with `MSB3027/MSB3021` file locks: stop the client and the servers first.
-- **Fork PR checks**: every pushed commit's `docs-scan` waits for the maintainer (`Wrathen`) to approve the workflow
-  run — the check shows "Waiting for Wrathen to approve this commit". That is the only reason the PR is "blocked".
+- **Fork PR checks**: the `docs-scan` workflow now runs on this fork's commits without a manual approval; earlier
+  pushes showed "Waiting for Wrathen to approve this commit". It still reports any hidden character, BOM or external
+  link it finds.
 - **docs-scan rules**: no hidden control characters (U+0007 etc.) and **no BOM** in added files; external links need
   maintainer review. The scan posts a comment with the exact file/line.
 - **Reward inventory** (`0x600`): register it with `0xc0` before any `0xbf`, or the client dies with
@@ -158,10 +159,11 @@ python scripts\dev\client_control.py command "/survivors status"
 
 ## Next steps
 
-1. **Verify every projectile gem and support** (issue #503): run with `Game_SURVIVORS_MAX_ALIVE=10`, check each gem's
-   icon/flight/kill/cooldown and each support's effect; note the gems with no cast animation.
+1. **DOT components** (issue #503): Caustic Arrow / Vaal Caustic Arrow's caustic ground, Soulrend's debuff and poison
+   need a monster ground-DOT model; their hit portions already work on the gem's real numbers.
 2. **Per-gem cast animations** (documented in `Agents/docs/game/survivors-mode.md` "Needs testing").
-3. **Get PR #502 merged**: ask the maintainer to approve the workflow run / review; the branch is conflict-free and green.
+3. **PR #502**: head `2fe060c9`, `mergeable=true`, `mergeable_state=clean`, docs-scan green. Merge it when the
+   maintainer is ready; the preview label stays in the title.
 4. Port the status entry: `Agents/status/skills-and-combat.md` still describes the old branch; update it on the port
    branch (the docs file is already ported).
 5. Optional: grow `UniqueCatalog` definitions used by the item offers; more blessings; herald variants.
