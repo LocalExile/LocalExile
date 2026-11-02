@@ -31,7 +31,9 @@ static partial class Game
         // Their applicable contributions are already included in the profile's combined budget.
         Put("arrow_number_of_targets_to_pierce", 0);
         Put("arrows_always_pierce", 0);
-        Put("virtual_number_of_chains_for_projectiles", profile.CannotChain ? 0 : profile.Chain);
+        // Ground bounces are the skill's chains too (Rolling Magma's display_projectiles_chain_when_impacting_ground): the
+        // client draws its own orb's bounces from this count, and with 0 it stopped at the first landing (live 2026-11-01).
+        Put("virtual_number_of_chains_for_projectiles", profile.CannotChain ? 0 : profile.Chain + profile.GroundChains);
         Put("virtual_number_of_forks_for_projectiles_final", profile.CannotFork ? 0 : profile.Fork);
         Put("virtual_projectiles_cannot_chain", profile.CannotChain ? 1 : 0);
         Put("virtual_projectiles_cannot_fork", profile.CannotFork ? 1 : 0);

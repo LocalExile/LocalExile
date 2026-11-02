@@ -657,6 +657,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // and the server walked on (live 2026-10-29). Spark's transfigured and Vaal versions fire Spark's own row.
     // Elemental Hit fires ElementalHitArrowFire/Cold/Lightning by the element it picked, a choice the server does not model
     // yet, so both the gem and its transfigured (Spectrum) version take the combined arrow's art.
+    // Rolling Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
+    // cast was refused while the client drew its orb.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -676,6 +678,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
+        ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
