@@ -100,16 +100,23 @@ static class LabyrinthTrials
         Gears = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/TimerGears";
 
     /// <summary>Whether this plate heats and cools (the client shows it).</summary>
-    public static bool IsHotPlate(string type) => type is Lava or Lava3x3 or Lava1x3 or InertLava;
+    public static bool IsHotPlate(string type) => Plate(type) is Lava or Lava3x3 or Lava1x3 or InertLava;
+
+    /// <summary>The Labyrinth's ElegantHouse rooms' plates (<c>LabyrinthLavaAura_EH</c>, <c>_1x3_EH</c>, <c>_3x3_EH</c>,
+    /// <c>_inert_EH</c>) extend the trial's, with their own <c>hotplate*_EH.ao</c> (the room line's model): the
+    /// trial's plate they are.</summary>
+    public static string Plate(string type) => type.EndsWith("_EH", StringComparison.Ordinal) && type.StartsWith(Lava, StringComparison.Ordinal) ? type[..^3] : type;
+
+    public static bool IsInertPlate(string type) => Plate(type) == InertLava;
 
     /// <summary>Whether its lava burns a player on it.</summary>
-    public static bool Burns(string type) => type is Lava or Lava3x3 or Lava1x3 or HalfLava;
+    public static bool Burns(string type) => Plate(type) is Lava or Lava3x3 or Lava1x3 or HalfLava;
 
     /// <summary>A plate's half sizes in cells, along its angle and across: a tile (23 cells) a side, the 3x3 three tiles,
     /// the 1x3 three tiles along its angle by one (the room's plates and walls meet them so, edge to edge); a half line
     /// (<c>invisible_halftile.ao</c>) half a tile along its angle, standing a quarter tile off its wall plate's centre.</summary>
     public static (double X, double Y) LavaHalf(string type) =>
-        type switch { Lava3x3 => (34.5, 34.5), Lava1x3 => (34.5, 11.5), HalfLava => (5.75, 11.5), _ => (11.5, 11.5) };
+        Plate(type) switch { Lava3x3 => (34.5, 34.5), Lava1x3 => (34.5, 11.5), HalfLava => (5.75, 11.5), _ => (11.5, 11.5) };
 
     /// <summary>Whether a cell lies on this hot plate.</summary>
     public static bool OnPlate(string type, int x, int y, float angle, (int X, int Y) at)
@@ -1029,10 +1036,10 @@ static class LabyrinthTrials
     /// <summary>Positioned sizes (object_size − 1): the doors and the lever 4, the plaque and the portal 6.</summary>
     public static int Size(string type) => type is Plaque or Portal ? 5 : 3;
 
-    public static bool Handles(string type) => Components.ContainsKey(type);
+    public static bool Handles(string type) => Components.ContainsKey(Plate(type));
 
     /// <summary>The Transitionable component's index in the type's component order.</summary>
-    public static byte TransitionableIndex(string type) => (byte)Array.IndexOf(Components[type], "Transitionable");
+    public static byte TransitionableIndex(string type) => (byte)Array.IndexOf(Components[Plate(type)], "Transitionable");
 
     /// <summary>The trial in this area, or null.</summary>
     public static Trial? For(string areaId) => All.Value.GetValueOrDefault(areaId);
@@ -1107,7 +1114,7 @@ static class LabyrinthTrials
     public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        foreach (string c in Components[type])
+        foreach (string c in Components[Plate(type)])
             switch (c)
             {
                 // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown). A door
@@ -1117,7 +1124,7 @@ static class LabyrinthTrials
                 // f0 0x04: the fixed height, i32 whole steps of 7.8125 and the f32 z the client uses (as an area
                 // transition's record height).
                 case "Positioned":
-                    bool scaled = scale != 1, blockage = Components[type].Contains("TriggerableBlockage");
+                    bool scaled = scale != 1, blockage = Components[Plate(type)].Contains("TriggerableBlockage");
                     w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
                     if (scaled) w.F32(scale).F32(1).F32(1);
                     if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);

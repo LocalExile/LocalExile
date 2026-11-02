@@ -415,6 +415,10 @@ part with the long part's lever pulled and its gears turning; pulling the short 
 long part, and the two levers switch each other off. The piece's Transitionable state 1 shows its long arm; a mirrored
 room's piece is sent the other state.
 
+**ElegantHouse hot plates.** `LabyrinthLavaAura_EH`, `_1x3_EH`, `_3x3_EH` and `_inert_EH` extend the trial's
+plates with their own `hotplate*_EH.ao`; the Gateway runs them as the Crematorium's (`LabyrinthTrials.Plate`). Live
+(2026-11-01, the original): a room's plates all heat together, with the Crematorium's timings and burn.
+
 **Roomba runs** (`LabyrinthTrials.ScratchedRuns`): the rooms' invisible rails run any way, diagonals too, and no file
 links them. The rooms' scratch decals (`LabyrinthRoombaKit/R_scratch_*`) lie along every ground roomba's run: a run
 joins two rails at most 100 cells apart with no rail between them and a scratch along it, the most scratched first and
@@ -508,6 +512,6 @@ trial, before the player object is sent; which event sets it in the real game is
 
 - The step-triggered spikes of Izaro's rooms, and the hot plates' Cruel and Merciless rooms.
 - The Labyrinth's other dart traps (`_Single`, `_Delayed`, `_Triggered` with their `PressurePlate_*`, the
-  alternate arrow traps), its `LabyrinthSpikeTrap_Pressure` spikes, `LabyrinthAbyssEdgeBlade` blades, `*_EH` hot
-  plates, `Door_Counter` puzzles and its rooms' monsters.
+  alternate arrow traps), its `LabyrinthSpikeTrap_Pressure` spikes, `LabyrinthAbyssEdgeBlade` blades, `Door_Counter`
+  puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.

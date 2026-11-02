@@ -207,9 +207,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Not built: the traps of Izaro's rooms and the hot plates' Cruel and Merciless rooms.
   The Labyrinth's own rooms (`1_Labyrinth_*`) get the same traps, levers and doors from the Gateway's generated rooms:
   spikes on their rooms' `Trigger_*` timers, the trials' dart turrets, roombas on the runs their scratch decals mark
-  (flying ones on the rails left), sawblades, and spinners with the two-lever rooms' swap piece; checked live on seed 1
-  of `1_Labyrinth_RT_straight`, `_C_straight`, `_OH_end` and `_P_straight` (2026-11-01). Their pressure-plate darts and
-  spikes, abyss blades, `*_EH` hot plates and monsters are not built.
+  (flying ones on the rails left), sawblades, spinners with the two-lever rooms' swap piece, and the ElegantHouse rooms' hot plates
+  (`*_EH`); checked live on seed 1 of `1_Labyrinth_RT_straight`, `_C_straight`, `_OH_end`, `_P_straight` and `_EH_end`
+  (2026-11-01). Their pressure-plate darts and spikes, abyss blades and monsters are not built.
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
 

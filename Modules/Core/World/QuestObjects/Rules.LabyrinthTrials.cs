@@ -108,7 +108,7 @@ static partial class QuestobjectsRules
             // What burns: the hot plates and the half lines by the plates in the walls (server objects only, as those).
             List<AreaPopulation.RoomObject> burning = [.. all.Where(o => LabyrinthTrials.Burns(o.Type))];
             Console.WriteLine($"[gateway] {remote} trial hot plates: {plates.Count} placed " +
-                $"({plates.Count(p => p.Value.Type == LabyrinthTrials.InertLava)} in the walls), {burning.Count} burning areas");
+                $"({plates.Count(p => LabyrinthTrials.IsInertPlate(p.Value.Type))} in the walls), {burning.Count} burning areas");
             _ = RunHotPlates(remote, stream, ciphers, conn, plates, burning);
         }
     }
