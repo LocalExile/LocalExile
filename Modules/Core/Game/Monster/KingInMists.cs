@@ -128,6 +128,10 @@ static class KingInMists
     public static bool IsGuidingLight(MonsterCatalog.Variety? variety) =>
         variety is not null && variety.Id.Equals(GuidingLight, StringComparison.Ordinal);
 
+    /// <summary>The King, his fetishes, effigies and critters, and the Guiding Lights: the fight plays their actions.</summary>
+    public static bool IsActor(MonsterCatalog.Variety? variety) => IsGuidingLight(variety)
+        || variety is not null && variety.Id.StartsWith("Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/", StringComparison.Ordinal);
+
     /// <summary>The actor skill list for either form, built from the GrantedEffects rows the client must know to play the
     /// action's own animation. The ids are also the 0x1ab ids this controller sends.</summary>
     internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,

@@ -1459,6 +1459,7 @@ static partial class Game
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
+            drops.AddRange(ExtraDropsFromMap(conn, m.Rarity, Random.Shared));
         }
         foreach (string query in modded?.Items ?? [])
         {

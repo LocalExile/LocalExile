@@ -76,7 +76,8 @@ static partial class Game
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        return Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
+        int player = Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
+        return player + (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.Rarity ?? 0);
     }
 
     // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls (ItemDrops.Roll).
@@ -84,7 +85,8 @@ static partial class Game
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        return Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
+        double player = Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
+        return player * (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.QuantityFactor ?? 1);
     }
 
     // The pools and the walk speed again (under the Monsters lock): after a utility flask effect started or ended, or the
